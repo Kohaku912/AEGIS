@@ -23,3 +23,6 @@
 {"entry_id": "audit_1781178383589_1ed3081c", "timestamp_ms": 1781178383589, "action": "test", "actor": "aegis", "capability_id": "pc.test", "decision": "ALLOW", "reason": "", "detail": {}}
 {"entry_id": "audit_1781178760695_5385e641", "timestamp_ms": 1781178760695, "action": "test", "actor": "aegis", "capability_id": "pc.test", "decision": "ALLOW", "reason": "", "detail": {}}
 {"entry_id": "audit_1781178829941_ec4bb043", "timestamp_ms": 1781178829941, "action": "test", "actor": "aegis", "capability_id": "pc.test", "decision": "ALLOW", "reason": "", "detail": {}}
+{"entry_id": "audit_1781179186850_3ef53315", "timestamp_ms": 1781179186850, "action": "test", "actor": "aegis", "capability_id": "pc.test", "decision": "ALLOW", "reason": "", "detail": {}}
+{"entry_id": "audit_1781179242505_8e4c0b92", "timestamp_ms": 1781179242505, "action": "test", "actor": "aegis", "capability_id": "pc.test", "decision": "ALLOW", "reason": "", "detail": {}}
+{"entry_id": "audit_1781179269778_622f9ce3", "timestamp_ms": 1781179269778, "action": "test", "actor": "aegis", "capability_id": "pc.test", "decision": "ALLOW", "reason": "", "detail": {}}
