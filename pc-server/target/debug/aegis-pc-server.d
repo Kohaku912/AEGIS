@@ -1,0 +1,1 @@
+C:\Users\kohak\programs\AEGIS\pc-server\target\debug\aegis-pc-server.exe: C:\Users\kohak\programs\AEGIS\pc-server\src\main.rs C:\Users\kohak\programs\AEGIS\pc-server\src\observe.rs C:\Users\kohak\programs\AEGIS\pc-server\src\redaction.rs C:\Users\kohak\programs\AEGIS\pc-server\src\safety.rs C:\Users\kohak\programs\AEGIS\pc-server\src\server.rs

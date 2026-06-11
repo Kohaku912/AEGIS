@@ -26,3 +26,4 @@
 {"entry_id": "audit_1781179186850_3ef53315", "timestamp_ms": 1781179186850, "action": "test", "actor": "aegis", "capability_id": "pc.test", "decision": "ALLOW", "reason": "", "detail": {}}
 {"entry_id": "audit_1781179242505_8e4c0b92", "timestamp_ms": 1781179242505, "action": "test", "actor": "aegis", "capability_id": "pc.test", "decision": "ALLOW", "reason": "", "detail": {}}
 {"entry_id": "audit_1781179269778_622f9ce3", "timestamp_ms": 1781179269778, "action": "test", "actor": "aegis", "capability_id": "pc.test", "decision": "ALLOW", "reason": "", "detail": {}}
+{"entry_id": "audit_1781181217934_69a2d76d", "timestamp_ms": 1781181217934, "action": "test", "actor": "aegis", "capability_id": "pc.test", "decision": "ALLOW", "reason": "", "detail": {}}

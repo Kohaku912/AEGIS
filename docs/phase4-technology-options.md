@@ -35,7 +35,7 @@ This document presents technology options for Phase 4 components. **No implement
 **Option A (Python)** — Language consistency with AEGIS Core and Browser Server. Python's ecosystem (pyautogui, pynput, mss, pywin32) covers all required observe/action capabilities. Shared linting/testing tooling (ruff, pytest, mypy). Lower cognitive overhead for contributors.
 
 > **DECISION REQUIRED**: Please choose Option A / B / C / Other (specify).
-
+choose B
 ---
 
 ## 2. Android Server
@@ -66,7 +66,7 @@ This document presents technology options for Phase 4 components. **No implement
 **Option A (Kotlin Native + AccessibilityService)** — Already specified in architecture docs and proto definitions. Native Android app with AccessibilityService provides the deepest integration. MediaProjection for screenshots. gRPC client connects to AEGIS Core.
 
 > **DECISION REQUIRED**: Please choose Option A / B / C / Other (specify).
-
+choose A
 ---
 
 ## 3. Room Server
@@ -97,7 +97,7 @@ This document presents technology options for Phase 4 components. **No implement
 **Option A (Custom gRPC + MQTT)** — Maximum control and alignment with AEGIS contract-first architecture. MQTT is a standard IoT protocol. Custom firmware allows any hardware. Can add Home Assistant as an optional integration later.
 
 > **DECISION REQUIRED**: Please choose Option A / B / C / Other (specify).
-
+choose A
 ---
 
 ## 4. EventBus Persistence
@@ -136,7 +136,7 @@ This document presents technology options for Phase 4 components. **No implement
 **Future: Option B (SQLite)** — Lightweight persistence without new infrastructure. Good fit for single-node deployment.
 
 > **DECISION REQUIRED**: Please choose Option A / B / C / D / Other (specify).
-
+choose A
 ---
 
 ## 5. Memory / RAG (Retrieval-Augmented Generation)
@@ -176,7 +176,7 @@ This document presents technology options for Phase 4 components. **No implement
 **Future consideration**: Chroma if scale demands exceed SQLite capabilities.
 
 > **DECISION REQUIRED**: Please choose Option A / B / C / D / Other (specify).
-
+choose C
 ---
 
 ## 6. Support Agent
@@ -207,7 +207,7 @@ This document presents technology options for Phase 4 components. **No implement
 **Option A (Custom Rule Engine + Scheduler)** — Aligns with AEGIS architectural principles: deterministic safety, no LLM for critical decisions, existing code reuse. TriggerEngine rules are configurable and improvable (via SelfDevAgent). Can add LLM-based suggestions later as a non-critical enhancement.
 
 > **DECISION REQUIRED**: Please choose Option A / B / C / Other (specify).
-
+choose B
 ---
 
 ## Decision Summary
