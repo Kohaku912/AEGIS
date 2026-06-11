@@ -63,3 +63,5 @@ protos/**/*_pb2_grpc.py
 pc-server/target/
 protos/**/*.pb.go
 protos/**/*_grpc.pb.go
+
+ai-server/data/*

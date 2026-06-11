@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}AEGIS Dashboard{% endblock %}</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0d1117; color: #c9d1d9; }
+        nav { background: #161b22; padding: 12px 24px; border-bottom: 1px solid #30363d; display: flex; gap: 20px; align-items: center; }
+        nav a { color: #58a6ff; text-decoration: none; font-size: 14px; }
+        nav a:hover { text-decoration: underline; }
+        nav .brand { color: #f0f6fc; font-weight: bold; font-size: 16px; margin-right: 20px; }
+        .container { max-width: 1200px; margin: 0 auto; padding: 24px; }
+        h1, h2, h3 { color: #f0f6fc; margin-bottom: 16px; }
+        .card { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 16px; margin-bottom: 16px; }
+        .card h3 { font-size: 14px; color: #8b949e; text-transform: uppercase; margin-bottom: 8px; }
+        .card .value { font-size: 28px; font-weight: bold; color: #f0f6fc; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; }
+        table { width: 100%; border-collapse: collapse; font-size: 13px; }
+        th, td { padding: 8px 12px; text-align: left; border-bottom: 1px solid #21262d; }
+        th { color: #8b949e; font-weight: 600; }
+        .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; }
+        .badge-green { background: #238636; color: #fff; }
+        .badge-yellow { background: #9e6a03; color: #fff; }
+        .badge-red { background: #da3633; color: #fff; }
+        .badge-blue { background: #1f6feb; color: #fff; }
+        .badge-gray { background: #484f58; color: #fff; }
+        .status-online { color: #3fb950; }
+        .status-offline { color: #f85149; }
+        .severity-0, .severity-1 { color: #8b949e; }
+        .severity-2, .severity-3 { color: #d29922; }
+        .severity-4, .severity-5 { color: #f85149; }
+    </style>
+</head>
+<body>
+    <nav>
+        <span class="brand">AEGIS</span>
+        <a href="/dashboard">Home</a>
+        <a href="/dashboard/servers">Servers</a>
+        <a href="/dashboard/capabilities">Capabilities</a>
+        <a href="/dashboard/events">Events</a>
+        <a href="/dashboard/tasks">Tasks</a>
+        <a href="/dashboard/support">Support</a>
+        <a href="/dashboard/memory">Memory</a>
+        <a href="/dashboard/audit">Audit</a>
+        <a href="/dashboard/errors">Errors</a>
+        <a href="/approvals">Approvals</a>
+    </nav>
+    <div class="container">
+        {% block content %}{% endblock %}
+    </div>
+</body>
+</html>

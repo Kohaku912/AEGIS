@@ -1,0 +1,20 @@
+{% extends "dashboard/base.html" %}
+{% block title %}AEGIS — Capabilities{% endblock %}
+{% block content %}
+<h1>Capabilities</h1>
+<div class="card">
+    <h3>Registered Capabilities</h3>
+    <table>
+        <tr><th>ID</th><th>Name</th><th>Risk Level</th><th>Server</th><th>Invocations</th><th>Success</th><th>Failure</th><th>Avg Latency</th></tr>
+        {% for c in capabilities %}
+        <tr>
+            <td>{{ c.capability_id }}</td><td>{{ c.name }}</td>
+            <td><span class="badge badge-{{ 'green' if c.risk_level == 'READ_ONLY' else 'yellow' if c.risk_level == 'SAFE_ACTION' else 'red' }}">{{ c.risk_level }}</span></td>
+            <td>{{ c.server_type }}</td>
+            <td>{{ c.total_invocations }}</td><td>{{ c.success_count }}</td>
+            <td>{{ c.failure_count }}</td><td>{{ c.avg_latency_ms }}ms</td>
+        </tr>
+        {% endfor %}
+    </table>
+</div>
+{% endblock %}

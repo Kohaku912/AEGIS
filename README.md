@@ -1,4 +1,4 @@
-# AEGIS — AEGIS: Autonomous Multi-Device AI
+# AEGIS — Autonomous Multi-Device AI
 
 AEGIS is an event-driven, self-improving AI assistant that coordinates across multiple devices and servers.
 
@@ -6,19 +6,111 @@ AEGIS is an event-driven, self-improving AI assistant that coordinates across mu
 
 AEGIS consists of 6 gRPC-connected servers:
 - **AI Server** (Python) — Central brain, event orchestration, LLM integration
-- **PC Server** — PC control and monitoring
+- **PC Server** (Rust) — PC control and monitoring
 - **Android Server** (Kotlin) — Mobile device integration
 - **Room Server** — Physical environment control
-- **Browser Server** (Node.js) — Web automation and scraping
+- **Browser Server** (Python + browser-use) — Web automation
 - **Dev Server** — Sandboxed development and self-improvement
 
-## Getting Started
+## Quick Start
 
-> ⚠️ Project is in early initialization phase. No runnable code yet.
+```bash
+# 1. Clone
+git clone https://github.com/Kohaku912/AEGIS.git
+cd AEGIS
 
-See [AGENTS.md](./AGENTS.md) for development guidelines and [docs/](./docs/) for architecture details.
+# 2. Python environment
+cd ai-server
+python -m venv .venv
+source .venv/bin/activate  # Linux/Mac
+# .venv\Scripts\activate   # Windows
+pip install -e ".[dev]"
+
+# 3. Run tests
+pytest -q  # 1204 tests
+
+# 4. Docker Compose (planned)
+cd ..
+docker compose up -d
+```
 
 ## Status
 
-- **Phase**: Initialization
-- **Last Updated**: 2026-06-11
+| Item | Status |
+|------|--------|
+| Phase | Alpha (local-only, mock providers) |
+| Tests | 1204 passed, 0 failed |
+| Lint | ruff clean |
+| Safety | PolicyEngine structural, 4 levels |
+| Capabilities | 51 registered (observe/action/approval) |
+
+## Documentation
+
+### Core
+
+| Document | Description |
+|----------|-------------|
+| [Architecture](docs/architecture.md) | System design |
+| [Roadmap](docs/roadmap.md) | Development roadmap |
+| [Backlog](docs/backlog.md) | Prioritized task backlog |
+| [Implementation Status](docs/implementation-status.md) | Module-by-module status |
+| [Risk Register](docs/risk-register.md) | Risk analysis and mitigation |
+| [ADR Index](docs/adr/README.md) | Architecture Decision Records |
+
+### Operations
+
+| Document | Description |
+|----------|-------------|
+| [Beta Runbook](docs/beta-runbook.md) | Setup, startup, daily use |
+| [Daily Use](docs/daily-use.md) | Everyday workflow |
+| [Troubleshooting](docs/troubleshooting.md) | Common issues |
+| [Operations](docs/operations.md) | Monitoring, backup |
+| [Settings](docs/settings.md) | Configuration |
+| [Security](docs/security.md) | Authentication |
+| [Dashboard](docs/dashboard.md) | Operations dashboard |
+
+### Safety
+
+| Document | Description |
+|----------|-------------|
+| [PC Safety](docs/pc-safety.md) | PC operation safety rules |
+| [Android Safety](docs/android-safety.md) | Android operation safety |
+| [Room Safety](docs/room-safety.md) | Room/physical device safety |
+| [Dev Safety](docs/dev-safety.md) | Dev server safety |
+| [Browser Safety](docs/browser-safety.md) | Browser automation safety |
+| [Prompt Regression](docs/prompt-regression.md) | Injection defense tests |
+
+### Components
+
+| Document | Description |
+|----------|-------------|
+| [PC Server](docs/pc-server.md) | PC control design |
+| [Android Server](docs/android-server.md) | Android integration |
+| [Room Server](docs/room-server.md) | Room/physical control |
+| [Dev Server](docs/dev-server.md) | Sandboxed development |
+| [Self-Development](docs/self-development.md) | SelfDev Agent |
+| [Mind Layer](docs/mind-layer.md) | Identity/Desire/Emotion/Goals |
+| [Memory](docs/memory.md) | Episodic/Semantic/Procedural |
+| [Scheduler](docs/scheduler.md) | Task scheduling |
+| [LLM Router](docs/llm-router.md) | LLM provider routing |
+| [Interaction Hub](docs/interaction-hub.md) | Web Chat + CLI |
+| [Notification Gateway](docs/notification-gateway.md) | Notification routing |
+| [External Integrations](docs/external-integrations.md) | LINE/Discord/Email stubs |
+| [Voice I/O](docs/voice-io.md) | Voice gate + stubs |
+| [Evaluation](docs/evaluation.md) | Benchmark harness |
+
+## Safety Model
+
+AEGIS uses **structural safety** — PolicyEngine is a deterministic rules engine, not LLM-based.
+
+| Level | Meaning | Behavior |
+|-------|---------|----------|
+| Level 0 (READ_ONLY) | Read only | Auto-allow |
+| Level 1 (SAFE_ACTION) | Safe actions | Auto-allow, audit |
+| Level 2 (APPROVAL_REQUIRED) | Needs approval | Approval UI required |
+| Level 3 (HIGH_RISK) | High risk | Approval or deny |
+| FORBIDDEN | Forbidden | Always denied |
+
+## License
+
+Private — not yet licensed for distribution.

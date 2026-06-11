@@ -1,89 +1,90 @@
-# Memory System — Design & Operations
+# Advanced Memory — Design & Usage
 
-> **Status**: Phase 1.x — Basic implementation (2026-06-11)  
-> **Related**: [`architecture.md`](architecture.md)
+> **Status**: Phase 6 — Enhanced with persistence and retrieval
+> **Related**: `docs/architecture.md` §5.10
 
 ## Overview
 
-AEGIS has four memory types, each persisted to JSONL files:
+AEGIS's memory system stores and retrieves information across sessions.
+All memory types persist to JSONL files for durability.
 
-| Memory Type | File | Purpose |
-|-------------|------|---------|
-| Episodic | `data/episodic.jsonl` | Conversations, events, action history |
-| Semantic | `data/semantic.jsonl` | Facts, knowledge, user info, design |
-| Procedural | `data/procedural.jsonl` | Successful procedures, failure patterns, tool tips |
-| Reflection | `data/reflection.jsonl` | Self-analysis, improvement ideas |
+## Memory Types
 
-## Storage Format
+### Episodic Memory (`episodic.py`)
 
-All memories use **JSONL** (one JSON object per line) for simplicity and append-only guarantees.
+Stores conversation, event, and action history.
 
-### Episodic Memory Entry
+| Field | Purpose |
+|-------|---------|
+| `summary` | What happened |
+| `category` | "conversation", "event", "action_result" |
+| `events` | Referenced event IDs |
+| `detail` | Arbitrary detail dict |
 
-```json
-{"episode_id": "ep_...", "summary": "User asked about weather", "category": "conversation", "events": ["evt-001"], "detail": {"topic": "weather"}, "timestamp_ms": 1700000000000}
+Persists to `data/episodic.jsonl`.
+
+### Semantic Memory (`semantic.py`)
+
+Stores facts, knowledge, user info, design docs.
+
+| Field | Purpose |
+|-------|---------|
+| `content` | The fact or knowledge |
+| `category` | "user_info", "knowledge", "design", "preference", "project" |
+| `source` | Where fact came from ("user", "conversation", "inference") |
+| `confidence` | 0.0–1.0 certainty |
+| `tags` | Searchable tags |
+
+Persists to `data/semantic.jsonl`.
+
+### Procedural Memory (`procedural.py`)
+
+Stores successful procedures and failure patterns.
+
+| Field | Purpose |
+|-------|---------|
+| `goal` | What the procedure achieves |
+| `steps` | Capability IDs in order |
+| `success_count` / `failure_count` | Track success rate |
+| `confidence` | Calculated from success rate |
+
+Persists to `data/procedural.jsonl`.
+
+### Reflection Memory (`reflection.py`)
+
+Stores self-analysis and improvement ideas.
+
+| Field | Purpose |
+|-------|---------|
+| `summary` | What happened |
+| `what_worked` | Successful aspects |
+| `what_failed` | Failed aspects |
+| `improvement_ideas` | Ideas for improvement |
+| `next_experiment` | What to try next |
+
+Persists to `data/reflection.jsonl`.
+
+## ContextBuilder Integration
+
+Memory is injected into ContextBuilder:
+
+```python
+builder = ContextBuilder(
+    episodic_memory=EpisodicMemory(),
+    semantic_memory=SemanticMemory(),
+    procedural_memory=ProceduralMemory(),
+    reflection_log=ReflectionLog(),
+)
+ctx = builder.build(triggering_query="temperature")
+# ctx.recent_episodes — recent episodic memories
+# ctx.relevant_facts — semantic facts matching query
+# ctx.relevant_procedures — procedures matching query
+# ctx.recent_reflections — recent reflections
 ```
 
-### Semantic Memory Entry
+## Privacy
 
-```json
-{"fact_id": "fact_...", "content": "User prefers dark mode", "category": "preference", "source": "user", "confidence": 1.0, "tags": ["ui"], "timestamp_ms": 1700000000000}
-```
-
-### Procedural Memory Entry
-
-```json
-{"procedure_id": "proc_...", "goal": "Check weather", "steps": ["browser.open_page", "browser.extract_page_text"], "tags": ["successful"], "success_count": 3, "failure_count": 0, "confidence": 1.0, "timestamp_ms": 1700000000000}
-```
-
-### Reflection Entry
-
-```json
-{"reflection_id": "refl_...", "summary": "Screenshot worked well", "what_worked": ["fast response"], "what_failed": [], "improvement_ideas": ["increase quality"], "next_experiment": "Try full page", "linked_event_ids": ["evt-001"], "timestamp_ms": 1700000000000}
-```
-
-## Data Location
-
-All memory files are stored in the `data/` directory:
-```
-ai-server/
-└── data/
-    ├── episodic.jsonl
-    ├── semantic.jsonl
-    ├── procedural.jsonl
-    └── reflection.jsonl
-```
-
-## Data Deletion
-
-To reset all memories:
-```bash
-rm ai-server/data/episodic.jsonl
-rm ai-server/data/semantic.jsonl
-rm ai-server/data/procedural.jsonl
-rm ai-server/data/reflection.jsonl
-```
-
-Individual entries cannot be deleted — memories are append-only by design. If a fact becomes incorrect, add a new entry with updated confidence or tags.
-
-## Context Builder Integration
-
-The ContextBuilder queries all four memory types when building context:
-- **Episodic**: `list_recent(10)` — last 10 episodes
-- **Semantic**: `search(query)` — facts matching the trigger query
-- **Procedural**: `find_for_goal(query)` — procedures for this goal
-- **Reflection**: `list_recent(5)` — last 5 reflections
-
-Context is capped at ~8000 characters (~2000 tokens) to stay within LLM budget.
-
-## Future Extensions
-
-- **Vector DB**: Semantic memory will be upgraded to support RAG with embedding-based search
-- **SQLite**: May replace JSONL for better query performance
-- **Tamper-evident log**: Hash chain for audit trail
-
-## Security
-
-- **No secrets**: Passwords, tokens, and API keys must never be stored in memory
-- **No external transmission**: Memory data stays on local disk
-- **Append-only**: Entries cannot be modified or deleted (immutable history)
+- Memory is local-only (no external transmission)
+- Secrets are never stored in memory
+- Users can request memory deletion
+- Sensitive data should be redacted before storage
