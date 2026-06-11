@@ -29,6 +29,7 @@ export interface CapabilityDefinition {
 
 /** All capabilities that the Browser Server registers with AEGIS Core. */
 export const BROWSER_CAPABILITIES: CapabilityDefinition[] = [
+  // ── Navigation ──
   {
     id: "browser.open_page",
     name: "Open Web Page",
@@ -40,6 +41,8 @@ export const BROWSER_CAPABILITIES: CapabilityDefinition[] = [
     timeoutMs: 30000,
     version: "0.1.0",
   },
+
+  // ── Observe (LEVEL_0_READ) ──
   {
     id: "browser.get_dom_snapshot",
     name: "Get DOM Snapshot",
@@ -58,14 +61,14 @@ export const BROWSER_CAPABILITIES: CapabilityDefinition[] = [
     safetyLevel: SafetyLevel.LEVEL_0_READ,
     requiresApproval: false,
     sideEffects: [],
-    tags: ["screenshot", "observe", "risk:read_only"],
+    tags: ["screenshot", "observe", "image", "risk:read_only"],
     timeoutMs: 15000,
     version: "0.1.0",
   },
   {
     id: "browser.extract_page_text",
     name: "Extract Page Text",
-    description: "Extract the main textual content from the current page for LLM processing.",
+    description: "Extract the main textual content from the current page, excluding nav/footer/script/style.",
     safetyLevel: SafetyLevel.LEVEL_0_READ,
     requiresApproval: false,
     sideEffects: [],
@@ -73,6 +76,52 @@ export const BROWSER_CAPABILITIES: CapabilityDefinition[] = [
     timeoutMs: 15000,
     version: "0.1.0",
   },
+  {
+    id: "browser.get_current_url",
+    name: "Get Current URL",
+    description: "Get the current page URL.",
+    safetyLevel: SafetyLevel.LEVEL_0_READ,
+    requiresApproval: false,
+    sideEffects: [],
+    tags: ["url", "observe", "risk:read_only"],
+    timeoutMs: 5000,
+    version: "0.1.0",
+  },
+  {
+    id: "browser.get_page_title",
+    name: "Get Page Title",
+    description: "Get the current page title.",
+    safetyLevel: SafetyLevel.LEVEL_0_READ,
+    requiresApproval: false,
+    sideEffects: [],
+    tags: ["title", "observe", "risk:read_only"],
+    timeoutMs: 5000,
+    version: "0.1.0",
+  },
+  {
+    id: "browser.get_links",
+    name: "Get Page Links",
+    description: "Extract all links from the current page with their text.",
+    safetyLevel: SafetyLevel.LEVEL_0_READ,
+    requiresApproval: false,
+    sideEffects: [],
+    tags: ["links", "observe", "risk:read_only"],
+    timeoutMs: 10000,
+    version: "0.1.0",
+  },
+  {
+    id: "browser.get_network_log",
+    name: "Get Network Log",
+    description: "Retrieve the network request log. Authorization/Cookie headers are masked.",
+    safetyLevel: SafetyLevel.LEVEL_0_READ,
+    requiresApproval: false,
+    sideEffects: [],
+    tags: ["network", "observe", "risk:read_only"],
+    timeoutMs: 5000,
+    version: "0.1.0",
+  },
+
+  // ── Interaction (LEVEL_1_SAFE_ACT) ──
   {
     id: "browser.click",
     name: "Click Element",
@@ -87,14 +136,16 @@ export const BROWSER_CAPABILITIES: CapabilityDefinition[] = [
   {
     id: "browser.fill_form",
     name: "Fill Form",
-    description: "Fill form fields on the current page. Requires approval for sensitive targets.",
+    description: "Fill form fields on the current page. Does NOT submit.",
     safetyLevel: SafetyLevel.LEVEL_1_SAFE_ACT,
     requiresApproval: false,
-    sideEffects: ["modifies form state", "may submit data"],
+    sideEffects: ["modifies form state"],
     tags: ["form", "input", "interaction", "risk:safe_action"],
     timeoutMs: 15000,
     version: "0.1.0",
   },
+
+  // ── Download (LEVEL_2_APPROVAL) ──
   {
     id: "browser.download_file",
     name: "Download File",

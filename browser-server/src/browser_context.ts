@@ -9,6 +9,7 @@
 import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
 import type { BrowserServerConfig } from "./config.js";
 import { logger } from "./logging.js";
+import { setupNetworkLogging } from "./observe.js";
 
 let browser: Browser | null = null;
 let context: BrowserContext | null = null;
@@ -30,6 +31,7 @@ export async function initBrowser(config: BrowserServerConfig): Promise<void> {
   });
 
   defaultPage = await context.newPage();
+  setupNetworkLogging(defaultPage);
   logger.info("Browser context ready.");
 }
 
