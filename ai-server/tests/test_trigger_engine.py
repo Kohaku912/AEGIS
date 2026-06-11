@@ -492,3 +492,254 @@ class TestIntegration:
         # e1 matches both low+high (low wins), e2 suppressed, e3 matches high
         assert len(tasks) == 2
         assert tasks[1].triggered_by_event_id == "e3"
+
+
+# ═══════════════════════════════════════════════════════════════
+# Phase 1.4 — New user-requested scenarios
+# ═══════════════════════════════════════════════════════════════
+
+class TestUserRequestScenarios:
+    """Specific scenarios from Phase 1.4 requirements."""
+
+    def test_user_request_always_wakes(self):
+        """user.request events should always generate a task (cooldown=0)."""
+        engine = TriggerEngine()
+        for rule in create_default_rules():
+            engine.add_rule(rule)
+
+        event = Event(
+            event_id="evt-ur-001",
+            event_type="user.request",
+            source_server_type=ServerType.AI,
+            source_server_id="ai-main",
+            severity=1,
+            priority=EventPriority.URGENT,
+            payload_json='{"message":"What time is it?"}',
+        )
+        task = engine.on_event(event)
+        assert task is not None
+        assert task.action_type == ActionType.ASSIST
+        assert task.triggered_by_rule_id == "user-request"
+
+        # Second request should also fire (cooldown=0)
+        event2 = Event(
+            event_id="evt-ur-002",
+            event_type="user.request",
+            source_server_type=ServerType.AI,
+            source_server_id="ai-main",
+            severity=1,
+            priority=EventPriority.URGENT,
+        )
+        task2 = engine.on_event(event2)
+        assert task2 is not None  # No cooldown for user requests
+
+    def test_test_failure_always_wakes(self):
+        """dev.test_failed events should generate SELF_DEV tasks."""
+        engine = TriggerEngine()
+        for rule in create_default_rules():
+            engine.add_rule(rule)
+
+        event = Event(
+            event_id="evt-tf-001",
+            event_type="dev.test_failed",
+            source_server_type=ServerType.DEV,
+            source_server_id="dev-sandbox",
+            severity=8,
+            priority=EventPriority.URGENT,
+            payload_json='{"suite":"test_broker.py","failed":3}',
+        )
+        task = engine.on_event(event)
+        assert task is not None
+        assert task.action_type == ActionType.SELF_DEV
+        assert "dev.test_failed" in task.context_summary
+
+    def test_security_event_always_wakes_no_cooldown(self):
+        """Security events (severity >= 9, pattern *.security_*) always wake."""
+        engine = TriggerEngine()
+        for rule in create_default_rules():
+            engine.add_rule(rule)
+
+        event = Event(
+            event_id="evt-sec-001",
+            event_type="pc.security_unauthorized_access",
+            source_server_type=ServerType.PC,
+            source_server_id="pc-main",
+            severity=10,
+            priority=EventPriority.URGENT,
+        )
+        # First fire
+        task1 = engine.on_event(event)
+        assert task1 is not None
+        assert task1.action_type == ActionType.ALERT
+
+        # Second fire — security rule has cooldown=0, should fire again
+        event2 = Event(
+            event_id="evt-sec-002",
+            event_type="pc.security_unauthorized_access",
+            source_server_type=ServerType.PC,
+            source_server_id="pc-main",
+            severity=10,
+            priority=EventPriority.URGENT,
+        )
+        task2 = engine.on_event(event2)
+        assert task2 is not None  # Security has no cooldown
+
+    def test_low_priority_sensor_event_deferred(self):
+        """Routine sensor readings (BACKGROUND) with low severity should be deferred."""
+        engine = TriggerEngine()
+        for rule in create_default_rules():
+            engine.add_rule(rule)
+
+        # Low-severity temperature change
+        event = Event(
+            event_id="evt-temp-001",
+            event_type="room.temperature_changed",
+            source_server_type=ServerType.ROOM,
+            source_server_id="room-living",
+            severity=3,  # Below room-temperature-change's min_severity=4
+            priority=EventPriority.BACKGROUND,
+        )
+        task = engine.on_event(event)
+        # Should NOT trigger because severity is below threshold
+        assert task is None
+
+    def test_high_severity_sensor_event_wakes(self):
+        """Sensor events with severity above threshold should wake."""
+        engine = TriggerEngine()
+        for rule in create_default_rules():
+            engine.add_rule(rule)
+
+        event = Event(
+            event_id="evt-temp-002",
+            event_type="room.temperature_changed",
+            source_server_type=ServerType.ROOM,
+            source_server_id="room-living",
+            severity=6,  # Above room-temperature-change's min_severity=4
+            priority=EventPriority.BACKGROUND,
+            payload_json='{"temperature_c":35.0,"previous_c":25.0}',
+        )
+        task = engine.on_event(event)
+        assert task is not None
+        assert task.action_type == ActionType.NOTIFY
+
+    def test_screen_change_has_cooldown(self):
+        """pc.screen_changed should be rate-limited by cooldown (30s)."""
+        engine = TriggerEngine()
+        engine.add_rule(TriggerRule(
+            rule_id="test-screen",
+            event_type_pattern="pc.screen_changed",
+            action_type=ActionType.OBSERVE,
+            cooldown_seconds=30.0,
+        ))
+
+        event1 = Event(
+            event_id="evt-sc-001",
+            event_type="pc.screen_changed",
+            source_server_type=ServerType.PC,
+            source_server_id="pc-main",
+            severity=3,
+            priority=EventPriority.NORMAL,
+        )
+        task1 = engine.on_event(event1)
+        assert task1 is not None
+
+        # Second screen change within cooldown — should be suppressed
+        event2 = Event(
+            event_id="evt-sc-002",
+            event_type="pc.screen_changed",
+            source_server_type=ServerType.PC,
+            source_server_id="pc-main",
+            severity=3,
+            priority=EventPriority.NORMAL,
+        )
+        task2 = engine.on_event(event2)
+        assert task2 is None
+
+    def test_github_issue_wakes(self):
+        """New GitHub issues on AEGIS repo should wake for investigation."""
+        engine = TriggerEngine()
+        for rule in create_default_rules():
+            engine.add_rule(rule)
+
+        event = Event(
+            event_id="evt-gh-001",
+            event_type="web.github_new_issue",
+            source_server_type=ServerType.BROWSER,
+            source_server_id="browser-main",
+            severity=6,
+            priority=EventPriority.NORMAL,
+            payload_json='{"repo":"Kohaku912/AEGIS","title":"Bug found","number":99}',
+        )
+        task = engine.on_event(event)
+        assert task is not None
+        assert task.action_type == ActionType.SELF_DEV
+
+    def test_task_request_contains_all_fields(self):
+        """TaskRequest should have all required fields populated."""
+        engine = TriggerEngine()
+        engine.add_rule(TriggerRule(
+            rule_id="test",
+            event_type_pattern="*",
+            action_type=ActionType.RESEARCH,
+            cooldown_seconds=0,
+        ))
+
+        event = Event(
+            event_id="evt-full-001",
+            event_type="web.rss_updated",
+            source_server_type=ServerType.BROWSER,
+            source_server_id="browser-main",
+            severity=5,
+            priority=EventPriority.NORMAL,
+            payload_json='{"feed":"https://example.com/rss"}',
+        )
+        task = engine.on_event(event)
+        assert task is not None
+        # All fields should be populated
+        assert task.task_id.startswith("task_")
+        assert task.action_type == ActionType.RESEARCH
+        assert task.triggered_by_event_id == "evt-full-001"
+        assert task.triggered_by_event_type == "web.rss_updated"
+        assert task.triggered_by_rule_id == "test"
+        assert task.source_server_type == ServerType.BROWSER
+        assert task.source_server_id == "browser-main"
+        assert "web.rss_updated" in task.context_summary
+        assert task.payload_snapshot == '{"feed":"https://example.com/rss"}'
+        assert task.priority == EventPriority.NORMAL
+        assert task.created_at_ms > 0
+        assert task.cooldown_until_ms >= 0
+
+    def test_eventbus_and_triggerengine_integration(self):
+        """Full integration: EventBus → TriggerEngine → TaskRequest."""
+        bus = EventBus()
+        engine = TriggerEngine()
+        engine.add_rule(TriggerRule(
+            rule_id="test",
+            event_type_pattern="dev.*",
+            action_type=ActionType.SELF_DEV,
+            cooldown_seconds=0,
+        ))
+        bus.subscribe(engine.on_event)
+
+        # Publish a dev event
+        event = _make_event("evt-int-001", event_type="dev.test_failed",
+                           server_type=ServerType.DEV, severity=8,
+                           priority=EventPriority.URGENT)
+        bus.publish(event)
+
+        tasks = engine.drain_tasks()
+        assert len(tasks) == 1
+        assert tasks[0].triggered_by_event_id == "evt-int-001"
+
+    def test_background_events_queued_not_discarded(self):
+        """BACKGROUND events should be queued in the EventBus, not lost."""
+        bus = EventBus()
+        received = []
+        bus.subscribe(lambda e: received.append(e))
+
+        for i in range(5):
+            bus.publish(_make_event(f"evt-bg-{i}", priority=EventPriority.BACKGROUND))
+
+        assert len(received) == 5
+        bg_events = bus.drain_background()
+        assert len(bg_events) == 5

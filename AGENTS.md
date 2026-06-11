@@ -312,7 +312,7 @@ The following operations MUST go through an explicit user approval gate in the A
   - 10 sample capabilities (`ai-server/samples/capabilities.json`)
   - 10 sample events (`ai-server/samples/events.json`)
   - Docker Compose skeleton (Phase 1.2: 5 services, all healthy)
-  - 231 tests (all passing): 57 schema + 49 approval/policy + 37 broker + 33 registry + 22 event bus + 27 trigger engine
+  - 267 tests (all passing): 57 schema + 49 approval/policy + 37 broker + 33 registry + 22 event bus + 39 trigger engine
 - **Next steps**:
   1. Complete remaining proto definitions for all 6 servers
   2. Set up Docker Compose skeleton

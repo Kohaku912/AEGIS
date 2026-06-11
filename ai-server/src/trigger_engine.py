@@ -20,7 +20,6 @@ from typing import Any
 
 from aegis_schema.models import Event, EventPriority, ServerType
 
-
 # ═══════════════════════════════════════════════════════════════
 # Action Type — what kind of AI response to trigger
 # ═══════════════════════════════════════════════════════════════
@@ -328,6 +327,17 @@ def create_default_rules() -> list[TriggerRule]:
     - Defer: routine sensor readings, low-priority info
     """
     return [
+        # ── User: Always wake ──
+        TriggerRule(
+            rule_id="user-request",
+            description="Direct user request — always respond immediately",
+            event_type_pattern="user.request",
+            min_severity=0,
+            min_priority=EventPriority.URGENT,
+            action_type=ActionType.ASSIST,
+            cooldown_seconds=0,  # No cooldown — user requests are immediate
+        ),
+
         # ── Dev: Test failures — always wake ──
         TriggerRule(
             rule_id="dev-test-failure",
@@ -379,26 +389,6 @@ def create_default_rules() -> list[TriggerRule]:
             cooldown_seconds=30,
         ),
 
-        # ── Room: Sensor updates — defer (batch process) ──
-        TriggerRule(
-            rule_id="room-temperature-change",
-            description="Temperature changed significantly",
-            event_type_pattern="room.temperature_changed",
-            min_severity=4,
-            min_priority=EventPriority.BACKGROUND,
-            action_type=ActionType.NOTIFY,
-            cooldown_seconds=600,  # 10 min — temperature changes slowly
-        ),
-        TriggerRule(
-            rule_id="room-motion-detected",
-            description="Motion detected — check if unusual",
-            event_type_pattern="room.motion_detected",
-            min_severity=3,
-            min_priority=EventPriority.NORMAL,
-            action_type=ActionType.OBSERVE,
-            cooldown_seconds=120,  # 2 min — motion is frequent
-        ),
-
         # ── Browser/Web: Updates — conditional wake ──
         TriggerRule(
             rule_id="web-rss-updated",
@@ -417,6 +407,26 @@ def create_default_rules() -> list[TriggerRule]:
             min_priority=EventPriority.NORMAL,
             action_type=ActionType.SELF_DEV,
             cooldown_seconds=600,
+        ),
+
+        # ── Room: Sensor updates — defer (batch process) ──
+        TriggerRule(
+            rule_id="room-temperature-change",
+            description="Temperature changed significantly",
+            event_type_pattern="room.temperature_changed",
+            min_severity=4,
+            min_priority=EventPriority.BACKGROUND,
+            action_type=ActionType.NOTIFY,
+            cooldown_seconds=600,  # 10 min — temperature changes slowly
+        ),
+        TriggerRule(
+            rule_id="room-motion-detected",
+            description="Motion detected — check if unusual",
+            event_type_pattern="room.motion_detected",
+            min_severity=3,
+            min_priority=EventPriority.NORMAL,
+            action_type=ActionType.OBSERVE,
+            cooldown_seconds=120,  # 2 min — motion is frequent
         ),
 
         # ── Security: Always wake ──
