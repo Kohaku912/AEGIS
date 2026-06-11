@@ -49,7 +49,7 @@ services:
     restart: unless-stopped
 
   # ═══════════════════════════════════════════════════════════
-  # Browser Server — Web automation (Node.js + Playwright)
+  # Browser Server — Web automation (Python + browser-use)
   # ═══════════════════════════════════════════════════════════
   browser-server:
     build:

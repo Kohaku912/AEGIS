@@ -4,7 +4,7 @@ package aegis;
 
 import "aegis/common.proto";
 
-// Browser Server — web automation (Node.js + Playwright).
+// Browser Server — web automation (Python + browser-use).
 // SNS posting, DM sending, purchases are Level 2/3 and restricted.
 
 option go_package = "github.com/Kohaku912/AEGIS/protos/aegis";

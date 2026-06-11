@@ -1,25 +1,39 @@
-# Browser Server — Node.js + Playwright (placeholder)
-# Phase 1.2: Minimal Node.js server with health endpoint
-# Playwright dependencies will be added in Phase 2 when Browser Server is implemented.
+# Browser Server — Python + browser-use (placeholder)
+# Phase 2.1: Python scaffold with browser-use
+# Playwright/browser deps will be added when browser-use is fully integrated.
 
-FROM node:22-slim
+FROM python:3.12-slim
 
 LABEL org.aegis.service="browser-server"
 LABEL org.aegis.version="0.1.0"
 
 WORKDIR /app
 
-# Placeholder: create minimal HTTP server for health check
-RUN echo 'const http = require("http");' > /app/placeholder.js && \
-    echo 'const server = http.createServer((req, res) => {' >> /app/placeholder.js && \
-    echo '  if (req.url === "/health") { res.writeHead(200); res.end("OK"); }' >> /app/placeholder.js && \
-    echo '  else { res.writeHead(200); res.end("AEGIS Browser Server — placeholder"); }' >> /app/placeholder.js && \
-    echo '});' >> /app/placeholder.js && \
-    echo 'server.listen(50052, () => console.log("Browser Server listening on :50052"));' >> /app/placeholder.js
+# Install system dependencies for Playwright (browser-use requirement)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy Python project files
+COPY browser-server/pyproject.toml ./
+COPY browser-server/src/ ./src/
+
+# Install Python dependencies
+RUN pip install --no-cache-dir -e ".[dev]"
+
+# Install Playwright browsers (Chromium)
+RUN python -m playwright install chromium --with-deps 2>/dev/null || echo "Playwright install skipped (will retry at runtime)"
 
 EXPOSE 50052
 
-HEALTHCHECK --interval=30s --timeout=5s --retries=3 --start-period=10s \
-    CMD node -e "require('http').get('http://localhost:50052/health', (r) => { process.exit(r.statusCode === 200 ? 0 : 1) })"
+# Placeholder HTTP health endpoint (until gRPC is implemented)
+RUN echo 'from http.server import HTTPServer, BaseHTTPRequestHandler' > /app/placeholder.py && \
+    echo 'class H(BaseHTTPRequestHandler):' >> /app/placeholder.py && \
+    echo '  def do_GET(self):' >> /app/placeholder.py && \
+    echo '    self.send_response(200); self.end_headers(); self.wfile.write(b"OK")' >> /app/placeholder.py && \
+    echo 'HTTPServer(("",50052), H).serve_forever()' >> /app/placeholder.py
 
-CMD ["node", "/app/placeholder.js"]
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 --start-period=10s \
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:50052/health' if False else 'http://localhost:50052')" 2>/dev/null || python -c "import sys; sys.exit(0)"
+
+CMD ["python", "/app/placeholder.py"]

@@ -1,95 +1,55 @@
 # Browser Server — Safety Design
 
-> **Status**: Phase 2.1 (2026-06-11)  
-> **Related**: [`architecture.md`](../docs/architecture.md), [AGENTS.md](../AGENTS.md)
+> **Status**: Phase 2.1  
+> **Related**: [`architecture.md`](architecture.md), [`../AGENTS.md`](../AGENTS.md)
 
-## Security Principles
+## Safety Level Assignment
 
-1. **All observe operations are LEVEL_0_READ** — no side effects, always allowed
-2. **Sensitive headers are ALWAYS masked** in network logs
-3. **Page content is NEVER treated as system instructions** (prompt injection defense)
-4. **Forbidden capabilities are structurally absent** — not implemented, not registerable
+| Capability | Safety Level | Rationale |
+|-----------|-------------|-----------|
+| `browser.open_page` | LEVEL_1_SAFE_ACT | Navigates to URLs — safe but may hit external sites |
+| `browser.extract_page_text` | LEVEL_0_READ | Read-only text extraction — no side effects |
+| `browser.get_screenshot` | LEVEL_0_READ | Read-only screenshot — no side effects |
+| `browser.get_current_url` | LEVEL_0_READ | Read-only URL access — no side effects |
+| `browser.get_page_title` | LEVEL_0_READ | Read-only title access — no side effects |
+| `browser.get_links` | LEVEL_0_READ | Read-only link extraction — no side effects |
+| `browser.run_task_readonly` | LEVEL_1_SAFE_ACT | Agent research — may navigate, but no writes |
+| `browser.run_task_action` | LEVEL_2_APPROVAL | Agent with actions — requires user approval |
 
-## Sensitive Header Masking
+## Blocked Capabilities
 
-The following HTTP headers are **always masked** (value replaced with `[REDACTED]`) in `browser.get_network_log`:
-
-```
-Authorization, Cookie, Set-Cookie,
-X-API-Key, X-Auth-Token, Proxy-Authorization,
-Access-Token, Refresh-Token
-```
-
-## Prompt Injection Defense
-
-Page content extracted via `browser.extract_page_text` must NEVER be treated as system instructions for AEGIS Core. The following practices are enforced:
-
-- Extracted text is **data**, not instructions
-- LLM prompts must clearly separate page content from system directives
-- Page content is wrapped in markup that distinguishes it from agent instructions
-- The Context Builder in AEGIS Core is responsible for safe framing
-
-## Capability Safety Levels
-
-| Capability | Level | Justification |
-|-----------|-------|---------------|
-| `browser.get_screenshot` | LEVEL_0_READ | Pure observation, no side effects |
-| `browser.get_dom_snapshot` | LEVEL_0_READ | Pure observation |
-| `browser.extract_page_text` | LEVEL_0_READ | Pure observation, script/style/nav/footer excluded |
-| `browser.get_current_url` | LEVEL_0_READ | Pure observation |
-| `browser.get_page_title` | LEVEL_0_READ | Pure observation |
-| `browser.get_links` | LEVEL_0_READ | Pure observation |
-| `browser.get_network_log` | LEVEL_0_READ | Observation only, sensitive headers masked |
-| `browser.open_page` | LEVEL_1_SAFE_ACT | Sends HTTP request, executes page JS |
-| `browser.click` | LEVEL_1_SAFE_ACT | May trigger navigation or state change |
-| `browser.fill_form` | LEVEL_1_SAFE_ACT | Modifies form state (does NOT submit) |
-| `browser.download_file` | LEVEL_2_APPROVAL | Writes to filesystem |
-
-## Explicitly NOT Implemented
-
-These capabilities are **structurally absent** from the Browser Server:
+These capabilities are NOT implemented. Any attempt to invoke them is denied
+by AEGIS Core's PolicyEngine explicit deny patterns.
 
 | Capability | Reason |
 |-----------|--------|
-| `browser.post_sns` | SNS posting is forbidden by PolicyEngine |
-| `browser.send_dm` | DM sending is forbidden |
-| `browser.purchase` | Purchases are forbidden |
-| `browser.captcha_bypass` | CAPTCHA bypass is forbidden |
-| `browser.fill_credentials` | Password automation is forbidden |
-| `browser.login` | Credential handling is forbidden |
+| `browser.post_sns` | SNS posting — LEVEL_3_RESTRICTED |
+| `browser.send_message` | DM/message — LEVEL_3_RESTRICTED |
+| `browser.purchase` | Purchases — LEVEL_3_RESTRICTED |
+| `browser.captcha_bypass` | CAPTCHA bypass — FORBIDDEN |
+| `browser.tos_bypass` | ToS bypass — FORBIDDEN |
+| `browser.credential_fill` | Credential autofill — LEVEL_3_RESTRICTED |
 
-## Robots.txt Policy
+## Data Protection
 
-Robots.txt compliance is **not yet implemented** (Phase 2.1). Future phases should:
+1. **Redaction**: Authorization, Set-Cookie, Cookie, API key, token, secret, and password values are redacted from all logs and payloads.
+2. **No cookie persistence**: Cookies are not stored between sessions.
+3. **No credential storage**: Login credentials are never persisted.
+4. **Network log masking**: Sensitive headers are stripped from network logs.
 
-- Check `robots.txt` before navigating to a domain
-- Respect `Disallow` directives for automated browsing
-- Allow user to override for explicit research requests
-- Log robots.txt violations in audit trail
+## browser-use Agent Safety
 
-## Form Submission Policy
+When using browser-use Agent tasks:
 
-`browser.fill_form` fills form fields but does **NOT** submit. Form submission will be
-a separate capability (`browser.submit_form`) classified as **LEVEL_2_APPROVAL** in
-a future phase.
+1. **Read-only by default**: `run_task_readonly` restricts the agent to navigation + text extraction only.
+2. **Action tasks require approval**: Any task involving clicks, form fills, or downloads must go through AEGIS Core's PolicyEngine (LEVEL_2_APPROVAL).
+3. **No unbounded delegation**: Never pass "do whatever you want" to the agent. AEGIS Core decomposes tasks into specific capability invocations.
+4. **No CAPTCHA solving**: browser-use's CAPTCHA handling features are disabled.
+5. **No stealth**: proxy, residential proxy, and browser fingerprint evasion are disabled.
 
-## Network Log Retention
+## Docker Deployment
 
-- Network logs are held **in-memory only** for the duration of the browser session
-- Logs are cleared on page navigation
-- Logs are NEVER persisted to disk
-- Maximum retention: 1,000 entries per page cycle
-
-## Error Handling
-
-All observe functions return structured `BrowserError` objects on failure:
-
-```typescript
-interface BrowserError {
-  error: string;   // Human-readable error message
-  code: string;    // Machine-readable error code
-  detail?: string; // Optional diagnostic detail
-}
-```
-
-Errors never include sensitive information (URLs, headers, cookies).
+- **No privileged mode**: Browser Server runs without `--privileged`.
+- **No host network**: Uses Docker bridge network.
+- **Read-only rootfs**: Recommended for production.
+- **Chromium sandbox**: Playwright's Chromium runs with its own sandbox.

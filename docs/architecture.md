@@ -108,6 +108,8 @@ flowchart TB
 | **Self-improving** | Dev Server enables AEGIS to fix and extend its own code in sandboxed workflows |
 | **Extensible** | Servers register capabilities dynamically via Tool Broker; new servers can be added |
 | **Offline-first** | All core logic runs locally; cloud LLM is optional/cacheable |
+| **Technology Decision Gate** | AI agents MUST NOT make major technology choices autonomously. See `AGENTS.md` §Technology Decision Gate. When multiple viable options exist for the same feature, present a structured comparison and ask the user. |
+| **Technology Decision Gate** | AI agents MUST NOT make major technology choices autonomously. See `AGENTS.md` §Technology Decision Gate. When multiple viable options exist for the same feature, present a structured comparison and ask the user. |
 
 ### 2.3 Communication
 
@@ -170,7 +172,7 @@ All inter-server communication uses **gRPC** with Protocol Buffers (proto3). The
 
 | Attribute | Value |
 |-----------|-------|
-| **Language** | Node.js + Playwright |
+| **Language** | Python 3.12+ + browser-use |
 | **Role** | Web automation |
 
 **Capabilities**:

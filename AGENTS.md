@@ -14,6 +14,73 @@ All server communication uses **gRPC** with shared protobuf definitions.
 
 ---
 
+## Technology Decision Gate 🚦
+
+**CRITICAL RULE**: AI coding agents MUST NOT make major technology decisions autonomously.
+When multiple viable options exist for the same feature, the agent MUST present a
+structured comparison and ask the user to decide.
+
+### When to Ask (Mandatory Consultation Triggers)
+
+Ask the user before implementing when:
+
+| Trigger | Examples |
+|---------|----------|
+| **Multiple viable options** | Playwright vs browser-use, REST vs WebSocket vs gRPC streaming |
+| **Different from existing design** | Using a different language/framework than what docs specify |
+| **New external service** | Cloud APIs, payment APIs, third-party SaaS |
+| **Local → Cloud shift** | Moving from local-only to cloud-dependent architecture |
+| **Security/privacy impact** | New data storage, new network exposure, credential handling |
+| **Language/Framework change** | Switching Node.js→Python, SQLite→Postgres, etc. |
+| **Database/Storage change** | Chroma vs Qdrant vs SQLite vector, MQTT vs gRPC stream |
+| **LLM library change** | LangGraph vs AutoGen vs CrewAI vs custom AutonomousLoop |
+| **Device control approach** | Appium vs Android AccessibilityService, Home Assistant vs custom |
+
+### NOT Required to Ask
+
+The agent may proceed without asking when:
+- Implementing to an existing proto contract
+- Following AGENTS.md / architecture.md specifications exactly
+- Adding tests for existing code
+- Fixing bugs within existing implementation patterns
+- Writing documentation for existing features
+
+### Decision Request Format
+
+When asking the user, present options in this format:
+
+```markdown
+## Technology Decision: {topic}
+
+### Option A: {name}
+- **Overview**: One-sentence summary
+- **Pros**: 2-3 key advantages
+- **Cons**: 2-3 key disadvantages
+
+### Option B: {name}
+- **Overview**: One-sentence summary
+- **Pros**: 2-3 key advantages
+- **Cons**: 2-3 key disadvantages
+
+### Recommendation
+{suggested choice with brief justification}
+
+### Impact
+- Affected files: {list}
+- Migration effort: {estimate}
+- Rollback difficulty: {easy/medium/hard}
+
+### User Decision Needed
+Please choose: Option A / Option B / Other (specify)
+```
+
+### Browser Server Decision (Resolved)
+
+The user has explicitly chosen **browser-use** (Python) for the Browser Server.
+All Browser Server implementation must use Python + browser-use, not Node.js + Playwright.
+
+---
+
 ## Directory Structure (Planned)
 
 ```
@@ -79,7 +146,7 @@ AEGIS/
 - **Must NOT**: Operate physical devices that could cause harm without confirmation
 
 ### Browser Server (`browser-server/`)
-- **Runtime**: Node.js + Playwright
+- **Runtime**: Python 3.12+ + browser-use
 - **Role**: Web automation & information gathering
 - Web scraping, form filling, data extraction
 - Web app interaction
@@ -101,7 +168,7 @@ AEGIS/
 | PC Server | 未確認 | gRPC, OS-specific APIs |
 | Android Server | Kotlin | gRPC (grpc-kotlin), Android SDK |
 | Room Server | 未確認 | gRPC, IoT protocols (未確認) |
-| Browser Server | Node.js | gRPC (@grpc/grpc-js), Playwright |
+| Browser Server | Python 3.12+ | gRPC (grpcio), browser-use |
 | Dev Server | 未確認 | Docker SDK, gRPC |
 | Shared | Protocol Buffers | proto3 syntax |
 | Infrastructure | Docker Compose | Multi-container orchestration |
@@ -138,23 +205,23 @@ cd ai-server && ruff format .
 cd ai-server && python -m ai_server
 ```
 
-### Browser Server (Node.js) — Planned
+### Browser Server (Python) — Planned
 
 ```bash
 # Build (install deps)
-cd browser-server && npm install
+cd browser-server && pip install -e ".[dev]"
 
 # Test
-cd browser-server && npm test
+cd browser-server && pytest
 
 # Lint
-cd browser-server && npm run lint
+cd browser-server && ruff check .
 
 # Format
-cd browser-server && npm run format
+cd browser-server && ruff format .
 
 # Run
-cd browser-server && npm start
+cd browser-server && python -m browser_server
 ```
 
 ### All Servers (Docker Compose) — Planned
