@@ -74,3 +74,69 @@
 {"episode_id": "ep_1781195760600_b29d0d8a", "summary": "Checked temperature via room server", "category": "action_result", "events": [], "detail": {}, "timestamp_ms": 1781195760600}
 {"episode_id": "ep_1781195851707_46fc2d93", "summary": "User asked about weather", "category": "conversation", "events": [], "detail": {}, "timestamp_ms": 1781195851707}
 {"episode_id": "ep_1781195851707_37ae3f8e", "summary": "Checked temperature via room server", "category": "action_result", "events": [], "detail": {}, "timestamp_ms": 1781195851707}
+{"episode_id": "ep_1781198974271_0e227311", "summary": "User asked about weather", "category": "conversation", "events": [], "detail": {}, "timestamp_ms": 1781198974271}
+{"episode_id": "ep_1781198974272_ffbcc132", "summary": "Checked temperature via room server", "category": "action_result", "events": [], "detail": {}, "timestamp_ms": 1781198974272}
+{"episode_id": "ep_1781199026629_cc1ed994", "summary": "User asked about weather", "category": "conversation", "events": [], "detail": {}, "timestamp_ms": 1781199026629}
+{"episode_id": "ep_1781199026630_a0348da9", "summary": "Checked temperature via room server", "category": "action_result", "events": [], "detail": {}, "timestamp_ms": 1781199026630}
+{"episode_id": "ep_1781199110758_44a00667", "summary": "User asked about weather", "category": "conversation", "events": [], "detail": {}, "timestamp_ms": 1781199110758}
+{"episode_id": "ep_1781199110758_8000ad44", "summary": "Checked temperature via room server", "category": "action_result", "events": [], "detail": {}, "timestamp_ms": 1781199110758}
+{"episode_id": "ep_1781199222070_8335ecbf", "summary": "User asked about weather", "category": "conversation", "events": [], "detail": {}, "timestamp_ms": 1781199222070}
+{"episode_id": "ep_1781199222070_6c52bd57", "summary": "Checked temperature via room server", "category": "action_result", "events": [], "detail": {}, "timestamp_ms": 1781199222070}
+{"episode_id": "ep_1781199606753_88ca7bb2", "summary": "User asked about weather", "category": "conversation", "events": [], "detail": {}, "timestamp_ms": 1781199606753}
+{"episode_id": "ep_1781199606754_d6169d08", "summary": "Checked temperature via room server", "category": "action_result", "events": [], "detail": {}, "timestamp_ms": 1781199606754}
+{"episode_id": "ep_1781199685351_9fc4ccc8", "summary": "User asked about weather", "category": "conversation", "events": [], "detail": {}, "timestamp_ms": 1781199685351}
+{"episode_id": "ep_1781199685351_fb142d53", "summary": "Checked temperature via room server", "category": "action_result", "events": [], "detail": {}, "timestamp_ms": 1781199685351}
+{"episode_id": "ep_1781200110682_76a54aa5", "summary": "User asked about weather", "category": "conversation", "events": [], "detail": {}, "timestamp_ms": 1781200110682}
+{"episode_id": "ep_1781200110682_2f2c2569", "summary": "Checked temperature via room server", "category": "action_result", "events": [], "detail": {}, "timestamp_ms": 1781200110682}
+{"episode_id": "ep_1781200204147_bd674cdf", "summary": "User asked about weather", "category": "conversation", "events": [], "detail": {}, "timestamp_ms": 1781200204147}
+{"episode_id": "ep_1781200204147_3e6cd3de", "summary": "Checked temperature via room server", "category": "action_result", "events": [], "detail": {}, "timestamp_ms": 1781200204147}
+{"episode_id": "ep_1781200792206_2a97a45f", "summary": "User asked about weather", "category": "conversation", "events": [], "detail": {}, "timestamp_ms": 1781200792206}
+{"episode_id": "ep_1781200792206_fb114657", "summary": "Checked temperature via room server", "category": "action_result", "events": [], "detail": {}, "timestamp_ms": 1781200792206}
+{"episode_id": "ep_1781200979242_0f0b3beb", "summary": "User asked about weather", "category": "conversation", "events": [], "detail": {}, "timestamp_ms": 1781200979242}
+{"episode_id": "ep_1781200979243_e9410fb4", "summary": "Checked temperature via room server", "category": "action_result", "events": [], "detail": {}, "timestamp_ms": 1781200979243}
+{"episode_id": "ep_1781201737932_b33f868d", "summary": "User asked about weather", "category": "conversation", "events": [], "detail": {}, "timestamp_ms": 1781201737932}
+{"episode_id": "ep_1781201737933_3e6f9dab", "summary": "Checked temperature via room server", "category": "action_result", "events": [], "detail": {}, "timestamp_ms": 1781201737933}
+{"episode_id": "ep_1781201781685_463311ca", "summary": "User asked about weather", "category": "conversation", "events": [], "detail": {}, "timestamp_ms": 1781201781685}
+{"episode_id": "ep_1781201781686_c587b3a7", "summary": "Checked temperature via room server", "category": "action_result", "events": [], "detail": {}, "timestamp_ms": 1781201781686}
+{"episode_id": "ep_1781202069460_e68b57e8", "summary": "User asked about weather", "category": "conversation", "events": [], "detail": {}, "timestamp_ms": 1781202069460}
+{"episode_id": "ep_1781202069461_759b34d8", "summary": "Checked temperature via room server", "category": "action_result", "events": [], "detail": {}, "timestamp_ms": 1781202069461}
+{"episode_id": "ep_1781202152148_70361d17", "summary": "User asked about weather", "category": "conversation", "events": [], "detail": {}, "timestamp_ms": 1781202152148}
+{"episode_id": "ep_1781202152149_140dc7e2", "summary": "Checked temperature via room server", "category": "action_result", "events": [], "detail": {}, "timestamp_ms": 1781202152149}
+{"episode_id": "ep_1781202207092_a79582e3", "summary": "User asked about weather", "category": "conversation", "events": [], "detail": {}, "timestamp_ms": 1781202207092}
+{"episode_id": "ep_1781202207092_8a5b325d", "summary": "Checked temperature via room server", "category": "action_result", "events": [], "detail": {}, "timestamp_ms": 1781202207092}
+{"episode_id": "ep_1781202613964_729c0f08", "summary": "User asked about weather", "category": "conversation", "events": [], "detail": {}, "timestamp_ms": 1781202613964}
+{"episode_id": "ep_1781202613964_bd92eb70", "summary": "Checked temperature via room server", "category": "action_result", "events": [], "detail": {}, "timestamp_ms": 1781202613964}
+{"episode_id": "ep_1781202938747_ebab80c1", "summary": "User asked about weather", "category": "conversation", "events": [], "detail": {}, "timestamp_ms": 1781202938747}
+{"episode_id": "ep_1781202938747_88eed3a9", "summary": "Checked temperature via room server", "category": "action_result", "events": [], "detail": {}, "timestamp_ms": 1781202938747}
+{"episode_id": "ep_1781203352036_7b098490", "summary": "User asked about weather", "category": "conversation", "events": [], "detail": {}, "timestamp_ms": 1781203352036}
+{"episode_id": "ep_1781203352036_ebd95457", "summary": "Checked temperature via room server", "category": "action_result", "events": [], "detail": {}, "timestamp_ms": 1781203352036}
+{"episode_id": "ep_1781203424996_26caf817", "summary": "User asked about weather", "category": "conversation", "events": [], "detail": {}, "timestamp_ms": 1781203424996}
+{"episode_id": "ep_1781203424997_64afc26c", "summary": "Checked temperature via room server", "category": "action_result", "events": [], "detail": {}, "timestamp_ms": 1781203424997}
+{"episode_id": "ep_1781203818503_d7fffa1e", "summary": "User asked about weather", "category": "conversation", "events": [], "detail": {}, "timestamp_ms": 1781203818503}
+{"episode_id": "ep_1781203818504_26a683d4", "summary": "Checked temperature via room server", "category": "action_result", "events": [], "detail": {}, "timestamp_ms": 1781203818504}
+{"episode_id": "ep_1781204281097_e7163569", "summary": "User asked about weather", "category": "conversation", "events": [], "detail": {}, "timestamp_ms": 1781204281097}
+{"episode_id": "ep_1781204281097_4c81bad9", "summary": "Checked temperature via room server", "category": "action_result", "events": [], "detail": {}, "timestamp_ms": 1781204281097}
+{"episode_id": "ep_1781204330576_5ad62e9a", "summary": "User asked about weather", "category": "conversation", "events": [], "detail": {}, "timestamp_ms": 1781204330576}
+{"episode_id": "ep_1781204330577_71e4b28b", "summary": "Checked temperature via room server", "category": "action_result", "events": [], "detail": {}, "timestamp_ms": 1781204330577}
+{"episode_id": "ep_1781204679347_f4486f8e", "summary": "User asked about weather", "category": "conversation", "events": [], "detail": {}, "timestamp_ms": 1781204679347}
+{"episode_id": "ep_1781204679347_074c8342", "summary": "Checked temperature via room server", "category": "action_result", "events": [], "detail": {}, "timestamp_ms": 1781204679347}
+{"episode_id": "ep_1781204739484_7736f230", "summary": "User asked about weather", "category": "conversation", "events": [], "detail": {}, "timestamp_ms": 1781204739484}
+{"episode_id": "ep_1781204739484_756a4557", "summary": "Checked temperature via room server", "category": "action_result", "events": [], "detail": {}, "timestamp_ms": 1781204739484}
+{"episode_id": "ep_1781205136793_b2e5780b", "summary": "User asked about weather", "category": "conversation", "events": [], "detail": {}, "timestamp_ms": 1781205136793}
+{"episode_id": "ep_1781205136793_dc7f03ee", "summary": "Checked temperature via room server", "category": "action_result", "events": [], "detail": {}, "timestamp_ms": 1781205136793}
+{"episode_id": "ep_1781205278925_21118a1a", "summary": "User asked about weather", "category": "conversation", "events": [], "detail": {}, "timestamp_ms": 1781205278925}
+{"episode_id": "ep_1781205278926_81aaf1f2", "summary": "Checked temperature via room server", "category": "action_result", "events": [], "detail": {}, "timestamp_ms": 1781205278926}
+{"episode_id": "ep_1781205593979_84c845d3", "summary": "User asked about weather", "category": "conversation", "events": [], "detail": {}, "timestamp_ms": 1781205593979}
+{"episode_id": "ep_1781205593980_5ea488c2", "summary": "Checked temperature via room server", "category": "action_result", "events": [], "detail": {}, "timestamp_ms": 1781205593980}
+{"episode_id": "ep_1781205649064_e9ef40c5", "summary": "User asked about weather", "category": "conversation", "events": [], "detail": {}, "timestamp_ms": 1781205649064}
+{"episode_id": "ep_1781205649065_d1e96627", "summary": "Checked temperature via room server", "category": "action_result", "events": [], "detail": {}, "timestamp_ms": 1781205649065}
+{"episode_id": "ep_1781206184327_f3127f6c", "summary": "User asked about weather", "category": "conversation", "events": [], "detail": {}, "timestamp_ms": 1781206184327}
+{"episode_id": "ep_1781206184327_7e44680b", "summary": "Checked temperature via room server", "category": "action_result", "events": [], "detail": {}, "timestamp_ms": 1781206184327}
+{"episode_id": "ep_1781206448307_62319814", "summary": "User asked about weather", "category": "conversation", "events": [], "detail": {}, "timestamp_ms": 1781206448307}
+{"episode_id": "ep_1781206448308_f5810217", "summary": "Checked temperature via room server", "category": "action_result", "events": [], "detail": {}, "timestamp_ms": 1781206448308}
+{"episode_id": "ep_1781206475522_95171bb1", "summary": "User asked about weather", "category": "conversation", "events": [], "detail": {}, "timestamp_ms": 1781206475522}
+{"episode_id": "ep_1781206475523_14b4de1f", "summary": "Checked temperature via room server", "category": "action_result", "events": [], "detail": {}, "timestamp_ms": 1781206475523}
+{"episode_id": "ep_1781206583999_7919c693", "summary": "User asked about weather", "category": "conversation", "events": [], "detail": {}, "timestamp_ms": 1781206583999}
+{"episode_id": "ep_1781206584000_46cb3fa3", "summary": "Checked temperature via room server", "category": "action_result", "events": [], "detail": {}, "timestamp_ms": 1781206584000}
+{"episode_id": "ep_1781206710671_577900a8", "summary": "User asked about weather", "category": "conversation", "events": [], "detail": {}, "timestamp_ms": 1781206710671}
+{"episode_id": "ep_1781206710671_08c54b1d", "summary": "Checked temperature via room server", "category": "action_result", "events": [], "detail": {}, "timestamp_ms": 1781206710671}

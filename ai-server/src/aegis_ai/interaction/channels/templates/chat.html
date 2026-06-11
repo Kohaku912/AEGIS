@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>AEGIS Chat</title>
+    <style>
+        body { font-family: sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; background: #0d1117; color: #c9d1d9; }
+        #messages { height: 400px; overflow-y: auto; border: 1px solid #30363d; padding: 10px; margin-bottom: 10px; border-radius: 8px; }
+        .msg { margin: 8px 0; padding: 8px 12px; border-radius: 8px; }
+        .msg.user { background: #1f6feb; text-align: right; }
+        .msg.aegis { background: #161b22; }
+        .msg .role { font-size: 11px; color: #8b949e; }
+        input[type=text] { width: 80%; padding: 10px; border: 1px solid #30363d; border-radius: 8px; background: #161b22; color: #c9d1d9; }
+        button { padding: 10px 20px; border: none; border-radius: 8px; background: #1f6feb; color: white; cursor: pointer; }
+    </style>
+</head>
+<body>
+    <h2>AEGIS Chat</h2>
+    <div id="messages"></div>
+    <form id="chat-form">
+        <input type="text" id="input" placeholder="Type a message..." autocomplete="off">
+        <button type="submit">Send</button>
+    </form>
+    <script>
+        const form = document.getElementById('chat-form');
+        const input = document.getElementById('input');
+        const messages = document.getElementById('messages');
+        let sessionId = '';
+
+        form.onsubmit = async (e) => {
+            e.preventDefault();
+            const text = input.value.trim();
+            if (!text) return;
+
+            messages.innerHTML += `<div class="msg user"><div class="role">You</div>${text}</div>`;
+            input.value = '';
+
+            const resp = await fetch('/chat/send', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({text, session_id: sessionId}),
+            });
+            const data = await resp.json();
+            sessionId = data.session_id || sessionId;
+            messages.innerHTML += `<div class="msg aegis"><div class="role">AEGIS</div>${data.text}</div>`;
+            messages.scrollTop = messages.scrollHeight;
+        };
+    </script>
+</body>
+</html>

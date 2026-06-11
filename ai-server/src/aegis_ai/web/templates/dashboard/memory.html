@@ -1,0 +1,42 @@
+{% extends "dashboard/base.html" %}
+{% block title %}AEGIS — Memory{% endblock %}
+{% block content %}
+<h1>Memory</h1>
+<div class="grid">
+    <div class="card"><h3>Episodic</h3><div class="value">{{ summary.episodic_count }}</div></div>
+    <div class="card"><h3>Semantic</h3><div class="value">{{ summary.semantic_count }}</div></div>
+    <div class="card"><h3>Procedural</h3><div class="value">{{ summary.procedural_count }}</div></div>
+    <div class="card"><h3>Reflections</h3><div class="value">{{ summary.reflection_count }}</div></div>
+</div>
+<div class="card">
+    <h3>Recent Episodic</h3>
+    <table>
+        <tr><th>Summary</th><th>Category</th><th>Time</th></tr>
+        {% for e in episodic %}
+        <tr><td>{{ e.summary }}</td><td>{{ e.category }}</td><td>{{ e.timestamp_ms }}</td></tr>
+        {% endfor %}
+    </table>
+</div>
+<div class="card">
+    <h3>Semantic Facts</h3>
+    <table>
+        <tr><th>Content</th><th>Category</th><th>Source</th><th>Confidence</th></tr>
+        {% for f in semantic %}
+        <tr><td>{{ f.content }}</td><td>{{ f.category }}</td><td>{{ f.source }}</td><td>{{ f.confidence }}</td></tr>
+        {% endfor %}
+    </table>
+</div>
+<div class="card">
+    <h3>Reflections</h3>
+    <table>
+        <tr><th>Summary</th><th>What Worked</th><th>What Failed</th></tr>
+        {% for r in reflections %}
+        <tr>
+            <td>{{ r.summary }}</td>
+            <td>{{ r.what_worked|join(', ') }}</td>
+            <td>{{ r.what_failed|join(', ') }}</td>
+        </tr>
+        {% endfor %}
+    </table>
+</div>
+{% endblock %}

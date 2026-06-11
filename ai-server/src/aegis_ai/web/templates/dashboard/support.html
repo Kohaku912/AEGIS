@@ -1,0 +1,21 @@
+{% extends "dashboard/base.html" %}
+{% block title %}AEGIS — Support{% endblock %}
+{% block content %}
+<h1>Support Suggestions</h1>
+<div class="card">
+    <h3>Recent Suggestions</h3>
+    {% if suggestions %}
+    <table>
+        <tr><th>Suggestion</th><th>Source</th><th>Confidence</th><th>Status</th></tr>
+        {% for s in suggestions %}
+        <tr>
+            <td>{{ s.summary }}</td><td>{{ s.source }}</td>
+            <td>{{ s.confidence }}</td><td>{{ s.status }}</td>
+        </tr>
+        {% endfor %}
+    </table>
+    {% else %}
+    <p>No recent suggestions.</p>
+    {% endif %}
+</div>
+{% endblock %}

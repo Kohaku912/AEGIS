@@ -1,0 +1,24 @@
+{% extends "dashboard/base.html" %}
+{% block title %}AEGIS — Servers{% endblock %}
+{% block content %}
+<h1>Servers</h1>
+<div class="grid">
+    <div class="card"><h3>Total</h3><div class="value">{{ summary.total_servers }}</div></div>
+    <div class="card"><h3>Online</h3><div class="value status-online">{{ summary.online_servers }}</div></div>
+    <div class="card"><h3>Offline</h3><div class="value status-offline">{{ summary.offline_servers }}</div></div>
+</div>
+<div class="card">
+    <h3>Server List</h3>
+    <table>
+        <tr><th>ID</th><th>Type</th><th>Status</th><th>Capabilities</th><th>Version</th><th>Host</th><th>Heartbeat</th></tr>
+        {% for s in servers %}
+        <tr>
+            <td>{{ s.server_id }}</td><td>{{ s.server_type }}</td>
+            <td><span class="badge badge-{{ 'green' if s.status == 'ONLINE' else 'red' }}">{{ s.status }}</span></td>
+            <td>{{ s.registered_capabilities }}</td><td>{{ s.version }}</td>
+            <td>{{ s.host }}:{{ s.port }}</td><td>{{ s.heartbeat_age_seconds }}s</td>
+        </tr>
+        {% endfor %}
+    </table>
+</div>
+{% endblock %}

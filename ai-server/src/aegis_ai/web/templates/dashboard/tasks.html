@@ -1,0 +1,28 @@
+{% extends "dashboard/base.html" %}
+{% block title %}AEGIS — Tasks{% endblock %}
+{% block content %}
+<h1>Tasks</h1>
+<div class="grid">
+    <div class="card"><h3>Generated</h3><div class="value">{{ trigger_stats.tasks_generated }}</div></div>
+    <div class="card"><h3>Rules Matched</h3><div class="value">{{ trigger_stats.rules_matched }}</div></div>
+    <div class="card"><h3>Suppressed (Cooldown)</h3><div class="value">{{ trigger_stats.suppressed_by_cooldown }}</div></div>
+    <div class="card"><h3>Suppressed (No Match)</h3><div class="value">{{ trigger_stats.suppressed_by_no_match }}</div></div>
+</div>
+<div class="card">
+    <h3>Pending Tasks</h3>
+    {% if pending_tasks %}
+    <table>
+        <tr><th>Task ID</th><th>Action</th><th>Event Type</th><th>Rule</th><th>Priority</th></tr>
+        {% for t in pending_tasks %}
+        <tr>
+            <td>{{ t.task_id }}</td><td>{{ t.action_type }}</td>
+            <td>{{ t.triggered_by_event_type }}</td><td>{{ t.triggered_by_rule_id }}</td>
+            <td>{{ t.priority }}</td>
+        </tr>
+        {% endfor %}
+    </table>
+    {% else %}
+    <p>No pending tasks.</p>
+    {% endif %}
+</div>
+{% endblock %}

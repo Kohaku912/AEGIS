@@ -1,0 +1,25 @@
+{% extends "dashboard/base.html" %}
+{% block title %}AEGIS — Events{% endblock %}
+{% block content %}
+<h1>Events</h1>
+<div class="grid">
+    <div class="card"><h3>Published</h3><div class="value">{{ stats.total_published }}</div></div>
+    <div class="card"><h3>Deduplicated</h3><div class="value">{{ stats.total_deduplicated }}</div></div>
+    <div class="card"><h3>Delivered</h3><div class="value">{{ stats.total_delivered }}</div></div>
+    <div class="card"><h3>Queue Size</h3><div class="value">{{ stats.queue_size }}</div></div>
+</div>
+<div class="card">
+    <h3>Recent Events</h3>
+    <table>
+        <tr><th>Type</th><th>Source</th><th>Severity</th><th>Priority</th><th>Age</th><th>Event ID</th></tr>
+        {% for e in events %}
+        <tr>
+            <td>{{ e.event_type }}</td><td>{{ e.source_server_type }}</td>
+            <td><span class="severity-{{ e.severity }}">{{ e.severity }}</span></td>
+            <td>{{ e.priority }}</td><td>{{ e.age_seconds }}s</td>
+            <td style="font-size:11px;color:#484f58">{{ e.event_id }}</td>
+        </tr>
+        {% endfor %}
+    </table>
+</div>
+{% endblock %}

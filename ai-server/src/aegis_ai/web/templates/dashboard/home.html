@@ -1,0 +1,78 @@
+{% extends "dashboard/base.html" %}
+{% block title %}AEGIS Dashboard — Home{% endblock %}
+{% block content %}
+<h1>AEGIS Operations Dashboard</h1>
+
+<div class="grid">
+    <div class="card">
+        <h3>Servers Online</h3>
+        <div class="value">{{ server_summary.online_servers }}/{{ server_summary.total_servers }}</div>
+    </div>
+    <div class="card">
+        <h3>Events Published</h3>
+        <div class="value">{{ event_stats.total_published }}</div>
+    </div>
+    <div class="card">
+        <h3>Tasks Generated</h3>
+        <div class="value">{{ trigger_stats.tasks_generated }}</div>
+    </div>
+    <div class="card">
+        <h3>Pending Approvals</h3>
+        <div class="value">{{ pending_approvals|length }}</div>
+    </div>
+</div>
+
+<div class="card">
+    <h3>Connected Servers</h3>
+    <table>
+        <tr><th>Server</th><th>Type</th><th>Status</th><th>Capabilities</th><th>Heartbeat</th></tr>
+        {% for s in servers %}
+        <tr>
+            <td>{{ s.server_id }}</td>
+            <td>{{ s.server_type }}</td>
+            <td><span class="status-{{ 'online' if s.status == 'ONLINE' else 'offline' }}">{{ s.status }}</span></td>
+            <td>{{ s.registered_capabilities }}</td>
+            <td>{{ s.heartbeat_age_seconds }}s ago</td>
+        </tr>
+        {% endfor %}
+    </table>
+</div>
+
+<div class="card">
+    <h3>Autonomous Status</h3>
+    <table>
+        <tr><td>Autonomous Loop</td><td>{{ 'Enabled' if settings.autonomous_enabled else 'Disabled' }}</td></tr>
+        <tr><td>Support Agent</td><td>{{ 'Enabled' if settings.support_agent_enabled else 'Disabled' }}</td></tr>
+        <tr><td>Self-Development</td><td>{{ 'Enabled' if settings.self_dev_enabled else 'Disabled' }}</td></tr>
+        <tr><td>Clipboard Capture</td><td>{{ 'Enabled' if settings.privacy_clipboard_enabled else 'Disabled' }}</td></tr>
+        <tr><td>Camera Snapshot</td><td>{{ 'Enabled' if settings.privacy_camera_enabled else 'Disabled' }}</td></tr>
+    </table>
+</div>
+
+{% if pending_approvals %}
+<div class="card">
+    <h3>Pending Approvals</h3>
+    <table>
+        <tr><th>Capability</th><th>Tool</th><th>Risk</th><th>Status</th></tr>
+        {% for a in pending_approvals %}
+        <tr>
+            <td>{{ a.capability_id }}</td>
+            <td>{{ a.tool_name }}</td>
+            <td>{{ a.risk_level }}</td>
+            <td><span class="badge badge-yellow">{{ a.status }}</span></td>
+        </tr>
+        {% endfor %}
+    </table>
+</div>
+{% endif %}
+
+<div class="card">
+    <h3>Memory Summary</h3>
+    <table>
+        <tr><td>Episodic Memories</td><td>{{ memory_summary.episodic_count }}</td></tr>
+        <tr><td>Semantic Facts</td><td>{{ memory_summary.semantic_count }}</td></tr>
+        <tr><td>Procedural Memories</td><td>{{ memory_summary.procedural_count }}</td></tr>
+        <tr><td>Reflections</td><td>{{ memory_summary.reflection_count }}</td></tr>
+    </table>
+</div>
+{% endblock %}
