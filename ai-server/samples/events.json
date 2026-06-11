@@ -1,0 +1,122 @@
+[
+  {
+    "event_id": "evt-pc-001",
+    "event_type": "pc.screen_changed",
+    "source_server_type": 2,
+    "source_server_id": "pc-main",
+    "timestamp_ms": 1700000001000,
+    "payload_json": "{\"active_window\":\"chrome.exe\",\"title\":\"GitHub - AEGIS\"}",
+    "priority": 2,
+    "severity": 2,
+    "dedupe_key": "pc.screen_change",
+    "requires_attention": false
+  },
+  {
+    "event_id": "evt-android-001",
+    "event_type": "android.notification_received",
+    "source_server_type": 3,
+    "source_server_id": "android-phone1",
+    "timestamp_ms": 1700000002000,
+    "payload_json": "{\"app\":\"LINE\",\"sender\":\"Alice\",\"preview\":\"Meeting at 3pm?\"}",
+    "priority": 2,
+    "severity": 4,
+    "dedupe_key": "",
+    "requires_attention": false
+  },
+  {
+    "event_id": "evt-android-002",
+    "event_type": "android.incoming_call",
+    "source_server_type": 3,
+    "source_server_id": "android-phone1",
+    "timestamp_ms": 1700000003000,
+    "payload_json": "{\"caller\":\"Bob\",\"number\":\"+81-90-xxxx-xxxx\"}",
+    "priority": 1,
+    "severity": 6,
+    "dedupe_key": "",
+    "requires_attention": false
+  },
+  {
+    "event_id": "evt-room-001",
+    "event_type": "room.temperature_changed",
+    "source_server_type": 5,
+    "source_server_id": "room-living",
+    "timestamp_ms": 1700000004000,
+    "payload_json": "{\"temperature_c\":28.5,\"previous_c\":25.0,\"humidity_pct\":65}",
+    "priority": 3,
+    "severity": 4,
+    "dedupe_key": "room.temp.living",
+    "requires_attention": false
+  },
+  {
+    "event_id": "evt-room-002",
+    "event_type": "room.motion_detected",
+    "source_server_type": 5,
+    "source_server_id": "room-living",
+    "timestamp_ms": 1700000005000,
+    "payload_json": "{\"zone\":\"entrance\",\"detection_type\":\"PIR\"}",
+    "priority": 2,
+    "severity": 3,
+    "dedupe_key": "room.motion.entrance",
+    "requires_attention": false
+  },
+  {
+    "event_id": "evt-web-001",
+    "event_type": "web.rss_updated",
+    "source_server_type": 4,
+    "source_server_id": "browser-main",
+    "timestamp_ms": 1700000006000,
+    "payload_json": "{\"feed_url\":\"https://example.com/rss\",\"new_items\":3}",
+    "priority": 3,
+    "severity": 2,
+    "dedupe_key": "",
+    "requires_attention": false
+  },
+  {
+    "event_id": "evt-web-002",
+    "event_type": "web.github_new_issue",
+    "source_server_type": 4,
+    "source_server_id": "browser-main",
+    "timestamp_ms": 1700000007000,
+    "payload_json": "{\"repo\":\"Kohaku912/AEGIS\",\"title\":\"Bug: EventBus crash on high load\",\"number\":42}",
+    "priority": 2,
+    "severity": 6,
+    "dedupe_key": "",
+    "requires_attention": false
+  },
+  {
+    "event_id": "evt-dev-001",
+    "event_type": "dev.test_failed",
+    "source_server_type": 6,
+    "source_server_id": "dev-sandbox",
+    "timestamp_ms": 1700000008000,
+    "payload_json": "{\"suite\":\"test_tool_broker.py\",\"failed\":3,\"total\":127}",
+    "priority": 1,
+    "severity": 8,
+    "dedupe_key": "",
+    "requires_attention": false
+  },
+  {
+    "event_id": "evt-dev-002",
+    "event_type": "dev.ci_error",
+    "source_server_type": 6,
+    "source_server_id": "dev-sandbox",
+    "timestamp_ms": 1700000009000,
+    "payload_json": "{\"pipeline\":\"main-ci\",\"stage\":\"test\",\"error\":\"timeout\"}",
+    "priority": 1,
+    "severity": 8,
+    "dedupe_key": "",
+    "requires_attention": false
+  },
+  {
+    "event_id": "evt-security-001",
+    "event_type": "pc.security_unauthorized_access",
+    "source_server_type": 2,
+    "source_server_id": "pc-main",
+    "timestamp_ms": 1700000010000,
+    "payload_json": "{\"path\":\"/etc/shadow\",\"process\":\"unknown.exe\"}",
+    "priority": 1,
+    "severity": 10,
+    "dedupe_key": "",
+    "requires_attention": false
+  }
+]

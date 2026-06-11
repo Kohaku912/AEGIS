@@ -324,3 +324,22 @@ class Event(BaseModel):
         default_factory=dict,
         description="Arbitrary key-value attributes",
     )
+
+    # ── Event Bus / Trigger Engine fields (added 2026-06-11) ──
+
+    severity: int = Field(
+        default=0,
+        ge=0,
+        le=10,
+        description="Event severity 0–10. 0=info, 5=warning, 8=error, 10=critical.",
+    )
+    dedupe_key: str = Field(
+        default="",
+        description="Deduplication key. Events with the same key within a time window "
+                    "are treated as duplicates. Empty = no dedup.",
+    )
+    requires_attention: bool = Field(
+        default=False,
+        description="Whether this event requires immediate AI attention. "
+                    "Set by the Trigger Engine after rule evaluation.",
+    )

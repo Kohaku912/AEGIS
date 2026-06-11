@@ -306,8 +306,11 @@ The following operations MUST go through an explicit user approval gate in the A
   - Policy Engine (`ai-server/src/policy_engine.py`) — deterministic safety gate
   - Tool Registry (`ai-server/src/tool_registry.py`) — capability/server registration & search
   - Tool Broker (`ai-server/src/tool_broker.py`) — structured invocation with mandatory policy check
+  - Event Bus (`ai-server/src/event_bus.py`) — publish/subscribe with dedup and priority queue
+  - Trigger Engine (`ai-server/src/trigger_engine.py`) — rule-based event → TaskRequest generation
   - 10 sample capabilities (`ai-server/samples/capabilities.json`)
-  - 127 tests (all passing): 57 schema + 37 broker/policy + 33 registry
+  - 10 sample events (`ai-server/samples/events.json`)
+  - 176 tests (all passing): 57 schema + 37 broker/policy + 33 registry + 22 event bus + 27 trigger engine
 - **Next steps**:
   1. Complete remaining proto definitions for all 6 servers
   2. Set up Docker Compose skeleton
