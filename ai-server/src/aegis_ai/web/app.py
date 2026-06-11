@@ -13,13 +13,12 @@ Security:
 from __future__ import annotations
 
 import logging
-import os
 import secrets
 from typing import Any
 
 from flask import Flask, jsonify, render_template, request
 
-from approval import ApprovalStore, ApprovalStatus, ApprovalType
+from approval import ApprovalStore
 
 logger = logging.getLogger("aegis_ai.web")
 
@@ -139,7 +138,8 @@ class ApprovalWebApp:
         def reject_remember(approval_id: str):
             result, code = _get_store_result(approval_id, "reject_remember")
             if code == 200:
-                return render_template("result.html", message="Rejected — capability permanently blocked", success=False)
+                return render_template("result.html",
+                    message="Rejected — capability permanently blocked", success=False)
             return jsonify(result), code
 
         # Health check

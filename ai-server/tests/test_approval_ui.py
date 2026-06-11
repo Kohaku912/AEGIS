@@ -7,7 +7,7 @@ import time
 import pytest
 
 from aegis_ai.web.app import ApprovalWebApp
-from approval import ApprovalStore, ApprovalStatus
+from approval import ApprovalStatus, ApprovalStore
 
 
 @pytest.fixture
@@ -91,7 +91,7 @@ class TestExpiredApproval:
 
     def test_expired_shown_in_ui(self, client, store):
         s = ApprovalStore(request_timeout_ms=1)
-        req = s.create_request("pc.test", risk_level=3)
+        s.create_request("pc.test", risk_level=3)
         time.sleep(0.02)
         # Expired should not appear in pending list
         pending = s.get_pending()
