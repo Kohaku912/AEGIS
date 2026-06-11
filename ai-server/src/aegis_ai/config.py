@@ -16,57 +16,57 @@ class Config:
 
     # ── gRPC Server ────────────────────────────────────────
     grpc_host: str = field(
-        default_factory=lambda: os.getenv("ELLIE_GRPC_HOST", "0.0.0.0")
+        default_factory=lambda: os.getenv("AEGIS_GRPC_HOST", "0.0.0.0")
     )
     grpc_port: int = field(
-        default_factory=lambda: int(os.getenv("ELLIE_GRPC_PORT", "50051"))
+        default_factory=lambda: int(os.getenv("AEGIS_GRPC_PORT", "50051"))
     )
     max_workers: int = field(
-        default_factory=lambda: int(os.getenv("ELLIE_MAX_WORKERS", "10"))
+        default_factory=lambda: int(os.getenv("AEGIS_MAX_WORKERS", "10"))
     )
 
     # ── Event Bus ───────────────────────────────────────────
     dedup_window_ms: int = field(
-        default_factory=lambda: int(os.getenv("ELLIE_DEDUP_WINDOW_MS", "30000"))
+        default_factory=lambda: int(os.getenv("AEGIS_DEDUP_WINDOW_MS", "30000"))
     )
 
     # ── Trigger Engine ──────────────────────────────────────
     trigger_enabled: bool = field(
-        default_factory=lambda: os.getenv("ELLIE_TRIGGER_ENABLED", "true").lower() == "true"
+        default_factory=lambda: os.getenv("AEGIS_TRIGGER_ENABLED", "true").lower() == "true"
     )
 
     # ── Policy Engine ───────────────────────────────────────
     policy_default_deny: bool = field(
-        default_factory=lambda: os.getenv("ELLIE_POLICY_DEFAULT_DENY", "true").lower() == "true"
+        default_factory=lambda: os.getenv("AEGIS_POLICY_DEFAULT_DENY", "true").lower() == "true"
     )
 
     # ── Audit Log ───────────────────────────────────────────
     audit_path: str = field(
-        default_factory=lambda: os.getenv("ELLIE_AUDIT_PATH", "data/audit.jsonl")
+        default_factory=lambda: os.getenv("AEGIS_AUDIT_PATH", "data/audit.jsonl")
     )
 
     # ── Approval ────────────────────────────────────────────
     approval_timeout_ms: int = field(
-        default_factory=lambda: int(os.getenv("ELLIE_APPROVAL_TIMEOUT_MS", "60000"))
+        default_factory=lambda: int(os.getenv("AEGIS_APPROVAL_TIMEOUT_MS", "60000"))
     )
     approval_validity_ms: int = field(
-        default_factory=lambda: int(os.getenv("ELLIE_APPROVAL_VALIDITY_MS", "300000"))
+        default_factory=lambda: int(os.getenv("AEGIS_APPROVAL_VALIDITY_MS", "300000"))
     )
 
     # ── LLM (未実装) ─────────────────────────────────────────
     llm_provider: str = field(
-        default_factory=lambda: os.getenv("ELLIE_LLM_PROVIDER", "")
+        default_factory=lambda: os.getenv("AEGIS_LLM_PROVIDER", "")
     )
     llm_model: str = field(
-        default_factory=lambda: os.getenv("ELLIE_LLM_MODEL", "")
+        default_factory=lambda: os.getenv("AEGIS_LLM_MODEL", "")
     )
 
     # ── Autonomous Loop ─────────────────────────────────────
     autonomous_loop_enabled: bool = field(
-        default_factory=lambda: os.getenv("ELLIE_AUTONOMOUS_LOOP_ENABLED", "false").lower() == "true"
+        default_factory=lambda: os.getenv("AEGIS_AUTONOMOUS_LOOP_ENABLED", "false").lower() == "true"
     )
     loop_cooldown_seconds: float = field(
-        default_factory=lambda: float(os.getenv("ELLIE_LOOP_COOLDOWN_SECONDS", "5.0"))
+        default_factory=lambda: float(os.getenv("AEGIS_LOOP_COOLDOWN_SECONDS", "5.0"))
     )
 
 

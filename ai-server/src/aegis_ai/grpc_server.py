@@ -1,7 +1,7 @@
 """gRPC server for AEGIS Core.
 
 Implements the AIServer service defined in protos/aegis/ai_server.proto.
-Uses generated stubs from ai-server/src/generated/ellie/.
+Uses generated stubs from ai-server/src/generated/aegis/.
 
 Minimal implementation:
 - HealthCheck — fully functional

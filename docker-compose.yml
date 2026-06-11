@@ -1,0 +1,176 @@
+# AEGIS — Multi-server Docker Compose configuration
+# Phase 1.2: Skeleton with placeholder services.
+#
+# Usage:
+#   docker compose up -d          # Start all services
+#   docker compose ps              # Check status
+#   docker compose logs -f ai-server  # Follow AI Server logs
+#   docker compose down            # Stop all services
+
+version: "3.9"
+
+# ── Network ──────────────────────────────────────────────────
+# All servers communicate on this internal network via gRPC.
+networks:
+  aegis-net:
+    driver: bridge
+    name: aegis-net
+
+# ── Services ─────────────────────────────────────────────────
+
+services:
+  # ═══════════════════════════════════════════════════════════
+  # AI Server — Central brain of AEGIS
+  # ═══════════════════════════════════════════════════════════
+  ai-server:
+    build:
+      context: .
+      dockerfile: infra/docker/ai-server.Dockerfile
+    container_name: aegis-ai-server
+    hostname: ai-server
+    ports:
+      - "${AEGIS_AI_GRPC_PORT:-50051}:50051"
+    environment:
+      - AEGIS_GRPC_HOST=0.0.0.0
+      - AEGIS_GRPC_PORT=50051
+      - AEGIS_BROWSER_GRPC_ADDR=browser-server:50052
+      - AEGIS_PC_GRPC_ADDR=pc-server:50053
+      - AEGIS_ROOM_GRPC_ADDR=room-server:50054
+      - AEGIS_DEV_GRPC_ADDR=dev-server:50055
+      - AEGIS_TRIGGER_ENABLED=false
+      - AEGIS_AUTONOMOUS_LOOP_ENABLED=false
+      - AEGIS_LOG_LEVEL=${AEGIS_AI_LOG_LEVEL:-INFO}
+    networks:
+      - aegis-net
+    healthcheck:
+      test: ["CMD", "python", "-c", "import grpc; ch=grpc.insecure_channel('localhost:50051'); from generated.aegis import ai_server_pb2_grpc, common_pb2; stub=ai_server_pb2_grpc.AIServerStub(ch); r=stub.HealthCheck(common_pb2.HealthCheckRequest(server_id='hc')); assert r.status.code==0; ch.close()"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+
+  # ═══════════════════════════════════════════════════════════
+  # Browser Server — Web automation (Node.js + Playwright)
+  # ═══════════════════════════════════════════════════════════
+  browser-server:
+    build:
+      context: .
+      dockerfile: infra/docker/browser-server.Dockerfile
+    container_name: aegis-browser-server
+    hostname: browser-server
+    ports:
+      - "${AEGIS_BROWSER_GRPC_PORT:-50052}:50052"
+    environment:
+      - AEGIS_AI_GRPC_ADDR=ai-server:50051
+      - AEGIS_GRPC_PORT=50052
+    networks:
+      - aegis-net
+    healthcheck:
+      test: ["CMD", "node", "-e", "process.exit(0)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+    # Browser automation needs some shared memory for Chromium
+    shm_size: "256m"
+
+  # ═══════════════════════════════════════════════════════════
+  # PC Server — PC control (placeholder)
+  # ═══════════════════════════════════════════════════════════
+  pc-server:
+    build:
+      context: .
+      dockerfile: infra/docker/pc-server.Dockerfile
+    container_name: aegis-pc-server
+    hostname: pc-server
+    ports:
+      - "${AEGIS_PC_GRPC_PORT:-50053}:50053"
+    environment:
+      - AEGIS_AI_GRPC_ADDR=ai-server:50051
+      - AEGIS_GRPC_PORT=50053
+    networks:
+      - aegis-net
+    healthcheck:
+      test: ["CMD", "python", "-c", "print('ok')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+
+  # ═══════════════════════════════════════════════════════════
+  # Room Server — IoT / Room control (placeholder)
+  # ═══════════════════════════════════════════════════════════
+  room-server:
+    build:
+      context: .
+      dockerfile: infra/docker/room-server.Dockerfile
+    container_name: aegis-room-server
+    hostname: room-server
+    ports:
+      - "${AEGIS_ROOM_GRPC_PORT:-50054}:50054"
+    environment:
+      - AEGIS_AI_GRPC_ADDR=ai-server:50051
+      - AEGIS_GRPC_PORT=50054
+    networks:
+      - aegis-net
+    healthcheck:
+      test: ["CMD", "python", "-c", "print('ok')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+
+  # ═══════════════════════════════════════════════════════════
+  # Dev Server — Sandboxed self-development (placeholder)
+  # ═══════════════════════════════════════════════════════════
+  dev-server:
+    build:
+      context: .
+      dockerfile: infra/docker/dev-server.Dockerfile
+    container_name: aegis-dev-server
+    hostname: dev-server
+    ports:
+      - "${AEGIS_DEV_GRPC_PORT:-50055}:50055"
+    environment:
+      - AEGIS_AI_GRPC_ADDR=ai-server:50051
+      - AEGIS_GRPC_PORT=50055
+    networks:
+      - aegis-net
+    healthcheck:
+      test: ["CMD", "python", "-c", "print('ok')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+    # Dev Server is sandboxed — no Docker socket, no host mounts
+    # Only mount the AEGIS repo as read-only for observation
+    volumes:
+      - .:/workspace:ro
+    # Security: read-only root filesystem
+    read_only: true
+    tmpfs:
+      - /tmp:size=256M
+
+  # ═══════════════════════════════════════════════════════════
+  # Android Server — commented out (runs on actual Android device)
+  # ═══════════════════════════════════════════════════════════
+  # android-server:
+  #   build:
+  #     context: .
+  #     dockerfile: infra/docker/android-server.Dockerfile
+  #   container_name: aegis-android-server
+  #   hostname: android-server
+  #   ports:
+  #     - "${AEGIS_ANDROID_GRPC_PORT:-50056}:50056"
+  #   environment:
+  #     - AEGIS_AI_GRPC_ADDR=ai-server:50051
+  #   networks:
+  #     - aegis-net
+  #   restart: unless-stopped
+  #   # Note: Android Server typically runs on the device itself.
+  #   # This containerized version is for CI/testing only.

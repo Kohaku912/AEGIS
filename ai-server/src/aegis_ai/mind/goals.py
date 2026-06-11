@@ -18,7 +18,7 @@ class GoalStatus(Enum):
 
 @dataclass
 class Goal:
-    """A goal tracked by Ellie."""
+    """A goal tracked by Aegis."""
     goal_id: str = ""
     description: str = ""
     priority: int = 5           # 1=highest, 10=lowest

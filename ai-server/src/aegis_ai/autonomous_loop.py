@@ -35,7 +35,7 @@ class LoopResult:
 
 
 class AutonomousLoop:
-    """Core decision loop for Ellie.
+    """Core decision loop for Aegis.
 
     Architecture reference: docs/architecture.md §5.3
 
