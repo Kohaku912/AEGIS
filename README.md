@@ -1,10 +1,10 @@
-# AEGIS — Ellie: Autonomous Multi-Device AI
+# AEGIS — AEGIS: Autonomous Multi-Device AI
 
-Ellie is an event-driven, self-improving AI assistant that coordinates across multiple devices and servers.
+AEGIS is an event-driven, self-improving AI assistant that coordinates across multiple devices and servers.
 
 ## Architecture
 
-Ellie consists of 6 gRPC-connected servers:
+AEGIS consists of 6 gRPC-connected servers:
 - **AI Server** (Python) — Central brain, event orchestration, LLM integration
 - **PC Server** — PC control and monitoring
 - **Android Server** (Kotlin) — Mobile device integration

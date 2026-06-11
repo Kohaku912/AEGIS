@@ -1,0 +1,171 @@
+syntax = "proto3";
+
+package aegis;
+
+import "aegis/common.proto";
+
+// Android Server — mobile device integration (Kotlin/Android).
+// SMS/DM sending is Level 2+ and must go through approval.
+
+option go_package = "github.com/Kohaku912/AEGIS/protos/aegis";
+
+service AndroidServer {
+  // ── Observe ──────────────────────────────────────────────
+  rpc GetScreenshot(GetAndroidScreenshotRequest) returns (GetAndroidScreenshotResponse);
+  rpc GetCurrentApp(GetCurrentAppRequest) returns (GetCurrentAppResponse);
+  rpc GetUiTree(GetUiTreeRequest) returns (GetUiTreeResponse);
+  rpc GetNotifications(GetNotificationsRequest) returns (GetNotificationsResponse);
+
+  // ── Input ────────────────────────────────────────────────
+  rpc Tap(TapRequest) returns (TapResponse);
+  rpc Swipe(SwipeRequest) returns (SwipeResponse);
+  rpc TypeText(AndroidTypeTextRequest) returns (AndroidTypeTextResponse);
+  rpc PressBack(PressBackRequest) returns (PressBackResponse);
+  rpc PressHome(PressHomeRequest) returns (PressHomeResponse);
+
+  // ── App Control ──────────────────────────────────────────
+  rpc OpenApp(OpenAppRequest) returns (OpenAppResponse);
+  rpc ShowOverlay(AndroidShowOverlayRequest) returns (AndroidShowOverlayResponse);
+
+  // ── Health ───────────────────────────────────────────────
+  rpc HealthCheck(HealthCheckRequest) returns (HealthCheckResponse);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Observe
+// ═══════════════════════════════════════════════════════════════
+
+message GetAndroidScreenshotRequest {
+  int32 quality = 1;                // 1–100
+}
+
+message GetAndroidScreenshotResponse {
+  Status status = 1;
+  bytes image_data = 2;
+  int32 width = 3;
+  int32 height = 4;
+}
+
+message GetCurrentAppRequest {}
+
+message GetCurrentAppResponse {
+  Status status = 1;
+  string package_name = 2;
+  string activity_name = 3;
+  string app_name = 4;
+}
+
+message GetUiTreeRequest {
+  bool include_invisible = 1;       // Include non-visible nodes
+}
+
+message UiNode {
+  string class_name = 1;
+  string text = 2;
+  string content_desc = 3;
+  string resource_id = 4;
+  bool is_clickable = 5;
+  bool is_focusable = 6;
+  int32 x = 7;
+  int32 y = 8;
+  int32 width = 9;
+  int32 height = 10;
+  repeated UiNode children = 11;
+}
+
+message GetUiTreeResponse {
+  Status status = 1;
+  UiNode root = 2;
+}
+
+message GetNotificationsRequest {
+  int32 max_count = 1;              // 0 = all
+}
+
+message AndroidNotification {
+  string key = 1;
+  string package_name = 2;
+  string app_name = 3;
+  string title = 4;
+  string text = 5;
+  int64 posted_ms = 6;
+  bool is_ongoing = 7;
+  bool is_clearable = 8;
+}
+
+message GetNotificationsResponse {
+  Status status = 1;
+  repeated AndroidNotification notifications = 2;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Input
+// ═══════════════════════════════════════════════════════════════
+
+message TapRequest {
+  int32 x = 1;
+  int32 y = 2;
+  int32 duration_ms = 3;            // For long-press
+}
+
+message TapResponse {
+  Status status = 1;
+}
+
+message SwipeRequest {
+  int32 start_x = 1;
+  int32 start_y = 2;
+  int32 end_x = 3;
+  int32 end_y = 4;
+  int32 duration_ms = 5;
+}
+
+message SwipeResponse {
+  Status status = 1;
+}
+
+message AndroidTypeTextRequest {
+  string text = 1;
+}
+
+message AndroidTypeTextResponse {
+  Status status = 1;
+  int32 characters_typed = 2;
+}
+
+message PressBackRequest {}
+
+message PressBackResponse {
+  Status status = 1;
+}
+
+message PressHomeRequest {}
+
+message PressHomeResponse {
+  Status status = 1;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// App Control
+// ═══════════════════════════════════════════════════════════════
+
+message OpenAppRequest {
+  string package_name = 1;
+  string activity_name = 2;         // Optional — launch default if empty
+}
+
+message OpenAppResponse {
+  Status status = 1;
+}
+
+message AndroidShowOverlayRequest {
+  string text = 1;
+  int32 x = 2;
+  int32 y = 3;
+  int32 duration_ms = 4;
+  string color = 5;
+}
+
+message AndroidShowOverlayResponse {
+  Status status = 1;
+}

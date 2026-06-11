@@ -10,7 +10,7 @@
 version: v2
 modules:
   - path: protos
-    name: buf.build/kohaku912/ellie
+    name: buf.build/kohaku912/aegis
 deps: []
 lint:
   use:

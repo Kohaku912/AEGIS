@@ -91,7 +91,7 @@ buf lint
 ./scripts/generate_protos.sh python
 ```
 
-Output: `ai-server/src/generated/ellie/*_pb2.py`, `*_pb2_grpc.py`, `*_pb2.pyi`
+Output: `ai-server/src/generated/AEGIS/*_pb2.py`, `*_pb2_grpc.py`, `*_pb2.pyi`
 
 **What is generated:**
 
@@ -104,8 +104,8 @@ Output: `ai-server/src/generated/ellie/*_pb2.py`, `*_pb2_grpc.py`, `*_pb2.pyi`
 **Import example:**
 
 ```python
-from generated.ellie import common_pb2
-from generated.ellie import ai_server_pb2, ai_server_pb2_grpc
+from generated.AEGIS import common_pb2
+from generated.AEGIS import ai_server_pb2, ai_server_pb2_grpc
 
 # Use proto enums
 level = common_pb2.SafetyLevel.LEVEL_0_READ
@@ -140,21 +140,21 @@ protoc \
   -I protos \
   --js_out=import_style=commonjs,binary:browser-server/src/generated \
   --grpc_out=grpc_js:browser-server/src/generated \
-  protos/ellie/*.proto
+  protos/AEGIS/*.proto
 
 # Or using grpc_tools_node_protoc
 grpc_tools_node_protoc \
   --js_out=import_style=commonjs,binary:browser-server/src/generated \
   --grpc_out=grpc_js:browser-server/src/generated \
   --proto_path=protos \
-  protos/ellie/*.proto
+  protos/AEGIS/*.proto
 ```
 
 **Import example (TypeScript):**
 
 ```typescript
-import { SafetyLevel, Capability } from './generated/ellie/common_pb';
-import { BrowserServerClient } from './generated/ellie/browser_server_grpc_pb';
+import { SafetyLevel, Capability } from './generated/AEGIS/common_pb';
+import { BrowserServerClient } from './generated/AEGIS/browser_server_grpc_pb';
 ```
 
 ---
@@ -217,7 +217,7 @@ cd AEGIS && buf lint
 # Python
 cd AEGIS/ai-server
 python -c "
-from generated.ellie import common_pb2
+from generated.AEGIS import common_pb2
 assert common_pb2.SafetyLevel.Name(1) == 'LEVEL_0_READ'
 print('OK')
 "
@@ -256,12 +256,12 @@ jobs:
 
 ```
 AEGIS/
-├── protos/ellie/           # Proto definitions (source of truth)
+├── protos/AEGIS/           # Proto definitions (source of truth)
 ├── buf.yaml                # buf configuration
 ├── scripts/
 │   ├── generate_protos.ps1 # Windows generation script
 │   └── generate_protos.sh  # Linux/macOS generation script
-├── ai-server/src/generated/ellie/  # Python generated code (committed)
+├── ai-server/src/generated/AEGIS/  # Python generated code (committed)
 ├── browser-server/src/generated/   # Node.js generated code (committed, when generated)
 └── android-server/src/main/proto/  # Symlink to protos/ (Gradle generates code)
 ```
@@ -302,5 +302,5 @@ protobuf {
 # .github/workflows/proto-lint.yml (planned)
 - name: Check proto syntax
   run: |
-    python -m grpc_tools.protoc -I protos --python_out=/tmp/proto_out protos/ellie/*.proto
+    python -m grpc_tools.protoc -I protos --python_out=/tmp/proto_out protos/AEGIS/*.proto
 ```

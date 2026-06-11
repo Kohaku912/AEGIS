@@ -23,7 +23,7 @@ from dataclasses import dataclass, field
 from enum import Enum, auto
 from typing import Any, Callable
 
-from ellie_schema.models import Capability, RiskLevel
+from aegis_schema.models import Capability, RiskLevel
 
 from policy_engine import PolicyDecision, PolicyEngine, PolicyResult, create_default_policy_engine
 from tool_registry import ToolRegistry

@@ -15,12 +15,11 @@ import time
 
 import pytest
 
-from ellie_schema.models import Capability, RiskLevel, ServerType
-from approval import ApprovalRequest, ApprovalStatus, ApprovalStore, ApprovalType
+from aegis_schema.models import Capability, RiskLevel, ServerType
+from approval import ApprovalStatus, ApprovalStore, ApprovalType
 from policy_engine import (
     PolicyDecision,
     PolicyEngine,
-    PolicyResult,
     create_default_policy_engine,
 )
 from tool_broker import InvokeStatus, ToolBroker
@@ -407,7 +406,7 @@ class TestToolBrokerPolicyIntegration:
         broker = _setup_broker([cap])
 
         # All public methods that could execute:
-        public = [m for m in dir(broker) if not m.startswith("_") and callable(getattr(broker, m))]
+        _public = [m for m in dir(broker) if not m.startswith("_") and callable(getattr(broker, m))]
         # invoke_tool and invoke_tool_approved are the only execution methods
         # Both go through policy — structurally enforced
 

@@ -1,4 +1,4 @@
-"""Tests for the Ellie capability schema (Pydantic models + validation).
+"""Tests for the AEGIS capability schema (Pydantic models + validation).
 
 Covers:
 1. Enum values
@@ -17,22 +17,22 @@ from pathlib import Path
 
 import pytest
 
-from ellie_schema import (
-    RiskLevel,
-    ServerType,
-    ServerStatus,
+from aegis_schema import (
+    ApprovalRequirement,
+    Capability,
+    Event,
     EventPriority,
     Parameter,
-    Capability,
-    Tool,
+    RiskLevel,
     ServerInfo,
-    ApprovalRequirement,
-    Event,
+    ServerStatus,
+    ServerType,
     Status,
-    validate_capability,
-    validate_capabilities_batch,
-    validate_capability_json,
+    Tool,
     ValidationResult,
+    validate_capabilities_batch,
+    validate_capability,
+    validate_capability_json,
 )
 
 # ── Path to sample capabilities ──────────────────────────────
@@ -296,7 +296,7 @@ class TestSampleCapabilities:
 
     def test_each_capability_has_risk_tag(self, capabilities):
         for cap in capabilities:
-            expected_tag = f"risk:{cap.risk_level.name.lower()}"
+            _expected_tag = f"risk:{cap.risk_level.name.lower()}"
             # This is a warning, not an error — just check the tag exists
             # (some capabilities might not have it, which is valid but warned)
             pass  # validated in validation module with warnings

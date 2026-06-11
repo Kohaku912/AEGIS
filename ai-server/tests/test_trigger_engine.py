@@ -3,21 +3,16 @@
 from __future__ import annotations
 
 import json
-import time
 from pathlib import Path
 
-import pytest
-
-from ellie_schema.models import Event, EventPriority, ServerType
+from aegis_schema.models import Event, EventPriority, ServerType
 from event_bus import EventBus
 from trigger_engine import (
     ActionType,
-    TaskRequest,
     TriggerEngine,
     TriggerRule,
     create_default_rules,
 )
-
 
 SAMPLES_DIR = Path(__file__).parent.parent / "samples"
 

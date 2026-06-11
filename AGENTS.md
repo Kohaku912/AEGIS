@@ -2,14 +2,14 @@
 
 ## Purpose
 
-AEGIS is a platform for **Ellie**, an autonomous multi-device AI assistant.
-Ellie operates via event-driven coordination across multiple servers to provide:
+AEGIS is a platform for **AEGIS**, an autonomous multi-device AI assistant.
+AEGIS operates via event-driven coordination across multiple servers to provide:
 
 - User assistance (schedule, tasks, information)
 - Information gathering and analysis
 - Self-improvement and learning
 
-**Core principle**: Ellie is event-driven, multi-device, and self-improving.
+**Core principle**: AEGIS is event-driven, multi-device, and self-improving.
 All server communication uses **gRPC** with shared protobuf definitions.
 
 ---
@@ -22,7 +22,7 @@ AEGIS/
 ├── README.md              # Human-readable project overview
 ├── docker-compose.yml     # Multi-server orchestration
 ├── protos/                # Shared gRPC proto definitions (single source of truth)
-│   └── ellie/
+│   └── AEGIS/
 │       ├── common.proto
 │       ├── ai_server.proto
 │       ├── pc_server.proto
@@ -48,7 +48,7 @@ AEGIS/
 
 ### AI Server (`ai-server/`)
 - **Runtime**: Python 3.12+
-- **Role**: Central brain of Ellie
+- **Role**: Central brain of AEGIS
 - Orchestrates all other servers via gRPC calls
 - Manages event queue and priority scheduling
 - Handles NLP/LLM integration for user interaction
@@ -182,10 +182,10 @@ docker compose logs -f
 
 | File | Purpose | Priority |
 |------|---------|----------|
-| `protos/ellie/*.proto` | **Single source of truth** for all server APIs | HIGHEST |
-| `protos/ellie/capability.proto` | Capability, Tool, ServerInfo, Event, Approval schema | HIGHEST |
-| `protos/ellie/common.proto` | Shared enums: RiskLevel, ServerType, EventPriority, etc. | HIGHEST |
-| `ai-server/src/ellie_schema/` | Python Pydantic models mirroring proto definitions | HIGH |
+| `protos/AEGIS/*.proto` | **Single source of truth** for all server APIs | HIGHEST |
+| `protos/AEGIS/capability.proto` | Capability, Tool, ServerInfo, Event, Approval schema | HIGHEST |
+| `protos/AEGIS/common.proto` | Shared enums: RiskLevel, ServerType, EventPriority, etc. | HIGHEST |
+| `ai-server/src/AEGIS_schema/` | Python Pydantic models mirroring proto definitions | HIGH |
 | `ai-server/samples/capabilities.json` | 10 sample capability definitions | MEDIUM |
 | `docs/architecture.md` | High-level architecture decisions | HIGH |
 | `docker-compose.yml` | Service definitions, networking, volumes (未作成) | HIGH |
@@ -201,7 +201,7 @@ docker compose logs -f
 ## Files to Check Before Making Changes
 
 1. **`AGENTS.md`** (this file) — Read first, every session
-2. **`protos/ellie/*.proto`** — Understand current API contracts before touching any server
+2. **`protos/AEGIS/*.proto`** — Understand current API contracts before touching any server
 3. **`docs/architecture.md`** — Overall system design, server modules, security model
 4. **`docker-compose.yml`** — Understand service dependencies and networking (when created)
 5. **`docs/adr/`** — Any relevant Architecture Decision Records
@@ -301,8 +301,8 @@ The following operations MUST go through an explicit user approval gate in the A
 - **Remote**: `https://github.com/Kohaku912/AEGIS.git`
 - **Branch**: `main`
 - **Implemented**:
-  - Shared Capability Protocol (`protos/ellie/capability.proto`, `common.proto` extended)
-  - Python Pydantic models + validation (`ai-server/src/ellie_schema/`)
+  - Shared Capability Protocol (`protos/AEGIS/capability.proto`, `common.proto` extended)
+  - Python Pydantic models + validation (`ai-server/src/AEGIS_schema/`)
   - Policy Engine (`ai-server/src/policy_engine.py`) — deterministic safety gate with ApprovalStore
   - Approval System (`ai-server/src/approval.py`) — ApprovalRequest lifecycle + ApprovalStore
   - Tool Registry (`ai-server/src/tool_registry.py`) — capability/server registration & search

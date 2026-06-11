@@ -3,9 +3,9 @@ requires = ["setuptools>=68.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "ellie-ai-server"
+name = "aegis-ai-server"
 version = "0.1.0"
-description = "Ellie AI Server — Central brain of the AEGIS platform"
+description = "AEGIS Core — Central brain of the AEGIS platform"
 requires-python = ">=3.12"
 license = {text = "Proprietary"}
 authors = [
@@ -43,32 +43,34 @@ ignore = ["N802"]  # gRPC method names must be PascalCase (e.g. HealthCheck)
 
 [tool.ruff.lint.per-file-ignores]
 # Re-export modules: unused imports are intentional
-"src/ellie_ai/__init__.py" = ["F401"]
-"src/ellie_ai/event_bus.py" = ["F401"]
-"src/ellie_ai/policy_engine.py" = ["F401"]
-"src/ellie_ai/tool_broker.py" = ["F401"]
-"src/ellie_ai/tool_registry.py" = ["F401"]
-"src/ellie_ai/trigger_engine.py" = ["F401"]
-"src/ellie_ai/approval.py" = ["F401"]
-"src/ellie_ai/agents/__init__.py" = ["F401"]
-"src/ellie_ai/memory/__init__.py" = ["F401"]
-"src/ellie_ai/mind/__init__.py" = ["F401"]
+"src/aegis_ai/__init__.py" = ["F401"]
+"src/aegis_ai/event_bus.py" = ["F401"]
+"src/aegis_ai/policy_engine.py" = ["F401"]
+"src/aegis_ai/tool_broker.py" = ["F401"]
+"src/aegis_ai/tool_registry.py" = ["F401"]
+"src/aegis_ai/trigger_engine.py" = ["F401"]
+"src/aegis_ai/approval.py" = ["F401"]
+"src/aegis_ai/agents/__init__.py" = ["F401"]
+"src/aegis_ai/memory/__init__.py" = ["F401"]
+"src/aegis_ai/mind/__init__.py" = ["F401"]
 # Skeleton modules: unused variables and length are expected
-"src/ellie_ai/grpc_server.py" = ["F401", "F841"]
-"src/ellie_ai/autonomous_loop.py" = ["F841"]
-"src/ellie_ai/planner.py" = ["F841"]
-"src/ellie_ai/scheduler.py" = ["F841"]
-"src/ellie_ai/context_builder.py" = ["F841"]
-"src/ellie_ai/agents/research.py" = ["F841"]
-"src/ellie_ai/agents/support.py" = ["F841"]
-"src/ellie_ai/agents/self_dev.py" = ["F841"]
-"src/ellie_ai/memory/episodic.py" = ["F841"]
-"src/ellie_ai/memory/semantic.py" = ["F841"]
-"src/ellie_ai/memory/procedural.py" = ["F841"]
-"src/ellie_ai/memory/reflection.py" = ["F841"]
-"src/ellie_ai/mind/identity.py" = ["F841"]
-"src/ellie_ai/mind/desire.py" = ["F841"]
-"src/ellie_ai/mind/emotion.py" = ["F841"]
-"src/ellie_ai/mind/goals.py" = ["F841"]
+"src/aegis_ai/grpc_server.py" = ["F401", "F841"]
+"src/aegis_ai/autonomous_loop.py" = ["F841"]
+"src/aegis_ai/planner.py" = ["F841"]
+"src/aegis_ai/scheduler.py" = ["F841"]
+"src/aegis_ai/context_builder.py" = ["F841"]
+"src/aegis_ai/agents/research.py" = ["F841"]
+"src/aegis_ai/agents/support.py" = ["F841"]
+"src/aegis_ai/agents/self_dev.py" = ["F841"]
+"src/aegis_ai/memory/episodic.py" = ["F841"]
+"src/aegis_ai/memory/semantic.py" = ["F841"]
+"src/aegis_ai/memory/procedural.py" = ["F841"]
+"src/aegis_ai/memory/reflection.py" = ["F841"]
+"src/aegis_ai/mind/identity.py" = ["F841"]
+"src/aegis_ai/mind/desire.py" = ["F841"]
+"src/aegis_ai/mind/emotion.py" = ["F841"]
+"src/aegis_ai/mind/goals.py" = ["F841"]
 # Test files
 "tests/test_health.py" = ["F401"]
+# Pre-existing test files: allow long lines in test data
+"tests/test_tool_registry.py" = ["E501"]

@@ -14,17 +14,15 @@ from typing import Any
 
 import pytest
 
-from ellie_schema.models import Capability, RiskLevel, ServerInfo, ServerType
-
+from aegis_schema.models import Capability, RiskLevel, ServerInfo, ServerType
 from policy_engine import (
     PolicyDecision,
     PolicyEngine,
     PolicyResult,
     create_default_policy_engine,
 )
-from tool_broker import InvokeStatus, InvokeResult, ToolBroker
+from tool_broker import InvokeStatus, ToolBroker
 from tool_registry import ToolRegistry
-
 
 # ── Helpers ───────────────────────────────────────────────────
 

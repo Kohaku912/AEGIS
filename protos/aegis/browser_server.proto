@@ -1,0 +1,154 @@
+syntax = "proto3";
+
+package aegis;
+
+import "aegis/common.proto";
+
+// Browser Server — web automation (Node.js + Playwright).
+// SNS posting, DM sending, purchases are Level 2/3 and restricted.
+
+option go_package = "github.com/Kohaku912/AEGIS/protos/aegis";
+
+service BrowserServer {
+  // ── Navigation ───────────────────────────────────────────
+  rpc OpenPage(OpenPageRequest) returns (OpenPageResponse);
+
+  // ── Observe ──────────────────────────────────────────────
+  rpc GetDomSnapshot(GetDomSnapshotRequest) returns (GetDomSnapshotResponse);
+  rpc GetScreenshot(GetBrowserScreenshotRequest) returns (GetBrowserScreenshotResponse);
+  rpc ExtractPageText(ExtractPageTextRequest) returns (ExtractPageTextResponse);
+  rpc GetNetworkLog(GetNetworkLogRequest) returns (GetNetworkLogResponse);
+
+  // ── Interaction ──────────────────────────────────────────
+  rpc Click(BrowserClickRequest) returns (BrowserClickResponse);
+  rpc FillForm(FillFormRequest) returns (FillFormResponse);
+  rpc DownloadFile(DownloadFileRequest) returns (DownloadFileResponse);
+
+  // ── Health ───────────────────────────────────────────────
+  rpc HealthCheck(HealthCheckRequest) returns (HealthCheckResponse);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Navigation
+// ═══════════════════════════════════════════════════════════════
+
+message OpenPageRequest {
+  string url = 1;
+  string wait_until = 2;            // "load", "domcontentloaded", "networkidle"
+  int32 timeout_ms = 3;
+}
+
+message OpenPageResponse {
+  Status status = 1;
+  string title = 2;
+  string final_url = 3;
+  int32 status_code = 4;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Observe
+// ═══════════════════════════════════════════════════════════════
+
+message GetDomSnapshotRequest {
+  string selector = 1;              // CSS selector (empty = full document)
+  bool include_styles = 2;
+}
+
+message GetDomSnapshotResponse {
+  Status status = 1;
+  string html = 2;                  // Outer HTML of matched element(s)
+}
+
+message GetBrowserScreenshotRequest {
+  string selector = 1;              // Element to screenshot (empty = full page)
+  string format = 2;                // "png", "jpeg"
+  int32 quality = 3;                // 1–100
+  bool full_page = 4;
+}
+
+message GetBrowserScreenshotResponse {
+  Status status = 1;
+  bytes image_data = 2;
+  int32 width = 3;
+  int32 height = 4;
+  string format = 5;
+}
+
+message ExtractPageTextRequest {
+  string selector = 1;              // CSS selector (empty = full page text)
+  int32 max_length = 2;             // 0 = unlimited
+  bool include_alt_text = 3;        // Include image alt text
+}
+
+message ExtractPageTextResponse {
+  Status status = 1;
+  string text = 2;
+  int32 char_count = 3;
+  bool truncated = 4;
+}
+
+message GetNetworkLogRequest {
+  int32 max_entries = 1;
+  bool include_response_body = 2;
+}
+
+message NetworkEntry {
+  string url = 1;
+  string method = 2;
+  int32 status_code = 3;
+  string mime_type = 4;
+  int64 size_bytes = 5;
+  int64 duration_ms = 6;
+}
+
+message GetNetworkLogResponse {
+  Status status = 1;
+  repeated NetworkEntry entries = 2;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Interaction
+// ═══════════════════════════════════════════════════════════════
+
+message BrowserClickRequest {
+  string selector = 1;              // CSS selector of element to click
+  int32 x = 2;                      // Coordinate click (if selector empty)
+  int32 y = 3;
+  string button = 4;                // "left", "right", "middle"
+  bool double_click = 5;
+}
+
+message BrowserClickResponse {
+  Status status = 1;
+  string navigated_url = 2;         // If click caused navigation
+}
+
+message FillFormRequest {
+  string form_selector = 1;         // CSS selector of the form
+  repeated FormField fields = 2;
+  bool submit = 3;                  // Submit after filling
+}
+
+message FormField {
+  string selector = 1;              // CSS selector of the input
+  string value = 2;                 // Value to fill
+  string type = 3;                  // "text", "checkbox", "radio", "select"
+}
+
+message FillFormResponse {
+  Status status = 1;
+  int32 fields_filled = 2;
+  bool submitted = 3;
+}
+
+message DownloadFileRequest {
+  string url = 1;
+  string save_path = 2;             // Where to save (server-side)
+  int32 timeout_ms = 3;
+}
+
+message DownloadFileResponse {
+  Status status = 1;
+  string saved_path = 2;
+  int64 size_bytes = 3;
+}

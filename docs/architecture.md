@@ -1,21 +1,21 @@
-# AEGIS Architecture — Ellie: Autonomous Multi-Device AI
+# AEGIS Architecture — AEGIS: Autonomous Multi-Device AI
 
 > **Status**: Draft / Planned (2026-06-11)  
-> **Target audience**: AI coding agents, contributors, and future Ellie herself  
+> **Target audience**: AI coding agents, contributors, and future AEGIS itself  
 > **Related**: [`AGENTS.md`](../AGENTS.md) — rules and conventions for agents working on this repo
 
 ---
 
 ## 1. Project Purpose
 
-Ellie is an **autonomous, event-driven, self-improving AI assistant** that spans multiple devices. She is not a single chatbot — she is a distributed system that:
+AEGIS is an **autonomous, event-driven, self-improving AI assistant** that spans multiple devices. It is not a single chatbot — It is a distributed system that:
 
 - **Observes** events across PC, Android, browser, room sensors, and dev tools
 - **Thinks** via a central AI Server with memory, goals, and identity
 - **Acts** through capability servers — with graduated safety gates
-- **Learns** from outcomes and improves her own codebase (self-development)
+- **Learns** from outcomes and improves its own codebase (self-development)
 
-**Key design constraint**: Ellie must never act dangerously without explicit user approval. Safety is structural (not prompt-based). See [§7 Security Design](#7-security-design).
+**Key design constraint**: AEGIS must never act dangerously without explicit user approval. Safety is structural (not prompt-based). See [§7 Security Design](#7-security-design).
 
 ---
 
@@ -39,7 +39,7 @@ flowchart TB
     end
 
     %% Core
-    subgraph Core["AI Server / Ellie Core"]
+    subgraph Core["AI Server / AEGIS Core"]
         EventBus["Event Bus"]
         TriggerEngine["Trigger Engine"]
         ContextBuilder["Context Builder"]
@@ -103,21 +103,21 @@ flowchart TB
 | Principle | Meaning |
 |-----------|---------|
 | **Contract-first** | All server APIs defined in `.proto` files before implementation |
-| **Event-driven** | No polling loops — Ellie reacts to events, schedules, and user requests |
+| **Event-driven** | No polling loops — AEGIS reacts to events, schedules, and user requests |
 | **Graduated safety** | 4 safety levels — read, safe write, approval-required, prohibited |
-| **Self-improving** | Dev Server enables Ellie to fix and extend her own code in sandboxed workflows |
+| **Self-improving** | Dev Server enables AEGIS to fix and extend its own code in sandboxed workflows |
 | **Extensible** | Servers register capabilities dynamically via Tool Broker; new servers can be added |
 | **Offline-first** | All core logic runs locally; cloud LLM is optional/cacheable |
 
 ### 2.3 Communication
 
-All inter-server communication uses **gRPC** with Protocol Buffers (proto3). The `protos/ellie/` directory is the **single source of truth** for all API contracts. No server may communicate via ad-hoc REST or raw sockets without a proto definition.
+All inter-server communication uses **gRPC** with Protocol Buffers (proto3). The `protos/AEGIS/` directory is the **single source of truth** for all API contracts. No server may communicate via ad-hoc REST or raw sockets without a proto definition.
 
 ---
 
 ## 3. Server Responsibilities
 
-### 3.1 AI Server (Ellie Core)
+### 3.1 AI Server (AEGIS Core)
 
 | Attribute | Value |
 |-----------|-------|
@@ -267,7 +267,7 @@ ai-server/src/
 │   ├── procedural.py     # Learned procedures
 │   └── reflection.py     # Self-analysis & improvement notes
 ├── mind/
-│   ├── identity.py       # Who Ellie is
+│   ├── identity.py       # Who AEGIS is
 │   ├── desire.py         # Goals, curiosity, priorities
 │   ├── emotion.py        # Urgency, confidence state
 │   └── goals.py          # Short/long-term goal tracking
@@ -331,7 +331,7 @@ Proactive user assistance:
 
 ### 5.7 Self Development Agent
 
-Manages Ellie's own improvement (see §8 for full workflow):
+Manages AEGIS's own improvement (see §8 for full workflow):
 - Analyzes Reflection Log for improvement opportunities
 - Formulates code change proposals
 - Delegates to Dev Server for implementation
@@ -370,11 +370,11 @@ Memory is stored locally (未確認: specific database — likely SQLite for sma
 
 ### 5.11 Mind Layer
 
-A structured model of Ellie's "personality" — NOT sentient, but a persistent state that guides decision-making:
+A structured model of AEGIS's "personality" — NOT sentient, but a persistent state that guides decision-making:
 
 | Component | Purpose |
 |-----------|---------|
-| **Identity** | What Ellie is: assistant, researcher, developer, companion |
+| **Identity** | What AEGIS is: assistant, researcher, developer, companion |
 | **Desire** | Priorities: help user > learn > stay safe > be curious |
 | **Emotion** | State indicators: urgency level, confidence, fatigue proxy |
 | **Goals** | Active short-term and long-term goals with progress tracking |
@@ -429,14 +429,14 @@ sequenceDiagram
 
 | Trigger | Source | Example |
 |---------|--------|---------|
-| **PC screen change** | PC Server | Active window changed → Ellie checks if help needed |
-| **Android notification** | Android Server | SMS received → Ellie reads and summarizes |
-| **Room sensor update** | Room Server | Motion detected at unusual time → Ellie alerts user |
-| **Web/RSS/GitHub update** | Browser Server | New GitHub issue on AEGIS repo → Ellie investigates |
-| **Test failure / log error** | Dev Server | CI failed → Ellie diagnoses and proposes fix |
-| **Scheduled** | Scheduler (internal) | Every morning → Ellie prepares daily briefing |
-| **User request** | UI / chat | Direct command → Ellie executes immediately |
-| **Reflection trigger** | Autonomous Loop | After N actions → Ellie reviews and writes reflection |
+| **PC screen change** | PC Server | Active window changed → AEGIS checks if help needed |
+| **Android notification** | Android Server | SMS received → AEGIS reads and summarizes |
+| **Room sensor update** | Room Server | Motion detected at unusual time → AEGIS alerts user |
+| **Web/RSS/GitHub update** | Browser Server | New GitHub issue on AEGIS repo → AEGIS investigates |
+| **Test failure / log error** | Dev Server | CI failed → AEGIS diagnoses and proposes fix |
+| **Scheduled** | Scheduler (internal) | Every morning → AEGIS prepares daily briefing |
+| **User request** | UI / chat | Direct command → AEGIS executes immediately |
+| **Reflection trigger** | Autonomous Loop | After N actions → AEGIS reviews and writes reflection |
 
 ### 6.3 Event Bus Design
 
@@ -519,7 +519,7 @@ The Approval UI is a separate component (not part of the Policy Engine) to ensur
 
 ## 8. Self-Development Workflow
 
-Ellie can improve her own codebase — but only through a strictly gated workflow.
+AEGIS can improve its own codebase — but only through a strictly gated workflow.
 
 ### 8.1 Workflow Diagram
 
@@ -537,7 +537,7 @@ sequenceDiagram
     User->>SDA: Approve investigation
 
     SDA->>DS: Create feature branch
-    DS->>Git: git checkout -b ellie/improve-xxx
+    DS->>Git: git checkout -b AEGIS/improve-xxx
     SDA->>DS: Generate patch
     DS->>DS: Apply patch in sandbox
     DS->>DS: Run tests
@@ -629,7 +629,7 @@ If a self-developed change causes issues:
 | 3.2 | AI Server: Planner | `ai-server/` | Task decomposition |
 | 3.3 | AI Server: Research Agent | `ai-server/` | Multi-source research via Browser Server |
 | 3.4 | AI Server: Approval UI | `ai-server/` | User-facing approval for Level 2/3 actions |
-| 3.5 | Integration test: "Research a topic" | All active | E2E: user asks question → Ellie researches → returns summary |
+| 3.5 | Integration test: "Research a topic" | All active | E2E: user asks question → AEGIS researches → returns summary |
 
 ### Phase 4: Additional Servers
 
@@ -648,7 +648,7 @@ If a self-developed change causes issues:
 | 5.2 | Dev Server: branch/patch/test/PR | `dev-server/` | Full self-dev workflow |
 | 5.3 | Self Dev Agent | `ai-server/` | Analyze Reflection → propose → delegate |
 | 5.4 | Reflection memory | `ai-server/` | Structured self-analysis after actions |
-| 5.5 | Self-dev E2E | All active | Ellie proposes and creates a real PR (with user merge) |
+| 5.5 | Self-dev E2E | All active | AEGIS proposes and creates a real PR (with user merge) |
 
 ### Phase 6: Mind + Advanced Memory
 
@@ -667,13 +667,13 @@ These are explicitly deferred to avoid scope creep. They may be reconsidered in 
 
 | Item | Reason for deferral |
 |------|---------------------|
-| **Cloud deployment / SaaS** | Ellie runs locally first |
+| **Cloud deployment / SaaS** | AEGIS runs locally first |
 | **Multi-user support** | Single user (owner) for MVP; multi-user adds significant security complexity |
 | **Voice I/O** | Text-first MVP; voice is a UX layer on top |
 | **Real-time video processing** | Camera still frames only for MVP |
 | **Financial transactions** | Too high-risk for initial phases |
 | **Third-party app store / plugin marketplace** | Capabilities are manually configured initially |
-| **Federation (multiple Ellie instances collaborating)** | Single-instance first |
+| **Federation (multiple AEGIS instances collaborating)** | Single-instance first |
 | **Mobile app for Room Server control** | Web UI first |
 | **End-to-end encryption of all inter-server traffic** | Local network trust for MVP; TLS added later |
 | **LLM fine-tuning / custom model training** | Use off-the-shelf LLM APIs first |
@@ -690,8 +690,8 @@ These are explicitly deferred to avoid scope creep. They may be reconsidered in 
 | `AGENTS.md` | Agent guidance | ✅ Created |
 | `README.md` | Project overview | ✅ Created |
 | `.gitignore` | Language/secret exclusions | ✅ Created |
-| `protos/ellie/common.proto` | `Status` message only | ✅ Skeleton |
-| `protos/ellie/ai_server.proto` | Empty service definition | ⚠️ Placeholder |
+| `protos/AEGIS/common.proto` | `Status` message only | ✅ Skeleton |
+| `protos/AEGIS/ai_server.proto` | Empty service definition | ⚠️ Placeholder |
 | `Mermaid.md` | Architecture diagram (Mermaid) | ✅ Reference |
 | Directory structure | All 6 servers + docs/ + protos/ | ✅ Skeleton |
 
@@ -699,11 +699,11 @@ These are explicitly deferred to avoid scope creep. They may be reconsidered in 
 
 | File | Phase |
 |------|-------|
-| `protos/ellie/pc_server.proto` | 1.1 |
-| `protos/ellie/android_server.proto` | 1.1 |
-| `protos/ellie/room_server.proto` | 1.1 |
-| `protos/ellie/browser_server.proto` | 1.1 |
-| `protos/ellie/dev_server.proto` | 1.1 |
+| `protos/AEGIS/pc_server.proto` | 1.1 |
+| `protos/AEGIS/android_server.proto` | 1.1 |
+| `protos/AEGIS/room_server.proto` | 1.1 |
+| `protos/AEGIS/browser_server.proto` | 1.1 |
+| `protos/AEGIS/dev_server.proto` | 1.1 |
 | `docker-compose.yml` | 1.2 |
 | `ai-server/pyproject.toml` | 1.3 |
 | `ai-server/src/*` (all modules in §5) | 1.3–1.6 |
@@ -719,14 +719,14 @@ There is no existing implementation code — only skeleton files. The architectu
 
 | Term | Definition |
 |------|------------|
-| **Ellie** | The AI assistant — the persona that users interact with |
+| **AEGIS** | The AI assistant — the persona that users interact with |
 | **AEGIS** | The codebase / platform name |
 | **Capability** | A specific function a server can perform (observe or act) |
 | **Tool Broker** | Registry of all available capabilities |
 | **Autonomous Loop** | The observe→think→plan→act→verify→reflect cycle |
 | **Policy Engine** | Deterministic safety rules engine (not LLM) |
 | **Mind Layer** | Structured personality model (not sentient AI) |
-| **Self Development** | Ellie improving her own codebase via Dev Server |
+| **Self Development** | AEGIS improving its own codebase via Dev Server |
 
 ## Appendix B: Related Documents
 
@@ -735,5 +735,5 @@ There is no existing implementation code — only skeleton files. The architectu
 | [`AGENTS.md`](../AGENTS.md) | Rules for AI coding agents working on this repo |
 | [`README.md`](../README.md) | Human-readable project overview |
 | [`Mermaid.md`](../Mermaid.md) | Standalone architecture diagram (Mermaid source) |
-| [`protos/ellie/`](../protos/ellie/) | gRPC API definitions (single source of truth) |
+| [`protos/AEGIS/`](../protos/AEGIS/) | gRPC API definitions (single source of truth) |
 | `docs/adr/` | Architecture Decision Records (to be created) |

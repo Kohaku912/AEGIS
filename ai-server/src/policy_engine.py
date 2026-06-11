@@ -18,7 +18,7 @@ from dataclasses import dataclass, field
 from enum import Enum, auto
 from typing import Any, Callable
 
-from ellie_schema.models import Capability, RiskLevel
+from aegis_schema.models import Capability, RiskLevel
 
 from approval import ApprovalRequest, ApprovalStore, ApprovalType
 
@@ -229,7 +229,7 @@ class PolicyEngine:
             capability_id=capability.id, tool_name=capability.name,
             requested_action=f"Execute '{capability.name}' ({capability.id})",
             human_readable_summary=(
-                f"Ellie wants to: {capability.description}\n"
+                f"AEGIS wants to: {capability.description}\n"
                 f"Risk level: {capability.risk_level.name}\n"
                 f"Side effects: {', '.join(capability.side_effects) if capability.side_effects else 'None'}"
             ),

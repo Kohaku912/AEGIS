@@ -18,7 +18,7 @@ from dataclasses import dataclass, field
 from enum import Enum, auto
 from typing import Any
 
-from ellie_schema.models import Event, EventPriority, ServerType
+from aegis_schema.models import Event, EventPriority, ServerType
 
 
 # ═══════════════════════════════════════════════════════════════

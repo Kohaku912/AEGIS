@@ -23,13 +23,13 @@ Write-Host "[2/3] Generating code for: $Language" -ForegroundColor Cyan
 Push-Location $RootDir
 try {
     $protoList = @(
-        "protos/ellie/common.proto",
-        "protos/ellie/ai_server.proto",
-        "protos/ellie/pc_server.proto",
-        "protos/ellie/android_server.proto",
-        "protos/ellie/browser_server.proto",
-        "protos/ellie/room_server.proto",
-        "protos/ellie/dev_server.proto"
+        "protos/aegis/common.proto",
+        "protos/aegis/ai_server.proto",
+        "protos/aegis/pc_server.proto",
+        "protos/aegis/android_server.proto",
+        "protos/aegis/browser_server.proto",
+        "protos/aegis/room_server.proto",
+        "protos/aegis/dev_server.proto"
     )
 
     if ($Language -eq "python" -or $Language -eq "all") {
@@ -38,10 +38,10 @@ try {
         python -m grpc_tools.protoc -I protos --python_out=$OutDir --grpc_python_out=$OutDir --pyi_out=$OutDir $protoList
 
         # Fix generated imports
-        $genDir = Join-Path $OutDir "ellie"
+        $genDir = Join-Path $OutDir "aegis"
         Get-ChildItem -Path $genDir -Filter "*_pb2*.py" | ForEach-Object {
             $c = Get-Content $_.FullName -Raw
-            $c = $c -replace "from ellie import", "from generated.ellie import"
+            $c = $c -replace "from aegis import", "from generated.aegis import"
             Set-Content -NoNewline -Path $_.FullName -Value $c
         }
         Write-Host "  OK Python stubs -> $OutDir" -ForegroundColor Green
@@ -64,7 +64,7 @@ Write-Host "[3/3] Verification..." -ForegroundColor Cyan
 Push-Location $RootDir
 try {
     if ($Language -eq "python" -or $Language -eq "all") {
-        $genDir = "ai-server\src\generated\ellie"
+        $genDir = "ai-server\src\generated\\aegis"
         if (Test-Path $genDir) {
             $count = (Get-ChildItem -Path $genDir -Filter "*_pb2*.py").Count
             Write-Host "  OK $count Python stub files" -ForegroundColor Green

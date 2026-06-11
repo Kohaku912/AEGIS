@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from ellie_schema.models import Capability, RiskLevel, ServerInfo, ServerStatus, ServerType
+from aegis_schema.models import Capability, RiskLevel, ServerInfo, ServerStatus, ServerType
 
 
 @dataclass

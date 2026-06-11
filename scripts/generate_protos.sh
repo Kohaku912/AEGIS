@@ -32,20 +32,20 @@ case "$LANGUAGE" in
       --python_out="$OUT_DIR" \
       --grpc_python_out="$OUT_DIR" \
       --pyi_out="$OUT_DIR" \
-      protos/ellie/common.proto \
-      protos/ellie/ai_server.proto \
-      protos/ellie/pc_server.proto \
-      protos/ellie/android_server.proto \
-      protos/ellie/browser_server.proto \
-      protos/ellie/room_server.proto \
-      protos/ellie/dev_server.proto
+      protos/aegis/common.proto \
+      protos/aegis/ai_server.proto \
+      protos/aegis/pc_server.proto \
+      protos/aegis/android_server.proto \
+      protos/aegis/browser_server.proto \
+      protos/aegis/room_server.proto \
+      protos/aegis/dev_server.proto
 
     # Fix relative imports in generated files (Linux/macOS sed)
     for f in "$OUT_DIR"/*_pb2*.py; do
-      sed -i '' 's/import ellie_common_pb2/from generated import common_pb2 as ellie_common_pb2/' "$f" 2>/dev/null || \
-      sed -i 's/import ellie_common_pb2/from generated import common_pb2 as ellie_common_pb2/' "$f"
-      sed -i '' 's/from ellie import/from generated import/' "$f" 2>/dev/null || \
-      sed -i 's/from ellie import/from generated import/' "$f"
+      sed -i '' 's/import aegis_common_pb2/from generated import common_pb2 as aegis_common_pb2/' "$f" 2>/dev/null || \
+      sed -i 's/import aegis_common_pb2/from generated import common_pb2 as aegis_common_pb2/' "$f"
+      sed -i '' 's/from aegis import/from generated import/' "$f" 2>/dev/null || \
+      sed -i 's/from aegis import/from generated import/' "$f"
     done
 
     echo -e "\033[32m  ✅ Python stubs generated to: $OUT_DIR\033[0m"
@@ -59,7 +59,7 @@ case "$LANGUAGE" in
         --js_out="import_style=commonjs,binary:$OUT_DIR" \
         --grpc_out="grpc_js:$OUT_DIR" \
         --proto_path=protos \
-        protos/ellie/*.proto
+        protos/aegis/*.proto
       echo -e "\033[32m  ✅ Node.js stubs generated to: $OUT_DIR\033[0m"
     else
       echo -e "\033[33m  ⚠️  grpc_tools_node_protoc not found."

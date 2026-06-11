@@ -4,15 +4,14 @@ from __future__ import annotations
 
 import pytest
 
-from ellie_schema.models import (
+from aegis_schema.models import (
     Capability,
     RiskLevel,
     ServerInfo,
     ServerStatus,
     ServerType,
 )
-from tool_registry import RegistryStats, ToolRegistry
-
+from tool_registry import ToolRegistry
 
 # ── Helpers ───────────────────────────────────────────────────
 
@@ -130,13 +129,11 @@ class TestCapabilityRegistration:
 
     def test_register_unspecified_risk_raises(self):
         """Pydantic model_validator rejects UNSPECIFIED before ToolRegistry sees it."""
-        reg = ToolRegistry()
         with pytest.raises(ValueError, match="UNSPECIFIED"):
             _make_cap("pc.test", risk_level=RiskLevel.UNSPECIFIED)
 
     def test_register_forbidden_risk_raises(self):
         """Pydantic model_validator rejects FORBIDDEN before ToolRegistry sees it."""
-        reg = ToolRegistry()
         with pytest.raises(ValueError, match="FORBIDDEN"):
             _make_cap("pc.test", risk_level=RiskLevel.FORBIDDEN)
 

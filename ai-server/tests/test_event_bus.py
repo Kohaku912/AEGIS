@@ -6,11 +6,8 @@ import json
 import time
 from pathlib import Path
 
-import pytest
-
-from ellie_schema.models import Event, EventPriority, ServerType
+from aegis_schema.models import Event, EventPriority, ServerType
 from event_bus import EventBus
-
 
 SAMPLES_DIR = Path(__file__).parent.parent / "samples"
 

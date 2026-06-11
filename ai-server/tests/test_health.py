@@ -4,18 +4,18 @@ from __future__ import annotations
 
 import grpc
 
-from ellie_ai.config import Config
-from ellie_ai.grpc_server import EllieAIServicer
+from aegis_ai.config import Config
+from aegis_ai.grpc_server import AegisAIServicer
 
 # Generated stubs
-from generated.ellie.common_pb2 import HealthCheckRequest, ServerStatus
+from generated.aegis.common_pb2 import HealthCheckRequest, ServerStatus
 
 
 class TestHealthCheck:
     """Verify the HealthCheck gRPC endpoint works."""
 
     def test_health_check_returns_online(self):
-        servicer = EllieAIServicer(Config())
+        servicer = AegisAIServicer(Config())
         request = HealthCheckRequest(server_id="test-client")
         # Call directly (no gRPC server needed for unit test)
         response = servicer.HealthCheck(request, context=None)  # type: ignore[arg-type]
@@ -25,7 +25,7 @@ class TestHealthCheck:
         assert response.version == "0.1.0"
 
     def test_servicer_instantiation(self):
-        servicer = EllieAIServicer(Config())
+        servicer = AegisAIServicer(Config())
         assert servicer is not None
         assert servicer._config.grpc_port == 50051
 
@@ -42,9 +42,9 @@ class TestGrpcServerStartup:
         config.grpc_port = 50052
 
         server = grpc.server(futures.ThreadPoolExecutor(max_workers=2))
-        from generated.ellie import ai_server_pb2_grpc
+        from generated.aegis import ai_server_pb2_grpc
         ai_server_pb2_grpc.add_AIServerServicer_to_server(
-            EllieAIServicer(config), server
+            AegisAIServicer(config), server
         )
 
         port = server.add_insecure_port(f"localhost:{config.grpc_port}")

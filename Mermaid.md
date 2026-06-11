@@ -20,7 +20,7 @@ flowchart TB
     %% =====================
     %% Core
     %% =====================
-    subgraph Core["AI Server / Ellie Core"]
+    subgraph Core["AI Server / AEGIS Core"]
         EventBus["Event Bus<br/>全サーバーからの更新を集約"]
         TriggerEngine["Trigger Engine<br/>情報更新にフックしてAIを起動"]
         ContextBuilder["Context Builder<br/>現在状況・記憶・目的を統合"]

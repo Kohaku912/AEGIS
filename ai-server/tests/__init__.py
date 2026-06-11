@@ -1,1 +1,1 @@
-# Test package for ellie_schema
+# Test package for aegis_schema

@@ -13,7 +13,7 @@ from collections import deque
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
-from ellie_schema.models import Event, EventPriority
+from aegis_schema.models import Event, EventPriority
 
 
 # ── Type aliases ──────────────────────────────────────────────

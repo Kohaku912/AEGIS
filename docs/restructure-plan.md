@@ -32,7 +32,7 @@ AEGIS/
 │   ├── src/.gitkeep
 │   └── tests/.gitkeep
 ├── protos/                   # gRPC proto definitions
-│   └── ellie/
+│   └── AEGIS/
 │       ├── common.proto
 │       └── ai_server.proto
 └── docs/
@@ -117,7 +117,7 @@ AEGIS/
 │
 ├── packages/                    # [NEW] Shared libraries & protocol
 │   ├── protocol/                # [MOVED from protos/]
-│   │   └── ellie/
+│   │   └── AEGIS/
 │   │       ├── common.proto
 │   │       ├── ai_server.proto
 │   │       └── (future proto files)
@@ -224,7 +224,7 @@ git ls-tree -r HEAD --name-only
 ```bash
 # Create target directories
 mkdir -p apps
-mkdir -p packages/protocol/ellie
+mkdir -p packages/protocol/AEGIS
 mkdir -p packages/common
 mkdir -p infra
 mkdir -p firmware
@@ -282,7 +282,7 @@ git log --follow apps/ai-server/src/.gitkeep
 
 ```bash
 # Move the protos directory (contains actual .proto files)
-git mv protos/ellie/ packages/protocol/ellie/
+git mv protos/AEGIS/ packages/protocol/AEGIS/
 
 # Remove the now-empty protos/ directory
 rmdir protos/
@@ -293,7 +293,7 @@ rmdir protos/
 **⚠️ Caution**: Future proto generation scripts will need path updates  
 **Verification**:
 ```bash
-ls packages/protocol/ellie/
+ls packages/protocol/AEGIS/
 # Expected: common.proto  ai_server.proto
 
 # Old path should not exist
@@ -418,12 +418,12 @@ ls packages/common/README.md infra/README.md firmware/README.md
 | `AGENTS.md` | `dev-server/` | `apps/dev-sandbox-server/` | ~2 occurrences |
 | `AGENTS.md` | `Mermaid.md` | `docs/Mermaid.md` | 1 occurrence |
 | `docs/architecture.md` | `ai-server/` | `apps/ai-server/` | ~12 occurrences |
-| `docs/architecture.md` | `protos/ellie/` | `packages/protocol/ellie/` | ~8 occurrences |
+| `docs/architecture.md` | `protos/AEGIS/` | `packages/protocol/AEGIS/` | ~8 occurrences |
 | `docs/architecture.md` | `dev-server/` | `apps/dev-sandbox-server/` | ~5 occurrences |
 | `README.md` | `ai-server/` → etc. | `apps/ai-server/` → etc. | ~2 occurrences |
 | `.gitignore` | `android-server/` | `apps/android-server/` | ~4 occurrences |
-| `protos/ellie/ai_server.proto` | Go import path | Update | 1 occurrence |
-| `protos/ellie/common.proto` | Go import path | Update | 1 occurrence |
+| `protos/AEGIS/ai_server.proto` | Go import path | Update | 1 occurrence |
+| `protos/AEGIS/common.proto` | Go import path | Update | 1 occurrence |
 
 #### 6.2 Update Commands
 
@@ -447,8 +447,8 @@ ls packages/common/README.md infra/README.md firmware/README.md
 # .gitignore → update android-server path if needed
 
 # Proto files → update go_package option
-# common.proto: go_package = "github.com/Kohaku912/AEGIS/packages/protocol/ellie";
-# ai_server.proto: go_package = "github.com/Kohaku912/AEGIS/packages/protocol/ellie";
+# common.proto: go_package = "github.com/Kohaku912/AEGIS/packages/protocol/AEGIS";
+# ai_server.proto: go_package = "github.com/Kohaku912/AEGIS/packages/protocol/AEGIS";
 ```
 
 > **⚠️ WARNING**: This is the highest-risk phase. Do NOT use bulk sed — review every change. Commit after each file is updated.
@@ -491,7 +491,7 @@ grep -r "ai-server/" --include="*.md" . | grep -v "apps/" | grep -v ".git/"
 # Expected: no output
 
 # 6. Proto files accessible at new path
-ls packages/protocol/ellie/common.proto packages/protocol/ellie/ai_server.proto
+ls packages/protocol/AEGIS/common.proto packages/protocol/AEGIS/ai_server.proto
 
 # 7. Mermaid.md accessible at new path
 ls docs/Mermaid.md
@@ -539,8 +539,8 @@ Phase 7: git commit -m "restructure: final verification — structure complete"
 
 | File | Current | After |
 |------|---------|-------|
-| `ai_server.proto` | `import "ellie/common.proto";` | No change needed (relative import within same package) |
-| `common.proto` | `option go_package = "github.com/Kohaku912/AEGIS/protos/ellie";` | `option go_package = "github.com/Kohaku912/AEGIS/packages/protocol/ellie";` |
+| `ai_server.proto` | `import "AEGIS/common.proto";` | No change needed (relative import within same package) |
+| `common.proto` | `option go_package = "github.com/Kohaku912/AEGIS/protos/AEGIS";` | `option go_package = "github.com/Kohaku912/AEGIS/packages/protocol/AEGIS";` |
 
 ### 7.3 `.gitignore` Patterns
 
@@ -588,7 +588,7 @@ grep -rn "protos/" --include="*.md" --include="*.proto" . | grep -v "packages/" 
 grep -rn "dev-server/" --include="*.md" . | grep -v "apps/dev-sandbox" | grep -v ".git/"
 
 # 6. Proto files valid
-ls packages/protocol/ellie/*.proto
+ls packages/protocol/AEGIS/*.proto
 
 # 7. Git history intact
 git log --follow apps/ai-server/src/.gitkeep
