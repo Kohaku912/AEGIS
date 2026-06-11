@@ -12,9 +12,8 @@ from __future__ import annotations
 
 import time
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum, auto
-
 
 # ═══════════════════════════════════════════════════════════════
 # Approval Type
@@ -120,6 +119,8 @@ class ApprovalStore:
         self._requests: dict[str, ApprovalRequest] = {}
         # Track consumed one-time approvals: approval_id → consumption timestamp
         self._consumed: set[str] = set()
+        # Permanently denied capabilities (via reject_and_remember)
+        self._denied_capabilities: set[str] = set()
 
     # ── Create ──────────────────────────────────────────────
 
@@ -175,10 +176,54 @@ class ApprovalStore:
         req.status = ApprovalStatus.REJECTED
         return True
 
+    # ── Convenience methods ─────────────────────────────────
+
+    def approve_once(self, approval_id: str) -> bool:
+        """Approve for a single execution (ONE_TIME)."""
+        return self.approve(approval_id, ApprovalType.ONE_TIME)
+
+    def approve_for_session(self, approval_id: str) -> bool:
+        """Approve for the duration of the user session (SESSION)."""
+        return self.approve(approval_id, ApprovalType.SESSION)
+
+    def reject_and_remember(self, approval_id: str) -> bool:
+        """Reject a request AND permanently block this capability.
+
+        Once rejected with remember, future requests for the same capability
+        are automatically denied without prompting the user again.
+        """
+        req = self._requests.get(approval_id)
+        if req is None or req.status != ApprovalStatus.PENDING:
+            return False
+
+        req.status = ApprovalStatus.REJECTED
+        # Remember this denial — block the capability permanently
+        self._denied_capabilities.add(req.capability_id)
+        return True
+
+    def is_permanently_denied(self, capability_id: str) -> bool:
+        """Check if a capability has been permanently denied (via reject_and_remember)."""
+        return capability_id in self._denied_capabilities
+
+    def forget_denial(self, capability_id: str) -> None:
+        """Remove a permanent denial (for testing/admin override)."""
+        self._denied_capabilities.discard(capability_id)
+
     # ── Query ───────────────────────────────────────────────
 
+    def get_pending(self) -> list[ApprovalRequest]:
+        """Alias for get_pending_requests."""
+        return self.get_pending_requests()
+
     def is_approved(self, capability_id: str) -> bool:
-        """Check if there is a valid (non-expired, non-consumed) approval for a capability."""
+        """Check if there is a valid (non-expired, non-consumed) approval for a capability.
+
+        Returns False if the capability has been permanently denied via reject_and_remember.
+        """
+        # Check permanent denials first
+        if capability_id in self._denied_capabilities:
+            return False
+
         self._expire_old()
 
         for req in self._requests.values():
@@ -248,9 +293,10 @@ class ApprovalStore:
         return self._expire_old()
 
     def clear(self) -> None:
-        """Clear all requests (for testing)."""
+        """Clear all requests and denials (for testing)."""
         self._requests.clear()
         self._consumed.clear()
+        self._denied_capabilities.clear()
 
     # ── Internal ────────────────────────────────────────────
 

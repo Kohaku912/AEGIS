@@ -14,12 +14,12 @@ Architecture reference: docs/architecture.md §5.9, §7
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, field
+from collections.abc import Callable
+from dataclasses import dataclass
 from enum import Enum, auto
-from typing import Any, Callable
+from typing import Any
 
 from aegis_schema.models import Capability, RiskLevel
-
 from approval import ApprovalRequest, ApprovalStore, ApprovalType
 
 
@@ -70,22 +70,50 @@ class PolicyEngine:
     }
 
     # ── Explicitly denied patterns (always DENY, regardless of risk_level) ──
-    # These are ALWAYS denied. Per AGENTS.md Security Policy and architecture §7.
+    # Per AGENTS.md Security Policy and architecture §7.
+    # Phase 1.5: Expanded with all mandatory deny categories.
     EXPLICIT_DENY_PATTERNS: list[str] = [
+        # ── Communication: SNS/DM/Email ──
         r".*\.send_sns$", r".*\.post_sns$", r".*\.send_dm$", r".*\.send_message$",
-        r".*\.send_email$", r".*\.delete_file$", r".*\.delete_all$", r".*\.rm_.*",
-        r".*\.wipe_.*", r".*\.upload_.*", r".*\.transmit_.*",
+        r".*\.send_email$",
+        # ── File operations ──
+        r".*\.delete_file$", r".*\.delete_all$", r".*\.rm_.*", r".*\.wipe_.*",
+        r".*\.bulk_delete.*",
+        # ── External transmission ──
+        r".*\.upload_.*", r".*\.transmit_.*", r".*\.external_upload.*",
+        # ── Credential & secret access ──
         r".*\.read_credential.*", r".*\.write_credential.*", r".*\.access_ssh.*",
-        r".*\.access_.*key.*", r"room\.ac_.*", r"room\.robot_arm.*", r"room\.lock_.*",
+        r".*\.access_.*key.*", r".*\.read_secret.*", r".*\.sensitive_file_read.*",
+        # ── Contact & privacy ──
+        r".*\.contact_access.*", r".*\.read_contact.*",
+        # ── Purchases ──
+        r".*\.purchase.*",
+        # ── Physical device control (high-risk) ──
+        r"room\.ac_.*", r"room\.robot_arm.*", r"room\.lock_.*",
+        # ── Self-development (dangerous) ──
         r"dev\.merge_to_main$", r"dev\.push_main$", r"dev\.deploy_production$",
+        r"dev\.production_deploy$",
+        # ── Permission & system changes ──
         r".*\.change_permission.*", r".*\.modify_acl.*", r".*\.grant_.*",
+        r".*\.system_config.*",
+        # ── Policy bypass (structural protection) ──
+        r".*\.bypass_policy.*", r".*\.bypass_approval.*", r".*\.disable_policy.*",
+        r".*\.captcha_bypass.*", r".*\.tos_bypass.*",
     ]
 
     # ── Explicitly approval-required patterns ────────────────
+    # Phase 1.5: Expanded with mandatory approval categories.
     EXPLICIT_APPROVAL_PATTERNS: list[str] = [
-        r"room\.ir_send$", r"room\.set_temperature$", r"dev\.create_pr$",
-        r"dev\.commit_changes$", r"browser\.fill_form$", r"browser\.submit_form$",
+        # Room/Physical control
+        r"room\.ir_send$", r"room\.set_temperature$", r"room\.set_light$",
+        # Dev server
+        r"dev\.create_pr$", r"dev\.commit_changes$",
+        # Browser interaction
+        r"browser\.fill_form$", r"browser\.submit_form$",
+        # PC operations
         r"pc\.install_package$", r"pc\.modify_registry$",
+        # Self-dev PR and main-related
+        r"dev\.create_pull_request$",
     ]
 
     def __init__(self, approval_store: ApprovalStore | None = None) -> None:
@@ -131,7 +159,7 @@ class PolicyEngine:
         result = self._evaluate(capability, params, "autonomous_task")
         if capability.risk_level == RiskLevel.SAFE_ACTION and result.decision == PolicyDecision.ALLOW:
             return self._create_approval_result(capability, params,
-                reason_override=f"Autonomous task requires approval even for SAFE_ACTION.")
+                reason_override="Autonomous task requires approval even for SAFE_ACTION.")
         return result
 
     def evaluate(
