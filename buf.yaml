@@ -1,0 +1,35 @@
+# buf.yaml — Buf build configuration for AEGIS proto files
+# https://buf.build/docs/configuration/v2/buf-yaml
+#
+# Usage:
+#   buf lint          — check proto style
+#   buf breaking      — check for breaking changes (against main)
+#   buf build         — build proto image
+#   buf generate      — generate code (see buf.gen.yaml)
+
+version: v2
+modules:
+  - path: protos
+    name: buf.build/kohaku912/ellie
+deps: []
+lint:
+  use:
+    - STANDARD
+  except:
+    # Allow different RPC request/response naming conventions
+    - RPC_REQUEST_RESPONSE_UNIQUE
+    - RPC_REQUEST_STANDARD_NAME
+    - RPC_RESPONSE_STANDARD_NAME
+    # Service names: we use short names like "PCServer", not "PCServerService"
+    - SERVICE_SUFFIX
+    # Package versioning: not needed for internal-only proto definitions
+    - PACKAGE_VERSION_SUFFIX
+    # Enum value naming: we use UPPER_SNAKE_CASE with SERVER_TYPE_ prefix
+    - ENUM_VALUE_PREFIX
+    - ENUM_VALUE_UPPER_SNAKE_CASE
+    - ENUM_ZERO_VALUE_SUFFIX
+  ignore:
+    # No ignored files — everything is checked
+breaking:
+  use:
+    - FILE
