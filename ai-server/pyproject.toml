@@ -32,6 +32,9 @@ where = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
+markers = [
+    "e2e: End-to-end integration tests (approval flow, autonomous loop)",
+]
 
 [tool.ruff]
 target-version = "py312"
