@@ -176,15 +176,15 @@ class ToolBroker:
         *,
         caller: str = "user-approved",
     ) -> InvokeResult:
-        """Invoke a capability that previously required ASK_APPROVAL.
+        """Invoke a capability AFTER user has approved it via Approval UI.
 
-        This is called AFTER the user explicitly approved the action
-        via the Approval UI. PolicyEngine is re-evaluated (approval state
-        should be updated before calling this).
+        Checks the ApprovalStore for a valid approval before executing.
+        If a valid approval exists:
+        - ONE_TIME approvals are consumed (single use)
+        - SESSION approvals allow repeated execution within the session
 
-        IMPORTANT: Caller MUST have updated PolicyEngine state (e.g., via
-        temporary approval) before calling this method. Otherwise the
-        PolicyEngine will simply deny again.
+        After approval check passes, re-evaluates policy (in case rules changed).
+        If ALLOWED, executes.
         """
         params = params or {}
         invocation_id = str(uuid.uuid4())[:8]
@@ -200,17 +200,32 @@ class ToolBroker:
                 duration_ms=(time.perf_counter() - start_time) * 1000,
             )
 
-        # Re-evaluate policy (approval state should now allow execution)
+        # Check ApprovalStore for valid approval
+        store = self._policy.approval_store
+        if not store.is_approved(capability_id):
+            return InvokeResult(
+                status=InvokeStatus.DENIED,
+                capability_id=capability_id,
+                error=f"No valid approval found for '{capability_id}'. "
+                      "User must approve via Approval UI first.",
+                invocation_id=invocation_id,
+                duration_ms=(time.perf_counter() - start_time) * 1000,
+            )
+
+        # Re-evaluate policy (approval state is now valid)
         policy_result = self._policy.evaluate(cap, params)
         if policy_result.decision != PolicyDecision.ALLOW:
             return InvokeResult(
                 status=InvokeStatus.DENIED,
                 capability_id=capability_id,
-                error=f"Still denied after approval: {policy_result.reason}",
+                error=f"Policy still denies after approval: {policy_result.reason}",
                 policy_result=policy_result,
                 invocation_id=invocation_id,
                 duration_ms=(time.perf_counter() - start_time) * 1000,
             )
+
+        # Consume the approval (ONE_TIME approvals are used up)
+        store.consume_approval(capability_id)
 
         return self._invoke_internal(cap, params, invocation_id, start_time)
 

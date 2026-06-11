@@ -272,7 +272,7 @@ class TestStructuralEnforcement:
         assert "pc.test" in evaluation_log
 
     def test_invoke_tool_approved_still_checks_policy(self):
-        """Even invoke_tool_approved re-evaluates policy."""
+        """Even invoke_tool_approved re-evaluates policy after approval check."""
         cap = _make_cap("pc.test", risk_level=RiskLevel.READ_ONLY)
         evaluation_log = []
 
@@ -283,6 +283,12 @@ class TestStructuralEnforcement:
 
         policy = LoggingPolicy()
         broker = _setup_broker([cap], policy)
+
+        # Set up approval so the flow reaches policy evaluation
+        policy.approval_store.create_request("pc.test", risk_level=1)
+        pending = policy.approval_store.get_pending_requests()
+        policy.approval_store.approve(pending[0].approval_id)
+
         broker.invoke_tool_approved("pc.test", {})
         assert len(evaluation_log) == 1
         assert evaluation_log[0] == ("approved_path", "pc.test")
