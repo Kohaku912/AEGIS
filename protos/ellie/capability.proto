@@ -1,0 +1,180 @@
+syntax = "proto3";
+
+package ellie;
+
+import "ellie/common.proto";
+
+// Capability Schema — defines what each server can observe and do.
+// This is the contract between capability servers and the AI Server.
+
+option go_package = "github.com/Kohaku912/AEGIS/protos/ellie";
+
+// ── Capability ──────────────────────────────────────────────
+// A single capability that a server can perform.
+// Registered with the Tool Broker at server startup.
+
+message Capability {
+  // Identity
+  string id = 1;                        // Unique ID: "{server}.{action}" (e.g. "pc.screenshot")
+  string name = 2;                      // Human-readable name (e.g. "Screenshot Capture")
+  string description = 3;               // What this capability does
+
+  // Ownership
+  ServerType server_type = 4;           // Which server provides this
+
+  // Schema — JSON Schema strings for input/output validation
+  string input_schema = 5;              // JSON Schema for input parameters
+  string output_schema = 6;             // JSON Schema for expected output
+
+  // Safety
+  RiskLevel risk_level = 7;             // Minimum safety level required
+  bool requires_approval = 8;           // Explicit approval flag
+                                         //   true  → Policy Engine MUST ask user
+                                         //   false → RiskLevel alone determines approval
+  repeated string side_effects = 9;     // Human-readable list of side effects
+                                         //   e.g. ["modifies filesystem", "sends network request"]
+
+  // Operational
+  int32 timeout_ms = 10;                // Maximum execution time in milliseconds
+                                         //   0 = no timeout (server default)
+  repeated string tags = 11;            // Search/discovery tags
+                                         //   e.g. ["screenshot", "observe", "ui"]
+
+  // Versioning
+  string version = 12;                  // Semantic version of this capability
+}
+
+// ── Tool ────────────────────────────────────────────────────
+// A concrete instance of a capability, with instance-specific configuration.
+// Multiple Tools can reference the same Capability with different configs.
+
+message Tool {
+  string id = 1;                        // Unique tool instance ID
+  string capability_id = 2;             // References Capability.id
+  string server_id = 3;                 // Which server instance hosts this tool
+  string config_json = 4;               // Instance-specific config (JSON)
+  bool enabled = 5;                     // Whether this tool is currently available
+  string display_name = 6;              // User-facing name (can differ from capability name)
+}
+
+// ── Server Info ─────────────────────────────────────────────
+// Describes a running server instance and its capabilities.
+
+message ServerInfo {
+  string server_id = 1;                 // Unique server instance ID (e.g. "pc-main", "android-phone1")
+  ServerType server_type = 2;           // Type of this server
+  string version = 3;                   // Server software version (semver)
+  ServerStatus status = 4;              // Current status
+  repeated string capability_ids = 5;   // IDs of capabilities this server provides
+  string host = 6;                      // Hostname or IP
+  int32 port = 7;                       // gRPC port
+  int64 started_at_ms = 8;              // Unix timestamp (ms) when server started
+  int64 last_heartbeat_ms = 9;          // Unix timestamp (ms) of last heartbeat
+  map<string, string> metadata = 10;    // Arbitrary key-value metadata
+}
+
+// ── Approval Requirement ────────────────────────────────────
+// Describes what approval is needed before executing a capability.
+
+message ApprovalRequirement {
+  string capability_id = 1;             // Which capability this applies to
+  RiskLevel risk_level = 2;             // Risk level of the capability
+  bool requires_user_approval = 3;      // Whether user MUST approve
+  string approval_message = 4;          // Message to show in Approval UI
+  int32 timeout_seconds = 5;            // How long to wait for approval before auto-deny
+                                         //   0 = wait indefinitely
+  bool allow_session_remember = 6;      // Whether "remember for session" is offered
+}
+
+// ── Event ───────────────────────────────────────────────────
+// An event pushed from a capability server to the AI Server Event Bus.
+
+message Event {
+  string event_id = 1;                  // Unique event ID (UUID recommended)
+  string event_type = 2;                // Event type (e.g. "pc.screen_change", "android.notification")
+  ServerType source_server_type = 3;    // Which server type sent this
+  string source_server_id = 4;          // Which server instance sent this
+  int64 timestamp_ms = 5;               // Unix timestamp (ms) when event occurred
+  string payload_json = 6;              // Event payload (JSON)
+  EventPriority priority = 7;           // Processing priority
+  string correlation_id = 8;            // Optional — links related events (e.g. request-response)
+  map<string, string> attributes = 9;   // Arbitrary key-value attributes
+}
+
+// ── Capability Registry Service ─────────────────────────────
+// gRPC service for registering and querying capabilities.
+// Implemented by AI Server's Tool Broker.
+
+service CapabilityRegistry {
+  // Register a capability (called by capability servers at startup)
+  rpc RegisterCapability(RegisterCapabilityRequest) returns (RegisterCapabilityResponse);
+
+  // Unregister a capability (called when a server disconnects)
+  rpc UnregisterCapability(UnregisterCapabilityRequest) returns (UnregisterCapabilityResponse);
+
+  // List all registered capabilities, optionally filtered
+  rpc ListCapabilities(ListCapabilitiesRequest) returns (ListCapabilitiesResponse);
+
+  // Get a specific capability by ID
+  rpc GetCapability(GetCapabilityRequest) returns (Capability);
+
+  // Register server info (heartbeat / startup)
+  rpc RegisterServer(RegisterServerRequest) returns (RegisterServerResponse);
+
+  // Push an event to the Event Bus
+  rpc PushEvent(PushEventRequest) returns (PushEventResponse);
+}
+
+// ── RPC Request/Response Messages ───────────────────────────
+
+message RegisterCapabilityRequest {
+  Capability capability = 1;
+}
+
+message RegisterCapabilityResponse {
+  Status status = 1;
+  string capability_id = 2;             // Echo back the registered ID
+}
+
+message UnregisterCapabilityRequest {
+  string capability_id = 1;
+  string server_id = 2;
+}
+
+message UnregisterCapabilityResponse {
+  Status status = 1;
+}
+
+message ListCapabilitiesRequest {
+  ServerType server_type = 1;           // Filter by server type (0 = all)
+  RiskLevel max_risk_level = 2;         // Filter by max risk (0 = all)
+  repeated string tags = 3;             // Filter by tags (AND match)
+  string search_query = 4;              // Free text search in name/description
+}
+
+message ListCapabilitiesResponse {
+  Status status = 1;
+  repeated Capability capabilities = 2;
+}
+
+message GetCapabilityRequest {
+  string capability_id = 1;
+}
+
+message RegisterServerRequest {
+  ServerInfo server_info = 1;
+}
+
+message RegisterServerResponse {
+  Status status = 1;
+  string server_id = 2;                 // Echo back the registered server ID
+}
+
+message PushEventRequest {
+  Event event = 1;
+}
+
+message PushEventResponse {
+  Status status = 1;
+  string event_id = 2;                  // Echo back the event ID
+}

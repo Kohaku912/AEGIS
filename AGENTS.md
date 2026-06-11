@@ -115,7 +115,7 @@ AEGIS/
 > **STATUS**: 未確認 — No project files exist yet. Commands below are planned, not verified.
 > Update this section IMMEDIATELY after project initialization and verify each command.
 
-### AI Server (Python) — Planned
+### AI Server (Python) — Verified
 
 ```bash
 # Create virtual environment
@@ -125,7 +125,7 @@ cd ai-server && python -m venv .venv && .venv\Scripts\activate     # Windows
 # Build (install deps)
 cd ai-server && pip install -e ".[dev]"
 
-# Test
+# Test — ✅ VERIFIED (57 tests pass as of 2026-06-11)
 cd ai-server && pytest
 
 # Lint
@@ -134,7 +134,7 @@ cd ai-server && ruff check .
 # Format
 cd ai-server && ruff format .
 
-# Run
+# Run (not yet implemented)
 cd ai-server && python -m ai_server
 ```
 
@@ -183,6 +183,10 @@ docker compose logs -f
 | File | Purpose | Priority |
 |------|---------|----------|
 | `protos/ellie/*.proto` | **Single source of truth** for all server APIs | HIGHEST |
+| `protos/ellie/capability.proto` | Capability, Tool, ServerInfo, Event, Approval schema | HIGHEST |
+| `protos/ellie/common.proto` | Shared enums: RiskLevel, ServerType, EventPriority, etc. | HIGHEST |
+| `ai-server/src/ellie_schema/` | Python Pydantic models mirroring proto definitions | HIGH |
+| `ai-server/samples/capabilities.json` | 10 sample capability definitions | MEDIUM |
 | `docs/architecture.md` | High-level architecture decisions | HIGH |
 | `docker-compose.yml` | Service definitions, networking, volumes (未作成) | HIGH |
 | `docs/adr/` | Architecture Decision Records | MEDIUM |
@@ -293,8 +297,13 @@ The following operations MUST go through an explicit user approval gate in the A
 - **Repository**: Initialized with directory skeleton, AGENTS.md, README.md, .gitignore, proto stubs, and architecture document.
 - **Remote**: `https://github.com/Kohaku912/AEGIS.git`
 - **Branch**: `main`
+- **Implemented**:
+  - Shared Capability Protocol (`protos/ellie/capability.proto`, `common.proto` extended)
+  - Python Pydantic models + validation (`ai-server/src/ellie_schema/`)
+  - 10 sample capabilities (`ai-server/samples/capabilities.json`)
+  - 57 schema validation tests (all passing)
 - **Next steps**:
-  1. Complete proto definitions for all 6 servers (contract-first)
+  1. Complete remaining proto definitions for all 6 servers
   2. Set up Docker Compose skeleton
   3. Implement AI Server: Event Bus, Trigger Engine, Policy Engine, Audit Log (Phase 1)
   4. Implement Browser Server as first capability server (Phase 2)

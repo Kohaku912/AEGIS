@@ -3,12 +3,80 @@ syntax = "proto3";
 package ellie;
 
 // Common shared types across all Ellie services.
-// Add shared enums, messages, and types here.
+// This file is the SINGLE SOURCE OF TRUTH for all shared enums and base messages.
 
 option go_package = "github.com/Kohaku912/AEGIS/protos/ellie";
 
-// Status returned by most RPCs.
+// ── Risk Level ────────────────────────────────────────────
+// Defines the safety classification for any capability or action.
+// Higher values = more dangerous.
+
+enum RiskLevel {
+  RISK_UNSPECIFIED = 0;         // Default — treated as RISK_FORBIDDEN by Policy Engine
+  RISK_READ_ONLY = 1;           // Observe only, no side effects (e.g. screenshot, sensor read)
+  RISK_SAFE_ACTION = 2;         // Non-destructive, reversible (e.g. open app, navigate browser)
+  RISK_APPROVAL_REQUIRED = 3;   // Needs explicit user confirmation (e.g. delete file, send DM)
+  RISK_HIGH_RISK = 4;           // Potentially dangerous (e.g. install package, modify system)
+  RISK_FORBIDDEN = 5;           // Never allowed autonomously (e.g. purchase, rm -rf /*)
+}
+
+// ── Server Type ────────────────────────────────────────────
+// Identifies which server in the Ellie ecosystem.
+
+enum ServerType {
+  SERVER_TYPE_UNSPECIFIED = 0;
+  SERVER_TYPE_AI = 1;
+  SERVER_TYPE_PC = 2;
+  SERVER_TYPE_ANDROID = 3;
+  SERVER_TYPE_BROWSER = 4;
+  SERVER_TYPE_ROOM = 5;
+  SERVER_TYPE_DEV = 6;
+}
+
+// ── Server Status ──────────────────────────────────────────
+
+enum ServerStatus {
+  SERVER_STATUS_UNSPECIFIED = 0;
+  SERVER_STATUS_ONLINE = 1;
+  SERVER_STATUS_OFFLINE = 2;
+  SERVER_STATUS_DEGRADED = 3;    // Online but some capabilities unavailable
+  SERVER_STATUS_STARTING = 4;
+}
+
+// ── Event Priority ─────────────────────────────────────────
+
+enum EventPriority {
+  EVENT_PRIORITY_UNSPECIFIED = 0;
+  EVENT_PRIORITY_URGENT = 1;     // Wake AI immediately (user request, security event)
+  EVENT_PRIORITY_NORMAL = 2;     // Standard processing
+  EVENT_PRIORITY_BACKGROUND = 3; // Batch process, low urgency
+}
+
+// ── Parameter ──────────────────────────────────────────────
+// A typed parameter for capability input/output.
+
+message Parameter {
+  string name = 1;               // Parameter name (e.g. "url", "duration_ms")
+  string type = 2;               // JSON type: "string", "number", "boolean", "object", "array"
+  string description = 3;        // Human-readable description
+  bool required = 4;             // Whether this parameter is mandatory
+  string default_value = 5;      // JSON-encoded default value (empty if no default)
+  string validation = 6;         // Optional JSON Schema snippet for validation constraints
+}
+
+// ── Schema Reference ───────────────────────────────────────
+// References a JSON Schema for capability input/output validation.
+
+message SchemaRef {
+  string schema_uri = 1;         // URI to JSON Schema (e.g. "file://schemas/pc/screenshot-input.json")
+  string schema_json = 2;        // Inline JSON Schema string (alternative to uri)
+}
+
+// ── Status ─────────────────────────────────────────────────
+// Generic operation status returned by most RPCs.
+
 message Status {
-  int32 code = 1;
-  string message = 2;
+  int32 code = 1;                // 0 = success, non-zero = error code
+  string message = 2;            // Human-readable status/error message
+  string detail = 3;             // Optional machine-readable detail (JSON)
 }
