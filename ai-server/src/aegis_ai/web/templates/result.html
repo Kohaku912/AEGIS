@@ -1,0 +1,15 @@
+<!DOCTYPE html>
+<html>
+<head><title>AEGIS — {{ 'Approved' if success else 'Rejected' }}</title>
+<style>
+  body { font-family: system-ui; max-width: 500px; margin: 4rem auto; text-align: center; }
+  .success { color: #4caf50; }
+  .failure { color: #f44336; }
+  a { color: #1976d2; }
+</style>
+</head>
+<body>
+  <h1 class="{{ 'success' if success else 'failure' }}">{{ message }}</h1>
+  <p><a href="/approvals">Back to list</a></p>
+</body>
+</html>

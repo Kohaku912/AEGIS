@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html>
+<head><title>AEGIS — Approval Detail</title>
+<style>
+  body { font-family: system-ui; max-width: 700px; margin: 2rem auto; padding: 0 1rem; }
+  h1 { color: #333; }
+  .info { background: #f0f7ff; padding: 1rem; border-radius: 4px; margin: 1rem 0; }
+  .info dt { font-weight: bold; margin-top: 0.5rem; }
+  .info dd { margin-left: 0; color: #555; }
+  .payload { background: #f5f5f5; padding: 0.5rem; font-family: monospace; font-size: 0.9em;
+              max-height: 200px; overflow-y: auto; white-space: pre-wrap; word-break: break-all; }
+  .risk { background: #fff3e0; padding: 1rem; border-radius: 4px; margin: 1rem 0; }
+  .actions { display: flex; gap: 0.5rem; flex-wrap: wrap; margin: 1rem 0; }
+  .btn { padding: 0.75rem 1.5rem; border: none; border-radius: 4px; cursor: pointer; font-size: 1rem; }
+  .btn-allow { background: #4caf50; color: white; }
+  .btn-session { background: #2196f3; color: white; }
+  .btn-deny { background: #f44336; color: white; }
+  .btn-deny-remember { background: #b71c1c; color: white; }
+  .btn:hover { opacity: 0.9; }
+  .timer { color: #ff9800; font-weight: bold; }
+  .expired { opacity: 0.5; pointer-events: none; }
+  .back { margin-bottom: 1rem; }
+</style>
+</head>
+<body>
+  <div class="back"><a href="/approvals">&larr; Back to list</a></div>
+  <h1>Approval Request</h1>
+
+  <div class="info">
+    <dl>
+      <dt>Capability</dt>
+      <dd>{{ approval.capability_id }}</dd>
+      <dt>Tool</dt>
+      <dd>{{ approval.tool_name or "N/A" }}</dd>
+      <dt>Action</dt>
+      <dd>{{ approval.requested_action }}</dd>
+      <dt>Approval ID</dt>
+      <dd><code>{{ approval.approval_id }}</code></dd>
+      <dt>Safety Level</dt>
+      <dd>LEVEL_{{ approval.risk_level }}</dd>
+      <dt>Expires in</dt>
+      <dd class="timer">{{ expires_in }} seconds</dd>
+    </dl>
+  </div>
+
+  <div class="risk">
+    <strong>Risk Explanation</strong>
+    <p>{{ approval.risk_explanation or "No detailed risk explanation provided." }}</p>
+  </div>
+
+  <div>
+    <strong>Summary</strong>
+    <p>{{ approval.human_readable_summary }}</p>
+  </div>
+
+  <div>
+    <strong>Payload Preview</strong>
+    <div class="payload">{{ masked_payload }}</div>
+  </div>
+
+  <div class="actions {% if expires_in <= 0 %}expired{% endif %}">
+    <form method="POST" action="/approvals/{{ approval.approval_id }}/approve-once">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <button class="btn btn-allow" {% if expires_in <= 0 %}disabled{% endif %}>
+        Allow Once
+      </button>
+    </form>
+    <form method="POST" action="/approvals/{{ approval.approval_id }}/approve-session">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <button class="btn btn-session" {% if expires_in <= 0 %}disabled{% endif %}>
+        Allow Session
+      </button>
+    </form>
+    <form method="POST" action="/approvals/{{ approval.approval_id }}/reject">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <button class="btn btn-deny" {% if expires_in <= 0 %}disabled{% endif %}>
+        Deny
+      </button>
+    </form>
+    <form method="POST" action="/approvals/{{ approval.approval_id }}/reject-remember">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <button class="btn btn-deny-remember" {% if expires_in <= 0 %}disabled{% endif %}>
+        Deny &amp; Remember
+      </button>
+    </form>
+  </div>
+
+  {% if expires_in <= 0 %}
+    <p style="color: #f44336;">This approval request has expired.</p>
+  {% endif %}
+</body>
+</html>
