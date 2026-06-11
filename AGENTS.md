@@ -379,8 +379,8 @@ The following operations MUST go through an explicit user approval gate in the A
   - 10 sample capabilities (`ai-server/samples/capabilities.json`)
   - 10 sample events (`ai-server/samples/events.json`)
   - Docker Compose skeleton (Phase 1.2: 5 services, all healthy)
-  - AutonomousLoop + Planner + MockLLM (Phase 3.1-3.2)
-  - 397 tests (all passing): 57 schema + 49 approval/policy + 37 broker + 33 registry + 22 event bus + 39 trigger engine + 72 policy/approval/audit + 15 capability_registry + 21 context/memory + 20 autonomous_loop/planner
+  - Research Agent (Phase 3.3: source collection, extraction, ranking, citation, reporting)
+  - 417 tests (all passing): 57 schema + 49 approval/policy + 37 broker + 33 registry + 22 event bus + 39 trigger engine + 72 policy/approval/audit + 15 capability_registry + 21 context/memory + 20 autonomous_loop/planner + 20 research
 - **Next steps**:
   1. Complete remaining proto definitions for all 6 servers
   2. Set up Docker Compose skeleton
