@@ -27,6 +27,7 @@ from aegis_ai.approval import (  # noqa: F401
     ApprovalType,
 )
 from aegis_ai.audit import AuditEntry, AuditLog  # noqa: F401
+from aegis_ai.capability_registry import CapabilityRegistry  # noqa: F401
 from aegis_ai.config import Config  # noqa: F401
 from aegis_ai.event_bus import EventBus, EventBusStats  # noqa: F401
 from aegis_ai.grpc_server import serve  # noqa: F401

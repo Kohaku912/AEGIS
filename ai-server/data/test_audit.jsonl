@@ -5,3 +5,4 @@
 {"entry_id": "audit_1781172481843_b48c40b1", "timestamp_ms": 1781172481843, "action": "test", "actor": "aegis", "capability_id": "pc.test", "decision": "ALLOW", "reason": "", "detail": {}}
 {"entry_id": "audit_1781173299999_c6fff7d2", "timestamp_ms": 1781173299999, "action": "test", "actor": "aegis", "capability_id": "pc.test", "decision": "ALLOW", "reason": "", "detail": {}}
 {"entry_id": "audit_1781173328467_be804a20", "timestamp_ms": 1781173328467, "action": "test", "actor": "aegis", "capability_id": "pc.test", "decision": "ALLOW", "reason": "", "detail": {}}
+{"entry_id": "audit_1781173572485_f0dc6c2f", "timestamp_ms": 1781173572485, "action": "test", "actor": "aegis", "capability_id": "pc.test", "decision": "ALLOW", "reason": "", "detail": {}}
