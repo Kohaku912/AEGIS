@@ -59,7 +59,7 @@ android-server/local.properties
 protos/**/*_pb2.py
 protos/**/*_pb2_grpc.py
 
-# Runtime data
-data/
+# Rust
+pc-server/target/
 protos/**/*.pb.go
 protos/**/*_grpc.pb.go
