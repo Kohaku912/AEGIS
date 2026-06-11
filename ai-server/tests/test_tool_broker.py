@@ -81,9 +81,9 @@ class TestBasicInvocation:
         assert result.output["mock"] is True
 
     def test_invoke_safe_action_succeeds(self):
-        cap = _make_cap("pc.mouse_click", risk_level=RiskLevel.SAFE_ACTION)
+        cap = _make_cap("pc.launch_app", risk_level=RiskLevel.SAFE_ACTION)
         broker = _setup_broker([cap])
-        result = broker.invoke_tool("pc.mouse_click", {"x": 100, "y": 200})
+        result = broker.invoke_tool("pc.launch_app", {"app_path": "notepad.exe"})
         assert result.success
 
     def test_invoke_nonexistent_fails(self):
@@ -323,7 +323,7 @@ class TestSearchViaBroker:
     def broker(self) -> ToolBroker:
         caps = [
             _make_cap("pc.screenshot", "Screenshot", "Take display screenshot", ServerType.PC, RiskLevel.READ_ONLY),
-            _make_cap("pc.mouse_click", "Mouse Click", "Click coordinates", ServerType.PC, RiskLevel.SAFE_ACTION),
+            _make_cap("pc.launch_app", "Launch App", "Launch application", ServerType.PC, RiskLevel.SAFE_ACTION),
             _make_cap("browser.open_page", "Open Page", "Navigate to URL", ServerType.BROWSER, RiskLevel.SAFE_ACTION),
             _make_cap("room.get_env", "Get Environment", "Read sensors", ServerType.ROOM, RiskLevel.READ_ONLY),
         ]
@@ -497,7 +497,7 @@ class TestPolicyEngine:
 
     def test_default_allow_safe_action(self):
         engine = PolicyEngine()
-        cap = _make_cap("pc.mouse_click", risk_level=RiskLevel.SAFE_ACTION)
+        cap = _make_cap("pc.launch_app", risk_level=RiskLevel.SAFE_ACTION)
         result = engine.evaluate(cap)
         assert result.decision == PolicyDecision.ALLOW
 

@@ -77,21 +77,21 @@ class TestReadOnlyAutoAllow:
 
 class TestSafeActionAutoAllowWithAudit:
     def test_safe_action_executes_without_approval(self):
-        cap = _make_cap("pc.mouse_click", risk=RiskLevel.SAFE_ACTION)
+        cap = _make_cap("pc.launch_app", risk=RiskLevel.SAFE_ACTION)
         broker = _setup_broker([cap], create_default_policy_engine())
-        result = broker.invoke_tool("pc.mouse_click", {"x": 100, "y": 200})
+        result = broker.invoke_tool("pc.launch_app", {"app_path": "notepad.exe"})
         assert result.success
 
     def test_safe_action_has_audit_required(self):
         policy = create_default_policy_engine()
-        cap = _make_cap("pc.mouse_click", risk=RiskLevel.SAFE_ACTION)
+        cap = _make_cap("pc.launch_app", risk=RiskLevel.SAFE_ACTION)
         result = policy.evaluate(cap)
         assert result.decision == PolicyDecision.ALLOW
         assert result.audit_required is True
 
     def test_safe_action_logged_to_audit(self):
         audit = AuditLog(path="data/test_e2e_safe.jsonl")
-        cap = _make_cap("pc.mouse_click", risk=RiskLevel.SAFE_ACTION)
+        cap = _make_cap("pc.launch_app", risk=RiskLevel.SAFE_ACTION)
         broker = _setup_broker([cap], create_default_policy_engine())
         broker.invoke_tool("pc.mouse_click", {"x": 0, "y": 0})
         audit.log_decision("tool_invoked", cap.id, "ALLOW", actor="aegis")

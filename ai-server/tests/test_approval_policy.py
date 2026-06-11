@@ -240,7 +240,7 @@ class TestEvaluationMethods:
     def test_autonomous_task_restricts_safe_action(self):
         """Autonomous tasks require approval even for SAFE_ACTION."""
         engine = create_default_policy_engine()
-        cap = _make_cap("pc.mouse_click", risk_level=RiskLevel.SAFE_ACTION)
+        cap = _make_cap("pc.launch_app", risk_level=RiskLevel.SAFE_ACTION)
         result = engine.evaluate_autonomous_task(cap)
         assert result.decision == PolicyDecision.ASK_APPROVAL
 
@@ -278,7 +278,7 @@ class TestPolicyResult:
 
     def test_safe_action_requires_audit(self):
         engine = create_default_policy_engine()
-        cap = _make_cap("pc.mouse_click", risk_level=RiskLevel.SAFE_ACTION)
+        cap = _make_cap("pc.launch_app", risk_level=RiskLevel.SAFE_ACTION)
         result = engine.evaluate(cap)
         assert result.audit_required is True  # SAFE_ACTION — audit
 

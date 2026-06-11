@@ -25,22 +25,24 @@ from approval import ApprovalRequest, ApprovalStore, ApprovalType
 
 class PolicyDecision(Enum):
     """Outcome of a policy evaluation."""
-    ALLOW = auto()           # Execute immediately
-    ASK_APPROVAL = auto()    # Must present Approval UI to user
-    DENY = auto()            # Blocked — never execute
+
+    ALLOW = auto()  # Execute immediately
+    ASK_APPROVAL = auto()  # Must present Approval UI to user
+    DENY = auto()  # Blocked — never execute
 
 
 @dataclass
 class PolicyResult:
     """Result of evaluating a capability against the policy."""
+
     decision: PolicyDecision
     reason: str = ""
     capability_id: str = ""
     risk_level: RiskLevel = RiskLevel.UNSPECIFIED
     required_approval_type: ApprovalType | None = None  # Set when ASK_APPROVAL
-    expires_at_ms: int = 0                              # When an approval would expire
-    audit_required: bool = True                         # Whether to log to audit
-    approval_request: ApprovalRequest | None = None     # Created approval (if any)
+    expires_at_ms: int = 0  # When an approval would expire
+    audit_required: bool = True  # Whether to log to audit
+    approval_request: ApprovalRequest | None = None  # Created approval (if any)
 
 
 # Type alias for custom rules
@@ -61,12 +63,12 @@ class PolicyEngine:
 
     # Default risk-level → decision mapping
     DEFAULT_RISK_MAP: dict[RiskLevel, PolicyDecision] = {
-        RiskLevel.UNSPECIFIED:  PolicyDecision.DENY,
-        RiskLevel.READ_ONLY:    PolicyDecision.ALLOW,
-        RiskLevel.SAFE_ACTION:  PolicyDecision.ALLOW,
+        RiskLevel.UNSPECIFIED: PolicyDecision.DENY,
+        RiskLevel.READ_ONLY: PolicyDecision.ALLOW,
+        RiskLevel.SAFE_ACTION: PolicyDecision.ALLOW,
         RiskLevel.APPROVAL_REQUIRED: PolicyDecision.ASK_APPROVAL,
-        RiskLevel.HIGH_RISK:    PolicyDecision.ASK_APPROVAL,
-        RiskLevel.FORBIDDEN:    PolicyDecision.DENY,
+        RiskLevel.HIGH_RISK: PolicyDecision.ASK_APPROVAL,
+        RiskLevel.FORBIDDEN: PolicyDecision.DENY,
     }
 
     # ── Explicitly denied patterns (always DENY, regardless of risk_level) ──
@@ -74,44 +76,117 @@ class PolicyEngine:
     # Phase 1.5: Expanded with all mandatory deny categories.
     EXPLICIT_DENY_PATTERNS: list[str] = [
         # ── Communication: SNS/DM/Email ──
-        r".*\.send_sns$", r".*\.post_sns$", r".*\.send_dm$", r".*\.send_message$",
+        r".*\.send_sns$",
+        r".*\.post_sns$",
+        r".*\.send_dm$",
+        r".*\.send_message$",
         r".*\.send_email$",
         # ── File operations ──
-        r".*\.delete_file$", r".*\.delete_all$", r".*\.rm_.*", r".*\.wipe_.*",
+        r".*\.delete_file$",
+        r".*\.delete_all$",
+        r".*\.rm_.*",
+        r".*\.wipe_.*",
         r".*\.bulk_delete.*",
         # ── External transmission ──
-        r".*\.upload_.*", r".*\.transmit_.*", r".*\.external_upload.*",
+        r".*\.upload_.*",
+        r".*\.transmit_.*",
+        r".*\.external_upload.*",
         # ── Credential & secret access ──
-        r".*\.read_credential.*", r".*\.write_credential.*", r".*\.access_ssh.*",
-        r".*\.access_.*key.*", r".*\.read_secret.*", r".*\.sensitive_file_read.*",
+        r".*\.read_credential.*",
+        r".*\.write_credential.*",
+        r".*\.access_ssh.*",
+        r".*\.access_.*key.*",
+        r".*\.read_secret.*",
+        r".*\.sensitive_file_read.*",
         # ── Contact & privacy ──
-        r".*\.contact_access.*", r".*\.read_contact.*",
+        r".*\.contact_access.*",
+        r".*\.read_contact.*",
         # ── Purchases ──
         r".*\.purchase.*",
         # ── Physical device control (high-risk) ──
-        r"room\.ac_.*", r"room\.robot_arm.*", r"room\.lock_.*",
+        r"room\.ac_power_on$",
+        r"room\.lock_.*",
+        r"room\.move_robot_arm$",  # Level 3 — physical safety risk
+        r"room\.robot_arm_move$",
         # ── Self-development (dangerous) ──
-        r"dev\.merge_to_main$", r"dev\.push_main$", r"dev\.deploy_production$",
+        r"dev\.merge_to_main$",
+        r"dev\.push_main$",
+        r"dev\.deploy_production$",
         r"dev\.production_deploy$",
+        r"dev\.read_secrets$",
+        r"dev\.delete_repo$",
+        r"dev\.mount_docker_socket$",
+        r"dev\.install_system_package$",
+        r"dev\.disable_policy_engine$",
+        r"dev\.modify_approval_bypass$",
+        r"dev\.modify_policy.*$",
         # ── Permission & system changes ──
-        r".*\.change_permission.*", r".*\.modify_acl.*", r".*\.grant_.*",
+        r".*\.change_permission.*",
+        r".*\.modify_acl.*",
+        r".*\.grant_.*",
         r".*\.system_config.*",
         # ── Policy bypass (structural protection) ──
-        r".*\.bypass_policy.*", r".*\.bypass_approval.*", r".*\.disable_policy.*",
-        r".*\.captcha_bypass.*", r".*\.tos_bypass.*",
+        r".*\.bypass_policy.*",
+        r".*\.bypass_approval.*",
+        r".*\.disable_policy.*",
+        r".*\.captcha_bypass.*",
+        r".*\.tos_bypass.*",
+        # ── PC dangerous actions ──
+        r"pc\.delete_file$",
+        r"pc\.bulk_delete$",
+        r"pc\.read_secret_file$",
+        r"pc\.write_system_config$",
+        r"pc\.run_shell.*$",
+        r"pc\.type_password$",
+        r"pc\.click_payment.*$",
+        r"pc\.modify_policy.*$",
+        # ── Android dangerous actions ──
+        r"android\.send_sms$",
+        r"android\.send_dm$",
+        r"android\.post_sns$",
+        r"android\.access_contacts$",
+        r"android\.make_call$",
+        r"android\.type_password$",
+        r"android\.click_payment.*$",
+        r"android\.captcha_bypass$",
+        r"android\.tos_bypass.*$",
     ]
 
     # ── Explicitly approval-required patterns ────────────────
     # Phase 1.5: Expanded with mandatory approval categories.
     EXPLICIT_APPROVAL_PATTERNS: list[str] = [
         # Room/Physical control
-        r"room\.ir_send$", r"room\.set_temperature$", r"room\.set_light$",
+        r"room\.ir_send$",
+        r"room\.set_temperature$",
+        r"room\.set_light$",
+        r"room\.send_ir_command$",
+        r"room\.set_air_conditioner$",
+        r"room\.set_smart_plug$",
+        r"room\.get_camera_snapshot$",
         # Dev server
-        r"dev\.create_pr$", r"dev\.commit_changes$",
+        r"dev\.create_pr$",
+        r"dev\.commit_changes$",
+        r"dev\.apply_patch$",
+        r"dev\.create_commit$",
+        r"dev\.create_pull_request$",
+        r"dev\.revert_changes$",
         # Browser interaction
-        r"browser\.fill_form$", r"browser\.submit_form$",
+        r"browser\.fill_form$",
+        r"browser\.submit_form$",
         # PC operations
-        r"pc\.install_package$", r"pc\.modify_registry$",
+        r"pc\.install_package$",
+        r"pc\.modify_registry$",
+        # PC action operations (Level 2)
+        r"pc\.mouse_click$",
+        r"pc\.keyboard_type$",
+        r"pc\.press_hotkey$",
+        r"pc\.close_window$",
+        r"pc\.write_clipboard$",
+        r"pc\.write_file$",
+        # Android action operations (Level 2)
+        r"android\.tap$",
+        r"android\.swipe$",
+        r"android\.type_text$",
         # Self-dev PR and main-related
         r"dev\.create_pull_request$",
     ]
@@ -122,24 +197,24 @@ class PolicyEngine:
         self._blocked_ids: set[str] = set()
         self._blocked_patterns: list[re.Pattern] = []
         self._risk_overrides: dict[str, RiskLevel] = {}
-        self._explicit_deny: list[re.Pattern] = [
-            re.compile(p) for p in self.EXPLICIT_DENY_PATTERNS
-        ]
-        self._explicit_approval: list[re.Pattern] = [
-            re.compile(p) for p in self.EXPLICIT_APPROVAL_PATTERNS
-        ]
+        self._explicit_deny: list[re.Pattern] = [re.compile(p) for p in self.EXPLICIT_DENY_PATTERNS]
+        self._explicit_approval: list[re.Pattern] = [re.compile(p) for p in self.EXPLICIT_APPROVAL_PATTERNS]
         self._approval_store = approval_store or ApprovalStore()
 
     # ── Public Evaluation API ──────────────────────────────
 
     def evaluate_tool_invocation(
-        self, capability: Capability, params: dict[str, Any] | None = None,
+        self,
+        capability: Capability,
+        params: dict[str, Any] | None = None,
     ) -> PolicyResult:
         """Evaluate a tool invocation (primary ToolBroker entry point)."""
         return self._evaluate(capability, params, "tool_invocation")
 
     def evaluate_event_trigger(
-        self, capability: Capability, params: dict[str, Any] | None = None,
+        self,
+        capability: Capability,
+        params: dict[str, Any] | None = None,
     ) -> PolicyResult:
         """Evaluate an event-triggered action (more conservative)."""
         result = self._evaluate(capability, params, "event_trigger")
@@ -147,23 +222,29 @@ class PolicyEngine:
             return PolicyResult(
                 decision=PolicyDecision.DENY,
                 reason=f"Event-triggered execution denied: {result.reason}",
-                capability_id=capability.id, risk_level=capability.risk_level,
+                capability_id=capability.id,
+                risk_level=capability.risk_level,
                 audit_required=True,
             )
         return result
 
     def evaluate_autonomous_task(
-        self, capability: Capability, params: dict[str, Any] | None = None,
+        self,
+        capability: Capability,
+        params: dict[str, Any] | None = None,
     ) -> PolicyResult:
         """Evaluate a self-initiated autonomous task (most conservative)."""
         result = self._evaluate(capability, params, "autonomous_task")
         if capability.risk_level == RiskLevel.SAFE_ACTION and result.decision == PolicyDecision.ALLOW:
-            return self._create_approval_result(capability, params,
-                reason_override="Autonomous task requires approval even for SAFE_ACTION.")
+            return self._create_approval_result(
+                capability, params, reason_override="Autonomous task requires approval even for SAFE_ACTION."
+            )
         return result
 
     def evaluate(
-        self, capability: Capability, params: dict[str, Any] | None = None,
+        self,
+        capability: Capability,
+        params: dict[str, Any] | None = None,
     ) -> PolicyResult:
         """Backward-compatible alias for evaluate_tool_invocation."""
         return self.evaluate_tool_invocation(capability, params)
@@ -171,28 +252,41 @@ class PolicyEngine:
     # ── Internal ───────────────────────────────────────────
 
     def _evaluate(
-        self, capability: Capability, params: dict[str, Any] | None, context: str,
+        self,
+        capability: Capability,
+        params: dict[str, Any] | None,
+        context: str,
     ) -> PolicyResult:
         params = params or {}
         cap_id = capability.id
 
         if cap_id in self._blocked_ids:
-            return PolicyResult(decision=PolicyDecision.DENY,
+            return PolicyResult(
+                decision=PolicyDecision.DENY,
                 reason=f"Capability '{cap_id}' is permanently blocked.",
-                capability_id=cap_id, risk_level=capability.risk_level)
+                capability_id=cap_id,
+                risk_level=capability.risk_level,
+            )
 
         for pattern in self._explicit_deny:
             if pattern.match(cap_id):
-                return PolicyResult(decision=PolicyDecision.DENY,
+                return PolicyResult(
+                    decision=PolicyDecision.DENY,
                     reason=f"'{cap_id}' matches explicit deny pattern '{pattern.pattern}'. "
-                           "This operation requires direct user action.",
-                    capability_id=cap_id, risk_level=RiskLevel.FORBIDDEN, audit_required=True)
+                    "This operation requires direct user action.",
+                    capability_id=cap_id,
+                    risk_level=RiskLevel.FORBIDDEN,
+                    audit_required=True,
+                )
 
         for pattern in self._blocked_patterns:
             if pattern.match(cap_id):
-                return PolicyResult(decision=PolicyDecision.DENY,
+                return PolicyResult(
+                    decision=PolicyDecision.DENY,
                     reason=f"'{cap_id}' matches blocked pattern '{pattern.pattern}'.",
-                    capability_id=cap_id, risk_level=capability.risk_level)
+                    capability_id=cap_id,
+                    risk_level=capability.risk_level,
+                )
 
         for rule in self._rules.get(cap_id, []):
             result = rule(capability, params)
@@ -211,11 +305,13 @@ class PolicyEngine:
                     return PolicyResult(
                         decision=PolicyDecision.ALLOW,
                         reason=f"Valid approval exists for '{cap_id}'.",
-                        capability_id=cap_id, risk_level=capability.risk_level,
+                        capability_id=cap_id,
+                        risk_level=capability.risk_level,
                         audit_required=True,
                     )
-                return self._create_approval_result(capability, params,
-                    reason_override=f"'{cap_id}' matches explicit approval pattern.")
+                return self._create_approval_result(
+                    capability, params, reason_override=f"'{cap_id}' matches explicit approval pattern."
+                )
 
         effective_risk = self._risk_overrides.get(cap_id, capability.risk_level)
         decision = self.DEFAULT_RISK_MAP.get(effective_risk, PolicyDecision.DENY)
@@ -225,14 +321,16 @@ class PolicyEngine:
             PolicyDecision.ASK_APPROVAL: f"Risk level {effective_risk.name} — approval required.",
             PolicyDecision.DENY: f"Risk level {effective_risk.name} — denied.",
         }
-        result = PolicyResult(decision=decision,
-            reason=reason_map.get(decision, ""), capability_id=cap_id,
+        result = PolicyResult(
+            decision=decision,
+            reason=reason_map.get(decision, ""),
+            capability_id=cap_id,
             risk_level=effective_risk,
-            audit_required=(decision != PolicyDecision.ALLOW or effective_risk >= RiskLevel.SAFE_ACTION))
+            audit_required=(decision != PolicyDecision.ALLOW or effective_risk >= RiskLevel.SAFE_ACTION),
+        )
         return self._finalize(result, capability, params)
 
-    def _finalize(self, result: PolicyResult, capability: Capability,
-                  params: dict[str, Any]) -> PolicyResult:
+    def _finalize(self, result: PolicyResult, capability: Capability, params: dict[str, Any]) -> PolicyResult:
         """Post-process: create approval requests or upgrade to ALLOW if approved."""
         if result.decision == PolicyDecision.ASK_APPROVAL:
             # Check if there's already a valid approval
@@ -248,13 +346,15 @@ class PolicyEngine:
                 return self._create_approval_result(capability, params)
         return result
 
-    def _create_approval_result(self, capability: Capability, params: dict[str, Any],
-                                 reason_override: str | None = None) -> PolicyResult:
+    def _create_approval_result(
+        self, capability: Capability, params: dict[str, Any], reason_override: str | None = None
+    ) -> PolicyResult:
         payload_str = str(params)
         if len(payload_str) > 200:
             payload_str = payload_str[:197] + "..."
         req = self._approval_store.create_request(
-            capability_id=capability.id, tool_name=capability.name,
+            capability_id=capability.id,
+            tool_name=capability.name,
             requested_action=f"Execute '{capability.name}' ({capability.id})",
             human_readable_summary=(
                 f"AEGIS wants to: {capability.description}\n"
@@ -265,16 +365,22 @@ class PolicyEngine:
                 f"Classified as {capability.risk_level.name}. "
                 f"{'Side effects: ' + ', '.join(capability.side_effects) if capability.side_effects else ''}"
             ),
-            payload_preview=payload_str, risk_level=capability.risk_level.value,
+            payload_preview=payload_str,
+            risk_level=capability.risk_level.value,
         )
         reason = reason_override or (
-            f"Risk level {capability.risk_level.name} — approval required. "
-            f"Approval ID: {req.approval_id}"
+            f"Risk level {capability.risk_level.name} — approval required. Approval ID: {req.approval_id}"
         )
-        return PolicyResult(decision=PolicyDecision.ASK_APPROVAL, reason=reason,
-            capability_id=capability.id, risk_level=capability.risk_level,
-            required_approval_type=ApprovalType.ONE_TIME, expires_at_ms=req.expires_at_ms,
-            audit_required=True, approval_request=req)
+        return PolicyResult(
+            decision=PolicyDecision.ASK_APPROVAL,
+            reason=reason,
+            capability_id=capability.id,
+            risk_level=capability.risk_level,
+            required_approval_type=ApprovalType.ONE_TIME,
+            expires_at_ms=req.expires_at_ms,
+            audit_required=True,
+            approval_request=req,
+        )
 
     # ── Configuration API ───────────────────────────────────
 
@@ -303,6 +409,7 @@ class PolicyEngine:
 
 
 # ── Factory ──────────────────────────────────────────────────
+
 
 def create_default_policy_engine() -> PolicyEngine:
     """Create a PolicyEngine with all explicit deny/approval patterns + blocked patterns."""
