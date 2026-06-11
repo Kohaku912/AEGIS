@@ -3,8 +3,8 @@
 import grpc
 import warnings
 
-from ellie import common_pb2 as ellie_dot_common__pb2
-from ellie import pc_server_pb2 as ellie_dot_pc__server__pb2
+from generated.ellie import common_pb2 as ellie_dot_common__pb2
+from generated.ellie import pc_server_pb2 as ellie_dot_pc__server__pb2
 
 GRPC_GENERATED_VERSION = '1.81.0'
 GRPC_VERSION = grpc.__version__

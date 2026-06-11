@@ -58,5 +58,8 @@ android-server/local.properties
 # Proto generated
 protos/**/*_pb2.py
 protos/**/*_pb2_grpc.py
+
+# Runtime data
+data/
 protos/**/*.pb.go
 protos/**/*_grpc.pb.go

@@ -1,0 +1,3 @@
+{"entry_id": "audit_1781167021467_f715f4e2", "timestamp_ms": 1781167021467, "action": "test", "actor": "ellie", "capability_id": "pc.test", "decision": "ALLOW", "reason": "", "detail": {}}
+{"entry_id": "audit_1781167046213_e316097c", "timestamp_ms": 1781167046213, "action": "test", "actor": "ellie", "capability_id": "pc.test", "decision": "ALLOW", "reason": "", "detail": {}}
+{"entry_id": "audit_1781167188133_7823ca9d", "timestamp_ms": 1781167188133, "action": "test", "actor": "ellie", "capability_id": "pc.test", "decision": "ALLOW", "reason": "", "detail": {}}
