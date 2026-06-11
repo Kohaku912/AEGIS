@@ -1,0 +1,12 @@
+syntax = "proto3";
+
+package ellie;
+
+import "ellie/common.proto";
+
+// AI Server is the central brain of Ellie.
+// All other servers communicate with the AI Server.
+
+service AIServer {
+  // Placeholder — service methods will be defined during implementation.
+}

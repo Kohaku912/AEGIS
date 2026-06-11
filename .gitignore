@@ -1,0 +1,62 @@
+# Byte-compiled
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Secrets
+secrets/
+*.pem
+*.key
+credentials.json
+
+# Docker
+docker-compose.override.yml
+
+# Logs
+*.log
+logs/
+
+# Test coverage
+.coverage
+htmlcov/
+.pytest_cache/
+
+# Node
+node_modules/
+npm-debug.log*
+
+# Android
+android-server/app/build/
+android-server/.gradle/
+android-server/local.properties
+
+# Proto generated
+protos/**/*_pb2.py
+protos/**/*_pb2_grpc.py
+protos/**/*.pb.go
+protos/**/*_grpc.pb.go

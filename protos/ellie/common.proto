@@ -1,0 +1,14 @@
+syntax = "proto3";
+
+package ellie;
+
+// Common shared types across all Ellie services.
+// Add shared enums, messages, and types here.
+
+option go_package = "github.com/Kohaku912/AEGIS/protos/ellie";
+
+// Status returned by most RPCs.
+message Status {
+  int32 code = 1;
+  string message = 2;
+}
