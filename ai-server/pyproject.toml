@@ -15,6 +15,8 @@ authors = [
 dependencies = [
     "pydantic>=2.0",
     "grpcio>=1.60",
+    "langgraph>=1.0",
+    "langchain-core>=1.0",
 ]
 
 [project.optional-dependencies]
@@ -34,6 +36,9 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 markers = [
     "e2e: End-to-end integration tests (approval flow, autonomous loop)",
+    "pc_local: PC Server local-only tests (real screenshot, real active window)",
+    "android_local: Android Server local-only tests (real ADB device)",
+    "room_local: Room Server local-only tests (real sensor hardware)",
 ]
 
 [tool.ruff]

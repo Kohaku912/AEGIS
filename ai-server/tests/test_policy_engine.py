@@ -27,7 +27,7 @@ class TestSafetyLevels:
 
     def test_level_1_safe_act_is_allow_with_audit(self):
         engine = create_default_policy_engine()
-        result = engine.evaluate_tool_invocation(_make_cap("pc.mouse_click", RiskLevel.SAFE_ACTION))
+        result = engine.evaluate_tool_invocation(_make_cap("pc.launch_app", RiskLevel.SAFE_ACTION))
         assert result.decision == PolicyDecision.ALLOW
         assert result.audit_required is True
 
@@ -123,7 +123,7 @@ class TestAutonomousTaskEvaluation:
 
     def test_autonomous_task_restricts_safe_action(self):
         engine = create_default_policy_engine()
-        cap = _make_cap("pc.mouse_click", RiskLevel.SAFE_ACTION)
+        cap = _make_cap("pc.launch_app", RiskLevel.SAFE_ACTION)
         result = engine.evaluate_autonomous_task(cap)
         assert result.decision == PolicyDecision.ASK_APPROVAL
 

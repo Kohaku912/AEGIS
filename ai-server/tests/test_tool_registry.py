@@ -212,7 +212,7 @@ class TestSearch:
     def reg(self) -> ToolRegistry:
         r = ToolRegistry()
         r.register_capability(_make_cap("pc.screenshot", "Screenshot Capture", "Take a screenshot of the display", ServerType.PC, RiskLevel.READ_ONLY, ["screenshot", "observe"]))
-        r.register_capability(_make_cap("pc.mouse_click", "Mouse Click", "Click at screen coordinates", ServerType.PC, RiskLevel.SAFE_ACTION, ["mouse", "input"]))
+        r.register_capability(_make_cap("pc.launch_app", "Launch App", "Launch application", ServerType.PC, RiskLevel.SAFE_ACTION, ["app", "action"]))
         r.register_capability(_make_cap("browser.open_page", "Open Web Page", "Navigate to a URL", ServerType.BROWSER, RiskLevel.SAFE_ACTION, ["browser", "web"]))
         r.register_capability(_make_cap("browser.extract_text", "Extract Text", "Extract page content", ServerType.BROWSER, RiskLevel.READ_ONLY, ["text", "observe"]))
         return r
@@ -223,9 +223,9 @@ class TestSearch:
         assert results[0].id == "pc.screenshot"
 
     def test_search_by_description(self, reg):
-        results = reg.search("coordinates")
+        results = reg.search("application")
         assert len(results) == 1
-        assert results[0].id == "pc.mouse_click"
+        assert results[0].id == "pc.launch_app"
 
     def test_search_by_tag(self, reg):
         results = reg.search("observe")
