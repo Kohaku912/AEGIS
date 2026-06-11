@@ -191,6 +191,9 @@ docker compose logs -f
 | `docker-compose.yml` | Service definitions, networking, volumes (未作成) | HIGH |
 | `docs/adr/` | Architecture Decision Records | MEDIUM |
 | `ai-server/src/event_queue.py` | Core event loop (未作成) | HIGH |
+| `ai-server/src/policy_engine.py` | Safety/approval gate — deterministic, not LLM | CRITICAL |
+| `ai-server/src/tool_registry.py` | Capability and server registration, search, filtering | HIGH |
+| `ai-server/src/tool_broker.py` | Structured invocation with mandatory PolicyEngine check | HIGH |
 | `ai-server/src/safety.py` | Safety/approval gate (未作成) | CRITICAL |
 
 ---
@@ -300,12 +303,15 @@ The following operations MUST go through an explicit user approval gate in the A
 - **Implemented**:
   - Shared Capability Protocol (`protos/ellie/capability.proto`, `common.proto` extended)
   - Python Pydantic models + validation (`ai-server/src/ellie_schema/`)
+  - Policy Engine (`ai-server/src/policy_engine.py`) — deterministic safety gate
+  - Tool Registry (`ai-server/src/tool_registry.py`) — capability/server registration & search
+  - Tool Broker (`ai-server/src/tool_broker.py`) — structured invocation with mandatory policy check
   - 10 sample capabilities (`ai-server/samples/capabilities.json`)
-  - 57 schema validation tests (all passing)
+  - 127 tests (all passing): 57 schema + 37 broker/policy + 33 registry
 - **Next steps**:
   1. Complete remaining proto definitions for all 6 servers
   2. Set up Docker Compose skeleton
-  3. Implement AI Server: Event Bus, Trigger Engine, Policy Engine, Audit Log (Phase 1)
+  3. Implement AI Server: Event Bus, Trigger Engine, Audit Log (Phase 1)
   4. Implement Browser Server as first capability server (Phase 2)
   5. See `docs/architecture.md` §9 for full MVP roadmap
 
