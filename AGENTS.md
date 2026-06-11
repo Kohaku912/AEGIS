@@ -39,8 +39,8 @@ AEGIS/
 └── docs/                  # Architecture decisions, API docs, specs
 ```
 
-> **Note**: Directory structure is PLANNED. No directories exist yet (repo initialized 2026-06-11).
-> When creating directories, follow this layout unless an ADR (in `docs/`) supersedes it.
+> **Note**: Directory structure skeleton exists (created 2026-06-11). All directories are empty placeholders.
+> When adding files, follow this layout unless an ADR (in `docs/`) supersedes it.
 
 ---
 
@@ -178,16 +178,16 @@ docker compose logs -f
 
 ---
 
-## Important Design Files (Planned)
+## Important Design Files
 
 | File | Purpose | Priority |
 |------|---------|----------|
 | `protos/ellie/*.proto` | **Single source of truth** for all server APIs | HIGHEST |
-| `docker-compose.yml` | Service definitions, networking, volumes | HIGH |
 | `docs/architecture.md` | High-level architecture decisions | HIGH |
+| `docker-compose.yml` | Service definitions, networking, volumes (未作成) | HIGH |
 | `docs/adr/` | Architecture Decision Records | MEDIUM |
-| `ai-server/src/event_queue.py` | Core event loop | HIGH |
-| `ai-server/src/safety.py` | Safety/approval gate | CRITICAL |
+| `ai-server/src/event_queue.py` | Core event loop (未作成) | HIGH |
+| `ai-server/src/safety.py` | Safety/approval gate (未作成) | CRITICAL |
 
 ---
 
@@ -195,8 +195,8 @@ docker compose logs -f
 
 1. **`AGENTS.md`** (this file) — Read first, every session
 2. **`protos/ellie/*.proto`** — Understand current API contracts before touching any server
-3. **`docker-compose.yml`** — Understand service dependencies and networking
-4. **`docs/architecture.md`** — Overall system design
+3. **`docs/architecture.md`** — Overall system design, server modules, security model
+4. **`docker-compose.yml`** — Understand service dependencies and networking (when created)
 5. **`docs/adr/`** — Any relevant Architecture Decision Records
 
 ---
@@ -290,15 +290,15 @@ The following operations MUST go through an explicit user approval gate in the A
 
 ## Current Status (2026-06-11)
 
-- **Repository**: Empty. Two commits on `main` (first commit added `a.txt`, second deleted it).
+- **Repository**: Initialized with directory skeleton, AGENTS.md, README.md, .gitignore, proto stubs, and architecture document.
 - **Remote**: `https://github.com/Kohaku912/AEGIS.git`
 - **Branch**: `main`
 - **Next steps**:
-  1. Initialize project structure per the directory layout above
-  2. Define proto files first (contract-first development)
-  3. Set up Docker Compose skeleton
-  4. Implement AI Server core event loop
-  5. Add other servers incrementally
+  1. Complete proto definitions for all 6 servers (contract-first)
+  2. Set up Docker Compose skeleton
+  3. Implement AI Server: Event Bus, Trigger Engine, Policy Engine, Audit Log (Phase 1)
+  4. Implement Browser Server as first capability server (Phase 2)
+  5. See `docs/architecture.md` §9 for full MVP roadmap
 
 ---
 
@@ -315,16 +315,18 @@ The following operations MUST go through an explicit user approval gate in the A
 
 ### Commits
 ```
-be2c6d8 (HEAD -> main, origin/main) create project  — deleted a.txt
-e1aad96 first commit                                — added a.txt
+79d0d2d (HEAD -> main, origin/main) Initialize project structure with AGENTS.md and protos
+be2c6d8 create project  — deleted a.txt
+e1aad96 first commit     — added a.txt
 ```
 
 ### Commands Verified
 | Command | Result |
 |---------|--------|
 | `git status` | ✅ Clean working tree (empty) |
-| `git log --oneline --stat` | ✅ 2 commits, a.txt added then deleted |
-| `git ls-tree -r HEAD` | ✅ Empty (no tracked files) |
+| `git log --oneline --stat` | ✅ 3 commits |
+| `git ls-tree -r HEAD` | ✅ 17 files tracked |
+| `git push origin main` | ✅ Success |
 | `build` | ❌ N/A — no project files |
 | `test` | ❌ N/A — no project files |
 | `lint` | ❌ N/A — no project files |
