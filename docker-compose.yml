@@ -7,8 +7,6 @@
 #   docker compose logs -f ai-server  # Follow AI Server logs
 #   docker compose down            # Stop all services
 
-version: "3.9"
-
 # ── Network ──────────────────────────────────────────────────
 # All servers communicate on this internal network via gRPC.
 networks:
