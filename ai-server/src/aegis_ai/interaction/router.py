@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import time
 import uuid
 from typing import Any
@@ -36,6 +37,7 @@ class InteractionRouter:
         settings_store: Any = None,
         approval_store: Any = None,
         audit_log: Any = None,
+        llm_provider: Any = None,
     ) -> None:
         self._research = research_agent
         self._support = support_agent
@@ -44,6 +46,7 @@ class InteractionRouter:
         self._settings = settings_store
         self._approval = approval_store
         self._audit = audit_log
+        self._llm = llm_provider
 
     def route(self, message: Message) -> Response:
         """Route a user message to the appropriate handler.
@@ -78,10 +81,7 @@ class InteractionRouter:
             elif intent == Intent.TOOL_REQUEST:
                 response = self._handle_tool_request(message, response)
             else:
-                response.text = (
-                    "I'm not sure what you mean. Could you rephrase? "
-                    "I can help with research, settings, approvals, or general questions."
-                )
+                response = self._handle_llm_fallback(message, response)
 
         except Exception as e:
             logger.error("Interaction routing failed: %s", e)
@@ -108,6 +108,25 @@ class InteractionRouter:
                     response.text = str(report)
             except Exception as e:
                 response.text = f"Research failed: {e}"
+        elif self._llm:
+            # Fallback: use LLM for general research questions
+            text = message.text.strip()
+            has_url = bool(re.search(r'https?://[^\s]+', text))
+            has_search = any(kw in text.lower() for kw in ["search for", "look up", "browse", "open", "go to"])
+
+            if has_url or has_search:
+                return self._handle_browser_request(message, response)
+            else:
+                # General question - use LLM directly
+                try:
+                    result = self._llm.generate(
+                        prompt=text,
+                        system_prompt="You are AEGIS, a helpful AI assistant. Answer concisely.",
+                        max_tokens=500,
+                    )
+                    response.text = result.content if result.success else f"LLM error: {result.error}"
+                except Exception as e:
+                    response.text = f"Research failed: {e}"
         else:
             response.text = "Research Agent is not available."
         return response
@@ -201,4 +220,130 @@ class InteractionRouter:
             )
         else:
             response.text = "Tool Broker not available."
+        return response
+
+    def _handle_llm_fallback(self, message: Message, response: Response) -> Response:
+        """Handle unknown intents using LLM fallback."""
+        if not self._llm:
+            response.text = (
+                "I'm not sure what you mean. Could you rephrase? "
+                "I can help with research, settings, approvals, or general questions."
+            )
+            return response
+
+        text = message.text.strip()
+
+        # Check if user wants browser operations
+        browser_keywords = ["open", "go to", "navigate", "browse", "visit", "search for", "look up"]
+        is_browser_request = any(kw in text.lower() for kw in browser_keywords)
+
+        # Check if it looks like a URL
+        url_pattern = r'https?://[^\s]+'
+        has_url = bool(re.search(url_pattern, text))
+
+        if is_browser_request or has_url:
+            return self._handle_browser_request(message, response)
+
+        # General LLM conversation
+        try:
+            system_prompt = (
+                "You are AEGIS, an autonomous AI assistant. You can:\n"
+                "- Browse the web and extract information\n"
+                "- Take screenshots of the PC\n"
+                "- Run research tasks\n"
+                "- Control PC, Android, Room devices (with approval)\n"
+                "- Manage settings\n\n"
+                "Respond concisely and helpfully. If the user asks you to do something "
+                "that requires device access, explain that it needs approval."
+            )
+            result = self._llm.generate(
+                prompt=text,
+                system_prompt=system_prompt,
+                max_tokens=500,
+            )
+            if result.success:
+                response.text = result.content
+            else:
+                response.text = f"LLM error: {result.error}"
+        except Exception as e:
+            logger.error("LLM fallback failed: %s", e)
+            response.text = f"Sorry, I couldn't process that: {e}"
+
+        return response
+
+    def _handle_browser_request(self, message: Message, response: Response) -> Response:
+        """Handle browser automation requests."""
+        text = message.text.strip()
+
+        # Extract URL from message
+        url_match = re.search(r'https?://[^\s]+', text)
+        url = url_match.group(0) if url_match else ""
+
+        # If no URL, try to construct a search URL
+        if not url:
+            # Extract search query
+            search_patterns = [
+                r'search\s+(?:for\s+)?(.+)',
+                r'look\s+up\s+(.+)',
+                r'google\s+(.+)',
+                r'find\s+(.+)',
+            ]
+            for pattern in search_patterns:
+                m = re.search(pattern, text, re.IGNORECASE)
+                if m:
+                    query = m.group(1).strip()
+                    url = f"https://www.google.com/search?q={query.replace(' ', '+')}"
+                    break
+
+        if not url:
+            response.text = "Please provide a URL or search query. Example: 'open https://example.com' or 'search for Python 3.12'"
+            return response
+
+        # Execute browser automation
+        try:
+            import asyncio
+            from playwright.async_api import async_playwright
+
+            async def browse():
+                async with async_playwright() as p:
+                    browser = await p.chromium.launch(headless=True)
+                    page = await browser.new_page()
+                    await page.goto(url, timeout=30000)
+                    title = await page.title()
+
+                    # Extract text content
+                    text_content = await page.evaluate("""
+                        (() => {
+                            const exclude = ['script', 'style', 'nav', 'footer', 'noscript'];
+                            const clone = document.body.cloneNode(true);
+                            exclude.forEach(tag => {
+                                clone.querySelectorAll(tag).forEach(el => el.remove());
+                            });
+                            return (clone.textContent || '').replace(/\\s{3,}/g, '\\n\\n').trim();
+                        })()
+                    """)
+
+                    await browser.close()
+                    return title, text_content[:2000]
+
+            title, content = asyncio.run(browse())
+
+            # Use LLM to summarize if available
+            if self._llm:
+                summary_result = self._llm.generate(
+                    prompt=f"Summarize this webpage content concisely:\n\nTitle: {title}\n\nContent:\n{content}",
+                    system_prompt="You are a web content summarizer. Be concise and informative.",
+                    max_tokens=300,
+                )
+                if summary_result.success:
+                    response.text = f"**{title}**\n\n{summary_result.content}\n\n_Source: {url}_"
+                else:
+                    response.text = f"**{title}**\n\n{content[:500]}..."
+            else:
+                response.text = f"**{title}**\n\n{content[:500]}..."
+
+        except Exception as e:
+            logger.error("Browser automation failed: %s", e)
+            response.text = f"Failed to browse {url}: {e}"
+
         return response

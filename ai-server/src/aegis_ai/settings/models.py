@@ -118,6 +118,49 @@ class VoiceSettings(BaseModel):
     voice_data_retention_hours: int = Field(default=0, ge=0, le=168, description="Voice data retention (0=never store)")
 
 
+class AutonomyProfile(BaseModel):
+    """Autonomy profile — controls how much freedom AEGIS has.
+
+    Profiles:
+    - conservative: Most actions require approval
+    - balanced: Read-only auto, actions need approval
+    - permissive_owner_assisted: Read + low-risk actions auto, publish/payment gated
+    """
+
+    profile: str = Field(
+        default="permissive_owner_assisted",
+        description="Autonomy profile: conservative, balanced, permissive_owner_assisted",
+    )
+
+    # Permissive owner-assisted settings
+    owned_account_reading_enabled: bool = Field(
+        default=True, description="Allow reading user-owned SNS/DM/email/notifications",
+    )
+    owned_message_summary_enabled: bool = Field(
+        default=True, description="Allow summarizing user-owned messages",
+    )
+    low_risk_signup_enabled: bool = Field(
+        default=True, description="Allow low-risk free service signups",
+    )
+    low_risk_signup_without_approval: bool = Field(
+        default=True, description="Allow low-risk signups without approval (permissive only)",
+    )
+    external_send_requires_approval: bool = Field(
+        default=True, description="Require approval for SNS post/DM/email send",
+    )
+    publish_requires_approval: bool = Field(
+        default=True, description="Require approval for blog post publish",
+    )
+    payment_requires_approval: bool = Field(
+        default=True, description="Require approval for purchases/payments",
+    )
+
+    # Always forbidden (structural)
+    captcha_bypass_forbidden: bool = Field(default=True, description="CAPTCHA bypass forbidden")
+    bulk_signup_forbidden: bool = Field(default=True, description="Bulk account creation forbidden")
+    stealth_browser_forbidden: bool = Field(default=True, description="Stealth/proxy browser forbidden")
+
+
 class AEGISSettings(BaseModel):
     """Root settings object containing all configuration sections."""
 
@@ -129,3 +172,4 @@ class AEGISSettings(BaseModel):
     notifications: NotificationSettings = Field(default_factory=NotificationSettings)
     privacy: PrivacySettings = Field(default_factory=PrivacySettings)
     voice: VoiceSettings = Field(default_factory=VoiceSettings)
+    autonomy: AutonomyProfile = Field(default_factory=AutonomyProfile)

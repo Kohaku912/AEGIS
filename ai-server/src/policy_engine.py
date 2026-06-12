@@ -75,12 +75,26 @@ class PolicyEngine:
     # Per AGENTS.md Security Policy and architecture §7.
     # Phase 1.5: Expanded with all mandatory deny categories.
     EXPLICIT_DENY_PATTERNS: list[str] = [
-        # ── Communication: SNS/DM/Email ──
+        # ── Communication: SNS/DM/Email (non-browser) ──
         r".*\.send_sns$",
         r".*\.post_sns$",
-        r".*\.send_dm$",
-        r".*\.send_message$",
-        r".*\.send_email$",
+        r"android\.send_dm$",
+        r"android\.send_message$",
+        r"android\.send_email$",
+        r"pc\.send_dm$",
+        r"pc\.send_message$",
+        r"pc\.send_email$",
+        r"room\.send_dm$",
+        r"room\.send_message$",
+        r"room\.send_email$",
+        r"dev\.send_dm$",
+        r"dev\.send_message$",
+        r"dev\.send_email$",
+        r"ai\.send_dm$",
+        r"ai\.send_message$",
+        r"ai\.send_email$",
+        # Browser DM is still denied (not in approval patterns)
+        r"browser\.send_dm$",
         # ── File operations ──
         r".*\.delete_file$",
         r".*\.delete_all$",
@@ -173,6 +187,12 @@ class PolicyEngine:
         # Browser interaction
         r"browser\.fill_form$",
         r"browser\.submit_form$",
+        # Browser publish/send (always approval)
+        r"browser\.publish_post$",
+        r"browser\.send_message$",
+        r"browser\.send_email$",
+        # Browser signup (non-permissive profiles)
+        r"browser\.submit_signup$",
         # PC operations
         r"pc\.install_package$",
         r"pc\.modify_registry$",
@@ -191,6 +211,28 @@ class PolicyEngine:
         r"dev\.create_pull_request$",
     ]
 
+    # ── Permissive-owner-allowed patterns (no approval needed) ──
+    # These are allowed without approval in permissive_owner_assisted profile.
+    # Always audited. Conditions: user logged in, no external send.
+    PERMISSIVE_READ_PATTERNS: list[str] = [
+        r"browser\.read_owned_account_page$",
+        r"browser\.read_messages$",
+        r"browser\.summarize_messages$",
+        r"browser\.draft_reply$",
+        r"browser\.draft_post$",
+        r"browser\.check_signup_risk$",
+        r"browser\.detect_payment_required$",
+        r"browser\.detect_captcha$",
+        r"browser\.detect_identity_verification$",
+        r"browser\.detect_external_publish_action$",
+    ]
+
+    # Low-risk signup patterns (allowed in permissive if risk check passes)
+    PERMISSIVE_SIGNUP_PATTERNS: list[str] = [
+        r"browser\.fill_signup_form$",
+        r"browser\.submit_low_risk_signup$",
+    ]
+
     def __init__(self, approval_store: ApprovalStore | None = None) -> None:
         self._rules: dict[str, list[RuleFunc]] = {}
         self._global_rules: list[RuleFunc] = []
@@ -199,9 +241,18 @@ class PolicyEngine:
         self._risk_overrides: dict[str, RiskLevel] = {}
         self._explicit_deny: list[re.Pattern] = [re.compile(p) for p in self.EXPLICIT_DENY_PATTERNS]
         self._explicit_approval: list[re.Pattern] = [re.compile(p) for p in self.EXPLICIT_APPROVAL_PATTERNS]
+        self._permissive_read: list[re.Pattern] = [re.compile(p) for p in self.PERMISSIVE_READ_PATTERNS]
+        self._permissive_signup: list[re.Pattern] = [re.compile(p) for p in self.PERMISSIVE_SIGNUP_PATTERNS]
         self._approval_store = approval_store or ApprovalStore()
+        self._autonomy_profile: str = "permissive_owner_assisted"
 
     # ── Public Evaluation API ──────────────────────────────
+
+    def set_autonomy_profile(self, profile: str) -> None:
+        """Set the autonomy profile."""
+        valid = ("conservative", "balanced", "permissive_owner_assisted")
+        if profile in valid:
+            self._autonomy_profile = profile
 
     def evaluate_tool_invocation(
         self,
@@ -297,6 +348,27 @@ class PolicyEngine:
             result = rule(capability, params)
             if result is not None:
                 return self._finalize(result, capability, params)
+
+        # ── Permissive owner-assisted patterns (no approval needed) ──
+        if self._autonomy_profile == "permissive_owner_assisted":
+            for pattern in self._permissive_read:
+                if pattern.match(cap_id):
+                    return PolicyResult(
+                        decision=PolicyDecision.ALLOW,
+                        reason=f"'{cap_id}' allowed in permissive_owner_assisted (read/draft).",
+                        capability_id=cap_id,
+                        risk_level=RiskLevel.READ_ONLY,
+                        audit_required=True,
+                    )
+            for pattern in self._permissive_signup:
+                if pattern.match(cap_id):
+                    return PolicyResult(
+                        decision=PolicyDecision.ALLOW,
+                        reason=f"'{cap_id}' allowed in permissive_owner_assisted (low-risk signup).",
+                        capability_id=cap_id,
+                        risk_level=RiskLevel.SAFE_ACTION,
+                        audit_required=True,
+                    )
 
         for pattern in self._explicit_approval:
             if pattern.match(cap_id):

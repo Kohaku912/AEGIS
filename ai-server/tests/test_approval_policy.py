@@ -154,8 +154,9 @@ class TestExplicitDenyRules:
     @pytest.mark.parametrize("cap_id", [
         "pc.send_sns",
         "android.send_dm",
-        "browser.send_message",
         "pc.send_email",
+        "android.send_message",
+        "ai.send_email",
         "pc.delete_file",
         "pc.delete_all",
         "pc.rm_temp",

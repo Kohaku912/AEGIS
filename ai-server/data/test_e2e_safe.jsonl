@@ -57,3 +57,8 @@
 {"entry_id": "audit_1781206475088_6bf93aec", "timestamp_ms": 1781206475088, "action": "tool_invoked", "actor": "aegis", "capability_id": "pc.launch_app", "decision": "ALLOW", "reason": "", "detail": {}}
 {"entry_id": "audit_1781206583655_a991131b", "timestamp_ms": 1781206583655, "action": "tool_invoked", "actor": "aegis", "capability_id": "pc.launch_app", "decision": "ALLOW", "reason": "", "detail": {}}
 {"entry_id": "audit_1781206710251_915397aa", "timestamp_ms": 1781206710251, "action": "tool_invoked", "actor": "aegis", "capability_id": "pc.launch_app", "decision": "ALLOW", "reason": "", "detail": {}}
+{"entry_id": "audit_1781209842388_2740379c", "timestamp_ms": 1781209842388, "action": "tool_invoked", "actor": "aegis", "capability_id": "pc.launch_app", "decision": "ALLOW", "reason": "", "detail": {}}
+{"entry_id": "audit_1781209883555_4376d293", "timestamp_ms": 1781209883555, "action": "tool_invoked", "actor": "aegis", "capability_id": "pc.launch_app", "decision": "ALLOW", "reason": "", "detail": {}}
+{"entry_id": "audit_1781209978260_1a2ed4e9", "timestamp_ms": 1781209978260, "action": "tool_invoked", "actor": "aegis", "capability_id": "pc.launch_app", "decision": "ALLOW", "reason": "", "detail": {}}
+{"entry_id": "audit_1781210000561_f5b7ff84", "timestamp_ms": 1781210000561, "action": "tool_invoked", "actor": "aegis", "capability_id": "pc.launch_app", "decision": "ALLOW", "reason": "", "detail": {}}
+{"entry_id": "audit_1781234952776_6db71b97", "timestamp_ms": 1781234952776, "action": "tool_invoked", "actor": "aegis", "capability_id": "pc.launch_app", "decision": "ALLOW", "reason": "", "detail": {}}
