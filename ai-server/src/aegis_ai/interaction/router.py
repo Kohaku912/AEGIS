@@ -1,28 +1,40 @@
-"""Intent Router — routes user intents to appropriate agents/systems."""
+"""Interaction Router — Beta version with LLM Task Interpreter.
+
+Routes user messages through LLM Task Interpreter.
+The LLM understands natural language and produces structured TaskPlans
+that are validated by Planner and executed through ToolBroker.
+
+Architecture: docs/beta-architecture.md
+"""
 
 from __future__ import annotations
 
 import logging
-import re
 import time
 import uuid
 from typing import Any
 
-from aegis_ai.interaction.intent import Intent, classify_intent
 from aegis_ai.interaction.message import Message, Response
+from aegis_ai.llm_task_interpreter import LLMTaskInterpreter
+from aegis_ai.task_plan import RiskCategory, StepStatus, TaskPlan
 
 logger = logging.getLogger("aegis_ai.interaction.router")
 
 
 class InteractionRouter:
-    """Routes user messages to appropriate agents/systems.
+    """Routes user messages using LLM Task Interpreter.
+
+    Flow:
+    1. User message → LLM Task Interpreter → TaskPlan
+    2. TaskPlan → Planner validation → PolicyEngine check
+    3. Steps → ToolBroker execution (or Approval UI)
+    4. Results → Response to user
 
     Usage:
         router = InteractionRouter(
-            research_agent=research,
-            support_agent=support,
+            llm_provider=llm,
+            context_builder=ctx,
             tool_broker=broker,
-            settings_store=settings,
             approval_store=approvals,
         )
         response = router.route(message)
@@ -30,30 +42,45 @@ class InteractionRouter:
 
     def __init__(
         self,
+        llm_provider: Any = None,
+        context_builder: Any = None,
+        capability_registry: Any = None,
+        tool_broker: Any = None,
+        approval_store: Any = None,
+        audit_log: Any = None,
+        browser_executor: Any = None,
         research_agent: Any = None,
         support_agent: Any = None,
         self_dev_agent: Any = None,
-        tool_broker: Any = None,
         settings_store: Any = None,
-        approval_store: Any = None,
-        audit_log: Any = None,
-        llm_provider: Any = None,
     ) -> None:
+        self._llm = llm_provider
+        self._context = context_builder
+        self._registry = capability_registry
+        self._broker = tool_broker
+        self._approval = approval_store
+        self._audit = audit_log
+        self._browser = browser_executor
         self._research = research_agent
         self._support = support_agent
         self._self_dev = self_dev_agent
-        self._broker = tool_broker
         self._settings = settings_store
-        self._approval = approval_store
-        self._audit = audit_log
-        self._llm = llm_provider
+
+        # Lazy-init interpreter
+        self._interpreter: LLMTaskInterpreter | None = None
+
+    def _get_interpreter(self) -> LLMTaskInterpreter:
+        """Get or create LLM Task Interpreter."""
+        if self._interpreter is None:
+            self._interpreter = LLMTaskInterpreter(
+                llm_provider=self._llm,
+                context_builder=self._context,
+                capability_registry=self._registry,
+            )
+        return self._interpreter
 
     def route(self, message: Message) -> Response:
-        """Route a user message to the appropriate handler.
-
-        Returns a Response with the result.
-        """
-        intent = classify_intent(message.text)
+        """Route a user message through LLM Task Interpreter."""
         now_ms = int(time.time() * 1000)
 
         response = Response(
@@ -64,24 +91,22 @@ class InteractionRouter:
         )
 
         try:
-            if intent == Intent.RESEARCH_REQUEST:
-                response = self._handle_research(message, response)
-            elif intent == Intent.SUPPORT_FEEDBACK:
-                response = self._handle_support_feedback(message, response)
-            elif intent == Intent.SETTINGS_REQUEST:
-                response = self._handle_settings(message, response)
-            elif intent == Intent.APPROVAL_DECISION:
-                response = self._handle_approval(message, response)
-            elif intent == Intent.SELF_DEV_REQUEST:
-                response = self._handle_self_dev(message, response)
-            elif intent == Intent.STATUS_CHECK:
-                response = self._handle_status(message, response)
-            elif intent == Intent.HELP_REQUEST:
-                response = self._handle_help(message, response)
-            elif intent == Intent.TOOL_REQUEST:
-                response = self._handle_tool_request(message, response)
+            text_lower = message.text.lower().strip()
+
+            # Handle system commands directly (no LLM needed)
+            if any(kw in text_lower for kw in ["status", "health", "what's happening"]):
+                return self._handle_status(response)
+            elif any(kw in text_lower for kw in ["help", "what can you do", "how to"]):
+                return self._handle_help(response)
+            elif any(kw in text_lower for kw in ["settings", "config"]):
+                return self._handle_settings(response)
+            elif any(kw in text_lower for kw in ["approve", "reject", "pending"]):
+                return self._handle_approval(message, response)
+            elif any(kw in text_lower for kw in ["accept", "feedback", "thanks"]):
+                return self._handle_support_feedback(message, response)
             else:
-                response = self._handle_llm_fallback(message, response)
+                # Main path: LLM Task Interpreter
+                return self._handle_llm_interpreted(message, response)
 
         except Exception as e:
             logger.error("Interaction routing failed: %s", e)
@@ -90,216 +115,132 @@ class InteractionRouter:
         # Audit
         if self._audit:
             self._audit.log_decision(
-                "interaction", f"intent.{intent.name}", "HANDLED",
+                "interaction", "route", "HANDLED",
                 detail={"channel": message.channel.name, "text": message.text[:100]},
             )
 
         return response
 
-    def _handle_research(self, message: Message, response: Response) -> Response:
-        """Handle research requests."""
-        if self._research:
-            try:
-                report = self._research.research_topic(message.text)
-                if hasattr(report, "summary"):
-                    response.text = report.summary
-                    response.sources = [{"url": s.url, "title": s.title} for s in getattr(report, "sources", [])]
-                else:
-                    response.text = str(report)
-            except Exception as e:
-                response.text = f"Research failed: {e}"
-        elif self._llm:
-            # Fallback: use LLM for general research questions
-            text = message.text.strip()
-            has_url = bool(re.search(r'https?://[^\s]+', text))
-            has_search = any(kw in text.lower() for kw in ["search for", "look up", "browse", "open", "go to"])
+    def _handle_llm_interpreted(self, message: Message, response: Response) -> Response:
+        """Main handler: LLM interprets → TaskPlan → execute."""
+        interpreter = self._get_interpreter()
+        plan = interpreter.interpret(message.text)
 
-            if has_url or has_search:
-                return self._handle_browser_request(message, response)
-            else:
-                # General question - use LLM directly
-                try:
-                    result = self._llm.generate(
-                        prompt=text,
-                        system_prompt="You are AEGIS, a helpful AI assistant. Answer concisely.",
-                        max_tokens=500,
-                    )
-                    response.text = result.content if result.success else f"LLM error: {result.error}"
-                except Exception as e:
-                    response.text = f"Research failed: {e}"
-        else:
-            response.text = "Research Agent is not available."
-        return response
+        # Execute the plan
+        return self._execute_plan(plan, response)
 
-    def _handle_support_feedback(self, message: Message, response: Response) -> Response:
-        """Handle support feedback (accept/reject suggestions)."""
-        text_lower = message.text.lower()
-        accepted = any(w in text_lower for w in ["accept", "yes", "ok", "thanks"])
-        rejected = any(w in text_lower for w in ["reject", "no", "dismiss"])
+    def _execute_plan(self, plan: TaskPlan, response: Response) -> Response:
+        """Execute a TaskPlan."""
+        # Check if LLM failed
+        if not plan.steps and not plan.interpreted_request:
+            response.text = plan.expected_result or "I need an LLM provider to understand your request."
+            return response
 
-        if accepted:
-            response.text = "Thank you for the feedback! I'll remember this."
-        elif rejected:
-            response.text = "Understood. I'll adjust future suggestions."
-        else:
-            response.text = "Could you clarify your feedback?"
+        # Check for blocked steps
+        if plan.has_blocked_steps():
+            blocked = [s for s in plan.steps if s.risk_category == RiskCategory.BLOCKED]
+            reasons = [s.description for s in blocked]
+            response.text = f"Some actions are blocked: {', '.join(reasons)}"
+            return response
 
-        return response
-
-    def _handle_settings(self, message: Message, response: Response) -> Response:
-        """Handle settings requests."""
-        if self._settings:
-            settings = self._settings.get()
-            response.text = (
-                f"Current settings:\n"
-                f"- Autonomous loop: {'enabled' if settings.autonomous.autonomous_loop_enabled else 'disabled'}\n"
-                f"- Support agent: {'enabled' if settings.autonomous.support_agent_enabled else 'disabled'}\n"
-                f"- Self-dev: {'enabled' if settings.autonomous.self_dev_proposal_enabled else 'disabled'}\n"
-                f"\nUse the Dashboard to change settings: http://127.0.0.1:8090"
-            )
-        else:
-            response.text = "Settings store not available."
-        return response
-
-    def _handle_approval(self, message: Message, response: Response) -> Response:
-        """Handle approval decisions."""
-        if self._approval:
-            pending = self._approval.get_pending()
-            if pending:
-                response.text = f"You have {len(pending)} pending approval(s).\n"
+        # Check if approval needed
+        if plan.has_approval_required_steps():
+            approval_steps = [s for s in plan.steps if s.requires_approval]
+            if self._approval:
+                # Send to approval UI
+                for step in approval_steps:
+                    step.status = StepStatus.NEEDS_APPROVAL
+                response.text = (
+                    f"This requires approval for: {', '.join(s.description for s in approval_steps)}\n"
+                    f"Approval UI: http://127.0.0.1:8080/approvals"
+                )
                 response.pending_approvals = [
-                    {"approval_id": r.approval_id, "capability_id": r.capability_id, "tool_name": r.tool_name}
-                    for r in pending[:5]
+                    {"step_id": s.step_id, "description": s.description}
+                    for s in approval_steps
                 ]
-                response.text += "Use the Approval UI to decide: http://127.0.0.1:8080/approvals"
             else:
-                response.text = "No pending approvals."
-        else:
-            response.text = "Approval store not available."
-        return response
-
-    def _handle_self_dev(self, message: Message, response: Response) -> Response:
-        """Handle self-development requests."""
-        if self._self_dev:
-            response.text = "Self-dev analysis queued. I'll review recent reflections and propose improvements."
-        else:
-            response.text = "Self-dev Agent is not available."
-        return response
-
-    def _handle_status(self, message: Message, response: Response) -> Response:
-        """Handle status checks."""
-        response.text = (
-            "AEGIS is running. Use the Dashboard for detailed status:\n"
-            "http://127.0.0.1:8090\n\n"
-            "Quick links:\n"
-            "- Servers: http://127.0.0.1:8090/dashboard/servers\n"
-            "- Events: http://127.0.0.1:8090/dashboard/events\n"
-            "- Approvals: http://127.0.0.1:8080/approvals"
-        )
-        return response
-
-    def _handle_help(self, message: Message, response: Response) -> Response:
-        """Handle help requests."""
-        response.text = (
-            "I can help with:\n"
-            "- Research: 'research Python 3.12 features'\n"
-            "- Settings: 'show settings' or 'enable support agent'\n"
-            "- Approvals: 'show pending approvals'\n"
-            "- Status: 'what's the status?'\n"
-            "- Self-dev: 'improve the event bus'\n\n"
-            "For dangerous operations, I'll route you to the Approval UI."
-        )
-        return response
-
-    def _handle_tool_request(self, message: Message, response: Response) -> Response:
-        """Handle direct tool requests — routes through PolicyEngine."""
-        if self._broker:
-            response.text = (
-                "Tool requests must go through the Approval UI for safety. "
-                "Please use the Dashboard or Approval UI: http://127.0.0.1:8080/approvals"
-            )
-        else:
-            response.text = "Tool Broker not available."
-        return response
-
-    def _handle_llm_fallback(self, message: Message, response: Response) -> Response:
-        """Handle unknown intents using LLM fallback."""
-        if not self._llm:
-            response.text = (
-                "I'm not sure what you mean. Could you rephrase? "
-                "I can help with research, settings, approvals, or general questions."
-            )
+                response.text = "Approval required but approval system not available."
             return response
 
-        text = message.text.strip()
+        # Execute steps
+        results = []
+        for step in plan.steps:
+            if step.status != StepStatus.PENDING:
+                continue
 
-        # Check if user wants browser operations
-        browser_keywords = ["open", "go to", "navigate", "browse", "visit", "search for", "look up"]
-        is_browser_request = any(kw in text.lower() for kw in browser_keywords)
+            # Check dependencies
+            if step.depends_on:
+                deps_met = all(
+                    any(s.step_id == dep and s.status == StepStatus.COMPLETED for s in plan.steps)
+                    for dep in step.depends_on
+                )
+                if not deps_met:
+                    continue
 
-        # Check if it looks like a URL
-        url_pattern = r'https?://[^\s]+'
-        has_url = bool(re.search(url_pattern, text))
+            # Execute step
+            step_result = self._execute_step(step, plan)
+            results.append(step_result)
 
-        if is_browser_request or has_url:
-            return self._handle_browser_request(message, response)
-
-        # General LLM conversation
-        try:
-            system_prompt = (
-                "You are AEGIS, an autonomous AI assistant. You can:\n"
-                "- Browse the web and extract information\n"
-                "- Take screenshots of the PC\n"
-                "- Run research tasks\n"
-                "- Control PC, Android, Room devices (with approval)\n"
-                "- Manage settings\n\n"
-                "Respond concisely and helpfully. If the user asks you to do something "
-                "that requires device access, explain that it needs approval."
-            )
-            result = self._llm.generate(
-                prompt=text,
-                system_prompt=system_prompt,
-                max_tokens=500,
-            )
-            if result.success:
-                response.text = result.content
-            else:
-                response.text = f"LLM error: {result.error}"
-        except Exception as e:
-            logger.error("LLM fallback failed: %s", e)
-            response.text = f"Sorry, I couldn't process that: {e}"
+        # Build response
+        if results:
+            response.text = "\n".join(results)
+        else:
+            response.text = plan.expected_result or "No actions to execute."
 
         return response
 
-    def _handle_browser_request(self, message: Message, response: Response) -> Response:
-        """Handle browser automation requests."""
-        text = message.text.strip()
+    def _execute_step(self, step: Any, plan: TaskPlan) -> str:
+        """Execute a single plan step."""
+        # Browser operations
+        if step.action_type.startswith("browser_"):
+            return self._execute_browser_step(step)
 
-        # Extract URL from message
-        url_match = re.search(r'https?://[^\s]+', text)
-        url = url_match.group(0) if url_match else ""
+        # Tool invocation
+        if step.action_type == "tool_invoke" and step.capability_id:
+            return self._execute_tool_step(step)
 
-        # If no URL, try to construct a search URL
+        # LLM operations (summarize, analyze, etc.)
+        if step.action_type.startswith("llm_"):
+            return self._execute_llm_step(step, plan)
+
+        return f"[INFO] {step.description}"
+
+    def _execute_browser_step(self, step: Any) -> str:
+        """Execute a browser step."""
+        if self._browser:
+            try:
+                task = step.description
+                if step.params.get("url"):
+                    task = f"Go to {step.params['url']} and {step.description}"
+
+                result = self._browser.execute(task)
+                if result.success:
+                    step.status = StepStatus.COMPLETED
+                    step.result = result.result_text
+                    return result.result_text
+                else:
+                    step.status = StepStatus.FAILED
+                    step.error = result.error
+                    return f"[FAIL] {step.description}: {result.error}"
+            except Exception as e:
+                step.status = StepStatus.FAILED
+                step.error = str(e)
+                return f"[ERROR] {step.description}: {e}"
+        else:
+            return self._execute_browser_fallback(step)
+
+    def _execute_browser_fallback(self, step: Any) -> str:
+        """Fallback browser execution using direct playwright."""
+        import re
+
+        url = step.params.get("url", "")
         if not url:
-            # Extract search query
-            search_patterns = [
-                r'search\s+(?:for\s+)?(.+)',
-                r'look\s+up\s+(.+)',
-                r'google\s+(.+)',
-                r'find\s+(.+)',
-            ]
-            for pattern in search_patterns:
-                m = re.search(pattern, text, re.IGNORECASE)
-                if m:
-                    query = m.group(1).strip()
-                    url = f"https://www.google.com/search?q={query.replace(' ', '+')}"
-                    break
+            url_match = re.search(r'https?://[^\s]+', step.description)
+            url = url_match.group(0) if url_match else ""
 
         if not url:
-            response.text = "Please provide a URL or search query. Example: 'open https://example.com' or 'search for Python 3.12'"
-            return response
+            return f"[INFO] {step.description} (no URL found)"
 
-        # Execute browser automation
         try:
             import asyncio
             from playwright.async_api import async_playwright
@@ -310,40 +251,120 @@ class InteractionRouter:
                     page = await browser.new_page()
                     await page.goto(url, timeout=30000)
                     title = await page.title()
-
-                    # Extract text content
-                    text_content = await page.evaluate("""
-                        (() => {
-                            const exclude = ['script', 'style', 'nav', 'footer', 'noscript'];
-                            const clone = document.body.cloneNode(true);
-                            exclude.forEach(tag => {
-                                clone.querySelectorAll(tag).forEach(el => el.remove());
-                            });
-                            return (clone.textContent || '').replace(/\\s{3,}/g, '\\n\\n').trim();
-                        })()
-                    """)
-
+                    text = await page.evaluate("document.body.innerText")
                     await browser.close()
-                    return title, text_content[:2000]
+                    return title, text[:2000]
 
             title, content = asyncio.run(browse())
-
-            # Use LLM to summarize if available
-            if self._llm:
-                summary_result = self._llm.generate(
-                    prompt=f"Summarize this webpage content concisely:\n\nTitle: {title}\n\nContent:\n{content}",
-                    system_prompt="You are a web content summarizer. Be concise and informative.",
-                    max_tokens=300,
-                )
-                if summary_result.success:
-                    response.text = f"**{title}**\n\n{summary_result.content}\n\n_Source: {url}_"
-                else:
-                    response.text = f"**{title}**\n\n{content[:500]}..."
-            else:
-                response.text = f"**{title}**\n\n{content[:500]}..."
+            step.status = StepStatus.COMPLETED
+            return f"**{title}**\n\n{content}"
 
         except Exception as e:
-            logger.error("Browser automation failed: %s", e)
-            response.text = f"Failed to browse {url}: {e}"
+            step.status = StepStatus.FAILED
+            return f"[ERROR] Browser: {e}"
 
+    def _execute_tool_step(self, step: Any) -> str:
+        """Execute a tool invocation step via ToolBroker."""
+        if not self._broker:
+            return f"[INFO] {step.description} (ToolBroker not available)"
+
+        try:
+            result = self._broker.invoke_tool(step.capability_id, step.params)
+            if result.success:
+                step.status = StepStatus.COMPLETED
+                step.result = result.output
+                return f"[OK] {step.description}"
+            elif result.status.name == "APPROVAL_NEEDED":
+                step.status = StepStatus.NEEDS_APPROVAL
+                return f"[APPROVAL] {step.description} — needs approval"
+            else:
+                step.status = StepStatus.FAILED
+                step.error = result.error
+                return f"[FAIL] {step.description}: {result.error}"
+        except Exception as e:
+            step.status = StepStatus.FAILED
+            return f"[ERROR] {step.description}: {e}"
+
+    def _execute_llm_step(self, step: Any, plan: TaskPlan) -> str:
+        """Execute an LLM-based step (summarize, analyze, etc.)."""
+        if not self._llm:
+            return f"[INFO] {step.description} (LLM not available)"
+
+        try:
+            # Build prompt from step description and context
+            prompt = step.description
+            if step.params.get("content"):
+                prompt = f"{step.description}\n\nContent:\n{step.params['content']}"
+
+            result = self._llm.generate(
+                prompt=prompt,
+                system_prompt="You are AEGIS. Perform the requested analysis concisely.",
+                max_tokens=1000,
+            )
+
+            if result.success:
+                step.status = StepStatus.COMPLETED
+                step.result = result.content
+                return result.content
+            else:
+                step.status = StepStatus.FAILED
+                return f"[FAIL] {step.description}: {result.error}"
+
+        except Exception as e:
+            step.status = StepStatus.FAILED
+            return f"[ERROR] {step.description}: {e}"
+
+    def _handle_status(self, response: Response) -> Response:
+        """Handle status check."""
+        response.text = (
+            "AEGIS is running. Use the Dashboard for detailed status:\n"
+            "http://127.0.0.1:8090"
+        )
+        return response
+
+    def _handle_help(self, response: Response) -> Response:
+        """Handle help request."""
+        response.text = (
+            "I'm AEGIS, your autonomous AI assistant. I can:\n"
+            "- Research topics and browse the web\n"
+            "- Read and summarize your messages (SNS, email)\n"
+            "- Create drafts for posts and replies\n"
+            "- Control your PC, Android, and room devices\n\n"
+            "Just tell me what you need in natural language!"
+        )
+        return response
+
+    def _handle_settings(self, response: Response) -> Response:
+        """Handle settings request."""
+        if self._settings:
+            settings = self._settings.get()
+            response.text = (
+                f"Settings:\n"
+                f"- Dashboard: http://127.0.0.1:8090"
+            )
+        else:
+            response.text = "Settings not available."
+        return response
+
+    def _handle_approval(self, message: Message, response: Response) -> Response:
+        """Handle approval request."""
+        if self._approval:
+            pending = self._approval.get_pending()
+            if pending:
+                response.text = f"You have {len(pending)} pending approval(s).\nApproval UI: http://127.0.0.1:8080/approvals"
+            else:
+                response.text = "No pending approvals."
+        else:
+            response.text = "Approval system not available."
+        return response
+
+    def _handle_support_feedback(self, message: Message, response: Response) -> Response:
+        """Handle support feedback."""
+        text_lower = message.text.lower()
+        if any(w in text_lower for w in ["accept", "yes", "ok", "thanks"]):
+            response.text = "Thank you for the feedback!"
+        elif any(w in text_lower for w in ["reject", "no"]):
+            response.text = "Understood. I'll adjust."
+        else:
+            response.text = "Could you clarify your feedback?"
         return response
