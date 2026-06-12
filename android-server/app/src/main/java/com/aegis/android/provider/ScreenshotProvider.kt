@@ -40,6 +40,7 @@ class ScreenshotProvider(private val context: Context) {
     /**
      * Set the MediaProjection result from Activity.
      * Call this from Activity.onActivityResult.
+     * Note: Must start ScreenshotService (foreground service with mediaProjection type) first.
      */
     fun setMediaProjectionResult(resultCode: Int, data: Intent) {
         val projectionManager = context.getSystemService(

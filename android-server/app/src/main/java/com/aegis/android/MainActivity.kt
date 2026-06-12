@@ -21,6 +21,7 @@ import com.aegis.android.provider.DeviceProvider
 import com.aegis.android.provider.ScreenshotProvider
 import com.aegis.android.provider.UITreeProvider
 import com.aegis.android.service.AegisAccessibilityService
+import com.aegis.android.service.ScreenshotService
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -177,6 +178,11 @@ class MainActivity : AppCompatActivity() {
 
     private fun requestScreenshotPermission() {
         try {
+            // Start foreground service first (required for MediaProjection)
+            val serviceIntent = Intent(this, ScreenshotService::class.java)
+            startForegroundService(serviceIntent)
+
+            // Then request MediaProjection permission
             val projectionManager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
             startActivityForResult(projectionManager.createScreenCaptureIntent(), REQUEST_MEDIA_PROJECTION)
         } catch (e: Exception) {
