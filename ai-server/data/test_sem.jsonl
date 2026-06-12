@@ -138,3 +138,13 @@
 {"fact_id": "fact_1781206584040_310dbf51", "content": "Project uses Python 3.12", "category": "design", "source": "inference", "confidence": 1.0, "tags": [], "timestamp_ms": 1781206584040}
 {"fact_id": "fact_1781206710722_1e5ebbda", "content": "User prefers dark mode", "category": "preference", "source": "user", "confidence": 1.0, "tags": [], "timestamp_ms": 1781206710722}
 {"fact_id": "fact_1781206710723_4db8f72c", "content": "Project uses Python 3.12", "category": "design", "source": "inference", "confidence": 1.0, "tags": [], "timestamp_ms": 1781206710723}
+{"fact_id": "fact_1781209843167_e8c05244", "content": "User prefers dark mode", "category": "preference", "source": "user", "confidence": 1.0, "tags": [], "timestamp_ms": 1781209843167}
+{"fact_id": "fact_1781209843168_9f590abf", "content": "Project uses Python 3.12", "category": "design", "source": "inference", "confidence": 1.0, "tags": [], "timestamp_ms": 1781209843168}
+{"fact_id": "fact_1781209884642_8ab8b517", "content": "User prefers dark mode", "category": "preference", "source": "user", "confidence": 1.0, "tags": [], "timestamp_ms": 1781209884642}
+{"fact_id": "fact_1781209884650_db805fdc", "content": "Project uses Python 3.12", "category": "design", "source": "inference", "confidence": 1.0, "tags": [], "timestamp_ms": 1781209884650}
+{"fact_id": "fact_1781209978668_9d7d3397", "content": "User prefers dark mode", "category": "preference", "source": "user", "confidence": 1.0, "tags": [], "timestamp_ms": 1781209978668}
+{"fact_id": "fact_1781209978668_6cf42583", "content": "Project uses Python 3.12", "category": "design", "source": "inference", "confidence": 1.0, "tags": [], "timestamp_ms": 1781209978668}
+{"fact_id": "fact_1781210001445_3cfe5599", "content": "User prefers dark mode", "category": "preference", "source": "user", "confidence": 1.0, "tags": [], "timestamp_ms": 1781210001445}
+{"fact_id": "fact_1781210001445_093b710a", "content": "Project uses Python 3.12", "category": "design", "source": "inference", "confidence": 1.0, "tags": [], "timestamp_ms": 1781210001445}
+{"fact_id": "fact_1781234953405_90ed0066", "content": "User prefers dark mode", "category": "preference", "source": "user", "confidence": 1.0, "tags": [], "timestamp_ms": 1781234953405}
+{"fact_id": "fact_1781234953405_0e99f1dd", "content": "Project uses Python 3.12", "category": "design", "source": "inference", "confidence": 1.0, "tags": [], "timestamp_ms": 1781234953405}

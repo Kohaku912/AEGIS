@@ -176,12 +176,12 @@ class TestPolicyEnforcement:
         assert result.decision.name == "DENY"
 
     def test_send_email_denied(self):
-        """Email sending is denied by explicit deny pattern."""
+        """Email sending requires approval (not DENY for browser)."""
         from aegis_schema.models import RiskLevel
         policy = create_default_policy_engine()
         cap = self._make_cap("browser.send_email", RiskLevel.APPROVAL_REQUIRED)
         result = policy.evaluate(cap, {})
-        assert result.decision.name == "DENY"
+        assert result.decision.name == "ASK_APPROVAL"
 
     def test_mouse_click_approval(self):
         """Mouse click requires approval."""

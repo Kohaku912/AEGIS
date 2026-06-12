@@ -76,7 +76,6 @@ class TestDangerousOpsBlocked:
     @pytest.mark.parametrize("bad_cap_id", [
         "browser.post_sns",
         "browser.purchase_item",
-        "browser.send_message",
         "browser.captcha_bypass",
     ])
     def test_dangerous_caps_explicitly_denied(self, bad_cap_id):
@@ -86,6 +85,19 @@ class TestDangerousOpsBlocked:
         broker = ToolBroker(registry, create_default_policy_engine())
         result = broker.invoke_tool(bad_cap_id, {})
         assert result.status == InvokeStatus.DENIED, f"{bad_cap_id} should be DENIED"
+
+    @pytest.mark.parametrize("approval_cap_id", [
+        "browser.send_message",
+        "browser.send_email",
+        "browser.publish_post",
+    ])
+    def test_browser_send_requires_approval(self, approval_cap_id):
+        cap = _make_cap(approval_cap_id, risk=RiskLevel.APPROVAL_REQUIRED)
+        registry = ToolRegistry()
+        registry.register_capability(cap)
+        broker = ToolBroker(registry, create_default_policy_engine())
+        result = broker.invoke_tool(approval_cap_id, {})
+        assert result.status == InvokeStatus.APPROVAL_NEEDED, f"{approval_cap_id} should require approval"
 
 
 class TestUnknownCapabilityBlocked:

@@ -43,6 +43,45 @@ User Request → ToolBroker → SettingsPermissionGuard → PolicyEngine → Exe
 - Remove explicit deny patterns
 - Weaken approval requirements
 
+## Autonomy Profiles
+
+AEGIS supports three autonomy profiles that control how much freedom the AI has:
+
+| Profile | Read | Low-Risk Actions | Publish/Send | Payment |
+|---------|------|-----------------|--------------|---------|
+| `conservative` | Approval | Approval | Approval | Deny |
+| `balanced` | Auto | Approval | Approval | Deny |
+| `permissive_owner_assisted` | **Auto** | **Auto** | Approval | Deny |
+
+### Permissive Owner Assisted
+
+In this profile (default), AEGIS can:
+
+1. **Read owned accounts** — SNS, DM, email, notifications (no approval)
+2. **Summarize messages** — DM/email/SNS summaries (no approval)
+3. **Draft replies/posts** — Create drafts, not publish (no approval)
+4. **Low-risk signup** — Free service signup with risk check (no approval)
+5. **Login existing sessions** — Use existing login (password entry needs approval)
+
+Still requires approval:
+- Publishing posts, sending DMs/emails
+- Purchases and paid subscriptions
+- CAPTCHA bypass (always forbidden)
+
+### Configuration
+
+```json
+{
+  "autonomy": {
+    "profile": "permissive_owner_assisted",
+    "owned_account_reading_enabled": true,
+    "low_risk_signup_enabled": true,
+    "external_send_requires_approval": true,
+    "payment_requires_approval": true
+  }
+}
+```
+
 ## Integration with ToolBroker
 
 ```python

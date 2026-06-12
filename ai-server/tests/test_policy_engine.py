@@ -11,7 +11,8 @@ from policy_engine import PolicyDecision, create_default_policy_engine
 def _make_cap(id: str, risk: RiskLevel = RiskLevel.READ_ONLY,
               server: ServerType = ServerType.PC) -> Capability:
     prefix_map = {"pc": ServerType.PC, "android": ServerType.ANDROID,
-                  "browser": ServerType.BROWSER, "room": ServerType.ROOM, "dev": ServerType.DEV}
+                  "browser": ServerType.BROWSER, "room": ServerType.ROOM,
+                  "dev": ServerType.DEV, "ai": ServerType.AI}
     prefix = id.split(".")[0]
     return Capability(id=id, name=id, description=f"Capability {id}",
                       server_type=prefix_map.get(prefix, server), risk_level=risk)
@@ -64,8 +65,9 @@ class TestExplicitDenyPatterns:
     """All the user-specified deny categories."""
 
     @pytest.mark.parametrize("cap_id", [
-        # Communication
-        "pc.send_sns", "android.send_dm", "browser.send_message", "pc.send_email",
+        # Communication (non-browser)
+        "pc.send_sns", "android.send_dm", "pc.send_email",
+        "android.send_message", "ai.send_email",
         # File operations
         "pc.delete_file", "pc.delete_all", "pc.rm_temp", "pc.wipe_disk", "pc.bulk_delete_temp",
         # External transmission

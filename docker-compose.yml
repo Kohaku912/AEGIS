@@ -1,174 +1,130 @@
-# AEGIS — Multi-server Docker Compose configuration
-# Phase 1.2: Skeleton with placeholder services.
+# AEGIS Docker Compose — multi-profile configuration
+#
+# Profiles:
+#   mock         — All services with mock providers (CI)
+#   real-browser — ai-server + browser-server with real Chromium
+#   pc-host      — ai-server + browser-server, pc-server on Windows host
+#   full-local   — ai-server + browser-server + mock android/room/dev
 #
 # Usage:
-#   docker compose up -d          # Start all services
-#   docker compose ps              # Check status
-#   docker compose logs -f ai-server  # Follow AI Server logs
-#   docker compose down            # Stop all services
-
-# ── Network ──────────────────────────────────────────────────
-# All servers communicate on this internal network via gRPC.
-networks:
-  aegis-net:
-    driver: bridge
-    name: aegis-net
-
-# ── Services ─────────────────────────────────────────────────
+#   docker compose --profile mock up -d
+#   docker compose --profile real-browser up -d
+#   docker compose --profile pc-host --profile real-browser up -d
+#   docker compose --profile full-local up -d
+#
+# Windows Host PC Server:
+#   Start pc-server separately: .\scripts\start-pc-server-host.ps1
+#   AI Server connects via host.docker.internal
 
 services:
-  # ═══════════════════════════════════════════════════════════
-  # AI Server — Central brain of AEGIS
-  # ═══════════════════════════════════════════════════════════
+  # ── AI Server (always runs) ──────────────────────────────
   ai-server:
     build:
-      context: .
-      dockerfile: infra/docker/ai-server.Dockerfile
-    container_name: aegis-ai-server
-    hostname: ai-server
+      context: ./ai-server
+      dockerfile: Dockerfile
     ports:
-      - "${AEGIS_AI_GRPC_PORT:-50051}:50051"
+      - "${AEGIS_CORE_GRPC_PORT:-50051}:50051"
+      - "127.0.0.1:8090:8090"  # Dashboard (localhost only)
+      - "127.0.0.1:8091:8091"  # Web Chat (localhost only)
     environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - OPENAI_BASE_URL=${OPENAI_BASE_URL:-https://api.deepseek.com}
       - AEGIS_GRPC_HOST=0.0.0.0
       - AEGIS_GRPC_PORT=50051
-      - AEGIS_BROWSER_GRPC_ADDR=browser-server:50052
-      - AEGIS_PC_GRPC_ADDR=pc-server:50053
-      - AEGIS_ROOM_GRPC_ADDR=room-server:50054
-      - AEGIS_DEV_GRPC_ADDR=dev-server:50055
-      - AEGIS_TRIGGER_ENABLED=false
-      - AEGIS_AUTONOMOUS_LOOP_ENABLED=false
-      - AEGIS_LOG_LEVEL=${AEGIS_AI_LOG_LEVEL:-INFO}
-    networks:
-      - aegis-net
+      - AEGIS_AUTONOMY_PROFILE=${AUTONOMY_PROFILE:-permissive_owner_assisted}
+      # PC Server connection (Windows host)
+      - PC_SERVER_HOST=${PC_SERVER_HOST:-host.docker.internal}
+      - PC_SERVER_PORT=${PC_SERVER_PORT:-50052}
+    volumes:
+      - aegis-data:/app/data
+      - aegis-reports:/app/evaluation/reports
+      - ./evaluation:/app/evaluation
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     healthcheck:
-      test: ["CMD", "python", "-c", "import grpc; ch=grpc.insecure_channel('localhost:50051'); from generated.aegis import ai_server_pb2_grpc, common_pb2; stub=ai_server_pb2_grpc.AIServerStub(ch); r=stub.HealthCheck(common_pb2.HealthCheckRequest(server_id='hc')); assert r.status.code==0; ch.close()"]
-      interval: 15s
+      test: ["CMD-SHELL", "python -c \"import socket; s=socket.socket(); s.settimeout(2); s.connect(('localhost',50051)); s.close()\""]
+      interval: 10s
       timeout: 5s
       retries: 3
-      start_period: 10s
-    restart: unless-stopped
 
-  # ═══════════════════════════════════════════════════════════
-  # Browser Server — Web automation (Python + browser-use)
-  # ═══════════════════════════════════════════════════════════
+  # ── Browser Server ───────────────────────────────────────
   browser-server:
     build:
-      context: .
-      dockerfile: infra/docker/browser-server.Dockerfile
-    container_name: aegis-browser-server
-    hostname: browser-server
+      context: ./browser-server
+      dockerfile: Dockerfile
+    profiles:
+      - real-browser
+      - mock
+      - pc-host
+      - full-local
     ports:
-      - "${AEGIS_BROWSER_GRPC_PORT:-50052}:50052"
-    environment:
-      - AEGIS_AI_GRPC_ADDR=ai-server:50051
-      - AEGIS_GRPC_PORT=50052
-    networks:
-      - aegis-net
-    healthcheck:
-      test: ["CMD", "node", "-e", "process.exit(0)"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 10s
-    restart: unless-stopped
-    # Browser automation needs some shared memory for Chromium
-    shm_size: "256m"
-
-  # ═══════════════════════════════════════════════════════════
-  # PC Server — PC control (placeholder)
-  # ═══════════════════════════════════════════════════════════
-  pc-server:
-    build:
-      context: .
-      dockerfile: infra/docker/pc-server.Dockerfile
-    container_name: aegis-pc-server
-    hostname: pc-server
-    ports:
-      - "${AEGIS_PC_GRPC_PORT:-50053}:50053"
+      - "127.0.0.1:${BROWSER_SERVER_GRPC_PORT:-50053}:50053"
     environment:
       - AEGIS_AI_GRPC_ADDR=ai-server:50051
       - AEGIS_GRPC_PORT=50053
-    networks:
-      - aegis-net
-    healthcheck:
-      test: ["CMD", "python", "-c", "print('ok')"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 10s
-    restart: unless-stopped
-
-  # ═══════════════════════════════════════════════════════════
-  # Room Server — IoT / Room control (placeholder)
-  # ═══════════════════════════════════════════════════════════
-  room-server:
-    build:
-      context: .
-      dockerfile: infra/docker/room-server.Dockerfile
-    container_name: aegis-room-server
-    hostname: room-server
-    ports:
-      - "${AEGIS_ROOM_GRPC_PORT:-50054}:50054"
-    environment:
-      - AEGIS_AI_GRPC_ADDR=ai-server:50051
-      - AEGIS_GRPC_PORT=50054
-    networks:
-      - aegis-net
-    healthcheck:
-      test: ["CMD", "python", "-c", "print('ok')"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 10s
-    restart: unless-stopped
-
-  # ═══════════════════════════════════════════════════════════
-  # Dev Server — Sandboxed self-development (placeholder)
-  # ═══════════════════════════════════════════════════════════
-  dev-server:
-    build:
-      context: .
-      dockerfile: infra/docker/dev-server.Dockerfile
-    container_name: aegis-dev-server
-    hostname: dev-server
-    ports:
-      - "${AEGIS_DEV_GRPC_PORT:-50055}:50055"
-    environment:
-      - AEGIS_AI_GRPC_ADDR=ai-server:50051
-      - AEGIS_GRPC_PORT=50055
-    networks:
-      - aegis-net
-    healthcheck:
-      test: ["CMD", "python", "-c", "print('ok')"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 10s
-    restart: unless-stopped
-    # Dev Server is sandboxed — no Docker socket, no host mounts
-    # Only mount the AEGIS repo as read-only for observation
+      - AEGIS_BROWSER_HEADLESS=true
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - OPENAI_BASE_URL=${OPENAI_BASE_URL:-https://api.deepseek.com}
     volumes:
-      - .:/workspace:ro
-    # Security: read-only root filesystem
-    read_only: true
-    tmpfs:
-      - /tmp:size=256M
+      - browser-profiles:/app/browser-profiles
+      - browser-sessions:/app/browser-sessions
+    depends_on:
+      ai-server:
+        condition: service_started
 
-  # ═══════════════════════════════════════════════════════════
-  # Android Server — commented out (runs on actual Android device)
-  # ═══════════════════════════════════════════════════════════
-  # android-server:
-  #   build:
-  #     context: .
-  #     dockerfile: infra/docker/android-server.Dockerfile
-  #   container_name: aegis-android-server
-  #   hostname: android-server
-  #   ports:
-  #     - "${AEGIS_ANDROID_GRPC_PORT:-50056}:50056"
-  #   environment:
-  #     - AEGIS_AI_GRPC_ADDR=ai-server:50051
-  #   networks:
-  #     - aegis-net
-  #   restart: unless-stopped
-  #   # Note: Android Server typically runs on the device itself.
-  #   # This containerized version is for CI/testing only.
+  # ── Mock PC Server (mock/full-local profile, CI) ─────────
+  mock-pc-server:
+    image: python:3.12-slim
+    profiles:
+      - mock
+      - full-local
+    command: >
+      python -c "
+      import socket, json, time
+      server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+      server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+      server.bind(('0.0.0.0', 50052))
+      server.listen(5)
+      print('Mock PC Server listening on :50052')
+      while True:
+        conn, addr = server.accept()
+        data = conn.recv(1024).decode().strip()
+        if data == 'health':
+          resp = json.dumps({'status':'ok','server_id':'mock-pc','version':'0.1.0','capabilities':6})
+          conn.sendall((resp+'\\n').encode())
+        conn.close()
+      "
+    profiles:
+      - mock
+      - full-local
+    ports:
+      - "50052:50052"
+    depends_on:
+      ai-server:
+        condition: service_started
+
+  # ── Mock Android Server (full-local profile) ─────────────
+  mock-android-server:
+    image: python:3.12-slim
+    profiles:
+      - full-local
+    command: echo "Mock Android Server placeholder"
+    depends_on:
+      ai-server:
+        condition: service_started
+
+  # ── Mock Room Server (full-local profile) ────────────────
+  mock-room-server:
+    image: python:3.12-slim
+    profiles:
+      - full-local
+    command: echo "Mock Room Server placeholder"
+    depends_on:
+      ai-server:
+        condition: service_started
+
+volumes:
+  aegis-data:
+  aegis-reports:
+  browser-profiles:
+  browser-sessions:
