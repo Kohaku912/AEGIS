@@ -26,23 +26,29 @@ source .venv/bin/activate  # Linux/Mac
 # .venv\Scripts\activate   # Windows
 pip install -e ".[dev]"
 
-# 3. Run tests
-pytest -q  # 1204 tests
+# 3. Set environment variables
+export OPENAI_API_KEY="your-deepseek-api-key"
+export OPENAI_BASE_URL="https://api.deepseek.com"
 
-# 4. Docker Compose (planned)
-cd ..
-docker compose up -d
+# 4. Run tests
+pytest -q  # 1328 tests
+
+# 5. Start services
+python start_aegis.py  # Starts AI Server + Dashboard + Web Chat + CLI
 ```
 
 ## Status
 
 | Item | Status |
 |------|--------|
-| Phase | Alpha (local-only, mock providers) |
-| Tests | 1204 passed, 0 failed |
+| Phase | Beta (real LLM, real devices) |
+| Tests | 1328 passed, 7 skipped |
 | Lint | ruff clean |
 | Safety | PolicyEngine structural, 4 levels |
-| Capabilities | 51 registered (observe/action/approval) |
+| Capabilities | 62 registered (observe/action/approval) |
+| LLM | DeepSeek API (OpenAI compatible) |
+| Dashboard | HTTP server on port 8090 |
+| Web Chat | Flask on port 8091 |
 
 ## Documentation
 

@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AEGIS Settings</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0d1117; color: #e6edf3; padding: 20px; }
+        h1 { color: #58a6ff; margin-bottom: 20px; }
+        .section { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 16px; margin-bottom: 16px; }
+        .section h2 { color: #58a6ff; margin-bottom: 12px; font-size: 16px; }
+        .setting { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid #21262d; }
+        .setting:last-child { border-bottom: none; }
+        .setting label { color: #8b949e; }
+        .setting .value { color: #e6edf3; }
+        .toggle { position: relative; width: 40px; height: 20px; }
+        .toggle input { opacity: 0; width: 0; height: 0; }
+        .toggle .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background: #21262d; border-radius: 20px; transition: 0.3s; }
+        .toggle .slider:before { position: absolute; content: ""; height: 16px; width: 16px; left: 2px; bottom: 2px; background: #8b949e; border-radius: 50%; transition: 0.3s; }
+        .toggle input:checked + .slider { background: #238636; }
+        .toggle input:checked + .slider:before { transform: translateX(20px); background: white; }
+        .btn { background: #238636; color: white; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; }
+        .btn:hover { background: #2ea043; }
+        .btn.danger { background: #da3633; }
+        .btn.danger:hover { background: #f85149; }
+        .actions { margin-top: 20px; display: flex; gap: 10px; }
+        .status { padding: 8px; border-radius: 6px; margin-top: 10px; display: none; }
+        .status.success { display: block; background: #238636; color: white; }
+        .status.error { display: block; background: #da3633; color: white; }
+    </style>
+</head>
+<body>
+    <h1>AEGIS Settings</h1>
+    <div id="settings"></div>
+    <div class="actions">
+        <button class="btn" onclick="saveSettings()">Save Changes</button>
+        <button class="btn danger" onclick="resetSettings()">Reset to Defaults</button>
+        <button class="btn" onclick="exportSettings()">Export JSON</button>
+    </div>
+    <div id="status" class="status"></div>
+
+    <script>
+        let settings = {};
+
+        async function loadSettings() {
+            const res = await fetch('/api/settings');
+            settings = await res.json();
+            renderSettings();
+        }
+
+        function renderSettings() {
+            const container = document.getElementById('settings');
+            container.innerHTML = '';
+            for (const [section, values] of Object.entries(settings)) {
+                if (typeof values !== 'object') continue;
+                const div = document.createElement('div');
+                div.className = 'section';
+                div.innerHTML = `<h2>${section}</h2>`;
+                for (const [key, value] of Object.entries(values)) {
+                    const settingDiv = document.createElement('div');
+                    settingDiv.className = 'setting';
+                    if (typeof value === 'boolean') {
+                        settingDiv.innerHTML = `
+                            <label>${key}</label>
+                            <label class="toggle">
+                                <input type="checkbox" ${value ? 'checked' : ''} data-section="${section}" data-key="${key}">
+                                <span class="slider"></span>
+                            </label>
+                        `;
+                    } else {
+                        settingDiv.innerHTML = `
+                            <label>${key}</label>
+                            <span class="value">${value}</span>
+                        `;
+                    }
+                    div.appendChild(settingDiv);
+                }
+                container.appendChild(div);
+            }
+        }
+
+        async function saveSettings() {
+            const checkboxes = document.querySelectorAll('.toggle input');
+            for (const cb of checkboxes) {
+                const section = cb.dataset.section;
+                const key = cb.dataset.key;
+                await fetch(`/api/settings/${section}`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({[key]: cb.checked}),
+                });
+            }
+            showStatus('Settings saved!', 'success');
+        }
+
+        async function resetSettings() {
+            if (!confirm('Reset all settings to defaults?')) return;
+            await fetch('/api/settings/reset', {method: 'POST'});
+            loadSettings();
+            showStatus('Settings reset to defaults', 'success');
+        }
+
+        async function exportSettings() {
+            const res = await fetch('/api/settings/export');
+            const json = await res.text();
+            const blob = new Blob([json], {type: 'application/json'});
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'aegis-settings.json';
+            a.click();
+        }
+
+        function showStatus(msg, type) {
+            const el = document.getElementById('status');
+            el.textContent = msg;
+            el.className = `status ${type}`;
+            setTimeout(() => el.className = 'status', 3000);
+        }
+
+        loadSettings();
+    </script>
+</body>
+</html>
