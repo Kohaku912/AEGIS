@@ -87,3 +87,8 @@
 {"entry_id": "audit_1781255653612_8ad58ffd", "timestamp_ms": 1781255653612, "action": "approval_rejected", "actor": "user", "capability_id": "room.ir_send", "decision": "REJECTED", "reason": "", "detail": {}}
 {"entry_id": "audit_1781257051029_52f18004", "timestamp_ms": 1781257051029, "action": "approval_rejected", "actor": "user", "capability_id": "room.ir_send", "decision": "REJECTED", "reason": "", "detail": {}}
 {"entry_id": "audit_1781259519720_a6223133", "timestamp_ms": 1781259519720, "action": "approval_rejected", "actor": "user", "capability_id": "room.ir_send", "decision": "REJECTED", "reason": "", "detail": {}}
+{"entry_id": "audit_1781265964090_ad8b22a6", "timestamp_ms": 1781265964090, "action": "approval_rejected", "actor": "user", "capability_id": "room.ir_send", "decision": "REJECTED", "reason": "", "detail": {}}
+{"entry_id": "audit_1781266040943_81452a72", "timestamp_ms": 1781266040943, "action": "approval_rejected", "actor": "user", "capability_id": "room.ir_send", "decision": "REJECTED", "reason": "", "detail": {}}
+{"entry_id": "audit_1781266113098_ec3aebc1", "timestamp_ms": 1781266113098, "action": "approval_rejected", "actor": "user", "capability_id": "room.ir_send", "decision": "REJECTED", "reason": "", "detail": {}}
+{"entry_id": "audit_1781266174815_be48d9ac", "timestamp_ms": 1781266174815, "action": "approval_rejected", "actor": "user", "capability_id": "room.ir_send", "decision": "REJECTED", "reason": "", "detail": {}}
+{"entry_id": "audit_1781268500334_49ac7306", "timestamp_ms": 1781268500334, "action": "approval_rejected", "actor": "user", "capability_id": "room.ir_send", "decision": "REJECTED", "reason": "", "detail": {}}

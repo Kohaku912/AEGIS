@@ -38,7 +38,7 @@ async def main():
     from aegis_ai.llm.providers.openai_provider import OpenAIProvider
 
     llm = OpenAIProvider(
-        model="deepseek-chat",
+        model="deepseek-v4-flash",
         api_key=os.environ["OPENAI_API_KEY"],
         base_url=os.environ["OPENAI_BASE_URL"],
     )

@@ -1,15 +1,51 @@
 {% extends "dashboard/base.html" %}
 {% block title %}AEGIS — Memory{% endblock %}
 {% block content %}
-<h1>Memory</h1>
+<h1>Memory System</h1>
+
 <div class="grid">
     <div class="card"><h3>Episodic</h3><div class="value">{{ summary.episodic_count }}</div></div>
-    <div class="card"><h3>Semantic</h3><div class="value">{{ summary.semantic_count }}</div></div>
-    <div class="card"><h3>Procedural</h3><div class="value">{{ summary.procedural_count }}</div></div>
-    <div class="card"><h3>Reflections</h3><div class="value">{{ summary.reflection_count }}</div></div>
+    <div class="card"><h3>Semantic (Chroma)</h3><div class="value">{{ summary.semantic_count }}</div></div>
+    <div class="card"><h3>Persons</h3><div class="value">{{ summary.persona_count }}</div></div>
+    <div class="card"><h3>Conversations</h3><div class="value">{{ summary.conversation_count }}</div></div>
 </div>
+
+{% if persons %}
 <div class="card">
-    <h3>Recent Episodic</h3>
+    <h3>Persona Memory — People I Know</h3>
+    <table>
+        <tr><th>Name</th><th>Relationship</th><th>Notes</th><th>Interactions</th><th>Topics</th></tr>
+        {% for p in persons %}
+        <tr>
+            <td><strong>{{ p.name }}</strong></td>
+            <td>{{ p.relationship }}</td>
+            <td>{{ p.notes }}</td>
+            <td>{{ p.interaction_count }}</td>
+            <td>{{ p.topics|join(', ') }}</td>
+        </tr>
+        {% endfor %}
+    </table>
+</div>
+{% endif %}
+
+{% if conversations %}
+<div class="card">
+    <h3>Recent Conversations</h3>
+    <table>
+        <tr><th>Person</th><th>Summary</th><th>Key Points</th></tr>
+        {% for c in conversations %}
+        <tr>
+            <td><strong>{{ c.person }}</strong></td>
+            <td>{{ c.summary }}</td>
+            <td>{{ c.key_points|join(', ') }}</td>
+        </tr>
+        {% endfor %}
+    </table>
+</div>
+{% endif %}
+
+<div class="card">
+    <h3>Episodic Memory</h3>
     <table>
         <tr><th>Summary</th><th>Category</th><th>Time</th></tr>
         {% for e in episodic %}
@@ -17,8 +53,9 @@
         {% endfor %}
     </table>
 </div>
+
 <div class="card">
-    <h3>Semantic Facts</h3>
+    <h3>Semantic Facts (Chroma)</h3>
     <table>
         <tr><th>Content</th><th>Category</th><th>Source</th><th>Confidence</th></tr>
         {% for f in semantic %}
@@ -26,6 +63,7 @@
         {% endfor %}
     </table>
 </div>
+
 <div class="card">
     <h3>Reflections</h3>
     <table>
