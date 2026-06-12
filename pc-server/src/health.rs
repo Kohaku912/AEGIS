@@ -7,6 +7,7 @@ use std::io::{BufRead, BufReader, Write};
 use std::net::{TcpListener, TcpStream};
 use std::thread;
 
+use crate::action;
 use crate::observe;
 use crate::safety;
 
@@ -120,20 +121,39 @@ fn handle_command(cmd: &str) -> String {
 
         // ── Input (Level 2: Approval required) ─────────────
         "mouse_move" => {
-            // Mock: in real implementation, use Windows API
-            format!("{{\"status\":\"ok\",\"action\":\"mouse_move\",\"params\":\"{}\"}}", params)
+            let parts: Vec<&str> = params.split(',').collect();
+            let x: i32 = parts.first().and_then(|s| s.trim().parse().ok()).unwrap_or(0);
+            let y: i32 = parts.get(1).and_then(|s| s.trim().parse().ok()).unwrap_or(0);
+            let result = action::mouse_move(x, y);
+            serde_json::to_string(&result).unwrap_or_else(|_| "{\"error\":\"json\"}".into())
         }
         "mouse_click" => {
-            // Approval required — return approval needed
-            "{\"status\":\"approval_required\",\"action\":\"mouse_click\",\"reason\":\"Mouse click requires user approval\"}".to_string()
+            let parts: Vec<&str> = params.split(',').collect();
+            let x: i32 = parts.first().and_then(|s| s.trim().parse().ok()).unwrap_or(0);
+            let y: i32 = parts.get(1).and_then(|s| s.trim().parse().ok()).unwrap_or(0);
+            let button = parts.get(2).map(|s| s.trim()).unwrap_or("left");
+            if action::is_real_actions_enabled() {
+                let result = action::mouse_click(x, y, button);
+                serde_json::to_string(&result).unwrap_or_else(|_| "{\"error\":\"json\"}".into())
+            } else {
+                "{\"status\":\"approval_required\",\"action\":\"mouse_click\",\"reason\":\"Mouse click requires user approval\"}".to_string()
+            }
         }
         "keyboard_type" => {
-            // Approval required — return approval needed
-            "{\"status\":\"approval_required\",\"action\":\"keyboard_type\",\"reason\":\"Keyboard input requires user approval\"}".to_string()
+            if action::is_real_actions_enabled() {
+                let result = action::keyboard_type(params);
+                serde_json::to_string(&result).unwrap_or_else(|_| "{\"error\":\"json\"}".into())
+            } else {
+                "{\"status\":\"approval_required\",\"action\":\"keyboard_type\",\"reason\":\"Keyboard input requires user approval\"}".to_string()
+            }
         }
         "press_hotkey" => {
-            // Approval required — return approval needed
-            "{\"status\":\"approval_required\",\"action\":\"press_hotkey\",\"reason\":\"Hotkey requires user approval\"}".to_string()
+            if action::is_real_actions_enabled() {
+                let result = action::press_hotkey(params);
+                serde_json::to_string(&result).unwrap_or_else(|_| "{\"error\":\"json\"}".into())
+            } else {
+                "{\"status\":\"approval_required\",\"action\":\"press_hotkey\",\"reason\":\"Hotkey requires user approval\"}".to_string()
+            }
         }
 
         // ── Capabilities ───────────────────────────────────

@@ -20,6 +20,7 @@
 //! - keyboard type
 //! - press hotkey
 
+mod action;
 mod health;
 mod observe;
 mod redaction;

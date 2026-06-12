@@ -58,13 +58,9 @@ def start_web_chat():
     from aegis_ai.interaction.channels.web import WebChatApp
     from aegis_ai.interaction.router import InteractionRouter
     from aegis_ai.interaction.session import SessionManager
-    from aegis_ai.llm.providers.openai_provider import OpenAIProvider
+    from aegis_ai.llm.factory import create_llm_provider
 
-    llm = OpenAIProvider(
-        model="deepseek-chat",
-        api_key=os.environ["OPENAI_API_KEY"],
-        base_url=os.environ["OPENAI_BASE_URL"],
-    )
+    llm = create_llm_provider()
     router = InteractionRouter(llm_provider=llm)
     sessions = SessionManager()
     logger.info("Web Chat: starting on http://127.0.0.1:8091/chat")
@@ -77,13 +73,9 @@ def start_cli():
     from aegis_ai.interaction.channels.cli import CLIChannel
     from aegis_ai.interaction.router import InteractionRouter
     from aegis_ai.interaction.session import SessionManager
-    from aegis_ai.llm.providers.openai_provider import OpenAIProvider
+    from aegis_ai.llm.factory import create_llm_provider
 
-    llm = OpenAIProvider(
-        model="deepseek-chat",
-        api_key=os.environ["OPENAI_API_KEY"],
-        base_url=os.environ["OPENAI_BASE_URL"],
-    )
+    llm = create_llm_provider()
     router = InteractionRouter(llm_provider=llm)
     sessions = SessionManager()
     cli = CLIChannel(router=router, session_manager=sessions)
