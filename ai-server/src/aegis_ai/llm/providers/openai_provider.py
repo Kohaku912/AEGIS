@@ -8,14 +8,24 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import TYPE_CHECKING, Any
+from dataclasses import dataclass
+from typing import Any
 
 from openai import OpenAI
 
-if TYPE_CHECKING:
-    from aegis_ai.llm.router import LLMResponse
-
 logger = logging.getLogger("aegis_ai.llm.providers.openai")
+
+
+@dataclass
+class LLMResponse:
+    """Response from the LLM."""
+    content: str = ""
+    model_used: str = ""
+    provider_used: str = ""
+    tokens_used: int = 0
+    cost_estimate: float = 0.0
+    success: bool = True
+    error: str = ""
 
 
 class OpenAIProvider:

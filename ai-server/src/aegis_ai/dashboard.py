@@ -7,8 +7,7 @@ Usage:
 from __future__ import annotations
 
 import logging
-
-from aegis_ai.web.dashboard_routes import DashboardApp
+import os
 
 logging.basicConfig(
     level=logging.INFO,
@@ -16,7 +15,18 @@ logging.basicConfig(
 )
 logger = logging.getLogger("aegis_ai.dashboard")
 
-if __name__ == "__main__":
-    logger.info("Starting AEGIS Dashboard on http://127.0.0.1:8090")
+
+def main() -> None:
+    """Start the Dashboard server."""
+    from aegis_ai.web.dashboard_routes import DashboardApp
+    
+    host = os.getenv("DASHBOARD_HOST", "0.0.0.0")
+    port = int(os.getenv("DASHBOARD_PORT", "8090"))
+    
+    logger.info("Starting AEGIS Dashboard on http://%s:%d", host, port)
     app = DashboardApp()
-    app.run(host="127.0.0.1", port=8090, debug=False)
+    app.run(host=host, port=port, debug=False)
+
+
+if __name__ == "__main__":
+    main()

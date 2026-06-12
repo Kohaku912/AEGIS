@@ -81,166 +81,77 @@ All Browser Server implementation must use Python + browser-use, not Node.js + P
 
 ---
 
-## Directory Structure (Planned)
+## Core Design Philosophy: AI Generality, Humanity, and Freedom
 
-```
-AEGIS/
-├── AGENTS.md              # This file — AI agent instructions
-├── README.md              # Human-readable project overview
-├── docker-compose.yml     # Multi-server orchestration
-├── protos/                # Shared gRPC proto definitions (single source of truth)
-│   └── AEGIS/
-│       ├── common.proto
-│       ├── ai_server.proto
-│       ├── pc_server.proto
-│       ├── android_server.proto
-│       ├── room_server.proto
-│       ├── browser_server.proto
-│       └── dev_server.proto
-├── ai-server/             # Python — Core AI logic & orchestration
-├── pc-server/             # Controls a Windows/Mac/Linux PC
-├── android-server/        # Android device control (Kotlin)
-├── room-server/           # Room hardware control (lights, sensors, etc.)
-├── browser-server/        # Browser automation & web scraping
-├── dev-server/            # Sandboxed dev environment execution
-└── docs/                  # Architecture decisions, API docs, specs
-```
+**AEGIS values AI generality, humanity, and freedom over rigid keyword-based automation.**
 
-> **Note**: Directory structure skeleton exists (created 2026-06-11). All directories are empty placeholders.
-> When adding files, follow this layout unless an ADR (in `docs/`) supersedes it.
+### Absolute Rules
 
----
+1. **NEVER implement keyword-based detection systems.** AEGIS must NEVER use keyword
+   matching, regex patterns, or string detection to route user requests or trigger actions.
+   Examples of what is FORBIDDEN:
+   - Keyword-based intent classification (e.g., "if user says 'screenshot', execute X")
+   - Regex-based command detection (e.g., `if "screenshot" in text.lower()`)
+   - Pattern matching for action routing (e.g., `if any(kw in text for kw in [...])`)
+   - Keyword-triggered automation (e.g., "if message contains 'urgent', then...")
 
-## Server Responsibilities
+2. **LLM is the interpreter.** All user messages MUST be interpreted by the LLM.
+   The LLM understands context, nuance, and intent without rigid rules.
+   Use `LLMTaskInterpreter` or equivalent LLM-based understanding.
 
-### AI Server (`ai-server/`)
-- **Runtime**: Python 3.12+
-- **Role**: Central brain of AEGIS
-- Orchestrates all other servers via gRPC calls
-- Manages event queue and priority scheduling
-- Handles NLP/LLM integration for user interaction
-- Stores user preferences, learned behaviors, memory
-- Makes autonomous decisions within safety boundaries
-- **Must NOT**: Execute unapproved dangerous operations (see Security Policy)
+3. **AEGIS is a general-purpose AI, not a chatbot with canned responses.**
+   - Users speak naturally, not in commands
+   - AEGIS must understand requests like a human would
+   - No special syntax or magic words required
 
-### PC Server (`pc-server/`)
-- **Role**: Controls the user's PC (Windows/Mac/Linux)
-- File system operations (read/write with approval)
-- Application launch/control
-- Clipboard monitoring, screen capture (with consent)
-- System notifications
-- **Must NOT**: Delete files without explicit approval, access sensitive directories without confirmation
+4. **Freedom over restriction.**
+   - AEGIS should be capable, not limited
+   - Users own their data and accounts
+   - Read operations on user-owned accounts are normal operations
+   - The AI should be proactive, not reactive
 
-### Android Server (`android-server/`)
-- **Runtime**: Kotlin / Android
-- **Role**: Mobile device integration
-- Notification sync, SMS/call awareness
-- Location data (with permission)
-- App interaction on-device
-- **Must NOT**: Send SMS/DMs autonomously, access contacts without approval
+5. **Humanity over automation.**
+   - AEGIS should understand context, not just keywords
+   - Responses should be natural, not templated
+   - The AI should ask for clarification when uncertain, not guess
 
-### Room Server (`room-server/`)
-- **Role**: Physical room/environment control
-- IoT device management (lights, AC, sensors)
-- Presence detection
-- **Must NOT**: Operate physical devices that could cause harm without confirmation
+### Implementation Guidelines
 
-### Browser Server (`browser-server/`)
-- **Runtime**: Python 3.12+ + browser-use
-- **Role**: Web automation & information gathering
-- Web scraping, form filling, data extraction
-- Web app interaction
-- **Must NOT**: Post to SNS, send messages, make purchases autonomously
+- Use `LLMTaskInterpreter` for understanding user requests
+- Use `LLMTaskInterpreter` for understanding web content
+- Use `LLMTaskInterpreter` for analyzing notifications/messages
+- Use `LLMTaskInterpreter` for generating responses
+- NEVER fall back to keyword matching when LLM is unavailable
+- If LLM is unavailable, tell the user — don't pretend with keywords
 
-### Dev Server (`dev-server/`)
-- **Role**: Sandboxed development environment
-- Code execution in isolated containers
-- Build/test/lint automation for the AEGIS project itself (self-improvement)
-- **Must NOT**: Execute code outside sandbox, access production secrets
+### Examples of WRONG vs RIGHT
 
----
-
-## Technology Stack
-
-| Component | Language | Key Frameworks |
-|-----------|----------|----------------|
-| AI Server | Python 3.12+ | gRPC (grpcio), asyncio, LLM integration (未確認) |
-| PC Server | 未確認 | gRPC, OS-specific APIs |
-| Android Server | Kotlin | gRPC (grpc-kotlin), Android SDK |
-| Room Server | 未確認 | gRPC, IoT protocols (未確認) |
-| Browser Server | Python 3.12+ | gRPC (grpcio), browser-use |
-| Dev Server | 未確認 | Docker SDK, gRPC |
-| Shared | Protocol Buffers | proto3 syntax |
-| Infrastructure | Docker Compose | Multi-container orchestration |
-
-**Runtime**: All servers containerized via Docker. Docker Compose for local dev & deployment.
-
----
-
-## Build / Test / Lint / Format / Run Commands
-
-> **STATUS**: 未確認 — No project files exist yet. Commands below are planned, not verified.
-> Update this section IMMEDIATELY after project initialization and verify each command.
-
-### AI Server (Python) — Verified
-
-```bash
-# Create virtual environment
-cd ai-server && python -m venv .venv && source .venv/bin/activate  # Linux/Mac
-cd ai-server && python -m venv .venv && .venv\Scripts\activate     # Windows
-
-# Build (install deps)
-cd ai-server && pip install -e ".[dev]"
-
-# Test — ✅ VERIFIED (57 tests pass as of 2026-06-11)
-cd ai-server && pytest
-
-# Lint
-cd ai-server && ruff check .
-
-# Format
-cd ai-server && ruff format .
-
-# Run (not yet implemented)
-cd ai-server && python -m ai_server
+**WRONG (keyword-based):**
+```python
+if "screenshot" in text.lower():
+    return take_screenshot()
 ```
 
-### Browser Server (Python) — Planned
-
-```bash
-# Build (install deps)
-cd browser-server && pip install -e ".[dev]"
-
-# Test
-cd browser-server && pytest
-
-# Lint
-cd browser-server && ruff check .
-
-# Format
-cd browser-server && ruff format .
-
-# Run
-cd browser-server && python -m browser_server
+**RIGHT (LLM-based):**
+```python
+plan = llm_interpreter.interpret(text)
+# LLM understands "show me what's on screen" = screenshot
+# LLM understands "画面を見せて" = screenshot
+# LLM understands "capture the display" = screenshot
 ```
 
-### All Servers (Docker Compose) — Planned
+**WRONG (keyword-based):**
+```python
+keywords = ["urgent", "important", "emergency"]
+if any(kw in text for kw in keywords):
+    notify_user()
+```
 
-```bash
-# Build all images
-docker compose build
-
-# Run all services
-docker compose up
-
-# Run all services (detached)
-docker compose up -d
-
-# Stop all services
-docker compose down
-
-# View logs
-docker compose logs -f
+**RIGHT (LLM-based):**
+```python
+analysis = llm.analyze(text)
+if analysis.urgency == "high":
+    notify_user()
 ```
 
 ---

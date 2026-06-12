@@ -1,8 +1,12 @@
-//! Observe capabilities for PC Server — read-only system observation.
+//! Observe capabilities for PC Server — real implementations.
 //!
-//! Provides mock implementations for testing cross-platform.
-//! Real implementations are gated behind OS-specific feature flags.
+//! Uses:
+//! - `screenshots` crate for screen capture
+//! - `sysinfo` crate for OS info
+//! - `x-win` crate for window info
+//! - `arboard` crate for clipboard
 
+use base64::Engine;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -42,72 +46,143 @@ pub struct ScreenSize {
     pub height: u32,
 }
 
-// ── Mock implementations (cross-platform) ──────────────────
+// ═══════════════════════════════════════════════════════════
+// Screenshot — screenshots crate
+// ═══════════════════════════════════════════════════════════
 
 pub fn get_screenshot() -> Result<ScreenshotResult, String> {
-    let size = get_screen_size();
+    use screenshots::Screen;
+
+    let screens = Screen::all().map_err(|e| format!("Failed to get screens: {e}"))?;
+    let screen = screens.first().ok_or("No screens found")?;
+    let image = screen.capture().map_err(|e| format!("Failed to capture: {e}"))?;
+
+    let buffer = encode_bmp(image.rgba(), image.width(), image.height())?;
+
     Ok(ScreenshotResult {
-        width: size.width,
-        height: size.height,
-        image_base64: "[MOCK_SCREENSHOT]".to_string(),
-        format: "png".to_string(),
+        width: image.width(),
+        height: image.height(),
+        image_base64: base64::engine::general_purpose::STANDARD.encode(&buffer),
+        format: "bmp".into(),
         captured_at_ms: now_ms(),
     })
 }
 
+fn encode_bmp(rgba: &[u8], width: u32, height: u32) -> Result<Vec<u8>, String> {
+    let row_size = width as usize * 3;
+    let padding = (4 - (row_size % 4)) % 4;
+    let padded_row = row_size + padding;
+    let img_size = padded_row * height as usize;
+    let file_size = 54 + img_size;
+
+    let mut bmp = Vec::with_capacity(file_size);
+    bmp.extend_from_slice(b"BM");
+    bmp.extend_from_slice(&(file_size as u32).to_le_bytes());
+    bmp.extend_from_slice(&[0u8; 4]);
+    bmp.extend_from_slice(&54u32.to_le_bytes());
+    bmp.extend_from_slice(&40u32.to_le_bytes());
+    bmp.extend_from_slice(&(width as i32).to_le_bytes());
+    bmp.extend_from_slice(&(-(height as i32)).to_le_bytes());
+    bmp.extend_from_slice(&1u16.to_le_bytes());
+    bmp.extend_from_slice(&24u16.to_le_bytes());
+    bmp.extend_from_slice(&[0u8; 24]);
+
+    for y in 0..height as usize {
+        for x in 0..width as usize {
+            let i = (y * width as usize + x) * 4;
+            bmp.push(rgba[i + 2]);
+            bmp.push(rgba[i + 1]);
+            bmp.push(rgba[i]);
+        }
+        bmp.extend(std::iter::repeat(0u8).take(padding));
+    }
+    Ok(bmp)
+}
+
+// ═══════════════════════════════════════════════════════════
+// Active Window — x-win crate
+// ═══════════════════════════════════════════════════════════
+
 pub fn get_active_window() -> Result<WindowInfo, String> {
+    let window = x_win::get_active_window().map_err(|e| format!("Failed to get window: {e}"))?;
     Ok(WindowInfo {
-        title: "AEGIS - Development".to_string(),
-        process_name: "code.exe".to_string(),
-        pid: 12345,
-        x: 0, y: 0, width: 1920, height: 1080,
+        title: window.title,
+        process_name: window.info.exec_name,
+        pid: window.info.process_id,
+        x: window.position.x as i32,
+        y: window.position.y as i32,
+        width: window.position.width as u32,
+        height: window.position.height as u32,
         is_minimized: false,
         is_visible: true,
     })
 }
 
+// ═══════════════════════════════════════════════════════════
+// Window List — x-win crate
+// ═══════════════════════════════════════════════════════════
+
 pub fn list_windows() -> Result<Vec<WindowInfo>, String> {
-    Ok(vec![
-        get_active_window()?,
-        WindowInfo {
-            title: "Chrome - AEGIS Dashboard".to_string(),
-            process_name: "chrome.exe".to_string(),
-            pid: 12346,
-            x: 100, y: 100, width: 1200, height: 800,
+    let windows = x_win::get_open_windows().map_err(|e| format!("Failed to list windows: {e}"))?;
+    Ok(windows
+        .into_iter()
+        .map(|w| WindowInfo {
+            title: w.title,
+            process_name: w.info.exec_name,
+            pid: w.info.process_id,
+            x: w.position.x as i32,
+            y: w.position.y as i32,
+            width: w.position.width as u32,
+            height: w.position.height as u32,
             is_minimized: false,
             is_visible: true,
-        },
-    ])
+        })
+        .collect())
 }
+
+// ═══════════════════════════════════════════════════════════
+// Clipboard — arboard crate
+// ═══════════════════════════════════════════════════════════
 
 pub fn get_clipboard() -> Result<String, String> {
-    Ok("[MOCK_CLIPBOARD_CONTENT]".to_string())
+    let mut clipboard = arboard::Clipboard::new().map_err(|e| format!("Failed to access clipboard: {e}"))?;
+    let text = clipboard.get_text().map_err(|e| format!("Failed to read clipboard: {e}"))?;
+    Ok(if text.is_empty() { "[EMPTY]".into() } else { text })
 }
+
+// ═══════════════════════════════════════════════════════════
+// OS Info — sysinfo crate
+// ═══════════════════════════════════════════════════════════
 
 pub fn get_os_info() -> OsInfo {
+    use sysinfo::System;
     OsInfo {
-        os_name: std::env::consts::OS.to_string(),
-        os_version: "unknown".to_string(),
-        hostname: get_hostname(),
-        username: get_username(),
-        architecture: std::env::consts::ARCH.to_string(),
+        os_name: System::name().unwrap_or_else(|| "Unknown".into()),
+        os_version: System::os_version().unwrap_or_else(|| "Unknown".into()),
+        hostname: System::host_name().unwrap_or_else(|| "localhost".into()),
+        username: std::env::var("USERNAME").unwrap_or_else(|_| "user".into()),
+        architecture: std::env::consts::ARCH.into(),
     }
 }
+
+// ═══════════════════════════════════════════════════════════
+// Screen Size — screenshots crate
+// ═══════════════════════════════════════════════════════════
 
 pub fn get_screen_size() -> ScreenSize {
-    ScreenSize {
-        width: 1920,
-        height: 1080,
+    use screenshots::Screen;
+    if let Ok(screens) = Screen::all() {
+        if let Some(screen) = screens.first() {
+            return ScreenSize {
+                width: screen.display_info.width as u32,
+                height: screen.display_info.height as u32,
+            };
+        }
     }
+    ScreenSize { width: 1920, height: 1080 }
 }
 
-fn get_hostname() -> String {
-    std::env::var("COMPUTERNAME").unwrap_or_else(|_| "localhost".to_string())
-}
-
-fn get_username() -> String {
-    std::env::var("USERNAME").unwrap_or_else(|_| "user".to_string())
-}
+// ═══════════════════════════════════════════════════════════
 
 fn now_ms() -> u64 {
     std::time::SystemTime::now()
