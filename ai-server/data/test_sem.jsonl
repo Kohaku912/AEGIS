@@ -182,3 +182,11 @@
 {"fact_id": "fact_1781240693040_3c22f31d", "content": "Project uses Python 3.12", "category": "design", "source": "inference", "confidence": 1.0, "tags": [], "timestamp_ms": 1781240693040}
 {"fact_id": "fact_1781244920471_91754f60", "content": "User prefers dark mode", "category": "preference", "source": "user", "confidence": 1.0, "tags": [], "timestamp_ms": 1781244920471}
 {"fact_id": "fact_1781244920471_8f3b49f9", "content": "Project uses Python 3.12", "category": "design", "source": "inference", "confidence": 1.0, "tags": [], "timestamp_ms": 1781244920471}
+{"fact_id": "fact_1781248731436_b646a97f", "content": "User prefers dark mode", "category": "preference", "source": "user", "confidence": 1.0, "tags": [], "timestamp_ms": 1781248731436}
+{"fact_id": "fact_1781248731436_b7f82a0d", "content": "Project uses Python 3.12", "category": "design", "source": "inference", "confidence": 1.0, "tags": [], "timestamp_ms": 1781248731436}
+{"fact_id": "fact_1781249009797_80d38eae", "content": "User prefers dark mode", "category": "preference", "source": "user", "confidence": 1.0, "tags": [], "timestamp_ms": 1781249009797}
+{"fact_id": "fact_1781249009798_80269f84", "content": "Project uses Python 3.12", "category": "design", "source": "inference", "confidence": 1.0, "tags": [], "timestamp_ms": 1781249009798}
+{"fact_id": "fact_1781249098898_a6e5a823", "content": "User prefers dark mode", "category": "preference", "source": "user", "confidence": 1.0, "tags": [], "timestamp_ms": 1781249098898}
+{"fact_id": "fact_1781249098899_dc22ce7b", "content": "Project uses Python 3.12", "category": "design", "source": "inference", "confidence": 1.0, "tags": [], "timestamp_ms": 1781249098899}
+{"fact_id": "fact_1781250404088_3304513d", "content": "User prefers dark mode", "category": "preference", "source": "user", "confidence": 1.0, "tags": [], "timestamp_ms": 1781250404088}
+{"fact_id": "fact_1781250404089_cb3b739c", "content": "Project uses Python 3.12", "category": "design", "source": "inference", "confidence": 1.0, "tags": [], "timestamp_ms": 1781250404089}

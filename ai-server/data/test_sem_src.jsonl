@@ -90,3 +90,7 @@
 {"fact_id": "fact_1781240629719_7470e921", "content": "Test", "category": "general", "source": "user", "confidence": 1.0, "tags": ["important"], "timestamp_ms": 1781240629719}
 {"fact_id": "fact_1781240693043_7842fe0f", "content": "Test", "category": "general", "source": "user", "confidence": 1.0, "tags": ["important"], "timestamp_ms": 1781240693043}
 {"fact_id": "fact_1781244920474_39f04fa2", "content": "Test", "category": "general", "source": "user", "confidence": 1.0, "tags": ["important"], "timestamp_ms": 1781244920474}
+{"fact_id": "fact_1781248731439_d32c97f3", "content": "Test", "category": "general", "source": "user", "confidence": 1.0, "tags": ["important"], "timestamp_ms": 1781248731439}
+{"fact_id": "fact_1781249009801_ae4f18f8", "content": "Test", "category": "general", "source": "user", "confidence": 1.0, "tags": ["important"], "timestamp_ms": 1781249009801}
+{"fact_id": "fact_1781249098901_0a9773fd", "content": "Test", "category": "general", "source": "user", "confidence": 1.0, "tags": ["important"], "timestamp_ms": 1781249098901}
+{"fact_id": "fact_1781250404092_2257d2da", "content": "Test", "category": "general", "source": "user", "confidence": 1.0, "tags": ["important"], "timestamp_ms": 1781250404092}

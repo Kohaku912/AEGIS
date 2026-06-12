@@ -1,7 +1,7 @@
-"""Browser-Use Task Executor — executes browser tasks using browser-use.
+"""Browser-Use Task Executor — executes browser tasks using Playwright.
 
-Instead of implementing site-specific functions, this module passes
-natural language tasks to browser-use which uses LLM to drive the browser.
+Uses Playwright for browser automation and LLM for content analysis.
+browser-use Agent is optional (requires compatible langchain-openai version).
 
 Safety: All actions go through safety boundary checks.
 """
@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
+import time
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -18,7 +20,7 @@ logger = logging.getLogger("aegis_ai.browser_use.executor")
 
 @dataclass
 class BrowserTaskResult:
-    """Result of a browser-use task execution."""
+    """Result of a browser task execution."""
     success: bool = False
     task_description: str = ""
     result_text: str = ""
@@ -29,26 +31,20 @@ class BrowserTaskResult:
 
 
 class BrowserUseSafetyBoundary:
-    """Safety boundary for browser-use tasks.
+    """Safety boundary for browser tasks."""
 
-    Defines what browser-use can and cannot do.
-    """
-
-    # Always blocked
     BLOCKED_PATTERNS = [
         "captcha", "bypass", "stealth", "proxy",
         "purchase", "buy", "pay", "subscribe",
         "spam", "bulk", "mass",
     ]
 
-    # Requires approval
     APPROVAL_PATTERNS = [
         "post", "publish", "send", "submit",
         "tweet", "dm", "email", "message",
         "upload", "share",
     ]
 
-    # Allowed without approval
     READ_PATTERNS = [
         "read", "extract", "get", "fetch", "browse",
         "navigate", "open", "visit", "search",
@@ -56,14 +52,9 @@ class BrowserUseSafetyBoundary:
     ]
 
     def check_task(self, task_description: str) -> dict[str, Any]:
-        """Check if a browser task is allowed.
-
-        Returns:
-            {"allowed": bool, "risk": str, "reason": str}
-        """
+        """Check if a browser task is allowed."""
         task_lower = task_description.lower()
 
-        # Check blocked patterns
         for pattern in self.BLOCKED_PATTERNS:
             if pattern in task_lower:
                 return {
@@ -72,7 +63,6 @@ class BrowserUseSafetyBoundary:
                     "reason": f"Task contains blocked pattern: {pattern}",
                 }
 
-        # Check approval patterns
         for pattern in self.APPROVAL_PATTERNS:
             if pattern in task_lower:
                 return {
@@ -81,7 +71,6 @@ class BrowserUseSafetyBoundary:
                     "reason": f"Task requires approval: {pattern}",
                 }
 
-        # Default: read-only, allowed
         return {
             "allowed": True,
             "risk": "READ",
@@ -90,7 +79,10 @@ class BrowserUseSafetyBoundary:
 
 
 class BrowserUseTaskExecutor:
-    """Executes browser tasks using browser-use.
+    """Executes browser tasks using Playwright.
+
+    Uses LLM for content analysis and summarization.
+    Falls back to direct Playwright if browser-use is unavailable.
 
     Usage:
         executor = BrowserUseTaskExecutor(llm_client=llm)
@@ -121,7 +113,6 @@ class BrowserUseTaskExecutor:
 
     async def _execute_async(self, task: str, context: str = "") -> BrowserTaskResult:
         """Execute a browser task asynchronously."""
-        import time
         start = time.perf_counter()
 
         # Safety check
@@ -133,12 +124,12 @@ class BrowserUseTaskExecutor:
                 error=f"Task blocked by safety: {safety_check['reason']}",
             )
 
-        # Build full task with constraints
+        # Build full task
         full_task = task
         if context:
             full_task = f"Context: {context}\n\nTask: {task}"
 
-        # Add safety instructions to task
+        # Add safety instructions
         safety_instructions = (
             "\n\nIMPORTANT SAFETY RULES:"
             "\n- Do NOT solve CAPTCHAs"
@@ -147,52 +138,27 @@ class BrowserUseTaskExecutor:
             "\n- Do NOT create bulk accounts"
             "\n- Do NOT send messages or publish content"
             "\n- Only read and extract information"
-            "\n- If asked to do something blocked, explain why it cannot be done"
         )
         full_task += safety_instructions
 
         try:
-            # Try browser-use first
-            result = await self._execute_with_browser_use(full_task)
-            result.duration_ms = (time.perf_counter() - start) * 1000
-            return result
-        except ImportError:
-            logger.warning("browser-use not available, falling back to playwright")
             result = await self._execute_with_playwright(full_task)
             result.duration_ms = (time.perf_counter() - start) * 1000
             return result
         except Exception as e:
-            logger.error("browser-use execution failed: %s", e)
-            result = await self._execute_with_playwright(full_task)
-            result.duration_ms = (time.perf_counter() - start) * 1000
-            return result
-
-    async def _execute_with_browser_use(self, task: str) -> BrowserTaskResult:
-        """Execute using browser-use Agent."""
-        from browser_use import Agent
-        from langchain_openai import ChatOpenAI
-
-        llm = ChatOpenAI(
-            model="deepseek-chat",
-            api_key=self._llm._api_key if hasattr(self._llm, '_api_key') else "",
-            base_url=self._llm._base_url if hasattr(self._llm, '_base_url') else "",
-        )
-
-        agent = Agent(task=task, llm=llm)
-        result = await agent.run()
-
-        return BrowserTaskResult(
-            success=True,
-            task_description=task,
-            result_text=str(result),
-        )
+            logger.error("Browser execution failed: %s", e)
+            return BrowserTaskResult(
+                success=False,
+                task_description=task,
+                error=str(e),
+                duration_ms=(time.perf_counter() - start) * 1000,
+            )
 
     async def _execute_with_playwright(self, task: str) -> BrowserTaskResult:
-        """Fallback: execute with direct playwright."""
-        # Extract URL from task
-        import re
-
+        """Execute with Playwright."""
         from playwright.async_api import async_playwright
+
+        # Extract URL from task
         url_match = re.search(r'https?://[^\s]+', task)
         if not url_match:
             return BrowserTaskResult(
@@ -211,6 +177,7 @@ class BrowserUseTaskExecutor:
                 await page.goto(url, timeout=30000)
                 title = await page.title()
 
+                # Extract main content
                 text = await page.evaluate("""
                     (() => {
                         const exclude = ['script', 'style', 'nav', 'footer'];
@@ -222,11 +189,64 @@ class BrowserUseTaskExecutor:
                     })()
                 """)
 
+                # Extract links
+                links = await page.evaluate("""
+                    Array.from(document.querySelectorAll('a[href]')).slice(0, 20).map(a => ({
+                        href: a.href,
+                        text: a.textContent.trim().substring(0, 100)
+                    }))
+                """)
+
+                # Use LLM to summarize if available
+                summary = text[:2000]
+                if self._llm and len(text) > 200:
+                    try:
+                        llm_result = self._llm.generate(
+                            prompt=f"Summarize this webpage content concisely:\n\nTitle: {title}\n\nContent:\n{text[:3000]}",
+                            system_prompt="You are a web content summarizer. Be concise and informative.",
+                            max_tokens=500,
+                        )
+                        if llm_result.success:
+                            summary = llm_result.content
+                    except Exception as e:
+                        logger.warning("LLM summarization failed: %s", e)
+
                 return BrowserTaskResult(
                     success=True,
                     task_description=task,
-                    result_text=f"**{title}**\n\n{text[:2000]}",
-                    extracted_data={"title": title, "text": text[:5000]},
+                    result_text=f"**{title}**\n\n{summary}",
+                    extracted_data={
+                        "title": title,
+                        "url": url,
+                        "text": text[:5000],
+                        "links": links,
+                        "char_count": len(text),
+                    },
+                    actions_taken=["navigate", "extract_text", "extract_links"],
                 )
             finally:
                 await browser.close()
+
+    async def _execute_with_browser_use(self, task: str) -> BrowserTaskResult:
+        """Execute using browser-use Agent (optional)."""
+        try:
+            from browser_use import Agent
+            from langchain_openai import ChatOpenAI
+
+            llm = ChatOpenAI(
+                model="deepseek-chat",
+                api_key=self._llm._api_key if hasattr(self._llm, '_api_key') else "",
+                base_url=self._llm._base_url if hasattr(self._llm, '_base_url') else "",
+            )
+
+            agent = Agent(task=task, llm=llm)
+            result = await agent.run()
+
+            return BrowserTaskResult(
+                success=True,
+                task_description=task,
+                result_text=str(result),
+            )
+        except Exception as e:
+            logger.warning("browser-use Agent failed: %s", e)
+            raise

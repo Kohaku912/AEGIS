@@ -181,3 +181,11 @@
 {"fact_id": "fact_1781240693002_a24dad11", "content": "Weather forecast shows rain tomorrow", "category": "knowledge", "source": "inference", "confidence": 1.0, "tags": [], "timestamp_ms": 1781240693002}
 {"fact_id": "fact_1781244920422_bc089f0c", "content": "User lives in Tokyo", "category": "user_info", "source": "user", "confidence": 1.0, "tags": [], "timestamp_ms": 1781244920422}
 {"fact_id": "fact_1781244920422_95a38514", "content": "Weather forecast shows rain tomorrow", "category": "knowledge", "source": "inference", "confidence": 1.0, "tags": [], "timestamp_ms": 1781244920422}
+{"fact_id": "fact_1781248731399_07238f15", "content": "User lives in Tokyo", "category": "user_info", "source": "user", "confidence": 1.0, "tags": [], "timestamp_ms": 1781248731399}
+{"fact_id": "fact_1781248731399_66a6a87e", "content": "Weather forecast shows rain tomorrow", "category": "knowledge", "source": "inference", "confidence": 1.0, "tags": [], "timestamp_ms": 1781248731399}
+{"fact_id": "fact_1781249009753_3aac2b95", "content": "User lives in Tokyo", "category": "user_info", "source": "user", "confidence": 1.0, "tags": [], "timestamp_ms": 1781249009753}
+{"fact_id": "fact_1781249009754_217d1350", "content": "Weather forecast shows rain tomorrow", "category": "knowledge", "source": "inference", "confidence": 1.0, "tags": [], "timestamp_ms": 1781249009754}
+{"fact_id": "fact_1781249098857_9c48c271", "content": "User lives in Tokyo", "category": "user_info", "source": "user", "confidence": 1.0, "tags": [], "timestamp_ms": 1781249098857}
+{"fact_id": "fact_1781249098858_a7c808ad", "content": "Weather forecast shows rain tomorrow", "category": "knowledge", "source": "inference", "confidence": 1.0, "tags": [], "timestamp_ms": 1781249098858}
+{"fact_id": "fact_1781250404048_afabe231", "content": "User lives in Tokyo", "category": "user_info", "source": "user", "confidence": 1.0, "tags": [], "timestamp_ms": 1781250404048}
+{"fact_id": "fact_1781250404048_6dab62a7", "content": "Weather forecast shows rain tomorrow", "category": "knowledge", "source": "inference", "confidence": 1.0, "tags": [], "timestamp_ms": 1781250404048}

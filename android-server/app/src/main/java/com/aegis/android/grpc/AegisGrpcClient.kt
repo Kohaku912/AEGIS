@@ -97,6 +97,12 @@ class AegisGrpcClient private constructor(
                     "android.get_notifications",
                     "android.get_current_app",
                     "android.get_device_info",
+                    "android.get_screenshot",
+                    "android.get_ui_tree",
+                    "android.show_overlay",
+                    "android.hide_overlay",
+                    "android.open_app",
+                    "android.press_home",
                 ))
                 host = this@AegisGrpcClient.host
                 port = this@AegisGrpcClient.port

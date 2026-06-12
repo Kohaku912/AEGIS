@@ -1,4 +1,4 @@
-package com.aegis.android
+package com.aegis.android.notification
 
 import android.app.Notification
 import android.service.notification.NotificationListenerService

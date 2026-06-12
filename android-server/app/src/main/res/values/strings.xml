@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">AEGIS Android</string>
+    <string name="accessibility_service_description">AEGIS Android requires this permission to read UI elements and perform gestures for automation purposes. This allows AEGIS to help you interact with your device.</string>
+</resources>
