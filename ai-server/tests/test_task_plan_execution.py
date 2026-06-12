@@ -4,10 +4,9 @@ from __future__ import annotations
 
 import time
 
-from aegis_ai.interaction.message import Channel, Message
+from aegis_ai.interaction.message import Message
 from aegis_ai.interaction.router import InteractionRouter
 from aegis_ai.task_plan import PlanStep, RiskCategory, TaskPlan
-
 
 # ═══════════════════════════════════════════════════════════════
 # 1. Router with LLM Task Interpreter

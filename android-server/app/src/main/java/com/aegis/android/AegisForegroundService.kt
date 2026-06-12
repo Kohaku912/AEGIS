@@ -38,11 +38,12 @@ class AegisForegroundService : Service() {
         super.onCreate()
         Log.i(TAG, "Foreground service created")
 
-        grpcClient = AegisGrpcClient.getInstance()
-        deviceProvider = DeviceProvider(this)
-
+        // Create notification channel and notification BEFORE startForeground
         createNotificationChannel()
         startForeground(NOTIFICATION_ID, createNotification())
+
+        grpcClient = AegisGrpcClient.getInstance()
+        deviceProvider = DeviceProvider(this)
 
         // Start periodic device state push
         scope.launch {

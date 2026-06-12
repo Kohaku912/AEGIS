@@ -80,7 +80,9 @@ class ReportBuilder:
         # Detect conflicting info (simple heuristic)
         report.conflicting_info = self._detect_conflicts(collected)
         report.uncertain_points = [
-            f"Source '{s.title}' has reliability '{s.reliability_hint}'" for s in collected if s.reliability_hint in ("low", "unverified")
+            f"Source '{s.title}' has reliability '{s.reliability_hint}'"
+            for s in collected
+            if s.reliability_hint in ("low", "unverified")
         ]
 
         # Build reference list

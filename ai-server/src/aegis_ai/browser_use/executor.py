@@ -169,8 +169,8 @@ class BrowserUseTaskExecutor:
 
     async def _execute_with_browser_use(self, task: str) -> BrowserTaskResult:
         """Execute using browser-use Agent."""
-        from langchain_openai import ChatOpenAI
         from browser_use import Agent
+        from langchain_openai import ChatOpenAI
 
         llm = ChatOpenAI(
             model="deepseek-chat",
@@ -189,10 +189,10 @@ class BrowserUseTaskExecutor:
 
     async def _execute_with_playwright(self, task: str) -> BrowserTaskResult:
         """Fallback: execute with direct playwright."""
-        from playwright.async_api import async_playwright
-
         # Extract URL from task
         import re
+
+        from playwright.async_api import async_playwright
         url_match = re.search(r'https?://[^\s]+', task)
         if not url_match:
             return BrowserTaskResult(

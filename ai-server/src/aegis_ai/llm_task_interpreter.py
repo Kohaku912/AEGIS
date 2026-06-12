@@ -11,16 +11,16 @@ from __future__ import annotations
 
 import json
 import logging
-import time
 import uuid
 from typing import Any
 
-from aegis_ai.task_plan import PlanStep, RiskCategory, StepStatus, TaskPlan
+from aegis_ai.task_plan import PlanStep, RiskCategory, TaskPlan
 
 logger = logging.getLogger("aegis_ai.llm_task_interpreter")
 
 
-INTERPRETATION_PROMPT = """You are AEGIS's task interpreter. Analyze the user's message and produce a structured task plan.
+INTERPRETATION_PROMPT = """You are AEGIS's task interpreter.
+Analyze the user's message and produce a structured task plan.
 
 ## Available Context
 {context}
@@ -32,23 +32,23 @@ INTERPRETATION_PROMPT = """You are AEGIS's task interpreter. Analyze the user's 
 {user_message}
 
 ## Output Format (JSON)
-{{
+{{{{
   "user_goal": "What the user wants to accomplish",
   "interpreted_request": "Clear description of what to do",
   "assumptions": ["List of assumptions made"],
   "required_context": ["What context is needed"],
   "steps": [
-    {{
+    {{{{
       "step_id": "step_1",
       "description": "What this step does",
-      "action_type": "browser_open|browser_read|browser_navigate|tool_invoke|llm_analyze|llm_summarize",
-      "capability_id": "browser.open_page|browser.read_owned_account_page|...",
-      "params": {{"url": "...", "query": "..."}},
+      "action_type": "browser_open|browser_read|tool_invoke|llm_analyze|llm_summarize",
+      "capability_id": "browser.open_page|...",
+      "params": {{{{}}}},
       "risk_category": "READ|DRAFT|OBSERVE|EXTERNAL_SEND|DEVICE_ACTION|PAYMENT|BLOCKED",
       "requires_approval": false,
       "expected_result": "What should happen",
       "depends_on": []
-    }}
+    }}}}
   ],
   "required_capabilities": ["List of capability IDs needed"],
   "risk_notes": ["Any risk considerations"],
@@ -58,17 +58,17 @@ INTERPRETATION_PROMPT = """You are AEGIS's task interpreter. Analyze the user's 
   "verification_plan": "How to verify success",
   "needs_browser": true,
   "needs_device": false
-}}
+}}}}
 
 ## Safety Rules
-- READ operations (web pages, owned accounts, notifications) → allowed, no approval
-- DRAFT operations (create drafts, write locally) → allowed, no approval  
-- OBSERVE operations (screenshot, window list) → allowed, no approval
-- EXTERNAL_SEND (post, DM, email, publish) → requires approval
-- DEVICE_ACTION (mouse, keyboard, physical control) → requires approval
-- PAYMENT (purchase, subscribe) → blocked or requires approval
-- CAPTCHA bypass, bot evasion, stealth → BLOCKED
-- Spam, bulk operations → BLOCKED
+- READ operations (web pages, owned accounts, notifications) -> allowed, no approval
+- DRAFT operations (create drafts, write locally) -> allowed, no approval
+- OBSERVE operations (screenshot, window list) -> allowed, no approval
+- EXTERNAL_SEND (post, DM, email, publish) -> requires approval
+- DEVICE_ACTION (mouse, keyboard, physical control) -> requires approval
+- PAYMENT (purchase, subscribe) -> blocked or requires approval
+- CAPTCHA bypass, bot evasion, stealth -> BLOCKED
+- Spam, bulk operations -> BLOCKED
 
 ## Important
 - Reading user-owned accounts (SNS, email, notifications) is READ, not EXTERNAL_SEND

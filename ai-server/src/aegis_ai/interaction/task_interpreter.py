@@ -82,7 +82,7 @@ Output JSON with this structure:
   "task_type": "RESEARCH|BROWSE|BROWSE_AND_ACT|DRAFT|STATUS|SETTINGS|HELP|APPROVAL|CONVERSATION|DEVICE_CONTROL",
   "actions": [
     {
-      "action_type": "browser_open|browser_read|browser_fill|browser_click|browser_submit|draft_create|device_execute|llm_respond",
+      "action_type": "browser_open|browser_read|tool_invoke|llm_analyze|llm_summarize",
       "description": "What this action does",
       "params": {},
       "risk_level": "READ|DRAFT|EXTERNAL_SEND|PAYMENT|BLOCKED",

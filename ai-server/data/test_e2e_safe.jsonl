@@ -70,3 +70,12 @@
 {"entry_id": "audit_1781237672543_cf74a6e6", "timestamp_ms": 1781237672543, "action": "tool_invoked", "actor": "aegis", "capability_id": "pc.launch_app", "decision": "ALLOW", "reason": "", "detail": {}}
 {"entry_id": "audit_1781238083060_58603ed6", "timestamp_ms": 1781238083060, "action": "tool_invoked", "actor": "aegis", "capability_id": "pc.launch_app", "decision": "ALLOW", "reason": "", "detail": {}}
 {"entry_id": "audit_1781238444406_2eb3bac3", "timestamp_ms": 1781238444406, "action": "tool_invoked", "actor": "aegis", "capability_id": "pc.launch_app", "decision": "ALLOW", "reason": "", "detail": {}}
+{"entry_id": "audit_1781239074186_967ed3a3", "timestamp_ms": 1781239074186, "action": "tool_invoked", "actor": "aegis", "capability_id": "pc.launch_app", "decision": "ALLOW", "reason": "", "detail": {}}
+{"entry_id": "audit_1781239114763_41f4c43c", "timestamp_ms": 1781239114763, "action": "tool_invoked", "actor": "aegis", "capability_id": "pc.launch_app", "decision": "ALLOW", "reason": "", "detail": {}}
+{"entry_id": "audit_1781239222324_883d63dc", "timestamp_ms": 1781239222324, "action": "tool_invoked", "actor": "aegis", "capability_id": "pc.launch_app", "decision": "ALLOW", "reason": "", "detail": {}}
+{"entry_id": "audit_1781239534719_6ecdbbfa", "timestamp_ms": 1781239534720, "action": "tool_invoked", "actor": "aegis", "capability_id": "pc.launch_app", "decision": "ALLOW", "reason": "", "detail": {}}
+{"entry_id": "audit_1781239643122_a2973d82", "timestamp_ms": 1781239643122, "action": "tool_invoked", "actor": "aegis", "capability_id": "pc.launch_app", "decision": "ALLOW", "reason": "", "detail": {}}
+{"entry_id": "audit_1781240103199_98319e9f", "timestamp_ms": 1781240103199, "action": "tool_invoked", "actor": "aegis", "capability_id": "pc.launch_app", "decision": "ALLOW", "reason": "", "detail": {}}
+{"entry_id": "audit_1781240629272_3c788c73", "timestamp_ms": 1781240629272, "action": "tool_invoked", "actor": "aegis", "capability_id": "pc.launch_app", "decision": "ALLOW", "reason": "", "detail": {}}
+{"entry_id": "audit_1781240692545_42f5795a", "timestamp_ms": 1781240692545, "action": "tool_invoked", "actor": "aegis", "capability_id": "pc.launch_app", "decision": "ALLOW", "reason": "", "detail": {}}
+{"entry_id": "audit_1781244919924_9ede3d35", "timestamp_ms": 1781244919924, "action": "tool_invoked", "actor": "aegis", "capability_id": "pc.launch_app", "decision": "ALLOW", "reason": "", "detail": {}}

@@ -9,23 +9,23 @@
 #   - Strict validation on construction
 
 from aegis_schema.models import (
-    RiskLevel,
-    ServerType,
-    ServerStatus,
+    ApprovalRequirement,
+    Capability,
+    Event,
     EventPriority,
     Parameter,
-    Capability,
-    Tool,
+    RiskLevel,
     ServerInfo,
-    ApprovalRequirement,
-    Event,
+    ServerStatus,
+    ServerType,
     Status,
+    Tool,
 )
 from aegis_schema.validation import (
-    validate_capability,
-    validate_capabilities_batch,
-    validate_capability_json,
     ValidationResult,
+    validate_capabilities_batch,
+    validate_capability,
+    validate_capability_json,
 )
 
 __all__ = [

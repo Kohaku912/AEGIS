@@ -163,3 +163,21 @@
 {"fact_id": "fact_1781238083461_5d80fea5", "content": "Weather forecast shows rain tomorrow", "category": "knowledge", "source": "inference", "confidence": 1.0, "tags": [], "timestamp_ms": 1781238083461}
 {"fact_id": "fact_1781238444767_6fbd9e7b", "content": "User lives in Tokyo", "category": "user_info", "source": "user", "confidence": 1.0, "tags": [], "timestamp_ms": 1781238444767}
 {"fact_id": "fact_1781238444767_56ef8cf2", "content": "Weather forecast shows rain tomorrow", "category": "knowledge", "source": "inference", "confidence": 1.0, "tags": [], "timestamp_ms": 1781238444767}
+{"fact_id": "fact_1781239074571_5fa486fe", "content": "User lives in Tokyo", "category": "user_info", "source": "user", "confidence": 1.0, "tags": [], "timestamp_ms": 1781239074571}
+{"fact_id": "fact_1781239074571_bdf823b8", "content": "Weather forecast shows rain tomorrow", "category": "knowledge", "source": "inference", "confidence": 1.0, "tags": [], "timestamp_ms": 1781239074571}
+{"fact_id": "fact_1781239115182_3e9ef177", "content": "User lives in Tokyo", "category": "user_info", "source": "user", "confidence": 1.0, "tags": [], "timestamp_ms": 1781239115182}
+{"fact_id": "fact_1781239115182_fded0959", "content": "Weather forecast shows rain tomorrow", "category": "knowledge", "source": "inference", "confidence": 1.0, "tags": [], "timestamp_ms": 1781239115182}
+{"fact_id": "fact_1781239222719_f80b7d1f", "content": "User lives in Tokyo", "category": "user_info", "source": "user", "confidence": 1.0, "tags": [], "timestamp_ms": 1781239222719}
+{"fact_id": "fact_1781239222720_119340ef", "content": "Weather forecast shows rain tomorrow", "category": "knowledge", "source": "inference", "confidence": 1.0, "tags": [], "timestamp_ms": 1781239222720}
+{"fact_id": "fact_1781239535106_01267ca3", "content": "User lives in Tokyo", "category": "user_info", "source": "user", "confidence": 1.0, "tags": [], "timestamp_ms": 1781239535106}
+{"fact_id": "fact_1781239535107_dcf34701", "content": "Weather forecast shows rain tomorrow", "category": "knowledge", "source": "inference", "confidence": 1.0, "tags": [], "timestamp_ms": 1781239535107}
+{"fact_id": "fact_1781239643595_258f4b94", "content": "User lives in Tokyo", "category": "user_info", "source": "user", "confidence": 1.0, "tags": [], "timestamp_ms": 1781239643595}
+{"fact_id": "fact_1781239643595_d5a99fc4", "content": "Weather forecast shows rain tomorrow", "category": "knowledge", "source": "inference", "confidence": 1.0, "tags": [], "timestamp_ms": 1781239643595}
+{"fact_id": "fact_1781240103700_f29722ed", "content": "User lives in Tokyo", "category": "user_info", "source": "user", "confidence": 1.0, "tags": [], "timestamp_ms": 1781240103700}
+{"fact_id": "fact_1781240103700_bb5ee5ee", "content": "Weather forecast shows rain tomorrow", "category": "knowledge", "source": "inference", "confidence": 1.0, "tags": [], "timestamp_ms": 1781240103700}
+{"fact_id": "fact_1781240629655_04cc6f79", "content": "User lives in Tokyo", "category": "user_info", "source": "user", "confidence": 1.0, "tags": [], "timestamp_ms": 1781240629655}
+{"fact_id": "fact_1781240629656_44703563", "content": "Weather forecast shows rain tomorrow", "category": "knowledge", "source": "inference", "confidence": 1.0, "tags": [], "timestamp_ms": 1781240629656}
+{"fact_id": "fact_1781240693002_931fe472", "content": "User lives in Tokyo", "category": "user_info", "source": "user", "confidence": 1.0, "tags": [], "timestamp_ms": 1781240693002}
+{"fact_id": "fact_1781240693002_a24dad11", "content": "Weather forecast shows rain tomorrow", "category": "knowledge", "source": "inference", "confidence": 1.0, "tags": [], "timestamp_ms": 1781240693002}
+{"fact_id": "fact_1781244920422_bc089f0c", "content": "User lives in Tokyo", "category": "user_info", "source": "user", "confidence": 1.0, "tags": [], "timestamp_ms": 1781244920422}
+{"fact_id": "fact_1781244920422_95a38514", "content": "Weather forecast shows rain tomorrow", "category": "knowledge", "source": "inference", "confidence": 1.0, "tags": [], "timestamp_ms": 1781244920422}

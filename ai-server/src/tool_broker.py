@@ -16,15 +16,14 @@ All public invocation APIs funnel through it, and it ALWAYS calls PolicyEngine f
 
 from __future__ import annotations
 
-import json
 import time
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum, auto
-from typing import Any, Callable
+from typing import Any
 
 from aegis_schema.models import Capability, RiskLevel
-
 from policy_engine import PolicyDecision, PolicyEngine, PolicyResult, create_default_policy_engine
 from tool_registry import ToolRegistry
 

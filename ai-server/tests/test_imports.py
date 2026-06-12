@@ -58,7 +58,7 @@ class TestImports:
     def test_import_autonomous_loop(self):
         from aegis_ai.autonomous_loop import AutonomousLoop, LoopPhase  # noqa: F401
 
-        loop = AutonomousLoop()
+        _ = AutonomousLoop()
         assert LoopPhase.IDLE is not None
         assert LoopPhase.OBSERVE is not None
 

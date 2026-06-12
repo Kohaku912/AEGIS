@@ -12,12 +12,11 @@ Architecture reference: docs/architecture.md §3.3
 
 from __future__ import annotations
 
-import json
 import subprocess
 
 import pytest
 
-from aegis_schema.models import EventPriority, ServerType
+from aegis_schema.models import ServerType
 from android_server_client import ADBAndroidProvider, AndroidServerClient
 from event_bus import EventBus
 from tool_registry import ToolRegistry
@@ -131,8 +130,8 @@ class TestADBIntegration:
 
     def test_invoke_get_device_info_via_broker(self):
         """android.get_device_info can be invoked through ToolBroker."""
-        from tool_broker import ToolBroker
         from policy_engine import create_default_policy_engine
+        from tool_broker import ToolBroker
 
         bus = EventBus()
         registry = ToolRegistry()

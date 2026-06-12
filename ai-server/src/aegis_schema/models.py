@@ -10,10 +10,8 @@ from __future__ import annotations
 
 import re
 from enum import IntEnum
-from typing import Any
 
 from pydantic import BaseModel, Field, field_validator, model_validator
-
 
 # ═══════════════════════════════════════════════════════════════
 # Enums
@@ -189,7 +187,7 @@ class Capability(BaseModel):
         return v
 
     @model_validator(mode="after")
-    def risk_level_consistency(self) -> "Capability":
+    def risk_level_consistency(self) -> Capability:
         """Enforce consistency between risk_level and requires_approval."""
         if self.risk_level == RiskLevel.UNSPECIFIED:
             raise ValueError("risk_level must not be UNSPECIFIED for a registered capability")
@@ -212,7 +210,7 @@ class Capability(BaseModel):
         return self
 
     @model_validator(mode="after")
-    def id_server_type_consistency(self) -> "Capability":
+    def id_server_type_consistency(self) -> Capability:
         """Ensure the capability ID prefix matches the declared server_type."""
         prefix_map = {
             ServerType.PC: "pc",

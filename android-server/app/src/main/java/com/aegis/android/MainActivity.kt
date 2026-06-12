@@ -65,7 +65,8 @@ class MainActivity : AppCompatActivity() {
 
         setContentView(layout)
 
-        grpcClient = AegisGrpcClient.getInstance()
+        // Use actual host IP for real device (not emulator)
+        grpcClient = AegisGrpcClient.getInstance("192.168.50.175", 50051)
         deviceProvider = DeviceProvider(this)
 
         updateStatus()
@@ -116,12 +117,18 @@ class MainActivity : AppCompatActivity() {
     private fun connectToAegisCore() {
         scope.launch {
             statusText.text = "Connecting to AEGIS Core..."
-            val success = grpcClient.connect()
-            if (success) {
-                grpcClient.registerCapabilities()
-                // Start foreground service for persistent connection
-                val serviceIntent = Intent(this@MainActivity, AegisForegroundService::class.java)
-                startForegroundService(serviceIntent)
+            connectButton.isEnabled = false
+            try {
+                val success = grpcClient.connect()
+                if (success) {
+                    grpcClient.registerCapabilities()
+                    statusText.text = "Connected to AEGIS Core!"
+                } else {
+                    statusText.text = "Failed to connect to AEGIS Core"
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Connection error", e)
+                statusText.text = "Connection error: ${e.message}"
             }
             updateStatus()
         }

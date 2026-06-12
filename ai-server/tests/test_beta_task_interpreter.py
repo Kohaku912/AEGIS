@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from aegis_ai.browser_use.executor import BrowserUseSafetyBoundary
 from aegis_ai.interaction.task_interpreter import (
     LLMTaskInterpreter,
     RiskLevel,
@@ -9,8 +10,6 @@ from aegis_ai.interaction.task_interpreter import (
     TaskPlan,
     TaskType,
 )
-from aegis_ai.browser_use.executor import BrowserUseSafetyBoundary
-
 
 # ═══════════════════════════════════════════════════════════════
 # 1. Task Interpreter

@@ -98,7 +98,7 @@ class SourceCollector:
 
     def _extract_key_points(self, text: str) -> list[str]:
         """Extract key points from text (simple heuristic)."""
-        lines = [l.strip() for l in text.split("\n") if len(l.strip()) > 30]
+        lines = [line.strip() for line in text.split("\n") if len(line.strip()) > 30]
         return lines[:5]
 
     def _assess_reliability(self, url: str) -> str:
