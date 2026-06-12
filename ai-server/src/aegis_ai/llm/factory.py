@@ -28,7 +28,7 @@ def create_llm_provider(
 
     Args:
         provider_name: "openai", "deepseek", "mock", or None (auto-detect)
-        model: Model name (e.g., "deepseek-chat", "gpt-4o-mini")
+        model: Model name (e.g., "deepseek-v4-flash", "gpt-4o-mini")
         api_key: API key (or reads from OPENAI_API_KEY env)
         base_url: Base URL (or reads from OPENAI_BASE_URL env)
 

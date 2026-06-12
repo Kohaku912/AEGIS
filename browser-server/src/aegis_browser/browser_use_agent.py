@@ -188,86 +188,24 @@ class BrowserUseAgent:
         trace: BrowserTrace,
     ) -> dict[str, Any]:
         """Execute task using browser-use."""
-        try:
-            from langchain_openai import ChatOpenAI
-            from browser_use import Agent
+        from browser_use import Agent
+        from langchain_openai import ChatOpenAI
 
-            import os
-            llm = ChatOpenAI(
-                model="deepseek-chat",
-                api_key=os.environ.get("OPENAI_API_KEY", ""),
-                base_url=os.environ.get("OPENAI_BASE_URL", "https://api.deepseek.com"),
-            )
+        import os
+        llm = ChatOpenAI(
+            model="deepseek-v4-flash",
+            api_key=os.environ.get("OPENAI_API_KEY", ""),
+            base_url=os.environ.get("OPENAI_BASE_URL", "https://api.deepseek.com"),
+        )
 
-            trace.record("browser_use_start", "Starting browser-use agent")
+        trace.record("browser_use_start", "Starting browser-use agent")
 
-            agent = Agent(task=task, llm=llm)
-            result = await agent.run()
+        agent = Agent(task=task, llm=llm)
+        result = await agent.run()
 
-            trace.record("browser_use_complete", f"Result: {str(result)[:200]}")
+        trace.record("browser_use_complete", f"Result: {str(result)[:200]}")
 
-            return {"text": str(result), "data": {}}
-
-        except ImportError:
-            logger.warning("browser-use not available, falling back to playwright")
-            return await self._execute_with_playwright(task, boundary, trace)
-
-    async def _execute_with_playwright(
-        self,
-        task: str,
-        boundary: BrowserSafetyBoundary,
-        trace: BrowserTrace,
-    ) -> dict[str, Any]:
-        """Fallback: execute with direct playwright."""
-        import re
-        from playwright.async_api import async_playwright
-
-        # Extract URL from task
-        url_match = re.search(r'https?://[^\s]+', task)
-        if not url_match:
-            raise ValueError("No URL found in task")
-
-        url = url_match.group(0)
-
-        trace.record("playwright_start", f"Navigating to {url}")
-
-        async with async_playwright() as p:
-            browser = await p.chromium.launch(headless=True)
-            page = await browser.new_page()
-
-            try:
-                await page.goto(url, timeout=30000)
-                title = await page.title()
-
-                trace.record("page_loaded", f"Title: {title}", page_url=url, page_title=title)
-
-                # Get page content
-                text = await page.evaluate("""
-                    (() => {
-                        const exclude = ['script', 'style', 'nav', 'footer'];
-                        const clone = document.body.cloneNode(true);
-                        exclude.forEach(tag => {
-                            clone.querySelectorAll(tag).forEach(el => el.remove());
-                        });
-                        return (clone.textContent || '').replace(/\\s{3,}/g, '\\n\\n').trim();
-                    })()
-                """)
-
-                # Check safety
-                safety_result = boundary.check_page_content(text)
-                if safety_result.should_stop:
-                    raise SafetyStop(safety_result.reason)
-                if safety_result.needs_approval:
-                    raise ApprovalBoundary(safety_result.reason)
-                if safety_result.needs_user_input:
-                    raise UserInputNeeded(safety_result.reason)
-
-                trace.record("content_extracted", f"Text length: {len(text)}")
-
-                return {"text": f"**{title}**\n\n{text[:3000]}", "data": {"title": title, "url": url}}
-
-            finally:
-                await browser.close()
+        return {"text": str(result), "data": {}}
 
     def stop(self) -> None:
         """Stop current task execution."""

@@ -37,13 +37,13 @@ class OpenAIProvider:
     - Any OpenAI-compatible API
 
     Usage:
-        provider = OpenAIProvider(model="deepseek-chat")
+        provider = OpenAIProvider(model="deepseek-v4-flash")
         response = provider.generate(prompt="Hello")
     """
 
     def __init__(
         self,
-        model: str = "deepseek-chat",
+        model: str = "deepseek-v4-flash",
         api_key: str | None = None,
         base_url: str | None = None,
     ) -> None:

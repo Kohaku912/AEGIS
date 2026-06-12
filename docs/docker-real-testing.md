@@ -64,7 +64,7 @@ Browser Server runs browser-use with headless Chromium:
 from browser_use import Agent
 from langchain_openai import ChatOpenAI
 
-llm = ChatOpenAI(model="deepseek-chat", api_key="...", base_url="...")
+llm = ChatOpenAI(model="deepseek-v4-flash", api_key="...", base_url="...")
 agent = Agent(task="Go to example.com and extract text", llm=llm)
 result = await agent.run()
 ```

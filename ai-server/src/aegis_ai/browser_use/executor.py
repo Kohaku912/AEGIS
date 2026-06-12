@@ -234,7 +234,7 @@ class BrowserUseTaskExecutor:
             from langchain_openai import ChatOpenAI
 
             llm = ChatOpenAI(
-                model="deepseek-chat",
+                model="deepseek-v4-flash",
                 api_key=self._llm._api_key if hasattr(self._llm, '_api_key') else "",
                 base_url=self._llm._base_url if hasattr(self._llm, '_base_url') else "",
             )
