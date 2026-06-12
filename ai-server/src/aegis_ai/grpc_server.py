@@ -13,6 +13,7 @@ from __future__ import annotations
 import logging
 import time
 from concurrent import futures
+from typing import Any
 
 import grpc
 
@@ -42,6 +43,9 @@ class AegisAIServicer(ai_server_pb2_grpc.AIServerServicer):
 
     def __init__(self, config: Config) -> None:
         self._config = config
+        self._registered_servers: dict[str, Any] = {}
+        self._registered_capabilities: dict[str, Any] = {}
+        self._events: list[Any] = []
 
     # ── Health Check ────────────────────────────────────────
 
@@ -58,41 +62,109 @@ class AegisAIServicer(ai_server_pb2_grpc.AIServerServicer):
     # ── Server & Capability Registry ──────────────────────────
 
     def RegisterServer(self, request, context):
-        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
-        context.set_details("RegisterServer not yet implemented")
-        return ai_server_pb2.RegisterServerResponse()
+        """Register a server with AEGIS Core."""
+        server_info = request.server_info
+        server_id = server_info.server_id
+        self._registered_servers[server_id] = {
+            "server_id": server_id,
+            "server_type": server_info.server_type,
+            "version": server_info.version,
+            "host": server_info.host,
+            "port": server_info.port,
+        }
+        logger.info("Server registered: %s (type=%d)", server_id, server_info.server_type)
+        return ai_server_pb2.RegisterServerResponse(
+            status=Status(code=0, message="ok"),
+            server_id=server_id,
+        )
 
     def UnregisterServer(self, request, context):
-        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
-        context.set_details("UnregisterServer not yet implemented")
-        return ai_server_pb2.UnregisterServerResponse()
+        """Unregister a server."""
+        server_id = request.server_id
+        self._registered_servers.pop(server_id, None)
+        logger.info("Server unregistered: %s", server_id)
+        return ai_server_pb2.UnregisterServerResponse(
+            status=Status(code=0, message="ok"),
+        )
 
     def RegisterCapability(self, request, context):
-        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
-        context.set_details("RegisterCapability not yet implemented")
-        return ai_server_pb2.RegisterCapabilityResponse()
+        """Register a capability with AEGIS Core."""
+        cap = request.capability
+        cap_id = cap.id
+        self._registered_capabilities[cap_id] = {
+            "id": cap_id,
+            "name": cap.name,
+            "description": cap.description,
+            "server_type": cap.server_type,
+            "safety_level": cap.safety_level,
+        }
+        logger.info("Capability registered: %s", cap_id)
+        return ai_server_pb2.RegisterCapabilityResponse(
+            status=Status(code=0, message="ok"),
+            capability_id=cap_id,
+        )
 
     def UnregisterCapability(self, request, context):
-        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
-        context.set_details("UnregisterCapability not yet implemented")
-        return ai_server_pb2.UnregisterCapabilityResponse()
+        """Unregister a capability."""
+        cap_id = request.capability_id
+        self._registered_capabilities.pop(cap_id, None)
+        logger.info("Capability unregistered: %s", cap_id)
+        return ai_server_pb2.UnregisterCapabilityResponse(
+            status=Status(code=0, message="ok"),
+        )
 
     def ListCapabilities(self, request, context):
-        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
-        context.set_details("ListCapabilities not yet implemented")
-        return ai_server_pb2.ListCapabilitiesResponse()
+        """List registered capabilities."""
+        caps = []
+        for cap_data in self._registered_capabilities.values():
+            caps.append(common_pb2.Capability(
+                id=cap_data["id"],
+                name=cap_data["name"],
+                description=cap_data["description"],
+                server_type=cap_data["server_type"],
+                safety_level=cap_data["safety_level"],
+            ))
+        return ai_server_pb2.ListCapabilitiesResponse(
+            status=Status(code=0, message="ok"),
+            capabilities=caps,
+        )
 
     def GetCapability(self, request, context):
-        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
-        context.set_details("GetCapability not yet implemented")
-        return common_pb2.Capability()
+        """Get a specific capability."""
+        cap_id = request.capability_id
+        cap_data = self._registered_capabilities.get(cap_id)
+        if not cap_data:
+            context.set_code(grpc.StatusCode.NOT_FOUND)
+            context.set_details(f"Capability not found: {cap_id}")
+            return common_pb2.Capability()
+        return common_pb2.Capability(
+            id=cap_data["id"],
+            name=cap_data["name"],
+            description=cap_data["description"],
+            server_type=cap_data["server_type"],
+            safety_level=cap_data["safety_level"],
+        )
 
     # ── Event Bus ────────────────────────────────────────────
 
     def PushEvent(self, request, context):
-        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
-        context.set_details("PushEvent not yet implemented")
-        return ai_server_pb2.PushEventResponse()
+        """Push an event to the EventBus."""
+        event = request.event
+        self._events.append({
+            "event_id": event.event_id,
+            "event_type": event.event_type,
+            "source_server_type": event.source_server_type,
+            "source_server_id": event.source_server_id,
+            "timestamp_ms": event.timestamp_ms,
+            "payload_json": event.payload_json,
+            "severity": event.severity,
+        })
+        logger.info("Event received: %s from %s", event.event_type, event.source_server_id)
+        return ai_server_pb2.PushEventResponse(
+            status=Status(code=0, message="ok"),
+            event_id=event.event_id,
+            deduplicated=False,
+        )
 
     def StreamEvents(self, request, context):
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)

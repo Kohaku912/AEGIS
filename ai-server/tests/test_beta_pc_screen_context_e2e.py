@@ -11,12 +11,9 @@ Scenario:
 from __future__ import annotations
 
 import json
-import time
 
-from aegis_ai.interaction.message import Channel, Message
-from aegis_ai.interaction.router import InteractionRouter
 from aegis_ai.llm_task_interpreter import LLMTaskInterpreter
-from aegis_ai.task_plan import RiskCategory, TaskPlan
+from aegis_ai.task_plan import RiskCategory
 
 
 class MockLLMProvider:

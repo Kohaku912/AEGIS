@@ -1,6 +1,13 @@
 package com.aegis.android.grpc
 
 import android.util.Log
+import aegis.AIServerGrpc
+import aegis.AIServerGrpcKt
+import aegis.AiServer
+import aegis.Common
+import aegis.serverInfo
+import aegis.capability
+import aegis.event
 import io.grpc.ManagedChannel
 import io.grpc.ManagedChannelBuilder
 import io.grpc.StatusRuntimeException
@@ -10,12 +17,6 @@ import java.util.concurrent.TimeUnit
 
 /**
  * gRPC client for communicating with AEGIS Core (AI Server).
- *
- * Connects to the AIServer service defined in protos/aegis/ai_server.proto
- * for capability registration and event push.
- *
- * Generated stubs are created by Gradle's protobuf plugin from the proto files
- * in app/src/main/proto/aegis/.
  */
 class AegisGrpcClient private constructor(
     private val host: String,
@@ -23,7 +24,7 @@ class AegisGrpcClient private constructor(
 ) {
     companion object {
         private const val TAG = "AegisGrpcClient"
-        private const val DEFAULT_HOST = "10.0.2.2" // Android emulator → host machine
+        private const val DEFAULT_HOST = "192.168.50.175"
         private const val DEFAULT_PORT = 50051
 
         @Volatile
@@ -37,28 +38,30 @@ class AegisGrpcClient private constructor(
     }
 
     private var channel: ManagedChannel? = null
+    private var stub: AIServerGrpcKt.AIServerCoroutineStub? = null
     private var connected = false
 
-    // Generated gRPC stubs (will be available after Gradle generates from proto)
-    // private var aiServerStub: AIServerGrpc.AIServerCoroutineStub? = null
-
-    /**
-     * Connect to AEGIS Core.
-     */
     suspend fun connect(): Boolean = withContext(Dispatchers.IO) {
         try {
             channel = ManagedChannelBuilder
                 .forAddress(host, port)
-                .usePlaintext() // TODO: Add TLS for production
+                .usePlaintext()
                 .keepAliveTime(30, TimeUnit.SECONDS)
                 .build()
 
-            // Initialize generated stub
-            // aiServerStub = AIServerGrpc.AIServerCoroutineStub(channel!!)
+            stub = AIServerGrpcKt.AIServerCoroutineStub(channel!!)
 
-            connected = true
-            Log.i(TAG, "Connected to AEGIS Core at $host:$port")
-            true
+            val healthRequest = Common.HealthCheckRequest.getDefaultInstance()
+            val healthResponse = stub!!.healthCheck(healthRequest)
+            if (healthResponse.status.code == 0) {
+                connected = true
+                Log.i(TAG, "Connected to AEGIS Core at $host:$port (v${healthResponse.version})")
+                true
+            } else {
+                Log.e(TAG, "Health check failed: ${healthResponse.status.message}")
+                connected = false
+                false
+            }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to connect to AEGIS Core", e)
             connected = false
@@ -66,9 +69,6 @@ class AegisGrpcClient private constructor(
         }
     }
 
-    /**
-     * Disconnect from AEGIS Core.
-     */
     fun disconnect() {
         try {
             channel?.shutdown()?.awaitTermination(5, TimeUnit.SECONDS)
@@ -76,66 +76,60 @@ class AegisGrpcClient private constructor(
             Log.e(TAG, "Error disconnecting", e)
         } finally {
             channel = null
+            stub = null
             connected = false
         }
     }
 
-    /**
-     * Register this Android server and its capabilities with AEGIS Core.
-     *
-     * Calls AIServer.RegisterServer and AIServer.RegisterCapability RPCs.
-     */
     suspend fun registerCapabilities(): Boolean = withContext(Dispatchers.IO) {
-        if (!connected) {
-            Log.w(TAG, "Not connected — cannot register capabilities")
+        if (!connected || stub == null) {
+            Log.w(TAG, "Not connected - cannot register capabilities")
             return@withContext false
         }
 
         try {
-            // TODO: Uncomment when generated stubs are available
-            // val serverInfo = ServerInfo.newBuilder()
-            //     .setServerId("android-server-main")
-            //     .setServerType(ServerType.SERVER_TYPE_ANDROID)
-            //     .setVersion("0.1.0")
-            //     .setServerStatus(ServerStatus.SERVER_STATUS_ONLINE)
-            //     .addAllCapabilityIds(listOf(
-            //         "android.get_notifications",
-            //         "android.get_current_app",
-            //         "android.get_device_info",
-            //     ))
-            //     .setHost(host)
-            //     .setPort(port)
-            //     .setStartedAtMs(System.currentTimeMillis())
-            //     .build()
-            //
-            // val registerRequest = RegisterServerRequest.newBuilder()
-            //     .setServerInfo(serverInfo)
-            //     .build()
-            //
-            // val response = aiServerStub!!.registerServer(registerRequest)
-            // if (response.status.code != 0) {
-            //     Log.e(TAG, "Failed to register server: ${response.status.message}")
-            //     return@withContext false
-            // }
-            //
-            // // Register each capability
-            // val capabilities = listOf(
-            //     buildCapability("android.get_notifications", "Get Notifications",
-            //         "Retrieve current status bar notifications.", SafetyLevel.LEVEL_0_READ),
-            //     buildCapability("android.get_current_app", "Get Current App",
-            //         "Return the package name and activity of the foreground app.", SafetyLevel.LEVEL_0_READ),
-            //     buildCapability("android.get_device_info", "Get Device Info",
-            //         "Return device model, Android version, battery level.", SafetyLevel.LEVEL_0_READ),
-            // )
-            //
-            // for (cap in capabilities) {
-            //     val capRequest = RegisterCapabilityRequest.newBuilder()
-            //         .setCapability(cap)
-            //         .build()
-            //     aiServerStub!!.registerCapability(capRequest)
-            // }
+            val serverInfoObj = serverInfo {
+                serverId = "android-server-main"
+                serverType = Common.ServerType.SERVER_TYPE_ANDROID
+                version = "0.1.0"
+                status = Common.ServerStatus.SERVER_STATUS_ONLINE
+                capabilityIds.addAll(listOf(
+                    "android.get_notifications",
+                    "android.get_current_app",
+                    "android.get_device_info",
+                ))
+                host = this@AegisGrpcClient.host
+                port = this@AegisGrpcClient.port
+                startedAtMs = System.currentTimeMillis()
+            }
 
-            Log.i(TAG, "Registered capabilities with AEGIS Core (stub)")
+            val registerRequest = AiServer.RegisterServerRequest.newBuilder()
+                .setServerInfo(serverInfoObj)
+                .build()
+
+            val response = stub!!.registerServer(registerRequest)
+            if (response.status.code != 0) {
+                Log.e(TAG, "Failed to register server: ${response.status.message}")
+                return@withContext false
+            }
+
+            val caps = listOf(
+                buildCapability("android.get_notifications", "Get Notifications",
+                    "Retrieve current status bar notifications.", Common.SafetyLevel.LEVEL_0_READ),
+                buildCapability("android.get_current_app", "Get Current App",
+                    "Return the package name and activity of the foreground app.", Common.SafetyLevel.LEVEL_0_READ),
+                buildCapability("android.get_device_info", "Get Device Info",
+                    "Return device model, Android version, battery level.", Common.SafetyLevel.LEVEL_0_READ),
+            )
+
+            for (cap in caps) {
+                val capRequest = AiServer.RegisterCapabilityRequest.newBuilder()
+                    .setCapability(cap)
+                    .build()
+                stub!!.registerCapability(capRequest)
+            }
+
+            Log.i(TAG, "Registered ${caps.size} capabilities with AEGIS Core")
             true
         } catch (e: StatusRuntimeException) {
             Log.e(TAG, "gRPC error registering capabilities", e)
@@ -146,11 +140,6 @@ class AegisGrpcClient private constructor(
         }
     }
 
-    /**
-     * Push a notification event to AEGIS Core.
-     *
-     * Calls AIServer.PushEvent RPC.
-     */
     suspend fun pushNotification(
         packageName: String,
         appName: String,
@@ -160,38 +149,37 @@ class AegisGrpcClient private constructor(
         isOngoing: Boolean,
         isClearable: Boolean,
     ): Boolean = withContext(Dispatchers.IO) {
-        if (!connected) {
-            Log.w(TAG, "Not connected — cannot push notification")
+        if (!connected || stub == null) {
+            Log.w(TAG, "Not connected - cannot push notification")
             return@withContext false
         }
 
         try {
-            // TODO: Uncomment when generated stubs are available
-            // val payload = """{"app_name":"$appName","title":"$title","text":"$text","package_name":"$packageName"}"""
-            //
-            // val event = Event.newBuilder()
-            //     .setEventId("evt_${java.util.UUID.randomUUID().toString().take(8)}")
-            //     .setEventType("android.notification_received")
-            //     .setSourceServerType(ServerType.SERVER_TYPE_ANDROID)
-            //     .setSourceServerId("android-server-main")
-            //     .setTimestampMs(System.currentTimeMillis())
-            //     .setPayloadJson(payload)
-            //     .setSeverity(EventSeverity.EVENT_SEVERITY_MODERATE)
-            //     .setPriority(EventPriority.EVENT_PRIORITY_NORMAL)
-            //     .setDedupeKey("android.notification:$packageName:$title")
-            //     .build()
-            //
-            // val request = PushEventRequest.newBuilder()
-            //     .setEvent(event)
-            //     .build()
-            //
-            // val response = aiServerStub!!.pushEvent(request)
-            // if (response.status.code != 0) {
-            //     Log.e(TAG, "Failed to push event: ${response.status.message}")
-            //     return@withContext false
-            // }
+            val payload = """{"app_name":"$appName","title":"$title","text":"$text","package_name":"$packageName"}"""
 
-            Log.d(TAG, "Pushed notification: pkg=$packageName title=$title (stub)")
+            val eventObj = event {
+                eventId = "evt_${java.util.UUID.randomUUID().toString().take(8)}"
+                eventType = "android.notification_received"
+                sourceServerType = Common.ServerType.SERVER_TYPE_ANDROID
+                sourceServerId = "android-server-main"
+                timestampMs = System.currentTimeMillis()
+                payloadJson = payload
+                severity = Common.EventSeverity.EVENT_SEVERITY_MODERATE
+                priority = Common.EventPriority.EVENT_PRIORITY_NORMAL
+                dedupeKey = "android.notification:$packageName:$title"
+            }
+
+            val request = AiServer.PushEventRequest.newBuilder()
+                .setEvent(eventObj)
+                .build()
+
+            val response = stub!!.pushEvent(request)
+            if (response.status.code != 0) {
+                Log.e(TAG, "Failed to push event: ${response.status.message}")
+                return@withContext false
+            }
+
+            Log.d(TAG, "Pushed notification: pkg=$packageName title=$title")
             true
         } catch (e: StatusRuntimeException) {
             Log.e(TAG, "gRPC error pushing notification", e)
@@ -202,18 +190,33 @@ class AegisGrpcClient private constructor(
         }
     }
 
-    /**
-     * Push device state to AEGIS Core.
-     */
     suspend fun pushDeviceState(
         batteryLevel: Int,
         screenOn: Boolean,
     ): Boolean = withContext(Dispatchers.IO) {
-        if (!connected) return@withContext false
+        if (!connected || stub == null) return@withContext false
 
         try {
-            // TODO: Implement with generated stubs
-            Log.d(TAG, "Pushed device state: battery=$batteryLevel screen=$screenOn (stub)")
+            val payload = """{"battery_level":$batteryLevel,"screen_on":$screenOn}"""
+
+            val eventObj = event {
+                eventId = "evt_${java.util.UUID.randomUUID().toString().take(8)}"
+                eventType = "android.device_state"
+                sourceServerType = Common.ServerType.SERVER_TYPE_ANDROID
+                sourceServerId = "android-server-main"
+                timestampMs = System.currentTimeMillis()
+                payloadJson = payload
+                severity = Common.EventSeverity.EVENT_SEVERITY_INFO
+                priority = Common.EventPriority.EVENT_PRIORITY_BACKGROUND
+                dedupeKey = "android.device_state:$batteryLevel:$screenOn"
+            }
+
+            val request = AiServer.PushEventRequest.newBuilder()
+                .setEvent(eventObj)
+                .build()
+
+            stub!!.pushEvent(request)
+            Log.d(TAG, "Pushed device state: battery=$batteryLevel screen=$screenOn")
             true
         } catch (e: Exception) {
             Log.e(TAG, "Error pushing device state", e)
@@ -223,18 +226,16 @@ class AegisGrpcClient private constructor(
 
     fun isConnected(): Boolean = connected
 
-    // private fun buildCapability(
-    //     id: String, name: String, description: String, safetyLevel: SafetyLevel
-    // ): Capability {
-    //     return Capability.newBuilder()
-    //         .setId(id)
-    //         .setName(name)
-    //         .setDescription(description)
-    //         .setServerType(ServerType.SERVER_TYPE_ANDROID)
-    //         .setServerId("android-server-main")
-    //         .setSafetyLevel(safetyLevel)
-    //         .addTags("observe")
-    //         .addTags("read_only")
-    //         .build()
-    // }
+    private fun buildCapability(
+        id: String, name: String, description: String, safetyLevel: Common.SafetyLevel
+    ): Common.Capability {
+        return capability {
+            this.id = id
+            this.name = name
+            this.description = description
+            this.serverType = Common.ServerType.SERVER_TYPE_ANDROID
+            this.safetyLevel = safetyLevel
+            tags.addAll(listOf("observe", "read_only"))
+        }
+    }
 }

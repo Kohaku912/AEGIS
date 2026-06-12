@@ -243,6 +243,7 @@ class InteractionRouter:
 
         try:
             import asyncio
+
             from playwright.async_api import async_playwright
 
             async def browse():
@@ -337,10 +338,9 @@ class InteractionRouter:
     def _handle_settings(self, response: Response) -> Response:
         """Handle settings request."""
         if self._settings:
-            settings = self._settings.get()
             response.text = (
-                f"Settings:\n"
-                f"- Dashboard: http://127.0.0.1:8090"
+                "Settings:\n"
+                "- Dashboard: http://127.0.0.1:8090"
             )
         else:
             response.text = "Settings not available."

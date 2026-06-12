@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import time
 
-from aegis_ai.interaction.message import Channel, Message
+from aegis_ai.interaction.message import Message
 from aegis_ai.interaction.router import InteractionRouter
 from aegis_ai.llm_task_interpreter import LLMTaskInterpreter
 
@@ -29,7 +29,10 @@ class MockLLMProvider:
         from dataclasses import dataclass
         @dataclass
         class MockResponse:
-            content: str = '{"user_goal": "test", "interpreted_request": "test", "steps": [], "needs_browser": false, "needs_device": false}'
+            content: str = (
+                '{"user_goal": "test", "interpreted_request": "test",'
+                ' "steps": [], "needs_browser": false, "needs_device": false}'
+            )
             success: bool = True
             error: str = ""
             tokens_used: int = 100

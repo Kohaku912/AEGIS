@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
-from typing import Any
 
 from pydantic import ValidationError as PydanticValidationError
 
@@ -30,7 +29,7 @@ class ValidationResult:
     def add_warning(self, msg: str) -> None:
         self.warnings.append(msg)
 
-    def merge(self, other: "ValidationResult") -> None:
+    def merge(self, other: ValidationResult) -> None:
         self.valid = self.valid and other.valid
         self.errors.extend(other.errors)
         self.warnings.extend(other.warnings)

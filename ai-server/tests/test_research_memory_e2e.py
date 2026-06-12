@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from aegis_ai.agents.research import ResearchAgent
-from aegis_ai.memory.episodic import EpisodicMemory, Episode
+from aegis_ai.memory.episodic import Episode, EpisodicMemory
 from aegis_ai.memory.procedural import ProceduralMemory, Procedure
 from aegis_ai.memory.reflection import Reflection, ReflectionLog
 from aegis_ai.memory.semantic import Fact, SemanticMemory

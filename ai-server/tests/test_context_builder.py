@@ -2,12 +2,10 @@
 
 from __future__ import annotations
 
-import pytest
-
-from aegis_ai.context_builder import Context, ContextBuilder, MAX_TOTAL_CHARS
-from aegis_ai.memory.episodic import EpisodicMemory, Episode
+from aegis_ai.context_builder import ContextBuilder
+from aegis_ai.memory.episodic import Episode, EpisodicMemory
 from aegis_ai.memory.procedural import ProceduralMemory, Procedure
-from aegis_ai.memory.reflection import ReflectionLog, Reflection
+from aegis_ai.memory.reflection import Reflection, ReflectionLog
 from aegis_ai.memory.semantic import Fact, SemanticMemory
 from aegis_schema.models import Event, EventPriority, ServerType
 

@@ -41,7 +41,7 @@ class TextExtractor:
 
     def _identify_key_points(self, text: str) -> list[str]:
         """Identify key points from cleaned text."""
-        lines = [l.strip() for l in text.split("\n") if len(l.strip()) > 40]
+        lines = [line.strip() for line in text.split("\n") if len(line.strip()) > 40]
         # Score lines by length and keyword presence
         scored = []
         for line in lines:

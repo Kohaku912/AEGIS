@@ -12,10 +12,8 @@ from __future__ import annotations
 
 import json
 import socket
-import time
 
 import pytest
-
 
 PC_HOST = "localhost"
 PC_PORT = 50052
@@ -169,4 +167,5 @@ class TestPCIntegrationE2E:
         """Unknown command returns error."""
         response = _send_pc_command("nonexistent_command")
         assert response is not None
-        assert "ERR" in response
+        # Server returns JSON error
+        assert "error" in response.lower() or "ERR" in response

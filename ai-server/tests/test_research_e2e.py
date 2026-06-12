@@ -10,11 +10,7 @@ Tests:
 
 from __future__ import annotations
 
-import pytest
-
 from aegis_ai.agents.research import ResearchAgent
-from aegis_ai.research.report import ResearchReport
-
 
 # ── HTML fixtures ─────────────────────────────────────────────
 
@@ -93,7 +89,7 @@ class TestReadOnlyResearchE2E:
             ("https://docs.python.org/3.12/", "Python Docs", PYTHON_DOCS_HTML),
             ("https://en.wikipedia.org/wiki/Python_3.12", "Wikipedia", WIKIPEDIA_HTML),
         ]
-        sources = agent.collect_local(fixtures)
+        _ = agent.collect_local(fixtures)
         report = agent.research_topic("Python 3.12",
             urls=["https://docs.python.org/3.12/", "https://en.wikipedia.org/wiki/Python_3.12"])
 
@@ -129,7 +125,7 @@ class TestMultiSourceComparison:
             # Manually set sources on agent so report uses updated reliability
             agent._last_sources = sources
 
-        report = agent.research_topic("Python 3.12 reliability", urls=["u1", "u2"])
+        _ = agent.research_topic("Python 3.12 reliability", urls=["u1", "u2"])
         # Should have conflicting info note (high vs low in sources passed to builder)
         # The research_topic calls collect_sources which overrides _last_sources,
         # so we need to manually call report builder
@@ -166,7 +162,7 @@ class TestMemoryPersistence:
     """Research results stored in memory."""
 
     def test_episodic_memory_stores_research(self):
-        from aegis_ai.memory.episodic import EpisodicMemory, Episode
+        from aegis_ai.memory.episodic import Episode, EpisodicMemory
 
         mem = EpisodicMemory(path="data/test_research_ep.jsonl")
         mem.add(Episode(
@@ -223,8 +219,8 @@ class TestGracefulFailure:
         assert "No sources" in report.summary
 
     def test_all_sources_failed_report(self):
-        from aegis_ai.research.source import SourceNote
         from aegis_ai.research.report import ReportBuilder
+        from aegis_ai.research.source import SourceNote
 
         sources = [
             SourceNote(source_id="s1", status="failed", error_message="Timeout"),

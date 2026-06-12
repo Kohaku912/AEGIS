@@ -59,6 +59,9 @@ protobuf {
                 }
             }
             task.builtins {
+                create("java") {
+                    option("lite")
+                }
                 create("kotlin") {
                     option("lite")
                 }

@@ -3,8 +3,8 @@
 ## Overview
 
 PC Server runs directly on Windows host for full OS-native access to
-screen, mouse, keyboard, and overlay. It connects to the AI Server
-running in Docker via gRPC/TCP.
+screen, mouse, keyboard, and overlay. AI Server running in Docker
+connects to PC Server via TCP.
 
 ## Architecture
 
@@ -48,19 +48,74 @@ cargo run --release -- --port 50052 --bind 0.0.0.0
 ### 2. Start Docker Services
 
 ```powershell
-.\scripts\start-docker-real.ps1 -RealBrowser
+.\scripts\start-beta-docker.ps1 -Build
 ```
 
-Or manually:
-```powershell
-docker compose --profile pc-host --profile real-browser up -d
-```
-
-### 3. Run Integration Tests
+### 3. Test Integration
 
 ```powershell
-.\scripts\test-real-integration.ps1
+.\scripts\test-pc-host.ps1
 ```
+
+## Capabilities
+
+### Observe (Level 0 — no approval)
+
+| Capability | Description |
+|-----------|-------------|
+| `pc.get_screenshot` | Capture screen as PNG |
+| `pc.get_active_window` | Get foreground window info |
+| `pc.list_windows` | List all visible windows |
+| `pc.get_clipboard` | Read clipboard (redacted) |
+| `pc.get_os_info` | Get OS information |
+| `pc.get_screen_size` | Get screen resolution |
+
+### Action (Level 1 — safe action)
+
+| Capability | Description |
+|-----------|-------------|
+| `pc.show_overlay` | Display text overlay |
+| `pc.hide_overlay` | Remove overlay |
+| `pc.launch_app` | Launch application |
+| `pc.focus_window` | Bring window to front |
+| `pc.mouse_move` | Move mouse cursor |
+
+### Approval Required (Level 2)
+
+| Capability | Description |
+|-----------|-------------|
+| `pc.mouse_click` | Click at coordinates |
+| `pc.keyboard_type` | Type text |
+| `pc.press_hotkey` | Press keyboard shortcut |
+
+## Command Protocol
+
+PC Server listens on TCP port 50052 with a simple text protocol:
+
+| Command | Response |
+|---------|----------|
+| `health\n` | JSON health status |
+| `screenshot\n` | JSON screenshot result |
+| `active_window\n` | JSON active window info |
+| `windows\n` | JSON window list |
+| `os_info\n` | JSON OS info |
+| `screen_size\n` | JSON screen size |
+| `clipboard\n` | JSON clipboard content |
+| `show_overlay <text>\n` | JSON overlay status |
+| `hide_overlay\n` | JSON overlay status |
+| `capabilities\n` | JSON capability list |
+| `mouse_click\n` | JSON approval_required |
+| `keyboard_type\n` | JSON approval_required |
+| `quit\n` | Close connection |
+
+## Safety
+
+- Observe capabilities: Auto-allowed
+- Overlay/focus/launch: Safe action (Level 1)
+- Mouse click/keyboard: Approval UI required (Level 2)
+- Password input: Never auto-execute
+- File delete: Not implemented
+- Shell unrestricted: Not implemented
 
 ## Windows Firewall
 
@@ -76,16 +131,6 @@ New-NetFirewallRule -DisplayName "AEGIS PC Server" `
   -Profile Private
 ```
 
-**Note**: Use `-Profile Private` to restrict to local network only.
-
-## Docker Connection
-
-AI Server connects to PC Server via `host.docker.internal:50052`.
-
-This is configured in:
-- `.env`: `PC_SERVER_HOST=host.docker.internal`
-- `docker-compose.yml`: `extra_hosts: host.docker.internal:host-gateway`
-
 ## Command-Line Options
 
 ```
@@ -97,45 +142,3 @@ Options:
   --enable-real-pc-actions     Enable real mouse/keyboard (requires approval)
   --help                       Show help
 ```
-
-## Health Protocol
-
-PC Server listens on TCP port 50052 with a simple text protocol:
-
-| Command | Response |
-|---------|----------|
-| `health\n` | JSON health status |
-| `screenshot\n` | JSON screenshot result |
-| `active_window\n` | JSON active window info |
-| `windows\n` | JSON window list |
-| `os_info\n` | JSON OS info |
-| `quit\n` | Close connection |
-
-## Capabilities
-
-### Observe (Level 0 — no approval)
-
-| Capability | Description |
-|-----------|-------------|
-| `pc.get_os_info` | OS information |
-| `pc.get_screenshot` | Capture screen |
-| `pc.get_active_window` | Active window info |
-| `pc.list_windows` | All windows |
-| `pc.get_clipboard` | Clipboard (redacted) |
-
-### Action (Level 2 — approval required)
-
-| Capability | Description |
-|-----------|-------------|
-| `pc.mouse_click` | Click at coordinates |
-| `pc.keyboard_type` | Type text |
-| `pc.press_hotkey` | Press hotkey |
-| `pc.close_window` | Close window |
-
-## Safety
-
-- Observe capabilities: Auto-allowed
-- Action capabilities: Approval UI required
-- `--enable-real-pc-actions` flag required for real mouse/keyboard
-- Keyboard/mouse: Default mock in tests
-- CI: Never executes real PC operations

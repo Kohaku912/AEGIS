@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from aegis_ai.agents.research import ResearchAgent
 from aegis_ai.research.citation import CitationManager
 from aegis_ai.research.collector import SourceCollector
@@ -11,7 +9,6 @@ from aegis_ai.research.extractor import TextExtractor
 from aegis_ai.research.ranker import SourceRanker
 from aegis_ai.research.report import ReportBuilder
 from aegis_ai.research.source import SourceNote
-
 
 SAMPLE_HTML_1 = """
 <html><head><title>Python 3.12 Release</title></head>
@@ -217,7 +214,7 @@ class TestResearchAgent:
         assert "[2]" in labels
 
     def test_graceful_failure_on_invalid_url(self):
-        agent = ResearchAgent()
+        _ = ResearchAgent()
         # Mock collection doesn't fail, so we test the SourceNote failure path
         note = SourceNote(url="https://invalid.example.com")
         note.mark_failed("Connection timed out")
@@ -226,6 +223,6 @@ class TestResearchAgent:
 
     def test_get_last_sources_and_report(self):
         agent = ResearchAgent()
-        report = agent.research_topic("Test", urls=["https://example.com"])
+        _ = agent.research_topic("Test", urls=["https://example.com"])
         assert len(agent.get_last_sources()) > 0
         assert agent.get_last_report() is not None

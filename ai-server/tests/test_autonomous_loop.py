@@ -2,11 +2,8 @@
 
 from __future__ import annotations
 
-import pytest
-
 from aegis_ai.audit import AuditLog
 from aegis_ai.autonomous_loop import AutonomousLoop, LoopPhase, LoopResult
-from aegis_ai.context_builder import ContextBuilder
 from aegis_ai.llm.client import LLMThought, MockLLMClient
 from aegis_ai.memory.reflection import ReflectionLog
 from aegis_ai.planner import Plan, PlannedStep, Planner, TaskStatus

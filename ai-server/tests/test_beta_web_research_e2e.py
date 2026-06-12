@@ -12,12 +12,10 @@ from __future__ import annotations
 import json
 import time
 
-import pytest
-
-from aegis_ai.interaction.message import Channel, Message
+from aegis_ai.interaction.message import Message
 from aegis_ai.interaction.router import InteractionRouter
 from aegis_ai.llm_task_interpreter import LLMTaskInterpreter
-from aegis_ai.task_plan import RiskCategory, TaskPlan
+from aegis_ai.task_plan import RiskCategory
 
 
 class MockLLMProvider:
@@ -94,7 +92,12 @@ class MockBrowserExecutor:
 
         return MockBrowserResult(
             task_description=task,
-            result_text="**AI Agent News Summary**\n\n1. New LLM-powered agents released\n2. Browser automation advances\n3. Multi-agent systems gaining traction",
+            result_text=(
+                "**AI Agent News Summary**\n\n"
+                "1. New LLM-powered agents released\n"
+                "2. Browser automation advances\n"
+                "3. Multi-agent systems gaining traction"
+            ),
         )
 
 

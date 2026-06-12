@@ -36,12 +36,19 @@ pub struct OsInfo {
     pub architecture: String,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ScreenSize {
+    pub width: u32,
+    pub height: u32,
+}
+
 // ── Mock implementations (cross-platform) ──────────────────
 
 pub fn get_screenshot() -> Result<ScreenshotResult, String> {
+    let size = get_screen_size();
     Ok(ScreenshotResult {
-        width: 1920,
-        height: 1080,
+        width: size.width,
+        height: size.height,
         image_base64: "[MOCK_SCREENSHOT]".to_string(),
         format: "png".to_string(),
         captured_at_ms: now_ms(),
@@ -50,8 +57,8 @@ pub fn get_screenshot() -> Result<ScreenshotResult, String> {
 
 pub fn get_active_window() -> Result<WindowInfo, String> {
     Ok(WindowInfo {
-        title: "Mock Window".to_string(),
-        process_name: "mock.exe".to_string(),
+        title: "AEGIS - Development".to_string(),
+        process_name: "code.exe".to_string(),
         pid: 12345,
         x: 0, y: 0, width: 1920, height: 1080,
         is_minimized: false,
@@ -60,7 +67,17 @@ pub fn get_active_window() -> Result<WindowInfo, String> {
 }
 
 pub fn list_windows() -> Result<Vec<WindowInfo>, String> {
-    Ok(vec![get_active_window()?])
+    Ok(vec![
+        get_active_window()?,
+        WindowInfo {
+            title: "Chrome - AEGIS Dashboard".to_string(),
+            process_name: "chrome.exe".to_string(),
+            pid: 12346,
+            x: 100, y: 100, width: 1200, height: 800,
+            is_minimized: false,
+            is_visible: true,
+        },
+    ])
 }
 
 pub fn get_clipboard() -> Result<String, String> {
@@ -71,10 +88,25 @@ pub fn get_os_info() -> OsInfo {
     OsInfo {
         os_name: std::env::consts::OS.to_string(),
         os_version: "unknown".to_string(),
-        hostname: "localhost".to_string(),
-        username: "user".to_string(),
+        hostname: get_hostname(),
+        username: get_username(),
         architecture: std::env::consts::ARCH.to_string(),
     }
+}
+
+pub fn get_screen_size() -> ScreenSize {
+    ScreenSize {
+        width: 1920,
+        height: 1080,
+    }
+}
+
+fn get_hostname() -> String {
+    std::env::var("COMPUTERNAME").unwrap_or_else(|_| "localhost".to_string())
+}
+
+fn get_username() -> String {
+    std::env::var("USERNAME").unwrap_or_else(|_| "user".to_string())
 }
 
 fn now_ms() -> u64 {

@@ -10,8 +10,7 @@ Scenario:
 from __future__ import annotations
 
 from aegis_browser.safety_boundary import BrowserSafetyBoundary
-from aegis_browser.task_models import BrowserTask, READONLY_TASK, SIGNUP_TASK
-
+from aegis_browser.task_models import READONLY_TASK, SIGNUP_TASK
 
 # ═══════════════════════════════════════════════════════════════
 # Tests
