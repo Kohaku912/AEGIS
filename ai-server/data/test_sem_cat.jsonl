@@ -148,3 +148,19 @@
 {"fact_id": "fact_1781210001447_793bda4f", "content": "Architecture uses gRPC", "category": "design", "source": "docs", "confidence": 1.0, "tags": [], "timestamp_ms": 1781210001447}
 {"fact_id": "fact_1781234953407_45e4ebcd", "content": "User is in Tokyo", "category": "user_info", "source": "user", "confidence": 1.0, "tags": [], "timestamp_ms": 1781234953407}
 {"fact_id": "fact_1781234953408_2449e594", "content": "Architecture uses gRPC", "category": "design", "source": "docs", "confidence": 1.0, "tags": [], "timestamp_ms": 1781234953408}
+{"fact_id": "fact_1781236495287_b1da9b98", "content": "User is in Tokyo", "category": "user_info", "source": "user", "confidence": 1.0, "tags": [], "timestamp_ms": 1781236495287}
+{"fact_id": "fact_1781236495287_17cc871f", "content": "Architecture uses gRPC", "category": "design", "source": "docs", "confidence": 1.0, "tags": [], "timestamp_ms": 1781236495287}
+{"fact_id": "fact_1781236539699_6111690b", "content": "User is in Tokyo", "category": "user_info", "source": "user", "confidence": 1.0, "tags": [], "timestamp_ms": 1781236539699}
+{"fact_id": "fact_1781236539699_45fab47c", "content": "Architecture uses gRPC", "category": "design", "source": "docs", "confidence": 1.0, "tags": [], "timestamp_ms": 1781236539699}
+{"fact_id": "fact_1781236574360_8c9b7dd8", "content": "User is in Tokyo", "category": "user_info", "source": "user", "confidence": 1.0, "tags": [], "timestamp_ms": 1781236574360}
+{"fact_id": "fact_1781236574369_7f3eab3f", "content": "Architecture uses gRPC", "category": "design", "source": "docs", "confidence": 1.0, "tags": [], "timestamp_ms": 1781236574369}
+{"fact_id": "fact_1781237170347_4eb13477", "content": "User is in Tokyo", "category": "user_info", "source": "user", "confidence": 1.0, "tags": [], "timestamp_ms": 1781237170347}
+{"fact_id": "fact_1781237170347_7092b63c", "content": "Architecture uses gRPC", "category": "design", "source": "docs", "confidence": 1.0, "tags": [], "timestamp_ms": 1781237170347}
+{"fact_id": "fact_1781237211297_f55f6fdb", "content": "User is in Tokyo", "category": "user_info", "source": "user", "confidence": 1.0, "tags": [], "timestamp_ms": 1781237211297}
+{"fact_id": "fact_1781237211297_1aa73630", "content": "Architecture uses gRPC", "category": "design", "source": "docs", "confidence": 1.0, "tags": [], "timestamp_ms": 1781237211297}
+{"fact_id": "fact_1781237673562_b1a7a72b", "content": "User is in Tokyo", "category": "user_info", "source": "user", "confidence": 1.0, "tags": [], "timestamp_ms": 1781237673562}
+{"fact_id": "fact_1781237673562_51e6e03f", "content": "Architecture uses gRPC", "category": "design", "source": "docs", "confidence": 1.0, "tags": [], "timestamp_ms": 1781237673562}
+{"fact_id": "fact_1781238083512_f38c4d51", "content": "User is in Tokyo", "category": "user_info", "source": "user", "confidence": 1.0, "tags": [], "timestamp_ms": 1781238083512}
+{"fact_id": "fact_1781238083513_c95043ef", "content": "Architecture uses gRPC", "category": "design", "source": "docs", "confidence": 1.0, "tags": [], "timestamp_ms": 1781238083513}
+{"fact_id": "fact_1781238444806_434e0063", "content": "User is in Tokyo", "category": "user_info", "source": "user", "confidence": 1.0, "tags": [], "timestamp_ms": 1781238444806}
+{"fact_id": "fact_1781238444806_0af2d403", "content": "Architecture uses gRPC", "category": "design", "source": "docs", "confidence": 1.0, "tags": [], "timestamp_ms": 1781238444806}

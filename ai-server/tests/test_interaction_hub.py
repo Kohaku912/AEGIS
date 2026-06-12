@@ -140,18 +140,20 @@ class TestInteractionRouter:
         assert "dashboard" in response.text.lower() or "status" in response.text.lower()
 
     def test_unknown_request(self):
-        """Unknown request returns clarification."""
+        """Unknown request goes through LLM (returns fallback without LLM)."""
         router = InteractionRouter()
         msg = Message(text="asdfghjkl", timestamp_ms=int(time.time() * 1000))
         response = router.route(msg)
-        assert "rephrase" in response.text.lower() or "not sure" in response.text.lower()
+        # Without LLM, returns fallback message
+        assert "llm" in response.text.lower() or "rephrase" in response.text.lower()
 
-    def test_tool_request_routed_to_approval(self):
-        """Tool requests are routed to approval UI."""
+    def test_tool_request_routed_to_llm(self):
+        """Tool requests go through LLM Task Interpreter."""
         router = InteractionRouter()
         msg = Message(text="screenshot the screen", timestamp_ms=int(time.time() * 1000))
         response = router.route(msg)
-        assert "approval" in response.text.lower() or "tool" in response.text.lower()
+        # Without LLM, returns fallback message
+        assert "llm" in response.text.lower() or "approval" in response.text.lower()
 
 
 # ═══════════════════════════════════════════════════════════════
