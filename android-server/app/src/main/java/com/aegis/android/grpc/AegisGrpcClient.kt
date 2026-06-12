@@ -126,6 +126,18 @@ class AegisGrpcClient private constructor(
                     "Return the package name and activity of the foreground app.", Common.SafetyLevel.LEVEL_0_READ),
                 buildCapability("android.get_device_info", "Get Device Info",
                     "Return device model, Android version, battery level.", Common.SafetyLevel.LEVEL_0_READ),
+                buildCapability("android.get_screenshot", "Get Screenshot",
+                    "Capture screenshot via MediaProjection.", Common.SafetyLevel.LEVEL_0_READ),
+                buildCapability("android.get_ui_tree", "Get UI Tree",
+                    "Get current UI tree via AccessibilityService.", Common.SafetyLevel.LEVEL_0_READ),
+                buildCapability("android.show_overlay", "Show Overlay",
+                    "Show an overlay notification on the device.", Common.SafetyLevel.LEVEL_1_SAFE_ACT),
+                buildCapability("android.hide_overlay", "Hide Overlay",
+                    "Hide the current overlay notification.", Common.SafetyLevel.LEVEL_1_SAFE_ACT),
+                buildCapability("android.open_app", "Open App",
+                    "Open an application by package name.", Common.SafetyLevel.LEVEL_1_SAFE_ACT),
+                buildCapability("android.press_home", "Press Home",
+                    "Press the home button.", Common.SafetyLevel.LEVEL_1_SAFE_ACT),
             )
 
             for (cap in caps) {
