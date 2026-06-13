@@ -253,6 +253,7 @@ The following operations MUST go through explicit user approval:
 8. Implement keyword-based detection systems
 9. Return raw JSON or system messages to user
 10. Make decisions without LLM involvement
+11. **NEVER parse user messages with keyword matching, regex, or string detection.** The LLM is the interpreter. All user intent must be understood by the LLM, not by pattern matching. This applies to routing, action selection, category detection, and any decision based on user text. The LLM decides what the user wants — code never inspects user text for keywords.
 
 ---
 

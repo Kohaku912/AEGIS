@@ -1,23 +1,36 @@
 {% extends "dashboard/base.html" %}
 {% block title %}AEGIS — Errors{% endblock %}
+{% block topbar_title %}Errors{% endblock %}
 {% block content %}
 <h1>Errors</h1>
+
 <div class="card">
-    <h3>Recent Errors</h3>
+    <div class="card-header">Recent Errors</div>
     {% if errors %}
+    <div style="overflow-x:auto;">
     <table>
-        <tr><th>Action</th><th>Capability</th><th>Decision</th><th>Reason</th><th>Time</th></tr>
+        <thead>
+            <tr><th>Action</th><th>Capability</th><th>Decision</th><th>Reason</th><th>Time</th></tr>
+        </thead>
+        <tbody>
         {% for e in errors %}
         <tr>
-            <td>{{ e.action }}</td><td>{{ e.capability_id }}</td>
+            <td style="font-family:monospace;font-size:12px;">{{ e.action }}</td>
+            <td style="font-size:12px;">{{ e.capability_id }}</td>
             <td><span class="badge badge-red">{{ e.decision }}</span></td>
-            <td>{{ e.reason[:100] }}</td>
-            <td style="font-size:11px">{{ e.timestamp_ms }}</td>
+            <td style="max-width:300px;font-size:12px;color:var(--text-muted);">{{ e.reason[:100] }}</td>
+            <td style="font-size:11px;color:var(--text-muted);white-space:nowrap;">{{ e.timestamp_ms }}</td>
         </tr>
         {% endfor %}
+        </tbody>
     </table>
+    </div>
     {% else %}
-    <p>No recent errors.</p>
+    <div style="padding:32px;text-align:center;">
+        <div style="font-size:32px;margin-bottom:8px;">✓</div>
+        <div style="color:var(--green);font-weight:600;">No recent errors</div>
+        <div style="color:var(--text-muted);font-size:13px;margin-top:4px;">All systems operating normally</div>
+    </div>
     {% endif %}
 </div>
 {% endblock %}

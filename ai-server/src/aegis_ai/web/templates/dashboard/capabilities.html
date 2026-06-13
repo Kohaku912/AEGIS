@@ -1,40 +1,58 @@
 {% extends "dashboard/base.html" %}
 {% block title %}AEGIS — Capabilities{% endblock %}
+{% block topbar_title %}Capabilities{% endblock %}
 {% block content %}
 <h1>Capabilities</h1>
-<div id="saveStatus" style="margin-bottom:8px;font-size:13px;"></div>
+
+<div id="saveStatus" style="margin-bottom:12px;font-size:13px;min-height:20px;"></div>
+
 <div class="card">
-    <h3>Registered Capabilities</h3>
+    <div class="card-header">Registered Capabilities</div>
+    <div style="overflow-x:auto;">
     <table>
-        <tr><th>ID</th><th>Name</th><th>Risk Level</th><th>Original</th><th>Server</th><th>Action</th></tr>
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Name</th>
+                <th>Risk Level</th>
+                <th>Original</th>
+                <th>Server</th>
+                <th>Action</th>
+            </tr>
+        </thead>
+        <tbody>
         {% for c in capabilities %}
         <tr id="row-{{ c.id }}">
-            <td>{{ c.id }}</td>
-            <td>{{ c.name }}</td>
+            <td style="font-family:monospace;font-size:11px;color:var(--text-muted);">{{ c.id }}</td>
+            <td style="font-weight:500;">{{ c.name }}</td>
             <td>
-                <select id="risk-{{ c.id }}" style="background:#0d1117;border:1px solid #30363d;color:#c9d1d9;padding:4px;border-radius:4px;font-size:12px;">
-                    {% for r in risk_levels %}
-                    <option value="{{ r }}" {{ 'selected' if r == c.risk_level else '' }}>{{ r }}</option>
-                    {% endfor %}
-                </select>
-                {% if c.overridden %}
-                <span class="badge badge-yellow" style="font-size:10px;margin-left:4px;">overridden</span>
-                {% endif %}
+                <div style="display:flex;align-items:center;gap:6px;">
+                    <select id="risk-{{ c.id }}">
+                        {% for r in risk_levels %}
+                        <option value="{{ r }}" {{ 'selected' if r == c.risk_level else '' }}>{{ r }}</option>
+                        {% endfor %}
+                    </select>
+                    {% if c.overridden %}
+                    <span class="badge badge-yellow" style="font-size:10px;">overridden</span>
+                    {% endif %}
+                </div>
             </td>
-            <td style="font-size:11px;color:#8b949e;">{{ c.original_risk }}</td>
-            <td>{{ c.server_type }}</td>
-            <td><button onclick="saveRisk('{{ c.id }}')" style="background:#238636;color:white;border:none;padding:4px 12px;border-radius:4px;cursor:pointer;font-size:12px;">Save</button></td>
+            <td style="font-size:11px;color:var(--text-muted);">{{ c.original_risk }}</td>
+            <td style="font-size:12px;">{{ c.server_type }}</td>
+            <td>
+                <button class="btn btn-primary" onclick="saveRisk('{{ c.id }}')">Save</button>
+            </td>
         </tr>
         {% endfor %}
+        </tbody>
     </table>
+    </div>
 </div>
 
 <script>
 async function saveRisk(capId) {
-    const select = document.getElementById('risk-' + capId);
-    const risk = select.value;
+    const risk = document.getElementById('risk-' + capId).value;
     const status = document.getElementById('saveStatus');
-
     try {
         const res = await fetch('/api/capabilities/risk', {
             method: 'POST',
@@ -43,14 +61,14 @@ async function saveRisk(capId) {
         });
         const data = await res.json();
         if (data.ok) {
-            status.innerHTML = '<span style="color:#3fb950;">Saved: ' + capId + ' &rarr; ' + risk + '</span>';
-            setTimeout(() => { status.innerHTML = ''; }, 3000);
+            status.innerHTML = '<span style="color:var(--green);">✓ Saved: <strong>' + capId + '</strong> → ' + risk + '</span>';
         } else {
-            status.innerHTML = '<span style="color:#f85149;">Error: ' + data.error + '</span>';
+            status.innerHTML = '<span style="color:var(--red);">✗ Error: ' + data.error + '</span>';
         }
-    } catch (e) {
-        status.innerHTML = '<span style="color:#f85149;">Error: ' + e.message + '</span>';
+    } catch(e) {
+        status.innerHTML = '<span style="color:var(--red);">✗ ' + e.message + '</span>';
     }
+    setTimeout(() => { status.innerHTML = ''; }, 3000);
 }
 </script>
 {% endblock %}

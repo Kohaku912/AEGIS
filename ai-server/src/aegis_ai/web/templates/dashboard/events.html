@@ -1,25 +1,54 @@
 {% extends "dashboard/base.html" %}
 {% block title %}AEGIS — Events{% endblock %}
+{% block topbar_title %}Events{% endblock %}
 {% block content %}
 <h1>Events</h1>
-<div class="grid">
-    <div class="card"><h3>Published</h3><div class="value">{{ stats.total_published }}</div></div>
-    <div class="card"><h3>Deduplicated</h3><div class="value">{{ stats.total_deduplicated }}</div></div>
-    <div class="card"><h3>Delivered</h3><div class="value">{{ stats.total_delivered }}</div></div>
-    <div class="card"><h3>Queue Size</h3><div class="value">{{ stats.queue_size }}</div></div>
+
+<div class="stat-grid">
+    <div class="stat-card">
+        <div class="label">Published</div>
+        <div class="val">{{ stats.total_published }}</div>
+    </div>
+    <div class="stat-card">
+        <div class="label">Deduplicated</div>
+        <div class="val">{{ stats.total_deduplicated }}</div>
+    </div>
+    <div class="stat-card">
+        <div class="label">Published</div>
+        <div class="val">{{ stats.total_published }}</div>
+    </div>
 </div>
+
 <div class="card">
-    <h3>Recent Events</h3>
+    <div class="card-header">Recent Events</div>
+    <div style="overflow-x:auto;">
     <table>
-        <tr><th>Type</th><th>Source</th><th>Severity</th><th>Priority</th><th>Age</th><th>Event ID</th></tr>
+        <thead>
+            <tr><th>Type</th><th>Source</th><th>Severity</th><th>Priority</th><th>Age</th><th>Event ID</th></tr>
+        </thead>
+        <tbody>
         {% for e in events %}
         <tr>
-            <td>{{ e.event_type }}</td><td>{{ e.source_server_type }}</td>
-            <td><span class="severity-{{ e.severity }}">{{ e.severity }}</span></td>
-            <td>{{ e.priority }}</td><td>{{ e.age_seconds }}s</td>
-            <td style="font-size:11px;color:#484f58">{{ e.event_id }}</td>
+            <td style="font-weight:500;">{{ e.event_type }}</td>
+            <td>{{ e.source_server_type }}</td>
+            <td>
+                {% if e.severity == 'critical' or e.severity == 'error' %}
+                <span class="badge badge-red">{{ e.severity }}</span>
+                {% elif e.severity == 'warning' %}
+                <span class="badge badge-yellow">{{ e.severity }}</span>
+                {% elif e.severity == 'info' %}
+                <span class="badge badge-blue">{{ e.severity }}</span>
+                {% else %}
+                <span class="badge badge-gray">{{ e.severity }}</span>
+                {% endif %}
+            </td>
+            <td>{{ e.priority }}</td>
+            <td style="color:var(--text-muted);font-size:12px;">{{ e.age_seconds }}s</td>
+            <td style="font-family:monospace;font-size:10px;color:var(--text-muted);">{{ e.event_id }}</td>
         </tr>
         {% endfor %}
+        </tbody>
     </table>
+    </div>
 </div>
 {% endblock %}

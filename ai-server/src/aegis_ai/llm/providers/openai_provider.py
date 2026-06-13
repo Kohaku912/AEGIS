@@ -49,11 +49,11 @@ class OpenAIProvider:
         base_url: str | None = None,
     ) -> None:
         self._model = model
-        self._api_key = api_key or os.getenv("OPENAI_API_KEY", "")
-        self._base_url = base_url or os.getenv("OPENAI_BASE_URL", "")
+        self._api_key = api_key or os.getenv("LLM_API_KEY", "")
+        self._base_url = base_url or os.getenv("LLM_BASE_URL", "")
 
         if not self._api_key:
-            logger.warning("No API key set. Set OPENAI_API_KEY environment variable.")
+            logger.warning("No API key set. Set LLM_API_KEY environment variable.")
 
         client_kwargs: dict[str, Any] = {"api_key": self._api_key}
         if self._base_url:
