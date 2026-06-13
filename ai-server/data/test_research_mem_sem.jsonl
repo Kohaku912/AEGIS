@@ -422,3 +422,6 @@
 {"fact_id": "fact_1781327008271_672c7ce6", "content": "Python 3.12 has improved f-strings", "category": "knowledge", "source": "research", "confidence": 1.0, "tags": [], "timestamp_ms": 1781327008271}
 {"fact_id": "fact_1781327008272_eb0ecd69", "content": "Mock point 1", "category": "knowledge", "source": "research", "confidence": 1.0, "tags": [], "timestamp_ms": 1781327008272}
 {"fact_id": "fact_1781327008272_214891a5", "content": "Mock point 2", "category": "knowledge", "source": "research", "confidence": 1.0, "tags": [], "timestamp_ms": 1781327008272}
+{"fact_id": "fact_1781327172065_0b48f1da", "content": "Python 3.12 has improved f-strings", "category": "knowledge", "source": "research", "confidence": 1.0, "tags": [], "timestamp_ms": 1781327172065}
+{"fact_id": "fact_1781327172065_98028191", "content": "Mock point 1", "category": "knowledge", "source": "research", "confidence": 1.0, "tags": [], "timestamp_ms": 1781327172065}
+{"fact_id": "fact_1781327172066_e497cd4a", "content": "Mock point 2", "category": "knowledge", "source": "research", "confidence": 1.0, "tags": [], "timestamp_ms": 1781327172066}

@@ -248,3 +248,5 @@
 {"entry_id": "audit_1781326638061_9d4994a3", "timestamp_ms": 1781326638061, "action": "room_action", "actor": "aegis", "capability_id": "room.emergency_stop_robot_arm", "decision": "SUCCESS", "reason": "", "detail": {}}
 {"entry_id": "audit_1781327008307_68a8aa24", "timestamp_ms": 1781327008307, "action": "room_action", "actor": "aegis", "capability_id": "room.set_light", "decision": "APPROVED_AND_EXECUTED", "reason": "", "detail": {}}
 {"entry_id": "audit_1781327008309_18ba9f3f", "timestamp_ms": 1781327008309, "action": "room_action", "actor": "aegis", "capability_id": "room.emergency_stop_robot_arm", "decision": "SUCCESS", "reason": "", "detail": {}}
+{"entry_id": "audit_1781327172105_c24fb314", "timestamp_ms": 1781327172105, "action": "room_action", "actor": "aegis", "capability_id": "room.set_light", "decision": "APPROVED_AND_EXECUTED", "reason": "", "detail": {}}
+{"entry_id": "audit_1781327172141_92451432", "timestamp_ms": 1781327172141, "action": "room_action", "actor": "aegis", "capability_id": "room.emergency_stop_robot_arm", "decision": "SUCCESS", "reason": "", "detail": {}}

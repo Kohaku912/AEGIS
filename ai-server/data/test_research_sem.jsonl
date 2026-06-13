@@ -282,3 +282,5 @@
 {"fact_id": "fact_1781326638021_48904529", "content": "Per-interpreter GIL is experimental in 3.12", "category": "knowledge", "source": "research", "confidence": 1.0, "tags": [], "timestamp_ms": 1781326638021}
 {"fact_id": "fact_1781327008266_376941b4", "content": "Python 3.12 has improved f-strings", "category": "knowledge", "source": "research", "confidence": 1.0, "tags": [], "timestamp_ms": 1781327008266}
 {"fact_id": "fact_1781327008266_c7020c09", "content": "Per-interpreter GIL is experimental in 3.12", "category": "knowledge", "source": "research", "confidence": 1.0, "tags": [], "timestamp_ms": 1781327008266}
+{"fact_id": "fact_1781327172059_ef17a8d1", "content": "Python 3.12 has improved f-strings", "category": "knowledge", "source": "research", "confidence": 1.0, "tags": [], "timestamp_ms": 1781327172059}
+{"fact_id": "fact_1781327172059_82d6f334", "content": "Per-interpreter GIL is experimental in 3.12", "category": "knowledge", "source": "research", "confidence": 1.0, "tags": [], "timestamp_ms": 1781327172059}
