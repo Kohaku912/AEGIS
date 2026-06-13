@@ -27,6 +27,10 @@ MAX_FACTS = 10
 MAX_PROCEDURES = 5
 MAX_REFLECTIONS = 5
 MAX_GOALS = 5
+MAX_FAILURE_LESSONS = 5
+MAX_SAFETY_LESSONS = 3
+MAX_APPROVAL_LESSONS = 3
+MAX_USER_PREFERENCES = 5
 MAX_TOTAL_CHARS = 8000
 
 
@@ -46,6 +50,10 @@ class Context:
     relevant_facts: list[str] = field(default_factory=list)
     relevant_procedures: list[str] = field(default_factory=list)
     recent_reflections: list[str] = field(default_factory=list)
+    failure_lessons: list[str] = field(default_factory=list)
+    safety_lessons: list[str] = field(default_factory=list)
+    approval_lessons: list[str] = field(default_factory=list)
+    user_preferences: list[str] = field(default_factory=list)
 
     # Mind state
     identity: str = "AEGIS — autonomous multi-device AI assistant"
@@ -60,9 +68,13 @@ class Context:
     # User context
     user_preferences: dict[str, Any] = field(default_factory=dict)
     recent_user_messages: list[str] = field(default_factory=list)
+    dialogue_policy: str = ""
 
     # Scheduled tasks
     pending_tasks: list[str] = field(default_factory=list)
+
+    # External chat
+    agora_summary: str = ""
 
     # Metadata
     built_at_ms: int = 0
@@ -87,6 +99,9 @@ class ContextBuilder:
         emotion: Any = None,
         goal_manager: Any = None,
         scheduler: Any = None,
+        user_model_store: Any = None,
+        memory_store: Any = None,
+        world_state_store: Any = None,
     ) -> None:
         self._event_bus = event_bus
         self._episodic = episodic_memory
@@ -99,6 +114,9 @@ class ContextBuilder:
         self._emotion = emotion
         self._goals = goal_manager
         self._scheduler = scheduler
+        self._user_model_store = user_model_store
+        self._memory_store = memory_store
+        self._world_state_store = world_state_store
         self._goals_list: list[str] = []  # Legacy support for set_goals()
         self._last_context: Context | None = None
 
@@ -194,7 +212,48 @@ class ContextBuilder:
                 f"{t.name}: {t.description}" for t in due_tasks[:5]
             ]
 
-        # 12. Truncate if needed
+        # 12. Dialogue policy
+        if self._user_model_store:
+            ctx.dialogue_policy = self._user_model_store.to_context_string()
+
+        # 13. Unified MemoryStore records
+        if self._memory_store:
+            ctx.failure_lessons = [
+                r.to_context_string(200)
+                for r in self._memory_store.search_memories(
+                    memory_type="failure_lesson", min_importance=0.5, limit=MAX_FAILURE_LESSONS,
+                )
+                if r.visibility != "hidden" and r.sensitivity != "secret"
+            ]
+            ctx.safety_lessons = [
+                r.to_context_string(200)
+                for r in self._memory_store.search_memories(
+                    memory_type="safety_lesson", limit=MAX_SAFETY_LESSONS,
+                )
+                if r.visibility != "hidden" and r.sensitivity != "secret"
+            ]
+            ctx.approval_lessons = [
+                r.to_context_string(200)
+                for r in self._memory_store.search_memories(
+                    memory_type="approval_lesson", limit=MAX_APPROVAL_LESSONS,
+                )
+                if r.visibility != "hidden" and r.sensitivity != "secret"
+            ]
+            ctx.user_preferences = [
+                r.to_context_string(200)
+                for r in self._memory_store.search_memories(
+                    memory_type="user_preference", limit=MAX_USER_PREFERENCES,
+                )
+                if r.visibility != "hidden" and r.sensitivity != "secret"
+            ]
+
+        # 14. AGORA summary
+        if self._world_state_store:
+            agora_ctx = self._world_state_store.state.agora_state.to_context_string()
+            if agora_ctx:
+                ctx.agora_summary = agora_ctx
+
+        # 15. Truncate if needed
         self._apply_budget(ctx)
         self._last_context = ctx
         return ctx
@@ -211,9 +270,14 @@ class ContextBuilder:
             sum(len(s) for s in ctx.relevant_facts) +
             sum(len(s) for s in ctx.relevant_procedures) +
             sum(len(s) for s in ctx.recent_reflections) +
+            sum(len(s) for s in ctx.failure_lessons) +
+            sum(len(s) for s in ctx.safety_lessons) +
+            sum(len(s) for s in ctx.approval_lessons) +
+            sum(len(s) for s in ctx.user_preferences) +
             sum(len(s) for s in ctx.available_capability_ids) +
             sum(len(s) for s in ctx.recent_user_messages) +
-            sum(len(s) for s in ctx.pending_tasks)
+            sum(len(s) for s in ctx.pending_tasks) +
+            len(ctx.agora_summary)
         )
         ctx.total_chars = total
 
@@ -225,13 +289,23 @@ class ContextBuilder:
             while total > MAX_TOTAL_CHARS and len(ctx.relevant_facts) > 1:
                 ctx.relevant_facts.pop()
                 total = self._recalc_chars(ctx)
+            while total > MAX_TOTAL_CHARS and len(ctx.failure_lessons) > 1:
+                ctx.failure_lessons.pop()
+                total = self._recalc_chars(ctx)
+            while total > MAX_TOTAL_CHARS and len(ctx.approval_lessons) > 1:
+                ctx.approval_lessons.pop()
+                total = self._recalc_chars(ctx)
 
     def _recalc_chars(self, ctx: Context) -> int:
         return (
             len(ctx.identity) + len(ctx.desires) + len(ctx.emotional_state) +
             sum(len(str(e)) for e in ctx.recent_events) +
             len(" ".join(ctx.recent_episodes)) +
-            len(" ".join(ctx.relevant_facts))
+            len(" ".join(ctx.relevant_facts)) +
+            len(" ".join(ctx.failure_lessons)) +
+            len(" ".join(ctx.safety_lessons)) +
+            len(" ".join(ctx.approval_lessons)) +
+            len(" ".join(ctx.user_preferences))
         )
 
     @property

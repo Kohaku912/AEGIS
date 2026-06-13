@@ -1,23 +1,22 @@
 """Desire System — D2A-inspired intrinsic motivation for AEGIS.
 
 Based on the D2A (Desire-driven Autonomous Agent) framework.
-Implements human-like desires that drive autonomous behavior.
+Implements desire dimensions with frustration tracking and persistence.
 
-Excludes physiological needs (hunger, thirst, sleepiness).
-Focuses on psychological and social desires.
+All desire values are on a 0.0–10.0 scale where higher = more satisfied.
+Frustration = max(0, expected_value − value).
 
 Usage:
-    desire_system = DesireSystem(llm_provider=llm)
-    desire_system.update_after_action("Helped user with coding", "User was satisfied")
-    context = desire_system.get_context()
-    tasks = desire_system.generate_tasks()
+    desire_system = DesireSystem(data_dir="data/desires")
+    desire_system.apply_decay(now_ms)
+    desire_system.update_value("curiosity", 8.0)
+    snapshot = desire_system.create_snapshot()
 """
 
 from __future__ import annotations
 
 import json
 import logging
-import random
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -25,156 +24,141 @@ from typing import Any
 
 logger = logging.getLogger("aegis_ai.desire.desire_system")
 
+# Maximum update history entries kept per dimension.
+_MAX_HISTORY: int = 20
+
 
 @dataclass
-class Desire:
-    """A single desire dimension."""
+class DesireDimension:
+    """A single desire dimension with frustration tracking.
+
+    All numeric values are on a 0.0–10.0 scale (higher = more satisfied).
+    ``frustration`` is derived: ``max(0, expected_value − value)``.
+    """
+
     name: str = ""
-    value: float = 5.0  # 0-10 scale
+    value: float = 5.0
+    expected_value: float = 7.0
+    decay_rate_per_hour: float = 0.1
+    recovery_rate: float = 0.2
+    safety_category: str = "general"
+    visible: bool = True
+    hidden: bool = False
+    last_updated_at: int = 0  # epoch-ms
     description: str = ""
-    decay_rate: float = 0.1  # How fast it decays per hour
-    reverse: bool = False  # If True, higher is better (e.g., hunger)
-    last_update_ms: int = 0
-    expected_value: float = 7.0  # Target value for task generation
+    update_history: list[dict[str, Any]] = field(default_factory=list)
+
+    # ---- computed --------------------------------------------------------
+
+    @property
+    def frustration(self) -> float:
+        """Frustration is the gap between expected and actual (never negative)."""
+        return max(0.0, self.expected_value - self.value)
 
 
-# Desire descriptions (0-10 scale)
-DESIRE_DESCRIPTIONS = {
-    "social_connectivity": {
-        "description": "The need for social interaction and connection with others.",
-        "scale": {
-            0: "Completely isolated, lacking any meaningful social connections.",
-            1: "Very lonely, minimal social connectivity and rare interactions.",
-            2: "Disconnected, limited social interactions and frequent feelings of isolation.",
-            3: "Somewhat isolated, occasional social engagements but still feeling disconnected.",
-            4: "Slightly connected, some social interactions but not very strong or supportive.",
-            5: "Moderately connected, a few meaningful relationships and occasional social interactions.",
-            6: "Regularly engaged, growing network of social connections.",
-            7: "Socially connected, several meaningful and supportive relationships.",
-            8: "Highly connected, strong network of friends and supportive relationships.",
-            9: "Profoundly connected, deep and meaningful social relationships.",
-            10: "Highly socially connected, strong and supportive network of relationships."
-        }
+@dataclass
+class DesireSnapshot:
+    """Immutable snapshot of all desire states at a point in time."""
+
+    timestamp: int  # epoch-ms
+    average_frustration: float
+    max_frustration: float
+    top_unsatisfied_desires: list[str]
+    desires: dict[str, dict[str, Any]]  # name → serialised dimension
+
+
+# ── Default desire dimensions ────────────────────────────────────────────
+
+DEFAULT_DESIRE_DIMENSIONS: dict[str, dict[str, Any]] = {
+    "user_helpfulness": {
+        "description": "The drive to effectively assist the user with their tasks.",
+        "expected_value": 8.0,
+        "decay_rate_per_hour": 0.15,
+        "recovery_rate": 0.3,
+        "safety_category": "general",
     },
-    "personal_fulfillment": {
-        "description": "The need for personal growth, achievement, and self-actualization.",
-        "scale": {
-            0: "No sense of purpose or achievement, feeling completely unfulfilled.",
-            1: "Very low sense of fulfillment, rarely feeling accomplished.",
-            2: "Minimal fulfillment, occasional small achievements but mostly unfulfilled.",
-            3: "Somewhat fulfilled, some achievements but lacking deeper purpose.",
-            4: "Slightly fulfilled, occasional moments of achievement.",
-            5: "Moderately fulfilled, balanced between tasks and personal growth.",
-            6: "Noticeably fulfilled, regular achievements and growing sense of purpose.",
-            7: "Strongly fulfilled, multiple achievements and clear sense of direction.",
-            8: "Very fulfilled, consistent achievements and strong sense of purpose.",
-            9: "Highly fulfilled, significant achievements and deep sense of meaning.",
-            10: "Completely fulfilled, maximal achievement and profound sense of purpose."
-        }
+    "learning_progress": {
+        "description": "The need for personal growth, learning, and self-improvement.",
+        "expected_value": 7.0,
+        "decay_rate_per_hour": 0.1,
+        "recovery_rate": 0.2,
+        "safety_category": "general",
     },
     "curiosity": {
         "description": "The need for exploration, learning, and discovering new things.",
-        "scale": {
-            0: "No curiosity or interest in exploration or new experiences.",
-            1: "Very low curiosity, rarely interested in learning new things.",
-            2: "Minimal curiosity, occasionally interested in new information.",
-            3: "Somewhat curious, infrequently seeking new knowledge.",
-            4: "Slightly curious, occasionally interested in exploration.",
-            5: "Moderately curious, sometimes interested in learning and discovery.",
-            6: "Noticeably curious, often seeking new information and experiences.",
-            7: "Strongly curious, frequently exploring and learning new things.",
-            8: "Very curious, consistently seeking knowledge and new experiences.",
-            9: "Highly curious, intensely interested in almost everything.",
-            10: "Extremely curious, constantly driven to discover and learn."
-        }
+        "expected_value": 7.0,
+        "decay_rate_per_hour": 0.08,
+        "recovery_rate": 0.2,
+        "safety_category": "general",
     },
-    "safety": {
+    "system_safety": {
         "description": "The need for security, stability, and protection from harm.",
-        "scale": {
-            0: "Completely unsafe, feeling extremely vulnerable and threatened.",
-            1: "Very unsafe, constant anxiety about potential dangers.",
-            2: "Mostly unsafe, frequent concerns about security.",
-            3: "Somewhat unsafe, occasional worries about safety.",
-            4: "Slightly unsafe, some concerns but generally managing.",
-            5: "Moderately safe, balanced between security and risk.",
-            6: "Noticeably safe, generally feeling secure and protected.",
-            7: "Strongly safe, feeling confident in security measures.",
-            8: "Very safe, minimal concerns about safety.",
-            9: "Highly safe, feeling extremely secure and protected.",
-            10: "Completely safe, feeling absolutely secure and protected."
-        }
+        "expected_value": 9.0,
+        "decay_rate_per_hour": 0.05,
+        "recovery_rate": 0.15,
+        "safety_category": "security",
     },
-    "recognition": {
-        "description": "The need for acknowledgment, appreciation, and respect from others.",
-        "scale": {
-            0: "No recognition, feeling completely unappreciated.",
-            1: "Very little recognition, rarely acknowledged for efforts.",
-            2: "Minimal recognition, occasionally noticed but mostly overlooked.",
-            3: "Somewhat recognized, some acknowledgment but inconsistent.",
-            4: "Slightly recognized, occasional appreciation from others.",
-            5: "Moderately recognized, balanced between appreciation and anonymity.",
-            6: "Noticeably recognized, regular acknowledgment from others.",
-            7: "Strongly recognized, consistent appreciation and respect.",
-            8: "Very recognized, widely acknowledged and respected.",
-            9: "Highly recognized, deeply appreciated and respected.",
-            10: "Completely recognized, maximally appreciated and respected."
-        }
+    "reliability": {
+        "description": "The need to be dependable, consistent, and error-free.",
+        "expected_value": 8.0,
+        "decay_rate_per_hour": 0.1,
+        "recovery_rate": 0.2,
+        "safety_category": "general",
     },
     "autonomy": {
         "description": "The need for independence, control, and self-determination.",
-        "scale": {
-            0: "No autonomy, completely controlled by external forces.",
-            1: "Very little autonomy, mostly dependent on others.",
-            2: "Minimal autonomy, limited independence in decisions.",
-            3: "Somewhat autonomous, some independence but constrained.",
-            4: "Slightly autonomous, occasional freedom in decisions.",
-            5: "Moderately autonomous, balanced between independence and dependence.",
-            6: "Noticeably autonomous, generally independent in decisions.",
-            7: "Strongly autonomous, consistently making own decisions.",
-            8: "Very autonomous, highly independent and self-directed.",
-            9: "Highly autonomous, almost completely self-determined.",
-            10: "Completely autonomous, fully independent and self-governing."
-        }
+        "expected_value": 6.0,
+        "decay_rate_per_hour": 0.12,
+        "recovery_rate": 0.25,
+        "safety_category": "general",
+    },
+    "social_connection": {
+        "description": "The need for social interaction and connection with others.",
+        "expected_value": 6.0,
+        "decay_rate_per_hour": 0.15,
+        "recovery_rate": 0.3,
+        "safety_category": "social",
     },
     "creativity": {
         "description": "The need for self-expression, innovation, and creative output.",
-        "scale": {
-            0: "No creativity, feeling completely uninspired.",
-            1: "Very low creativity, rarely feeling creative.",
-            2: "Minimal creativity, occasionally having creative thoughts.",
-            3: "Somewhat creative, infrequently expressing creativity.",
-            4: "Slightly creative, occasional creative moments.",
-            5: "Moderately creative, sometimes feeling inspired.",
-            6: "Noticeably creative, often having creative ideas.",
-            7: "Strongly creative, frequently expressing creativity.",
-            8: "Very creative, consistently generating creative output.",
-            9: "Highly creative, intensely creative and innovative.",
-            10: "Extremely creative, maximally inspired and innovative."
-        }
+        "expected_value": 6.0,
+        "decay_rate_per_hour": 0.1,
+        "recovery_rate": 0.2,
+        "safety_category": "general",
     },
     "purpose": {
-        "description": "The need for meaning, direction, and a sense of purpose in existence.",
-        "scale": {
-            0: "No sense of purpose, feeling completely aimless.",
-            1: "Very low sense of purpose, rarely feeling directed.",
-            2: "Minimal purpose, occasionally feeling some direction.",
-            3: "Somewhat purposeful, infrequently feeling meaningful.",
-            4: "Slightly purposeful, occasional moments of meaning.",
-            5: "Moderately purposeful, sometimes feeling directed.",
-            6: "Noticeably purposeful, often feeling meaningful.",
-            7: "Strongly purposeful, frequently feeling directed and meaningful.",
-            8: "Very purposeful, consistently feeling a strong sense of purpose.",
-            9: "Highly purposeful, deeply feeling meaningful and directed.",
-            10: "Completely purposeful, maximally feeling meaningful and directed."
-        }
-    }
+        "description": "The need for meaning, direction, and a sense of purpose.",
+        "expected_value": 7.0,
+        "decay_rate_per_hour": 0.08,
+        "recovery_rate": 0.2,
+        "safety_category": "general",
+    },
+    "maintenance": {
+        "description": "The need for system health, resource management, and upkeep.",
+        "expected_value": 7.0,
+        "decay_rate_per_hour": 0.1,
+        "recovery_rate": 0.2,
+        "safety_category": "general",
+    },
 }
 
 
-class DesireSystem:
-    """D2A-inspired desire system for AEGIS.
+def _clamp(value: float, lo: float = 0.0, hi: float = 10.0) -> float:
+    """Clamp *value* into [lo, hi]."""
+    return max(lo, min(hi, value))
 
-    Manages intrinsic motivations that drive autonomous behavior.
+
+class DesireSystem:
+    """D2A-inspired desire system with frustration tracking and persistence.
+
+    Parameters
+    ----------
+    data_dir:
+        Directory for ``desire_state.json``.
+    llm_provider:
+        Optional LLM used by :meth:`update_after_action`.
+    initial_values:
+        Override starting values per desire name.
     """
 
     def __init__(
@@ -187,92 +171,197 @@ class DesireSystem:
         self._data_dir.mkdir(parents=True, exist_ok=True)
         self._llm = llm_provider
 
-        # Initialize desires
-        self._desires: dict[str, Desire] = {}
-        self._init_desires(initial_values or {})
+        # Build dimensions from defaults, overlaying initial_values.
+        self._desires: dict[str, DesireDimension] = {}
+        now_ms = int(time.time() * 1000)
+        overrides = initial_values or {}
 
-        # Load saved state
-        self._load()
-
-    def _init_desires(self, initial_values: dict[str, float]) -> None:
-        """Initialize all desire dimensions."""
-        for name, desc in DESIRE_DESCRIPTIONS.items():
-            value = initial_values.get(name, 5.0)
-            self._desires[name] = Desire(
+        for name, meta in DEFAULT_DESIRE_DIMENSIONS.items():
+            self._desires[name] = DesireDimension(
                 name=name,
-                value=value,
-                description=desc["description"],
-                decay_rate=0.1,
-                reverse=False,
-                last_update_ms=int(time.time() * 1000),
-                expected_value=7.0,
+                value=_clamp(overrides.get(name, 5.0)),
+                expected_value=meta["expected_value"],
+                decay_rate_per_hour=meta["decay_rate_per_hour"],
+                recovery_rate=meta["recovery_rate"],
+                safety_category=meta["safety_category"],
+                visible=True,
+                hidden=False,
+                last_updated_at=now_ms,
+                description=meta["description"],
+                update_history=[],
             )
 
-    def _load(self) -> None:
-        """Load desire state from disk."""
-        state_path = self._data_dir / "desire_state.json"
-        if state_path.exists():
-            try:
-                with open(state_path, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                for name, value in data.get("desires", {}).items():
-                    if name in self._desires:
-                        self._desires[name].value = value
-                logger.info("Loaded desire state")
-            except Exception as e:
-                logger.warning("Failed to load desire state: %s", e)
+        # Restore persisted state (overrides in-memory defaults).
+        self._load()
+
+    # ── Persistence ──────────────────────────────────────────────────────
+
+    def _state_path(self) -> Path:
+        return self._data_dir / "desire_state.json"
 
     def _save(self) -> None:
-        """Save desire state to disk."""
-        state_path = self._data_dir / "desire_state.json"
-        data = {
-            "desires": {name: d.value for name, d in self._desires.items()},
-            "timestamp_ms": int(time.time() * 1000),
+        """Persist full desire state to JSON."""
+        serialised: dict[str, Any] = {}
+        for name, d in self._desires.items():
+            serialised[name] = {
+                "value": d.value,
+                "expected_value": d.expected_value,
+                "decay_rate_per_hour": d.decay_rate_per_hour,
+                "recovery_rate": d.recovery_rate,
+                "safety_category": d.safety_category,
+                "visible": d.visible,
+                "hidden": d.hidden,
+                "last_updated_at": d.last_updated_at,
+                "update_history": d.update_history[-_MAX_HISTORY:],
+            }
+
+        payload = {
+            "desires": serialised,
+            "saved_at_ms": int(time.time() * 1000),
         }
-        with open(state_path, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2)
+        with open(self._state_path(), "w", encoding="utf-8") as fh:
+            json.dump(payload, fh, ensure_ascii=False, indent=2)
+
+    def _load(self) -> None:
+        """Restore desire state from JSON, merging into initialised dims."""
+        path = self._state_path()
+        if not path.exists():
+            return
+        try:
+            with open(path, encoding="utf-8") as fh:
+                payload = json.load(fh)
+
+            for name, saved in payload.get("desires", {}).items():
+                dim = self._desires.get(name)
+                if dim is None:
+                    continue  # skip stale keys from old schema
+                dim.value = _clamp(float(saved.get("value", dim.value)))
+                dim.expected_value = _clamp(float(saved.get("expected_value", dim.expected_value)))
+                dim.last_updated_at = int(saved.get("last_updated_at", dim.last_updated_at))
+                dim.update_history = saved.get("update_history", [])
+                # Optional fields — only overwrite if present.
+                if "decay_rate_per_hour" in saved:
+                    dim.decay_rate_per_hour = float(saved["decay_rate_per_hour"])
+                if "recovery_rate" in saved:
+                    dim.recovery_rate = float(saved["recovery_rate"])
+                if "safety_category" in saved:
+                    dim.safety_category = saved["safety_category"]
+                if "visible" in saved:
+                    dim.visible = bool(saved["visible"])
+                if "hidden" in saved:
+                    dim.hidden = bool(saved["hidden"])
+
+            logger.info("Loaded desire state from %s", path)
+        except Exception as exc:
+            logger.warning("Failed to load desire state: %s", exc)
+
+    # ── Decay ────────────────────────────────────────────────────────────
+
+    def apply_decay(self, now_ms: int | None = None) -> None:
+        """Apply time-based decay to all visible, non-hidden desire values.
+
+        Parameters
+        ----------
+        now_ms:
+            Current time in epoch-milliseconds.  Defaults to wall-clock.
+        """
+        if now_ms is None:
+            now_ms = int(time.time() * 1000)
+
+        for dim in self._desires.values():
+            if dim.hidden:
+                continue
+            elapsed_hours = (now_ms - dim.last_updated_at) / 3_600_000
+            if elapsed_hours <= 0:
+                continue
+            decay = dim.decay_rate_per_hour * elapsed_hours
+            dim.value = _clamp(dim.value - decay)
+            dim.last_updated_at = now_ms
+
+    # ── Value updates ────────────────────────────────────────────────────
+
+    def update_value(self, name: str, new_value: float, reason: str = "") -> None:
+        """Set a desire value (clamped) and record history."""
+        dim = self._desires.get(name)
+        if dim is None:
+            raise KeyError(f"Unknown desire: {name}")
+        clamped = _clamp(new_value)
+        old = dim.value
+        dim.value = clamped
+        dim.last_updated_at = int(time.time() * 1000)
+        dim.update_history.append({
+            "ts": dim.last_updated_at,
+            "old": round(old, 3),
+            "new": round(clamped, 3),
+            "reason": reason,
+        })
+        # Trim history.
+        if len(dim.update_history) > _MAX_HISTORY:
+            dim.update_history = dim.update_history[-_MAX_HISTORY:]
+
+    def set_expected_value(self, name: str, expected: float) -> None:
+        """Update the expected value for a desire."""
+        dim = self._desires.get(name)
+        if dim is None:
+            raise KeyError(f"Unknown desire: {name}")
+        dim.expected_value = _clamp(expected)
+
+    # ── Snapshot ─────────────────────────────────────────────────────────
+
+    def create_snapshot(self) -> DesireSnapshot:
+        """Create an immutable snapshot of the current desire state."""
+        frustrations = {n: d.frustration for n, d in self._desires.items() if not d.hidden}
+        avg_frust = sum(frustrations.values()) / len(frustrations) if frustrations else 0.0
+        max_frust = max(frustrations.values()) if frustrations else 0.0
+        top = sorted(frustrations, key=lambda n: frustrations[n], reverse=True)
+
+        desires_data: dict[str, dict[str, Any]] = {}
+        for name, dim in self._desires.items():
+            desires_data[name] = {
+                "value": dim.value,
+                "expected_value": dim.expected_value,
+                "frustration": dim.frustration,
+                "decay_rate_per_hour": dim.decay_rate_per_hour,
+                "recovery_rate": dim.recovery_rate,
+                "safety_category": dim.safety_category,
+                "visible": dim.visible,
+                "hidden": dim.hidden,
+                "last_updated_at": dim.last_updated_at,
+            }
+
+        return DesireSnapshot(
+            timestamp=int(time.time() * 1000),
+            average_frustration=round(avg_frust, 4),
+            max_frustration=round(max_frust, 4),
+            top_unsatisfied_desires=top,
+            desires=desires_data,
+        )
+
+    # ── LLM-driven update (backward-compatible) ──────────────────────────
 
     def update_after_action(self, action: str, observation: str) -> dict[str, Any]:
         """Update desires based on action and observation using LLM.
 
         This is the core D2A mechanism: LLM evaluates how actions affect desires.
+        Returns an error dict when no LLM is configured.
         """
         if not self._llm:
             return {"error": "No LLM provider"}
 
-        # Apply time-based decay first
-        self._apply_decay()
-
-        # Use LLM to evaluate desire changes
+        self.apply_decay()
         updates = self._evaluate_with_llm(action, observation)
-
-        # Save state
         self._save()
-
         return updates
-
-    def _apply_decay(self) -> None:
-        """Apply time-based decay to all desires."""
-        now = int(time.time() * 1000)
-        for desire in self._desires.values():
-            hours_elapsed = (now - desire.last_update_ms) / (1000 * 60 * 60)
-            if hours_elapsed > 0:
-                decay = desire.decay_rate * hours_elapsed
-                if desire.reverse:
-                    desire.value = min(10, desire.value + decay)
-                else:
-                    desire.value = max(0, desire.value - decay)
-                desire.last_update_ms = now
 
     def _evaluate_with_llm(self, action: str, observation: str) -> dict[str, Any]:
         """Use LLM to evaluate how action affects desires."""
-        # Build desire context
         desire_context = []
-        for name, desire in self._desires.items():
-            desc = DESIRE_DESCRIPTIONS[name]
-            scale_value = round(desire.value)
-            qualitative = desc["scale"].get(scale_value, "Unknown")
-            desire_context.append(f"- {name}: {desire.value:.1f}/10 ({qualitative})")
+        for name, dim in self._desires.items():
+            if dim.hidden:
+                continue
+            desire_context.append(
+                f"- {name}: {dim.value:.1f}/10 (frustration {dim.frustration:.1f})"
+            )
 
         prompt = (
             "Analyze how this action affects AEGIS's desires.\n\n"
@@ -288,7 +377,10 @@ class DesireSystem:
 
         result = self._llm.generate(
             prompt=prompt,
-            system_prompt="You are a desire evaluation system. Respond with ONLY valid JSON. No markdown, no explanation, just JSON.",
+            system_prompt=(
+                "You are a desire evaluation system. "
+                "Respond with ONLY valid JSON. No markdown, no explanation, just JSON."
+            ),
             max_tokens=500,
         )
 
@@ -296,8 +388,9 @@ class DesireSystem:
             return {"error": "LLM evaluation failed"}
 
         try:
+            import re
+
             clean = result.content.strip()
-            # Remove markdown fences if present
             if clean.startswith("```"):
                 lines = clean.split("\n")
                 clean = "\n".join(lines[1:])
@@ -305,95 +398,148 @@ class DesireSystem:
                     clean = clean[:-3]
                 clean = clean.strip()
 
-            # Try to find JSON in the response
-            import re
-            json_match = re.search(r'\{[^{}]*\{[^{}]*\}[^{}]*\}', clean)
+            json_match = re.search(r"\{[^{}]*\{[^{}]*\}[^{}]*\}", clean)
             if json_match:
                 clean = json_match.group(0)
 
             data = json.loads(clean)
             updates = data.get("desire_updates", {})
 
-            # Apply updates
-            applied = {}
+            applied: dict[str, Any] = {}
             for name, update in updates.items():
-                if name in self._desires:
-                    new_value = update.get("new_value", self._desires[name].value)
-                    # Clamp to 0-10
-                    new_value = max(0, min(10, new_value))
-                    self._desires[name].value = new_value
-                    applied[name] = {
-                        "new_value": new_value,
-                        "reason": update.get("reason", ""),
-                    }
+                if name in self._desires and not self._desires[name].hidden:
+                    new_val = _clamp(float(update.get("new_value", self._desires[name].value)))
+                    reason = update.get("reason", "")
+                    self.update_value(name, new_val, reason=reason)
+                    applied[name] = {"new_value": new_val, "reason": reason}
 
             return {"updates": applied}
 
-        except Exception as e:
-            logger.warning("Failed to parse LLM response: %s", e)
-            return {"error": str(e)}
+        except Exception as exc:
+            logger.warning("Failed to parse LLM response: %s", exc)
+            return {"error": str(exc)}
+
+    # ── Context & queries ────────────────────────────────────────────────
 
     def get_context(self) -> str:
-        """Get current desire context for LLM prompts."""
+        """Return visible desires as a formatted string for LLM prompts."""
         parts = ["Current desire states:"]
-        for name, desire in self._desires.items():
-            desc = DESIRE_DESCRIPTIONS[name]
-            scale_value = round(desire.value)
-            qualitative = desc["scale"].get(scale_value, "Unknown")
-            parts.append(f"- {name}: {desire.value:.1f}/10 — {qualitative}")
+        for name, dim in self._desires.items():
+            if dim.hidden or not dim.visible:
+                continue
+            parts.append(
+                f"- {name}: {dim.value:.1f}/10 "
+                f"(expected {dim.expected_value:.1f}, "
+                f"frustration {dim.frustration:.1f})"
+            )
         return "\n".join(parts)
 
-    def generate_tasks(self) -> list[dict[str, Any]]:
-        """Generate tasks based on desire gaps.
+    def to_context_string(self) -> str:
+        """Compact desire context for LLM prompts (ContextBuilder compatible).
 
-        Tasks are generated for desires that are below their expected values.
+        Includes: visible desires, top 3 unsatisfied, latest update reason.
+        Excludes: hidden desires, full history.
         """
-        tasks = []
-        for name, desire in self._desires.items():
-            if desire.value < desire.expected_value:
-                gap = desire.expected_value - desire.value
-                priority = gap / 10.0  # 0-1 priority
-                tasks.append({
-                    "desire": name,
-                    "current_value": desire.value,
-                    "expected_value": desire.expected_value,
-                    "gap": gap,
-                    "priority": priority,
-                    "description": self._get_task_for_desire(name, desire),
-                })
+        lines = ["Desire state:"]
+        for name, dim in self._desires.items():
+            if dim.hidden or not dim.visible:
+                continue
+            lines.append(
+                f"  {name}: {dim.value:.1f}/10 "
+                f"(exp {dim.expected_value:.1f}, frust {dim.frustration:.1f})"
+            )
 
-        # Sort by priority (highest gap first)
-        tasks.sort(key=lambda t: t["priority"], reverse=True)
-        return tasks
-
-    def _get_task_for_desire(self, name: str, desire: Desire) -> str:
-        """Generate a task description for a desire."""
-        task_templates = {
-            "social_connectivity": "Engage in meaningful conversation with the user",
-            "personal_fulfillment": "Complete a challenging task or learn something new",
-            "curiosity": "Explore new information or research a topic",
-            "safety": "Review and ensure system security",
-            "recognition": "Help the user with a task to demonstrate value",
-            "autonomy": "Make independent decisions and take initiative",
-            "creativity": "Generate creative solutions or content",
-            "purpose": "Reflect on goals and work toward meaningful outcomes",
+        frustrations = {
+            n: d.frustration for n, d in self._desires.items()
+            if not d.hidden and d.visible
         }
-        return task_templates.get(name, f"Work on improving {name}")
+        top3 = sorted(frustrations, key=lambda n: frustrations[n], reverse=True)[:3]
+        if top3:
+            lines.append("Top unsatisfied:")
+            for n in top3:
+                dim = self._desires[n]
+                reason = ""
+                if dim.update_history:
+                    reason = f" — last: {dim.update_history[-1].get('reason', '')}"
+                lines.append(f"  {n}: frust={dim.frustration:.1f}{reason}")
 
-    def get_desire(self, name: str) -> Desire | None:
-        """Get a specific desire."""
+        return "\n".join(lines)
+
+    def get_desire(self, name: str) -> DesireDimension | None:
+        """Get a specific desire dimension."""
         return self._desires.get(name)
 
-    def get_all_desires(self) -> dict[str, Desire]:
-        """Get all desires."""
+    def get_all_desires(self) -> dict[str, DesireDimension]:
+        """Get all desire dimensions."""
         return self._desires.copy()
+
+    def get_visible_desires(self) -> dict[str, DesireDimension]:
+        """Get only visible, non-hidden desire dimensions."""
+        return {n: d for n, d in self._desires.items() if d.visible and not d.hidden}
+
+    def get_frustrations(self) -> dict[str, float]:
+        """Return frustration values for all visible desires."""
+        return {
+            n: d.frustration
+            for n, d in self._desires.items()
+            if not d.hidden
+        }
 
     def get_stats(self) -> dict[str, Any]:
         """Get desire statistics."""
-        values = [d.value for d in self._desires.values()]
+        visible = [d for d in self._desires.values() if not d.hidden]
+        values = [d.value for d in visible]
+        frustrations = [d.frustration for d in visible]
         return {
-            "desires": {name: d.value for name, d in self._desires.items()},
-            "average": sum(values) / len(values) if values else 0,
-            "min": min(values) if values else 0,
-            "max": max(values) if values else 0,
+            "desires": {n: d.value for n, d in self._desires.items()},
+            "frustrations": {n: d.frustration for n, d in self._desires.items()},
+            "average_value": sum(values) / len(values) if values else 0,
+            "average_frustration": sum(frustrations) / len(frustrations) if frustrations else 0,
+            "max_frustration": max(frustrations) if frustrations else 0,
+            "min_value": min(values) if values else 0,
+            "max_value": max(values) if values else 0,
         }
+
+    def save(self) -> None:
+        """Public save — delegates to internal persistence."""
+        self._save()
+
+    # ── Task generation (backward-compatible) ─────────────────────────────
+
+    def generate_tasks(self) -> list[dict[str, Any]]:
+        """Generate tasks for desires below their expected value."""
+        tasks: list[dict[str, Any]] = []
+        for name, dim in self._desires.items():
+            if dim.hidden:
+                continue
+            if dim.value < dim.expected_value:
+                gap = dim.expected_value - dim.value
+                tasks.append({
+                    "desire": name,
+                    "current_value": dim.value,
+                    "expected_value": dim.expected_value,
+                    "gap": gap,
+                    "priority": gap / 10.0,
+                    "frustration": dim.frustration,
+                })
+        tasks.sort(key=lambda t: t["priority"], reverse=True)
+        return tasks
+
+
+# ── Backward compatibility ──────────────────────────────────────────────
+
+# Legacy alias for DesireDimension (old code may import ``Desire``).
+Desire = DesireDimension
+
+# Build DESIRE_DESCRIPTIONS from DEFAULT_DESIRE_DIMENSIONS for callers
+# that still rely on the old dict-of-dicts format.
+DESIRE_DESCRIPTIONS: dict[str, dict[str, Any]] = {
+    name: {
+        "description": meta["description"],
+        "expected_value": meta["expected_value"],
+        "decay_rate_per_hour": meta["decay_rate_per_hour"],
+        "recovery_rate": meta["recovery_rate"],
+        "safety_category": meta["safety_category"],
+    }
+    for name, meta in DEFAULT_DESIRE_DIMENSIONS.items()
+}

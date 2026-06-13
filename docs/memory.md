@@ -1,90 +1,87 @@
-# Advanced Memory — Design & Usage
+# Memory System — Design & Usage
 
-> **Status**: Phase 6 — Enhanced with persistence and retrieval
+> **Status**: Implemented (2026-06-13)
 > **Related**: `docs/architecture.md` §5.10
 
 ## Overview
 
 AEGIS's memory system stores and retrieves information across sessions.
-All memory types persist to JSONL files for durability.
+Inspired by Zep (https://github.com/getzep/zep) for human-like memory.
 
-## Memory Types
+## Memory Components
 
-### Episodic Memory (`episodic.py`)
+### AdvancedMemory (`memory/advanced.py`)
 
-Stores conversation, event, and action history.
+Zep-inspired memory system with:
+- **Entity tracking**: People, places, things with relationships
+- **Fact extraction**: LLM extracts facts from conversations
+- **Temporal awareness**: Tracks when facts were valid/invalid
+- **Importance scoring**: More important memories recalled more easily
+- **Consolidation**: Periodic cleanup and summarization
 
-| Field | Purpose |
-|-------|---------|
-| `summary` | What happened |
-| `category` | "conversation", "event", "action_result" |
-| `events` | Referenced event IDs |
-| `detail` | Arbitrary detail dict |
+**Data storage**: `data/memory/` (entities.jsonl, facts.jsonl, conversations.jsonl)
 
-Persists to `data/episodic.jsonl`.
+### PersonaMemory (`memory/persona.py`)
 
-### Semantic Memory (`semantic.py`)
+Person tracking system:
+- **Person data**: Name, relationship, notes, preferences
+- **Conversation history**: Summaries and key points
+- **Topic tracking**: What was discussed
 
-Stores facts, knowledge, user info, design docs.
+**Data storage**: `data/persona.jsonl`
 
-| Field | Purpose |
-|-------|---------|
-| `content` | The fact or knowledge |
-| `category` | "user_info", "knowledge", "design", "preference", "project" |
-| `source` | Where fact came from ("user", "conversation", "inference") |
-| `confidence` | 0.0–1.0 certainty |
-| `tags` | Searchable tags |
+### ChromaSemanticMemory (`memory/chroma_semantic.py`)
 
-Persists to `data/semantic.jsonl`.
+Vector DB with Chroma:
+- **Semantic search**: Find similar content
+- **OpenAI embeddings**: text-embedding-3-small
+- **Fact storage**: Categorized facts
 
-### Procedural Memory (`procedural.py`)
+**Data storage**: `data/chroma/`
 
-Stores successful procedures and failure patterns.
+### MemoryConsolidator (`memory/consolidation.py`)
 
-| Field | Purpose |
-|-------|---------|
-| `goal` | What the procedure achieves |
-| `steps` | Capability IDs in order |
-| `success_count` / `failure_count` | Track success rate |
-| `confidence` | Calculated from success rate |
+Periodic memory cleanup:
+- **Duplicate merging**: Combine similar facts
+- **Persona updates**: Update person profiles
+- **LLM reflection**: Generate insights from memory
 
-Persists to `data/procedural.jsonl`.
+## How It Works
 
-### Reflection Memory (`reflection.py`)
+### Memory Context
 
-Stores self-analysis and improvement ideas.
+Before each LLM call, the system:
+1. Queries AdvancedMemory for relevant entities and facts
+2. Queries PersonaMemory for person information
+3. Builds context string for LLM prompt
 
-| Field | Purpose |
-|-------|---------|
-| `summary` | What happened |
-| `what_worked` | Successful aspects |
-| `what_failed` | Failed aspects |
-| `improvement_ideas` | Ideas for improvement |
-| `next_experiment` | What to try next |
+### Auto-Save
 
-Persists to `data/reflection.jsonl`.
+After each conversation:
+1. LLM extracts entities and facts
+2. Saves to AdvancedMemory
+3. Updates PersonaMemory if person mentioned
 
-## ContextBuilder Integration
+### Memory Operations
 
-Memory is injected into ContextBuilder:
+| Operation | LLM Action | Description |
+|-----------|-----------|-------------|
+| Save | `memory_save` | LLM decides what to save |
+| Search | `memory_search` | LLM queries memory |
+| Delete | `memory_delete` | LLM deletes matching facts |
+| Clear | `memory_clear` | Delete all memory |
 
-```python
-builder = ContextBuilder(
-    episodic_memory=EpisodicMemory(),
-    semantic_memory=SemanticMemory(),
-    procedural_memory=ProceduralMemory(),
-    reflection_log=ReflectionLog(),
-)
-ctx = builder.build(triggering_query="temperature")
-# ctx.recent_episodes — recent episodic memories
-# ctx.relevant_facts — semantic facts matching query
-# ctx.relevant_procedures — procedures matching query
-# ctx.recent_reflections — recent reflections
-```
+## API Endpoints
 
-## Privacy
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/api/chat/stream` | POST | Chat with memory context |
+| `/dashboard/memory` | GET | View memory data |
 
-- Memory is local-only (no external transmission)
-- Secrets are never stored in memory
-- Users can request memory deletion
-- Sensitive data should be redacted before storage
+## Design Decisions
+
+1. **LLM-managed**: LLM decides what to remember/search/delete
+2. **No keyword matching**: All memory operations through LLM
+3. **Zep-inspired**: Entity tracking, fact extraction, temporal awareness
+4. **ChromaDB**: Vector DB for semantic search
+5. **JSONL storage**: Simple, reliable, human-readable
