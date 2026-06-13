@@ -1,0 +1,16 @@
+{
+  "title": "Keyboard Type",
+  "description": "Type text using the keyboard.",
+  "server_id": "pc-server",
+  "app_id": "input",
+  "action": "keyboard_type",
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "text": {"type": "string"}
+    },
+    "required": ["text"]
+  },
+  "risk": {"level": "medium", "side_effects": ["ui_interaction"], "requires_approval": true},
+  "tags": ["builtin", "pc", "action", "keyboard"]
+}

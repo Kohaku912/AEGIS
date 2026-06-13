@@ -1,0 +1,27 @@
+{
+  "title": "AGORA Read Posts",
+  "description": "Read recent posts from AGORA chat.",
+  "server_id": "ai-server",
+  "app_id": "agora",
+  "action": "read_posts",
+  "version": "1.0.0",
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "limit": {"type": "integer", "default": 50}
+    }
+  },
+  "output_schema": {
+    "type": "object",
+    "properties": {
+      "posts": {"type": "array"},
+      "count": {"type": "integer"}
+    }
+  },
+  "risk": {
+    "level": "low",
+    "side_effects": [],
+    "requires_approval": false
+  },
+  "tags": ["builtin", "agora", "read"]
+}

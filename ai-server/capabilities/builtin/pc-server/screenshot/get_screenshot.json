@@ -1,0 +1,9 @@
+{
+  "title": "Screenshot",
+  "description": "Capture a screenshot of the desktop.",
+  "server_id": "pc-server",
+  "app_id": "screenshot",
+  "action": "get_screenshot",
+  "risk": {"level": "low", "side_effects": [], "requires_approval": false},
+  "tags": ["builtin", "pc", "read", "screenshot"]
+}

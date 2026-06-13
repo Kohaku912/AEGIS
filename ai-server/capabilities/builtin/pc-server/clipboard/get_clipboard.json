@@ -1,0 +1,9 @@
+{
+  "title": "Clipboard",
+  "description": "Read the current clipboard contents.",
+  "server_id": "pc-server",
+  "app_id": "clipboard",
+  "action": "get_clipboard",
+  "risk": {"level": "low", "side_effects": [], "requires_approval": false},
+  "tags": ["builtin", "pc", "read", "clipboard"]
+}

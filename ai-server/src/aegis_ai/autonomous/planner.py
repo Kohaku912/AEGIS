@@ -296,6 +296,15 @@ OR if the goal should not be executed:
 
     def _execute_subtask(self, subtask: Subtask) -> dict[str, Any]:
         if not subtask.capability_id:
+            if self._llm:
+                result = self._llm.generate(
+                    prompt=f"Execute this task and provide the result:\n\n{subtask.description}\n\nRespond with the actual output or result.",
+                    system_prompt="You are AEGIS executing a task. Produce the actual result.",
+                    max_tokens=500,
+                )
+                if result.success and result.content:
+                    return {"success": True, "output": {"result": result.content.strip()}}
+                return {"success": False, "error": "LLM execution failed"}
             return {"success": True, "output": {"result": subtask.description}}
 
         if not self._broker:

@@ -1,0 +1,16 @@
+{
+  "title": "Close Window",
+  "description": "Close a window by ID or process name.",
+  "server_id": "pc-server",
+  "app_id": "window",
+  "action": "close_window",
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "window_id": {"type": "string"},
+      "process_name": {"type": "string"}
+    }
+  },
+  "risk": {"level": "medium", "side_effects": ["process_terminate"], "requires_approval": true},
+  "tags": ["builtin", "pc", "action", "window"]
+}

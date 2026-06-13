@@ -1,47 +1,62 @@
 {% extends "dashboard/base.html" %}
 {% block title %}AEGIS — Capabilities{% endblock %}
-{% block topbar_title %}Capabilities{% endblock %}
 {% block content %}
 <h1>Capabilities</h1>
+<div style="display:flex;gap:12px;align-items:center;margin-bottom:16px;">
+    <div id="saveStatus" style="font-size:13px;flex:1;"></div>
+    <button onclick="reloadCapabilities()" style="background:#1f6feb;color:white;border:none;padding:8px 16px;border-radius:6px;cursor:pointer;font-size:13px;">Reload from disk</button>
+</div>
 
-<div id="saveStatus" style="margin-bottom:12px;font-size:13px;min-height:20px;"></div>
+{% if errors %}
+<div class="card" style="border-color:#da3633;">
+    <h3 style="color:#da3633;">Load Errors ({{ errors|length }})</h3>
+    {% for e in errors %}
+    <div style="font-size:12px;color:#f85149;margin:4px 0;">{{ e.path }}: {{ e.error }}</div>
+    {% endfor %}
+</div>
+{% endif %}
+
+<div class="grid">
+    <div class="card"><h3>Total</h3><div class="value">{{ capabilities|length }}</div></div>
+    <div class="card"><h3>Builtin</h3><div class="value">{{ capabilities|selectattr('origin', 'equalto', 'builtin')|list|length }}</div></div>
+    <div class="card"><h3>Generated</h3><div class="value">{{ capabilities|selectattr('origin', 'equalto', 'generated')|list|length }}</div></div>
+    <div class="card"><h3>Requires Approval</h3><div class="value">{{ capabilities|selectattr('requires_approval')|list|length }}</div></div>
+</div>
 
 <div class="card">
-    <div class="card-header">Registered Capabilities</div>
-    <div style="overflow-x:auto;">
+    <h3>All Capabilities ({{ capabilities|length }})</h3>
+    <div style="max-height:600px;overflow-y:auto;">
     <table>
-        <thead>
-            <tr>
-                <th>ID</th>
-                <th>Name</th>
-                <th>Risk Level</th>
-                <th>Original</th>
-                <th>Server</th>
-                <th>Action</th>
-            </tr>
-        </thead>
+        <thead><tr>
+            <th>ID</th><th>Title</th><th>Origin</th><th>Server</th><th>App</th><th>Risk</th><th>Approval</th><th>Tags</th><th>Action</th>
+        </tr></thead>
         <tbody>
         {% for c in capabilities %}
-        <tr id="row-{{ c.id }}">
-            <td style="font-family:monospace;font-size:11px;color:var(--text-muted);">{{ c.id }}</td>
-            <td style="font-weight:500;">{{ c.name }}</td>
+        <tr>
+            <td style="font-family:monospace;font-size:11px;max-width:250px;word-break:break-all;">{{ c.id }}</td>
+            <td style="font-weight:500;">{{ c.title }}</td>
+            <td><span class="badge {{ 'badge-blue' if c.origin == 'builtin' else 'badge-yellow' }}">{{ c.origin }}</span></td>
+            <td>{{ c.server_id }}</td>
+            <td>{{ c.app_id }}</td>
             <td>
-                <div style="display:flex;align-items:center;gap:6px;">
-                    <select id="risk-{{ c.id }}">
-                        {% for r in risk_levels %}
-                        <option value="{{ r }}" {{ 'selected' if r == c.risk_level else '' }}>{{ r }}</option>
-                        {% endfor %}
-                    </select>
-                    {% if c.overridden %}
-                    <span class="badge badge-yellow" style="font-size:10px;">overridden</span>
-                    {% endif %}
-                </div>
+                <select id="risk-{{ c.id }}" style="background:#0d1117;border:1px solid #30363d;color:#c9d1d9;padding:4px;border-radius:4px;font-size:11px;">
+                    {% for r in risk_levels %}
+                    <option value="{{ r }}" {{ 'selected' if r == c.risk_level else '' }}>{{ r }}</option>
+                    {% endfor %}
+                </select>
+                {% if c.overridden %}
+                <span class="badge badge-yellow" style="font-size:9px;margin-left:2px;">overridden</span>
+                {% endif %}
             </td>
-            <td style="font-size:11px;color:var(--text-muted);">{{ c.original_risk }}</td>
-            <td style="font-size:12px;">{{ c.server_type }}</td>
             <td>
-                <button class="btn btn-primary" onclick="saveRisk('{{ c.id }}')">Save</button>
+                {% if c.requires_approval %}
+                <span class="badge badge-red">YES</span>
+                {% else %}
+                <span class="badge badge-green">no</span>
+                {% endif %}
             </td>
+            <td style="font-size:10px;color:#8b949e;">{{ c.tags|join(', ') }}</td>
+            <td><button onclick="saveRisk('{{ c.id }}')" style="background:#238636;color:white;border:none;padding:3px 8px;border-radius:4px;cursor:pointer;font-size:11px;">Save</button></td>
         </tr>
         {% endfor %}
         </tbody>
@@ -51,7 +66,8 @@
 
 <script>
 async function saveRisk(capId) {
-    const risk = document.getElementById('risk-' + capId).value;
+    const select = document.getElementById('risk-' + capId);
+    const risk = select.value;
     const status = document.getElementById('saveStatus');
     try {
         const res = await fetch('/api/capabilities/risk', {
@@ -61,14 +77,31 @@ async function saveRisk(capId) {
         });
         const data = await res.json();
         if (data.ok) {
-            status.innerHTML = '<span style="color:var(--green);">✓ Saved: <strong>' + capId + '</strong> → ' + risk + '</span>';
+            status.innerHTML = '<span style="color:#3fb950;">Saved: ' + capId + ' &rarr; ' + risk + '</span>';
+            setTimeout(() => { status.innerHTML = ''; }, 3000);
         } else {
-            status.innerHTML = '<span style="color:var(--red);">✗ Error: ' + data.error + '</span>';
+            status.innerHTML = '<span style="color:#f85149;">Error: ' + data.error + '</span>';
         }
-    } catch(e) {
-        status.innerHTML = '<span style="color:var(--red);">✗ ' + e.message + '</span>';
+    } catch (e) {
+        status.innerHTML = '<span style="color:#f85149;">Error: ' + e.message + '</span>';
     }
-    setTimeout(() => { status.innerHTML = ''; }, 3000);
+}
+
+async function reloadCapabilities() {
+    const status = document.getElementById('saveStatus');
+    status.innerHTML = '<span style="color:#58a6ff;">Reloading...</span>';
+    try {
+        const res = await fetch('/api/capabilities/reload', {method: 'POST'});
+        const data = await res.json();
+        if (data.ok) {
+            status.innerHTML = '<span style="color:#3fb950;">Reloaded: ' + data.new_count + ' capabilities (' + (data.errors ? data.errors.length : 0) + ' errors)</span>';
+            setTimeout(() => location.reload(), 1000);
+        } else {
+            status.innerHTML = '<span style="color:#f85149;">Error: ' + data.error + '</span>';
+        }
+    } catch (e) {
+        status.innerHTML = '<span style="color:#f85149;">Error: ' + e.message + '</span>';
+    }
 }
 </script>
 {% endblock %}

@@ -1,0 +1,9 @@
+{
+  "title": "Submit Form",
+  "description": "Submit a form on the page.",
+  "server_id": "browser-server",
+  "app_id": "form",
+  "action": "submit_form",
+  "risk": {"level": "high", "side_effects": ["form_submission", "external_send"], "requires_approval": true},
+  "tags": ["builtin", "browser", "action", "form"]
+}

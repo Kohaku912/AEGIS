@@ -1,0 +1,22 @@
+{
+  "title": "Print hello",
+  "description": "Self-developed app: Print hello",
+  "server_id": "ai-server",
+  "app_id": "dev_9f23e6ba",
+  "action": "run",
+  "version": "1.0.0",
+  "input_schema": {
+    "type": "object",
+    "properties": {}
+  },
+  "risk": {
+    "level": "low",
+    "side_effects": [],
+    "requires_approval": false
+  },
+  "tags": [
+    "generated",
+    "self_development",
+    "dev_9f23e6ba"
+  ]
+}

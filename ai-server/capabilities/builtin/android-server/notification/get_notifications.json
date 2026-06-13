@@ -1,0 +1,9 @@
+{
+  "title": "Notifications",
+  "description": "Get Android notifications.",
+  "server_id": "android-server",
+  "app_id": "notification",
+  "action": "get_notifications",
+  "risk": {"level": "low", "side_effects": [], "requires_approval": false},
+  "tags": ["builtin", "android", "read"]
+}

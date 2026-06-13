@@ -1,0 +1,9 @@
+{
+  "title": "List Windows",
+  "description": "List all open windows.",
+  "server_id": "pc-server",
+  "app_id": "window",
+  "action": "list_windows",
+  "risk": {"level": "low", "side_effects": [], "requires_approval": false},
+  "tags": ["builtin", "pc", "read", "window"]
+}

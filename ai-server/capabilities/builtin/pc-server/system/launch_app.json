@@ -1,0 +1,16 @@
+{
+  "title": "Launch App",
+  "description": "Launch an application.",
+  "server_id": "pc-server",
+  "app_id": "system",
+  "action": "launch_app",
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "app_path": {"type": "string"}
+    },
+    "required": ["app_path"]
+  },
+  "risk": {"level": "safe", "side_effects": ["process_start"], "requires_approval": false},
+  "tags": ["builtin", "pc", "action", "app"]
+}

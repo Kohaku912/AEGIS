@@ -1,0 +1,9 @@
+{
+  "title": "AGORA Read Mentions",
+  "description": "Read mentions of own account.",
+  "server_id": "ai-server",
+  "app_id": "agora",
+  "action": "read_mentions",
+  "risk": {"level": "low", "side_effects": [], "requires_approval": false},
+  "tags": ["builtin", "agora", "read"]
+}

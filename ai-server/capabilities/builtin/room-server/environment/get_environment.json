@@ -1,0 +1,9 @@
+{
+  "title": "Environment",
+  "description": "Get room environment data.",
+  "server_id": "room-server",
+  "app_id": "environment",
+  "action": "get_environment",
+  "risk": {"level": "low", "side_effects": [], "requires_approval": false},
+  "tags": ["builtin", "room", "read"]
+}

@@ -1,0 +1,16 @@
+{
+  "title": "Press Hotkey",
+  "description": "Press a keyboard shortcut.",
+  "server_id": "pc-server",
+  "app_id": "input",
+  "action": "press_hotkey",
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "keys": {"type": "string"}
+    },
+    "required": ["keys"]
+  },
+  "risk": {"level": "medium", "side_effects": ["ui_interaction"], "requires_approval": true},
+  "tags": ["builtin", "pc", "action", "keyboard"]
+}

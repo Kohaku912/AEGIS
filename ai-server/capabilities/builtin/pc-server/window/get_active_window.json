@@ -1,0 +1,9 @@
+{
+  "title": "Active Window",
+  "description": "Get the currently active window title and process.",
+  "server_id": "pc-server",
+  "app_id": "window",
+  "action": "get_active_window",
+  "risk": {"level": "low", "side_effects": [], "requires_approval": false},
+  "tags": ["builtin", "pc", "read", "window"]
+}
