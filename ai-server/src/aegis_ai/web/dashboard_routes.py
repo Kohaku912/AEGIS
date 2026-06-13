@@ -166,7 +166,31 @@ class DashboardApp:
     def __init__(self) -> None:
         self._app = Flask(__name__, template_folder="templates")
         self._start_time = time.time()
+        self._autonomous_loop = None
         self._setup_routes()
+        self._start_autonomous_loop()
+
+    def _start_autonomous_loop(self) -> None:
+        try:
+            from aegis_ai.autonomous.autonomous_loop import AutonomousLoop
+            from aegis_ai.desire.desire_system import DesireSystem
+            from aegis_ai.llm.factory import create_llm_provider
+            llm = create_llm_provider()
+            desire = DesireSystem(
+                data_dir=os.path.join(_DATA_DIR, "desires"),
+                llm_provider=llm,
+            )
+            self._autonomous_loop = AutonomousLoop(
+                llm_provider=llm,
+                desire_system=desire,
+                data_dir=os.path.join(_DATA_DIR, "autonomous"),
+                desire_threshold=2.0,
+                fallback_interval_seconds=300,
+            )
+            self._autonomous_loop.start()
+            logger.info("Autonomous loop started with threshold=2.0, interval=300s")
+        except Exception as exc:
+            logger.warning("Failed to start autonomous loop: %s", exc)
 
     @property
     def app(self) -> Flask:
@@ -1361,68 +1385,40 @@ For general questions, respond naturally using your memory and knowledge."""
 
         @app.route("/api/autonomous/status")
         def autonomous_status():
-            """Get autonomous loop status."""
             try:
-                from aegis_ai.autonomous.autonomous_loop import AutonomousLoop
-                from aegis_ai.desire.desire_system import DesireSystem
-                from aegis_ai.llm.factory import create_llm_provider
-                llm = create_llm_provider()
-                desire = DesireSystem(data_dir=os.path.join(_DATA_DIR, "desires"), llm_provider=llm)
-                loop = AutonomousLoop(
-                    llm_provider=llm,
-                    desire_system=desire,
-                    data_dir=os.path.join(_DATA_DIR, "autonomous"),
-                )
-                return jsonify(loop.get_status())
+                if self._autonomous_loop:
+                    return jsonify(self._autonomous_loop.get_status())
+                return jsonify({"running": False, "error": "Loop not initialized"})
             except Exception as e:
                 return jsonify({"error": str(e)})
 
         @app.route("/api/autonomous/trigger", methods=["POST"])
         def autonomous_trigger():
-            """Manually trigger autonomous cycle."""
             try:
-                from aegis_ai.autonomous.autonomous_loop import AutonomousLoop
-                from aegis_ai.desire.desire_system import DesireSystem
-                from aegis_ai.llm.factory import create_llm_provider
-                llm = create_llm_provider()
-                desire = DesireSystem(data_dir=os.path.join(_DATA_DIR, "desires"), llm_provider=llm)
-                loop = AutonomousLoop(
-                    llm_provider=llm,
-                    desire_system=desire,
-                    data_dir=os.path.join(_DATA_DIR, "autonomous"),
-                )
-                status = loop.trigger_now()
-                return jsonify(status)
+                if self._autonomous_loop:
+                    status = self._autonomous_loop.trigger_now()
+                    return jsonify(status)
+                return jsonify({"error": "Loop not initialized"})
             except Exception as e:
                 return jsonify({"error": str(e)})
 
         @app.route("/api/autonomous/start", methods=["POST"])
         def autonomous_start():
-            """Start autonomous loop."""
             try:
-                from aegis_ai.autonomous.autonomous_loop import AutonomousLoop
-                from aegis_ai.desire.desire_system import DesireSystem
-                from aegis_ai.llm.factory import create_llm_provider
-                llm = create_llm_provider()
-                desire = DesireSystem(data_dir=os.path.join(_DATA_DIR, "desires"), llm_provider=llm)
-                loop = AutonomousLoop(
-                    llm_provider=llm,
-                    desire_system=desire,
-                    data_dir=os.path.join(_DATA_DIR, "autonomous"),
-                )
-                loop.start()
-                return jsonify({"status": "started"})
+                if self._autonomous_loop:
+                    self._autonomous_loop.start()
+                    return jsonify({"status": "started"})
+                return jsonify({"error": "Loop not initialized"})
             except Exception as e:
                 return jsonify({"error": str(e)})
 
         @app.route("/api/autonomous/stop", methods=["POST"])
         def autonomous_stop():
-            """Stop autonomous loop."""
             try:
-                from aegis_ai.autonomous.autonomous_loop import AutonomousLoop
-                loop = AutonomousLoop(data_dir=os.path.join(_DATA_DIR, "autonomous"))
-                loop.stop()
-                return jsonify({"status": "stopped"})
+                if self._autonomous_loop:
+                    self._autonomous_loop.stop()
+                    return jsonify({"status": "stopped"})
+                return jsonify({"error": "Loop not initialized"})
             except Exception as e:
                 return jsonify({"error": str(e)})
 

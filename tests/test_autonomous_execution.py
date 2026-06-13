@@ -3,7 +3,7 @@ import sys
 import os
 sys.stdout.reconfigure(encoding='utf-8')
 
-os.environ["OPENAI_API_KEY"] = "sk-b7634b706d714a11944a498f1a520f52"
+os.environ["OPENAI_API_KEY"] = ""
 os.environ["OPENAI_BASE_URL"] = "https://api.deepseek.com"
 
 from aegis_ai.llm.factory import create_llm_provider

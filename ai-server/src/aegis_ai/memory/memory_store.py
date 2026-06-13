@@ -29,8 +29,15 @@ class MemoryStore:
     """Unified memory store with JSON persistence.
 
     Supports 9 memory types, confidence/importance/recency scoring,
-    supersession, expiration, and context summarization.
+    supersession, expiration, context summarization, correction,
+    and user permission gating.
     """
+
+    # Categories that require explicit user permission to save
+    _REQUIRES_USER_PERMISSION: set[str] = {
+        "personal_info", "location", "schedule", "contacts",
+        "financial", "health", "relationship", "opinion",
+    }
 
     def __init__(self, data_dir: str = "data/memory_store") -> None:
         self._data_dir = Path(data_dir)
@@ -45,13 +52,38 @@ class MemoryStore:
         if not record.created_at:
             record.created_at = int(time.time() * 1000)
         record.updated_at = record.created_at
-        record.sensitivity = _mask_sensitive(record.sensitivity, "sensitivity") if record.sensitivity == "secret" else record.sensitivity
         record.content = _mask_sensitive(record.content, record.title)
         with self._lock:
             self._records[record.memory_id] = record
         self._save()
         logger.info("Memory added: %s [%s]", record.memory_id, record.memory_type)
         return record
+
+    def add_if_permitted(
+        self,
+        record: MemoryRecord,
+        user_consent: bool = False,
+        source: str = "",
+    ) -> MemoryRecord | None:
+        """Add memory only if permission is granted.
+
+        - SECRET sensitivity → never save
+        - Personal category without consent → skip
+        - System/reflection sources → always save
+        """
+        if record.sensitivity == Sensitivity.SECRET.value:
+            logger.warning("Blocked: secret sensitivity memory not saved.")
+            return None
+
+        if source in ("reflection", "system_observation", "tool_result", "verification_result"):
+            return self.add_memory(record)
+
+        for tag in record.tags:
+            if tag in self._REQUIRES_USER_PERMISSION and not user_consent:
+                logger.info("Blocked: '%s' requires user permission.", tag)
+                return None
+
+        return self.add_memory(record)
 
     def get_memory(self, memory_id: str) -> MemoryRecord | None:
         return self._records.get(memory_id)
@@ -121,12 +153,53 @@ class MemoryStore:
         self._save()
         return True
 
+    def correct_memory(
+        self,
+        memory_id: str,
+        new_content: str,
+        reason: str = "",
+        confidence: float = 0.8,
+    ) -> MemoryRecord | None:
+        old = self._records.get(memory_id)
+        if old is None:
+            return None
+        corrected = MemoryRecord(
+            memory_type=old.memory_type,
+            title=f"[Corrected] {old.title}",
+            content=new_content,
+            source="user_correction",
+            confidence=confidence,
+            importance=old.importance,
+            tags=old.tags + ["correction"],
+            visibility=old.visibility,
+            sensitivity=old.sensitivity,
+            evidence=reason or "User correction",
+            supersedes=memory_id,
+        )
+        self.add_memory(corrected)
+        old.superseded_by = corrected.memory_id
+        self._save()
+        return corrected
+
     def forget_memory(self, memory_id: str) -> bool:
         if memory_id in self._records:
             del self._records[memory_id]
             self._save()
             return True
         return False
+
+    def forget_by_query(self, query: str, memory_type: str | None = None) -> int:
+        q = query.lower()
+        to_remove = []
+        for mid, r in self._records.items():
+            if q in r.title.lower() or q in r.content.lower() or q in " ".join(r.tags).lower():
+                if memory_type is None or r.memory_type == memory_type:
+                    to_remove.append(mid)
+        for mid in to_remove:
+            del self._records[mid]
+        if to_remove:
+            self._save()
+        return len(to_remove)
 
     def prune_expired(self, now_ms: int | None = None) -> int:
         now = now_ms if now_ms is not None else int(time.time() * 1000)
