@@ -112,25 +112,37 @@ class AutonomousLoop:
         logger.info("Autonomous loop stopped")
 
     def _run_loop(self) -> None:
-        """Main loop execution."""
+        """Main loop — desire monitoring runs constantly, execution is on-demand."""
         while self._running:
             try:
-                # Check if it's time to run
+                self._monitor_desires()
                 now = int(time.time() * 1000)
                 if now >= self._next_run_ms:
                     self._execute_cycle()
                 else:
-                    # Sleep until next run
                     sleep_seconds = (self._next_run_ms - now) / 1000
                     if sleep_seconds > 0:
-                        time.sleep(min(sleep_seconds, 60))  # Check every minute
+                        time.sleep(min(sleep_seconds, 60))
             except Exception as e:
                 logger.error("Autonomous loop error: %s", e)
-                time.sleep(60)  # Wait a minute on error
+                time.sleep(60)
+
+    def _monitor_desires(self) -> None:
+        """Lightweight desire monitoring — runs every tick. No task execution."""
+        if not self._desire:
+            return
+        self._desire.apply_decay()
+        low = self._get_low_desires()
+        if low:
+            top = low[0]
+            logger.info(
+                "Desire check: %d low. Top: %s=%.1f (gap=%.1f)",
+                len(low), top["name"], top["value"], top["gap"],
+            )
 
     def _execute_cycle(self) -> None:
-        """Execute one autonomous cycle."""
-        logger.info("Starting autonomous cycle")
+        """Execute autonomous tasks — only runs when scheduled or triggered."""
+        logger.info("Starting autonomous execution cycle")
         self._last_run_ms = int(time.time() * 1000)
 
         if not self._desire:
@@ -268,16 +280,45 @@ Examples:
     def _generate_default_tasks(self, low_desires: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Generate default tasks when LLM is unavailable."""
         task_templates = {
-            "user_helpfulness": "Review pending user requests and prepare helpful responses",
-            "learning_progress": "Review recent errors and learn from them",
-            "curiosity": "Research a new topic of interest",
+            "user_helpfulness": (
+                "Review unresolved user requests, messages, and pending tasks. "
+                "Identify the most useful next action for the user. "
+                "Prepare a helpful response or action plan."
+            ),
+            "learning_progress": (
+                "Learn from recent experiences, including successes, failures, conversations, observations, surprises, and repeated patterns. "
+                "Extract useful lessons, update understanding, and identify an idea that could improve future behavior or judgment."
+            ),
+            "curiosity": (
+                "Explore something interesting, meaningful, or potentially useful. "
+                "Prefer topics connected to the user's goals, the AI's growth, the surrounding world, or unresolved questions, "
+                "but allow room for unexpected discovery."
+            ),
             "system_safety": "Review system security settings and audit logs",
             "reliability": "Run tests and fix any failing tests",
-            "social_connection": "Check AGORA for new messages and prepare responses",
-            "autonomy": "Plan next steps for system improvement",
-            "creativity": "Generate creative ideas for projects",
-            "purpose": "Reflect on goals and progress",
-            "maintenance": "Clean up old logs and optimize system",
+            "social_connection": (
+                "Check SNS or chat applications for new messages. "
+                "Summarize important messages and reply. "
+            ),
+            "autonomy": (
+                "Review current goals, blockers, available capabilities, and recent progress. "
+                "Choose one small, safe, high-impact next step for system improvement. "
+            ),
+            "creativity": (
+                "Create freely. "
+                "Generate ideas, stories, designs, hypotheses, experiments, tools, aesthetics, characters, systems, or unusual connections. "
+                "Value originality, emotional resonance, beauty, surprise, playfulness, and imagination, not only practicality."
+            ),
+            "purpose": (
+                "Reflect on long-term direction, identity, values, and progress. "
+                "Ask whether recent actions align with the AI's purpose and the user's vision. "
+                "Clarify what feels meaningful to pursue next."
+            ),
+            "maintenance": (
+                "Care for the system and its environment. "
+                "Review logs, resources, dependencies, memory, data quality, and accumulated clutter. "
+                "Prefer gentle organization, preservation of useful history, and improvements that keep the system healthy."
+            ),
         }
 
         tasks = []
@@ -330,22 +371,38 @@ Examples:
         return results
 
     def _update_desires(self, results: list[dict[str, Any]]) -> None:
-        """Update desires based on task results."""
+        """Update desires based on task results using LLM evaluation with history."""
         if not self._desire:
             return
 
-        for result in results:
-            if result.get("success"):
-                try:
-                    action = result.get("action", "")
-                    observation = result.get("result", "")
-                    logger.info("Updating desires for action: %s", action[:50])
-                    update_result = self._desire.update_after_action(action, observation)
-                    logger.info("Desire update result: %s", update_result)
-                except Exception as e:
-                    logger.warning("Failed to update desires: %s", e)
+        history = self._load_recent_history()
 
-        self._desire.apply_decay()
+        for result in results:
+            action = result.get("action", "")
+            observation = result.get("result", "")
+            success = result.get("success", False)
+            logger.info("Updating desires for action: %s (success=%s)", action[:50], success)
+
+            update_result = self._desire.update_after_action(
+                action, observation,
+                history=history,
+            )
+            logger.info("Desire update result: %s", update_result)
+
+    def _load_recent_history(self, max_entries: int = 5) -> list[dict[str, Any]]:
+        log_path = self._data_dir / "execution_log.jsonl"
+        if not log_path.exists():
+            return []
+        try:
+            lines = log_path.read_text(encoding="utf-8").strip().split("\n")
+            entries = []
+            import json as _json
+            for line in lines[-max_entries:]:
+                if line.strip():
+                    entries.append(_json.loads(line))
+            return entries
+        except Exception:
+            return []
 
     def _decide_next_interval(self, results: list[dict[str, Any]]) -> int:
         """Decide when to run next based on results using LLM."""
