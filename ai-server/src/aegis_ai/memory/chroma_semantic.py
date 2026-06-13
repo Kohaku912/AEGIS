@@ -30,13 +30,13 @@ class ChromaSemanticMemory(SemanticMemory):
         collection_name: str = "aegis_facts",
         chroma_path: str = "data/chroma",
         embedding_api_key: str | None = None,
-        embedding_model: str = "text-embedding-3-small",
+        embedding_model: str | None = None,
     ) -> None:
         super().__init__(path)
         self._collection_name = collection_name
         self._chroma_path = chroma_path
-        self._embedding_api_key = embedding_api_key or os.getenv("EMBEDDING_API_KEY", "")
-        self._embedding_model = embedding_model
+        self._embedding_api_key = embedding_api_key or os.getenv("OPENAI_API_KEY", "")
+        self._embedding_model = embedding_model or os.getenv("OPENAI_API_MODEL", "text-embedding-3-small")
         self._client = None
         self._collection = None
         self._embedding_fn = None
@@ -158,6 +158,57 @@ class ChromaSemanticMemory(SemanticMemory):
 
         except Exception as e:
             logger.warning("ChromaDB similar search failed: %s", e)
+            return []
+
+    def sync_from_advanced_memory(self, advanced_memory: Any) -> int:
+        """Sync facts from AdvancedMemory into ChromaDB. Returns count synced."""
+        if self._collection is None:
+            return 0
+        count = 0
+        for fid, fact in advanced_memory._facts.items():
+            if fact.invalid_at_ms != 0:
+                continue
+            try:
+                self._collection.upsert(
+                    ids=[fid],
+                    documents=[fact.content],
+                    metadatas=[{
+                        "subject": fact.subject,
+                        "predicate": fact.predicate,
+                        "source": fact.source,
+                        "confidence": fact.confidence,
+                        "valid_at_ms": fact.valid_at_ms,
+                    }],
+                )
+                count += 1
+            except Exception as e:
+                logger.warning("ChromaDB sync failed for %s: %s", fid, e)
+        logger.info("Synced %d facts to ChromaDB", count)
+        return count
+
+    def get_all(self, limit: int = 50) -> list[dict[str, Any]]:
+        """Get all entries from ChromaDB."""
+        if self._collection is None or self._collection.count() == 0:
+            return []
+        try:
+            count = min(limit, self._collection.count())
+            results = self._collection.get(limit=count, include=["documents", "metadatas"])
+            entries = []
+            if results and results["ids"]:
+                for i, fid in enumerate(results["ids"]):
+                    doc = results["documents"][i] if results["documents"] else ""
+                    meta = results["metadatas"][i] if results["metadatas"] else {}
+                    entries.append({
+                        "fact_id": fid,
+                        "content": doc[:200],
+                        "subject": meta.get("subject", ""),
+                        "predicate": meta.get("predicate", ""),
+                        "source": meta.get("source", ""),
+                        "confidence": meta.get("confidence", 1.0),
+                    })
+            return entries
+        except Exception as e:
+            logger.warning("ChromaDB get_all failed: %s", e)
             return []
 
     def get_stats(self) -> dict[str, Any]:

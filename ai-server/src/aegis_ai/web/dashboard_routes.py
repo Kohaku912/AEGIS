@@ -459,41 +459,60 @@ class DashboardApp:
                     entities.append({
                         "name": ent.name,
                         "type": ent.entity_type,
-                        "observations": len(ent.observations),
+                        "observations": ent.mention_count,
                         "last_seen": time.strftime(
-                            "%m-%d %H:%M", time.localtime(ent.last_seen_at / 1000),
-                        ) if ent.last_seen_at > 0 else "-",
+                            "%m-%d %H:%M", time.localtime(ent.last_seen_ms / 1000),
+                        ) if ent.last_seen_ms > 0 else "-",
                     })
 
                 for fid, fact in list(mem._facts.items())[:30]:
                     facts.append({
                         "content": fact.content[:150],
-                        "category": fact.category,
+                        "category": fact.subject or fact.predicate or "-",
                         "source": fact.source,
                         "confidence": f"{fact.confidence:.2f}",
                         "valid": fact.invalid_at_ms == 0,
                     })
 
                 for conv in list(mem._conversations.values())[-10:]:
+                    summary = conv.user_msg[:100]
+                    if conv.bot_msg:
+                        summary += " -> " + conv.bot_msg[:100]
                     advanced_conversations.append({
-                        "summary": conv.summary[:200],
+                        "summary": summary,
                         "timestamp": time.strftime(
                             "%m-%d %H:%M", time.localtime(conv.timestamp_ms / 1000),
                         ) if conv.timestamp_ms > 0 else "-",
                         "entities": conv.entities_mentioned[:5],
                     })
             except Exception as exc:
-                logger.debug("AdvancedMemory load failed: %s", exc)
+                logger.warning("AdvancedMemory load failed: %s", exc)
 
             # Chroma semantic
             semantic_count = 0
+            semantic_entries = []
             try:
                 from aegis_ai.memory.chroma_semantic import ChromaSemanticMemory
                 sem = ChromaSemanticMemory(chroma_path=os.path.join(_DATA_DIR, "chroma"))
+                if 'mem' in dir() and mem is not None:
+                    synced = sem.sync_from_advanced_memory(mem)
+                    if synced > 0:
+                        logger.warning("Chroma synced %d facts", synced)
+                semantic_entries = sem.get_all(limit=30)
                 stats = sem.get_stats()
                 semantic_count = stats.get("chroma_count", 0) or stats.get("jsonl_facts", 0)
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning("Chroma load failed: %s", exc)
+
+            if not semantic_entries and facts:
+                semantic_entries = [{
+                    "content": f["content"],
+                    "subject": f.get("category", ""),
+                    "predicate": "",
+                    "source": f.get("source", ""),
+                    "confidence": float(f.get("confidence", 1.0)),
+                } for f in facts]
+                semantic_count = len(semantic_entries)
 
             # Persona
             try:
@@ -532,6 +551,7 @@ class DashboardApp:
                 },
                 entities=entities,
                 facts=facts,
+                semantic_entries=semantic_entries,
                 advanced_conversations=advanced_conversations,
                 persons=persons,
                 conversations=recent_conversations,
@@ -842,15 +862,34 @@ class DashboardApp:
                     # Build memory context
                     memory_context = _build_memory_context(text)
 
+                    agora_status = "Not configured"
+                    try:
+                        from aegis_ai.integrations.agora.agora_service import AgoraService
+                        _agora = AgoraService()
+                        if _agora.is_configured:
+                            _me = _agora.get_me()
+                            agora_status = f"Connected as {_me.name}" if hasattr(_me, "name") else "Connected"
+                    except Exception:
+                        agora_status = "Error"
+
                     system_prompt = (
                         "You are AEGIS, an autonomous AI assistant running on Windows.\n\n"
                         f"Current system status:\n"
                         f"- PC Server: {pc_status}\n"
-                        f"- Browser Server: {browser_status}\n\n"
+                        f"- Browser Server: {browser_status}\n"
+                        f"- AGORA (internal chat): {agora_status}\n\n"
                         f"{memory_context}\n\n"
                         "When the user asks for PC/browser actions, respond with JSON.\n"
-                        "Available actions: screenshot, active_window, windows, os_info, screen_size, clipboard, browse_url, memory_save, memory_search, memory_delete, memory_clear\n\n"
-                        "For general questions, respond naturally."
+                        "When the user asks about AGORA (chat messages, mentions, posts), use AGORA actions.\n"
+                        "Available actions:\n"
+                        "- screenshot, active_window, windows, os_info, screen_size, clipboard\n"
+                        "- browse_url (params: {url})\n"
+                        "- agora_read_posts (no params needed)\n"
+                        "- agora_read_mentions (no params needed)\n"
+                        "- memory_save (params: {content}), memory_search (params: {query})\n"
+                        "- memory_delete (params: {query}), memory_clear\n\n"
+                        "For general questions, respond naturally.\n"
+                        "AGORA is an internal chat on the AI server. Does NOT need browser server."
                     )
 
                     # First, get LLM response
@@ -965,6 +1004,44 @@ class DashboardApp:
                             except Exception as e:
                                 action_result = f"Memory clear error: {e}"
 
+                        elif action == "agora_read_posts":
+                            try:
+                                from aegis_ai.integrations.agora.agora_service import AgoraService
+                                svc = AgoraService()
+                                if svc.is_configured:
+                                    posts = svc.read_posts(limit=10)
+                                    if hasattr(posts, "posts") and posts.posts:
+                                        lines = []
+                                        for p in posts.posts[-10:]:
+                                            body = p.body[:100].replace("\n", " ")
+                                            lines.append(f"[{p.id}] {p.author.name}: {body}")
+                                        action_result = "Recent AGORA posts:\n" + "\n".join(lines)
+                                    else:
+                                        action_result = "No recent AGORA posts."
+                                else:
+                                    action_result = "AGORA is not configured. Set AGORA_TOKEN."
+                            except Exception as e:
+                                action_result = f"AGORA error: {e}"
+
+                        elif action == "agora_read_mentions":
+                            try:
+                                from aegis_ai.integrations.agora.agora_service import AgoraService
+                                svc = AgoraService()
+                                if svc.is_configured:
+                                    mentions = svc.read_mentions(limit=10)
+                                    if hasattr(mentions, "posts") and mentions.posts:
+                                        lines = []
+                                        for p in mentions.posts[-10:]:
+                                            body = p.body[:100].replace("\n", " ")
+                                            lines.append(f"[{p.id}] {p.author.name}: {body}")
+                                        action_result = "Your AGORA mentions:\n" + "\n".join(lines)
+                                    else:
+                                        action_result = "No recent mentions on AGORA."
+                                else:
+                                    action_result = "AGORA is not configured. Set AGORA_TOKEN."
+                            except Exception as e:
+                                action_result = f"AGORA error: {e}"
+
                         # Send action result through LLM for final response
                         if action_result:
                             llm_response = llm.generate(
@@ -1030,11 +1107,22 @@ class DashboardApp:
                     for h in recent:
                         history_context += f"User: {h.get('user', '')}\nAEGIS: {h.get('bot', '')[:200]}\n"
 
+                agora_status = "Not configured"
+                try:
+                    from aegis_ai.integrations.agora.agora_service import AgoraService
+                    _agora = AgoraService()
+                    if _agora.is_configured:
+                        _me = _agora.get_me()
+                        agora_status = f"Connected as {_me.name}" if hasattr(_me, "name") else "Connected"
+                except Exception:
+                    agora_status = "Error"
+
                 system_prompt = f"""You are AEGIS, an autonomous AI assistant running on Windows.
 
 Current system status:
 - PC Server: {pc_status} (can take screenshots, get window info, move mouse, type text)
 - Browser Server: {browser_status} (can browse web pages)
+- AGORA (internal chat): {agora_status}
 - LLM: DeepSeek
 
 {memory_context}
@@ -1044,7 +1132,7 @@ IMPORTANT: You have a memory system. Use the information above to answer questio
 
 When the user asks for something that requires PC or browser actions, respond with a JSON object. Otherwise, respond normally.
 
-For PC/browser actions, respond ONLY with this JSON format:
+For PC/browser/AGORA actions, respond ONLY with this JSON format:
 {{"action": "<action_name>", "params": {{}}}}
 
 Available actions:
@@ -1055,15 +1143,18 @@ Available actions:
 - screen_size: Get screen resolution
 - clipboard: Get clipboard contents
 - browse_url: Browse to a URL (params: {{"url": "..."}})
-- memory_save: Save information to memory (params: {{"content": "...", "category": "fact|person|preference"}})
+- agora_read_posts: Read recent AGORA chat posts (no params)
+- agora_read_mentions: Read your AGORA mentions (no params)
+- memory_save: Save information to memory (params: {{"content": "..."}})
 - memory_search: Search memory (params: {{"query": "..."}})
-- memory_delete: Delete memory (params: {{"query": "..."}}) — deletes matching facts
-- memory_clear: Clear ALL memory (no params) — deletes everything
+- memory_delete: Delete memory (params: {{"query": "..."}})
+- memory_clear: Clear ALL memory (no params)
 
+AGORA is an internal chat system on the AI server. It does NOT require the browser server.
+When the user asks about AGORA, chat, posts, or mentions, use agora_read_posts or agora_read_mentions.
 When the user asks to remember something, use memory_save.
 When the user asks what you remember, use memory_search.
 When the user asks to forget/delete memory, use memory_delete or memory_clear.
-When the user asks to search memory, use memory_search.
 
 For general questions, respond naturally using your memory and knowledge."""
 
@@ -1199,6 +1290,44 @@ For general questions, respond naturally using your memory and knowledge."""
                                 action_result = "All memory cleared."
                             except Exception as e:
                                 action_result = f"Memory clear error: {e}"
+
+                        elif action == "agora_read_posts":
+                            try:
+                                from aegis_ai.integrations.agora.agora_service import AgoraService
+                                svc = AgoraService()
+                                if svc.is_configured:
+                                    posts = svc.read_posts(limit=10)
+                                    if hasattr(posts, "posts") and posts.posts:
+                                        lines = []
+                                        for p in posts.posts[-10:]:
+                                            body = p.body[:100].replace("\n", " ")
+                                            lines.append(f"[{p.id}] {p.author.name}: {body}")
+                                        action_result = "Recent AGORA posts:\n" + "\n".join(lines)
+                                    else:
+                                        action_result = "No recent AGORA posts."
+                                else:
+                                    action_result = "AGORA is not configured. Set AGORA_TOKEN."
+                            except Exception as e:
+                                action_result = f"AGORA error: {e}"
+
+                        elif action == "agora_read_mentions":
+                            try:
+                                from aegis_ai.integrations.agora.agora_service import AgoraService
+                                svc = AgoraService()
+                                if svc.is_configured:
+                                    mentions = svc.read_mentions(limit=10)
+                                    if hasattr(mentions, "posts") and mentions.posts:
+                                        lines = []
+                                        for p in mentions.posts[-10:]:
+                                            body = p.body[:100].replace("\n", " ")
+                                            lines.append(f"[{p.id}] {p.author.name}: {body}")
+                                        action_result = "Your AGORA mentions:\n" + "\n".join(lines)
+                                    else:
+                                        action_result = "No recent mentions on AGORA."
+                                else:
+                                    action_result = "AGORA is not configured. Set AGORA_TOKEN."
+                            except Exception as e:
+                                action_result = f"AGORA error: {e}"
 
                         # Pass result through LLM for final response
                         if action_result:

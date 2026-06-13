@@ -1,24 +1,60 @@
 {% extends "dashboard/base.html" %}
 {% block title %}AEGIS — Servers{% endblock %}
+{% block topbar_title %}Servers{% endblock %}
 {% block content %}
 <h1>Servers</h1>
-<div class="grid">
-    <div class="card"><h3>Total</h3><div class="value">{{ summary.total_servers }}</div></div>
-    <div class="card"><h3>Online</h3><div class="value status-online">{{ summary.online_servers }}</div></div>
-    <div class="card"><h3>Offline</h3><div class="value status-offline">{{ summary.offline_servers }}</div></div>
+
+<div class="stat-grid">
+    <div class="stat-card">
+        <div class="label">Total</div>
+        <div class="val">{{ summary.total_servers }}</div>
+    </div>
+    <div class="stat-card">
+        <div class="label">Online</div>
+        <div class="val green">{{ summary.online_servers }}</div>
+    </div>
+    <div class="stat-card">
+        <div class="label">Offline</div>
+        <div class="val {% if summary.total_servers - summary.online_servers > 0 %}red{% endif %}">{{ summary.total_servers - summary.online_servers }}</div>
+    </div>
 </div>
+
 <div class="card">
-    <h3>Server List</h3>
+    <div class="card-header">Server List</div>
+    <div style="overflow-x:auto;">
     <table>
-        <tr><th>ID</th><th>Type</th><th>Status</th><th>Capabilities</th><th>Version</th><th>Host</th><th>Heartbeat</th></tr>
+        <thead>
+            <tr>
+                <th>Server ID</th>
+                <th>Type</th>
+                <th>Status</th>
+                <th>Capabilities</th>
+                <th>Version</th>
+                <th>Host</th>
+                <th>Heartbeat</th>
+            </tr>
+        </thead>
+        <tbody>
         {% for s in servers %}
         <tr>
-            <td>{{ s.server_id }}</td><td>{{ s.server_type }}</td>
-            <td><span class="badge badge-{{ 'green' if s.status == 'ONLINE' else 'red' }}">{{ s.status }}</span></td>
-            <td>{{ s.registered_capabilities }}</td><td>{{ s.version }}</td>
-            <td>{{ s.host }}:{{ s.port }}</td><td>{{ s.heartbeat_age_seconds }}s</td>
+            <td style="font-family:monospace;font-size:11px;color:var(--text-muted);">{{ s.server_id }}</td>
+            <td>{{ s.server_type }}</td>
+            <td>
+                <span class="badge {% if s.status == 'ONLINE' %}badge-green{% else %}badge-red{% endif %}">
+                    <span class="status-dot {% if s.status == 'ONLINE' %}status-online{% else %}status-offline{% endif %}" style="margin-right:4px;"></span>
+                    {{ s.status }}
+                </span>
+            </td>
+            <td>{{ s.registered_capabilities }}</td>
+            <td style="color:var(--text-muted);font-size:12px;">{{ s.version }}</td>
+            <td style="font-family:monospace;font-size:11px;">{{ s.host }}:{{ s.port }}</td>
+            <td style="color:{% if s.heartbeat_age_seconds > 60 %}var(--red){% elif s.heartbeat_age_seconds > 30 %}var(--yellow){% else %}var(--text-muted){% endif %};font-size:12px;">
+                {{ s.heartbeat_age_seconds }}s ago
+            </td>
         </tr>
         {% endfor %}
+        </tbody>
     </table>
+    </div>
 </div>
 {% endblock %}

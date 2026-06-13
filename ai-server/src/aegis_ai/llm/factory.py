@@ -1,7 +1,7 @@
 """LLM Provider Factory — creates LLM providers based on configuration.
 
 Automatically selects the right provider based on environment variables:
-- OPENAI_API_KEY + OPENAI_BASE_URL → DeepSeek/OpenAI provider
+- LLM_API_KEY + LLM_BASE_URL → DeepSeek/OpenAI provider
 - No key → Mock provider
 
 Usage:
@@ -35,8 +35,9 @@ def create_llm_provider(
     Returns:
         LLM provider instance
     """
-    api_key = api_key or os.getenv("OPENAI_API_KEY", "")
-    base_url = base_url or os.getenv("OPENAI_BASE_URL", "")
+    api_key = api_key or os.getenv("LLM_API_KEY", "")
+    base_url = base_url or os.getenv("LLM_BASE_URL", "")
+    model_name = model or os.getenv("LLM_MODEL_NAME", "")
 
     # Auto-detect provider
     if provider_name is None:
@@ -54,7 +55,7 @@ def create_llm_provider(
 
         default_model = "deepseek-chat" if provider_name == "deepseek" else "gpt-4o-mini"
         return OpenAIProvider(
-            model=model or default_model,
+            model=model_name or default_model,
             api_key=api_key,
             base_url=base_url if base_url else None,
         )

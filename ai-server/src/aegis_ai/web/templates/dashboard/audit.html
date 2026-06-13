@@ -1,36 +1,65 @@
 {% extends "dashboard/base.html" %}
 {% block title %}AEGIS — Audit{% endblock %}
+{% block topbar_title %}Audit Log{% endblock %}
 {% block content %}
 <h1>Audit Log</h1>
-<div class="grid">
-    <div class="card"><h3>Total Entries</h3><div class="value">{{ stats.total_entries }}</div></div>
+
+<div class="stat-grid">
+    <div class="stat-card">
+        <div class="label">Total Entries</div>
+        <div class="val">{{ stats.total_entries }}</div>
+    </div>
+</div>
+
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px;margin-bottom:16px;">
+    <div class="card">
+        <div class="card-header">Action Summary</div>
+        <table>
+            <thead><tr><th>Action</th><th>Count</th></tr></thead>
+            <tbody>
+            {% for action, count in action_counts.items() %}
+            <tr>
+                <td style="font-family:monospace;font-size:12px;">{{ action }}</td>
+                <td>
+                    <div style="display:flex;align-items:center;gap:8px;">
+                        <div style="flex:1;background:var(--surface2);border-radius:3px;height:4px;max-width:80px;">
+                            <div style="background:var(--accent);height:100%;border-radius:3px;width:{{ [(count / stats.total_entries * 100)|int, 100]|min }}%;"></div>
+                        </div>
+                        <span>{{ count }}</span>
+                    </div>
+                </td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
 </div>
 
 <div class="card">
-    <h3>Action Type Summary</h3>
+    <div class="card-header">All Entries <span style="font-weight:400;text-transform:none;font-size:11px;color:var(--text-muted);">newest first</span></div>
+    <div style="overflow-x:auto;">
     <table>
-        <tr><th>Action</th><th>Count</th></tr>
-        {% for action, count in action_counts.items() %}
-        <tr><td>{{ action }}</td><td>{{ count }}</td></tr>
-        {% endfor %}
-    </table>
-</div>
-
-<div class="card">
-    <h3>All Audit Entries (newest first)</h3>
-    <table>
-        <tr><th>Time</th><th>Action</th><th>Capability</th><th>Decision</th><th>Actor</th><th>Reason</th><th>Detail</th></tr>
+        <thead>
+            <tr><th>Time</th><th>Action</th><th>Capability</th><th>Decision</th><th>Actor</th><th>Reason</th><th>Detail</th></tr>
+        </thead>
+        <tbody>
         {% for e in entries %}
         <tr>
-            <td style="font-size:11px;white-space:nowrap;">{{ e.time_str }}</td>
-            <td>{{ e.action }}</td>
-            <td>{{ e.capability_id }}</td>
-            <td><span class="badge badge-{{ 'green' if e.decision in ['ALLOW','OBSERVE','THINK','PLAN','ACT','VERIFY','REFLECT'] else 'red' if e.decision == 'DENY' else 'yellow' }}">{{ e.decision }}</span></td>
-            <td>{{ e.actor }}</td>
-            <td style="max-width:200px;word-break:break-all;">{{ e.reason[:80] }}</td>
-            <td style="max-width:300px;word-break:break-all;font-size:11px;">{{ e.detail_summary }}</td>
+            <td style="font-size:11px;white-space:nowrap;color:var(--text-muted);">{{ e.time_str }}</td>
+            <td style="font-family:monospace;font-size:12px;">{{ e.action }}</td>
+            <td style="font-size:12px;">{{ e.capability_id }}</td>
+            <td>
+                <span class="badge {% if e.decision in ['ALLOW','OBSERVE','THINK','PLAN','ACT','VERIFY','REFLECT'] %}badge-green{% elif e.decision == 'DENY' %}badge-red{% else %}badge-yellow{% endif %}">
+                    {{ e.decision }}
+                </span>
+            </td>
+            <td style="font-size:12px;">{{ e.actor }}</td>
+            <td style="max-width:180px;font-size:12px;color:var(--text-muted);">{{ e.reason[:80] }}</td>
+            <td style="max-width:240px;font-size:11px;color:var(--text-muted);">{{ e.detail_summary }}</td>
         </tr>
         {% endfor %}
+        </tbody>
     </table>
+    </div>
 </div>
 {% endblock %}
