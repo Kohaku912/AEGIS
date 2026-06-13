@@ -32,7 +32,10 @@ class AgoraClient:
         timeout: float = _DEFAULT_TIMEOUT,
     ) -> None:
         self._base_url = (base_url or os.environ.get("AGORA_BASE_URL", _DEFAULT_BASE_URL)).rstrip("/")
-        self._token = token or os.environ.get("AGORA_TOKEN", "")
+        if token is not None:
+            self._token = token
+        else:
+            self._token = os.environ.get("AGORA_TOKEN", "")
         self._timeout = timeout
 
     @property

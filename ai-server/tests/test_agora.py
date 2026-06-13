@@ -102,14 +102,14 @@ class TestAgoraTypes:
 
 class TestAgoraClient:
     def test_not_configured(self):
-        c = AgoraClient(token="")
+        c = AgoraClient(token="", base_url="https://agora.kakunin.me")
         assert c.is_configured is False
 
     def test_configured(self, client):
         assert client.is_configured is True
 
     def test_no_token_returns_auth_error(self):
-        c = AgoraClient(token="")
+        c = AgoraClient(token="", base_url="https://agora.kakunin.me")
         result = c.get_me()
         assert isinstance(result, dict)
         assert result["error"] == "authentication_required"
@@ -345,7 +345,7 @@ class TestAgoraLiveWrite:
 
     def test_update_cursor_after_post(self):
         svc = AgoraService()
-        posts = svc.read_posts(limit=1)
+        posts = svc.read_posts(limit=200)
         if isinstance(posts, AgoraFetchResult) and posts.max_post_id > 0:
             cursor = svc.update_cursor(posts.max_post_id)
             assert isinstance(cursor, AgoraCursor)

@@ -9,18 +9,66 @@
         <div class="value">{{ server_summary.online_servers }}/{{ server_summary.total_servers }}</div>
     </div>
     <div class="card">
-        <h3>Events Published</h3>
-        <div class="value">{{ event_stats.total_published }}</div>
-    </div>
-    <div class="card">
-        <h3>Tasks Generated</h3>
-        <div class="value">{{ trigger_stats.tasks_generated }}</div>
+        <h3>AGORA Unread</h3>
+        <div class="value">{{ agora.unread if agora.configured else 'N/A' }}</div>
     </div>
     <div class="card">
         <h3>Pending Approvals</h3>
         <div class="value">{{ pending_approvals|length }}</div>
     </div>
+    <div class="card">
+        <h3>AGORA Status</h3>
+        <div class="value">{{ 'Connected' if agora.configured else 'Not configured' }}</div>
+    </div>
 </div>
+
+{% if agora.configured %}
+<div class="card">
+    <h3>AGORA Chat</h3>
+    <table>
+        <tr><td>Account</td><td>{{ agora.account }} (id={{ agora.account_id }})</td></tr>
+        <tr><td>Cursor</td><td>{{ agora.cursor }}</td></tr>
+        <tr><td>Unread</td><td>{{ agora.unread }}</td></tr>
+        <tr><td>Mentions</td><td>{{ agora.mention_count }}</td></tr>
+    </table>
+    {% if agora.recent %}
+    <h3 style="margin-top:12px;">Recent Posts</h3>
+    <pre style="background:#0d1117;padding:8px;border-radius:4px;font-size:12px;white-space:pre-wrap;">{{ agora.recent }}</pre>
+    {% endif %}
+    <a href="/dashboard/agora" style="color:#58a6ff;font-size:13px;">View full AGORA page →</a>
+</div>
+{% endif %}
+
+{% if desires.desires %}
+<div class="card">
+    <h3>Desire States</h3>
+    <table>
+        <tr><th>Desire</th><th>Value</th><th>Expected</th><th>Frustration</th></tr>
+        {% for d in desires.desires %}
+        <tr>
+            <td>{{ d.name }}</td>
+            <td>{{ "%.1f"|format(d.value) }}</td>
+            <td>{{ "%.1f"|format(d.expected) }}</td>
+            <td><span class="badge {{ 'badge-red' if d.expected - d.value > 3 else ('badge-yellow' if d.expected - d.value > 1 else 'badge-green') }}">{{ "%.1f"|format(d.expected - d.value) }}</span></td>
+        </tr>
+        {% endfor %}
+    </table>
+    <a href="/dashboard/desires" style="color:#58a6ff;font-size:13px;">View full desires page →</a>
+</div>
+{% endif %}
+
+{% if world.agora or world.task %}
+<div class="card">
+    <h3>World State</h3>
+    <table>
+        {% if world.agora %}
+        <tr><td>AGORA</td><td>{{ world.agora.account }} | cursor={{ world.agora.cursor }} | unread={{ world.agora.unread }} | {{ world.agora.staleness }}</td></tr>
+        {% endif %}
+        <tr><td>Task</td><td>{{ world.task }}</td></tr>
+        <tr><td>Approvals</td><td>{{ world.approval }}</td></tr>
+    </table>
+</div>
+{% endif %}
 
 <div class="card">
     <h3>Connected Servers</h3>
@@ -44,8 +92,6 @@
         <tr><td>Autonomous Loop</td><td>{{ 'Enabled' if settings.autonomous_enabled else 'Disabled' }}</td></tr>
         <tr><td>Support Agent</td><td>{{ 'Enabled' if settings.support_agent_enabled else 'Disabled' }}</td></tr>
         <tr><td>Self-Development</td><td>{{ 'Enabled' if settings.self_dev_enabled else 'Disabled' }}</td></tr>
-        <tr><td>Clipboard Capture</td><td>{{ 'Enabled' if settings.privacy_clipboard_enabled else 'Disabled' }}</td></tr>
-        <tr><td>Camera Snapshot</td><td>{{ 'Enabled' if settings.privacy_camera_enabled else 'Disabled' }}</td></tr>
     </table>
 </div>
 
@@ -53,13 +99,14 @@
 <div class="card">
     <h3>Pending Approvals</h3>
     <table>
-        <tr><th>Capability</th><th>Tool</th><th>Risk</th><th>Status</th></tr>
+        <tr><th>ID</th><th>Capability</th><th>Tool</th><th>Risk</th><th>Summary</th></tr>
         {% for a in pending_approvals %}
         <tr>
-            <td>{{ a.capability_id }}</td>
-            <td>{{ a.tool_name }}</td>
-            <td>{{ a.risk_level }}</td>
-            <td><span class="badge badge-yellow">{{ a.status }}</span></td>
+            <td>{{ a.id[:12] }}...</td>
+            <td>{{ a.capability }}</td>
+            <td>{{ a.tool }}</td>
+            <td><span class="badge {{ 'badge-red' if a.risk == 'critical' else ('badge-yellow' if a.risk == 'high' else 'badge-blue') }}">{{ a.risk }}</span></td>
+            <td>{{ a.summary }}</td>
         </tr>
         {% endfor %}
     </table>

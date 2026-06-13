@@ -4,11 +4,64 @@
 <h1>Memory System</h1>
 
 <div class="grid">
-    <div class="card"><h3>Episodic</h3><div class="value">{{ summary.episodic_count }}</div></div>
+    <div class="card"><h3>Entities</h3><div class="value">{{ summary.entities_count }}</div></div>
+    <div class="card"><h3>Facts</h3><div class="value">{{ summary.facts_count }}</div></div>
+    <div class="card"><h3>Valid Facts</h3><div class="value">{{ summary.valid_facts_count }}</div></div>
+    <div class="card"><h3>Conversations</h3><div class="value">{{ summary.advanced_conversations_count }}</div></div>
     <div class="card"><h3>Semantic (Chroma)</h3><div class="value">{{ summary.semantic_count }}</div></div>
     <div class="card"><h3>Persons</h3><div class="value">{{ summary.persona_count }}</div></div>
-    <div class="card"><h3>Conversations</h3><div class="value">{{ summary.conversation_count }}</div></div>
 </div>
+
+{% if entities %}
+<div class="card">
+    <h3>Entities (AdvancedMemory)</h3>
+    <table>
+        <tr><th>Name</th><th>Type</th><th>Observations</th><th>Last Seen</th></tr>
+        {% for e in entities %}
+        <tr>
+            <td><strong>{{ e.name }}</strong></td>
+            <td>{{ e.type }}</td>
+            <td>{{ e.observations }}</td>
+            <td>{{ e.last_seen }}</td>
+        </tr>
+        {% endfor %}
+    </table>
+</div>
+{% endif %}
+
+{% if facts %}
+<div class="card">
+    <h3>Facts (AdvancedMemory)</h3>
+    <table>
+        <tr><th>Content</th><th>Category</th><th>Source</th><th>Confidence</th><th>Valid</th></tr>
+        {% for f in facts %}
+        <tr>
+            <td style="max-width:400px;word-break:break-all;">{{ f.content }}</td>
+            <td>{{ f.category }}</td>
+            <td>{{ f.source }}</td>
+            <td>{{ f.confidence }}</td>
+            <td><span class="badge {{ 'badge-green' if f.valid else 'badge-red' }}">{{ 'Yes' if f.valid else 'No' }}</span></td>
+        </tr>
+        {% endfor %}
+    </table>
+</div>
+{% endif %}
+
+{% if advanced_conversations %}
+<div class="card">
+    <h3>Conversations (AdvancedMemory)</h3>
+    <table>
+        <tr><th>Time</th><th>Summary</th><th>Entities</th></tr>
+        {% for c in advanced_conversations %}
+        <tr>
+            <td style="white-space:nowrap;">{{ c.timestamp }}</td>
+            <td style="max-width:400px;word-break:break-all;">{{ c.summary }}</td>
+            <td>{{ c.entities|join(', ') }}</td>
+        </tr>
+        {% endfor %}
+    </table>
+</div>
+{% endif %}
 
 {% if persons %}
 <div class="card">
@@ -30,7 +83,7 @@
 
 {% if conversations %}
 <div class="card">
-    <h3>Recent Conversations</h3>
+    <h3>Persona Conversations</h3>
     <table>
         <tr><th>Person</th><th>Summary</th><th>Key Points</th></tr>
         {% for c in conversations %}
@@ -43,38 +96,4 @@
     </table>
 </div>
 {% endif %}
-
-<div class="card">
-    <h3>Episodic Memory</h3>
-    <table>
-        <tr><th>Summary</th><th>Category</th><th>Time</th></tr>
-        {% for e in episodic %}
-        <tr><td>{{ e.summary }}</td><td>{{ e.category }}</td><td>{{ e.timestamp_ms }}</td></tr>
-        {% endfor %}
-    </table>
-</div>
-
-<div class="card">
-    <h3>Semantic Facts (Chroma)</h3>
-    <table>
-        <tr><th>Content</th><th>Category</th><th>Source</th><th>Confidence</th></tr>
-        {% for f in semantic %}
-        <tr><td>{{ f.content }}</td><td>{{ f.category }}</td><td>{{ f.source }}</td><td>{{ f.confidence }}</td></tr>
-        {% endfor %}
-    </table>
-</div>
-
-<div class="card">
-    <h3>Reflections</h3>
-    <table>
-        <tr><th>Summary</th><th>What Worked</th><th>What Failed</th></tr>
-        {% for r in reflections %}
-        <tr>
-            <td>{{ r.summary }}</td>
-            <td>{{ r.what_worked|join(', ') }}</td>
-            <td>{{ r.what_failed|join(', ') }}</td>
-        </tr>
-        {% endfor %}
-    </table>
-</div>
 {% endblock %}

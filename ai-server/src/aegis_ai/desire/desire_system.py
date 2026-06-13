@@ -222,6 +222,13 @@ class DesireSystem:
         with open(self._state_path(), "w", encoding="utf-8") as fh:
             json.dump(payload, fh, ensure_ascii=False, indent=2)
 
+    _OLD_KEY_MAP: dict[str, str] = {
+        "social_connectivity": "social_connection",
+        "personal_fulfillment": "learning_progress",
+        "safety": "system_safety",
+        "recognition": "reliability",
+    }
+
     def _load(self) -> None:
         """Restore desire state from JSON, merging into initialised dims."""
         path = self._state_path()
@@ -234,22 +241,28 @@ class DesireSystem:
             for name, saved in payload.get("desires", {}).items():
                 dim = self._desires.get(name)
                 if dim is None:
-                    continue  # skip stale keys from old schema
-                dim.value = _clamp(float(saved.get("value", dim.value)))
-                dim.expected_value = _clamp(float(saved.get("expected_value", dim.expected_value)))
-                dim.last_updated_at = int(saved.get("last_updated_at", dim.last_updated_at))
-                dim.update_history = saved.get("update_history", [])
-                # Optional fields — only overwrite if present.
-                if "decay_rate_per_hour" in saved:
-                    dim.decay_rate_per_hour = float(saved["decay_rate_per_hour"])
-                if "recovery_rate" in saved:
-                    dim.recovery_rate = float(saved["recovery_rate"])
-                if "safety_category" in saved:
-                    dim.safety_category = saved["safety_category"]
-                if "visible" in saved:
-                    dim.visible = bool(saved["visible"])
-                if "hidden" in saved:
-                    dim.hidden = bool(saved["hidden"])
+                    mapped = self._OLD_KEY_MAP.get(name)
+                    if mapped:
+                        dim = self._desires.get(mapped)
+                    if dim is None:
+                        continue
+                if isinstance(saved, (int, float)):
+                    dim.value = _clamp(float(saved))
+                elif isinstance(saved, dict):
+                    dim.value = _clamp(float(saved.get("value", dim.value)))
+                    dim.expected_value = _clamp(float(saved.get("expected_value", dim.expected_value)))
+                    dim.last_updated_at = int(saved.get("last_updated_at", dim.last_updated_at))
+                    dim.update_history = saved.get("update_history", [])
+                    if "decay_rate_per_hour" in saved:
+                        dim.decay_rate_per_hour = float(saved["decay_rate_per_hour"])
+                    if "recovery_rate" in saved:
+                        dim.recovery_rate = float(saved["recovery_rate"])
+                    if "safety_category" in saved:
+                        dim.safety_category = saved["safety_category"]
+                    if "visible" in saved:
+                        dim.visible = bool(saved["visible"])
+                    if "hidden" in saved:
+                        dim.hidden = bool(saved["hidden"])
 
             logger.info("Loaded desire state from %s", path)
         except Exception as exc:
@@ -259,6 +272,9 @@ class DesireSystem:
 
     def apply_decay(self, now_ms: int | None = None) -> None:
         """Apply time-based decay to all visible, non-hidden desire values.
+
+        Desires only decrease over time. They change upward ONLY via
+        update_after_action() when LLM evaluates an action.
 
         Parameters
         ----------
@@ -343,14 +359,18 @@ class DesireSystem:
         """Update desires based on action and observation using LLM.
 
         This is the core D2A mechanism: LLM evaluates how actions affect desires.
-        Returns an error dict when no LLM is configured.
+        Returns an error dict when LLM fails.
         """
         if not self._llm:
+            logger.error("DesireSystem: No LLM provider configured. Cannot update desires.")
             return {"error": "No LLM provider"}
 
         self.apply_decay()
         updates = self._evaluate_with_llm(action, observation)
-        self._save()
+        if "error" in updates:
+            logger.error("DesireSystem: LLM evaluation failed for action='%s': %s", action[:100], updates["error"])
+        else:
+            self._save()
         return updates
 
     def _evaluate_with_llm(self, action: str, observation: str) -> dict[str, Any]:
@@ -385,7 +405,8 @@ class DesireSystem:
         )
 
         if not result.success:
-            return {"error": "LLM evaluation failed"}
+            logger.error("DesireSystem: LLM call failed: %s", result.error)
+            return {"error": f"LLM evaluation failed: {result.error}"}
 
         try:
             import re
@@ -416,7 +437,10 @@ class DesireSystem:
             return {"updates": applied}
 
         except Exception as exc:
-            logger.warning("Failed to parse LLM response: %s", exc)
+            logger.error(
+                "DesireSystem: Failed to parse LLM response: %s | raw_content=%s",
+                exc, result.content[:200],
+            )
             return {"error": str(exc)}
 
     # ── Context & queries ────────────────────────────────────────────────
