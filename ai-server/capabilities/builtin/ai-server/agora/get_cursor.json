@@ -1,0 +1,9 @@
+{
+  "title": "AGORA Get Cursor",
+  "description": "Get the last read cursor position.",
+  "server_id": "ai-server",
+  "app_id": "agora",
+  "action": "get_cursor",
+  "risk": {"level": "low", "side_effects": [], "requires_approval": false},
+  "tags": ["builtin", "agora", "read"]
+}

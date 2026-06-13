@@ -1,0 +1,14 @@
+{
+  "title": "Click Element",
+  "description": "Click an element on the page.",
+  "server_id": "browser-server",
+  "app_id": "page",
+  "action": "click_element",
+  "input_schema": {
+    "type": "object",
+    "properties": {"selector": {"type": "string"}},
+    "required": ["selector"]
+  },
+  "risk": {"level": "medium", "side_effects": ["ui_interaction"], "requires_approval": true},
+  "tags": ["builtin", "browser", "action"]
+}

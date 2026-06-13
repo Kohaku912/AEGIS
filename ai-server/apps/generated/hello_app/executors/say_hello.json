@@ -1,0 +1,9 @@
+{
+  "action": "say_hello",
+  "type": "command",
+  "command": "python src/main.py",
+  "working_dir": ".",
+  "timeout_ms": 10000,
+  "stdin": "json",
+  "stdout": "json"
+}

@@ -1,0 +1,17 @@
+{
+  "title": "Mouse Move",
+  "description": "Move the mouse cursor to a position.",
+  "server_id": "pc-server",
+  "app_id": "input",
+  "action": "mouse_move",
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "x": {"type": "integer"},
+      "y": {"type": "integer"}
+    },
+    "required": ["x", "y"]
+  },
+  "risk": {"level": "safe", "side_effects": [], "requires_approval": false},
+  "tags": ["builtin", "pc", "action", "mouse"]
+}

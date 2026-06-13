@@ -1,0 +1,17 @@
+{
+  "title": "AGORA Draft Reply",
+  "description": "Draft a reply to an AGORA post (does not send).",
+  "server_id": "ai-server",
+  "app_id": "agora",
+  "action": "draft_reply",
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "post_id": {"type": "integer"},
+      "body": {"type": "string"}
+    },
+    "required": ["post_id"]
+  },
+  "risk": {"level": "low", "side_effects": [], "requires_approval": false},
+  "tags": ["builtin", "agora", "draft"]
+}

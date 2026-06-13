@@ -1,0 +1,18 @@
+{
+  "title": "Mouse Click",
+  "description": "Click at a specific screen position.",
+  "server_id": "pc-server",
+  "app_id": "input",
+  "action": "mouse_click",
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "x": {"type": "integer"},
+      "y": {"type": "integer"},
+      "button": {"type": "string", "default": "left"}
+    },
+    "required": ["x", "y"]
+  },
+  "risk": {"level": "medium", "side_effects": ["ui_interaction"], "requires_approval": true},
+  "tags": ["builtin", "pc", "action", "mouse"]
+}

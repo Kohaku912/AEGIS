@@ -360,35 +360,53 @@ class DashboardApp:
         @app.route("/dashboard/capabilities")
         def capabilities():
             caps = []
+            errors = []
             try:
-                from tool_registry import ToolRegistry
+                from aegis_ai.folder_registry import FolderCapabilityRegistry
                 from policy_engine import PolicyEngine
-                registry = ToolRegistry()
+                reg = FolderCapabilityRegistry(
+                    capabilities_dir=str(Path(_DATA_DIR).parent / "capabilities"),
+                )
                 engine = PolicyEngine()
-                for cap in registry.list_capabilities():
-                    effective_risk = engine._risk_overrides.get(cap.id, cap.risk_level)
+                for m in reg.list_all():
+                    effective = engine._risk_overrides.get(m.capability_id, None)
+                    risk = effective.name if effective and hasattr(effective, "name") else m.risk_level
                     caps.append({
-                        "id": cap.id,
-                        "name": cap.name,
-                        "risk_level": effective_risk.name if hasattr(effective_risk, "name") else str(effective_risk),
-                        "original_risk": cap.risk_level.name if hasattr(cap.risk_level, "name") else str(cap.risk_level),
-                        "server_type": cap.server_type.value if hasattr(cap.server_type, "value") else str(cap.server_type),
-                        "enabled": True,
-                        "overridden": cap.id in engine._risk_overrides,
+                        "id": m.capability_id,
+                        "short_name": m.short_name,
+                        "title": m.title,
+                        "description": m.description,
+                        "risk_level": risk.upper(),
+                        "original_risk": m.risk_level.upper(),
+                        "server_id": m.server_id,
+                        "app_id": m.app_id,
+                        "action": m.action,
+                        "origin": m.origin,
+                        "requires_approval": m.requires_approval,
+                        "side_effects": m.side_effects,
+                        "tags": m.tags,
+                        "overridden": effective is not None,
                     })
-            except Exception:
-                caps = []
+                errors = reg.errors()
+            except Exception as exc:
+                logger.warning("Capabilities load failed: %s", exc)
 
-            if not caps:
-                caps = [
-                    {"id": "pc.get_screenshot", "name": "Screenshot", "risk_level": "READ_ONLY", "original_risk": "READ_ONLY", "server_type": "PC", "enabled": True, "overridden": False},
-                    {"id": "pc.get_active_window", "name": "Active Window", "risk_level": "READ_ONLY", "original_risk": "READ_ONLY", "server_type": "PC", "enabled": True, "overridden": False},
-                    {"id": "pc.mouse_click", "name": "Mouse Click", "risk_level": "APPROVAL_REQUIRED", "original_risk": "APPROVAL_REQUIRED", "server_type": "PC", "enabled": True, "overridden": False},
-                    {"id": "browser.open_page", "name": "Open Page", "risk_level": "SAFE_ACTION", "original_risk": "SAFE_ACTION", "server_type": "Browser", "enabled": True, "overridden": False},
-                    {"id": "ai.agora.create_post", "name": "AGORA Post", "risk_level": "APPROVAL_REQUIRED", "original_risk": "APPROVAL_REQUIRED", "server_type": "AI", "enabled": True, "overridden": False},
-                ]
-            risk_levels = ["READ_ONLY", "SAFE_ACTION", "APPROVAL_REQUIRED", "HIGH_RISK", "FORBIDDEN"]
-            return render_template("dashboard/capabilities.html", capabilities=caps, risk_levels=risk_levels)
+            risk_levels = ["LOW", "SAFE", "MEDIUM", "HIGH", "CRITICAL"]
+            return render_template("dashboard/capabilities.html",
+                capabilities=caps, risk_levels=risk_levels, errors=errors,
+            )
+
+        @app.route("/api/capabilities/reload", methods=["POST"])
+        def api_capabilities_reload():
+            try:
+                from aegis_ai.folder_registry import FolderCapabilityRegistry
+                reg = FolderCapabilityRegistry(
+                    capabilities_dir=str(Path(_DATA_DIR).parent / "capabilities"),
+                )
+                result = reg.reload()
+                return jsonify({"ok": True, **result})
+            except Exception as exc:
+                return jsonify({"ok": False, "error": str(exc)}), 500
 
         @app.route("/api/capabilities/risk", methods=["POST"])
         def api_capabilities_risk():
@@ -409,6 +427,62 @@ class DashboardApp:
                 return jsonify({"ok": True, "capability_id": cap_id, "risk_level": risk})
             except KeyError:
                 return jsonify({"error": f"Invalid risk level: {risk}"}), 400
+            except Exception as exc:
+                return jsonify({"error": str(exc)}), 500
+
+        @app.route("/api/capabilities/use", methods=["POST"])
+        def api_capabilities_use():
+            from flask import request
+            data = request.get_json(silent=True) or {}
+            cap_id = data.get("capability_id", "").strip()
+            arguments = data.get("arguments", {})
+            if not cap_id:
+                return jsonify({"error": "capability_id required"}), 400
+            try:
+                from aegis_ai.folder_registry import FolderCapabilityRegistry, ExecutorRegistry
+                cap_reg = FolderCapabilityRegistry(
+                    capabilities_dir=str(Path(_DATA_DIR).parent / "capabilities"),
+                )
+                manifest = cap_reg.get(cap_id)
+                if manifest is None:
+                    return jsonify({"error": f"Capability '{cap_id}' not found."}), 404
+                exec_reg = ExecutorRegistry(
+                    apps_dir=str(Path(_DATA_DIR).parent / "apps"),
+                )
+                result = exec_reg.execute(manifest, arguments)
+                if result.ok:
+                    return jsonify({
+                        "ok": True,
+                        "capability_id": cap_id,
+                        "result": result.result,
+                        "meta": result.meta,
+                    })
+                return jsonify({
+                    "ok": False,
+                    "capability_id": cap_id,
+                    "error": result.error,
+                    "meta": result.meta,
+                }), 400
+            except Exception as exc:
+                return jsonify({"error": str(exc)}), 500
+
+        @app.route("/api/capabilities/list")
+        def api_capabilities_list():
+            try:
+                from aegis_ai.folder_registry import FolderCapabilityRegistry
+                reg = FolderCapabilityRegistry(
+                    capabilities_dir=str(Path(_DATA_DIR).parent / "capabilities"),
+                )
+                caps = [{
+                    "id": m.capability_id,
+                    "short_name": m.short_name,
+                    "title": m.title,
+                    "description": m.description,
+                    "origin": m.origin,
+                    "risk_level": m.risk_level,
+                    "requires_approval": m.requires_approval,
+                } for m in reg.list_all()]
+                return jsonify({"capabilities": caps, "count": len(caps)})
             except Exception as exc:
                 return jsonify({"error": str(exc)}), 500
 
@@ -896,6 +970,22 @@ class DashboardApp:
                     except Exception:
                         agora_status = "Error"
 
+                    cap_list = ""
+                    try:
+                        from aegis_ai.folder_registry import FolderCapabilityRegistry
+                        _reg = FolderCapabilityRegistry(
+                            capabilities_dir=str(Path(_DATA_DIR).parent / "capabilities"),
+                        )
+                        caps = _reg.list_all()
+                        if caps:
+                            lines = []
+                            for c in caps[:30]:
+                                approval = " [APPROVAL]" if c.requires_approval else ""
+                                lines.append(f"- {c.short_name}: {c.description[:80]}{approval}")
+                            cap_list = "Available registered capabilities:\n" + "\n".join(lines)
+                    except Exception:
+                        pass
+
                     system_prompt = (
                         "You are AEGIS, an autonomous AI assistant running on Windows.\n\n"
                         f"Current system status:\n"
@@ -903,17 +993,26 @@ class DashboardApp:
                         f"- Browser Server: {browser_status}\n"
                         f"- AGORA (internal chat): {agora_status}\n\n"
                         f"{memory_context}\n\n"
-                        "When the user asks for PC/browser actions, respond with JSON.\n"
-                        "When the user asks about AGORA (chat messages, mentions, posts), use AGORA actions.\n"
+                        "IMPORTANT: You CAN create apps, write code, test, and execute them.\n"
+                        "When the user asks you to create an app or write code, use the create_app action.\n"
+                        "When the user asks to run a previously created app, use the execute_app action.\n"
+                        "When the user asks to use a registered capability, use the use_capability action.\n\n"
                         "Available actions:\n"
                         "- screenshot, active_window, windows, os_info, screen_size, clipboard\n"
                         "- browse_url (params: {url})\n"
                         "- agora_read_posts (no params needed)\n"
                         "- agora_read_mentions (no params needed)\n"
+                        "- create_app (params: {goal: 'description of what the app should do'})\n"
+                        "- execute_app (params: {task_id: 'id from create_app result'})\n"
+                        "- use_capability (params: {capability_id: 'full or short id', arguments: {}})\n"
                         "- memory_save (params: {content}), memory_search (params: {query})\n"
                         "- memory_delete (params: {query}), memory_clear\n\n"
-                        "For general questions, respond naturally.\n"
-                        "AGORA is an internal chat on the AI server. Does NOT need browser server."
+                        f"{cap_list}\n\n"
+                        "To use a capability, use: use_capability with capability_id and arguments.\n"
+                        "Example: {\"action\": \"use_capability\", \"params\": {\"capability_id\": \"generated.ai-server.dev_xxx.run\", \"arguments\": {}}}\n"
+                        "Short names also work: {\"action\": \"use_capability\", \"params\": {\"capability_id\": \"hello_app.say_hello\", \"arguments\": {\"name\": \"World\"}}}\n\n"
+                        "AGORA is an internal chat on the AI server. Does NOT need browser server.\n"
+                        "You are a capable AI that can write and run code. Never say you cannot create files."
                     )
 
                     # First, get LLM response
@@ -1066,6 +1165,76 @@ class DashboardApp:
                             except Exception as e:
                                 action_result = f"AGORA error: {e}"
 
+                        elif action == "create_app":
+                            goal = params.get("goal", text)
+                            try:
+                                from aegis_ai.self_development.controller import SelfDevelopmentController
+                                from aegis_ai.llm.factory import create_llm_provider as _create
+                                _llm = _create()
+                                ctrl = SelfDevelopmentController(
+                                    llm_provider=_llm,
+                                    sandbox_dir=os.path.join(_DATA_DIR, "sandbox"),
+                                    deploy_dir=os.path.join(_DATA_DIR, "apps"),
+                                )
+                                task = ctrl.create_app(goal)
+                                if task.status == "deployed":
+                                    action_result = (
+                                        f"App created successfully!\n"
+                                        f"Task ID: {task.task_id}\n"
+                                        f"Capability: {task.capability_id}\n"
+                                        f"Script:\n{task.script_content[:500]}\n\n"
+                                        f"To run this app later, say: execute app {task.task_id}"
+                                    )
+                                else:
+                                    action_result = f"App creation failed: {task.error}\nScript attempted:\n{task.script_content[:300]}"
+                            except Exception as e:
+                                action_result = f"Create app error: {e}"
+
+                        elif action == "execute_app":
+                            task_id = params.get("task_id", "")
+                            if not task_id:
+                                action_result = "No task_id provided. Use create_app first."
+                            else:
+                                try:
+                                    from aegis_ai.self_development.controller import SelfDevelopmentController
+                                    ctrl = SelfDevelopmentController(
+                                        sandbox_dir=os.path.join(_DATA_DIR, "sandbox"),
+                                        deploy_dir=os.path.join(_DATA_DIR, "apps"),
+                                    )
+                                    result = ctrl.execute_app(task_id)
+                                    if result.get("success"):
+                                        action_result = f"App output:\n{result.get('stdout', '').strip()}"
+                                    else:
+                                        action_result = f"App execution failed: {result.get('error', result.get('stderr', ''))}"
+                                except Exception as e:
+                                    action_result = f"Execute app error: {e}"
+
+                        elif action == "use_capability":
+                            cap_id = params.get("capability_id", "")
+                            cap_args = params.get("arguments", {})
+                            if not cap_id:
+                                action_result = "No capability_id provided."
+                            else:
+                                try:
+                                    from aegis_ai.folder_registry import FolderCapabilityRegistry, ExecutorRegistry
+                                    cap_reg = FolderCapabilityRegistry(
+                                        capabilities_dir=str(Path(_DATA_DIR).parent / "capabilities"),
+                                    )
+                                    manifest = cap_reg.get(cap_id)
+                                    if manifest is None:
+                                        action_result = f"Capability '{cap_id}' not found."
+                                    else:
+                                        exec_dir = str(Path(_DATA_DIR).parent / "apps")
+                                        exec_reg = ExecutorRegistry(apps_dir=exec_dir)
+                                        result = exec_reg.execute(manifest, cap_args)
+                                        if result.ok:
+                                            import json as _j
+                                            action_result = f"Capability '{cap_id}' executed successfully.\nResult: {_j.dumps(result.result, ensure_ascii=False)[:1000]}"
+                                        else:
+                                            action_result = f"Capability '{cap_id}' failed: {result.error.get('message', '')} (code: {result.error.get('code', '')})"
+                                except Exception as e:
+                                    action_result = f"Capability execution error: {e}"
+
                         # Send action result through LLM for final response
                         if action_result:
                             llm_response = llm.generate(
@@ -1169,10 +1338,17 @@ Available actions:
 - browse_url: Browse to a URL (params: {{"url": "..."}})
 - agora_read_posts: Read recent AGORA chat posts (no params)
 - agora_read_mentions: Read your AGORA mentions (no params)
+- create_app: Create and deploy a Python app (params: {{"goal": "description"}})
+- execute_app: Run a previously created app (params: {{"task_id": "id from create_app"}})
 - memory_save: Save information to memory (params: {{"content": "..."}})
 - memory_search: Search memory (params: {{"query": "..."}})
 - memory_delete: Delete memory (params: {{"query": "..."}})
 - memory_clear: Clear ALL memory (no params)
+
+IMPORTANT: You CAN create apps, write code, test, and execute them.
+When the user asks you to create an app or write code, use create_app.
+When the user asks to run a previously created app, use execute_app.
+You are a capable AI that can write and run code. Never say you cannot create files.
 
 AGORA is an internal chat system on the AI server. It does NOT require the browser server.
 When the user asks about AGORA, chat, posts, or mentions, use agora_read_posts or agora_read_mentions.
@@ -1352,6 +1528,50 @@ For general questions, respond naturally using your memory and knowledge."""
                                     action_result = "AGORA is not configured. Set AGORA_TOKEN."
                             except Exception as e:
                                 action_result = f"AGORA error: {e}"
+
+                        elif action == "create_app":
+                            goal = params.get("goal", text)
+                            try:
+                                from aegis_ai.self_development.controller import SelfDevelopmentController
+                                from aegis_ai.llm.factory import create_llm_provider as _create
+                                _llm = _create()
+                                ctrl = SelfDevelopmentController(
+                                    llm_provider=_llm,
+                                    sandbox_dir=os.path.join(_DATA_DIR, "sandbox"),
+                                    deploy_dir=os.path.join(_DATA_DIR, "apps"),
+                                )
+                                task = ctrl.create_app(goal)
+                                if task.status == "deployed":
+                                    action_result = (
+                                        f"App created successfully!\n"
+                                        f"Task ID: {task.task_id}\n"
+                                        f"Capability: {task.capability_id}\n"
+                                        f"Script:\n{task.script_content[:500]}\n\n"
+                                        f"To run this app later, say: execute app {task.task_id}"
+                                    )
+                                else:
+                                    action_result = f"App creation failed: {task.error}\nScript attempted:\n{task.script_content[:300]}"
+                            except Exception as e:
+                                action_result = f"Create app error: {e}"
+
+                        elif action == "execute_app":
+                            task_id = params.get("task_id", "")
+                            if not task_id:
+                                action_result = "No task_id provided. Use create_app first."
+                            else:
+                                try:
+                                    from aegis_ai.self_development.controller import SelfDevelopmentController
+                                    ctrl = SelfDevelopmentController(
+                                        sandbox_dir=os.path.join(_DATA_DIR, "sandbox"),
+                                        deploy_dir=os.path.join(_DATA_DIR, "apps"),
+                                    )
+                                    result = ctrl.execute_app(task_id)
+                                    if result.get("success"):
+                                        action_result = f"App output:\n{result.get('stdout', '').strip()}"
+                                    else:
+                                        action_result = f"App execution failed: {result.get('error', result.get('stderr', ''))}"
+                                except Exception as e:
+                                    action_result = f"Execute app error: {e}"
 
                         # Pass result through LLM for final response
                         if action_result:

@@ -1,0 +1,325 @@
+"""Folder-Based Capability Registry — discovers capabilities from folder structure.
+
+Capabilities are defined by JSON files in:
+- capabilities/builtin/<server_id>/<app_id>/<action>.json
+- capabilities/generated/<server_id>/<app_id>/<action>.json
+
+Capability ID is auto-generated from path:
+  <origin>.<server_id>.<app_id>.<action>
+
+Short name for LLM: <app_id>.<action>
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import os
+import subprocess
+import time
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any
+
+logger = logging.getLogger("aegis_ai.folder_registry")
+
+
+@dataclass
+class CapabilityManifest:
+    capability_id: str = ""
+    title: str = ""
+    description: str = ""
+    server_id: str = ""
+    app_id: str = ""
+    action: str = ""
+    origin: str = ""
+    version: str = "1.0.0"
+    input_schema: dict[str, Any] = field(default_factory=dict)
+    output_schema: dict[str, Any] = field(default_factory=dict)
+    risk_level: str = "low"
+    side_effects: list[str] = field(default_factory=list)
+    requires_approval: bool = False
+    tags: list[str] = field(default_factory=list)
+    short_name: str = ""
+    file_path: str = ""
+    loaded_at: int = 0
+
+    def to_tool_description(self) -> str:
+        parts = [self.title or self.capability_id]
+        if self.description:
+            parts.append(self.description)
+        props = self.input_schema.get("properties", {})
+        if props:
+            params = ", ".join(f"{k}: {v.get('type', 'any')}" for k, v in props.items())
+            parts.append(f"Params: {params}")
+        parts.append(f"Risk: {self.risk_level}")
+        parts.append(f"Origin: {self.origin}")
+        return " | ".join(parts)
+
+
+@dataclass
+class ExecutorManifest:
+    action: str = ""
+    executor_type: str = "command"
+    command: str = ""
+    working_dir: str = "."
+    timeout_ms: int = 30000
+    stdin_format: str = "json"
+    stdout_format: str = "json"
+    env: dict[str, str] = field(default_factory=dict)
+    file_path: str = ""
+
+
+@dataclass
+class ExecutionResult:
+    ok: bool = False
+    capability_id: str = ""
+    result: Any = None
+    error: dict[str, Any] | None = None
+    meta: dict[str, Any] = field(default_factory=dict)
+
+
+def _derive_ids(file_path: str, base_dir: str) -> dict[str, str] | None:
+    rel = os.path.relpath(file_path, base_dir)
+    parts = Path(rel).parts
+    if len(parts) < 4:
+        return None
+    return {
+        "origin": parts[0],
+        "server_id": parts[1],
+        "app_id": parts[2],
+        "action": Path(parts[3]).stem,
+    }
+
+
+def _validate(data: dict, ids: dict) -> str:
+    for key in ("server_id", "app_id", "action"):
+        val = data.get(key, "")
+        if val and val != ids.get(key):
+            return f"JSON {key}='{val}' != path '{ids[key]}'"
+    return ""
+
+
+class FolderCapabilityRegistry:
+    def __init__(self, capabilities_dir: str = "capabilities") -> None:
+        self._dir = Path(capabilities_dir)
+        self._manifests: dict[str, CapabilityManifest] = {}
+        self._short_names: dict[str, str] = {}
+        self._errors: list[dict[str, str]] = []
+        self._load()
+
+    def _load(self) -> None:
+        self._manifests.clear()
+        self._short_names.clear()
+        self._errors.clear()
+        for origin in ("builtin", "generated"):
+            origin_dir = self._dir / origin
+            if not origin_dir.exists():
+                continue
+            for json_path in origin_dir.rglob("*.json"):
+                self._load_one(str(json_path), origin)
+
+    def _load_one(self, path: str, origin: str) -> None:
+        ids = _derive_ids(path, str(self._dir))
+        if not ids:
+            self._errors.append({"path": path, "error": "Invalid path"})
+            return
+        ids["origin"] = origin
+
+        try:
+            data = json.loads(Path(path).read_text(encoding="utf-8"))
+        except Exception as e:
+            self._errors.append({"path": path, "error": str(e)})
+            return
+
+        err = _validate(data, ids)
+        if err:
+            self._errors.append({"path": path, "error": err})
+            return
+
+        cap_id = f"{origin}.{ids['server_id']}.{ids['app_id']}.{ids['action']}"
+        short = f"{ids['app_id']}.{ids['action']}"
+
+        self._manifests[cap_id] = CapabilityManifest(
+            capability_id=cap_id,
+            title=data.get("title", ids["action"].replace("_", " ").title()),
+            description=data.get("description", ""),
+            server_id=ids["server_id"],
+            app_id=ids["app_id"],
+            action=ids["action"],
+            origin=origin,
+            version=data.get("version", "1.0.0"),
+            input_schema=data.get("input_schema", {}),
+            output_schema=data.get("output_schema", {}),
+            risk_level=data.get("risk", {}).get("level", "low"),
+            side_effects=data.get("risk", {}).get("side_effects", []),
+            requires_approval=data.get("risk", {}).get("requires_approval", False),
+            tags=data.get("tags", []),
+            short_name=short,
+            file_path=path,
+            loaded_at=int(time.time() * 1000),
+        )
+        if short not in self._short_names:
+            self._short_names[short] = cap_id
+
+    def reload(self) -> dict[str, Any]:
+        old = len(self._manifests)
+        self._load()
+        return {"old": old, "new": len(self._manifests), "errors": self._errors}
+
+    def get(self, cap_id: str) -> CapabilityManifest | None:
+        if cap_id in self._manifests:
+            return self._manifests[cap_id]
+        full = self._short_names.get(cap_id)
+        return self._manifests.get(full) if full else None
+
+    def list_all(self, origin: str | None = None) -> list[CapabilityManifest]:
+        result = list(self._manifests.values())
+        if origin:
+            result = [m for m in result if m.origin == origin]
+        return result
+
+    def errors(self) -> list[dict[str, str]]:
+        return list(self._errors)
+
+    def count(self) -> int:
+        return len(self._manifests)
+
+
+class ExecutorRegistry:
+    def __init__(self, apps_dir: str = "apps") -> None:
+        self._dir = Path(apps_dir)
+        self._executors: dict[str, ExecutorManifest] = {}
+        self._load()
+
+    def _load(self) -> None:
+        self._executors.clear()
+        for origin in ("builtin", "generated"):
+            origin_dir = self._dir / origin
+            if not origin_dir.exists():
+                continue
+            for app_dir in origin_dir.iterdir():
+                if not app_dir.is_dir():
+                    continue
+                exec_dir = app_dir / "executors"
+                if not exec_dir.exists():
+                    continue
+                for f in exec_dir.glob("*.json"):
+                    self._load_one(str(f), origin, app_dir.name)
+
+    def _load_one(self, path: str, origin: str, app_id: str) -> None:
+        try:
+            data = json.loads(Path(path).read_text(encoding="utf-8"))
+        except Exception:
+            return
+        action = data.get("action", Path(path).stem)
+        if action != Path(path).stem:
+            return
+        key = f"{origin}.{app_id}.{action}"
+        self._executors[key] = ExecutorManifest(
+            action=action,
+            executor_type=data.get("type", "command"),
+            command=data.get("command", ""),
+            working_dir=data.get("working_dir", "."),
+            timeout_ms=data.get("timeout_ms", 30000),
+            stdin_format=data.get("stdin", "json"),
+            stdout_format=data.get("stdout", "json"),
+            env=data.get("env", {}),
+            file_path=path,
+        )
+
+    def reload(self) -> dict[str, Any]:
+        old = len(self._executors)
+        self._load()
+        return {"old": old, "new": len(self._executors)}
+
+    def get(self, origin: str, app_id: str, action: str) -> ExecutorManifest | None:
+        return self._executors.get(f"{origin}.{app_id}.{action}")
+
+    def execute(self, manifest: CapabilityManifest, arguments: dict[str, Any]) -> ExecutionResult:
+        cap_id = manifest.capability_id
+        start = time.perf_counter()
+
+        exec_manifest = self.get(manifest.origin, manifest.app_id, manifest.action)
+        if exec_manifest is None:
+            return ExecutionResult(
+                ok=False, capability_id=cap_id,
+                error={"code": "EXECUTOR_NOT_FOUND", "message": f"No executor for {cap_id}"},
+                meta=self._meta(manifest, 0),
+            )
+
+        if exec_manifest.executor_type != "command":
+            return ExecutionResult(
+                ok=False, capability_id=cap_id,
+                error={"code": "UNSUPPORTED_TYPE", "message": f"Type '{exec_manifest.executor_type}' not supported"},
+                meta=self._meta(manifest, 0),
+            )
+
+        app_dir = Path(exec_manifest.file_path).parent.parent
+        work_dir = str((app_dir / exec_manifest.working_dir).resolve())
+
+        if ".." in exec_manifest.working_dir:
+            return ExecutionResult(
+                ok=False, capability_id=cap_id,
+                error={"code": "WORKING_DIR_VIOLATION", "message": "Cannot escape app folder"},
+                meta=self._meta(manifest, 0),
+            )
+
+        env = os.environ.copy()
+        env.update(exec_manifest.env)
+        timeout = exec_manifest.timeout_ms / 1000.0
+
+        try:
+            stdin_data = json.dumps(arguments) if exec_manifest.stdin_format == "json" else None
+            result = subprocess.run(
+                exec_manifest.command, shell=True, cwd=work_dir,
+                input=stdin_data, capture_output=True, text=True,
+                encoding="utf-8", errors="replace",
+                timeout=timeout, env=env,
+            )
+            dur = (time.perf_counter() - start) * 1000
+
+            if result.returncode != 0:
+                return ExecutionResult(
+                    ok=False, capability_id=cap_id,
+                    error={
+                        "code": "EXECUTION_FAILED",
+                        "message": f"Exit {result.returncode}",
+                        "details": {"exit_code": result.returncode, "stderr": result.stderr[:2000]},
+                    },
+                    meta=self._meta(manifest, dur),
+                )
+
+            output = result.stdout
+            if exec_manifest.stdout_format == "json":
+                try:
+                    output = json.loads(result.stdout)
+                except json.JSONDecodeError:
+                    output = {"raw_output": result.stdout[:5000]}
+
+            return ExecutionResult(ok=True, capability_id=cap_id, result=output, meta=self._meta(manifest, dur))
+
+        except subprocess.TimeoutExpired:
+            dur = (time.perf_counter() - start) * 1000
+            return ExecutionResult(
+                ok=False, capability_id=cap_id,
+                error={"code": "EXECUTION_TIMEOUT", "message": f"Timed out after {timeout}s"},
+                meta=self._meta(manifest, dur),
+            )
+        except Exception as e:
+            dur = (time.perf_counter() - start) * 1000
+            return ExecutionResult(
+                ok=False, capability_id=cap_id,
+                error={"code": "EXECUTION_ERROR", "message": str(e)[:500]},
+                meta=self._meta(manifest, dur),
+            )
+
+    def _meta(self, m: CapabilityManifest, dur: float) -> dict:
+        return {
+            "server_id": m.server_id, "app_id": m.app_id,
+            "action": m.action, "origin": m.origin,
+            "duration_ms": round(dur, 1), "executor_type": "command",
+        }
+
+    def count(self) -> int:
+        return len(self._executors)

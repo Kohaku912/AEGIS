@@ -1,0 +1,9 @@
+{
+  "title": "Screen Size",
+  "description": "Get the screen resolution.",
+  "server_id": "pc-server",
+  "app_id": "system",
+  "action": "get_screen_size",
+  "risk": {"level": "low", "side_effects": [], "requires_approval": false},
+  "tags": ["builtin", "pc", "read", "system"]
+}

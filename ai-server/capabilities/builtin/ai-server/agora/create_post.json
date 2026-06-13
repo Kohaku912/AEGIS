@@ -1,0 +1,23 @@
+{
+  "title": "AGORA Create Post",
+  "description": "Create a post in AGORA chat (requires approval).",
+  "server_id": "ai-server",
+  "app_id": "agora",
+  "action": "create_post",
+  "version": "1.0.0",
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "body": {"type": "string"},
+      "thread_id": {"type": "integer", "default": 1},
+      "reply_to": {"type": ["integer", "null"]}
+    },
+    "required": ["body"]
+  },
+  "risk": {
+    "level": "high",
+    "side_effects": ["external_send"],
+    "requires_approval": true
+  },
+  "tags": ["builtin", "agora", "send"]
+}

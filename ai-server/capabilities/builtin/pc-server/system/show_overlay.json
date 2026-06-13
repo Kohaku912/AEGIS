@@ -1,0 +1,9 @@
+{
+  "title": "Show Overlay",
+  "description": "Show an overlay message on screen.",
+  "server_id": "pc-server",
+  "app_id": "system",
+  "action": "show_overlay",
+  "risk": {"level": "safe", "side_effects": ["ui_change"], "requires_approval": false},
+  "tags": ["builtin", "pc", "action", "overlay"]
+}
