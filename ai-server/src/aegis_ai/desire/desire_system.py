@@ -355,44 +355,72 @@ class DesireSystem:
 
     # ── LLM-driven update (backward-compatible) ──────────────────────────
 
-    def update_after_action(self, action: str, observation: str) -> dict[str, Any]:
+    def update_after_action(
+        self,
+        action: str,
+        observation: str,
+        history: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
         """Update desires based on action and observation using LLM.
 
-        This is the core D2A mechanism: LLM evaluates how actions affect desires.
-        Returns an error dict when LLM fails.
+        LLM objectively evaluates how actions affect desires,
+        considering past actions for context.
         """
         if not self._llm:
-            logger.error("DesireSystem: No LLM provider configured. Cannot update desires.")
+            logger.error("DesireSystem: No LLM provider configured.")
             return {"error": "No LLM provider"}
 
         self.apply_decay()
-        updates = self._evaluate_with_llm(action, observation)
+        updates = self._evaluate_with_llm(action, observation, history=history)
         if "error" in updates:
-            logger.error("DesireSystem: LLM evaluation failed for action='%s': %s", action[:100], updates["error"])
+            logger.error("DesireSystem: LLM evaluation failed: %s", updates["error"])
         else:
             self._save()
         return updates
 
-    def _evaluate_with_llm(self, action: str, observation: str) -> dict[str, Any]:
-        """Use LLM to evaluate how action affects desires."""
+    def _evaluate_with_llm(
+        self,
+        action: str,
+        observation: str,
+        history: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
+        """Use LLM to objectively evaluate how action affects desires.
+
+        Includes past action history so LLM can judge cumulative effects.
+        """
         desire_context = []
         for name, dim in self._desires.items():
             if dim.hidden:
                 continue
             desire_context.append(
-                f"- {name}: {dim.value:.1f}/10 (frustration {dim.frustration:.1f})"
+                f"- {name}: {dim.value:.1f}/10 (expected {dim.expected_value:.1f}, frustration {dim.frustration:.1f})"
             )
 
+        history_context = ""
+        if history:
+            history_lines = []
+            for entry in history[-3:]:
+                for task in entry.get("tasks", [])[:2]:
+                    history_lines.append(f"  - {task.get('action', '')[:80]}")
+            if history_lines:
+                history_context = "\nRecent past actions:\n" + "\n".join(history_lines)
+
         prompt = (
-            "Analyze how this action affects AEGIS's desires.\n\n"
-            f"Action: {action}\n"
-            f"Observation: {observation}\n\n"
+            "You are AEGIS's desire evaluation system. Objectively analyze how this action affects desires.\n\n"
+            f"Action performed: {action}\n"
+            f"Result: {observation}\n"
+            f"{history_context}\n\n"
             "Current desire states:\n"
             + "\n".join(desire_context) + "\n\n"
-            "For each desire that would change, provide the new value (0-10 scale).\n"
-            "Respond with ONLY a JSON object, no other text:\n"
+            "Evaluate objectively:\n"
+            "- How much did this action fulfill each desire? (0-10 scale)\n"
+            "- Consider the action's actual impact, not just intent\n"
+            "- Failed actions should decrease reliability/safety desires\n"
+            "- Successful actions should increase relevant desires\n"
+            "- Consider past actions for cumulative effects\n\n"
+            "Respond with ONLY a JSON object:\n"
             '{"desire_updates": {"desire_name": {"new_value": 7.0, "reason": "..."}, ...}}\n\n'
-            "Only include desires that would actually change based on the action."
+            "Only include desires that actually changed."
         )
 
         result = self._llm.generate(
