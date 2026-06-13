@@ -19,7 +19,10 @@ import logging
 import os
 import socket
 import time
+from pathlib import Path
 from typing import Any
+
+_DATA_DIR = str(Path(__file__).resolve().parent.parent.parent.parent / "data")
 
 from flask import Flask, jsonify, render_template
 
@@ -119,7 +122,7 @@ def _build_memory_context(query: str) -> str:
     # Get desire context
     try:
         from aegis_ai.desire.desire_system import DesireSystem
-        desire_system = DesireSystem(data_dir="data/desires")
+        desire_system = DesireSystem(data_dir=os.path.join(_DATA_DIR, "desires"))
         desire_context = desire_system.get_context()
         if desire_context:
             context_parts.append(desire_context)
@@ -131,7 +134,7 @@ def _build_memory_context(query: str) -> str:
         from aegis_ai.memory.advanced import AdvancedMemory
         from aegis_ai.llm.factory import create_llm_provider
         llm = create_llm_provider()
-        memory = AdvancedMemory(data_dir="data/memory", llm_provider=llm)
+        memory = AdvancedMemory(data_dir=os.path.join(_DATA_DIR, "memory"), llm_provider=llm)
         memory_context = memory.get_context(query)
         if memory_context:
             context_parts.append("MEMORY CONTEXT:\n" + memory_context)
@@ -223,12 +226,83 @@ class DashboardApp:
         @app.route("/dashboard")
         def home():
             status = self._get_server_status()
+
+            agora_data = {"configured": False, "unread": 0, "cursor": 0, "recent": ""}
+            try:
+                from aegis_ai.integrations.agora.agora_service import AgoraService
+                svc = AgoraService()
+                if svc.is_configured:
+                    agora_data["configured"] = True
+                    me = svc.get_me()
+                    if hasattr(me, "name"):
+                        agora_data["account"] = me.name
+                        agora_data["account_id"] = me.id
+                    cursor = svc.get_cursor()
+                    if hasattr(cursor, "last_read_post_id"):
+                        agora_data["cursor"] = cursor.last_read_post_id
+                    posts = svc.read_posts(limit=5)
+                    if hasattr(posts, "posts"):
+                        agora_data["recent_count"] = len(posts.posts)
+                        agora_data["recent"] = posts.summarize(max_posts=3)
+                    mentions = svc.read_mentions(limit=5)
+                    if hasattr(mentions, "posts"):
+                        agora_data["mention_count"] = len(mentions.posts)
+            except Exception:
+                pass
+
+            desire_data = {"desires": [], "average_frustration": 0.0}
+            try:
+                from aegis_ai.desire.desire_system import DesireSystem
+                ds = DesireSystem(data_dir=os.path.join(_DATA_DIR, "desires"))
+                ctx = ds.get_context()
+                if ctx:
+                    desire_data["context"] = ctx[:300]
+                desire_data["desires"] = [
+                    {"name": d.name, "value": d.value, "expected": d.expected_value}
+                    for d in list(ds._desires.values())[:8]
+                ] if hasattr(ds, "_desires") else []
+            except Exception:
+                pass
+
+            world_data = {"sections": []}
+            try:
+                from aegis_ai.world.world_state_store import WorldStateStore
+                ws = WorldStateStore()
+                agora_s = ws.state.agora_state
+                if agora_s.last_observation_at > 0:
+                    world_data["agora"] = {
+                        "account": agora_s.me_name,
+                        "cursor": agora_s.last_cursor,
+                        "unread": agora_s.unread_count,
+                        "staleness": agora_s.staleness,
+                    }
+                world_data["task"] = ws.state.task_state.to_context_string()
+                world_data["approval"] = ws.state.approval_state.to_context_string()
+            except Exception:
+                pass
+
+            approval_queue_data = []
+            try:
+                from aegis_ai.approval.approval_queue import ApprovalQueue
+                aq = ApprovalQueue()
+                pending = aq.list_pending()
+                for req in pending[:5]:
+                    approval_queue_data.append({
+                        "id": req.approval_id,
+                        "capability": req.capability_id,
+                        "tool": req.tool_name,
+                        "risk": req.risk_level,
+                        "summary": req.user_facing_summary[:100],
+                    })
+            except Exception:
+                pass
+
             return render_template("dashboard/home.html",
                 servers=status["servers"],
                 server_summary=status["summary"],
                 event_stats={"total_published": 0},
                 trigger_stats={"tasks_generated": 0},
-                pending_approvals=[],
+                pending_approvals=approval_queue_data,
                 memory_summary={
                     "episodic_count": 0,
                     "semantic_count": 0,
@@ -242,6 +316,9 @@ class DashboardApp:
                     "privacy_clipboard_enabled": True,
                     "privacy_camera_enabled": False,
                 },
+                agora=agora_data,
+                desires=desire_data,
+                world=world_data,
             )
 
         @app.route("/dashboard/servers")
@@ -258,22 +335,58 @@ class DashboardApp:
 
         @app.route("/dashboard/capabilities")
         def capabilities():
-            caps = [
-                {"id": "pc.get_screenshot", "name": "Screenshot", "risk_level": "READ_ONLY", "server_type": "PC", "enabled": True},
-                {"id": "pc.get_active_window", "name": "Active Window", "risk_level": "READ_ONLY", "server_type": "PC", "enabled": True},
-                {"id": "pc.list_windows", "name": "List Windows", "risk_level": "READ_ONLY", "server_type": "PC", "enabled": True},
-                {"id": "pc.get_clipboard", "name": "Clipboard", "risk_level": "READ_ONLY", "server_type": "PC", "enabled": True},
-                {"id": "pc.get_os_info", "name": "OS Info", "risk_level": "READ_ONLY", "server_type": "PC", "enabled": True},
-                {"id": "pc.get_screen_size", "name": "Screen Size", "risk_level": "READ_ONLY", "server_type": "PC", "enabled": True},
-                {"id": "pc.show_overlay", "name": "Show Overlay", "risk_level": "SAFE_ACTION", "server_type": "PC", "enabled": True},
-                {"id": "pc.mouse_click", "name": "Mouse Click", "risk_level": "APPROVAL_REQUIRED", "server_type": "PC", "enabled": True},
-                {"id": "pc.keyboard_type", "name": "Keyboard Type", "risk_level": "APPROVAL_REQUIRED", "server_type": "PC", "enabled": True},
-                {"id": "browser.open_page", "name": "Open Page", "risk_level": "SAFE_ACTION", "server_type": "Browser", "enabled": True},
-                {"id": "browser.extract_page_text", "name": "Extract Text", "risk_level": "READ_ONLY", "server_type": "Browser", "enabled": True},
-                {"id": "android.get_notifications", "name": "Notifications", "risk_level": "READ_ONLY", "server_type": "Android", "enabled": False},
-                {"id": "room.get_environment", "name": "Environment", "risk_level": "READ_ONLY", "server_type": "Room", "enabled": False},
-            ]
-            return render_template("dashboard/capabilities.html", capabilities=caps)
+            caps = []
+            try:
+                from tool_registry import ToolRegistry
+                from policy_engine import PolicyEngine
+                registry = ToolRegistry()
+                engine = PolicyEngine()
+                for cap in registry.list_capabilities():
+                    effective_risk = engine._risk_overrides.get(cap.id, cap.risk_level)
+                    caps.append({
+                        "id": cap.id,
+                        "name": cap.name,
+                        "risk_level": effective_risk.name if hasattr(effective_risk, "name") else str(effective_risk),
+                        "original_risk": cap.risk_level.name if hasattr(cap.risk_level, "name") else str(cap.risk_level),
+                        "server_type": cap.server_type.value if hasattr(cap.server_type, "value") else str(cap.server_type),
+                        "enabled": True,
+                        "overridden": cap.id in engine._risk_overrides,
+                    })
+            except Exception:
+                caps = []
+
+            if not caps:
+                caps = [
+                    {"id": "pc.get_screenshot", "name": "Screenshot", "risk_level": "READ_ONLY", "original_risk": "READ_ONLY", "server_type": "PC", "enabled": True, "overridden": False},
+                    {"id": "pc.get_active_window", "name": "Active Window", "risk_level": "READ_ONLY", "original_risk": "READ_ONLY", "server_type": "PC", "enabled": True, "overridden": False},
+                    {"id": "pc.mouse_click", "name": "Mouse Click", "risk_level": "APPROVAL_REQUIRED", "original_risk": "APPROVAL_REQUIRED", "server_type": "PC", "enabled": True, "overridden": False},
+                    {"id": "browser.open_page", "name": "Open Page", "risk_level": "SAFE_ACTION", "original_risk": "SAFE_ACTION", "server_type": "Browser", "enabled": True, "overridden": False},
+                    {"id": "ai.agora.create_post", "name": "AGORA Post", "risk_level": "APPROVAL_REQUIRED", "original_risk": "APPROVAL_REQUIRED", "server_type": "AI", "enabled": True, "overridden": False},
+                ]
+            risk_levels = ["READ_ONLY", "SAFE_ACTION", "APPROVAL_REQUIRED", "HIGH_RISK", "FORBIDDEN"]
+            return render_template("dashboard/capabilities.html", capabilities=caps, risk_levels=risk_levels)
+
+        @app.route("/api/capabilities/risk", methods=["POST"])
+        def api_capabilities_risk():
+            from flask import request
+            data = request.get_json(silent=True) or {}
+            cap_id = data.get("capability_id", "").strip()
+            risk = data.get("risk_level", "").strip()
+
+            if not cap_id or not risk:
+                return jsonify({"error": "capability_id and risk_level required"}), 400
+
+            try:
+                from aegis_schema.models import RiskLevel
+                from policy_engine import PolicyEngine
+                engine = PolicyEngine()
+                level = RiskLevel[risk]
+                engine.set_risk_override(cap_id, level)
+                return jsonify({"ok": True, "capability_id": cap_id, "risk_level": risk})
+            except KeyError:
+                return jsonify({"error": f"Invalid risk level: {risk}"}), 400
+            except Exception as exc:
+                return jsonify({"error": str(exc)}), 500
 
         @app.route("/dashboard/events")
         def events():
@@ -323,37 +436,69 @@ class DashboardApp:
 
         @app.route("/dashboard/memory")
         def memory():
-            # Get memory stats from Chroma and Persona
             import json as json_lib
-            episodic_count = 0
-            semantic_count = 0
             persona_count = 0
             conversation_count = 0
             persons = []
             recent_conversations = []
 
-            # Count episodic memories
-            try:
-                episodic_path = "data/episodic.jsonl"
-                if os.path.exists(episodic_path):
-                    with open(episodic_path, "r") as f:
-                        episodic_count = sum(1 for _ in f)
-            except Exception:
-                pass
+            entities = []
+            facts = []
+            advanced_conversations = []
+            advanced_stats = {}
 
-            # Count semantic facts (Chroma)
+            # AdvancedMemory data
+            try:
+                from aegis_ai.memory.advanced import AdvancedMemory
+                from aegis_ai.llm.factory import create_llm_provider
+                llm = create_llm_provider()
+                mem = AdvancedMemory(data_dir=os.path.join(_DATA_DIR, "memory"), llm_provider=llm)
+                advanced_stats = mem.get_stats()
+
+                for eid, ent in list(mem._entities.items())[:20]:
+                    entities.append({
+                        "name": ent.name,
+                        "type": ent.entity_type,
+                        "observations": len(ent.observations),
+                        "last_seen": time.strftime(
+                            "%m-%d %H:%M", time.localtime(ent.last_seen_at / 1000),
+                        ) if ent.last_seen_at > 0 else "-",
+                    })
+
+                for fid, fact in list(mem._facts.items())[:30]:
+                    facts.append({
+                        "content": fact.content[:150],
+                        "category": fact.category,
+                        "source": fact.source,
+                        "confidence": f"{fact.confidence:.2f}",
+                        "valid": fact.invalid_at_ms == 0,
+                    })
+
+                for conv in list(mem._conversations.values())[-10:]:
+                    advanced_conversations.append({
+                        "summary": conv.summary[:200],
+                        "timestamp": time.strftime(
+                            "%m-%d %H:%M", time.localtime(conv.timestamp_ms / 1000),
+                        ) if conv.timestamp_ms > 0 else "-",
+                        "entities": conv.entities_mentioned[:5],
+                    })
+            except Exception as exc:
+                logger.debug("AdvancedMemory load failed: %s", exc)
+
+            # Chroma semantic
+            semantic_count = 0
             try:
                 from aegis_ai.memory.chroma_semantic import ChromaSemanticMemory
-                sem = ChromaSemanticMemory(chroma_path="data/chroma")
+                sem = ChromaSemanticMemory(chroma_path=os.path.join(_DATA_DIR, "chroma"))
                 stats = sem.get_stats()
                 semantic_count = stats.get("chroma_count", 0) or stats.get("jsonl_facts", 0)
             except Exception:
                 pass
 
-            # Get persona data
+            # Persona
             try:
                 from aegis_ai.memory.persona import PersonaMemory
-                persona = PersonaMemory(path="data/persona.jsonl")
+                persona = PersonaMemory(path=os.path.join(_DATA_DIR, "persona.jsonl"))
                 all_persons = persona.get_all_persons()
                 persona_count = len(all_persons)
                 for p in all_persons:
@@ -377,44 +522,209 @@ class DashboardApp:
 
             return render_template("dashboard/memory.html",
                 summary={
-                    "episodic_count": episodic_count,
+                    "entities_count": advanced_stats.get("entities", 0),
+                    "facts_count": advanced_stats.get("facts", 0),
+                    "valid_facts_count": advanced_stats.get("valid_facts", 0),
+                    "advanced_conversations_count": advanced_stats.get("conversations", 0),
                     "semantic_count": semantic_count,
                     "persona_count": persona_count,
                     "conversation_count": conversation_count,
                 },
+                entities=entities,
+                facts=facts,
+                advanced_conversations=advanced_conversations,
                 persons=persons,
                 conversations=recent_conversations,
-                episodic=[],
-                semantic=[],
-                procedural=[],
-                reflections=[],
             )
 
         @app.route("/dashboard/audit")
         def audit():
-            # Get audit entries from audit log
             import json as json_lib
             entries = []
+            action_counts: dict[str, int] = {}
+            audit_path = os.path.join(_DATA_DIR, "audit.jsonl")
             try:
-                audit_path = "data/audit.jsonl"
                 if os.path.exists(audit_path):
-                    with open(audit_path, "r") as f:
+                    with open(audit_path, "r", encoding="utf-8") as f:
                         for line in f:
+                            line = line.strip()
+                            if not line:
+                                continue
                             try:
-                                entry = json_lib.loads(line.strip())
+                                entry = json_lib.loads(line)
+                                ts = entry.get("timestamp_ms", 0)
+                                if ts > 0:
+                                    entry["time_str"] = time.strftime(
+                                        "%m-%d %H:%M:%S",
+                                        time.localtime(ts / 1000),
+                                    )
+                                else:
+                                    entry["time_str"] = ""
+                                detail = entry.get("detail", {})
+                                if isinstance(detail, dict):
+                                    parts = []
+                                    for k, v in list(detail.items())[:3]:
+                                        sv = str(v)[:60]
+                                        parts.append(f"{k}={sv}")
+                                    entry["detail_summary"] = ", ".join(parts)
+                                else:
+                                    entry["detail_summary"] = str(detail)[:100]
                                 entries.append(entry)
+                                action = entry.get("action", "unknown")
+                                action_counts[action] = action_counts.get(action, 0) + 1
                             except Exception:
                                 pass
             except Exception:
                 pass
+            entries.reverse()
+            total = len(entries)
             return render_template("dashboard/audit.html",
-                entries=entries[-50:],
-                stats={"total_entries": len(entries)},
+                entries=entries,
+                stats={"total_entries": total},
+                action_counts=action_counts,
             )
 
         @app.route("/dashboard/errors")
         def errors():
             return render_template("dashboard/errors.html", errors=[])
+
+        @app.route("/api/audit/stream")
+        def audit_stream():
+            from flask import Response, request as flask_request
+            import json as j
+
+            last_id = flask_request.args.get("last_id", "")
+
+            def generate():
+                audit_path = os.path.join(_DATA_DIR, "audit.jsonl")
+                last_size = 0
+                while True:
+                    try:
+                        if os.path.exists(audit_path):
+                            size = os.path.getsize(audit_path)
+                            if size > last_size:
+                                with open(audit_path, "r", encoding="utf-8") as f:
+                                    f.seek(last_size)
+                                    for line in f:
+                                        line = line.strip()
+                                        if line:
+                                            try:
+                                                entry = j.loads(line)
+                                                if entry.get("action", "").startswith("llm_") or entry.get("action", "").startswith("tool_"):
+                                                    ts = entry.get("timestamp_ms", 0)
+                                                    if ts > 0:
+                                                        entry["time_str"] = time.strftime(
+                                                            "%H:%M:%S", time.localtime(ts / 1000),
+                                                        )
+                                                    yield f"data: {j.dumps(entry, ensure_ascii=False)}\n\n"
+                                            except Exception:
+                                                pass
+                                last_size = size
+                    except Exception:
+                        pass
+                    import time as _time
+                    _time.sleep(2)
+
+            return Response(generate(), mimetype='text/event-stream')
+
+        @app.route("/dashboard/agora")
+        def agora_page():
+            agora_data = {"configured": False}
+            try:
+                from aegis_ai.integrations.agora.agora_service import AgoraService
+                svc = AgoraService()
+                if svc.is_configured:
+                    agora_data["configured"] = True
+                    me = svc.get_me()
+                    if hasattr(me, "name"):
+                        agora_data["account"] = me.name
+                        agora_data["account_id"] = me.id
+                    cursor = svc.get_cursor()
+                    if hasattr(cursor, "last_read_post_id"):
+                        agora_data["cursor"] = cursor.last_read_post_id
+                    posts = svc.read_posts(limit=200)
+                    if hasattr(posts, "posts"):
+                        agora_data["posts"] = [{
+                            "id": p.id, "author": p.author.name,
+                            "body": p.body[:200], "thread_id": p.thread_id,
+                            "reply_to": p.reply_to, "created_at": p.created_at,
+                        } for p in reversed(posts.posts)]
+                        agora_data["total_posts"] = len(posts.posts)
+                        agora_data["max_post_id"] = posts.max_post_id
+                    mentions = svc.read_mentions(limit=50)
+                    if hasattr(mentions, "posts"):
+                        agora_data["mentions"] = [{
+                            "id": p.id, "author": p.author.name,
+                            "body": p.body[:200], "created_at": p.created_at,
+                        } for p in mentions.posts]
+            except Exception:
+                pass
+            return render_template("dashboard/agora.html", agora=agora_data)
+
+        @app.route("/dashboard/desires")
+        def desires_page():
+            desire_data = {"desires": [], "context": ""}
+            try:
+                from aegis_ai.desire.desire_system import DesireSystem
+                ds = DesireSystem(data_dir=os.path.join(_DATA_DIR, "desires"))
+                ds.apply_decay()
+                ds._save()
+                ctx = ds.get_context()
+                if ctx:
+                    desire_data["context"] = ctx
+                if hasattr(ds, "_desires"):
+                    desire_data["desires"] = [{
+                        "name": d.name, "value": d.value,
+                        "expected": d.expected_value,
+                        "frustration": max(0, d.expected_value - d.value),
+                        "last_updated": time.strftime(
+                            "%Y-%m-%d %H:%M",
+                            time.localtime(d.last_updated_at / 1000),
+                        ) if d.last_updated_at > 0 else "never",
+                        "decay_rate": d.decay_rate_per_hour,
+                    } for d in ds._desires.values()]
+            except Exception as exc:
+                logger.warning("Desires page error: %s", exc)
+            return render_template("dashboard/desires.html", desires=desire_data)
+
+        @app.route("/api/desires/update", methods=["POST"])
+        def api_desires_update():
+            from flask import request
+            data = request.get_json(silent=True) or {}
+            name = data.get("name", "").strip()
+            value = data.get("value")
+            expected = data.get("expected_value")
+            decay_rate = data.get("decay_rate")
+
+            if not name:
+                return jsonify({"error": "name is required"}), 400
+
+            try:
+                from aegis_ai.desire.desire_system import DesireSystem
+                ds = DesireSystem(data_dir=os.path.join(_DATA_DIR, "desires"))
+
+                dim = ds.get_desire(name)
+                if value is not None:
+                    ds.update_value(name, float(value), reason="Manual edit via dashboard")
+                if expected is not None:
+                    ds.set_expected_value(name, float(expected))
+                if decay_rate is not None:
+                    dim.decay_rate_per_hour = max(0.0, min(10.0, float(decay_rate)))
+                ds._save()
+
+                dim = ds.get_desire(name)
+                return jsonify({
+                    "ok": True,
+                    "name": name,
+                    "value": dim.value,
+                    "expected_value": dim.expected_value,
+                    "decay_rate": dim.decay_rate_per_hour,
+                })
+            except KeyError:
+                return jsonify({"error": f"Unknown desire: {name}"}), 404
+            except Exception as exc:
+                logger.warning("Desire update error: %s", exc)
+                return jsonify({"error": str(exc)}), 500
 
         @app.route("/api/dashboard/overview")
         def api_overview():
@@ -479,7 +789,7 @@ class DashboardApp:
                 from aegis_ai.memory.advanced import AdvancedMemory
                 from aegis_ai.llm.factory import create_llm_provider
                 llm = create_llm_provider()
-                memory = AdvancedMemory(data_dir="data/memory", llm_provider=llm)
+                memory = AdvancedMemory(data_dir=os.path.join(_DATA_DIR, "memory"), llm_provider=llm)
                 memory.add_conversation(user_msg, bot_msg)
             except Exception as e:
                 logger.debug("Auto-save memory failed: %s", e)
@@ -489,7 +799,7 @@ class DashboardApp:
                 from aegis_ai.desire.desire_system import DesireSystem
                 from aegis_ai.llm.factory import create_llm_provider as _create
                 _llm = _create()
-                desire_system = DesireSystem(data_dir="data/desires", llm_provider=_llm)
+                desire_system = DesireSystem(data_dir=os.path.join(_DATA_DIR, "desires"), llm_provider=_llm)
                 desire_system.update_after_action(
                     f"User: {user_msg[:200]}",
                     f"AEGIS: {bot_msg[:200]}",
@@ -618,7 +928,7 @@ class DashboardApp:
                                 try:
                                     from aegis_ai.memory.advanced import AdvancedMemory
                                     _llm = create_llm_provider()
-                                    memory = AdvancedMemory(data_dir="data/memory", llm_provider=_llm)
+                                    memory = AdvancedMemory(data_dir=os.path.join(_DATA_DIR, "memory"), llm_provider=_llm)
                                     memory.add_conversation(content, "Saved")
                                     action_result = f"Saved: {content}"
                                 except Exception as e:
@@ -629,7 +939,7 @@ class DashboardApp:
                             try:
                                 from aegis_ai.memory.advanced import AdvancedMemory
                                 _llm = create_llm_provider()
-                                memory = AdvancedMemory(data_dir="data/memory", llm_provider=_llm)
+                                memory = AdvancedMemory(data_dir=os.path.join(_DATA_DIR, "memory"), llm_provider=_llm)
                                 context = memory.get_context(query)
                                 action_result = context if context else "No memory found."
                             except Exception as e:
@@ -640,7 +950,7 @@ class DashboardApp:
                             try:
                                 from aegis_ai.memory.advanced import AdvancedMemory
                                 _llm = create_llm_provider()
-                                memory = AdvancedMemory(data_dir="data/memory", llm_provider=_llm)
+                                memory = AdvancedMemory(data_dir=os.path.join(_DATA_DIR, "memory"), llm_provider=_llm)
                                 deleted = memory.delete_fact(query)
                                 action_result = f"Deleted {deleted} facts matching: {query}"
                             except Exception as e:
@@ -649,7 +959,7 @@ class DashboardApp:
                         elif action == "memory_clear":
                             try:
                                 from aegis_ai.memory.advanced import AdvancedMemory
-                                memory = AdvancedMemory(data_dir="data/memory")
+                                memory = AdvancedMemory(data_dir=os.path.join(_DATA_DIR, "memory"))
                                 memory.clear_all()
                                 action_result = "All memory cleared."
                             except Exception as e:
@@ -836,7 +1146,7 @@ For general questions, respond naturally using your memory and knowledge."""
                                     from aegis_ai.memory.advanced import AdvancedMemory
                                     from aegis_ai.llm.factory import create_llm_provider as _create
                                     _llm = _create()
-                                    memory = AdvancedMemory(data_dir="data/memory", llm_provider=_llm)
+                                    memory = AdvancedMemory(data_dir=os.path.join(_DATA_DIR, "memory"), llm_provider=_llm)
                                     # Use LLM to decide how to save
                                     memory.add_conversation(content, f"Saved as {category}")
                                     action_result = f"Saved to memory: {content}"
@@ -849,7 +1159,7 @@ For general questions, respond naturally using your memory and knowledge."""
                                 from aegis_ai.memory.advanced import AdvancedMemory
                                 from aegis_ai.llm.factory import create_llm_provider as _create
                                 _llm = _create()
-                                memory = AdvancedMemory(data_dir="data/memory", llm_provider=_llm)
+                                memory = AdvancedMemory(data_dir=os.path.join(_DATA_DIR, "memory"), llm_provider=_llm)
                                 context = memory.get_context(query)
                                 action_result = context if context else "No memory found."
                             except Exception as e:
@@ -861,7 +1171,7 @@ For general questions, respond naturally using your memory and knowledge."""
                                 from aegis_ai.memory.advanced import AdvancedMemory
                                 from aegis_ai.llm.factory import create_llm_provider as _create
                                 _llm = _create()
-                                memory = AdvancedMemory(data_dir="data/memory", llm_provider=_llm)
+                                memory = AdvancedMemory(data_dir=os.path.join(_DATA_DIR, "memory"), llm_provider=_llm)
                                 deleted_facts = memory.delete_fact(query)
                                 deleted_entity = memory.delete_entity(query)
                                 parts = []
@@ -876,7 +1186,7 @@ For general questions, respond naturally using your memory and knowledge."""
                         elif action == "memory_clear":
                             try:
                                 from aegis_ai.memory.advanced import AdvancedMemory
-                                memory = AdvancedMemory(data_dir="data/memory")
+                                memory = AdvancedMemory(data_dir=os.path.join(_DATA_DIR, "memory"))
                                 memory.clear_all()
                                 # Also clear legacy memory
                                 import shutil
@@ -928,11 +1238,11 @@ For general questions, respond naturally using your memory and knowledge."""
                 from aegis_ai.desire.desire_system import DesireSystem
                 from aegis_ai.llm.factory import create_llm_provider
                 llm = create_llm_provider()
-                desire = DesireSystem(data_dir="data/desires", llm_provider=llm)
+                desire = DesireSystem(data_dir=os.path.join(_DATA_DIR, "desires"), llm_provider=llm)
                 loop = AutonomousLoop(
                     llm_provider=llm,
                     desire_system=desire,
-                    data_dir="data/autonomous",
+                    data_dir=os.path.join(_DATA_DIR, "autonomous"),
                 )
                 return jsonify(loop.get_status())
             except Exception as e:
@@ -946,11 +1256,11 @@ For general questions, respond naturally using your memory and knowledge."""
                 from aegis_ai.desire.desire_system import DesireSystem
                 from aegis_ai.llm.factory import create_llm_provider
                 llm = create_llm_provider()
-                desire = DesireSystem(data_dir="data/desires", llm_provider=llm)
+                desire = DesireSystem(data_dir=os.path.join(_DATA_DIR, "desires"), llm_provider=llm)
                 loop = AutonomousLoop(
                     llm_provider=llm,
                     desire_system=desire,
-                    data_dir="data/autonomous",
+                    data_dir=os.path.join(_DATA_DIR, "autonomous"),
                 )
                 status = loop.trigger_now()
                 return jsonify(status)
@@ -965,11 +1275,11 @@ For general questions, respond naturally using your memory and knowledge."""
                 from aegis_ai.desire.desire_system import DesireSystem
                 from aegis_ai.llm.factory import create_llm_provider
                 llm = create_llm_provider()
-                desire = DesireSystem(data_dir="data/desires", llm_provider=llm)
+                desire = DesireSystem(data_dir=os.path.join(_DATA_DIR, "desires"), llm_provider=llm)
                 loop = AutonomousLoop(
                     llm_provider=llm,
                     desire_system=desire,
-                    data_dir="data/autonomous",
+                    data_dir=os.path.join(_DATA_DIR, "autonomous"),
                 )
                 loop.start()
                 return jsonify({"status": "started"})
@@ -981,7 +1291,7 @@ For general questions, respond naturally using your memory and knowledge."""
             """Stop autonomous loop."""
             try:
                 from aegis_ai.autonomous.autonomous_loop import AutonomousLoop
-                loop = AutonomousLoop(data_dir="data/autonomous")
+                loop = AutonomousLoop(data_dir=os.path.join(_DATA_DIR, "autonomous"))
                 loop.stop()
                 return jsonify({"status": "stopped"})
             except Exception as e:
@@ -992,7 +1302,7 @@ For general questions, respond naturally using your memory and knowledge."""
             """Get current desire states."""
             try:
                 from aegis_ai.desire.desire_system import DesireSystem
-                desire = DesireSystem(data_dir="data/desires")
+                desire = DesireSystem(data_dir=os.path.join(_DATA_DIR, "desires"))
                 return jsonify(desire.get_stats())
             except Exception as e:
                 return jsonify({"error": str(e)})
@@ -1002,7 +1312,7 @@ For general questions, respond naturally using your memory and knowledge."""
             """Get pending approval requests."""
             try:
                 from aegis_ai.approval import ApprovalQueue
-                queue = ApprovalQueue(data_dir="data/approvals")
+                queue = ApprovalQueue(data_dir=os.path.join(_DATA_DIR, "approvals"))
                 pending = queue.list_pending()
                 return jsonify({"approvals": [r.to_dict() for r in pending]})
             except Exception as e:
@@ -1013,7 +1323,7 @@ For general questions, respond naturally using your memory and knowledge."""
             """Get approval detail."""
             try:
                 from aegis_ai.approval import ApprovalQueue
-                queue = ApprovalQueue(data_dir="data/approvals")
+                queue = ApprovalQueue(data_dir=os.path.join(_DATA_DIR, "approvals"))
                 req = queue.get(approval_id)
                 if req is None:
                     return jsonify({"error": "Not found"}), 404
@@ -1027,7 +1337,7 @@ For general questions, respond naturally using your memory and knowledge."""
             try:
                 from flask import request as flask_request
                 from aegis_ai.approval import ApprovalQueue
-                queue = ApprovalQueue(data_dir="data/approvals")
+                queue = ApprovalQueue(data_dir=os.path.join(_DATA_DIR, "approvals"))
                 note = flask_request.json.get("note", "") if flask_request.is_json else ""
                 req = queue.approve(approval_id, user_note=note)
                 if req is None:
@@ -1042,7 +1352,7 @@ For general questions, respond naturally using your memory and knowledge."""
             try:
                 from flask import request as flask_request
                 from aegis_ai.approval import ApprovalQueue
-                queue = ApprovalQueue(data_dir="data/approvals")
+                queue = ApprovalQueue(data_dir=os.path.join(_DATA_DIR, "approvals"))
                 reason = flask_request.json.get("reason", "") if flask_request.is_json else ""
                 req = queue.reject(approval_id, reason=reason)
                 if req is None:
@@ -1057,7 +1367,7 @@ For general questions, respond naturally using your memory and knowledge."""
             try:
                 from flask import request as flask_request
                 from aegis_ai.approval import ApprovalQueue
-                queue = ApprovalQueue(data_dir="data/approvals")
+                queue = ApprovalQueue(data_dir=os.path.join(_DATA_DIR, "approvals"))
                 if not flask_request.is_json:
                     return jsonify({"error": "JSON body required"}), 400
                 args = flask_request.json.get("arguments", {})
@@ -1075,7 +1385,7 @@ For general questions, respond naturally using your memory and knowledge."""
             try:
                 from flask import request as flask_request
                 from aegis_ai.approval import ApprovalQueue
-                queue = ApprovalQueue(data_dir="data/approvals")
+                queue = ApprovalQueue(data_dir=os.path.join(_DATA_DIR, "approvals"))
                 reason = flask_request.json.get("reason", "") if flask_request.is_json else ""
                 req = queue.cancel(approval_id, reason=reason)
                 if req is None:

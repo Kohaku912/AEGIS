@@ -176,14 +176,17 @@ class AutonomousLoop:
         self._save()
 
     def _get_low_desires(self) -> list[dict[str, Any]]:
-        """Get desires below threshold."""
+        """Get desires below threshold or with high frustration."""
         low = []
         for name, desire in self._desire.get_all_desires().items():
-            if desire.value < self._desire_threshold:
+            frustration = max(0, desire.expected_value - desire.value)
+            if desire.value < self._desire_threshold or frustration >= 3.0:
                 low.append({
                     "name": name,
                     "value": desire.value,
-                    "gap": self._desire_threshold - desire.value,
+                    "expected": desire.expected_value,
+                    "frustration": frustration,
+                    "gap": max(self._desire_threshold - desire.value, frustration),
                 })
         return sorted(low, key=lambda d: d["gap"], reverse=True)
 
@@ -219,14 +222,16 @@ Respond with JSON:
 }}
 
 Examples:
+- For low user_helpfulness: "Review pending user requests and prepare helpful responses"
+- For low learning_progress: "Review recent errors and learn from them"
 - For low curiosity: "Research a new technology topic"
-- For low social_connectivity: "Prepare a helpful summary for the user"
-- For low personal_fulfillment: "Complete a pending task or learn something new"
+- For low system_safety: "Review and improve system security"
+- For low reliability: "Run tests and fix any failing tests"
+- For low social_connection: "Check AGORA for new messages"
 - For low creativity: "Generate creative ideas or solutions"
 - For low purpose: "Reflect on goals and plan next steps"
-- For low recognition: "Prepare something useful to show the user"
 - For low autonomy: "Make an independent decision about system improvement"
-- For low safety: "Review and improve system security"""
+- For low maintenance: "Clean up old logs and optimize system"""
 
         result = self._llm.generate(
             prompt=prompt,
@@ -259,14 +264,16 @@ Examples:
     def _generate_default_tasks(self, low_desires: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Generate default tasks when LLM is unavailable."""
         task_templates = {
-            "social_connectivity": "Prepare a helpful summary for the user",
-            "personal_fulfillment": "Review and organize pending tasks",
+            "user_helpfulness": "Review pending user requests and prepare helpful responses",
+            "learning_progress": "Review recent errors and learn from them",
             "curiosity": "Research a new topic of interest",
-            "safety": "Review system security settings",
-            "recognition": "Prepare a useful report for the user",
+            "system_safety": "Review system security settings and audit logs",
+            "reliability": "Run tests and fix any failing tests",
+            "social_connection": "Check AGORA for new messages and prepare responses",
             "autonomy": "Plan next steps for system improvement",
             "creativity": "Generate creative ideas for projects",
             "purpose": "Reflect on goals and progress",
+            "maintenance": "Clean up old logs and optimize system",
         }
 
         tasks = []

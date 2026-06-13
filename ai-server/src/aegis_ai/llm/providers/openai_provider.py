@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 from dataclasses import dataclass
 from typing import Any
 
@@ -73,6 +74,7 @@ class OpenAIProvider:
             messages.append({"role": "system", "content": system_prompt})
         messages.append({"role": "user", "content": prompt})
 
+        start = time.time()
         try:
             response = self._client.chat.completions.create(
                 model=self._model,
@@ -83,20 +85,58 @@ class OpenAIProvider:
 
             content = response.choices[0].message.content or ""
             tokens = response.usage.total_tokens if response.usage else 0
+            duration_ms = (time.time() - start) * 1000
+
+            self._audit_log(
+                action="llm_call",
+                decision="success",
+                detail={
+                    "model": self._model,
+                    "prompt_preview": prompt[:200],
+                    "response_preview": content[:200],
+                    "tokens": tokens,
+                    "duration_ms": round(duration_ms, 1),
+                },
+            )
 
             return LLMResponse(
                 content=content,
                 model_used=self._model,
                 provider_used="openai",
                 tokens_used=tokens,
-                cost_estimate=tokens * 0.000002,  # Rough estimate
+                cost_estimate=tokens * 0.000002,
                 success=True,
             )
         except Exception as e:
+            duration_ms = (time.time() - start) * 1000
             logger.error("OpenAI API call failed: %s", e)
+            self._audit_log(
+                action="llm_call",
+                decision="error",
+                detail={
+                    "model": self._model,
+                    "prompt_preview": prompt[:200],
+                    "error": str(e)[:200],
+                    "duration_ms": round(duration_ms, 1),
+                },
+            )
             return LLMResponse(
                 success=False,
                 error=str(e),
                 model_used=self._model,
                 provider_used="openai",
             )
+
+    def _audit_log(self, action: str, decision: str, detail: dict) -> None:
+        try:
+            from aegis_ai.audit import AuditEntry, AuditLog
+            log = AuditLog()
+            log.append(AuditEntry(
+                action=action,
+                actor="llm",
+                capability_id=f"llm.{self._model}",
+                decision=decision,
+                detail=detail,
+            ))
+        except Exception:
+            pass

@@ -43,9 +43,18 @@
         .chat-send { background: #238636; color: white; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 13px; }
         .chat-send:hover { background: #2ea043; }
         .chat-toggle { position: fixed; bottom: 20px; right: 20px; background: #238636; color: white; border: none; width: 48px; height: 48px; border-radius: 50%; cursor: pointer; font-size: 20px; display: none; z-index: 100; }
+        .llm-notify { position: fixed; top: 0; left: 0; right: 350px; z-index: 50; max-height: 200px; overflow-y: auto; pointer-events: none; }
+        .llm-notify-item { background: #161b22; border-bottom: 1px solid #30363d; padding: 6px 16px; font-size: 12px; display: flex; gap: 8px; align-items: center; animation: fadeIn 0.3s; }
+        .llm-notify-item.success { border-left: 3px solid #3fb950; }
+        .llm-notify-item.error { border-left: 3px solid #f85149; }
+        .llm-notify-item .time { color: #8b949e; white-space: nowrap; }
+        .llm-notify-item .action { color: #58a6ff; font-weight: 600; min-width: 60px; }
+        .llm-notify-item .detail { color: #c9d1d9; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
     </style>
 </head>
 <body>
+    <div class="llm-notify" id="llmNotify"></div>
     <div class="main-content">
         <nav>
             <span class="brand">AEGIS</span>
@@ -56,6 +65,8 @@
             <a href="/dashboard/tasks">Tasks</a>
             <a href="/dashboard/support">Support</a>
             <a href="/dashboard/memory">Memory</a>
+            <a href="/dashboard/agora">AGORA</a>
+            <a href="/dashboard/desires">Desires</a>
             <a href="/dashboard/audit">Audit</a>
             <a href="/dashboard/errors">Errors</a>
             <a href="/approvals">Approvals</a>
@@ -206,6 +217,45 @@
 
         // Load history on page load
         loadHistory();
+
+        // SSE for real-time LLM/tool activity
+        (function() {
+            const container = document.getElementById('llmNotify');
+            if (!container) return;
+            const maxItems = 10;
+            function addItem(entry) {
+                const div = document.createElement('div');
+                const isError = entry.decision === 'error';
+                div.className = 'llm-notify-item ' + (isError ? 'error' : 'success');
+                const time = entry.time_str || '';
+                const action = entry.action || '';
+                const detail = entry.detail || {};
+                let detailText = '';
+                if (action === 'llm_call') {
+                    detailText = (detail.model || '') + ': ' + (detail.prompt_preview || '').substring(0, 80);
+                    if (detail.response_preview) detailText += ' → ' + detail.response_preview.substring(0, 60);
+                    if (detail.tokens) detailText += ' [' + detail.tokens + ' tokens]';
+                } else if (action.startsWith('tool_')) {
+                    detailText = (detail.capability_id || '') + ': ' + (detail.result_preview || '').substring(0, 80);
+                } else {
+                    detailText = JSON.stringify(detail).substring(0, 120);
+                }
+                div.innerHTML = '<span class="time">' + time + '</span><span class="action">' + action + '</span><span class="detail">' + detailText + '</span>';
+                container.insertBefore(div, container.firstChild);
+                while (container.children.length > maxItems) {
+                    container.removeChild(container.lastChild);
+                }
+                setTimeout(() => { div.style.opacity = '0.7'; }, 5000);
+                setTimeout(() => { if (div.parentNode) div.parentNode.removeChild(div); }, 30000);
+            }
+            try {
+                const es = new EventSource('/api/audit/stream');
+                es.onmessage = function(e) {
+                    try { addItem(JSON.parse(e.data)); } catch(err) {}
+                };
+                es.onerror = function() { setTimeout(() => { es.close(); }, 5000); };
+            } catch(e) {}
+        })();
     </script>
 </body>
 </html>

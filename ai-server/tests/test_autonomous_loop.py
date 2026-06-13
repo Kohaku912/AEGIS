@@ -29,7 +29,13 @@ class TestAutonomousLoop:
         try:
             desire = DesireSystem(
                 data_dir=f"{tmpdir}/desires",
-                initial_values={"curiosity": 2.0, "safety": 8.0},
+                initial_values={
+                    "curiosity": 2.0, "system_safety": 9.0,
+                    "user_helpfulness": 8.0, "reliability": 8.0,
+                    "learning_progress": 7.0, "autonomy": 6.0,
+                    "social_connection": 6.0, "creativity": 6.0,
+                    "purpose": 7.0, "maintenance": 7.0,
+                },
             )
             loop = AutonomousLoop(
                 data_dir=f"{tmpdir}/loop",
@@ -37,8 +43,9 @@ class TestAutonomousLoop:
                 desire_threshold=4.0,
             )
             low = loop._get_low_desires()
-            assert len(low) == 1
+            assert len(low) >= 1
             assert low[0]["name"] == "curiosity"
+            assert low[0]["frustration"] > 0
         finally:
             shutil.rmtree(tmpdir, ignore_errors=True)
 

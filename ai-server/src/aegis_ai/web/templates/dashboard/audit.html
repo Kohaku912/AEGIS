@@ -5,16 +5,30 @@
 <div class="grid">
     <div class="card"><h3>Total Entries</h3><div class="value">{{ stats.total_entries }}</div></div>
 </div>
+
 <div class="card">
-    <h3>Recent Audit Entries</h3>
+    <h3>Action Type Summary</h3>
     <table>
-        <tr><th>Action</th><th>Capability</th><th>Decision</th><th>Actor</th><th>Reason</th><th>Time</th></tr>
+        <tr><th>Action</th><th>Count</th></tr>
+        {% for action, count in action_counts.items() %}
+        <tr><td>{{ action }}</td><td>{{ count }}</td></tr>
+        {% endfor %}
+    </table>
+</div>
+
+<div class="card">
+    <h3>All Audit Entries (newest first)</h3>
+    <table>
+        <tr><th>Time</th><th>Action</th><th>Capability</th><th>Decision</th><th>Actor</th><th>Reason</th><th>Detail</th></tr>
         {% for e in entries %}
         <tr>
-            <td>{{ e.action }}</td><td>{{ e.capability_id }}</td>
-            <td><span class="badge badge-{{ 'green' if e.decision == 'ALLOW' else 'red' if e.decision == 'DENY' else 'yellow' }}">{{ e.decision }}</span></td>
-            <td>{{ e.actor }}</td><td>{{ e.reason[:80] }}</td>
-            <td style="font-size:11px">{{ e.timestamp_ms }}</td>
+            <td style="font-size:11px;white-space:nowrap;">{{ e.time_str }}</td>
+            <td>{{ e.action }}</td>
+            <td>{{ e.capability_id }}</td>
+            <td><span class="badge badge-{{ 'green' if e.decision in ['ALLOW','OBSERVE','THINK','PLAN','ACT','VERIFY','REFLECT'] else 'red' if e.decision == 'DENY' else 'yellow' }}">{{ e.decision }}</span></td>
+            <td>{{ e.actor }}</td>
+            <td style="max-width:200px;word-break:break-all;">{{ e.reason[:80] }}</td>
+            <td style="max-width:300px;word-break:break-all;font-size:11px;">{{ e.detail_summary }}</td>
         </tr>
         {% endfor %}
     </table>

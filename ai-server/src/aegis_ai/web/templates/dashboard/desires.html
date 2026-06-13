@@ -1,0 +1,73 @@
+{% extends "dashboard/base.html" %}
+{% block title %}AEGIS Dashboard — Desires{% endblock %}
+{% block content %}
+<h1>Desire States</h1>
+
+{% if desires.context %}
+<div class="card">
+    <h3>Desire Context</h3>
+    <pre style="background:#0d1117;padding:8px;border-radius:4px;font-size:12px;white-space:pre-wrap;">{{ desires.context }}</pre>
+</div>
+{% endif %}
+
+{% if desires.desires %}
+<div class="card">
+    <h3>All Desires</h3>
+    <div id="saveStatus" style="margin-bottom:8px;font-size:13px;"></div>
+    <table>
+        <tr><th>Desire</th><th>Value</th><th>Expected</th><th>Frustration</th><th>Decay/hr</th><th>Last Updated</th><th>Status</th><th>Action</th></tr>
+        {% for d in desires.desires %}
+        <tr id="row-{{ d.name }}">
+            <td>{{ d.name }}</td>
+            <td><input type="number" id="val-{{ d.name }}" value="{{ '%.1f'|format(d.value) }}" min="0" max="10" step="0.1" style="width:60px;background:#0d1117;border:1px solid #30363d;color:#c9d1d9;padding:4px;border-radius:4px;"></td>
+            <td><input type="number" id="exp-{{ d.name }}" value="{{ '%.1f'|format(d.expected) }}" min="0" max="10" step="0.1" style="width:60px;background:#0d1117;border:1px solid #30363d;color:#c9d1d9;padding:4px;border-radius:4px;"></td>
+            <td>{{ "%.1f"|format(d.frustration) }}</td>
+            <td><input type="number" id="dec-{{ d.name }}" value="{{ '%.2f'|format(d.decay_rate) }}" min="0" max="10" step="0.01" style="width:60px;background:#0d1117;border:1px solid #30363d;color:#c9d1d9;padding:4px;border-radius:4px;"></td>
+            <td>{{ d.last_updated }}</td>
+            <td>
+                {% if d.frustration > 3 %}
+                <span class="badge badge-red">High frustration</span>
+                {% elif d.frustration > 1 %}
+                <span class="badge badge-yellow">Moderate</span>
+                {% else %}
+                <span class="badge badge-green">Satisfied</span>
+                {% endif %}
+            </td>
+            <td><button onclick="saveDesire('{{ d.name }}')" style="background:#238636;color:white;border:none;padding:4px 12px;border-radius:4px;cursor:pointer;font-size:12px;">Save</button></td>
+        </tr>
+        {% endfor %}
+    </table>
+</div>
+{% else %}
+<div class="card">
+    <h3>Status</h3>
+    <p>No desire data available. Desire system may not be initialized.</p>
+</div>
+{% endif %}
+
+<script>
+async function saveDesire(name) {
+    const val = parseFloat(document.getElementById('val-' + name).value);
+    const exp = parseFloat(document.getElementById('exp-' + name).value);
+    const dec = parseFloat(document.getElementById('dec-' + name).value);
+    const status = document.getElementById('saveStatus');
+
+    try {
+        const res = await fetch('/api/desires/update', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({name: name, value: val, expected_value: exp, decay_rate: dec}),
+        });
+        const data = await res.json();
+        if (data.ok) {
+            status.innerHTML = '<span style="color:#3fb950;">Saved: ' + name + ' = ' + data.value.toFixed(1) + ' (expected ' + data.expected_value.toFixed(1) + ', decay ' + data.decay_rate.toFixed(2) + '/hr)</span>';
+            setTimeout(() => { status.innerHTML = ''; }, 3000);
+        } else {
+            status.innerHTML = '<span style="color:#f85149;">Error: ' + data.error + '</span>';
+        }
+    } catch (e) {
+        status.innerHTML = '<span style="color:#f85149;">Error: ' + e.message + '</span>';
+    }
+}
+</script>
+{% endblock %}

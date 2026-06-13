@@ -108,7 +108,7 @@ class TestDecay:
         system = DesireSystem(data_dir=tmpdir)
         curiosity = system.get_desire("curiosity")
         initial_value = curiosity.value
-        curiosity.last_updated_at = int(time.time() * 1000) - 3_600_000  # 1 hour ago
+        curiosity.last_updated_at = int(time.time() * 1000) - 3_600_000
         system.apply_decay()
         assert curiosity.value < initial_value
 
@@ -116,7 +116,7 @@ class TestDecay:
         system = DesireSystem(data_dir=tmpdir)
         curiosity = system.get_desire("curiosity")
         curiosity.value = 8.0
-        curiosity.last_updated_at = int(time.time() * 1000) - 3_600_000  # 1 hour
+        curiosity.last_updated_at = int(time.time() * 1000) - 3_600_000
         rate = curiosity.decay_rate_per_hour
         system.apply_decay()
         assert curiosity.value == pytest.approx(8.0 - rate)
@@ -125,7 +125,7 @@ class TestDecay:
         system = DesireSystem(data_dir=tmpdir)
         curiosity = system.get_desire("curiosity")
         curiosity.value = 0.1
-        curiosity.last_updated_at = int(time.time() * 1000) - 360 * 3_600_000  # 360 hours
+        curiosity.last_updated_at = int(time.time() * 1000) - 360 * 3_600_000
         system.apply_decay()
         assert curiosity.value == pytest.approx(0.0)
 
@@ -135,7 +135,7 @@ class TestDecay:
         base = 1_000_000_000_000
         curiosity.last_updated_at = base
         curiosity.value = 5.0
-        system.apply_decay(now_ms=base + 3_600_000)  # 1 hour later
+        system.apply_decay(now_ms=base + 3_600_000)
         assert curiosity.value == pytest.approx(5.0 - curiosity.decay_rate_per_hour)
 
     def test_decay_skips_hidden(self, tmpdir):
