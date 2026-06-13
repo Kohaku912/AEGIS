@@ -28,6 +28,7 @@ from typing import Any
 from aegis_schema.models import Capability, RiskLevel
 from policy_engine import PolicyDecision, PolicyEngine, PolicyResult, create_default_policy_engine
 from tool_registry import ToolRegistry
+from server_executor import ServerExecutor
 
 logger = logging.getLogger("aegis_ai.tool_broker")
 
@@ -273,12 +274,14 @@ class ToolBroker:
         audit_log: Any = None,
         verification_service: Any = None,
         approval_queue: Any = None,
+        server_executor: ServerExecutor | None = None,
     ) -> None:
         self._registry = registry
         self._policy = policy_engine or create_default_policy_engine()
         self._audit = audit_log
         self._verification = verification_service
         self._approval_queue = approval_queue
+        self._server_executor = server_executor or ServerExecutor()
 
         # Mock executors: capability_id_prefix → executor function
         self._mock_executors: dict[str, MockExecutorFunc] = {}
@@ -629,25 +632,49 @@ class ToolBroker:
         """
         started_at = int(time.time() * 1000)
 
-        # Find mock executor
+        # Find mock executor (for testing)
         executor: MockExecutorFunc | None = None
         for prefix, func in self._mock_executors.items():
             if cap.id.startswith(prefix):
                 executor = func
                 break
 
+        # If no mock executor, use real server executor
         if executor is None:
-            if self._default_mock is not None:
-                executor = self._default_mock
-            else:
-                # No executor registered — return UNAVAILABLE
+            try:
+                output = self._server_executor.execute(cap, request.arguments)
+                finished_at = int(time.time() * 1000)
+
+                if isinstance(output, dict) and "error" in output:
+                    return ToolExecutionResult(
+                        request_id=request.request_id,
+                        status=InvokeStatus.EXECUTION_ERROR,
+                        error=output["error"],
+                        output=output,
+                        started_at=started_at,
+                        finished_at=finished_at,
+                        duration_ms=finished_at - started_at,
+                        policy_decision="ALLOW",
+                    )
+
                 return ToolExecutionResult(
                     request_id=request.request_id,
-                    status=InvokeStatus.UNAVAILABLE,
-                    error=f"No executor for '{cap.id}'. Capability not implemented.",
+                    status=InvokeStatus.SUCCESS,
+                    output=output if isinstance(output, dict) else {"result": output},
                     started_at=started_at,
-                    finished_at=int(time.time() * 1000),
-                    duration_ms=(int(time.time() * 1000) - started_at),
+                    finished_at=finished_at,
+                    duration_ms=finished_at - started_at,
+                    policy_decision="ALLOW",
+                )
+            except Exception as e:
+                finished_at = int(time.time() * 1000)
+                return ToolExecutionResult(
+                    request_id=request.request_id,
+                    status=InvokeStatus.EXECUTION_ERROR,
+                    error=f"Server execution error: {e}",
+                    started_at=started_at,
+                    finished_at=finished_at,
+                    duration_ms=finished_at - started_at,
                     policy_decision="ALLOW",
                 )
 

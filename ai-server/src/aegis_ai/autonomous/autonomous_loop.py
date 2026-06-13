@@ -41,15 +41,19 @@ class AutonomousLoop:
         desire_system: Any = None,
         memory_system: Any = None,
         reflection_engine: Any = None,
+        tool_broker: Any = None,
+        world_state_store: Any = None,
         data_dir: str = "data/autonomous",
-        desire_threshold: float = 4.0,  # Execute when desire < this
+        desire_threshold: float = 4.0,
         max_tasks_per_cycle: int = 3,
-        fallback_interval_seconds: int = 3600,  # 1 hour
+        fallback_interval_seconds: int = 3600,
     ) -> None:
         self._llm = llm_provider
         self._desire = desire_system
         self._memory = memory_system
         self._reflection = reflection_engine
+        self._broker = tool_broker
+        self._world = world_state_store
         self._data_dir = Path(data_dir)
         self._data_dir.mkdir(parents=True, exist_ok=True)
 
@@ -287,58 +291,47 @@ Examples:
         return tasks
 
     def _execute_tasks(self, tasks: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        """Execute tasks and return results."""
-        results = []
+        """Execute tasks using the AutonomousPlanner for real tool execution."""
+        from aegis_ai.autonomous.planner import AutonomousPlanner
 
+        planner = AutonomousPlanner(
+            llm_provider=self._llm,
+            tool_broker=self._broker,
+            world_state_store=self._world,
+            memory_store=self._memory,
+            data_dir=str(self._data_dir / "plans"),
+        )
+
+        results = []
         for task in tasks:
             desire_name = task.get("desire", "unknown")
             action = task.get("action", "Unknown task")
 
-            logger.info("Executing task: %s (for %s)", action[:50], desire_name)
+            logger.info("Planning task: %s (for %s)", action[:50], desire_name)
 
-            # Execute task using LLM
-            if self._llm:
-                try:
-                    result = self._llm.generate(
-                        prompt=f"Execute this task: {action}\n\nProvide a brief summary of what you would do.",
-                        system_prompt="You are AEGIS executing an autonomous task. Be concise.",
-                        max_tokens=200,
-                    )
-                    if result.success:
-                        results.append({
-                            "desire": desire_name,
-                            "action": action,
-                            "result": result.content[:200],
-                            "success": True,
-                        })
-                    else:
-                        results.append({
-                            "desire": desire_name,
-                            "action": action,
-                            "result": "LLM execution failed",
-                            "success": False,
-                        })
-                except Exception as e:
-                    results.append({
-                        "desire": desire_name,
-                        "action": action,
-                        "result": str(e),
-                        "success": False,
-                    })
-            else:
+            plan = planner.plan(action, context=f"Desire: {desire_name}")
+            if plan.status.value == "cancelled":
                 results.append({
-                    "desire": desire_name,
-                    "action": action,
-                    "result": "No LLM provider",
-                    "success": False,
+                    "desire": desire_name, "action": action,
+                    "result": plan.result_summary, "success": False,
                 })
+                continue
+
+            plan = planner.execute_plan(plan)
+            success = plan.status.value == "completed"
+            results.append({
+                "desire": desire_name, "action": action,
+                "result": plan.result_summary or f"Plan {plan.status.value}",
+                "success": success,
+                "plan_id": plan.plan_id,
+                "subtask_count": len(plan.subtasks),
+            })
 
         return results
 
     def _update_desires(self, results: list[dict[str, Any]]) -> None:
         """Update desires based on task results."""
-        if not self._desire or not self._llm:
-            logger.warning("Cannot update desires: desire=%s, llm=%s", self._desire is not None, self._llm is not None)
+        if not self._desire:
             return
 
         for result in results:
@@ -351,6 +344,8 @@ Examples:
                     logger.info("Desire update result: %s", update_result)
                 except Exception as e:
                     logger.warning("Failed to update desires: %s", e)
+
+        self._desire.apply_decay()
 
     def _decide_next_interval(self, results: list[dict[str, Any]]) -> int:
         """Decide when to run next based on results using LLM."""

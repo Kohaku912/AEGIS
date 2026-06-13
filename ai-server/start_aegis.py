@@ -24,7 +24,7 @@ import sys
 import threading
 
 # Set DeepSeek API key
-os.environ["OPENAI_API_KEY"] = os.environ.get("DEEPSEEK_API_KEY", "sk-b7634b706d714a11944a498f1a520f52")
+os.environ["OPENAI_API_KEY"] = os.environ.get("DEEPSEEK_API_KEY", "")
 os.environ["OPENAI_BASE_URL"] = os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
 
 logging.basicConfig(
