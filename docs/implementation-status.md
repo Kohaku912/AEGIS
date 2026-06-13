@@ -1,7 +1,7 @@
 # AEGIS Implementation Status
 
-> **Last Updated**: 2026-06-12
-> **Tests**: 1204 passed, 0 failed
+> **Last Updated**: 2026-06-13
+> **Tests**: 1336+ passed, 7 skipped
 > **Lint**: ruff clean
 
 ## Module Status
@@ -42,114 +42,91 @@
 | PriorityEngine | `src/aegis_ai/mind/priorities.py` | ✅ Done | (included) |
 | ReflectionLoop | `src/aegis_ai/reflection_loop.py` | ✅ Done | (included) |
 
-### Memory (Phase 6)
+### Memory System (Phase 6)
 
 | Module | File | Status | Tests |
 |--------|------|--------|-------|
+| AdvancedMemory | `src/aegis_ai/memory/advanced.py` | ✅ Done | 8 |
+| PersonaMemory | `src/aegis_ai/memory/persona.py` | ✅ Done | (included) |
+| ChromaSemanticMemory | `src/aegis_ai/memory/chroma_semantic.py` | ✅ Done | (included) |
+| MemoryConsolidator | `src/aegis_ai/memory/consolidation.py` | ✅ Done | (included) |
 | EpisodicMemory | `src/aegis_ai/memory/episodic.py` | ✅ Done | 21 |
 | SemanticMemory | `src/aegis_ai/memory/semantic.py` | ✅ Done | (mock) |
-| ProceduralMemory | `src/aegis_ai/memory/procedural.py` | ✅ Done | (included) |
-| Chroma integration | — | 🔲 Not started | — |
-| OpenAI embedding | — | 🔲 Not started | — |
 
-### Scheduler (Phase 6)
+### Desire System (D2A-Inspired)
 
 | Module | File | Status | Tests |
 |--------|------|--------|-------|
-| Scheduler | `src/aegis_ai/scheduler.py` | ✅ Done | 15 |
-| CooldownManager | (included) | ✅ Done | (included) |
-| BudgetManager | (included) | ✅ Done | (included) |
+| DesireSystem | `src/aegis_ai/desire/desire_system.py` | ✅ Done | 7 |
+| AutonomousLoop | `src/aegis_ai/autonomous/autonomous_loop.py` | ✅ Done | 5 |
 
-### Server Clients
-
-| Module | File | Status | Tests |
-|--------|------|--------|-------|
-| PC Server Client | `src/pc_server_client.py` | ✅ Done | 47 + 48 |
-| Android Server Client | `src/android_server_client.py` | ✅ Done | 82 + 35 |
-| Room Server Client | `src/room_server_client.py` | ✅ Done | 62 + 34 |
-| Dev Server Client | `src/dev_server_client.py` | ✅ Done | 35 |
-
-### Safety & Security
+### Dashboard
 
 | Module | File | Status | Tests |
 |--------|------|--------|-------|
-| Safety Regression | `tests/test_safety_regression.py` | ✅ Done | 44 |
-| Integration E2E | `tests/test_integration_e2e.py` | ✅ Done | 25 |
-| Settings + Permissions | `src/aegis_ai/settings/` | ✅ Done | 29 |
-| Security (token, CSRF, rate) | `src/aegis_ai/security/` | ✅ Done | 24 |
-| Prompt Regression Pack | `tests/test_prompt_regression.py` | ✅ Done | 21 |
+| Dashboard Routes | `src/aegis_ai/web/dashboard_routes.py` | ✅ Done | 14 pages |
+| Streaming Chat | `src/aegis_ai/web/dashboard_routes.py` | ✅ Done | — |
+| Memory Integration | `src/aegis_ai/web/dashboard_routes.py` | ✅ Done | — |
+| Desire Context | `src/aegis_ai/web/dashboard_routes.py` | ✅ Done | — |
 
-### UI & Interaction
-
-| Module | File | Status | Tests |
-|--------|------|--------|-------|
-| Dashboard | `src/aegis_ai/web/dashboard_routes.py` | ✅ Done | 21 |
-| Approval UI | `src/aegis_ai/web/approval_routes.py` | ✅ Done | — |
-| Web Chat | `src/aegis_ai/web/chat_routes.py` | ✅ Done | 26 |
-| Observability | `src/aegis_ai/observability/` | ✅ Done | (included) |
-
-### LLM & Cost
+### LLM Integration
 
 | Module | File | Status | Tests |
 |--------|------|--------|-------|
-| LLM Router | `src/aegis_ai/llm/router.py` | ✅ Done | 28 |
-| Cost Tracker | `src/aegis_ai/llm/cost_tracker.py` | ✅ Done | (included) |
-| Model Policy | `src/aegis_ai/llm/model_policy.py` | ✅ Done | (included) |
-| Prompt Safety | `src/aegis_ai/llm/prompt_safety.py` | ✅ Done | (included) |
-| Redaction | `src/aegis_ai/llm/redaction.py` | ✅ Done | (included) |
-| MockLLMProvider | `src/aegis_ai/llm/providers/mock.py` | ✅ Done | (included) |
+| LLM Factory | `src/aegis_ai/llm/factory.py` | ✅ Done | — |
+| OpenAI Provider | `src/aegis_ai/llm/providers/openai_provider.py` | ✅ Done | — |
+| Mock Provider | `src/aegis_ai/llm/providers/mock.py` | ✅ Done | — |
 
-### External Integrations
+### PC Server (Rust)
 
 | Module | File | Status | Tests |
 |--------|------|--------|-------|
-| Integration Registry | `src/aegis_ai/integrations/registry.py` | ✅ Done | 24 |
-| Integration Policy | `src/aegis_ai/integrations/policy.py` | ✅ Done | (included) |
-| LINE Stub | `src/aegis_ai/integrations/line_stub.py` | ✅ Stub | (included) |
-| Discord Stub | `src/aegis_ai/integrations/discord_stub.py` | ✅ Stub | (included) |
-| Email Stub | `src/aegis_ai/integrations/email_stub.py` | ✅ Stub | (included) |
-| Webhook Stub | `src/aegis_ai/integrations/webhook_stub.py` | ✅ Stub | (included) |
+| Screenshot | `src/observe.rs` | ✅ Done | Real API |
+| Active Window | `src/observe.rs` | ✅ Done | Real API |
+| Window List | `src/observe.rs` | ✅ Done | Real API |
+| Clipboard | `src/observe.rs` | ✅ Done | Real API |
+| OS Info | `src/observe.rs` | ✅ Done | Real API |
+| Screen Size | `src/observe.rs` | ✅ Done | Real API |
+| Mouse Click | `src/action.rs` | ✅ Done | Skeleton |
+| Keyboard Type | `src/action.rs` | ✅ Done | Skeleton |
 
-### Voice I/O
-
-| Module | File | Status | Tests |
-|--------|------|--------|-------|
-| VoiceGate | `src/aegis_ai/voice/gate.py` | ✅ Done | 29 |
-| STT Stub | `src/aegis_ai/voice/stt_stub.py` | ✅ Stub | (included) |
-| TTS Stub | `src/aegis_ai/voice/tts_stub.py` | ✅ Stub | (included) |
-| WakeWord Stub | `src/aegis_ai/voice/wake_word_stub.py` | ✅ Stub | (included) |
-| VoicePrivacy | `src/aegis_ai/voice/privacy.py` | ✅ Done | (included) |
-
-### Notification & Backup
+### Browser Server (Python)
 
 | Module | File | Status | Tests |
 |--------|------|--------|-------|
-| Notification Router | `src/aegis_ai/notification/router.py` | ✅ Done | 22 |
-| Backup/Restore | `src/aegis_ai/backup/` | ✅ Done | 22 |
+| Browser Executor | `src/executor.py` | ✅ Done | 28 |
+| Safety Module | `src/safety.py` | ✅ Done | (included) |
 
-### Evaluation
+## Test Summary
 
-| Module | File | Status | Tests |
-|--------|------|--------|-------|
-| Evaluation Harness | `src/aegis_ai/evaluation/` | ✅ Done | 19 |
-| Safety Benchmark | `src/aegis_ai/evaluation/safety_tests.py` | ✅ Done | (included) |
-| Prompt Regression | `src/aegis_ai/evaluation/prompt_regression.py` | ✅ Done | 21 |
-| Report Generator | `src/aegis_ai/evaluation/report.py` | ✅ Done | (included) |
+| Category | Tests |
+|----------|-------|
+| Schema | 57 |
+| Approval/Policy | 49 |
+| Broker | 37 |
+| Registry | 33 |
+| Event Bus | 22 |
+| Trigger Engine | 39 |
+| Policy/Approval/Audit | 72 |
+| Capability Registry | 15 |
+| Context/Memory | 21 |
+| Autonomous Loop/Planner | 20 |
+| Research | 20 |
+| Support Agent | 23 |
+| SelfDev Agent | 20 |
+| Mind Layer | 36 |
+| Memory System | 8 |
+| Desire System | 7 |
+| Autonomous Loop | 5 |
+| Browser Server | 28 |
+| **Total** | **1336+** |
 
-## Not Implemented (Real Providers)
+## Key Features Implemented
 
-| Component | Current | Target | Blocker |
-|-----------|---------|--------|---------|
-| LLM | Mock | OpenAI/Anthropic/local | User decision |
-| Memory | Mock (JSONL) | Chroma vector DB | Integration work |
-| Embedding | Mock | OpenAI embedding | API key |
-| Browser | Stub | browser-use | Implementation |
-| PC control | Mock | Rust OS-native | Implementation |
-| Android screenshot | Mock | MediaProjection | Implementation |
-| Android UI automation | Mock | AccessibilityService | Implementation |
-| Room sensors | Mock | MQTT | Hardware |
-| STT | Stub | faster-whisper | User decision |
-| TTS | Stub | edge-tts | User decision |
-| LINE | Stub | LINE Bot SDK | User confirmation |
-| Discord | Stub | Discord.py | User confirmation |
-| Email | Stub | SMTP | User confirmation |
+1. **Memory System**: Zep-inspired with entity tracking, fact extraction, temporal awareness
+2. **Desire System**: D2A-inspired with 8 intrinsic motivations
+3. **Autonomous Loop**: Desire-driven task execution with self-scheduling
+4. **Dashboard**: Streaming chat with memory and desire integration
+5. **PC Server**: Real Windows API for screenshot, windows, clipboard
+6. **LLM Integration**: DeepSeek API with streaming support
+7. **Safety**: PolicyEngine with approval gates

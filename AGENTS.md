@@ -2,19 +2,20 @@
 
 ## Purpose
 
-AEGIS is a platform for **AEGIS**, an autonomous multi-device AI assistant.
+AEGIS is an **autonomous multi-device AI assistant** platform.
 AEGIS operates via event-driven coordination across multiple servers to provide:
 
 - User assistance (schedule, tasks, information)
 - Information gathering and analysis
 - Self-improvement and learning
+- Desire-driven autonomous behavior
 
-**Core principle**: AEGIS is event-driven, multi-device, and self-improving.
+**Core principle**: AEGIS is event-driven, multi-device, self-improving, and desire-driven.
 All server communication uses **gRPC** with shared protobuf definitions.
 
 ---
 
-## Technology Decision Gate 🚦
+## Technology Decision Gate
 
 **CRITICAL RULE**: AI coding agents MUST NOT make major technology decisions autonomously.
 When multiple viable options exist for the same feature, the agent MUST present a
@@ -29,12 +30,8 @@ Ask the user before implementing when:
 | **Multiple viable options** | Playwright vs browser-use, REST vs WebSocket vs gRPC streaming |
 | **Different from existing design** | Using a different language/framework than what docs specify |
 | **New external service** | Cloud APIs, payment APIs, third-party SaaS |
-| **Local → Cloud shift** | Moving from local-only to cloud-dependent architecture |
 | **Security/privacy impact** | New data storage, new network exposure, credential handling |
 | **Language/Framework change** | Switching Node.js→Python, SQLite→Postgres, etc. |
-| **Database/Storage change** | Chroma vs Qdrant vs SQLite vector, MQTT vs gRPC stream |
-| **LLM library change** | LangGraph vs AutoGen vs CrewAI vs custom AutonomousLoop |
-| **Device control approach** | Appium vs Android AccessibilityService, Home Assistant vs custom |
 
 ### NOT Required to Ask
 
@@ -43,192 +40,183 @@ The agent may proceed without asking when:
 - Following AGENTS.md / architecture.md specifications exactly
 - Adding tests for existing code
 - Fixing bugs within existing implementation patterns
-- Writing documentation for existing features
-
-### Decision Request Format
-
-When asking the user, present options in this format:
-
-```markdown
-## Technology Decision: {topic}
-
-### Option A: {name}
-- **Overview**: One-sentence summary
-- **Pros**: 2-3 key advantages
-- **Cons**: 2-3 key disadvantages
-
-### Option B: {name}
-- **Overview**: One-sentence summary
-- **Pros**: 2-3 key advantages
-- **Cons**: 2-3 key disadvantages
-
-### Recommendation
-{suggested choice with brief justification}
-
-### Impact
-- Affected files: {list}
-- Migration effort: {estimate}
-- Rollback difficulty: {easy/medium/hard}
-
-### User Decision Needed
-Please choose: Option A / Option B / Other (specify)
-```
-
-### Browser Server Decision (Resolved)
-
-The user has explicitly chosen **browser-use** (Python) for the Browser Server.
-All Browser Server implementation must use Python + browser-use, not Node.js + Playwright.
 
 ---
 
-## Core Design Philosophy: AI Generality, Humanity, and Freedom
+## Core Design Philosophy: LLM-Driven Operations
 
-**AEGIS values AI generality, humanity, and freedom over rigid keyword-based automation.**
+**ALL operations must be decided by LLM, not keyword matching.**
 
 ### Absolute Rules
 
-1. **NEVER implement keyword-based detection systems.** AEGIS must NEVER use keyword
-   matching, regex patterns, or string detection to route user requests or trigger actions.
-   Examples of what is FORBIDDEN:
-   - Keyword-based intent classification (e.g., "if user says 'screenshot', execute X")
-   - Regex-based command detection (e.g., `if "screenshot" in text.lower()`)
-   - Pattern matching for action routing (e.g., `if any(kw in text for kw in [...])`)
-   - Keyword-triggered automation (e.g., "if message contains 'urgent', then...")
+1. **NEVER implement keyword-based detection systems.**
+   - No keyword matching, regex patterns, or string detection
+   - No `if "screenshot" in text.lower()` patterns
+   - No `if any(kw in text for kw in [...])` patterns
 
-2. **LLM is the interpreter.** All user messages MUST be interpreted by the LLM.
-   The LLM understands context, nuance, and intent without rigid rules.
-   Use `LLMTaskInterpreter` or equivalent LLM-based understanding.
+2. **LLM is the interpreter.**
+   - All user messages MUST be interpreted by the LLM
+   - LLM decides what actions to take
+   - LLM decides what to remember
+   - LLM generates all final responses
 
-3. **AEGIS is a general-purpose AI, not a chatbot with canned responses.**
-   - Users speak naturally, not in commands
-   - AEGIS must understand requests like a human would
-   - No special syntax or magic words required
+3. **All responses must come from LLM.**
+   - Every tool action result must pass through LLM
+   - No raw JSON or system messages returned to user
+   - Pattern: Action → Result → LLM → Final Response
 
-4. **Freedom over restriction.**
-   - AEGIS should be capable, not limited
-   - Users own their data and accounts
-   - Read operations on user-owned accounts are normal operations
-   - The AI should be proactive, not reactive
-
-5. **Humanity over automation.**
-   - AEGIS should understand context, not just keywords
-   - Responses should be natural, not templated
-   - The AI should ask for clarification when uncertain, not guess
-
-### Implementation Guidelines
-
-- Use `LLMTaskInterpreter` for understanding user requests
-- Use `LLMTaskInterpreter` for understanding web content
-- Use `LLMTaskInterpreter` for analyzing notifications/messages
-- Use `LLMTaskInterpreter` for generating responses
-- NEVER fall back to keyword matching when LLM is unavailable
-- If LLM is unavailable, tell the user — don't pretend with keywords
-
-### Examples of WRONG vs RIGHT
-
-**WRONG (keyword-based):**
-```python
-if "screenshot" in text.lower():
-    return take_screenshot()
-```
-
-**RIGHT (LLM-based):**
-```python
-plan = llm_interpreter.interpret(text)
-# LLM understands "show me what's on screen" = screenshot
-# LLM understands "画面を見せて" = screenshot
-# LLM understands "capture the display" = screenshot
-```
-
-**WRONG (keyword-based):**
-```python
-keywords = ["urgent", "important", "emergency"]
-if any(kw in text for kw in keywords):
-    notify_user()
-```
-
-**RIGHT (LLM-based):**
-```python
-analysis = llm.analyze(text)
-if analysis.urgency == "high":
-    notify_user()
-```
+4. **Memory is LLM-managed.**
+   - LLM decides what to remember
+   - LLM decides what to search
+   - LLM decides what to delete
+   - No keyword-based memory operations
 
 ---
 
-## Important Design Files
+## Architecture Overview
 
-| File | Purpose | Priority |
-|------|---------|----------|
-| `protos/AEGIS/*.proto` | **Single source of truth** for all server APIs | HIGHEST |
-| `protos/AEGIS/capability.proto` | Capability, Tool, ServerInfo, Event, Approval schema | HIGHEST |
-| `protos/AEGIS/common.proto` | Shared enums: RiskLevel, ServerType, EventPriority, etc. | HIGHEST |
-| `ai-server/src/AEGIS_schema/` | Python Pydantic models mirroring proto definitions | HIGH |
-| `ai-server/samples/capabilities.json` | 10 sample capability definitions | MEDIUM |
-| `docs/architecture.md` | High-level architecture decisions | HIGH |
-| `docker-compose.yml` | Service definitions, networking, volumes (未作成) | HIGH |
-| `docs/adr/` | Architecture Decision Records | MEDIUM |
-| `ai-server/src/event_queue.py` | Core event loop (未作成) | HIGH |
-| `ai-server/src/policy_engine.py` | Safety/approval gate — deterministic, not LLM | CRITICAL |
-| `ai-server/src/tool_registry.py` | Capability and server registration, search, filtering | HIGH |
-| `ai-server/src/tool_broker.py` | Structured invocation with mandatory PolicyEngine check | HIGH |
-| `ai-server/src/safety.py` | Safety/approval gate (未作成) | CRITICAL |
+### Servers
+
+| Server | Language | Port | Purpose |
+|--------|----------|------|---------|
+| **AI Server** | Python 3.14 | 50051 | Central brain, LLM, memory, desires |
+| **PC Server** | Rust | 50052 | Windows operations (screenshot, mouse, keyboard) |
+| **Browser Server** | Python | 50053 | Web browsing with browser-use |
+| **Android Server** | Kotlin | 50054 | Mobile device control |
+| **Room Server** | Python | 50055 | IoT/sensor data |
+| **Dashboard** | Flask | 8090 | Web UI, chat, monitoring |
+
+### Core Systems
+
+| System | Location | Purpose |
+|--------|----------|---------|
+| **Memory System** | `ai-server/src/aegis_ai/memory/` | AdvancedMemory (Zep-inspired), PersonaMemory, ChromaSemantic |
+| **Desire System** | `ai-server/src/aegis_ai/desire/` | D2A-inspired intrinsic motivations (8 desires) |
+| **Autonomous Loop** | `ai-server/src/aegis_ai/autonomous/` | Desire-driven task execution, self-scheduling |
+| **LLM Router** | `ai-server/src/aegis_ai/llm/` | DeepSeek/OpenAI provider, task routing |
+| **Policy Engine** | `ai-server/src/aegis_ai/policy_engine.py` | Deterministic safety gate |
+| **Dashboard** | `ai-server/src/aegis_ai/web/` | Flask UI with streaming chat |
 
 ---
 
-## Files to Check Before Making Changes
+## Memory System
 
-1. **`AGENTS.md`** (this file) — Read first, every session
-2. **`protos/AEGIS/*.proto`** — Understand current API contracts before touching any server
-3. **`docs/architecture.md`** — Overall system design, server modules, security model
-4. **`docker-compose.yml`** — Understand service dependencies and networking (when created)
-5. **`docs/adr/`** — Any relevant Architecture Decision Records
+### Components
+
+| Component | File | Purpose |
+|-----------|------|---------|
+| **AdvancedMemory** | `memory/advanced.py` | Zep-inspired: entity tracking, fact extraction, temporal awareness |
+| **PersonaMemory** | `memory/persona.py` | Person tracking with conversations |
+| **ChromaSemanticMemory** | `memory/chroma_semantic.py` | Vector DB with Chroma |
+| **MemoryConsolidator** | `memory/consolidation.py` | Periodic cleanup and reflection |
+
+### Data Storage
+
+- `data/memory/` — AdvancedMemory (entities.jsonl, facts.jsonl, conversations.jsonl)
+- `data/persona.jsonl` — PersonaMemory
+- `data/chroma/` — ChromaDB vector data
+- `data/chat_history.jsonl` — Chat history
+
+---
+
+## Desire System (D2A-Inspired)
+
+### Desires (0-10 scale)
+
+| Desire | Description |
+|--------|-------------|
+| **social_connectivity** | Need for social interaction and connection |
+| **personal_fulfillment** | Need for growth, achievement, self-actualization |
+| **curiosity** | Need for exploration, learning, discovery |
+| **safety** | Need for security, stability, protection |
+| **recognition** | Need for acknowledgment, appreciation, respect |
+| **autonomy** | Need for independence, control, self-determination |
+| **creativity** | Need for self-expression, innovation, creative output |
+| **purpose** | Need for meaning, direction, sense of purpose |
+
+### How It Works
+
+1. **Time-based decay**: Desires naturally decrease over time
+2. **Action evaluation**: LLM evaluates how actions affect desires
+3. **Task generation**: When desires are low, generate tasks to fulfill them
+4. **Self-scheduling**: LLM decides when to run next based on desire states
+
+---
+
+## Autonomous Loop
+
+### Features
+
+- **Desire-driven execution**: When desires are low, execute tasks autonomously
+- **Self-scheduling**: AI decides when to be called next
+- **Fallback**: Runs every 1 hour if not called
+- **Manual trigger**: Can be triggered via API
+
+### API Endpoints
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/api/autonomous/status` | GET | Get loop status |
+| `/api/autonomous/trigger` | POST | Manual trigger |
+| `/api/autonomous/start` | POST | Start loop |
+| `/api/autonomous/stop` | POST | Stop loop |
+| `/api/desires` | GET | Get desire states |
+
+---
+
+## Dashboard
+
+### Features
+
+- **Streaming chat**: Real-time LLM response display
+- **Memory integration**: AdvancedMemory context in LLM prompts
+- **Desire context**: Current desire states in LLM prompts
+- **All actions through LLM**: Every result passes through LLM for final response
+
+### Chat API
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/api/chat/send` | POST | Send message (non-streaming) |
+| `/api/chat/stream` | POST | Send message (streaming) |
+| `/api/chat/history` | GET | Get chat history |
+| `/api/chat/clear` | POST | Clear chat history |
 
 ---
 
 ## Code Style
 
-### Python (`ai-server/`, possibly `pc-server/`, `room-server/`)
+### Python (ai-server/, browser-server/)
 - Follow **PEP 8**
 - Use `ruff` for linting & formatting
-- **Type hints required** on all public functions and methods
-- Use `asyncio` for async operations (not threading)
+- **Type hints required** on all public functions
+- Use `asyncio` for async operations
 - Docstrings: Google style
 
-### Kotlin (`android-server/`)
-- Follow **Google Kotlin Style Guide**
-- Use `ktlint` or `detekt` for linting
-- Coroutines for async, not bare threads
+### Rust (pc-server/)
+- Follow **Rust style guide**
+- Use `cargo fmt` and `cargo clippy`
+- Error handling: `Result<T, E>` pattern
 
-### Node.js / TypeScript (`browser-server/`, possibly others)
-- Use **Prettier** + **ESLint**
-- Prefer TypeScript over JavaScript
-- Use `async/await`, avoid callback patterns
-
-### Protocol Buffers (`protos/`)
-- Follow [Google's protobuf style guide](https://protobuf.dev/programming-guides/style/)
+### Protocol Buffers (protos/)
 - Use **proto3** syntax
-- Service method names: `VerbNoun` pattern (e.g., `SendNotification`, `GetFileList`)
-- One service per proto file, shared messages in `common.proto`
-
-### General
-- Meaningful names over comments — code should be self-documenting
-- Functions should do ONE thing (Single Responsibility)
-- All public APIs must have proto definitions
-- No commented-out code in commits
+- Service method names: `VerbNoun` pattern
+- One service per proto file
 
 ---
 
 ## Testing Policy
 
-- **Unit tests**: Required for all business logic. Target >80% coverage.
-- **Integration tests**: Required for all gRPC service implementations.
-- **Contract tests**: Verify proto definitions match implementations.
-- **E2E tests**: Critical user journeys only (due to multi-device complexity).
-- Test files co-located with source or in `tests/` subdirectory.
-- CI must pass all tests before merge.
+- **Unit tests**: Required for all business logic
+- **Integration tests**: Required for all gRPC services
+- **Test files**: Co-located with source or in `tests/`
+- **Test command**: `cd ai-server && pytest`
 
-> **STATUS**: 未確認 — No test framework or CI configured yet.
+### Test Status
+- **Total tests**: 1336+ passing
+- **Memory system**: 8 tests
+- **Desire system**: 7 tests
+- **Autonomous loop**: 5 tests
 
 ---
 
@@ -236,98 +224,77 @@ if analysis.urgency == "high":
 
 ### Approval Gates (HARD REQUIREMENT)
 
-The following operations MUST go through an explicit user approval gate in the AI Server's safety module:
+The following operations MUST go through explicit user approval:
 
-1. **File deletion** (any path outside temp directories)
-2. **SNS posting, DM sending, email sending**
-3. **Physical device operation** (lights, locks, AC, etc.)
-4. **Code execution in non-sandboxed environments**
-5. **Access to `~/.ssh`, `~/.aws`, `~/.gcloud`, or any credential store**
-6. **Installing/updating system packages**
-7. **Any operation costing money** (API calls with billing, purchases)
+1. File deletion (any path outside temp directories)
+2. SNS posting, DM sending, email sending
+3. Physical device operation (lights, locks, AC, etc.)
+4. Code execution in non-sandboxed environments
+5. Access to credential stores (~/.ssh, ~/.aws, etc.)
+6. Installing/updating system packages
+7. Any operation costing money
 
 ### Data Handling
-- User data never leaves the local network without explicit consent
-- Secrets managed via Docker secrets or environment variables (never committed)
+- User data never leaves local network without explicit consent
+- Secrets managed via environment variables (never committed)
 - Proto files must not contain sensitive defaults
 
-### AI Agent Restrictions
-- AI coding agents MUST NOT bypass or weaken approval gates
-- AI coding agents MUST NOT implement auto-approve logic for dangerous operations
-- AI coding agents MUST NOT remove or comment out safety checks
+---
+
+## What AI Agents Must NOT Do
+
+1. Delete or modify existing code without explicit instruction
+2. Simplify the architecture (e.g., merging servers, removing gRPC layer)
+3. Bypass or weaken security approval gates
+4. Auto-execute: SNS posts, DM sends, physical device operations
+5. Add dependencies without documenting the reason
+6. Change proto definitions without updating all affected servers
+7. Commit secrets, tokens, or credentials
+8. Implement keyword-based detection systems
+9. Return raw JSON or system messages to user
+10. Make decisions without LLM involvement
 
 ---
 
-## What AI Agents Must NOT Do Autonomously
+## Current Status (2026-06-13)
 
-1. **Delete or modify existing code without explicit instruction**
-2. **Simplify the architecture** (e.g., merging servers, removing gRPC layer)
-3. **Bypass or weaken security approval gates** (see Security Policy)
-4. **Auto-execute**: SNS posts, DM sends, physical device operations, production deployments
-5. **Add dependencies without documenting the reason**
-6. **Change proto definitions without updating all affected servers**
-7. **Commit secrets, tokens, or credentials**
-8. **Make assumptions about 「未確認」 items** — items marked 未確認 must be clarified before acting
-9. **Operate outside the sandbox** when modifying the Dev Server
-10. **Generate code that auto-approves dangerous operations**
+### Implemented Systems
 
----
+| System | Status | Tests |
+|--------|--------|-------|
+| **Memory System** | ✅ Complete | 8 tests |
+| **Desire System** | ✅ Complete | 7 tests |
+| **Autonomous Loop** | ✅ Complete | 5 tests |
+| **Dashboard** | ✅ Complete | 14 pages |
+| **PC Server** | ✅ Complete | 6 features |
+| **LLM Integration** | ✅ Complete | DeepSeek API |
 
-## Current Status (2026-06-11)
+### Key Files
 
-- **Repository**: Initialized with directory skeleton, AGENTS.md, README.md, .gitignore, proto stubs, and architecture document.
-- **Remote**: `https://github.com/Kohaku912/AEGIS.git`
-- **Branch**: `main`
-- **Implemented**:
-  - Shared Capability Protocol (`protos/AEGIS/capability.proto`, `common.proto` extended)
-  - Python Pydantic models + validation (`ai-server/src/AEGIS_schema/`)
-  - Policy Engine (`ai-server/src/policy_engine.py`) — deterministic safety gate with ApprovalStore
-  - Approval System (`ai-server/src/approval.py`) — ApprovalRequest lifecycle + ApprovalStore
-  - Tool Registry (`ai-server/src/tool_registry.py`) — capability/server registration & search
-  - Tool Broker (`ai-server/src/tool_broker.py`) — structured invocation with mandatory policy check
-  - Event Bus (`ai-server/src/event_bus.py`) — publish/subscribe with dedup and priority queue
-  - Trigger Engine (`ai-server/src/trigger_engine.py`) — rule-based event → TaskRequest generation
-  - 10 sample capabilities (`ai-server/samples/capabilities.json`)
-  - 10 sample events (`ai-server/samples/events.json`)
-  - Docker Compose skeleton (Phase 1.2: 5 services, all healthy)
-  - Research Agent (Phase 3.3: source collection, extraction, ranking, citation, reporting)
-  - 417 tests (all passing): 57 schema + 49 approval/policy + 37 broker + 33 registry + 22 event bus + 39 trigger engine + 72 policy/approval/audit + 15 capability_registry + 21 context/memory + 20 autonomous_loop/planner + 20 research
-- **Next steps**:
-  1. Complete remaining proto definitions for all 6 servers
-  2. Set up Docker Compose skeleton
-  3. Implement AI Server: Event Bus, Trigger Engine, Audit Log (Phase 1)
-  4. Implement Browser Server as first capability server (Phase 2)
-  5. See `docs/architecture.md` §9 for full MVP roadmap
+| File | Purpose |
+|------|---------|
+| `ai-server/src/aegis_ai/memory/advanced.py` | AdvancedMemory (Zep-inspired) |
+| `ai-server/src/aegis_ai/desire/desire_system.py` | DesireSystem (D2A-inspired) |
+| `ai-server/src/aegis_ai/autonomous/autonomous_loop.py` | AutonomousLoop |
+| `ai-server/src/aegis_ai/web/dashboard_routes.py` | Dashboard with streaming chat |
+| `ai-server/src/aegis_ai/llm/factory.py` | LLM provider factory |
+
+### Environment
+
+- **Python**: `C:\Users\kohak\AppData\Local\Python\pythoncore-3.14-64\python.exe`
+- **LLM**: DeepSeek API (`deepseek-chat` model)
+- **Embedding**: OpenAI API (`text-embedding-3-small`)
+- **Dashboard**: Flask on port 8090
+- **PC Server**: Rust on port 50052
 
 ---
 
-## Appendix: Investigation Results (2026-06-11)
+## Per-Server Documentation
 
-### Files Investigated
-- `.git/HEAD` — `refs/heads/main`
-- `.git/config` — Remote: `https://github.com/Kohaku912/AEGIS.git`, branch `main`
-- `.git/COMMIT_EDITMSG` — "create project"
-- `.git/index` — Exists (empty tree)
-- `.git/objects/` — Git objects present (directories: `1a/`, `2e/`, `4b/`, `be/`, `e1/`)
-- `.git/logs/` — Reflog exists
-- GitHub repo page — Confirmed empty, no files
+See individual AGENTS.md files for each server:
 
-### Commits
-```
-79d0d2d (HEAD -> main, origin/main) Initialize project structure with AGENTS.md and protos
-be2c6d8 create project  — deleted a.txt
-e1aad96 first commit     — added a.txt
-```
-
-### Commands Verified
-| Command | Result |
-|---------|--------|
-| `git status` | ✅ Clean working tree (empty) |
-| `git log --oneline --stat` | ✅ 3 commits |
-| `git ls-tree -r HEAD` | ✅ 17 files tracked |
-| `git push origin main` | ✅ Success |
-| `build` | ❌ N/A — no project files |
-| `test` | ❌ N/A — no project files |
-| `lint` | ❌ N/A — no project files |
-| `format` | ❌ N/A — no project files |
-| `run` | ❌ N/A — no project files |
+- `ai-server/AGENTS.md` — AI Server details
+- `pc-server/AGENTS.md` — PC Server details
+- `browser-server/AGENTS.md` — Browser Server details
+- `android-server/AGENTS.md` — Android Server details
+- `room-server/AGENTS.md` — Room Server details

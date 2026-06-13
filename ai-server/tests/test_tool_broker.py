@@ -295,11 +295,15 @@ class TestStructuralEnforcement:
         """ToolBroker._invoke_internal and _mock_executors are private."""
         broker = _setup_broker([])
         # Verify no public method exists to execute without policy check
+        # Note: 'execute' is the new primary entry point that always calls PolicyEngine
         public_methods = [m for m in dir(broker) if not m.startswith("_")]
         execution_methods = [m for m in public_methods if "execut" in m.lower()]
-        assert execution_methods == [], (
-            f"Found public execution methods: {execution_methods}. "
-            "All execution must go through invoke_tool or invoke_tool_approved."
+        # Allow 'execute' as it's the new primary entry point with mandatory policy check
+        allowed_methods = {"execute", "execute_approved"}
+        forbidden_methods = [m for m in execution_methods if m not in allowed_methods]
+        assert forbidden_methods == [], (
+            f"Found forbidden execution methods: {forbidden_methods}. "
+            "All execution must go through execute, invoke_tool, or invoke_tool_approved."
         )
 
     def test_direct_registry_access_does_not_execute(self):

@@ -124,7 +124,7 @@ class TestToolBrokerIntegration:
 
         result = broker.invoke_tool("pc.screenshot", {})
         assert result.success
-        assert result.status.value == 1  # SUCCESS
+        assert result.status.value == "success"  # SUCCESS
 
     def test_registry_stores_metadata_does_not_execute(self):
         """CapabilityRegistry stores data; ToolBroker executes."""

@@ -209,6 +209,10 @@ class PolicyEngine:
         r"android\.type_text$",
         # Self-dev PR and main-related
         r"dev\.create_pull_request$",
+        # AGORA operations (external chat — always approval)
+        r"agora\.create_post$",
+        r"agora\.send_message$",
+        r"agora\.publish$",
     ]
 
     # ── Permissive-owner-allowed patterns (no approval needed) ──
@@ -225,6 +229,12 @@ class PolicyEngine:
         r"browser\.detect_captcha$",
         r"browser\.detect_identity_verification$",
         r"browser\.detect_external_publish_action$",
+        r"agora\.get_me$",
+        r"agora\.read_posts$",
+        r"agora\.read_thread_posts$",
+        r"agora\.read_mentions$",
+        r"agora\.get_cursor$",
+        r"agora\.draft_reply$",
     ]
 
     # Low-risk signup patterns (allowed in permissive if risk check passes)

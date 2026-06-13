@@ -996,3 +996,90 @@ For general questions, respond naturally using your memory and knowledge."""
                 return jsonify(desire.get_stats())
             except Exception as e:
                 return jsonify({"error": str(e)})
+
+        @app.route("/api/approvals/pending")
+        def approvals_pending():
+            """Get pending approval requests."""
+            try:
+                from aegis_ai.approval import ApprovalQueue
+                queue = ApprovalQueue(data_dir="data/approvals")
+                pending = queue.list_pending()
+                return jsonify({"approvals": [r.to_dict() for r in pending]})
+            except Exception as e:
+                return jsonify({"error": str(e)})
+
+        @app.route("/api/approvals/<approval_id>")
+        def approval_detail(approval_id):
+            """Get approval detail."""
+            try:
+                from aegis_ai.approval import ApprovalQueue
+                queue = ApprovalQueue(data_dir="data/approvals")
+                req = queue.get(approval_id)
+                if req is None:
+                    return jsonify({"error": "Not found"}), 404
+                return jsonify(req.to_dict())
+            except Exception as e:
+                return jsonify({"error": str(e)})
+
+        @app.route("/api/approvals/<approval_id>/approve", methods=["POST"])
+        def approval_approve(approval_id):
+            """Approve a pending request."""
+            try:
+                from flask import request as flask_request
+                from aegis_ai.approval import ApprovalQueue
+                queue = ApprovalQueue(data_dir="data/approvals")
+                note = flask_request.json.get("note", "") if flask_request.is_json else ""
+                req = queue.approve(approval_id, user_note=note)
+                if req is None:
+                    return jsonify({"error": "Not found or not pending"}), 404
+                return jsonify(req.to_dict())
+            except Exception as e:
+                return jsonify({"error": str(e)})
+
+        @app.route("/api/approvals/<approval_id>/reject", methods=["POST"])
+        def approval_reject(approval_id):
+            """Reject a pending request."""
+            try:
+                from flask import request as flask_request
+                from aegis_ai.approval import ApprovalQueue
+                queue = ApprovalQueue(data_dir="data/approvals")
+                reason = flask_request.json.get("reason", "") if flask_request.is_json else ""
+                req = queue.reject(approval_id, reason=reason)
+                if req is None:
+                    return jsonify({"error": "Not found or not pending"}), 404
+                return jsonify(req.to_dict())
+            except Exception as e:
+                return jsonify({"error": str(e)})
+
+        @app.route("/api/approvals/<approval_id>/modify-and-approve", methods=["POST"])
+        def approval_modify(approval_id):
+            """Modify arguments and approve."""
+            try:
+                from flask import request as flask_request
+                from aegis_ai.approval import ApprovalQueue
+                queue = ApprovalQueue(data_dir="data/approvals")
+                if not flask_request.is_json:
+                    return jsonify({"error": "JSON body required"}), 400
+                args = flask_request.json.get("arguments", {})
+                note = flask_request.json.get("note", "")
+                req = queue.modify_and_approve(approval_id, args, user_note=note)
+                if req is None:
+                    return jsonify({"error": "Not found or not pending"}), 404
+                return jsonify(req.to_dict())
+            except Exception as e:
+                return jsonify({"error": str(e)})
+
+        @app.route("/api/approvals/<approval_id>/cancel", methods=["POST"])
+        def approval_cancel(approval_id):
+            """Cancel a pending request."""
+            try:
+                from flask import request as flask_request
+                from aegis_ai.approval import ApprovalQueue
+                queue = ApprovalQueue(data_dir="data/approvals")
+                reason = flask_request.json.get("reason", "") if flask_request.is_json else ""
+                req = queue.cancel(approval_id, reason=reason)
+                if req is None:
+                    return jsonify({"error": "Not found or not cancellable"}), 404
+                return jsonify(req.to_dict())
+            except Exception as e:
+                return jsonify({"error": str(e)})

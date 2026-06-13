@@ -40,6 +40,7 @@ class AutonomousLoop:
         llm_provider: Any = None,
         desire_system: Any = None,
         memory_system: Any = None,
+        reflection_engine: Any = None,
         data_dir: str = "data/autonomous",
         desire_threshold: float = 4.0,  # Execute when desire < this
         max_tasks_per_cycle: int = 3,
@@ -48,6 +49,7 @@ class AutonomousLoop:
         self._llm = llm_provider
         self._desire = desire_system
         self._memory = memory_system
+        self._reflection = reflection_engine
         self._data_dir = Path(data_dir)
         self._data_dir.mkdir(parents=True, exist_ok=True)
 
@@ -69,7 +71,7 @@ class AutonomousLoop:
         state_path = self._data_dir / "loop_state.json"
         if state_path.exists():
             try:
-                with open(state_path, "r", encoding="utf-8") as f:
+                with open(state_path, encoding="utf-8") as f:
                     data = json.load(f)
                 self._next_run_ms = data.get("next_run_ms", 0)
                 self._last_run_ms = data.get("last_run_ms", 0)
@@ -127,34 +129,50 @@ class AutonomousLoop:
         logger.info("Starting autonomous cycle")
         self._last_run_ms = int(time.time() * 1000)
 
-        # Get desire states
         if not self._desire:
             logger.warning("No desire system, using fallback interval")
             self._schedule_next(self._fallback_interval)
             return
 
-        # Check for low desires
         low_desires = self._get_low_desires()
-
         if not low_desires:
             logger.info("All desires above threshold, using fallback interval")
             self._schedule_next(self._fallback_interval)
             return
 
-        # Generate and execute tasks
+        desire_before = {}
+        if self._desire:
+            for name, desire in self._desire.get_all_desires().items():
+                desire_before[name] = desire.value
+
         tasks = self._generate_tasks(low_desires)
         results = self._execute_tasks(tasks)
 
-        # Update desires based on results
-        self._update_desires(results)
+        if self._reflection is not None:
+            for i, task in enumerate(tasks):
+                task_result = results[i] if i < len(results) else {}
+                source_desire = task.get("desire", "")
+                try:
+                    reflection = self._reflection.reflect(
+                        task_id=f"auto_{int(time.time() * 1000)}_{i}",
+                        task_description=task.get("action", ""),
+                        tool_results=[{
+                            "status": "success" if task_result.get("success") else "failed",
+                            "capability_id": "autonomous_task",
+                            "error": task_result.get("result", "") if not task_result.get("success") else "",
+                        }],
+                        source_desire=source_desire,
+                        frustration=task.get("expected_impact", 0.0),
+                        desire_before=desire_before,
+                    )
+                    logger.info("Reflection: %s — %s", reflection.outcome, reflection.summary[:100])
+                except Exception as e:
+                    logger.warning("Reflection failed: %s", e)
 
-        # Self-schedule based on results
+        self._update_desires(results)
         next_interval = self._decide_next_interval(results)
         self._schedule_next(next_interval)
-
-        # Log execution
         self._log_execution(tasks, results)
-
         self._save()
 
     def _get_low_desires(self) -> list[dict[str, Any]]:
@@ -212,7 +230,10 @@ Examples:
 
         result = self._llm.generate(
             prompt=prompt,
-            system_prompt="You are AEGIS's autonomous task generator. Generate tasks to fulfill desires. Output only JSON.",
+            system_prompt=(
+                "You are AEGIS's autonomous task generator. "
+                "Generate tasks to fulfill desires. Output only JSON."
+            ),
             max_tokens=500,
         )
 

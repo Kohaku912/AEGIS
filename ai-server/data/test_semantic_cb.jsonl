@@ -207,3 +207,107 @@
 {"fact_id": "fact_1781266179740_038bc5b4", "content": "Weather forecast shows rain tomorrow", "category": "knowledge", "source": "inference", "confidence": 1.0, "tags": [], "timestamp_ms": 1781266179740}
 {"fact_id": "fact_1781268508655_4157aef2", "content": "User lives in Tokyo", "category": "user_info", "source": "user", "confidence": 1.0, "tags": [], "timestamp_ms": 1781268508655}
 {"fact_id": "fact_1781268508656_ba7f1dd2", "content": "Weather forecast shows rain tomorrow", "category": "knowledge", "source": "inference", "confidence": 1.0, "tags": [], "timestamp_ms": 1781268508656}
+{"fact_id": "fact_1781280323891_1af5d6ef", "content": "User lives in Tokyo", "category": "user_info", "source": "user", "confidence": 1.0, "tags": [], "timestamp_ms": 1781280323891}
+{"fact_id": "fact_1781280323891_7309a818", "content": "Weather forecast shows rain tomorrow", "category": "knowledge", "source": "inference", "confidence": 1.0, "tags": [], "timestamp_ms": 1781280323891}
+{"fact_id": "fact_1781282169759_cc0bc8b8", "content": "User lives in Tokyo", "category": "user_info", "source": "user", "confidence": 1.0, "tags": [], "timestamp_ms": 1781282169759}
+{"fact_id": "fact_1781282169760_d2f66876", "content": "Weather forecast shows rain tomorrow", "category": "knowledge", "source": "inference", "confidence": 1.0, "tags": [], "timestamp_ms": 1781282169760}
+{"fact_id": "fact_1781282803371_3cc90e1a", "content": "User lives in Tokyo", "category": "user_info", "source": "user", "confidence": 1.0, "tags": [], "timestamp_ms": 1781282803371}
+{"fact_id": "fact_1781282803372_c6e1a4dc", "content": "Weather forecast shows rain tomorrow", "category": "knowledge", "source": "inference", "confidence": 1.0, "tags": [], "timestamp_ms": 1781282803372}
+{"fact_id": "fact_1781282865730_6d284e58", "content": "User lives in Tokyo", "category": "user_info", "source": "user", "confidence": 1.0, "tags": [], "timestamp_ms": 1781282865730}
+{"fact_id": "fact_1781282865731_2b7b55b9", "content": "Weather forecast shows rain tomorrow", "category": "knowledge", "source": "inference", "confidence": 1.0, "tags": [], "timestamp_ms": 1781282865731}
+{"fact_id": "fact_1781282949532_0e86caa8", "content": "User lives in Tokyo", "category": "user_info", "source": "user", "confidence": 1.0, "tags": [], "timestamp_ms": 1781282949532}
+{"fact_id": "fact_1781282949533_2bbf3958", "content": "Weather forecast shows rain tomorrow", "category": "knowledge", "source": "inference", "confidence": 1.0, "tags": [], "timestamp_ms": 1781282949533}
+{"fact_id": "fact_1781283641995_d4710084", "content": "User lives in Tokyo", "category": "user_info", "source": "user", "confidence": 1.0, "tags": [], "timestamp_ms": 1781283641995}
+{"fact_id": "fact_1781283641995_db62d86d", "content": "Weather forecast shows rain tomorrow", "category": "knowledge", "source": "inference", "confidence": 1.0, "tags": [], "timestamp_ms": 1781283641995}
+{"fact_id": "fact_1781283807352_882d563d", "content": "User lives in Tokyo", "category": "user_info", "source": "user", "confidence": 1.0, "tags": [], "timestamp_ms": 1781283807352}
+{"fact_id": "fact_1781283807352_a1f56705", "content": "Weather forecast shows rain tomorrow", "category": "knowledge", "source": "inference", "confidence": 1.0, "tags": [], "timestamp_ms": 1781283807352}
+{"fact_id": "fact_1781283880310_26edb7ab", "content": "User lives in Tokyo", "category": "user_info", "source": "user", "confidence": 1.0, "tags": [], "timestamp_ms": 1781283880310}
+{"fact_id": "fact_1781283880311_592fa1c1", "content": "Weather forecast shows rain tomorrow", "category": "knowledge", "source": "inference", "confidence": 1.0, "tags": [], "timestamp_ms": 1781283880311}
+{"fact_id": "fact_1781283956709_8d4fb6b9", "content": "User lives in Tokyo", "category": "user_info", "source": "user", "confidence": 1.0, "tags": [], "timestamp_ms": 1781283956709}
+{"fact_id": "fact_1781283956709_449479c8", "content": "Weather forecast shows rain tomorrow", "category": "knowledge", "source": "inference", "confidence": 1.0, "tags": [], "timestamp_ms": 1781283956709}
+{"fact_id": "fact_1781284032753_0183b83c", "content": "User lives in Tokyo", "category": "user_info", "source": "user", "confidence": 1.0, "tags": [], "timestamp_ms": 1781284032753}
+{"fact_id": "fact_1781284032753_08639d76", "content": "Weather forecast shows rain tomorrow", "category": "knowledge", "source": "inference", "confidence": 1.0, "tags": [], "timestamp_ms": 1781284032753}
+{"fact_id": "fact_1781284686893_09f15a12", "content": "User lives in Tokyo", "category": "user_info", "source": "user", "confidence": 1.0, "tags": [], "timestamp_ms": 1781284686893}
+{"fact_id": "fact_1781284686893_09812d3e", "content": "Weather forecast shows rain tomorrow", "category": "knowledge", "source": "inference", "confidence": 1.0, "tags": [], "timestamp_ms": 1781284686893}
+{"fact_id": "fact_1781284748681_2e7366ff", "content": "User lives in Tokyo", "category": "user_info", "source": "user", "confidence": 1.0, "tags": [], "timestamp_ms": 1781284748681}
+{"fact_id": "fact_1781284748681_ab1d5ee9", "content": "Weather forecast shows rain tomorrow", "category": "knowledge", "source": "inference", "confidence": 1.0, "tags": [], "timestamp_ms": 1781284748681}
+{"fact_id": "fact_1781285322022_072f32f0", "content": "User lives in Tokyo", "category": "user_info", "source": "user", "confidence": 1.0, "tags": [], "timestamp_ms": 1781285322022}
+{"fact_id": "fact_1781285322022_8e2c76f5", "content": "Weather forecast shows rain tomorrow", "category": "knowledge", "source": "inference", "confidence": 1.0, "tags": [], "timestamp_ms": 1781285322022}
+{"fact_id": "fact_1781285376181_4ecdcdda", "content": "User lives in Tokyo", "category": "user_info", "source": "user", "confidence": 1.0, "tags": [], "timestamp_ms": 1781285376181}
+{"fact_id": "fact_1781285376182_bae52f04", "content": "Weather forecast shows rain tomorrow", "category": "knowledge", "source": "inference", "confidence": 1.0, "tags": [], "timestamp_ms": 1781285376182}
+{"fact_id": "fact_1781285532864_8218d6cd", "content": "User lives in Tokyo", "category": "user_info", "source": "user", "confidence": 1.0, "tags": [], "timestamp_ms": 1781285532864}
+{"fact_id": "fact_1781285532864_c11dff7d", "content": "Weather forecast shows rain tomorrow", "category": "knowledge", "source": "inference", "confidence": 1.0, "tags": [], "timestamp_ms": 1781285532864}
+{"fact_id": "fact_1781285630942_6eb5742e", "content": "User lives in Tokyo", "category": "user_info", "source": "user", "confidence": 1.0, "tags": [], "timestamp_ms": 1781285630942}
+{"fact_id": "fact_1781285630942_7367548c", "content": "Weather forecast shows rain tomorrow", "category": "knowledge", "source": "inference", "confidence": 1.0, "tags": [], "timestamp_ms": 1781285630942}
+{"fact_id": "fact_1781285728580_8c3b96d4", "content": "User lives in Tokyo", "category": "user_info", "source": "user", "confidence": 1.0, "tags": [], "timestamp_ms": 1781285728580}
+{"fact_id": "fact_1781285728580_299a8d90", "content": "Weather forecast shows rain tomorrow", "category": "knowledge", "source": "inference", "confidence": 1.0, "tags": [], "timestamp_ms": 1781285728580}
+{"fact_id": "fact_1781286233685_8c7e9fc0", "content": "User lives in Tokyo", "category": "user_info", "source": "user", "confidence": 1.0, "tags": [], "timestamp_ms": 1781286233685}
+{"fact_id": "fact_1781286233686_2ef03548", "content": "Weather forecast shows rain tomorrow", "category": "knowledge", "source": "inference", "confidence": 1.0, "tags": [], "timestamp_ms": 1781286233686}
+{"fact_id": "fact_1781286495909_6d5e66cf", "content": "User lives in Tokyo", "category": "user_info", "source": "user", "confidence": 1.0, "tags": [], "timestamp_ms": 1781286495909}
+{"fact_id": "fact_1781286495909_f45af4f1", "content": "Weather forecast shows rain tomorrow", "category": "knowledge", "source": "inference", "confidence": 1.0, "tags": [], "timestamp_ms": 1781286495909}
+{"fact_id": "fact_1781286640615_a38045dc", "content": "User lives in Tokyo", "category": "user_info", "source": "user", "confidence": 1.0, "tags": [], "timestamp_ms": 1781286640615}
+{"fact_id": "fact_1781286640615_37d2ca25", "content": "Weather forecast shows rain tomorrow", "category": "knowledge", "source": "inference", "confidence": 1.0, "tags": [], "timestamp_ms": 1781286640615}
+{"fact_id": "fact_1781287059729_cd89799c", "content": "User lives in Tokyo", "category": "user_info", "source": "user", "confidence": 1.0, "tags": [], "timestamp_ms": 1781287059729}
+{"fact_id": "fact_1781287059729_e3ca70ca", "content": "Weather forecast shows rain tomorrow", "category": "knowledge", "source": "inference", "confidence": 1.0, "tags": [], "timestamp_ms": 1781287059729}
+{"fact_id": "fact_1781289091751_a885de29", "content": "User lives in Tokyo", "category": "user_info", "source": "user", "confidence": 1.0, "tags": [], "timestamp_ms": 1781289091751}
+{"fact_id": "fact_1781289091752_ec19ab5d", "content": "Weather forecast shows rain tomorrow", "category": "knowledge", "source": "inference", "confidence": 1.0, "tags": [], "timestamp_ms": 1781289091752}
+{"fact_id": "fact_1781289547820_e30ef6c5", "content": "User lives in Tokyo", "category": "user_info", "source": "user", "confidence": 1.0, "tags": [], "timestamp_ms": 1781289547820}
+{"fact_id": "fact_1781289547820_616af4d5", "content": "Weather forecast shows rain tomorrow", "category": "knowledge", "source": "inference", "confidence": 1.0, "tags": [], "timestamp_ms": 1781289547820}
+{"fact_id": "fact_1781292731941_e348dc66", "content": "User lives in Tokyo", "category": "user_info", "source": "user", "confidence": 1.0, "tags": [], "timestamp_ms": 1781292731941}
+{"fact_id": "fact_1781292731942_d742630c", "content": "Weather forecast shows rain tomorrow", "category": "knowledge", "source": "inference", "confidence": 1.0, "tags": [], "timestamp_ms": 1781292731942}
+{"fact_id": "fact_1781292885390_d5e5e845", "content": "User lives in Tokyo", "category": "user_info", "source": "user", "confidence": 1.0, "tags": [], "timestamp_ms": 1781292885390}
+{"fact_id": "fact_1781292885390_da13a60e", "content": "Weather forecast shows rain tomorrow", "category": "knowledge", "source": "inference", "confidence": 1.0, "tags": [], "timestamp_ms": 1781292885390}
+{"fact_id": "fact_1781293677499_4e5cabbf", "content": "User lives in Tokyo", "category": "user_info", "source": "user", "confidence": 1.0, "tags": [], "timestamp_ms": 1781293677499}
+{"fact_id": "fact_1781293677500_08100077", "content": "Weather forecast shows rain tomorrow", "category": "knowledge", "source": "inference", "confidence": 1.0, "tags": [], "timestamp_ms": 1781293677500}
+{"fact_id": "fact_1781293791466_64763c41", "content": "User lives in Tokyo", "category": "user_info", "source": "user", "confidence": 1.0, "tags": [], "timestamp_ms": 1781293791466}
+{"fact_id": "fact_1781293791466_e5f44274", "content": "Weather forecast shows rain tomorrow", "category": "knowledge", "source": "inference", "confidence": 1.0, "tags": [], "timestamp_ms": 1781293791466}
+{"fact_id": "fact_1781308407637_b836c9a2", "content": "User lives in Tokyo", "category": "user_info", "source": "user", "confidence": 1.0, "tags": [], "timestamp_ms": 1781308407637}
+{"fact_id": "fact_1781308407638_5c49b297", "content": "Weather forecast shows rain tomorrow", "category": "knowledge", "source": "inference", "confidence": 1.0, "tags": [], "timestamp_ms": 1781308407638}
+{"fact_id": "fact_1781308573171_cebe9693", "content": "User lives in Tokyo", "category": "user_info", "source": "user", "confidence": 1.0, "tags": [], "timestamp_ms": 1781308573171}
+{"fact_id": "fact_1781308573171_8bea3fe7", "content": "Weather forecast shows rain tomorrow", "category": "knowledge", "source": "inference", "confidence": 1.0, "tags": [], "timestamp_ms": 1781308573171}
+{"fact_id": "fact_1781316071347_f6bee996", "content": "User lives in Tokyo", "category": "user_info", "source": "user", "confidence": 1.0, "tags": [], "timestamp_ms": 1781316071347}
+{"fact_id": "fact_1781316071347_dae3b025", "content": "Weather forecast shows rain tomorrow", "category": "knowledge", "source": "inference", "confidence": 1.0, "tags": [], "timestamp_ms": 1781316071347}
+{"fact_id": "fact_1781316241404_6fef0106", "content": "User lives in Tokyo", "category": "user_info", "source": "user", "confidence": 1.0, "tags": [], "timestamp_ms": 1781316241404}
+{"fact_id": "fact_1781316241405_bb36d411", "content": "Weather forecast shows rain tomorrow", "category": "knowledge", "source": "inference", "confidence": 1.0, "tags": [], "timestamp_ms": 1781316241405}
+{"fact_id": "fact_1781319085721_30b028c9", "content": "User lives in Tokyo", "category": "user_info", "source": "user", "confidence": 1.0, "tags": [], "timestamp_ms": 1781319085721}
+{"fact_id": "fact_1781319085722_4ee3c5a0", "content": "Weather forecast shows rain tomorrow", "category": "knowledge", "source": "inference", "confidence": 1.0, "tags": [], "timestamp_ms": 1781319085722}
+{"fact_id": "fact_1781319392495_417c7be1", "content": "User lives in Tokyo", "category": "user_info", "source": "user", "confidence": 1.0, "tags": [], "timestamp_ms": 1781319392495}
+{"fact_id": "fact_1781319392495_e41f7971", "content": "Weather forecast shows rain tomorrow", "category": "knowledge", "source": "inference", "confidence": 1.0, "tags": [], "timestamp_ms": 1781319392495}
+{"fact_id": "fact_1781321927531_0163361b", "content": "User lives in Tokyo", "category": "user_info", "source": "user", "confidence": 1.0, "tags": [], "timestamp_ms": 1781321927531}
+{"fact_id": "fact_1781321927531_1ca7e1ad", "content": "Weather forecast shows rain tomorrow", "category": "knowledge", "source": "inference", "confidence": 1.0, "tags": [], "timestamp_ms": 1781321927531}
+{"fact_id": "fact_1781322386114_897cf4f7", "content": "User lives in Tokyo", "category": "user_info", "source": "user", "confidence": 1.0, "tags": [], "timestamp_ms": 1781322386114}
+{"fact_id": "fact_1781322386115_fa704f27", "content": "Weather forecast shows rain tomorrow", "category": "knowledge", "source": "inference", "confidence": 1.0, "tags": [], "timestamp_ms": 1781322386115}
+{"fact_id": "fact_1781323564058_63b6317e", "content": "User lives in Tokyo", "category": "user_info", "source": "user", "confidence": 1.0, "tags": [], "timestamp_ms": 1781323564058}
+{"fact_id": "fact_1781323564058_b1daa522", "content": "Weather forecast shows rain tomorrow", "category": "knowledge", "source": "inference", "confidence": 1.0, "tags": [], "timestamp_ms": 1781323564058}
+{"fact_id": "fact_1781323704628_63f3d83c", "content": "User lives in Tokyo", "category": "user_info", "source": "user", "confidence": 1.0, "tags": [], "timestamp_ms": 1781323704628}
+{"fact_id": "fact_1781323704629_accb1c52", "content": "Weather forecast shows rain tomorrow", "category": "knowledge", "source": "inference", "confidence": 1.0, "tags": [], "timestamp_ms": 1781323704629}
+{"fact_id": "fact_1781323892759_d91dcbfb", "content": "User lives in Tokyo", "category": "user_info", "source": "user", "confidence": 1.0, "tags": [], "timestamp_ms": 1781323892759}
+{"fact_id": "fact_1781323892760_8baca7e9", "content": "Weather forecast shows rain tomorrow", "category": "knowledge", "source": "inference", "confidence": 1.0, "tags": [], "timestamp_ms": 1781323892760}
+{"fact_id": "fact_1781324286164_34d6a723", "content": "User lives in Tokyo", "category": "user_info", "source": "user", "confidence": 1.0, "tags": [], "timestamp_ms": 1781324286164}
+{"fact_id": "fact_1781324286164_7f827abb", "content": "Weather forecast shows rain tomorrow", "category": "knowledge", "source": "inference", "confidence": 1.0, "tags": [], "timestamp_ms": 1781324286164}
+{"fact_id": "fact_1781324531810_b39d7d2f", "content": "User lives in Tokyo", "category": "user_info", "source": "user", "confidence": 1.0, "tags": [], "timestamp_ms": 1781324531810}
+{"fact_id": "fact_1781324531810_4c9fae12", "content": "Weather forecast shows rain tomorrow", "category": "knowledge", "source": "inference", "confidence": 1.0, "tags": [], "timestamp_ms": 1781324531810}
+{"fact_id": "fact_1781324935165_8fe495a0", "content": "User lives in Tokyo", "category": "user_info", "source": "user", "confidence": 1.0, "tags": [], "timestamp_ms": 1781324935165}
+{"fact_id": "fact_1781324935165_096a35d5", "content": "Weather forecast shows rain tomorrow", "category": "knowledge", "source": "inference", "confidence": 1.0, "tags": [], "timestamp_ms": 1781324935165}
+{"fact_id": "fact_1781325076177_33bebd4e", "content": "User lives in Tokyo", "category": "user_info", "source": "user", "confidence": 1.0, "tags": [], "timestamp_ms": 1781325076177}
+{"fact_id": "fact_1781325076178_6c99639a", "content": "Weather forecast shows rain tomorrow", "category": "knowledge", "source": "inference", "confidence": 1.0, "tags": [], "timestamp_ms": 1781325076178}
+{"fact_id": "fact_1781325432530_60e702c0", "content": "User lives in Tokyo", "category": "user_info", "source": "user", "confidence": 1.0, "tags": [], "timestamp_ms": 1781325432530}
+{"fact_id": "fact_1781325432530_2d6cd1ab", "content": "Weather forecast shows rain tomorrow", "category": "knowledge", "source": "inference", "confidence": 1.0, "tags": [], "timestamp_ms": 1781325432530}
+{"fact_id": "fact_1781325558941_c10544e4", "content": "User lives in Tokyo", "category": "user_info", "source": "user", "confidence": 1.0, "tags": [], "timestamp_ms": 1781325558941}
+{"fact_id": "fact_1781325558942_13025981", "content": "Weather forecast shows rain tomorrow", "category": "knowledge", "source": "inference", "confidence": 1.0, "tags": [], "timestamp_ms": 1781325558942}
+{"fact_id": "fact_1781325675529_099bad8c", "content": "User lives in Tokyo", "category": "user_info", "source": "user", "confidence": 1.0, "tags": [], "timestamp_ms": 1781325675529}
+{"fact_id": "fact_1781325675529_239a01fd", "content": "Weather forecast shows rain tomorrow", "category": "knowledge", "source": "inference", "confidence": 1.0, "tags": [], "timestamp_ms": 1781325675529}
+{"fact_id": "fact_1781325788992_0b41aa84", "content": "User lives in Tokyo", "category": "user_info", "source": "user", "confidence": 1.0, "tags": [], "timestamp_ms": 1781325788992}
+{"fact_id": "fact_1781325788992_e88d7f89", "content": "Weather forecast shows rain tomorrow", "category": "knowledge", "source": "inference", "confidence": 1.0, "tags": [], "timestamp_ms": 1781325788992}
+{"fact_id": "fact_1781325904474_7a1d5924", "content": "User lives in Tokyo", "category": "user_info", "source": "user", "confidence": 1.0, "tags": [], "timestamp_ms": 1781325904474}
+{"fact_id": "fact_1781325904475_23e50ce5", "content": "Weather forecast shows rain tomorrow", "category": "knowledge", "source": "inference", "confidence": 1.0, "tags": [], "timestamp_ms": 1781325904475}
+{"fact_id": "fact_1781326021756_31c2c445", "content": "User lives in Tokyo", "category": "user_info", "source": "user", "confidence": 1.0, "tags": [], "timestamp_ms": 1781326021756}
+{"fact_id": "fact_1781326021757_106d353c", "content": "Weather forecast shows rain tomorrow", "category": "knowledge", "source": "inference", "confidence": 1.0, "tags": [], "timestamp_ms": 1781326021757}
+{"fact_id": "fact_1781326136288_35ae08f6", "content": "User lives in Tokyo", "category": "user_info", "source": "user", "confidence": 1.0, "tags": [], "timestamp_ms": 1781326136288}
+{"fact_id": "fact_1781326136289_54bf296e", "content": "Weather forecast shows rain tomorrow", "category": "knowledge", "source": "inference", "confidence": 1.0, "tags": [], "timestamp_ms": 1781326136289}
+{"fact_id": "fact_1781326567518_326524ae", "content": "User lives in Tokyo", "category": "user_info", "source": "user", "confidence": 1.0, "tags": [], "timestamp_ms": 1781326567518}
+{"fact_id": "fact_1781326567518_2361362d", "content": "Weather forecast shows rain tomorrow", "category": "knowledge", "source": "inference", "confidence": 1.0, "tags": [], "timestamp_ms": 1781326567518}
+{"fact_id": "fact_1781326937472_32229623", "content": "User lives in Tokyo", "category": "user_info", "source": "user", "confidence": 1.0, "tags": [], "timestamp_ms": 1781326937472}
+{"fact_id": "fact_1781326937472_33118aca", "content": "Weather forecast shows rain tomorrow", "category": "knowledge", "source": "inference", "confidence": 1.0, "tags": [], "timestamp_ms": 1781326937472}
+{"fact_id": "fact_1781327100229_8ca2ce7f", "content": "User lives in Tokyo", "category": "user_info", "source": "user", "confidence": 1.0, "tags": [], "timestamp_ms": 1781327100229}
+{"fact_id": "fact_1781327100229_156aa3b7", "content": "Weather forecast shows rain tomorrow", "category": "knowledge", "source": "inference", "confidence": 1.0, "tags": [], "timestamp_ms": 1781327100229}

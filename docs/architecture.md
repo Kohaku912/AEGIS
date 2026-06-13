@@ -1,6 +1,6 @@
 # AEGIS Architecture — AEGIS: Autonomous Multi-Device AI
 
-> **Status**: Draft / Planned (2026-06-11)  
+> **Status**: Implemented (2026-06-13)  
 > **Target audience**: AI coding agents, contributors, and future AEGIS itself  
 > **Related**: [`AGENTS.md`](../AGENTS.md) — rules and conventions for agents working on this repo
 
@@ -14,6 +14,7 @@ AEGIS is an **autonomous, event-driven, self-improving AI assistant** that spans
 - **Thinks** via a central AI Server with memory, goals, and identity
 - **Acts** through capability servers — with graduated safety gates
 - **Learns** from outcomes and improves its own codebase (self-development)
+- **Desires** driven by intrinsic motivations (D2A-inspired)
 
 **Key design constraint**: AEGIS must never act dangerously without explicit user approval. Safety is structural (not prompt-based). See [§7 Security Design](#7-security-design).
 

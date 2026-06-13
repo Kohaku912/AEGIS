@@ -1,40 +1,36 @@
 # Operations Dashboard
 
-> **Status**: Implemented
+> **Status**: Implemented (2026-06-13)
 > **Related**: `docs/architecture.md`, `docs/settings.md`, `docs/permissions.md`
 
 ## Overview
 
 The Operations Dashboard provides a web-based view of AEGIS's internal state.
-It is read-only and cannot bypass any safety mechanisms.
+Features streaming chat, memory integration, and desire context.
 
 ## Screens
 
 ### Home (`/`)
 - AEGIS Core status
 - Connected servers count
-- Pending approvals
 - Recent errors
 - Autonomous mode status
 - Memory summary
+- Desire states
 
 ### Servers (`/dashboard/servers`)
-- PC / Android / Browser / Room / Dev server status
+- PC / Android / Browser / Room server status
 - Last heartbeat
 - Registered capabilities count
-- Version and host info
 
 ### Capabilities (`/dashboard/capabilities`)
 - Capability list with usage stats
 - Safety level
 - Success/failure count
-- Average latency
 
 ### Events (`/dashboard/events`)
 - EventBus recent events
 - Source, type, severity, priority
-- Deduplication stats
-- Queue size
 
 ### Tasks (`/dashboard/tasks`)
 - Pending TaskRequests
@@ -48,46 +44,80 @@ It is read-only and cannot bypass any safety mechanisms.
 ### Memory (`/dashboard/memory`)
 - Episodic recent
 - Semantic facts
-- Procedural memories
-- Reflections
+- PersonaMemory (persons, conversations)
+- ChromaSemanticMemory (vector DB)
 
 ### Audit (`/dashboard/audit`)
 - Policy decisions
-- Approvals
-- Tool invocations
-- Settings changes
+- Approval requests
+- Safety events
 
 ### Errors (`/dashboard/errors`)
-- Structured error list
-- Recent denials and failures
+- Error log
+- Stack traces
 
-## API Endpoints
+## Chat API
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/api/dashboard/overview` | GET | JSON overview of all systems |
-| `/api/dashboard/events` | GET | Recent events as JSON |
-| `/api/dashboard/capabilities` | GET | Capability list as JSON |
-| `/health` | GET | Dashboard health check |
+### Streaming Chat
 
-## Security
+**Endpoint**: `POST /api/chat/stream`
 
-- **localhost only** — dashboard runs on 127.0.0.1:8090
-- **No external exposure** by default
-- **Sensitive payload redaction** — passwords, tokens, secrets are masked
-- **Read-only** — dashboard cannot execute actions
-- **Cannot bypass approval** — all actions still go through PolicyEngine
-- **Audit trail** — all dashboard access is logged
-
-## Running
-
-```bash
-cd ai-server
-python -c "
-from aegis_ai.web.dashboard_routes import DashboardApp
-app = DashboardApp()
-app.run(host='127.0.0.1', port=8090)
-"
+**Request**:
+```json
+{"text": "What is Python?"}
 ```
 
-Or integrate with main AEGIS startup.
+**Response** (Server-Sent Events):
+```
+data: {"type": "text", "content": "Python is"}
+data: {"type": "text", "content": " a programming"}
+data: {"type": "text", "content": " language..."}
+data: {"type": "done"}
+```
+
+### Non-Streaming Chat
+
+**Endpoint**: `POST /api/chat/send`
+
+**Request**:
+```json
+{"text": "Take a screenshot"}
+```
+
+**Response**:
+```json
+{
+  "response": "Here's your current screen:",
+  "image": "base64...",
+  "image_width": 1920,
+  "image_height": 1080
+}
+```
+
+### Chat History
+
+**Endpoint**: `GET /api/chat/history`
+
+**Response**: Array of chat entries
+
+**Endpoint**: `POST /api/chat/clear`
+
+**Response**: `{"status": "cleared"}`
+
+## Autonomous API
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/api/autonomous/status` | GET | Get loop status |
+| `/api/autonomous/trigger` | POST | Manual trigger |
+| `/api/autonomous/start` | POST | Start loop |
+| `/api/autonomous/stop` | POST | Stop loop |
+| `/api/desires` | GET | Get desire states |
+
+## Design Decisions
+
+1. **Streaming chat**: Real-time LLM response display
+2. **Memory integration**: AdvancedMemory context in LLM prompts
+3. **Desire context**: Current desire states in LLM prompts
+4. **All actions through LLM**: Every result passes through LLM
+5. **No keyword matching**: All decisions by LLM
