@@ -5,5 +5,6 @@
   "app_id": "window",
   "action": "get_active_window",
   "risk": {"level": "low", "side_effects": [], "requires_approval": false},
-  "tags": ["builtin", "pc", "read", "window"]
+  "tags": ["builtin", "pc", "read", "window"],
+  "tcp_command": "active_window"
 }

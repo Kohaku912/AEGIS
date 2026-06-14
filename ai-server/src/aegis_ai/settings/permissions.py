@@ -99,7 +99,7 @@ class SettingsPermissionGuard:
                 )
 
         # Check privacy settings for specific capabilities
-        if capability.id == "pc.get_clipboard" and not settings.privacy.clipboard_capture_enabled:
+        if capability.id == "pc-server.clipboard.get_clipboard" and not settings.privacy.clipboard_capture_enabled:
             return PolicyResult(
                 decision=PolicyDecision.DENY,
                 reason="Clipboard capture is disabled in privacy settings",

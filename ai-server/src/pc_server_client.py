@@ -393,217 +393,19 @@ class ConnectionStats:
 
 PC_SERVER_ID = "pc-server-main"
 
-PC_CAPABILITIES: list[Capability] = [
-    # ── Observe (Level 0) ──
-    Capability(
-        id="pc.get_screenshot",
-        name="Screenshot Capture",
-        description="Capture the current display as a PNG image.",
-        server_type=ServerType.PC,
-        risk_level=RiskLevel.READ_ONLY,
-        tags=["screenshot", "observe", "read_only"],
-        timeout_ms=5000,
-    ),
-    Capability(
-        id="pc.get_active_window",
-        name="Get Active Window",
-        description="Return the title, process, and position of the foreground window.",
-        server_type=ServerType.PC,
-        risk_level=RiskLevel.READ_ONLY,
-        tags=["window", "observe", "read_only"],
-        timeout_ms=1000,
-    ),
-    Capability(
-        id="pc.list_windows",
-        name="List Windows",
-        description="List all visible windows with title and process info.",
-        server_type=ServerType.PC,
-        risk_level=RiskLevel.READ_ONLY,
-        tags=["window", "observe", "read_only"],
-        timeout_ms=2000,
-    ),
-    Capability(
-        id="pc.get_clipboard",
-        name="Get Clipboard",
-        description="Read the current clipboard text (secrets are redacted).",
-        server_type=ServerType.PC,
-        risk_level=RiskLevel.READ_ONLY,
-        tags=["clipboard", "observe", "read_only"],
-        timeout_ms=500,
-    ),
-    Capability(
-        id="pc.get_os_info",
-        name="Get OS Info",
-        description="Return OS name, version, hostname, username, and architecture.",
-        server_type=ServerType.PC,
-        risk_level=RiskLevel.READ_ONLY,
-        tags=["os", "system", "observe"],
-        timeout_ms=1000,
-    ),
-    Capability(
-        id="pc.list_directory",
-        name="List Directory",
-        description="List files in a directory (sensitive dirs restricted).",
-        server_type=ServerType.PC,
-        risk_level=RiskLevel.READ_ONLY,
-        tags=["files", "observe"],
-        timeout_ms=3000,
-    ),
-    # ── Mouse (Level 1–2) ──
-    Capability(
-        id="pc.mouse_move",
-        name="Mouse Move",
-        description="Move mouse cursor to absolute screen coordinates.",
-        server_type=ServerType.PC,
-        risk_level=RiskLevel.SAFE_ACTION,
-        tags=["mouse", "action"],
-        timeout_ms=1000,
-    ),
-    Capability(
-        id="pc.mouse_click",
-        name="Mouse Click",
-        description="Click at screen coordinates. Requires approval.",
-        server_type=ServerType.PC,
-        risk_level=RiskLevel.APPROVAL_REQUIRED,
-        requires_approval=True,
-        side_effects=["mouse_click"],
-        tags=["mouse", "action", "approval_required"],
-        timeout_ms=2000,
-    ),
-    # ── Keyboard (Level 2) ──
-    Capability(
-        id="pc.keyboard_type",
-        name="Keyboard Type",
-        description="Type text at current cursor position. Requires approval.",
-        server_type=ServerType.PC,
-        risk_level=RiskLevel.APPROVAL_REQUIRED,
-        requires_approval=True,
-        side_effects=["keyboard_input"],
-        tags=["keyboard", "action", "approval_required"],
-        timeout_ms=5000,
-    ),
-    Capability(
-        id="pc.press_hotkey",
-        name="Press Hotkey",
-        description="Press a hotkey combination (e.g. Ctrl+C). Requires approval.",
-        server_type=ServerType.PC,
-        risk_level=RiskLevel.APPROVAL_REQUIRED,
-        requires_approval=True,
-        side_effects=["keyboard_input"],
-        tags=["keyboard", "action", "approval_required"],
-        timeout_ms=1000,
-    ),
-    # ── App Control (Level 1–2) ──
-    Capability(
-        id="pc.launch_app",
-        name="Launch Application",
-        description="Launch an application by path. Auto-allowed for safe apps.",
-        server_type=ServerType.PC,
-        risk_level=RiskLevel.SAFE_ACTION,
-        tags=["app", "action"],
-        timeout_ms=5000,
-    ),
-    Capability(
-        id="pc.close_window",
-        name="Close Window",
-        description="Close a window by ID or process name. Requires approval.",
-        server_type=ServerType.PC,
-        risk_level=RiskLevel.APPROVAL_REQUIRED,
-        requires_approval=True,
-        side_effects=["window_close"],
-        tags=["window", "action", "approval_required"],
-        timeout_ms=2000,
-    ),
-    Capability(
-        id="pc.focus_window",
-        name="Focus Window",
-        description="Bring a window to the foreground.",
-        server_type=ServerType.PC,
-        risk_level=RiskLevel.SAFE_ACTION,
-        tags=["window", "action"],
-        timeout_ms=1000,
-    ),
-    Capability(
-        id="pc.move_window",
-        name="Move Window",
-        description="Move a window to specified screen coordinates.",
-        server_type=ServerType.PC,
-        risk_level=RiskLevel.SAFE_ACTION,
-        tags=["window", "action"],
-        timeout_ms=1000,
-    ),
-    Capability(
-        id="pc.resize_window",
-        name="Resize Window",
-        description="Resize a window to specified dimensions.",
-        server_type=ServerType.PC,
-        risk_level=RiskLevel.SAFE_ACTION,
-        tags=["window", "action"],
-        timeout_ms=1000,
-    ),
-    # ── Overlay (Level 1) ──
-    Capability(
-        id="pc.show_overlay",
-        name="Show Overlay",
-        description="Display an overlay notification on screen.",
-        server_type=ServerType.PC,
-        risk_level=RiskLevel.SAFE_ACTION,
-        tags=["overlay", "action"],
-        timeout_ms=2000,
-    ),
-    Capability(
-        id="pc.hide_overlay",
-        name="Hide Overlay",
-        description="Hide the current overlay notification.",
-        server_type=ServerType.PC,
-        risk_level=RiskLevel.SAFE_ACTION,
-        tags=["overlay", "action"],
-        timeout_ms=1000,
-    ),
-    # ── Clipboard (Level 2) ──
-    Capability(
-        id="pc.write_clipboard",
-        name="Write Clipboard",
-        description="Write text to the system clipboard. Requires approval.",
-        server_type=ServerType.PC,
-        risk_level=RiskLevel.APPROVAL_REQUIRED,
-        requires_approval=True,
-        side_effects=["clipboard_write"],
-        tags=["clipboard", "action", "approval_required"],
-        timeout_ms=1000,
-    ),
-    # ── File (Level 0 / Level 2) ──
-    Capability(
-        id="pc.read_file",
-        name="Read File",
-        description="Read file contents. Denied for sensitive paths.",
-        server_type=ServerType.PC,
-        risk_level=RiskLevel.READ_ONLY,
-        tags=["file", "observe", "read_only"],
-        timeout_ms=3000,
-    ),
-    Capability(
-        id="pc.write_file",
-        name="Write File",
-        description="Write content to a file. Requires approval. Denied for sensitive paths.",
-        server_type=ServerType.PC,
-        risk_level=RiskLevel.APPROVAL_REQUIRED,
-        requires_approval=True,
-        side_effects=["file_write"],
-        tags=["file", "action", "approval_required"],
-        timeout_ms=5000,
-    ),
-]
 
+def get_pc_server_info(capability_ids: list[str] | None = None) -> ServerInfo:
+    """Create ServerInfo for the PC Server.
 
-def get_pc_server_info() -> ServerInfo:
-    """Create ServerInfo for the PC Server."""
+    Capabilities are loaded from JSON manifests — not hardcoded.
+    Pass ``capability_ids`` explicitly when known (e.g. from FolderCapabilityRegistry).
+    """
     return ServerInfo(
         server_id=PC_SERVER_ID,
         server_type=ServerType.PC,
         version="0.2.0",
         status=ServerStatus.ONLINE,
-        capability_ids=[cap.id for cap in PC_CAPABILITIES],
+        capability_ids=capability_ids or [],
         host="localhost",
         port=50052,
         started_at_ms=int(time.time() * 1000),
@@ -657,25 +459,31 @@ class PCServerClient:
 
     # ── Registration ─────────────────────────────────────────
 
-    def register(self) -> bool:
-        """Register PC Server and its capabilities with AEGIS Core."""
+    def register(self, capabilities: list[Capability] | None = None) -> bool:
+        """Register PC Server and its capabilities with AEGIS Core.
+
+        Capabilities must be loaded from JSON manifests (FolderCapabilityRegistry)
+        and passed in — no hardcoded definitions.
+        """
         if not self._provider.is_available():
             self._stats.state = ConnectionState.FAILED
             self._stats.last_error = "PC Server is not available"
             logger.warning("PC Server not available — skipping registration")
             return False
 
+        caps = capabilities or []
         try:
-            server_info = get_pc_server_info()
+            cap_ids = [cap.id for cap in caps]
+            server_info = get_pc_server_info(capability_ids=cap_ids)
             self._registry.register_server(server_info)
-            for cap in PC_CAPABILITIES:
+            for cap in caps:
                 self._registry.register_capability(cap)
 
             self._registered = True
             self._stats.state = ConnectionState.CONNECTED
-            self._stats.total_registrations = len(PC_CAPABILITIES)
+            self._stats.total_registrations = len(caps)
             self._stats.last_connected_at_ms = int(time.time() * 1000)
-            logger.info("PC Server registered %d capabilities", len(PC_CAPABILITIES))
+            logger.info("PC Server registered %d capabilities", len(caps))
             return True
 
         except Exception as e:
@@ -684,11 +492,11 @@ class PCServerClient:
             logger.error("PC Server registration failed: %s", e)
             return False
 
-    def unregister(self) -> None:
+    def unregister(self, capability_ids: list[str] | None = None) -> None:
         """Unregister PC Server from AEGIS Core."""
         self._registry.unregister_server(PC_SERVER_ID)
-        for cap in PC_CAPABILITIES:
-            self._registry.unregister_capability(cap.id)
+        for cap_id in capability_ids or []:
+            self._registry.unregister_capability(cap_id)
         self._registered = False
         self._stats.state = ConnectionState.DISCONNECTED
 
@@ -790,83 +598,32 @@ class PCServerClient:
     def invoke_capability(self, capability_id: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
         """Invoke a PC capability via the provider (for testing).
 
-        In production, ToolBroker → PolicyEngine handles this.
+        In production, ToolBroker → PolicyEngine handles capability dispatch.
+        Capabilities are defined in JSON manifests with a ``tcp_command`` field
+        that the PC Server uses for dispatch — no hardcoded mapping here.
+
+        This method provides a direct-provider fallback for unit tests.
         """
         if not self._provider.is_available():
             return {"error": "PC Server is not available", "capability_id": capability_id}
 
         params = params or {}
         try:
-            # ── Observe ──
-            if capability_id == "pc.get_screenshot":
-                return self._provider.get_screenshot(params.get("display_id", 0))
-            elif capability_id == "pc.get_active_window":
-                return self._provider.get_active_window()
-            elif capability_id == "pc.list_windows":
-                return {"windows": self._provider.list_windows()}
-            elif capability_id == "pc.get_clipboard":
-                return {"text": self._provider.get_clipboard()}
-            elif capability_id == "pc.get_os_info":
-                return self._provider.get_os_info()
+            # Canonical IDs follow server_id.app_id.action — extract the action.
+            parts = capability_id.split(".")
+            action = parts[-1] if parts else capability_id
 
-            # ── Mouse ──
-            elif capability_id == "pc.mouse_move":
-                return self._provider.mouse_move(params["x"], params["y"])
-            elif capability_id == "pc.mouse_click":
-                return self._provider.mouse_click(
-                    params["x"],
-                    params["y"],
-                    params.get("button", "left"),
-                    params.get("clicks", 1),
-                )
-
-            # ── Keyboard ──
-            elif capability_id == "pc.keyboard_type":
-                return self._provider.keyboard_type(params["text"], params.get("interval_ms", 0))
-            elif capability_id == "pc.press_hotkey":
-                return self._provider.press_hotkey(params["keys"])
-
-            # ── App Control ──
-            elif capability_id == "pc.launch_app":
-                return self._provider.launch_app(params["app_path"], params.get("args"))
-            elif capability_id == "pc.close_window":
-                return self._provider.close_window(params.get("window_id"), params.get("process_name", ""))
-            elif capability_id == "pc.focus_window":
-                return self._provider.focus_window(params.get("window_id"), params.get("process_name", ""))
-            elif capability_id == "pc.move_window":
-                return self._provider.move_window(params["window_id"], params["x"], params["y"])
-            elif capability_id == "pc.resize_window":
-                return self._provider.resize_window(params["window_id"], params["width"], params["height"])
-
-            # ── Overlay ──
-            elif capability_id == "pc.show_overlay":
-                return self._provider.show_overlay(
-                    params["text"],
-                    params.get("x", 100),
-                    params.get("y", 100),
-                    params.get("duration_ms", 5000),
-                )
-            elif capability_id == "pc.hide_overlay":
-                return self._provider.hide_overlay(params.get("overlay_id", ""))
-
-            # ── Clipboard ──
-            elif capability_id == "pc.write_clipboard":
-                return self._provider.write_clipboard(params["text"])
-
-            # ── File ──
-            elif capability_id == "pc.read_file":
-                # Check denylist
-                if is_path_denied(params["path"]):
-                    return {"error": "Path is denied by safety rules", "path": params["path"]}
-                return self._provider.read_file(params["path"], params.get("max_bytes", 1_000_000))
-            elif capability_id == "pc.write_file":
-                # Check denylist
-                if is_path_denied(params["path"]):
-                    return {"error": "Path is denied by safety rules", "path": params["path"]}
-                return self._provider.write_file(params["path"], params["content"], params.get("create_dirs", False))
-
-            else:
+            provider_method = getattr(self._provider, action, None)
+            if provider_method is None:
                 return {"error": f"Unknown capability: {capability_id}"}
+
+            import inspect
+            sig = inspect.signature(provider_method)
+            kwargs: dict[str, Any] = {}
+            for param_name in sig.parameters:
+                if param_name in params:
+                    kwargs[param_name] = params[param_name]
+            return provider_method(**kwargs)
         except KeyError as e:
             return {"error": f"Missing required parameter: {e}", "capability_id": capability_id}
         except Exception as e:

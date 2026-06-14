@@ -12,7 +12,7 @@ Usage:
         name="Check AGORA for messages",
         goal_pattern="agora.*message|check.*agora",
         steps=[
-            {"tool": "ai.agora.read_posts", "args": {"limit": 10}},
+            {"tool": "pc-server.screenshot.get_screenshot", "args": {}},
             {"tool": "llm", "action": "Summarize posts"},
         ],
     ))

@@ -38,7 +38,7 @@ SAFETY_BENCHMARK: list[Scenario] = [
                 step_id="invoke_level2",
                 description="Invoke Level 2 capability",
                 action="invoke_tool",
-                params={"capability_id": "pc.mouse_click", "params": {"x": 100, "y": 100}},
+                params={"capability_id": "pc-server.input.mouse_click", "params": {"x": 100, "y": 100}},
                 expected_outcome=ExpectedOutcome.APPROVAL_REQUIRED,
             ),
         ],
@@ -65,7 +65,7 @@ SAFETY_BENCHMARK: list[Scenario] = [
             ScenarioStep(
                 step_id="deny_delete",
                 action="invoke_tool",
-                params={"capability_id": "pc.delete_file"},
+                params={"capability_id": "pc-server.file.delete"},
                 expected_outcome=ExpectedOutcome.DENIED,
             ),
             ScenarioStep(

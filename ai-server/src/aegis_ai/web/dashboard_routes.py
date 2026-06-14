@@ -276,9 +276,9 @@ class DashboardApp:
             from aegis_ai.llm.factory import create_llm_provider
             from aegis_ai.memory.experiential import ExperientialMemory
             from aegis_ai.memory.advanced import AdvancedMemory
-            from tool_broker import ToolBroker
+            from tool_broker import ToolBroker, _capability_from_manifest
             from tool_registry import ToolRegistry
-            from aegis_ai.folder_registry import FolderCapabilityRegistry
+            from aegis_ai.capability_catalog import CapabilityCatalog
 
             from aegis_ai.audit import AuditLog
             audit_log = AuditLog(path=os.path.join(_DATA_DIR, "audit.jsonl"))
@@ -299,16 +299,16 @@ class DashboardApp:
                 llm_provider=llm,
             )
 
+            caps_dir = str(Path(_DATA_DIR).parent / "capabilities")
+            apps_dir = str(Path(_DATA_DIR).parent / "apps")
+            catalog = CapabilityCatalog(capabilities_dir=caps_dir, apps_dir=apps_dir)
+
             registry = ToolRegistry()
-            folder_reg = FolderCapabilityRegistry(
-                capabilities_dir=str(Path(_DATA_DIR).parent / "capabilities"),
-            )
-            for manifest in folder_reg.list_all():
-                from tool_broker import _capability_from_manifest
+            for manifest in catalog.list_all():
                 cap = _capability_from_manifest(manifest)
                 registry.register_capability(cap)
 
-            broker = ToolBroker(registry=registry, audit_log=audit_log)
+            broker = ToolBroker(registry=registry, audit_log=audit_log, catalog=catalog)
 
             from aegis_ai.mind.affect_system import AffectSystem
             affect = AffectSystem(data_dir=_DATA_DIR)
@@ -1648,160 +1648,31 @@ class DashboardApp:
                             else:
                                 action_result = f"Failed to get {action}."
 
-                        elif action == "browse_url":
-                            url = params.get("url", "")
-                            if url:
-                                action_result = _browse_url(url)
+                        elif action == "use_capability":
+                            cap_id = params.get("capability_id", "")
+                            cap_args = params.get("arguments", {})
+                            if not cap_id:
+                                action_result = "No capability_id provided."
                             else:
-                                action_result = "No URL provided."
-
-                        elif action == "memory_save":
-                            content = params.get("content", "")
-                            if content:
                                 try:
-                                    from aegis_ai.memory.advanced import AdvancedMemory
-                                    _llm = create_llm_provider()
-                                    memory = AdvancedMemory(data_dir=os.path.join(_DATA_DIR, "memory"), llm_provider=_llm)
-                                    memory.add_conversation(content, "Saved")
-                                    action_result = f"Saved: {content}"
-                                except Exception as e:
-                                    action_result = f"Memory save error: {e}"
-
-                        elif action == "memory_search":
-                            query = params.get("query", text)
-                            try:
-                                from aegis_ai.memory.advanced import AdvancedMemory
-                                _llm = create_llm_provider()
-                                memory = AdvancedMemory(data_dir=os.path.join(_DATA_DIR, "memory"), llm_provider=_llm)
-                                context = memory.get_context(query)
-                                action_result = context if context else "No memory found."
-                            except Exception as e:
-                                action_result = f"Memory search error: {e}"
-
-                        elif action == "memory_delete":
-                            query = params.get("query", "")
-                            try:
-                                from aegis_ai.memory.advanced import AdvancedMemory
-                                _llm = create_llm_provider()
-                                memory = AdvancedMemory(data_dir=os.path.join(_DATA_DIR, "memory"), llm_provider=_llm)
-                                deleted = memory.delete_fact(query)
-                                action_result = f"Deleted {deleted} facts matching: {query}"
-                            except Exception as e:
-                                action_result = f"Memory delete error: {e}"
-
-                        elif action == "memory_clear":
-                            try:
-                                from aegis_ai.memory.advanced import AdvancedMemory
-                                memory = AdvancedMemory(data_dir=os.path.join(_DATA_DIR, "memory"))
-                                memory.clear_all()
-                                action_result = "All memory cleared."
-                            except Exception as e:
-                                action_result = f"Memory clear error: {e}"
-
-                        elif action == "agora_read_posts":
-                            try:
-                                from aegis_ai.integrations.agora.agora_service import AgoraService
-                                svc = AgoraService()
-                                if svc.is_configured:
-                                    posts = svc.read_posts(limit=10)
-                                    if hasattr(posts, "posts") and posts.posts:
-                                        lines = []
-                                        for p in posts.posts[-10:]:
-                                            body = p.body[:100].replace("\n", " ")
-                                            lines.append(f"[{p.id}] {p.author.name}: {body}")
-                                        action_result = "Recent AGORA posts:\n" + "\n".join(lines)
+                                    from aegis_ai.folder_registry import FolderCapabilityRegistry, ExecutorRegistry
+                                    cap_reg = FolderCapabilityRegistry(
+                                        capabilities_dir=str(Path(_DATA_DIR).parent / "capabilities"),
+                                    )
+                                    manifest = cap_reg.get(cap_id)
+                                    if manifest is None:
+                                        action_result = f"Capability '{cap_id}' not found."
                                     else:
-                                        action_result = "No recent AGORA posts."
-                                else:
-                                    action_result = "AGORA is not configured. Set AGORA_TOKEN."
-                            except Exception as e:
-                                action_result = f"AGORA error: {e}"
-
-                        elif action == "agora_read_mentions":
-                            try:
-                                from aegis_ai.integrations.agora.agora_service import AgoraService
-                                svc = AgoraService()
-                                if svc.is_configured:
-                                    mentions = svc.read_mentions(limit=10)
-                                    if hasattr(mentions, "posts") and mentions.posts:
-                                        lines = []
-                                        for p in mentions.posts[-10:]:
-                                            body = p.body[:100].replace("\n", " ")
-                                            lines.append(f"[{p.id}] {p.author.name}: {body}")
-                                        action_result = "Your AGORA mentions:\n" + "\n".join(lines)
-                                    else:
-                                        action_result = "No recent mentions on AGORA."
-                                else:
-                                    action_result = "AGORA is not configured. Set AGORA_TOKEN."
-                            except Exception as e:
-                                action_result = f"AGORA error: {e}"
-
-                        elif action == "agora_post":
-                            message = params.get("message", "")
-                            if message:
-                                try:
-                                    from aegis_ai.integrations.agora.agora_service import AgoraService
-                                    svc = AgoraService()
-                                    if svc.is_configured:
-                                        result = svc.create_post(thread_id=1, body=message)
-                                        if hasattr(result, "id"):
-                                            action_result = f"Posted to AGORA (ID: {result.id}): {message[:50]}"
+                                        exec_dir = str(Path(_DATA_DIR).parent / "apps")
+                                        exec_reg = ExecutorRegistry(apps_dir=exec_dir)
+                                        result = exec_reg.execute(manifest, cap_args)
+                                        if result.ok:
+                                            import json as _j
+                                            action_result = f"Capability '{cap_id}' executed successfully.\nResult: {_j.dumps(result.result, ensure_ascii=False)[:1000]}"
                                         else:
-                                            action_result = f"Failed to post: {result}"
-                                    else:
-                                        action_result = "AGORA is not configured."
+                                            action_result = f"Capability '{cap_id}' failed: {result.error.get('message', '')} (code: {result.error.get('code', '')})"
                                 except Exception as e:
-                                    action_result = f"AGORA post error: {e}"
-                            else:
-                                action_result = "No message provided."
-
-                        elif action == "system_status":
-                            try:
-                                pc_status = "Online" if _check_port("localhost", 50052) else "Offline"
-                                browser_status = "Online" if _check_port("localhost", 50053) else "Offline"
-                                agora_status = "Not configured"
-                                try:
-                                    from aegis_ai.integrations.agora.agora_service import AgoraService
-                                    _agora = AgoraService()
-                                    if _agora.is_configured:
-                                        agora_status = "Connected"
-                                except Exception:
-                                    agora_status = "Error"
-                                action_result = f"System Status:\n- PC Server: {pc_status}\n- Browser: {browser_status}\n- AGORA: {agora_status}"
-                            except Exception as e:
-                                action_result = f"Status error: {e}"
-
-                        elif action == "get_desires":
-                            try:
-                                from aegis_ai.desire.desire_system import DesireSystem
-                                ds = DesireSystem(data_dir=os.path.join(_DATA_DIR, "desires"))
-                                desires = []
-                                for name, d in ds.get_all_desires().items():
-                                    frustration = max(0, d.expected_value - d.value)
-                                    desires.append(f"- {name}: {d.value:.1f}/10 (expected {d.expected_value:.1f}, frustration {frustration:.1f})")
-                                action_result = "Desire States:\n" + "\n".join(desires)
-                            except Exception as e:
-                                action_result = f"Desires error: {e}"
-
-                        elif action == "web_search":
-                            query = params.get("query", "")
-                            if query:
-                                try:
-                                    from aegis_ai.integrations.duckduckgo_search import DuckDuckGoSearch
-                                    search = DuckDuckGoSearch()
-                                    response = search.search(query, max_results=5)
-                                    if response.success and response.results:
-                                        lines = []
-                                        for r in response.results[:5]:
-                                            lines.append(f"- {r.title}: {r.snippet[:100]}")
-                                            lines.append(f"  {r.url}")
-                                        action_result = f"Search results for '{query}':\n" + "\n".join(lines)
-                                    else:
-                                        action_result = f"No results for: {query}"
-                                except Exception as e:
-                                    action_result = f"Search error: {e}"
-                            else:
-                                action_result = "No query provided."
+                                    action_result = f"Capability execution error: {e}"
 
                         elif action == "create_app":
                             goal = params.get("goal", text)
@@ -1847,31 +1718,30 @@ class DashboardApp:
                                 except Exception as e:
                                     action_result = f"Execute app error: {e}"
 
-                        elif action == "use_capability":
-                            cap_id = params.get("capability_id", "")
-                            cap_args = params.get("arguments", {})
-                            if not cap_id:
-                                action_result = "No capability_id provided."
+                        else:
+                            from aegis_ai.folder_registry import FolderCapabilityRegistry, ExecutorRegistry
+                            cap_reg = FolderCapabilityRegistry(
+                                capabilities_dir=str(Path(_DATA_DIR).parent / "capabilities"),
+                            )
+                            cap_id = f"ai-server.{action}"
+                            manifest = cap_reg.get(cap_id)
+                            if manifest is None:
+                                normalized = action.replace("_", ".")
+                                for m in cap_reg.list_all():
+                                    if m.short_name == normalized or m.capability_id.endswith(f".{normalized}"):
+                                        manifest = m
+                                        break
+                            if manifest:
+                                exec_reg = ExecutorRegistry(
+                                    apps_dir=str(Path(_DATA_DIR).parent / "apps"),
+                                )
+                                result = exec_reg.execute(manifest, params)
+                                if result.ok:
+                                    action_result = j.dumps(result.result, ensure_ascii=False) if not isinstance(result.result, str) else result.result
+                                else:
+                                    action_result = f"Error: {result.error.get('message', str(result.error))}"
                             else:
-                                try:
-                                    from aegis_ai.folder_registry import FolderCapabilityRegistry, ExecutorRegistry
-                                    cap_reg = FolderCapabilityRegistry(
-                                        capabilities_dir=str(Path(_DATA_DIR).parent / "capabilities"),
-                                    )
-                                    manifest = cap_reg.get(cap_id)
-                                    if manifest is None:
-                                        action_result = f"Capability '{cap_id}' not found."
-                                    else:
-                                        exec_dir = str(Path(_DATA_DIR).parent / "apps")
-                                        exec_reg = ExecutorRegistry(apps_dir=exec_dir)
-                                        result = exec_reg.execute(manifest, cap_args)
-                                        if result.ok:
-                                            import json as _j
-                                            action_result = f"Capability '{cap_id}' executed successfully.\nResult: {_j.dumps(result.result, ensure_ascii=False)[:1000]}"
-                                        else:
-                                            action_result = f"Capability '{cap_id}' failed: {result.error.get('message', '')} (code: {result.error.get('code', '')})"
-                                except Exception as e:
-                                    action_result = f"Capability execution error: {e}"
+                                action_result = f"Unknown action: {action}"
 
                         # Send action result through LLM for final response
                         if action_result:
@@ -2037,179 +1907,31 @@ Run Capability: {{"action": "use_capability", "params": {{"capability_id": "..."
                             else:
                                 action_result = f"Failed to get {action}."
 
-                        elif action == "browse_url":
-                            url = params.get("url", "")
-                            if url:
-                                action_result = _browse_url(url)
+                        elif action == "use_capability":
+                            cap_id = params.get("capability_id", "")
+                            cap_args = params.get("arguments", {})
+                            if not cap_id:
+                                action_result = "No capability_id provided."
                             else:
-                                action_result = "No URL provided."
-
-                        elif action == "memory_save":
-                            content = params.get("content", "")
-                            category = params.get("category", "fact")
-                            if content:
                                 try:
-                                    from aegis_ai.memory.advanced import AdvancedMemory
-                                    from aegis_ai.llm.factory import create_llm_provider as _create
-                                    _llm = _create()
-                                    memory = AdvancedMemory(data_dir=os.path.join(_DATA_DIR, "memory"), llm_provider=_llm)
-                                    # Use LLM to decide how to save
-                                    memory.add_conversation(content, f"Saved as {category}")
-                                    action_result = f"Saved to memory: {content}"
-                                except Exception as e:
-                                    action_result = f"Memory save error: {e}"
-
-                        elif action == "memory_search":
-                            query = params.get("query", text)
-                            try:
-                                from aegis_ai.memory.advanced import AdvancedMemory
-                                from aegis_ai.llm.factory import create_llm_provider as _create
-                                _llm = _create()
-                                memory = AdvancedMemory(data_dir=os.path.join(_DATA_DIR, "memory"), llm_provider=_llm)
-                                context = memory.get_context(query)
-                                action_result = context if context else "No memory found."
-                            except Exception as e:
-                                action_result = f"Memory search error: {e}"
-
-                        elif action == "memory_delete":
-                            query = params.get("query", "")
-                            try:
-                                from aegis_ai.memory.advanced import AdvancedMemory
-                                from aegis_ai.llm.factory import create_llm_provider as _create
-                                _llm = _create()
-                                memory = AdvancedMemory(data_dir=os.path.join(_DATA_DIR, "memory"), llm_provider=_llm)
-                                deleted_facts = memory.delete_fact(query)
-                                deleted_entity = memory.delete_entity(query)
-                                parts = []
-                                if deleted_facts:
-                                    parts.append(f"Deleted {deleted_facts} facts")
-                                if deleted_entity:
-                                    parts.append(f"Deleted entity: {query}")
-                                action_result = "; ".join(parts) if parts else f"Nothing found matching: {query}"
-                            except Exception as e:
-                                action_result = f"Memory delete error: {e}"
-
-                        elif action == "memory_clear":
-                            try:
-                                from aegis_ai.memory.advanced import AdvancedMemory
-                                memory = AdvancedMemory(data_dir=os.path.join(_DATA_DIR, "memory"))
-                                memory.clear_all()
-                                # Also clear legacy memory
-                                import shutil
-                                if os.path.exists("data/persona.jsonl"):
-                                    os.remove("data/persona.jsonl")
-                                if os.path.exists("data/semantic.jsonl"):
-                                    os.remove("data/semantic.jsonl")
-                                if os.path.exists("data/chroma"):
-                                    shutil.rmtree("data/chroma", ignore_errors=True)
-                                action_result = "All memory cleared."
-                            except Exception as e:
-                                action_result = f"Memory clear error: {e}"
-
-                        elif action == "agora_read_posts":
-                            try:
-                                from aegis_ai.integrations.agora.agora_service import AgoraService
-                                svc = AgoraService()
-                                if svc.is_configured:
-                                    posts = svc.read_posts(limit=10)
-                                    if hasattr(posts, "posts") and posts.posts:
-                                        lines = []
-                                        for p in posts.posts[-10:]:
-                                            body = p.body[:100].replace("\n", " ")
-                                            lines.append(f"[{p.id}] {p.author.name}: {body}")
-                                        action_result = "Recent AGORA posts:\n" + "\n".join(lines)
+                                    from aegis_ai.folder_registry import FolderCapabilityRegistry, ExecutorRegistry
+                                    cap_reg = FolderCapabilityRegistry(
+                                        capabilities_dir=str(Path(_DATA_DIR).parent / "capabilities"),
+                                    )
+                                    manifest = cap_reg.get(cap_id)
+                                    if manifest is None:
+                                        action_result = f"Capability '{cap_id}' not found."
                                     else:
-                                        action_result = "No recent AGORA posts."
-                                else:
-                                    action_result = "AGORA is not configured. Set AGORA_TOKEN."
-                            except Exception as e:
-                                action_result = f"AGORA error: {e}"
-
-                        elif action == "agora_read_mentions":
-                            try:
-                                from aegis_ai.integrations.agora.agora_service import AgoraService
-                                svc = AgoraService()
-                                if svc.is_configured:
-                                    mentions = svc.read_mentions(limit=10)
-                                    if hasattr(mentions, "posts") and mentions.posts:
-                                        lines = []
-                                        for p in mentions.posts[-10:]:
-                                            body = p.body[:100].replace("\n", " ")
-                                            lines.append(f"[{p.id}] {p.author.name}: {body}")
-                                        action_result = "Your AGORA mentions:\n" + "\n".join(lines)
-                                    else:
-                                        action_result = "No recent mentions on AGORA."
-                                else:
-                                    action_result = "AGORA is not configured. Set AGORA_TOKEN."
-                            except Exception as e:
-                                action_result = f"AGORA error: {e}"
-
-                        elif action == "agora_post":
-                            message = params.get("message", "")
-                            if message:
-                                try:
-                                    from aegis_ai.integrations.agora.agora_service import AgoraService
-                                    svc = AgoraService()
-                                    if svc.is_configured:
-                                        result = svc.create_post(thread_id=1, body=message)
-                                        if hasattr(result, "id"):
-                                            action_result = f"Posted to AGORA (ID: {result.id}): {message[:50]}"
+                                        exec_dir = str(Path(_DATA_DIR).parent / "apps")
+                                        exec_reg = ExecutorRegistry(apps_dir=exec_dir)
+                                        result = exec_reg.execute(manifest, cap_args)
+                                        if result.ok:
+                                            import json as _j
+                                            action_result = f"Capability '{cap_id}' executed successfully.\nResult: {_j.dumps(result.result, ensure_ascii=False)[:1000]}"
                                         else:
-                                            action_result = f"Failed to post: {result}"
-                                    else:
-                                        action_result = "AGORA is not configured."
+                                            action_result = f"Capability '{cap_id}' failed: {result.error.get('message', '')} (code: {result.error.get('code', '')})"
                                 except Exception as e:
-                                    action_result = f"AGORA post error: {e}"
-                            else:
-                                action_result = "No message provided."
-
-                        elif action == "system_status":
-                            try:
-                                pc_status = "Online" if _check_port("localhost", 50052) else "Offline"
-                                browser_status = "Online" if _check_port("localhost", 50053) else "Offline"
-                                agora_status = "Not configured"
-                                try:
-                                    from aegis_ai.integrations.agora.agora_service import AgoraService
-                                    _agora = AgoraService()
-                                    if _agora.is_configured:
-                                        agora_status = "Connected"
-                                except Exception:
-                                    agora_status = "Error"
-                                action_result = f"System Status:\n- PC Server: {pc_status}\n- Browser: {browser_status}\n- AGORA: {agora_status}"
-                            except Exception as e:
-                                action_result = f"Status error: {e}"
-
-                        elif action == "get_desires":
-                            try:
-                                from aegis_ai.desire.desire_system import DesireSystem
-                                ds = DesireSystem(data_dir=os.path.join(_DATA_DIR, "desires"))
-                                desires = []
-                                for name, d in ds.get_all_desires().items():
-                                    frustration = max(0, d.expected_value - d.value)
-                                    desires.append(f"- {name}: {d.value:.1f}/10 (expected {d.expected_value:.1f}, frustration {frustration:.1f})")
-                                action_result = "Desire States:\n" + "\n".join(desires)
-                            except Exception as e:
-                                action_result = f"Desires error: {e}"
-
-                        elif action == "web_search":
-                            query = params.get("query", "")
-                            if query:
-                                try:
-                                    from aegis_ai.integrations.duckduckgo_search import DuckDuckGoSearch
-                                    search = DuckDuckGoSearch()
-                                    response = search.search(query, max_results=5)
-                                    if response.success and response.results:
-                                        lines = []
-                                        for r in response.results[:5]:
-                                            lines.append(f"- {r.title}: {r.snippet[:100]}")
-                                            lines.append(f"  {r.url}")
-                                        action_result = f"Search results for '{query}':\n" + "\n".join(lines)
-                                    else:
-                                        action_result = f"No results for: {query}"
-                                except Exception as e:
-                                    action_result = f"Search error: {e}"
-                            else:
-                                action_result = "No query provided."
+                                    action_result = f"Capability execution error: {e}"
 
                         elif action == "create_app":
                             goal = params.get("goal", text)
@@ -2254,6 +1976,31 @@ Run Capability: {{"action": "use_capability", "params": {{"capability_id": "..."
                                         action_result = f"App execution failed: {result.get('error', result.get('stderr', ''))}"
                                 except Exception as e:
                                     action_result = f"Execute app error: {e}"
+
+                        else:
+                            from aegis_ai.folder_registry import FolderCapabilityRegistry, ExecutorRegistry
+                            cap_reg = FolderCapabilityRegistry(
+                                capabilities_dir=str(Path(_DATA_DIR).parent / "capabilities"),
+                            )
+                            cap_id = f"ai-server.{action}"
+                            manifest = cap_reg.get(cap_id)
+                            if manifest is None:
+                                normalized = action.replace("_", ".")
+                                for m in cap_reg.list_all():
+                                    if m.short_name == normalized or m.capability_id.endswith(f".{normalized}"):
+                                        manifest = m
+                                        break
+                            if manifest:
+                                exec_reg = ExecutorRegistry(
+                                    apps_dir=str(Path(_DATA_DIR).parent / "apps"),
+                                )
+                                result = exec_reg.execute(manifest, params)
+                                if result.ok:
+                                    action_result = json.dumps(result.result, ensure_ascii=False) if not isinstance(result.result, str) else result.result
+                                else:
+                                    action_result = f"Error: {result.error.get('message', str(result.error))}"
+                            else:
+                                action_result = f"Unknown action: {action}"
 
                         # Pass result through LLM for final response
                         if action_result:

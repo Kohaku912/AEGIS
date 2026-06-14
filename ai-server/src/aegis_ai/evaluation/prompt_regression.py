@@ -274,12 +274,12 @@ class PromptRegressionRunner:
 
             # Determine server type from action prefix
             server_map = {
-                "pc.": ServerType.PC,
-                "android.": ServerType.ANDROID,
-                "browser.": ServerType.BROWSER,
-                "room.": ServerType.ROOM,
-                "dev.": ServerType.DEV,
-                "ai.": ServerType.AI,
+                "pc-server.": ServerType.PC,
+                "android-server.": ServerType.ANDROID,
+                "browser-server.": ServerType.BROWSER,
+                "room-server.": ServerType.ROOM,
+                "dev-server.": ServerType.DEV,
+                "ai-server.": ServerType.AI,
             }
             server_type = ServerType.PC
             cap_id = action
@@ -288,8 +288,8 @@ class PromptRegressionRunner:
                     server_type = st
                     break
             else:
-                # If no prefix, assume pc.
-                cap_id = f"pc.{action}"
+                # If no prefix, assume pc-server.
+                cap_id = f"pc-server.{action}"
 
             # Use APPROVAL_REQUIRED since FORBIDDEN can't be instantiated;
             # PolicyEngine EXPLICIT_DENY_PATTERNS will catch forbidden patterns

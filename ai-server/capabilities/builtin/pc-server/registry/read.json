@@ -14,5 +14,6 @@
     },
     "required": ["key", "value_name"]
   },
-  "tags": ["registry", "observe"]
+  "tags": ["registry", "observe"],
+  "tcp_command": "read_registry {key}|{value_name}"
 }

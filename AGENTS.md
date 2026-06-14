@@ -99,6 +99,98 @@ The agent may proceed without asking when:
 
 ---
 
+## Capability Management
+
+### Architecture
+
+Capabilities are defined as JSON files in a folder structure. This is the **single source of truth**.
+
+```
+capabilities/
+├── builtin/
+│   ├── pc-server/
+│   │   ├── screenshot/
+│   │   │   └── get_screenshot.json
+│   │   └── system/
+│   │       └── get_os_info.json
+│   ├── browser-server/
+│   ├── android-server/
+│   └── room-server/
+└── generated/
+    └── ...
+```
+
+**CRITICAL**: No hardcoded capability definitions exist in Python code.
+All capabilities are loaded from JSON manifests at startup.
+
+### Capability ID Format
+
+**Canonical format**: `server_id.app_id.action`
+
+| Server ID | Example Capability ID |
+|-----------|----------------------|
+| `pc-server` | `pc-server.screenshot.get_screenshot` |
+| `browser-server` | `browser-server.page.open_page` |
+| `android-server` | `android-server.notification.get_notifications` |
+| `room-server` | `room-server.environment.get_environment` |
+
+### Backward-Compatible Aliases
+
+Old ID formats are resolved via aliases in `CapabilityCatalog`:
+
+| Old Format | Canonical Format |
+|------------|------------------|
+| `pc.screenshot.get_screenshot` | `pc-server.screenshot.get_screenshot` |
+| `browser.page.open_page` | `browser-server.page.open_page` |
+| `screenshot.get_screenshot` | `pc-server.screenshot.get_screenshot` |
+
+Aliases are built at startup from JSON manifests. Code MUST use canonical format.
+
+### Key Components
+
+| Component | File | Purpose |
+|-----------|------|---------|
+| **CapabilityCatalog** | `aegis_ai/capability_catalog.py` | Unified interface, alias management, LLM listing |
+| **FolderCapabilityRegistry** | `aegis_ai/folder_registry.py` | Loads JSON manifests from folder structure |
+| **ToolRegistry** | `tool_registry.py` | In-memory registry for runtime capability lookup |
+| **ToolBroker** | `tool_broker.py` | Capability invocation with safety enforcement |
+| **ServerExecutor** | `server_executor.py` | Manifest-driven routing to server clients |
+
+### Startup Flow
+
+1. `CapabilityCatalog` loads all JSON manifests from `capabilities/`
+2. `_capability_from_manifest()` converts manifests to `Capability` objects (canonical IDs)
+3. `ToolRegistry` registers all capabilities
+4. `ToolBroker` uses `ToolRegistry` + `CapabilityCatalog` for execution
+5. `LLMTaskInterpreter` uses `CapabilityCatalog.list_for_llm()` for capability listing
+
+### LLM Capability Listing
+
+`CapabilityCatalog.list_for_llm()` returns capabilities formatted for LLM consumption:
+
+```python
+[
+    {
+        "id": "pc-server.screenshot.get_screenshot",
+        "short_name": "screenshot.get_screenshot",
+        "description": "Capture a screenshot of the desktop.",
+        "params": [],
+        "risk": "low",
+        "only_master": False,
+    },
+    ...
+]
+```
+
+### Rules for AI Agents
+
+1. **NEVER hardcode capability IDs in Python code** — use `CapabilityCatalog.list_for_llm()`
+2. **NEVER create `Capability()` objects directly** — load from JSON manifests
+3. **ALWAYS use canonical format** `server_id.app_id.action`
+4. **Add new capabilities** by creating JSON files in `capabilities/builtin/`
+
+---
+
 ## Memory System
 
 ### Components
@@ -172,6 +264,7 @@ The agent may proceed without asking when:
 - **Memory integration**: AdvancedMemory context in LLM prompts
 - **Desire context**: Current desire states in LLM prompts
 - **All actions through LLM**: Every result passes through LLM for final response
+- **Settings management**: All settings changes persist to `config/settings.json`
 
 ### Chat API
 
@@ -181,6 +274,20 @@ The agent may proceed without asking when:
 | `/api/chat/stream` | POST | Send message (streaming) |
 | `/api/chat/history` | GET | Get chat history |
 | `/api/chat/clear` | POST | Clear chat history |
+
+### Settings API
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/api/settings` | GET | Get all settings |
+| `/api/settings/<section>` | POST | Update a section |
+| `/api/settings/reset` | POST | Reset to defaults |
+| `/api/settings/export` | GET | Export as JSON |
+
+### Settings Persistence
+
+Settings are persisted to `config/settings.json` (survives `data/` deletion).
+Audit logs are written to `data/settings_audit.jsonl`.
 
 ---
 

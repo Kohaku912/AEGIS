@@ -7,5 +7,6 @@
   "action": "lock",
   "risk": {"level": "safe_action"},
   "input": {"type": "object", "properties": {}},
-  "tags": ["system", "lock"]
+  "tags": ["system", "lock"],
+  "tcp_command": "lock_workstation"
 }

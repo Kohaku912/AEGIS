@@ -12,5 +12,6 @@
     "required": ["text"]
   },
   "risk": {"level": "medium", "side_effects": ["ui_interaction"], "requires_approval": true},
-  "tags": ["builtin", "pc", "action", "keyboard"]
+  "tags": ["builtin", "pc", "action", "keyboard"],
+  "tcp_command": "keyboard_type {text}"
 }

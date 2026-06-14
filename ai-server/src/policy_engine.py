@@ -212,9 +212,9 @@ class PolicyEngine:
         # Self-dev PR and main-related
         r"dev\.create_pull_request$",
         # AGORA operations (external chat — always approval)
-        r"agora\.create_post$",
-        r"agora\.send_message$",
-        r"agora\.publish$",
+        r"^agora\.create_post$",
+        r"^agora\.send_message$",
+        r"^agora\.publish$",
     ]
 
     # ── Permissive-owner-allowed patterns (no approval needed) ──

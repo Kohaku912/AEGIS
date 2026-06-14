@@ -7,5 +7,6 @@
   "action": "image",
   "risk": {"level": "read_only"},
   "input": {"type": "object", "properties": {}},
-  "tags": ["clipboard", "image", "observe"]
+  "tags": ["clipboard", "image", "observe"],
+  "tcp_command": "clipboard_image"
 }

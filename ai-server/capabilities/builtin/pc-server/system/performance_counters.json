@@ -7,5 +7,6 @@
   "action": "performance_counters",
   "risk": {"level": "read_only"},
   "input": {"type": "object", "properties": {}},
-  "tags": ["performance", "system", "observe"]
+  "tags": ["performance", "system", "observe"],
+  "tcp_command": "performance_counters"
 }

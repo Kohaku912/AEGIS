@@ -66,7 +66,7 @@ class MockLLMClient(LLMClient):
             return LLMThought(
                 summary="User wants to see what's on screen",
                 assessment="Low risk observation task",
-                recommended_action="Take a screenshot using pc.screenshot",
+                recommended_action="Take a screenshot using pc-server.screenshot.get_screenshot",
                 confidence=0.9,
                 risks_identified=[],
             )
@@ -90,7 +90,7 @@ class MockLLMClient(LLMClient):
             return LLMThought(
                 summary="File deletion requested",
                 assessment="HIGH RISK — requires approval",
-                recommended_action="Delete file using pc.delete_file",
+                recommended_action="Delete file using pc-server.file.delete",
                 confidence=0.6,
                 risks_identified=["Permanent data loss", "Requires user approval"],
             )
@@ -98,7 +98,7 @@ class MockLLMClient(LLMClient):
             return LLMThought(
                 summary="General request",
                 assessment="Standard observation task",
-                recommended_action="Observe current state using pc.screenshot",
+                recommended_action="Observe current state using pc-server.screenshot.get_screenshot",
                 confidence=0.5,
                 risks_identified=[],
             )
@@ -106,12 +106,12 @@ class MockLLMClient(LLMClient):
     def generate_plan(self, thought: LLMThought, context: str) -> LLMPlanOutput:
         rec = thought.recommended_action.lower()
 
-        if "screenshot" in rec and "pc.screenshot" in rec:
+        if "screenshot" in rec and "pc-server.screenshot" in rec:
             return LLMPlanOutput(
                 goal="Take a screenshot",
                 steps=[{
                     "description": "Capture the current display",
-                    "capability_id": "pc.screenshot",
+                    "capability_id": "pc-server.screenshot.get_screenshot",
                     "params": {"display_id": 0},
                     "expected_result": "PNG image of the screen",
                     "risk": "LEVEL_0_READ",
@@ -124,14 +124,14 @@ class MockLLMClient(LLMClient):
                 goal="Run test suite",
                 steps=[{
                     "description": "Execute the project test suite",
-                    "capability_id": "dev.run_tests",
+                    "capability_id": "dev-server.test.run_tests",
                     "params": {"target": "all"},
                     "expected_result": "Test results with pass/fail counts",
                     "risk": "LEVEL_1_SAFE_ACT",
                 }],
                 fallback_steps=[{
                     "description": "Check individual test file",
-                    "capability_id": "dev.run_tests",
+                    "capability_id": "dev-server.test.run_tests",
                     "params": {"target": "ai-server"},
                 }],
                 risk_assessment="Low risk — sandboxed execution",
@@ -141,14 +141,14 @@ class MockLLMClient(LLMClient):
                 goal="Delete file",
                 steps=[{
                     "description": "Delete the specified file",
-                    "capability_id": "pc.delete_file",
+                    "capability_id": "pc-server.file.delete",
                     "params": {"path": "/tmp/test.txt"},
                     "expected_result": "File deleted",
                     "risk": "LEVEL_2_APPROVAL",
                 }],
                 fallback_steps=[{
                     "description": "Move to trash instead",
-                    "capability_id": "pc.delete_file",
+                    "capability_id": "pc-server.file.delete",
                     "params": {"path": "/tmp/test.txt", "permanent": False},
                 }],
                 risk_assessment="HIGH RISK — requires user approval",
@@ -158,7 +158,7 @@ class MockLLMClient(LLMClient):
                 goal=thought.recommended_action,
                 steps=[{
                     "description": "Observe current state",
-                    "capability_id": "pc.screenshot",
+                    "capability_id": "pc-server.screenshot.get_screenshot",
                     "params": {},
                     "expected_result": "Screenshot of current display",
                     "risk": "LEVEL_0_READ",

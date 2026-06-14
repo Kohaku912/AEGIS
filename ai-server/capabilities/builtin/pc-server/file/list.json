@@ -14,5 +14,6 @@
     },
     "required": ["path"]
   },
-  "tags": ["files", "observe"]
+  "tags": ["files", "observe"],
+  "tcp_command": "list_files {path}|{recursive}"
 }

@@ -1,5 +1,6 @@
 import sys, json, os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', '..', '..', 'src'))
+src_path = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', '..', '..', '..', 'src'))
+sys.path.insert(0, src_path)
 from aegis_ai.integrations.duckduckgo_search import DuckDuckGoSearch
 
 data = json.loads(sys.stdin.read())

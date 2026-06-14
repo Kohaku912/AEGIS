@@ -14,5 +14,6 @@
     },
     "required": ["command"]
   },
-  "tags": ["shell", "powershell", "approval_required"]
+  "tags": ["shell", "powershell", "approval_required"],
+  "tcp_command": "execute_powershell {command}|{working_dir}"
 }

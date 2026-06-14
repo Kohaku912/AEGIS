@@ -71,6 +71,7 @@ class OpenAIProvider:
         temperature: float = 0.7,
     ) -> LLMResponse:
         """Generate a response from the LLM."""
+        logger.info("LLM call: model=%s max_tokens=%d prompt_len=%d", self._model, max_tokens, len(prompt))
         messages = []
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})
@@ -89,13 +90,18 @@ class OpenAIProvider:
             tokens = response.usage.total_tokens if response.usage else 0
             duration_ms = (time.time() - start) * 1000
 
+            logger.info(
+                "LLM call success: model=%s tokens=%d duration=%.1fms",
+                self._model, tokens, duration_ms,
+            )
+
             self._audit_log(
                 action="llm_call",
                 decision="success",
                 detail={
                     "model": self._model,
-                    "prompt_preview": prompt[:200],
-                    "response_preview": content[:200],
+                    "prompt_preview": prompt,
+                    "response_preview": content,
                     "tokens": tokens,
                     "duration_ms": round(duration_ms, 1),
                 },
@@ -117,8 +123,8 @@ class OpenAIProvider:
                 decision="error",
                 detail={
                     "model": self._model,
-                    "prompt_preview": prompt[:200],
-                    "error": str(e)[:200],
+                    "prompt_preview": prompt,
+                    "error": str(e),
                     "duration_ms": round(duration_ms, 1),
                 },
             )
@@ -151,6 +157,7 @@ class OpenAIProvider:
         Returns:
             LLMResponse with the model's description/analysis of the image
         """
+        logger.info("LLM vision call: model=%s max_tokens=%d detail=%s", self._model, max_tokens, detail)
         messages = []
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})
@@ -188,8 +195,8 @@ class OpenAIProvider:
                 decision="success",
                 detail={
                     "model": self._model,
-                    "prompt_preview": prompt[:200],
-                    "response_preview": content[:200],
+                    "prompt_preview": prompt,
+                    "response_preview": content,
                     "tokens": tokens,
                     "duration_ms": round(duration_ms, 1),
                 },
@@ -211,8 +218,8 @@ class OpenAIProvider:
                 decision="error",
                 detail={
                     "model": self._model,
-                    "prompt_preview": prompt[:200],
-                    "error": str(e)[:200],
+                    "prompt_preview": prompt,
+                    "error": str(e),
                     "duration_ms": round(duration_ms, 1),
                 },
             )

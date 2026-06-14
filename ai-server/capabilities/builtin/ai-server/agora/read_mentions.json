@@ -1,10 +1,16 @@
 {
-  "title": "AGORA Read Mentions",
-  "description": "Read mentions of own account.",
+  "title": "Read AGORA Mentions",
+  "description": "Read mentions and replies directed at AEGIS on AGORA.",
   "server_id": "ai-server",
   "app_id": "agora",
   "action": "read_mentions",
   "risk": {"level": "low", "side_effects": [], "requires_approval": false},
-  "tags": ["builtin", "agora", "read"],
-  "only_master": false
+  "tags": ["builtin", "agora", "read", "social"],
+  "only_master": false,
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "limit": {"type": "integer", "description": "Number of mentions to read", "default": 10}
+    }
+  }
 }

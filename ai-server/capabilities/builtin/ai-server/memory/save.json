@@ -1,18 +1,19 @@
 {
-  "id": "ai-server.memory.save",
-  "title": "Save to Memory",
-  "description": "Save information to AEGIS memory for future reference",
+  "title": "Memory Save",
+  "description": "Save information to AEGIS memory.",
   "server_id": "ai-server",
   "app_id": "memory",
   "action": "save",
-  "risk": {"level": "read_only"},
-  "input": {
+  "risk": {"level": "low", "side_effects": ["memory_write"], "requires_approval": false},
+  "tags": ["builtin", "memory", "write"],
+  "only_master": false,
+  "input_schema": {
     "type": "object",
     "properties": {
-      "content": {"type": "string", "description": "Content to remember"}
+      "content": {"type": "string", "description": "Content to save"},
+      "entity": {"type": "string", "description": "Entity name"},
+      "type": {"type": "string", "description": "Memory type (fact, entity, conversation)"}
     },
     "required": ["content"]
-  },
-  "tags": ["memory", "save", "read"],
-  "only_master": false
+  }
 }

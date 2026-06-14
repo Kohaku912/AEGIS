@@ -7,5 +7,6 @@
   "action": "info",
   "risk": {"level": "read_only"},
   "input": {"type": "object", "properties": {}},
-  "tags": ["network", "system", "observe"]
+  "tags": ["network", "system", "observe"],
+  "tcp_command": "network_info"
 }

@@ -16,5 +16,6 @@
     },
     "required": ["from_x", "from_y", "to_x", "to_y"]
   },
-  "tags": ["mouse", "input", "approval_required"]
+  "tags": ["mouse", "input", "approval_required"],
+  "tcp_command": "mouse_drag {from_x},{from_y},{to_x},{to_y}"
 }

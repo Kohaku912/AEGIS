@@ -329,7 +329,7 @@ class SpontaneousObservationSystem:
             from tool_broker import ToolExecutionRequest, ExecutionSource
             # Check PC server
             request = ToolExecutionRequest(
-                capability_id="pc.system.get_os_info", arguments={},
+                capability_id="pc-server.system.get_os_info", arguments={},
                 source=ExecutionSource.SYSTEM, reason="Health check",
             )
             result = self._broker.execute(request)

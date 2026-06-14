@@ -1,18 +1,17 @@
 {
-  "id": "ai-server.memory.search",
-  "title": "Search Memory",
-  "description": "Search AEGIS memory for relevant information",
+  "title": "Memory Search",
+  "description": "Search AEGIS memory for relevant information.",
   "server_id": "ai-server",
   "app_id": "memory",
   "action": "search",
-  "risk": {"level": "read_only"},
-  "input": {
+  "risk": {"level": "low", "side_effects": [], "requires_approval": false},
+  "tags": ["builtin", "memory", "read"],
+  "only_master": false,
+  "input_schema": {
     "type": "object",
     "properties": {
       "query": {"type": "string", "description": "Search query"}
     },
     "required": ["query"]
-  },
-  "tags": ["memory", "search", "read"],
-  "only_master": false
+  }
 }

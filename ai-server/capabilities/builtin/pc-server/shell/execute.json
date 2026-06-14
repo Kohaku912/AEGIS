@@ -14,5 +14,6 @@
     },
     "required": ["command"]
   },
-  "tags": ["shell", "execute", "approval_required"]
+  "tags": ["shell", "execute", "approval_required"],
+  "tcp_command": "execute_shell {command}|{working_dir}"
 }

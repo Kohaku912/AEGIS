@@ -3,3 +3,4 @@
 {"entry_id": "audit_1781397613447_c6d8cec9", "timestamp_ms": 1781397613447, "action": "test", "actor": "aegis", "capability_id": "pc.test", "decision": "ALLOW", "reason": "", "detail": {}}
 {"entry_id": "audit_1781434327409_b6dfad89", "timestamp_ms": 1781434327409, "action": "test", "actor": "aegis", "capability_id": "pc.test", "decision": "ALLOW", "reason": "", "detail": {}}
 {"entry_id": "audit_1781435041716_281d001d", "timestamp_ms": 1781435041716, "action": "test", "actor": "aegis", "capability_id": "pc.test", "decision": "ALLOW", "reason": "", "detail": {}}
+{"entry_id": "audit_1781443107998_c53443a5", "timestamp_ms": 1781443107998, "action": "test", "actor": "aegis", "capability_id": "pc.test", "decision": "ALLOW", "reason": "", "detail": {}}

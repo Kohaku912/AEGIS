@@ -12,5 +12,6 @@
     "required": ["app_path"]
   },
   "risk": {"level": "safe", "side_effects": ["process_start"], "requires_approval": false},
-  "tags": ["builtin", "pc", "action", "app"]
+  "tags": ["builtin", "pc", "action", "app"],
+  "tcp_command": "launch_app {app_path}"
 }

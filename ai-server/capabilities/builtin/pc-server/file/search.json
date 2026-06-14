@@ -14,5 +14,6 @@
     },
     "required": ["path", "pattern"]
   },
-  "tags": ["files", "observe"]
+  "tags": ["files", "observe"],
+  "tcp_command": "search_files {path}|{pattern}"
 }

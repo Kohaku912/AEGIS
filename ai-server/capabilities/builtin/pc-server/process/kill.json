@@ -13,5 +13,6 @@
     },
     "required": ["pid"]
   },
-  "tags": ["process", "kill", "approval_required"]
+  "tags": ["process", "kill", "approval_required"],
+  "tcp_command": "kill_process {pid}"
 }

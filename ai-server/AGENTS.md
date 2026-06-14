@@ -40,6 +40,13 @@ ai-server/
 │   │   ├── dashboard_routes.py  # Flask routes
 │   │   └── templates/    # HTML templates
 │   └── policy_engine.py  # Safety gates
+├── capabilities/         # Capability definitions (JSON manifests)
+│   ├── builtin/
+│   │   ├── pc-server/
+│   │   ├── browser-server/
+│   │   ├── android-server/
+│   │   └── room-server/
+│   └── generated/
 ├── tests/                # Test files
 └── data/                 # Runtime data
     ├── memory/           # AdvancedMemory data
@@ -98,6 +105,7 @@ ai-server/
 - Memory integration
 - Desire context
 - All actions through LLM
+- Settings management (persists to `config/settings.json`)
 
 ## API Endpoints
 
@@ -108,6 +116,14 @@ ai-server/
 | `/api/chat/stream` | POST | Send message (streaming) |
 | `/api/chat/history` | GET | Get chat history |
 | `/api/chat/clear` | POST | Clear chat history |
+
+### Settings API
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/api/settings` | GET | Get all settings |
+| `/api/settings/<section>` | POST | Update a section |
+| `/api/settings/reset` | POST | Reset to defaults |
+| `/api/settings/export` | GET | Export as JSON |
 
 ### Autonomous API
 | Endpoint | Method | Purpose |
@@ -144,6 +160,11 @@ pytest tests/test_desire_system.py
 pytest tests/test_autonomous_loop.py
 ```
 
+## Settings Persistence
+
+Settings are persisted to `config/settings.json` (survives `data/` deletion).
+Audit logs are written to `data/settings_audit.jsonl`.
+
 ## Test Status
 
 - **Total tests**: 1336+ passing
@@ -158,3 +179,5 @@ pytest tests/test_autonomous_loop.py
 3. **Memory is LLM-managed**: LLM decides what to remember/search/delete
 4. **Desire-driven autonomy**: Desires drive autonomous behavior
 5. **Self-scheduling**: AI decides when to run next
+6. **Folder-based capabilities**: All capabilities defined in JSON manifests, no hardcoded definitions
+7. **Persistent settings**: Settings stored in `config/settings.json`, survives `data/` deletion

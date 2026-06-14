@@ -19,6 +19,9 @@ from aegis_ai.settings.validation import validate_settings_change
 class SettingsStore:
     """Manages AEGIS settings with JSON persistence and audit logging.
 
+    Settings are persisted to config/settings.json (survives data/ deletion).
+    Audit logs are written to data/settings_audit.jsonl.
+
     Usage:
         store = SettingsStore()
         settings = store.get()
@@ -28,7 +31,7 @@ class SettingsStore:
 
     def __init__(
         self,
-        path: str = "data/settings.json",
+        path: str = "config/settings.json",
         audit_path: str = "data/settings_audit.jsonl",
     ) -> None:
         self._path = Path(path)

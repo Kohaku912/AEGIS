@@ -6,5 +6,6 @@
   "action": "get_screenshot",
   "risk": {"level": "low", "side_effects": [], "requires_approval": false},
   "tags": ["builtin", "pc", "read", "screenshot"],
-  "only_master": false
+  "only_master": false,
+  "tcp_command": "screenshot"
 }

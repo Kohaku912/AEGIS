@@ -27,14 +27,18 @@ from typing import Any
 
 from aegis_schema.models import Capability, RiskLevel, ServerType
 from policy_engine import PolicyDecision, PolicyEngine, PolicyResult, create_default_policy_engine
-from tool_registry import ToolRegistry
 from server_executor import ServerExecutor
+from tool_registry import ToolRegistry
 
 logger = logging.getLogger("aegis_ai.tool_broker")
 
 
 def _capability_from_manifest(manifest: Any) -> Capability:
-    """Convert a FolderCapabilityRegistry manifest to a Capability."""
+    """Convert a FolderCapabilityRegistry manifest to a Capability.
+
+    Uses canonical ID format: server_id.app_id.action
+    e.g., pc-server.screenshot.get_screenshot
+    """
     risk_map = {
         "low": RiskLevel.READ_ONLY,
         "safe": RiskLevel.SAFE_ACTION,
@@ -54,20 +58,14 @@ def _capability_from_manifest(manifest: Any) -> Capability:
     }
     server_type = server_type_map.get(server_id, ServerType.AI)
 
-    prefix_map = {
-        "pc-server": "pc",
-        "browser-server": "browser",
-        "android-server": "android",
-        "room-server": "room",
-        "ai-server": "ai",
-    }
-    prefix = prefix_map.get(server_id, "ai")
-    app_id = getattr(manifest, "app_id", "")
-    action = getattr(manifest, "action", "")
-    converted_id = f"{prefix}.{app_id}.{action}"
+    cap_id = getattr(manifest, "capability_id", "")
+    if not cap_id:
+        app_id = getattr(manifest, "app_id", "")
+        action = getattr(manifest, "action", "")
+        cap_id = f"{server_id}.{app_id}.{action}"
 
     return Capability(
-        id=converted_id,
+        id=cap_id,
         name=manifest.title,
         description=manifest.description,
         server_type=server_type,
@@ -319,6 +317,7 @@ class ToolBroker:
         approval_queue: Any = None,
         server_executor: ServerExecutor | None = None,
         folder_registry: Any = None,
+        catalog: Any = None,
     ) -> None:
         self._registry = registry
         self._policy = policy_engine or create_default_policy_engine()
@@ -327,6 +326,10 @@ class ToolBroker:
         self._approval_queue = approval_queue
         self._server_executor = server_executor or ServerExecutor()
         self._folder_registry = folder_registry
+        self._catalog = catalog
+
+        if self._catalog is not None:
+            self._server_executor.set_catalog(self._catalog)
 
         # Mock executors: capability_id_prefix → executor function
         self._mock_executors: dict[str, MockExecutorFunc] = {}
@@ -355,6 +358,11 @@ class ToolBroker:
             request.request_id = uuid.uuid4().hex[:12]
         if not request.created_at:
             request.created_at = int(time.time() * 1000)
+
+        logger.info(
+            "Capability call: cap=%s source=%s args=%s",
+            request.capability_id, request.source.value, str(request.arguments)[:200],
+        )
 
         # Dry run check
         if request.dry_run:
@@ -696,10 +704,13 @@ class ToolBroker:
                 finished_at = int(time.time() * 1000)
 
                 if isinstance(output, dict) and "error" in output:
+                    error_msg = output["error"]
+                    if "message" in output:
+                        error_msg = f"{error_msg}: {output['message']}"
                     return ToolExecutionResult(
                         request_id=request.request_id,
                         status=InvokeStatus.EXECUTION_ERROR,
-                        error=output["error"],
+                        error=error_msg,
                         output=output,
                         started_at=started_at,
                         finished_at=finished_at,
@@ -763,13 +774,13 @@ class ToolBroker:
             "source": request.source.value,
             "capability_id": request.capability_id,
             "tool_name": request.tool_name,
-            "arguments_summary": str(masked_args)[:500],
+            "arguments_summary": str(masked_args),
             "policy_decision": result.policy_decision,
             "execution_status": result.status.value,
-            "error": result.error[:500] if result.error else "",
+            "error": result.error if result.error else "",
             "duration_ms": result.duration_ms,
             "verification_status": result.verification_status,
-            "reason": request.reason[:200],
+            "reason": request.reason,
             "timestamp": int(time.time() * 1000),
         }
 

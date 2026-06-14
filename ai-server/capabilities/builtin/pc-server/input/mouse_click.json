@@ -14,5 +14,6 @@
     "required": ["x", "y"]
   },
   "risk": {"level": "medium", "side_effects": ["ui_interaction"], "requires_approval": true},
-  "tags": ["builtin", "pc", "action", "mouse"]
+  "tags": ["builtin", "pc", "action", "mouse"],
+  "tcp_command": "mouse_click {x},{y},{button}"
 }

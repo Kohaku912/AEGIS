@@ -1,5 +1,5 @@
-import sys, json, os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', '..', '..', 'src'))
+﻿import sys, json, os
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', '..', '..', 'src'))
 from aegis_ai.integrations.duckduckgo_search import DuckDuckGoSearch
 
 data = json.loads(sys.stdin.read())
@@ -19,3 +19,4 @@ if response.success and response.results:
     print(json.dumps({"ok": True, "result": f"News results for '{query}':\n" + "\n".join(lines)}))
 else:
     print(json.dumps({"ok": True, "result": f"No news results for: {query}"}))
+
