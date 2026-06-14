@@ -39,17 +39,14 @@
             <td>{{ c.server_id }}</td>
             <td>{{ c.app_id }}</td>
             <td>
-                <select id="risk-{{ c.id }}" style="background:#0d1117;border:1px solid #30363d;color:#c9d1d9;padding:4px;border-radius:4px;font-size:11px;">
+                <select id="risk-{{ c.id }}" onchange="updateApproval('{{ c.id }}')" style="background:#0d1117;border:1px solid #30363d;color:#c9d1d9;padding:4px;border-radius:4px;font-size:11px;">
                     {% for r in risk_levels %}
                     <option value="{{ r }}" {{ 'selected' if r == c.risk_level else '' }}>{{ r }}</option>
                     {% endfor %}
                 </select>
-                {% if c.overridden %}
-                <span class="badge badge-yellow" style="font-size:9px;margin-left:2px;">overridden</span>
-                {% endif %}
             </td>
-            <td>
-                {% if c.requires_approval %}
+            <td id="approval-{{ c.id }}">
+                {% if c.risk_level in ['APPROVAL_REQUIRED', 'HIGH_RISK', 'FORBIDDEN'] %}
                 <span class="badge badge-red">YES</span>
                 {% else %}
                 <span class="badge badge-green">no</span>
@@ -65,6 +62,16 @@
 </div>
 
 <script>
+function updateApproval(capId) {
+    const select = document.getElementById('risk-' + capId);
+    const approval = document.getElementById('approval-' + capId);
+    const risk = select.value;
+    const needsApproval = ['APPROVAL_REQUIRED', 'HIGH_RISK', 'FORBIDDEN'].includes(risk);
+    approval.innerHTML = needsApproval
+        ? '<span class="badge badge-red">YES</span>'
+        : '<span class="badge badge-green">no</span>';
+}
+
 async function saveRisk(capId) {
     const select = document.getElementById('risk-' + capId);
     const risk = select.value;

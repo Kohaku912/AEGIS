@@ -1,0 +1,106 @@
+- generic [active] [ref=e1]:
+  - complementary [ref=e2]:
+    - generic [ref=e3]:
+      - generic [ref=e4]: AEGIS
+      - generic [ref=e5]: Operations Dashboard
+    - navigation [ref=e6]:
+      - generic [ref=e7]: Overview
+      - link "Home" [ref=e8] [cursor=pointer]:
+        - /url: /dashboard
+        - img [ref=e9]
+        - text: Home
+      - link "Servers" [ref=e14] [cursor=pointer]:
+        - /url: /dashboard/servers
+        - img [ref=e15]
+        - text: Servers
+      - link "Capabilities" [ref=e22] [cursor=pointer]:
+        - /url: /dashboard/capabilities
+        - img [ref=e23]
+        - text: Capabilities
+      - generic [ref=e25]: Activity
+      - link "Events" [ref=e26] [cursor=pointer]:
+        - /url: /dashboard/events
+        - img [ref=e27]
+        - text: Events
+      - link "Tasks" [ref=e29] [cursor=pointer]:
+        - /url: /dashboard/tasks
+        - img [ref=e30]
+        - text: Tasks
+      - link "Audit" [ref=e33] [cursor=pointer]:
+        - /url: /dashboard/audit
+        - img [ref=e34]
+        - text: Audit
+      - link "Errors" [ref=e37] [cursor=pointer]:
+        - /url: /dashboard/errors
+        - img [ref=e38]
+        - text: Errors
+      - link "Approvals" [ref=e40] [cursor=pointer]:
+        - /url: /approvals
+        - img [ref=e41]
+        - text: Approvals
+      - generic [ref=e44]: Intelligence
+      - link "Memory" [ref=e45] [cursor=pointer]:
+        - /url: /dashboard/memory
+        - img [ref=e46]
+        - text: Memory
+      - link "Desires" [ref=e50] [cursor=pointer]:
+        - /url: /dashboard/desires
+        - img [ref=e51]
+        - text: Desires
+      - link "Autonomous" [ref=e53] [cursor=pointer]:
+        - /url: /dashboard/autonomous
+        - img [ref=e54]
+        - text: Autonomous
+      - link "Learning" [ref=e57] [cursor=pointer]:
+        - /url: /dashboard/learning
+        - img [ref=e58]
+        - text: Learning
+      - link "Support" [ref=e61] [cursor=pointer]:
+        - /url: /dashboard/support
+        - img [ref=e62]
+        - text: Support
+      - link "AGORA" [ref=e64] [cursor=pointer]:
+        - /url: /dashboard/agora
+        - img [ref=e65]
+        - text: AGORA
+  - generic [ref=e70]:
+    - banner [ref=e71]:
+      - generic [ref=e72]: Tasks
+      - button "Chat" [ref=e73] [cursor=pointer]:
+        - img [ref=e74]
+        - text: Chat
+    - main [ref=e77]:
+      - heading "Tasks" [level=1] [ref=e78]
+      - generic [ref=e79]:
+        - generic [ref=e80]:
+          - generic [ref=e81]: Generated
+          - generic [ref=e82]: "1"
+        - generic [ref=e84]: Rules Matched
+        - generic [ref=e86]: Suppressed (Cooldown)
+        - generic [ref=e88]: Suppressed (No Match)
+      - generic [ref=e89]:
+        - generic [ref=e90]: Pending Tasks
+        - table [ref=e92]:
+          - rowgroup [ref=e93]:
+            - row "Task ID Action Event Type Rule Priority" [ref=e94]:
+              - columnheader "Task ID" [ref=e95]
+              - columnheader "Action" [ref=e96]
+              - columnheader "Event Type" [ref=e97]
+              - columnheader "Rule" [ref=e98]
+              - columnheader "Priority" [ref=e99]
+          - rowgroup [ref=e100]:
+            - row "pc_health_monitor PC Server Health Monitor active PC Server v0.2.0 - 15 capabilities" [ref=e101]:
+              - cell "pc_health_monitor" [ref=e102]
+              - cell "PC Server Health Monitor" [ref=e103]
+              - cell "active" [ref=e104]
+              - cell "PC Server v0.2.0 - 15 capabilities" [ref=e105]
+  - complementary [ref=e106]:
+    - generic [ref=e107]:
+      - generic [ref=e109]: AEGIS Chat
+      - button [ref=e110] [cursor=pointer]:
+        - img [ref=e111]
+      - button "Clear" [ref=e114] [cursor=pointer]
+    - generic [ref=e116]: Hello! I'm AEGIS. How can I help you today?
+    - generic [ref=e117]:
+      - textbox "Ask AEGIS anything…" [ref=e118]
+      - button "↑" [ref=e119] [cursor=pointer]

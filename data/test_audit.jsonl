@@ -1,0 +1,3 @@
+{"entry_id": "audit_1781397006992_3e4cca82", "timestamp_ms": 1781397006992, "action": "test", "actor": "aegis", "capability_id": "pc.test", "decision": "ALLOW", "reason": "", "detail": {}}
+{"entry_id": "audit_1781397592310_18e09473", "timestamp_ms": 1781397592310, "action": "test", "actor": "aegis", "capability_id": "pc.test", "decision": "ALLOW", "reason": "", "detail": {}}
+{"entry_id": "audit_1781397613447_c6d8cec9", "timestamp_ms": 1781397613447, "action": "test", "actor": "aegis", "capability_id": "pc.test", "decision": "ALLOW", "reason": "", "detail": {}}

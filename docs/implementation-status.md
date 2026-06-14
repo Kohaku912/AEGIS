@@ -1,6 +1,6 @@
 # AEGIS Implementation Status
 
-> **Last Updated**: 2026-06-13
+> **Last Updated**: 2026-06-14
 > **Tests**: 1336+ passed, 7 skipped
 > **Lint**: ruff clean
 
@@ -18,8 +18,8 @@
 | ApprovalStore | `src/approval.py` | ✅ Done | 49 |
 | AuditLog | `src/audit.py` | ✅ Done | 72 |
 | ContextBuilder | `src/context_builder.py` | ✅ Done | 21 |
-| AutonomousLoop | `src/autonomous_loop.py` | ✅ Done | 20 |
-| Planner | `src/planner.py` | ✅ Done | 20 |
+| AutonomousLoop | `src/aegis_ai/autonomous/autonomous_loop.py` | ✅ Done | 20 |
+| Planner | `src/aegis_ai/autonomous/planner.py` | ✅ Done | 20 |
 | gRPC Server | `src/grpc_server.py` | ✅ Done | — |
 | Config | `src/config.py` | ✅ Done | — |
 
@@ -37,10 +37,12 @@
 |--------|------|--------|-------|
 | Identity | `src/aegis_ai/mind/identity.py` | ✅ Done | 36 |
 | Desire | `src/aegis_ai/mind/desire.py` | ✅ Done | (included) |
-| Emotion | `src/aegis_ai/mind/emotion.py` | ✅ Done | (included) |
+| Emotion | `src/aegis_ai/mind/emotion.py` | ✅ Done (appraise_from_experience) | (included) |
 | Goals | `src/aegis_ai/mind/goals.py` | ✅ Done | (included) |
 | PriorityEngine | `src/aegis_ai/mind/priorities.py` | ✅ Done | (included) |
 | ReflectionLoop | `src/aegis_ai/reflection_loop.py` | ✅ Done | (included) |
+| SocialIntelligence | `src/aegis_ai/mind/social_intelligence.py` | ✅ Done | (included) |
+| Observation | `src/aegis_ai/observation/observation_service.py` | ✅ Done (observe_all) | (included) |
 
 ### Memory System (Phase 6)
 
@@ -59,6 +61,10 @@
 |--------|------|--------|-------|
 | DesireSystem | `src/aegis_ai/desire/desire_system.py` | ✅ Done | 7 |
 | AutonomousLoop | `src/aegis_ai/autonomous/autonomous_loop.py` | ✅ Done | 5 |
+| CuriosityDrivenExploration | `src/aegis_ai/autonomous/curiosity_exploration.py` | ✅ Done | (included) |
+| ActionTraceMemory | `src/aegis_ai/memory/action_trace.py` | ✅ Done | (included) |
+| SkillMemory | `src/aegis_ai/memory/skill_memory.py` | ✅ Done | (included) |
+| SleepConsolidation | `src/aegis_ai/memory/sleep_consolidation.py` | ✅ Done | (included) |
 
 ### Dashboard
 

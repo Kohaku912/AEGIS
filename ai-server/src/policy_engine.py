@@ -13,10 +13,12 @@ Architecture reference: docs/architecture.md §5.9, §7
 
 from __future__ import annotations
 
+import json
 import re
 from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum, auto
+from pathlib import Path
 from typing import Any
 
 from aegis_schema.models import Capability, RiskLevel
@@ -243,7 +245,7 @@ class PolicyEngine:
         r"browser\.submit_low_risk_signup$",
     ]
 
-    def __init__(self, approval_store: ApprovalStore | None = None) -> None:
+    def __init__(self, approval_store: ApprovalStore | None = None, data_dir: str = "data") -> None:
         self._rules: dict[str, list[RuleFunc]] = {}
         self._global_rules: list[RuleFunc] = []
         self._blocked_ids: set[str] = set()
@@ -255,6 +257,10 @@ class PolicyEngine:
         self._permissive_signup: list[re.Pattern] = [re.compile(p) for p in self.PERMISSIVE_SIGNUP_PATTERNS]
         self._approval_store = approval_store or ApprovalStore()
         self._autonomy_profile: str = "permissive_owner_assisted"
+        self._data_dir = Path(data_dir)
+        self._data_dir.mkdir(parents=True, exist_ok=True)
+        self._overrides_path = self._data_dir / "risk_overrides.json"
+        self._load_overrides()
 
     # ── Public Evaluation API ──────────────────────────────
 
@@ -476,6 +482,26 @@ class PolicyEngine:
         if risk_level.value < 1:
             raise ValueError("Cannot override to UNSPECIFIED risk level")
         self._risk_overrides[capability_id] = risk_level
+        self._save_overrides()
+
+    def _load_overrides(self) -> None:
+        if not self._overrides_path.exists():
+            return
+        try:
+            with open(self._overrides_path, encoding="utf-8") as f:
+                data = json.load(f)
+            for cap_id, level_name in data.items():
+                try:
+                    self._risk_overrides[cap_id] = RiskLevel[level_name]
+                except KeyError:
+                    pass
+        except Exception:
+            pass
+
+    def _save_overrides(self) -> None:
+        data = {cap_id: level.name for cap_id, level in self._risk_overrides.items()}
+        with open(self._overrides_path, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2)
 
     def add_rule(self, capability_id: str, rule: RuleFunc) -> None:
         if capability_id not in self._rules:

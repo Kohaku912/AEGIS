@@ -1,6 +1,6 @@
 # Testing Guide
 
-> **Status**: Active (2026-06-11)
+> **Status**: Active (2026-06-14)
 > **Related**: `AGENTS.md` §Testing Policy
 
 ## Quick Reference
@@ -76,6 +76,9 @@ Test full stack wiring with mock providers.
   - AuditLog, retry/backoff
 - `test_research_e2e.py` — Research Agent full pipeline
 - `test_research_approval_e2e.py` — Level 2/3 operations blocked in research
+- `test_autonomous_loop_e2e.py` — AutonomousLoop desire-driven scheduling, Planner task generation, CuriosityDrivenExploration
+- `test_learning_pipeline_e2e.py` — ActionTrace → Lesson → Workflow → Skill pipeline
+- `test_sleep_consolidation_e2e.py` — SleepConsolidation memory maintenance
 
 ### Local-Only Tests (require real device)
 

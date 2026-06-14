@@ -1,0 +1,280 @@
+- generic [active] [ref=e1]:
+  - complementary [ref=e2]:
+    - generic [ref=e3]:
+      - generic [ref=e4]: AEGIS
+      - generic [ref=e5]: Operations Dashboard
+    - navigation [ref=e6]:
+      - generic [ref=e7]: Overview
+      - link "Home" [ref=e8] [cursor=pointer]:
+        - /url: /dashboard
+        - img [ref=e9]
+        - text: Home
+      - link "Servers" [ref=e14] [cursor=pointer]:
+        - /url: /dashboard/servers
+        - img [ref=e15]
+        - text: Servers
+      - link "Capabilities" [ref=e22] [cursor=pointer]:
+        - /url: /dashboard/capabilities
+        - img [ref=e23]
+        - text: Capabilities
+      - generic [ref=e25]: Activity
+      - link "Events" [ref=e26] [cursor=pointer]:
+        - /url: /dashboard/events
+        - img [ref=e27]
+        - text: Events
+      - link "Tasks" [ref=e29] [cursor=pointer]:
+        - /url: /dashboard/tasks
+        - img [ref=e30]
+        - text: Tasks
+      - link "Audit" [ref=e33] [cursor=pointer]:
+        - /url: /dashboard/audit
+        - img [ref=e34]
+        - text: Audit
+      - link "Errors" [ref=e37] [cursor=pointer]:
+        - /url: /dashboard/errors
+        - img [ref=e38]
+        - text: Errors
+      - link "Approvals" [ref=e40] [cursor=pointer]:
+        - /url: /approvals
+        - img [ref=e41]
+        - text: Approvals
+      - generic [ref=e44]: Intelligence
+      - link "Memory" [ref=e45] [cursor=pointer]:
+        - /url: /dashboard/memory
+        - img [ref=e46]
+        - text: Memory
+      - link "Desires" [ref=e50] [cursor=pointer]:
+        - /url: /dashboard/desires
+        - img [ref=e51]
+        - text: Desires
+      - link "Autonomous" [ref=e53] [cursor=pointer]:
+        - /url: /dashboard/autonomous
+        - img [ref=e54]
+        - text: Autonomous
+      - link "Learning" [ref=e57] [cursor=pointer]:
+        - /url: /dashboard/learning
+        - img [ref=e58]
+        - text: Learning
+      - link "Support" [ref=e61] [cursor=pointer]:
+        - /url: /dashboard/support
+        - img [ref=e62]
+        - text: Support
+      - link "AGORA" [ref=e64] [cursor=pointer]:
+        - /url: /dashboard/agora
+        - img [ref=e65]
+        - text: AGORA
+  - generic [ref=e70]:
+    - banner [ref=e71]:
+      - generic [ref=e72]: Autonomous Loop
+      - button "Chat" [ref=e73] [cursor=pointer]:
+        - img [ref=e74]
+        - text: Chat
+    - main [ref=e77]:
+      - heading "Autonomous Loop" [level=1] [ref=e78]
+      - generic [ref=e79]:
+        - generic [ref=e80]:
+          - generic [ref=e81]: Status
+          - generic [ref=e82]: Running
+        - generic [ref=e83]:
+          - generic [ref=e84]: Executions
+          - generic [ref=e85]: "0"
+        - generic [ref=e86]:
+          - generic [ref=e87]: Last Run
+          - generic [ref=e88]: 09:52:06
+        - generic [ref=e89]:
+          - generic [ref=e90]: Next Run
+          - generic [ref=e91]: 09:57:06
+      - generic [ref=e92]:
+        - generic [ref=e93]: Desire States
+        - table [ref=e94]:
+          - rowgroup [ref=e95]:
+            - row "Desire Value Expected Frustration Status" [ref=e96]:
+              - columnheader "Desire" [ref=e97]
+              - columnheader "Value" [ref=e98]
+              - columnheader "Expected" [ref=e99]
+              - columnheader "Frustration" [ref=e100]
+              - columnheader "Status" [ref=e101]
+          - rowgroup [ref=e102]:
+            - row "user_helpfulness 5.8/10 8.0 2.2 Medium" [ref=e103]:
+              - cell "user_helpfulness" [ref=e104]
+              - cell "5.8/10" [ref=e105]
+              - cell "8.0" [ref=e106]
+              - cell "2.2" [ref=e107]
+              - cell "Medium" [ref=e108]:
+                - generic [ref=e109]: Medium
+            - row "autonomy 4.5/10 6.0 1.5 Medium" [ref=e110]:
+              - cell "autonomy" [ref=e111]
+              - cell "4.5/10" [ref=e112]
+              - cell "6.0" [ref=e113]
+              - cell "1.5" [ref=e114]
+              - cell "Medium" [ref=e115]:
+                - generic [ref=e116]: Medium
+            - row "system_safety 7.5/10 9.0 1.5 Medium" [ref=e117]:
+              - cell "system_safety" [ref=e118]
+              - cell "7.5/10" [ref=e119]
+              - cell "9.0" [ref=e120]
+              - cell "1.5" [ref=e121]
+              - cell "Medium" [ref=e122]:
+                - generic [ref=e123]: Medium
+            - row "learning_progress 5.8/10 7.0 1.2 Medium" [ref=e124]:
+              - cell "learning_progress" [ref=e125]
+              - cell "5.8/10" [ref=e126]
+              - cell "7.0" [ref=e127]
+              - cell "1.2" [ref=e128]
+              - cell "Medium" [ref=e129]:
+                - generic [ref=e130]: Medium
+            - row "social_connection 4.8/10 6.0 1.2 Medium" [ref=e131]:
+              - cell "social_connection" [ref=e132]
+              - cell "4.8/10" [ref=e133]
+              - cell "6.0" [ref=e134]
+              - cell "1.2" [ref=e135]
+              - cell "Medium" [ref=e136]:
+                - generic [ref=e137]: Medium
+            - row "creativity 5.0/10 6.0 1.0 Medium" [ref=e138]:
+              - cell "creativity" [ref=e139]
+              - cell "5.0/10" [ref=e140]
+              - cell "6.0" [ref=e141]
+              - cell "1.0" [ref=e142]
+              - cell "Medium" [ref=e143]:
+                - generic [ref=e144]: Medium
+            - row "reliability 7.0/10 8.0 1.0 OK" [ref=e145]:
+              - cell "reliability" [ref=e146]
+              - cell "7.0/10" [ref=e147]
+              - cell "8.0" [ref=e148]
+              - cell "1.0" [ref=e149]
+              - cell "OK" [ref=e150]:
+                - generic [ref=e151]: OK
+            - row "curiosity 7.8/10 8.0 0.2 OK" [ref=e152]:
+              - cell "curiosity" [ref=e153]
+              - cell "7.8/10" [ref=e154]
+              - cell "8.0" [ref=e155]
+              - cell "0.2" [ref=e156]
+              - cell "OK" [ref=e157]:
+                - generic [ref=e158]: OK
+            - row "purpose 7.2/10 7.0 0.0 OK" [ref=e159]:
+              - cell "purpose" [ref=e160]
+              - cell "7.2/10" [ref=e161]
+              - cell "7.0" [ref=e162]
+              - cell "0.0" [ref=e163]
+              - cell "OK" [ref=e164]:
+                - generic [ref=e165]: OK
+            - row "maintenance 7.5/10 7.0 0.0 OK" [ref=e166]:
+              - cell "maintenance" [ref=e167]
+              - cell "7.5/10" [ref=e168]
+              - cell "7.0" [ref=e169]
+              - cell "0.0" [ref=e170]
+              - cell "OK" [ref=e171]:
+                - generic [ref=e172]: OK
+      - generic [ref=e173]:
+        - generic [ref=e174]: Recent Executions
+        - table [ref=e175]:
+          - rowgroup [ref=e176]:
+            - row "Time Desire Action Result Status" [ref=e177]:
+              - columnheader "Time" [ref=e178]
+              - columnheader "Desire" [ref=e179]
+              - columnheader "Action" [ref=e180]
+              - columnheader "Result" [ref=e181]
+              - columnheader "Status" [ref=e182]
+          - rowgroup [ref=e183]:
+            - row "08:46:54 system_safety Review and patch any known vulnerabilities in dependencies, Plan executing Failed" [ref=e184]:
+              - cell "08:46:54" [ref=e185]
+              - cell "system_safety" [ref=e186]:
+                - generic [ref=e187]: system_safety
+              - cell "Review and patch any known vulnerabilities in dependencies," [ref=e188]
+              - cell "Plan executing" [ref=e189]
+              - cell "Failed" [ref=e190]:
+                - generic [ref=e191]: Failed
+            - row "08:46:54 reliability Run diagnostic tests on all subsystems and log results; fix Plan executing Failed" [ref=e192]:
+              - cell "08:46:54" [ref=e193]
+              - cell "reliability" [ref=e194]:
+                - generic [ref=e195]: reliability
+              - cell "Run diagnostic tests on all subsystems and log results; fix" [ref=e196]
+              - cell "Plan executing" [ref=e197]
+              - cell "Failed" [ref=e198]:
+                - generic [ref=e199]: Failed
+            - row "08:46:54 system_safety Conduct a security audit of system configurations and access Plan executing Failed" [ref=e200]:
+              - cell "08:46:54" [ref=e201]
+              - cell "system_safety" [ref=e202]:
+                - generic [ref=e203]: system_safety
+              - cell "Conduct a security audit of system configurations and access" [ref=e204]
+              - cell "Plan executing" [ref=e205]
+              - cell "Failed" [ref=e206]:
+                - generic [ref=e207]: Failed
+            - row "08:46:24 system_safety Audit access control configurations and update permissions t Plan executing Failed" [ref=e208]:
+              - cell "08:46:24" [ref=e209]
+              - cell "system_safety" [ref=e210]:
+                - generic [ref=e211]: system_safety
+              - cell "Audit access control configurations and update permissions t" [ref=e212]
+              - cell "Plan executing" [ref=e213]
+              - cell "Failed" [ref=e214]:
+                - generic [ref=e215]: Failed
+            - row "08:46:24 reliability Run comprehensive test suite, identify failing tests, and fi Plan executing Failed" [ref=e216]:
+              - cell "08:46:24" [ref=e217]
+              - cell "reliability" [ref=e218]:
+                - generic [ref=e219]: reliability
+              - cell "Run comprehensive test suite, identify failing tests, and fi" [ref=e220]
+              - cell "Plan executing" [ref=e221]
+              - cell "Failed" [ref=e222]:
+                - generic [ref=e223]: Failed
+            - row "08:46:24 system_safety Review system logs for any anomalous or suspicious activity Plan executing Failed" [ref=e224]:
+              - cell "08:46:24" [ref=e225]
+              - cell "system_safety" [ref=e226]:
+                - generic [ref=e227]: system_safety
+              - cell "Review system logs for any anomalous or suspicious activity" [ref=e228]
+              - cell "Plan executing" [ref=e229]
+              - cell "Failed" [ref=e230]:
+                - generic [ref=e231]: Failed
+            - row "08:45:57 autonomy Review the system's decision-making logs and autonomously ad The goal involves implementing an optimization in the system's resource allocati Failed" [ref=e232]:
+              - cell "08:45:57" [ref=e233]
+              - cell "autonomy" [ref=e234]:
+                - generic [ref=e235]: autonomy
+              - cell "Review the system's decision-making logs and autonomously ad" [ref=e236]
+              - cell "The goal involves implementing an optimization in the system's resource allocati" [ref=e237]
+              - cell "Failed" [ref=e238]:
+                - generic [ref=e239]: Failed
+            - row "08:45:57 autonomy Draft a proposal for a new autonomous monitoring feature and The goal involves implementing an optimization in the system's resource allocati Failed" [ref=e240]:
+              - cell "08:45:57" [ref=e241]
+              - cell "autonomy" [ref=e242]:
+                - generic [ref=e243]: autonomy
+              - cell "Draft a proposal for a new autonomous monitoring feature and" [ref=e244]
+              - cell "The goal involves implementing an optimization in the system's resource allocati" [ref=e245]
+              - cell "Failed" [ref=e246]:
+                - generic [ref=e247]: Failed
+            - row "08:45:57 autonomy Identify and implement a small optimization in the system's The goal involves implementing an optimization in the system's resource allocati Failed" [ref=e248]:
+              - cell "08:45:57" [ref=e249]
+              - cell "autonomy" [ref=e250]:
+                - generic [ref=e251]: autonomy
+              - cell "Identify and implement a small optimization in the system's" [ref=e252]
+              - cell "The goal involves implementing an optimization in the system's resource allocati" [ref=e253]
+              - cell "Failed" [ref=e254]:
+                - generic [ref=e255]: Failed
+            - row "08:45:33 user_helpfulness Compose a concise tutorial or tip based on recent user queri Plan executing Failed" [ref=e256]:
+              - cell "08:45:33" [ref=e257]
+              - cell "user_helpfulness" [ref=e258]:
+                - generic [ref=e259]: user_helpfulness
+              - cell "Compose a concise tutorial or tip based on recent user queri" [ref=e260]
+              - cell "Plan executing" [ref=e261]
+              - cell "Failed" [ref=e262]:
+                - generic [ref=e263]: Failed
+      - generic [ref=e264]:
+        - generic [ref=e265]: Observation & Curiosity
+        - generic [ref=e266]:
+          - generic [ref=e267]:
+            - generic [ref=e268]: Last Observation
+            - generic [ref=e269]: "-"
+          - generic [ref=e270]:
+            - generic [ref=e271]: Curiosity Level
+            - generic [ref=e272]: "7.8"
+          - generic [ref=e273]:
+            - generic [ref=e274]: Explorations
+            - generic [ref=e275]: "0"
+  - complementary [ref=e276]:
+    - generic [ref=e277]:
+      - generic [ref=e279]: AEGIS Chat
+      - button [ref=e280] [cursor=pointer]:
+        - img [ref=e281]
+      - button "Clear" [ref=e284] [cursor=pointer]
+    - generic [ref=e286]: Hello! I'm AEGIS. How can I help you today?
+    - generic [ref=e287]:
+      - textbox "Ask AEGIS anything…" [ref=e288]
+      - button "↑" [ref=e289] [cursor=pointer]

@@ -127,6 +127,100 @@ class OpenAIProvider:
                 provider_used="openai",
             )
 
+    def generate_with_image(
+        self,
+        prompt: str,
+        image_base64: str,
+        system_prompt: str = "",
+        max_tokens: int = 2000,
+        temperature: float = 0.7,
+        detail: str = "low",
+    ) -> LLMResponse:
+        """Generate a response from the LLM with an image (multimodal).
+
+        Args:
+            prompt: Text prompt about the image
+            image_base64: Base64-encoded image data (PNG/JPEG)
+            system_prompt: Optional system prompt
+            max_tokens: Max response tokens
+            temperature: Sampling temperature
+            detail: Image detail level ("low", "high", or "auto")
+
+        Returns:
+            LLMResponse with the model's description/analysis of the image
+        """
+        messages = []
+        if system_prompt:
+            messages.append({"role": "system", "content": system_prompt})
+
+        user_content = [
+            {
+                "type": "text",
+                "text": prompt,
+            },
+            {
+                "type": "image_url",
+                "image_url": {
+                    "url": f"data:image/png;base64,{image_base64}",
+                    "detail": detail,
+                },
+            },
+        ]
+        messages.append({"role": "user", "content": user_content})
+
+        start = time.time()
+        try:
+            response = self._client.chat.completions.create(
+                model=self._model,
+                messages=messages,
+                max_tokens=max_tokens,
+                temperature=temperature,
+            )
+
+            content = response.choices[0].message.content or ""
+            tokens = response.usage.total_tokens if response.usage else 0
+            duration_ms = (time.time() - start) * 1000
+
+            self._audit_log(
+                action="llm_vision_call",
+                decision="success",
+                detail={
+                    "model": self._model,
+                    "prompt_preview": prompt[:200],
+                    "response_preview": content[:200],
+                    "tokens": tokens,
+                    "duration_ms": round(duration_ms, 1),
+                },
+            )
+
+            return LLMResponse(
+                content=content,
+                model_used=self._model,
+                provider_used="openai",
+                tokens_used=tokens,
+                cost_estimate=tokens * 0.000002,
+                success=True,
+            )
+        except Exception as e:
+            duration_ms = (time.time() - start) * 1000
+            logger.error("OpenAI vision API call failed: %s", e)
+            self._audit_log(
+                action="llm_vision_call",
+                decision="error",
+                detail={
+                    "model": self._model,
+                    "prompt_preview": prompt[:200],
+                    "error": str(e)[:200],
+                    "duration_ms": round(duration_ms, 1),
+                },
+            )
+            return LLMResponse(
+                success=False,
+                error=str(e),
+                model_used=self._model,
+                provider_used="openai",
+            )
+
     def _audit_log(self, action: str, decision: str, detail: dict) -> None:
         try:
             from aegis_ai.audit import AuditEntry, AuditLog
