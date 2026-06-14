@@ -1,0 +1,18 @@
+{
+  "id": "ai-server.agora.post",
+  "title": "Post to AGORA",
+  "description": "Post a message to AGORA chat",
+  "server_id": "ai-server",
+  "app_id": "agora",
+  "action": "post",
+  "risk": {"level": "safe_action", "side_effects": ["posts_to_agora"]},
+  "input": {
+    "type": "object",
+    "properties": {
+      "message": {"type": "string", "description": "Message to post"}
+    },
+    "required": ["message"]
+  },
+  "tags": ["agora", "chat", "post"],
+  "only_master": false
+}

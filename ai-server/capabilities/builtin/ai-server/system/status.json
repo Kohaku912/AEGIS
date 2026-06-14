@@ -1,0 +1,11 @@
+{
+  "id": "ai-server.system.status",
+  "title": "System Status",
+  "description": "Get AEGIS system status and health information",
+  "server_id": "ai-server",
+  "app_id": "system",
+  "action": "status",
+  "risk": {"level": "read_only"},
+  "tags": ["system", "status", "health", "read"],
+  "only_master": false
+}

@@ -1,0 +1,18 @@
+{
+  "id": "browser-server.page.browse",
+  "title": "Browse URL",
+  "description": "Open a URL and get the page content",
+  "server_id": "browser-server",
+  "app_id": "page",
+  "action": "browse",
+  "risk": {"level": "read_only"},
+  "input": {
+    "type": "object",
+    "properties": {
+      "url": {"type": "string", "description": "URL to browse"}
+    },
+    "required": ["url"]
+  },
+  "tags": ["browser", "web", "browse", "read"],
+  "only_master": false
+}

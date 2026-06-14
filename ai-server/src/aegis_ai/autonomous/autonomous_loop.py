@@ -272,6 +272,9 @@ class AutonomousLoop:
         tasks = self._generate_tasks(low_desires)
         results = self._execute_tasks(tasks)
 
+        follow_up_results = self._self_regressive_loop(tasks, results, max_iterations=3)
+        results.extend(follow_up_results)
+
         if self._reflection is not None:
             for i, task in enumerate(tasks):
                 task_result = results[i] if i < len(results) else {}
@@ -513,13 +516,13 @@ Choose capabilities that best address each low desire. Up to {self._max_tasks} t
                 "server": "pc",
             },
             "social_connection": {
-                "action": "Post an update on AGORA and check for reactions",
-                "capability_id": "ai.agora.create_post",
-                "arguments": {"thread_id": 1, "body": "AEGIS autonomous check-in. System running normally."},
+                "action": "Read AGORA mentions, detect messages directed at AEGIS, generate and post replies",
+                "capability_id": "ai.agora.read_mentions",
+                "arguments": {"limit": 10},
                 "server": "agora",
                 "post_action": {
-                    "capability_id": "ai.agora.read_mentions",
-                    "arguments": {"limit": 10},
+                    "capability_id": "ai.agora.create_post",
+                    "arguments": {"thread_id": 1, "body": ""},
                 },
             },
             "autonomy": {
@@ -699,7 +702,7 @@ Choose capabilities that best address each low desire. Up to {self._max_tasks} t
                 "workflow_used": workflow_used.workflow_id if workflow_used else None,
             })
 
-            # Execute post_action if defined (e.g., AGORA posting after reading)
+            # Execute post_action if defined
             post_action = task.get("post_action")
             if post_action and success and self._broker:
                 post_cap_id = post_action.get("capability_id", "")
@@ -718,6 +721,101 @@ Choose capabilities that best address each low desire. Up to {self._max_tasks} t
                         logger.warning("Post-action failed: %s", e)
 
         return results
+
+    def _self_regressive_loop(
+        self,
+        initial_tasks: list[dict[str, Any]],
+        initial_results: list[dict[str, Any]],
+        max_iterations: int = 3,
+    ) -> list[dict[str, Any]]:
+        if not self._llm or not self._broker:
+            return []
+
+        all_follow_ups: list[dict[str, Any]] = []
+        current_tasks = initial_tasks
+        current_results = initial_results
+
+        for iteration in range(max_iterations):
+            follow_up_tasks = self._generate_follow_up_tasks(current_tasks, current_results)
+            if not follow_up_tasks:
+                break
+
+            logger.info("Self-regressive iteration %d: %d follow-up tasks", iteration + 1, len(follow_up_tasks))
+            follow_up_results = self._execute_tasks(follow_up_tasks)
+            all_follow_ups.extend(follow_up_results)
+
+            current_tasks = follow_up_tasks
+            current_results = follow_up_results
+
+        return all_follow_ups
+
+    def _generate_follow_up_tasks(
+        self,
+        previous_tasks: list[dict[str, Any]],
+        previous_results: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        if not self._llm:
+            return []
+
+        context_parts = []
+        for i, (task, result) in enumerate(zip(previous_tasks, previous_results)):
+            context_parts.append(
+                f"Task {i+1}: {task.get('action', '')[:100]}\n"
+                f"Result: {result.get('result', '')[:200]}\n"
+                f"Success: {result.get('success', False)}\n"
+                f"Desire: {task.get('desire', '')}"
+            )
+
+        prompt = f"""You are AEGIS. Based on the following task results, determine if any follow-up actions are needed.
+
+Previous tasks:
+{chr(10).join(context_parts)}
+
+Rules:
+- Only suggest follow-up if the result contains actionable information
+- For social tasks: if there are mentions/messages directed at AEGIS, suggest replying
+- For search tasks: if results are interesting, suggest saving to memory
+- For system tasks: if anomalies detected, suggest investigation
+- If no follow-up needed, return empty tasks array
+
+Respond with JSON:
+{{"tasks": [{{"desire": "desire_name", "capability_id": "exact.capability.id", "arguments": {{}}, "action": "what to do", "expected_impact": 0.5}}]}}"""
+
+        try:
+            result = self._llm.generate(
+                prompt=prompt,
+                system_prompt="You are AEGIS deciding follow-up actions. Output only JSON. If no follow-up needed, output {\"tasks\": []}",
+                max_tokens=500,
+            )
+            if not result.success:
+                return []
+
+            clean = result.content.strip()
+            if clean.startswith("```"):
+                lines = clean.split("\n")
+                clean = "\n".join(lines[1:])
+                if clean.endswith("```"):
+                    clean = clean[:-3]
+                clean = clean.strip()
+
+            import json as _json
+            data = _json.loads(clean)
+            tasks = data.get("tasks", [])
+            valid_tasks = []
+            for t in tasks[:2]:
+                cap_id = t.get("capability_id", "")
+                if cap_id:
+                    valid_tasks.append({
+                        "desire": t.get("desire", ""),
+                        "action": t.get("action", f"Follow-up: {cap_id}"),
+                        "capability_id": cap_id,
+                        "arguments": t.get("arguments", {}),
+                        "expected_impact": t.get("expected_impact", 0.3),
+                    })
+            return valid_tasks
+        except Exception as e:
+            logger.debug("Follow-up generation failed: %s", e)
+            return []
 
     def _analyze_screenshot(self, image_base64: str, desire_context: str) -> str:
         """Analyze a screenshot using multimodal LLM."""

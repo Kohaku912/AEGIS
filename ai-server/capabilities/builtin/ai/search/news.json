@@ -32,5 +32,6 @@
     }
   },
   "tags": ["search", "news", "read"],
-  "requires_approval": false
+  "requires_approval": false,
+  "only_master": false
 }

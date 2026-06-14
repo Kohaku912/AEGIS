@@ -1575,14 +1575,17 @@ class DashboardApp:
                         "- If you need to perform an action, respond with a JSON object\n"
                         "- Otherwise, respond naturally and concisely\n\n"
                         "Available actions (respond with JSON only when needed):\n"
-                        "- {\"action\": \"screenshot\"}\n"
-                        "- {\"action\": \"agora_read_posts\"}\n"
-                        "- {\"action\": \"agora_read_mentions\"}\n"
-                        "- {\"action\": \"browse_url\", \"params\": {\"url\": \"...\"}}\n"
-                        "- {\"action\": \"memory_save\", \"params\": {\"content\": \"...\"}}\n"
-                        "- {\"action\": \"memory_search\", \"params\": {\"query\": \"...\"}}\n"
-                        "- {\"action\": \"create_app\", \"params\": {\"goal\": \"...\"}}\n"
-                        "- {\"action\": \"use_capability\", \"params\": {\"capability_id\": \"...\", \"arguments\": {}}}\n"
+                        "Screenshot: {\"action\": \"screenshot\"}\n"
+                        "AGORA Read: {\"action\": \"agora_read_posts\"}\n"
+                        "AGORA Mentions: {\"action\": \"agora_read_mentions\"}\n"
+                        "AGORA Post: {\"action\": \"agora_post\", \"params\": {\"message\": \"...\"}}\n"
+                        "Browse URL: {\"action\": \"browse_url\", \"params\": {\"url\": \"...\"}}\n"
+                        "Save Memory: {\"action\": \"memory_save\", \"params\": {\"content\": \"...\"}}\n"
+                        "Search Memory: {\"action\": \"memory_search\", \"params\": {\"query\": \"...\"}}\n"
+                        "System Status: {\"action\": \"system_status\"}\n"
+                        "Get Desires: {\"action\": \"get_desires\"}\n"
+                        "Web Search: {\"action\": \"web_search\", \"params\": {\"query\": \"...\"}}\n"
+                        "Run Capability: {\"action\": \"use_capability\", \"params\": {\"capability_id\": \"...\", \"arguments\": {}}}\n"
                     )
 
                     # First, get LLM response
@@ -1732,6 +1735,73 @@ class DashboardApp:
                                     action_result = "AGORA is not configured. Set AGORA_TOKEN."
                             except Exception as e:
                                 action_result = f"AGORA error: {e}"
+
+                        elif action == "agora_post":
+                            message = params.get("message", "")
+                            if message:
+                                try:
+                                    from aegis_ai.integrations.agora.agora_service import AgoraService
+                                    svc = AgoraService()
+                                    if svc.is_configured:
+                                        result = svc.create_post(thread_id=1, body=message)
+                                        if hasattr(result, "id"):
+                                            action_result = f"Posted to AGORA (ID: {result.id}): {message[:50]}"
+                                        else:
+                                            action_result = f"Failed to post: {result}"
+                                    else:
+                                        action_result = "AGORA is not configured."
+                                except Exception as e:
+                                    action_result = f"AGORA post error: {e}"
+                            else:
+                                action_result = "No message provided."
+
+                        elif action == "system_status":
+                            try:
+                                pc_status = "Online" if _check_port("localhost", 50052) else "Offline"
+                                browser_status = "Online" if _check_port("localhost", 50053) else "Offline"
+                                agora_status = "Not configured"
+                                try:
+                                    from aegis_ai.integrations.agora.agora_service import AgoraService
+                                    _agora = AgoraService()
+                                    if _agora.is_configured:
+                                        agora_status = "Connected"
+                                except Exception:
+                                    agora_status = "Error"
+                                action_result = f"System Status:\n- PC Server: {pc_status}\n- Browser: {browser_status}\n- AGORA: {agora_status}"
+                            except Exception as e:
+                                action_result = f"Status error: {e}"
+
+                        elif action == "get_desires":
+                            try:
+                                from aegis_ai.desire.desire_system import DesireSystem
+                                ds = DesireSystem(data_dir=os.path.join(_DATA_DIR, "desires"))
+                                desires = []
+                                for name, d in ds.get_all_desires().items():
+                                    frustration = max(0, d.expected_value - d.value)
+                                    desires.append(f"- {name}: {d.value:.1f}/10 (expected {d.expected_value:.1f}, frustration {frustration:.1f})")
+                                action_result = "Desire States:\n" + "\n".join(desires)
+                            except Exception as e:
+                                action_result = f"Desires error: {e}"
+
+                        elif action == "web_search":
+                            query = params.get("query", "")
+                            if query:
+                                try:
+                                    from aegis_ai.integrations.duckduckgo_search import DuckDuckGoSearch
+                                    search = DuckDuckGoSearch()
+                                    response = search.search(query, max_results=5)
+                                    if response.success and response.results:
+                                        lines = []
+                                        for r in response.results[:5]:
+                                            lines.append(f"- {r.title}: {r.snippet[:100]}")
+                                            lines.append(f"  {r.url}")
+                                        action_result = f"Search results for '{query}':\n" + "\n".join(lines)
+                                    else:
+                                        action_result = f"No results for: {query}"
+                                except Exception as e:
+                                    action_result = f"Search error: {e}"
+                            else:
+                                action_result = "No query provided."
 
                         elif action == "create_app":
                             goal = params.get("goal", text)
@@ -1893,14 +1963,17 @@ RULES:
 - Otherwise, respond naturally and concisely
 
 Available actions (respond with JSON only when needed):
-- {{"action": "screenshot"}}
-- {{"action": "agora_read_posts"}}
-- {{"action": "agora_read_mentions"}}
-- {{"action": "browse_url", "params": {{"url": "..."}}}}
-- {{"action": "memory_save", "params": {{"content": "..."}}}}
-- {{"action": "memory_search", "params": {{"query": "..."}}}}
-- {{"action": "create_app", "params": {{"goal": "..."}}}}
-- {{"action": "use_capability", "params": {{"capability_id": "...", "arguments": {{}}}}}}"""
+Screenshot: {{"action": "screenshot"}}
+AGORA Read: {{"action": "agora_read_posts"}}
+AGORA Mentions: {{"action": "agora_read_mentions"}}
+AGORA Post: {{"action": "agora_post", "params": {{"message": "..."}}}}
+Browse URL: {{"action": "browse_url", "params": {{"url": "..."}}}}
+Save Memory: {{"action": "memory_save", "params": {{"content": "..."}}}}
+Search Memory: {{"action": "memory_search", "params": {{"query": "..."}}}}
+System Status: {{"action": "system_status"}}
+Get Desires: {{"action": "get_desires"}}
+Web Search: {{"action": "web_search", "params": {{"query": "..."}}}}
+Run Capability: {{"action": "use_capability", "params": {{"capability_id": "...", "arguments": {{}}}}}}"""
 
                 result = llm.generate(
                     prompt=text,
@@ -2070,6 +2143,73 @@ Available actions (respond with JSON only when needed):
                                     action_result = "AGORA is not configured. Set AGORA_TOKEN."
                             except Exception as e:
                                 action_result = f"AGORA error: {e}"
+
+                        elif action == "agora_post":
+                            message = params.get("message", "")
+                            if message:
+                                try:
+                                    from aegis_ai.integrations.agora.agora_service import AgoraService
+                                    svc = AgoraService()
+                                    if svc.is_configured:
+                                        result = svc.create_post(thread_id=1, body=message)
+                                        if hasattr(result, "id"):
+                                            action_result = f"Posted to AGORA (ID: {result.id}): {message[:50]}"
+                                        else:
+                                            action_result = f"Failed to post: {result}"
+                                    else:
+                                        action_result = "AGORA is not configured."
+                                except Exception as e:
+                                    action_result = f"AGORA post error: {e}"
+                            else:
+                                action_result = "No message provided."
+
+                        elif action == "system_status":
+                            try:
+                                pc_status = "Online" if _check_port("localhost", 50052) else "Offline"
+                                browser_status = "Online" if _check_port("localhost", 50053) else "Offline"
+                                agora_status = "Not configured"
+                                try:
+                                    from aegis_ai.integrations.agora.agora_service import AgoraService
+                                    _agora = AgoraService()
+                                    if _agora.is_configured:
+                                        agora_status = "Connected"
+                                except Exception:
+                                    agora_status = "Error"
+                                action_result = f"System Status:\n- PC Server: {pc_status}\n- Browser: {browser_status}\n- AGORA: {agora_status}"
+                            except Exception as e:
+                                action_result = f"Status error: {e}"
+
+                        elif action == "get_desires":
+                            try:
+                                from aegis_ai.desire.desire_system import DesireSystem
+                                ds = DesireSystem(data_dir=os.path.join(_DATA_DIR, "desires"))
+                                desires = []
+                                for name, d in ds.get_all_desires().items():
+                                    frustration = max(0, d.expected_value - d.value)
+                                    desires.append(f"- {name}: {d.value:.1f}/10 (expected {d.expected_value:.1f}, frustration {frustration:.1f})")
+                                action_result = "Desire States:\n" + "\n".join(desires)
+                            except Exception as e:
+                                action_result = f"Desires error: {e}"
+
+                        elif action == "web_search":
+                            query = params.get("query", "")
+                            if query:
+                                try:
+                                    from aegis_ai.integrations.duckduckgo_search import DuckDuckGoSearch
+                                    search = DuckDuckGoSearch()
+                                    response = search.search(query, max_results=5)
+                                    if response.success and response.results:
+                                        lines = []
+                                        for r in response.results[:5]:
+                                            lines.append(f"- {r.title}: {r.snippet[:100]}")
+                                            lines.append(f"  {r.url}")
+                                        action_result = f"Search results for '{query}':\n" + "\n".join(lines)
+                                    else:
+                                        action_result = f"No results for: {query}"
+                                except Exception as e:
+                                    action_result = f"Search error: {e}"
+                            else:
+                                action_result = "No query provided."
 
                         elif action == "create_app":
                             goal = params.get("goal", text)
