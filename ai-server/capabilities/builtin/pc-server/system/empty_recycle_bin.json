@@ -1,0 +1,11 @@
+{
+  "id": "pc-server.system.empty_recycle_bin",
+  "title": "Empty Recycle Bin",
+  "description": "Empty the Windows recycle bin (requires approval)",
+  "server_id": "pc-server",
+  "app_id": "system",
+  "action": "empty_recycle_bin",
+  "risk": {"level": "approval_required"},
+  "input": {"type": "object", "properties": {}},
+  "tags": ["system", "cleanup", "approval_required"]
+}

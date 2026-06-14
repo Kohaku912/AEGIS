@@ -1,0 +1,17 @@
+{
+  "id": "pc-server.service.start",
+  "title": "Start Service",
+  "description": "Start a Windows service (requires approval)",
+  "server_id": "pc-server",
+  "app_id": "service",
+  "action": "start",
+  "risk": {"level": "approval_required"},
+  "input": {
+    "type": "object",
+    "properties": {
+      "name": {"type": "string", "description": "Service name"}
+    },
+    "required": ["name"]
+  },
+  "tags": ["service", "start", "approval_required"]
+}

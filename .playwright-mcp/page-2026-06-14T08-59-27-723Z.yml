@@ -1,0 +1,200 @@
+- generic [active] [ref=e1]:
+  - complementary [ref=e2]:
+    - generic [ref=e3]:
+      - generic [ref=e4]: AEGIS
+      - generic [ref=e5]: Operations Dashboard
+    - navigation [ref=e6]:
+      - generic [ref=e7]: Overview
+      - link "Home" [ref=e8] [cursor=pointer]:
+        - /url: /dashboard
+        - img [ref=e9]
+        - text: Home
+      - link "Servers" [ref=e14] [cursor=pointer]:
+        - /url: /dashboard/servers
+        - img [ref=e15]
+        - text: Servers
+      - link "Capabilities" [ref=e22] [cursor=pointer]:
+        - /url: /dashboard/capabilities
+        - img [ref=e23]
+        - text: Capabilities
+      - generic [ref=e25]: Activity
+      - link "Events" [ref=e26] [cursor=pointer]:
+        - /url: /dashboard/events
+        - img [ref=e27]
+        - text: Events
+      - link "Tasks" [ref=e29] [cursor=pointer]:
+        - /url: /dashboard/tasks
+        - img [ref=e30]
+        - text: Tasks
+      - link "Audit" [ref=e33] [cursor=pointer]:
+        - /url: /dashboard/audit
+        - img [ref=e34]
+        - text: Audit
+      - link "Errors" [ref=e37] [cursor=pointer]:
+        - /url: /dashboard/errors
+        - img [ref=e38]
+        - text: Errors
+      - link "Approvals" [ref=e40] [cursor=pointer]:
+        - /url: /approvals
+        - img [ref=e41]
+        - text: Approvals
+      - generic [ref=e44]: Intelligence
+      - link "Memory" [ref=e45] [cursor=pointer]:
+        - /url: /dashboard/memory
+        - img [ref=e46]
+        - text: Memory
+      - link "Desires" [ref=e50] [cursor=pointer]:
+        - /url: /dashboard/desires
+        - img [ref=e51]
+        - text: Desires
+      - link "Autonomous" [ref=e53] [cursor=pointer]:
+        - /url: /dashboard/autonomous
+        - img [ref=e54]
+        - text: Autonomous
+      - link "Learning" [ref=e57] [cursor=pointer]:
+        - /url: /dashboard/learning
+        - img [ref=e58]
+        - text: Learning
+      - link "Support" [ref=e61] [cursor=pointer]:
+        - /url: /dashboard/support
+        - img [ref=e62]
+        - text: Support
+      - link "AGORA" [ref=e64] [cursor=pointer]:
+        - /url: /dashboard/agora
+        - img [ref=e65]
+        - text: AGORA
+  - generic [ref=e70]:
+    - banner [ref=e71]:
+      - generic [ref=e72]: Memory
+      - button "Chat" [ref=e73] [cursor=pointer]:
+        - img [ref=e74]
+        - text: Chat
+    - main [ref=e77]:
+      - heading "Memory System" [level=1] [ref=e78]
+      - generic [ref=e79]:
+        - generic [ref=e80]:
+          - generic [ref=e81]: Entities
+          - generic [ref=e82]: "3"
+        - generic [ref=e83]:
+          - generic [ref=e84]: Facts
+          - generic [ref=e85]: "5"
+        - generic [ref=e86]:
+          - generic [ref=e87]: Valid Facts
+          - generic [ref=e88]: "5"
+        - generic [ref=e89]:
+          - generic [ref=e90]: Conversations
+          - generic [ref=e91]: "1"
+        - generic [ref=e92]:
+          - generic [ref=e93]: Semantic (Chroma)
+          - generic [ref=e94]: "0"
+        - generic [ref=e95]:
+          - generic [ref=e96]: People Known
+          - generic [ref=e97]: "0"
+      - generic [ref=e98]:
+        - generic [ref=e99]: Entities
+        - table [ref=e101]:
+          - rowgroup [ref=e102]:
+            - row "Name Type Observations Last Seen" [ref=e103]:
+              - columnheader "Name" [ref=e104]
+              - columnheader "Type" [ref=e105]
+              - columnheader "Observations" [ref=e106]
+              - columnheader "Last Seen" [ref=e107]
+          - rowgroup [ref=e108]:
+            - row "たつき person 1 06-14 17:49" [ref=e109]:
+              - cell "たつき" [ref=e110]
+              - cell "person" [ref=e111]:
+                - generic [ref=e112]: person
+              - cell "1" [ref=e113]
+              - cell "06-14 17:49" [ref=e114]
+            - row "AEGIS thing 2 06-14 17:59" [ref=e115]:
+              - cell "AEGIS" [ref=e116]
+              - cell "thing" [ref=e117]:
+                - generic [ref=e118]: thing
+              - cell "2" [ref=e119]
+              - cell "06-14 17:59" [ref=e120]
+            - row "Master person 1 06-14 17:59" [ref=e121]:
+              - cell "Master" [ref=e122]
+              - cell "person" [ref=e123]:
+                - generic [ref=e124]: person
+              - cell "1" [ref=e125]
+              - cell "06-14 17:59" [ref=e126]
+      - generic [ref=e127]:
+        - generic [ref=e128]: Facts
+        - table [ref=e130]:
+          - rowgroup [ref=e131]:
+            - row "Content Category Source Confidence Valid" [ref=e132]:
+              - columnheader "Content" [ref=e133]
+              - columnheader "Category" [ref=e134]
+              - columnheader "Source" [ref=e135]
+              - columnheader "Confidence" [ref=e136]
+              - columnheader "Valid" [ref=e137]
+          - rowgroup [ref=e138]:
+            - row "AEGIS is running on Windows. AEGIS conversation 0.95 Yes" [ref=e139]:
+              - cell "AEGIS is running on Windows." [ref=e140]
+              - cell "AEGIS" [ref=e141]:
+                - generic [ref=e142]: AEGIS
+              - cell "conversation" [ref=e143]
+              - cell "0.95" [ref=e144]
+              - cell "Yes" [ref=e145]:
+                - generic [ref=e146]: "Yes"
+            - row "PC server and browser server are currently offline. PC server conversation 0.95 Yes" [ref=e147]:
+              - cell "PC server and browser server are currently offline." [ref=e148]
+              - cell "PC server" [ref=e149]:
+                - generic [ref=e150]: PC server
+              - cell "conversation" [ref=e151]
+              - cell "0.95" [ref=e152]
+              - cell "Yes" [ref=e153]:
+                - generic [ref=e154]: "Yes"
+            - row "Browser server is currently offline. browser server conversation 0.95 Yes" [ref=e155]:
+              - cell "Browser server is currently offline." [ref=e156]
+              - cell "browser server" [ref=e157]:
+                - generic [ref=e158]: browser server
+              - cell "conversation" [ref=e159]
+              - cell "0.95" [ref=e160]
+              - cell "Yes" [ref=e161]:
+                - generic [ref=e162]: "Yes"
+            - row "AEGIS is online and operational on Windows. AEGIS conversation 1.00 Yes" [ref=e163]:
+              - cell "AEGIS is online and operational on Windows." [ref=e164]
+              - cell "AEGIS" [ref=e165]:
+                - generic [ref=e166]: AEGIS
+              - cell "conversation" [ref=e167]
+              - cell "1.00" [ref=e168]
+              - cell "Yes" [ref=e169]:
+                - generic [ref=e170]: "Yes"
+            - row "AEGIS is responding to a test message from the user. AEGIS conversation 1.00 Yes" [ref=e171]:
+              - cell "AEGIS is responding to a test message from the user." [ref=e172]
+              - cell "AEGIS" [ref=e173]:
+                - generic [ref=e174]: AEGIS
+              - cell "conversation" [ref=e175]
+              - cell "1.00" [ref=e176]
+              - cell "Yes" [ref=e177]:
+                - generic [ref=e178]: "Yes"
+      - generic [ref=e179]:
+        - generic [ref=e180]: People I Know
+        - generic [ref=e181]:
+          - generic [ref=e182]:
+            - generic [ref=e183]:
+              - generic [ref=e184]: た
+              - generic [ref=e185]:
+                - generic [ref=e186]: たつき
+                - generic [ref=e187]: "preferred_name: マスター, relationship: user"
+              - generic [ref=e188]: 1x
+            - generic [ref=e189]: "Mentions: 1"
+          - generic [ref=e190]:
+            - generic [ref=e191]:
+              - generic [ref=e192]: M
+              - generic [ref=e193]:
+                - generic [ref=e194]: Master
+                - generic [ref=e195]: "relationship: user, addressed_as: Master"
+              - generic [ref=e196]: 1x
+            - generic [ref=e197]: "Mentions: 1"
+  - complementary [ref=e198]:
+    - generic [ref=e199]:
+      - generic [ref=e201]: AEGIS Chat
+      - button [ref=e202] [cursor=pointer]:
+        - img [ref=e203]
+      - button "Clear" [ref=e206] [cursor=pointer]
+    - generic [ref=e208]: Hello! I'm AEGIS. How can I help you today?
+    - generic [ref=e209]:
+      - textbox "Ask AEGIS anything…" [ref=e210]
+      - button "↑" [ref=e211] [cursor=pointer]

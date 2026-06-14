@@ -1,0 +1,11 @@
+{
+  "id": "pc-server.task.list",
+  "title": "List Scheduled Tasks",
+  "description": "List Windows scheduled tasks",
+  "server_id": "pc-server",
+  "app_id": "task",
+  "action": "list",
+  "risk": {"level": "read_only"},
+  "input": {"type": "object", "properties": {}},
+  "tags": ["task", "scheduler", "observe"]
+}

@@ -1,0 +1,18 @@
+{
+  "id": "pc-server.approval.overlay",
+  "title": "Overlay Approval",
+  "description": "Show overlay approval dialog with Y/N key input",
+  "server_id": "pc-server",
+  "app_id": "approval",
+  "action": "overlay",
+  "risk": {"level": "approval_required"},
+  "input": {
+    "type": "object",
+    "properties": {
+      "action": {"type": "string", "description": "Action to approve"},
+      "timeout": {"type": "integer", "description": "Timeout in seconds", "default": 30}
+    },
+    "required": ["action"]
+  },
+  "tags": ["overlay", "approval"]
+}

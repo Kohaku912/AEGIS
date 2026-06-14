@@ -1,0 +1,17 @@
+{
+  "id": "pc-server.clipboard.set",
+  "title": "Set Clipboard",
+  "description": "Set clipboard text content",
+  "server_id": "pc-server",
+  "app_id": "clipboard",
+  "action": "set",
+  "risk": {"level": "safe_action"},
+  "input": {
+    "type": "object",
+    "properties": {
+      "text": {"type": "string", "description": "Text to set"}
+    },
+    "required": ["text"]
+  },
+  "tags": ["clipboard", "write"]
+}

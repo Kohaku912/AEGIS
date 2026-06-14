@@ -1,0 +1,17 @@
+{
+  "id": "pc-server.service.stop",
+  "title": "Stop Service",
+  "description": "Stop a Windows service (requires approval)",
+  "server_id": "pc-server",
+  "app_id": "service",
+  "action": "stop",
+  "risk": {"level": "approval_required"},
+  "input": {
+    "type": "object",
+    "properties": {
+      "name": {"type": "string", "description": "Service name"}
+    },
+    "required": ["name"]
+  },
+  "tags": ["service", "stop", "approval_required"]
+}

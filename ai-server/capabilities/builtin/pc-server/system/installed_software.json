@@ -1,0 +1,11 @@
+{
+  "id": "pc-server.system.installed_software",
+  "title": "Installed Software",
+  "description": "List installed software",
+  "server_id": "pc-server",
+  "app_id": "system",
+  "action": "installed_software",
+  "risk": {"level": "read_only"},
+  "input": {"type": "object", "properties": {}},
+  "tags": ["software", "system", "observe"]
+}

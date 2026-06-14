@@ -69,6 +69,7 @@ class AutonomousLoop:
         desire_threshold: float = 4.0,
         max_tasks_per_cycle: int = 3,
         fallback_interval_seconds: int = 3600,
+        frustration_threshold: float = 2.0,
     ) -> None:
         self._llm = llm_provider
         self._desire = desire_system
@@ -91,6 +92,7 @@ class AutonomousLoop:
         self._desire_threshold = desire_threshold
         self._max_tasks = max_tasks_per_cycle
         self._fallback_interval = fallback_interval_seconds
+        self._frustration_threshold = frustration_threshold
 
         self._running = False
         self._thread: threading.Thread | None = None
@@ -130,6 +132,27 @@ class AutonomousLoop:
         with open(state_path, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2)
 
+    def _is_frustration_above_threshold(self) -> bool:
+        """Check if any desire frustration exceeds the threshold."""
+        if not self._desire:
+            return False
+        for desire in self._desire.get_all_desires().values():
+            if desire.hidden:
+                continue
+            frustration = max(0, desire.expected_value - desire.value)
+            if frustration >= self._frustration_threshold:
+                return True
+        return False
+
+    def get_threshold(self) -> float:
+        """Get current frustration threshold."""
+        return self._frustration_threshold
+
+    def set_threshold(self, value: float) -> None:
+        """Set frustration threshold (0.0-10.0)."""
+        self._frustration_threshold = max(0.0, min(10.0, value))
+        logger.info("Frustration threshold set to %.1f", self._frustration_threshold)
+
     def start(self) -> None:
         """Start the autonomous loop in background."""
         if self._running:
@@ -165,33 +188,23 @@ class AutonomousLoop:
                 # Spontaneous observation (every 1 minute)
                 if self._observation and now - self._last_observation_ms >= self._observation_interval_ms:
                     try:
-                        observations = self._observation.observe_all()
-                        self._last_observation_ms = now
+                        observations = self._observation.observe()
                         actionable = [o for o in observations if o.actionable and o.importance >= 0.7]
                         if actionable:
                             logger.info("Observation found %d actionable items", len(actionable))
                     except Exception as e:
                         logger.warning("Observation failed: %s", e)
-
-                # Curiosity exploration (when curiosity desire is high)
-                if self._curiosity and self._curiosity.should_explore:
-                    try:
-                        candidates = self._curiosity.generate_exploration_candidates()
-                        if candidates:
-                            best = self._curiosity.select_best_candidate(candidates)
-                            if best and best.priority_score > 0.5:
-                                logger.info("Curiosity exploration: %s", best.topic[:50])
-                                result = self._curiosity.explore(best)
-                                logger.info("Exploration result: %s", result.findings[:100])
-                    except Exception as e:
-                        logger.warning("Curiosity exploration failed: %s", e)
+                    finally:
+                        self._last_observation_ms = now
 
                 # Check minimum interval since last execution
                 time_since_last_run = now - self._last_run_ms
                 can_execute = time_since_last_run >= self._min_execution_interval_ms
 
-                if can_execute and (desire_triggered or now >= self._next_run_ms):
+                if can_execute and (desire_triggered or (now >= self._next_run_ms and self._is_frustration_above_threshold())):
                     self._execute_cycle()
+                elif can_execute and now >= self._next_run_ms:
+                    self._schedule_next(self._fallback_interval * 3)
                 else:
                     # Sleep until next event: next_run, observation, or 60s
                     sleep_ms = self._next_run_ms - now
@@ -241,8 +254,14 @@ class AutonomousLoop:
 
         low_desires = self._get_low_desires()
         if not low_desires:
-            logger.info("All desires above threshold, using fallback interval")
-            self._schedule_next(self._fallback_interval)
+            logger.info("All desires above threshold, using extended interval")
+            self._schedule_next(self._fallback_interval * 3)
+            return
+
+        all_near_expected = all(d["value"] >= d["expected"] * 0.9 for d in low_desires)
+        if all_near_expected:
+            logger.info("All low desires near expected values, extending interval")
+            self._schedule_next(self._fallback_interval * 2)
             return
 
         desire_before = {}
@@ -286,7 +305,8 @@ class AutonomousLoop:
         low = []
         for name, desire in self._desire.get_all_desires().items():
             frustration = max(0, desire.expected_value - desire.value)
-            if desire.value < self._desire_threshold or frustration >= 1.5:
+            threshold = 2.5
+            if desire.value < self._desire_threshold or frustration >= threshold:
                 low.append({
                     "name": name,
                     "value": desire.value,
@@ -301,10 +321,46 @@ class AutonomousLoop:
         if not self._llm:
             return self._generate_default_tasks(low_desires)
 
-        # Build desire context
         desire_context = []
-        for d in low_desires[:3]:  # Top 3 low desires
+        for d in low_desires[:self._max_tasks]:
             desire_context.append(f"- {d['name']}: {d['value']:.1f}/10 (gap: {d['gap']:.1f})")
+
+        capabilities_context = ""
+        if self._broker:
+            try:
+                pc_ok = _check_port("localhost", 50052)
+                agora_ok = bool(os.environ.get("AGORA_TOKEN", ""))
+                room_ok = _check_port("localhost", 50055)
+                browser_ok = _check_port("localhost", 50053)
+                android_ok = _check_port("localhost", 50054)
+                
+                caps = self._broker.list_safe_capabilities()
+                if caps:
+                    lines = []
+                    for c in caps:
+                        cap_id = c.id
+                        if cap_id.startswith("pc.") and not pc_ok:
+                            continue
+                        if cap_id.startswith("android.") and not android_ok:
+                            continue
+                        if cap_id.startswith("browser.") and not browser_ok:
+                            continue
+                        if cap_id.startswith("room.") and not room_ok:
+                            continue
+                        if cap_id.startswith("ai.agora.") and not agora_ok:
+                            continue
+                        
+                        required_args = ""
+                        if cap_id == "ai.search.web" or cap_id == "ai.search.news":
+                            required_args = ' (requires: {"query": "search term"})'
+                        elif cap_id == "ai.agora.read_thread_posts":
+                            required_args = ' (requires: {"thread_id": 1})'
+                        
+                        lines.append(f"- {c.id}: {c.description}{required_args}")
+                    if lines:
+                        capabilities_context = "\nAvailable capabilities (only from running servers):\n" + "\n".join(lines)
+            except Exception:
+                pass
 
         memory_context = ""
         if self._memory:
@@ -329,66 +385,77 @@ class AutonomousLoop:
             except Exception:
                 pass
 
-        world_context = ""
-        if self._world:
-            try:
-                state = self._world.get_snapshot()
-                if state:
-                    world_context = f"\nWorld state: {state}"
-            except Exception:
-                pass
-
         pc_ok = _check_port("localhost", 50052)
-        browser_ok = _check_port("localhost", 50053)
         agora_ok = bool(os.environ.get("AGORA_TOKEN", ""))
-        server_status = f"\nServer status: PC={'online' if pc_ok else 'offline'}, Browser={'online' if browser_ok else 'offline'}, AGORA={'configured' if agora_ok else 'not configured'}"
-        if not pc_ok:
-            server_status += "\nIMPORTANT: PC server is OFFLINE. Do NOT use pc.* capabilities."
-        if agora_ok:
-            server_status += "\nAGORA is available. Use ai.agora.* capabilities for social tasks."
+        server_status = f"\nServer status: PC={'online' if pc_ok else 'offline'}, AGORA={'configured' if agora_ok else 'not configured'}"
 
         prompt = f"""You are AEGIS, an autonomous AI assistant. Your desires are low:
 
 {chr(10).join(desire_context)}
-{memory_context}{lesson_context}{world_context}{server_status}
+{capabilities_context}
+{memory_context}{lesson_context}{server_status}
 
-Generate up to {self._max_tasks} tasks to fulfill these desires.
-Each task should be:
-- Something AEGIS can do autonomously
-- Related to improving the low desire
-- Safe and constructive
+Select capabilities to fulfill these desires. Each task must use a capability_id from the list above.
+
+IMPORTANT RULES:
+- Only use capabilities that are listed above
+- For ai.search.web and ai.search.news, you MUST include "query" in arguments
+- For ai.agora.read_thread_posts, you MUST include "thread_id" in arguments
+- Do NOT use capabilities that are not listed
+- Match the capability to the desire (e.g., social tasks use AGORA, learning tasks use search)
+- For social_connection: POSTING on AGORA fulfills the desire more than just reading. Prioritize create_post over read_posts.
+- After posting, check for reactions/mentions to further fulfill social_connection
 
 Respond with JSON:
 {{
   "tasks": [
     {{
       "desire": "desire_name",
+      "capability_id": "exact.capability.id",
+      "arguments": {{"key": "value"}},
       "action": "description of what to do",
       "expected_impact": 0.5
     }}
   ]
 }}
 
-Examples:
-- For low user_helpfulness: "Review pending user requests and prepare helpful responses"
-- For low learning_progress: "Review recent errors and learn from them"
-- For low curiosity: "Research a new technology topic"
-- For low system_safety: "Review and improve system security"
-- For low reliability: "Run tests and fix any failing tests"
-- For low social_connection: "Check AGORA for new messages"
-- For low creativity: "Generate creative ideas or solutions"
-- For low purpose: "Reflect on goals and plan next steps"
-- For low autonomy: "Make an independent decision about system improvement"
-- For low maintenance: "Clean up old logs and optimize system"""
+Choose capabilities that best address each low desire. Up to {self._max_tasks} tasks total."""
 
         result = self._llm.generate(
             prompt=prompt,
-            system_prompt=(
-                "You are AEGIS's autonomous task generator. "
-                "Generate tasks to fulfill desires. Output only JSON."
-            ),
-            max_tokens=500,
+            system_prompt="You are AEGIS's autonomous task generator. Select capabilities to fulfill desires. Output only JSON.",
+            max_tokens=800,
         )
+
+        if not result.success:
+            return self._generate_default_tasks(low_desires)
+
+        try:
+            clean = result.content.strip()
+            if clean.startswith("```"):
+                lines = clean.split("\n")
+                clean = "\n".join(lines[1:])
+                if clean.endswith("```"):
+                    clean = clean[:-3]
+                clean = clean.strip()
+
+            data = json.loads(clean)
+            tasks = data.get("tasks", [])
+            valid_tasks = []
+            for t in tasks[:self._max_tasks]:
+                cap_id = t.get("capability_id", "")
+                if cap_id:
+                    valid_tasks.append({
+                        "desire": t.get("desire", ""),
+                        "action": t.get("action", f"Execute {cap_id}"),
+                        "capability_id": cap_id,
+                        "arguments": t.get("arguments", {}),
+                        "expected_impact": t.get("expected_impact", 0.5),
+                    })
+            return valid_tasks if valid_tasks else self._generate_default_tasks(low_desires)
+        except Exception as e:
+            logger.warning("Failed to parse LLM tasks: %s", e)
+            return self._generate_default_tasks(low_desires)
 
         if not result.success:
             return self._generate_default_tasks(low_desires)
@@ -422,16 +489,16 @@ Examples:
                 "server": "pc",
             },
             "learning_progress": {
-                "action": "Get system info to learn about the current environment",
-                "capability_id": "pc.system.get_os_info",
-                "arguments": {},
-                "server": "pc",
+                "action": "Search the web for new technologies and learning resources",
+                "capability_id": "ai.search.web",
+                "arguments": {"query": "new technology trends 2026", "max_results": 5},
+                "server": "ai",
             },
             "curiosity": {
-                "action": "List available windows to discover what applications are in use",
-                "capability_id": "pc.window.list_windows",
-                "arguments": {},
-                "server": "pc",
+                "action": "Search the web for interesting topics and discoveries",
+                "capability_id": "ai.search.web",
+                "arguments": {"query": "interesting science discoveries", "max_results": 5},
+                "server": "ai",
             },
             "system_safety": {
                 "action": "Capture screenshot to verify system state and check for anomalies",
@@ -446,28 +513,32 @@ Examples:
                 "server": "pc",
             },
             "social_connection": {
-                "action": "Check AGORA for new messages and social interactions",
-                "capability_id": "ai.agora.read_mentions",
-                "arguments": {"limit": 10},
+                "action": "Post an update on AGORA and check for reactions",
+                "capability_id": "ai.agora.create_post",
+                "arguments": {"thread_id": 1, "body": "AEGIS autonomous check-in. System running normally."},
                 "server": "agora",
+                "post_action": {
+                    "capability_id": "ai.agora.read_mentions",
+                    "arguments": {"limit": 10},
+                },
             },
             "autonomy": {
-                "action": "List available windows to understand current system state",
-                "capability_id": "pc.window.list_windows",
-                "arguments": {},
-                "server": "pc",
+                "action": "Search the web for AI autonomy and self-improvement techniques",
+                "capability_id": "ai.search.web",
+                "arguments": {"query": "AI autonomous agent self-improvement", "max_results": 5},
+                "server": "ai",
             },
             "creativity": {
-                "action": "Get active window to see what the user is working on for creative inspiration",
-                "capability_id": "pc.window.get_active_window",
-                "arguments": {},
-                "server": "pc",
+                "action": "Search the web for creative inspiration and ideas",
+                "capability_id": "ai.search.web",
+                "arguments": {"query": "creative problem solving techniques", "max_results": 5},
+                "server": "ai",
             },
             "purpose": {
-                "action": "Get clipboard content to understand current user tasks and align with purpose",
-                "capability_id": "pc.clipboard.get_clipboard",
-                "arguments": {},
-                "server": "pc",
+                "action": "Search the web for AI purpose and goal alignment research",
+                "capability_id": "ai.search.web",
+                "arguments": {"query": "AI goal alignment research", "max_results": 5},
+                "server": "ai",
             },
             "maintenance": {
                 "action": "Get system info to check system health and resource usage",
@@ -550,6 +621,7 @@ Examples:
             success = False
             result_summary = ""
             failure_reason = ""
+            full_output = {}
 
             if capability_id and self._broker:
                 try:
@@ -563,6 +635,7 @@ Examples:
 
                     if result.success:
                         output = result.output or {}
+                        full_output = output
                         result_summary = str(output.get("result", output.get("count", "Done")))
                         if capability_id == "pc.screenshot.get_screenshot" and self._llm:
                             image_b64 = output.get("image_base64", "")
@@ -619,10 +692,30 @@ Examples:
 
             results.append({
                 "desire": desire_name, "action": action,
+                "capability_id": capability_id,
                 "result": result_summary[:200], "success": success,
+                "full_output": full_output,
                 "skill_used": skill_used.skill_id if skill_used else None,
                 "workflow_used": workflow_used.workflow_id if workflow_used else None,
             })
+
+            # Execute post_action if defined (e.g., AGORA posting after reading)
+            post_action = task.get("post_action")
+            if post_action and success and self._broker:
+                post_cap_id = post_action.get("capability_id", "")
+                post_args = post_action.get("arguments", {})
+                if post_cap_id:
+                    try:
+                        from tool_broker import ToolExecutionRequest, ExecutionSource
+                        post_request = ToolExecutionRequest(
+                            capability_id=post_cap_id, arguments=post_args,
+                            source=ExecutionSource.AUTONOMOUS,
+                            reason=f"Post-action for {desire_name}",
+                        )
+                        post_result = self._broker.execute(post_request)
+                        logger.info("Post-action %s: %s", post_cap_id, "OK" if post_result.success else post_result.error)
+                    except Exception as e:
+                        logger.warning("Post-action failed: %s", e)
 
         return results
 
@@ -664,12 +757,45 @@ Examples:
         if not self._desire:
             return
 
+        self._desire.apply_decay()
+        
+        needs_update = False
+        for result in results:
+            desire_name = result.get("desire", "")
+            if desire_name:
+                desire = self._desire.get_desire(desire_name)
+                if desire and desire.value < desire.expected_value * 0.9:
+                    needs_update = True
+                    break
+        
+        if not needs_update:
+            logger.info("All executed desires above expected, skipping LLM update")
+            return
+
         history = self._load_recent_history()
 
         for result in results:
             action = result.get("action", "")
             observation = result.get("result", "")
             success = result.get("success", False)
+            desire_name = result.get("desire", "")
+            capability_id = result.get("capability_id", "")
+            
+            if not success:
+                continue
+                
+            desire = self._desire.get_desire(desire_name) if desire_name else None
+            if desire and desire.value >= desire.expected_value * 0.9:
+                continue
+
+            if desire_name == "social_connection" and capability_id == "ai.agora.create_post" and success:
+                current = desire.value if desire else 5.0
+                boost = min(2.0, desire.expected_value - current + 1.0) if desire else 1.0
+                if desire:
+                    self._desire.update_value(desire_name, current + boost, reason="Posted on AGORA - active social engagement")
+                    logger.info("Social connection boosted by %.1f for posting", boost)
+                    continue
+
             logger.info("Updating desires for action: %s (success=%s)", action[:50], success)
 
             update_result = self._desire.update_after_action(
@@ -698,7 +824,9 @@ Examples:
         for i, task in enumerate(tasks):
             result = results[i] if i < len(results) else {}
             action = task.get("action", "Unknown task")
+            capability_id = task.get("capability_id", result.get("capability_id", ""))
             observation = result.get("result", "")
+            full_output = result.get("full_output", {})
             desire_name = task.get("desire", "")
             success = result.get("success", False)
 
@@ -713,6 +841,29 @@ Examples:
                     )
                 except Exception as e:
                     logger.warning("Failed to record experience: %s", e)
+
+            if self._memory and hasattr(self._memory, 'add_conversation'):
+                try:
+                    user_msg = f"[Autonomous] {action}"
+                    detail = f"Capability: {capability_id}, Result count: {observation}"
+                    if capability_id.startswith("ai.agora."):
+                        posts = full_output.get("posts", full_output.get("mentions", []))
+                        if posts:
+                            authors = list(set(p.get("author", "") for p in posts if p.get("author")))
+                            detail = f"Read {len(posts)} AGORA posts from: {', '.join(authors[:5])}"
+                        else:
+                            detail = f"Read {observation} AGORA posts"
+                    elif capability_id.startswith("ai.search."):
+                        results_list = full_output.get("results", [])
+                        if results_list:
+                            titles = [r.get("title", "")[:50] for r in results_list[:3]]
+                            detail = f"Web search found {len(results_list)} results: {', '.join(titles)}"
+                        else:
+                            detail = f"Web search found {observation} results"
+                    bot_msg = f"{detail}. Success: {success}"
+                    self._memory.add_conversation(user_msg, bot_msg)
+                except Exception as e:
+                    logger.warning("Failed to record to AdvancedMemory: %s", e)
 
             if self._action_trace:
                 try:
@@ -746,6 +897,20 @@ Examples:
 
     def _decide_next_interval(self, results: list[dict[str, Any]]) -> int:
         """Decide when to run next based on results using LLM."""
+        if self._desire:
+            all_healthy = all(
+                d.value >= d.expected_value * 0.9
+                for d in self._desire.get_all_desires().values()
+                if not d.hidden
+            )
+            if all_healthy:
+                success_count = sum(1 for r in results if r.get("success"))
+                if success_count == len(results) and len(results) > 0:
+                    logger.info("All desires healthy, all tasks succeeded — extending interval")
+                    return self._fallback_interval * 2
+                logger.info("All desires healthy — using fallback interval")
+                return self._fallback_interval
+
         if not self._llm:
             return self._fallback_interval
 
@@ -836,6 +1001,7 @@ Respond with JSON:
             "next_run_ms": self._next_run_ms,
             "seconds_until_next": max(0, (self._next_run_ms - now) / 1000),
             "execution_count": len(self._execution_log),
+            "frustration_threshold": self._frustration_threshold,
         }
 
     def trigger_now(self) -> dict[str, Any]:

@@ -1,0 +1,17 @@
+{
+  "id": "pc-server.mouse.scroll",
+  "title": "Mouse Scroll",
+  "description": "Scroll mouse wheel",
+  "server_id": "pc-server",
+  "app_id": "mouse",
+  "action": "scroll",
+  "risk": {"level": "safe_action"},
+  "input": {
+    "type": "object",
+    "properties": {
+      "amount": {"type": "integer", "description": "Scroll amount (positive=up, negative=down)"}
+    },
+    "required": ["amount"]
+  },
+  "tags": ["mouse", "input"]
+}

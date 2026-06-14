@@ -1,0 +1,17 @@
+{
+  "id": "pc-server.registry.list_keys",
+  "title": "List Registry Keys",
+  "description": "List registry keys under a path",
+  "server_id": "pc-server",
+  "app_id": "registry",
+  "action": "list_keys",
+  "risk": {"level": "read_only"},
+  "input": {
+    "type": "object",
+    "properties": {
+      "key": {"type": "string", "description": "Registry key path"}
+    },
+    "required": ["key"]
+  },
+  "tags": ["registry", "observe"]
+}

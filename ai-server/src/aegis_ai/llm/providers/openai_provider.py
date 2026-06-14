@@ -47,10 +47,12 @@ class OpenAIProvider:
         model: str = "deepseek-v4-flash",
         api_key: str | None = None,
         base_url: str | None = None,
+        audit_log: Any = None,
     ) -> None:
         self._model = model
         self._api_key = api_key or os.getenv("LLM_API_KEY", "")
         self._base_url = base_url or os.getenv("LLM_BASE_URL", "")
+        self._audit = audit_log
 
         if not self._api_key:
             logger.warning("No API key set. Set LLM_API_KEY environment variable.")
@@ -223,14 +225,24 @@ class OpenAIProvider:
 
     def _audit_log(self, action: str, decision: str, detail: dict) -> None:
         try:
-            from aegis_ai.audit import AuditEntry, AuditLog
-            log = AuditLog()
-            log.append(AuditEntry(
-                action=action,
-                actor="llm",
-                capability_id=f"llm.{self._model}",
-                decision=decision,
-                detail=detail,
-            ))
+            if self._audit is not None:
+                from aegis_ai.audit import AuditEntry
+                self._audit.append(AuditEntry(
+                    action=action,
+                    actor="llm",
+                    capability_id=f"llm.{self._model}",
+                    decision=decision,
+                    detail=detail,
+                ))
+            else:
+                from aegis_ai.audit import AuditEntry, AuditLog
+                log = AuditLog()
+                log.append(AuditEntry(
+                    action=action,
+                    actor="llm",
+                    capability_id=f"llm.{self._model}",
+                    decision=decision,
+                    detail=detail,
+                ))
         except Exception:
             pass

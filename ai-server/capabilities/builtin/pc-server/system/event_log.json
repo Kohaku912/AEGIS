@@ -1,0 +1,17 @@
+{
+  "id": "pc-server.system.event_log",
+  "title": "Event Log",
+  "description": "Get event log entries",
+  "server_id": "pc-server",
+  "app_id": "system",
+  "action": "event_log",
+  "risk": {"level": "read_only"},
+  "input": {
+    "type": "object",
+    "properties": {
+      "log_name": {"type": "string", "description": "Log name (Application, System, etc.)"},
+      "count": {"type": "integer", "description": "Number of entries", "default": 10}
+    }
+  },
+  "tags": ["events", "system", "observe"]
+}

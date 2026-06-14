@@ -1,0 +1,18 @@
+{
+  "id": "pc-server.shell.execute",
+  "title": "Execute Shell Command",
+  "description": "Execute a shell command (requires approval)",
+  "server_id": "pc-server",
+  "app_id": "shell",
+  "action": "execute",
+  "risk": {"level": "approval_required"},
+  "input": {
+    "type": "object",
+    "properties": {
+      "command": {"type": "string", "description": "Command to execute"},
+      "working_dir": {"type": "string", "description": "Working directory"}
+    },
+    "required": ["command"]
+  },
+  "tags": ["shell", "execute", "approval_required"]
+}

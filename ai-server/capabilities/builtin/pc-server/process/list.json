@@ -1,0 +1,11 @@
+{
+  "id": "pc-server.process.list",
+  "title": "List Processes",
+  "description": "List all running processes",
+  "server_id": "pc-server",
+  "app_id": "process",
+  "action": "list",
+  "risk": {"level": "read_only"},
+  "input": {"type": "object", "properties": {}},
+  "tags": ["process", "system", "observe"]
+}

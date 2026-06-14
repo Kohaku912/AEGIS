@@ -1,0 +1,18 @@
+{
+  "id": "pc-server.file.read",
+  "title": "Read File",
+  "description": "Read file content as text",
+  "server_id": "pc-server",
+  "app_id": "file",
+  "action": "read",
+  "risk": {"level": "read_only"},
+  "input": {
+    "type": "object",
+    "properties": {
+      "path": {"type": "string", "description": "File path"},
+      "max_bytes": {"type": "integer", "description": "Max bytes to read", "default": 10000}
+    },
+    "required": ["path"]
+  },
+  "tags": ["files", "observe"]
+}

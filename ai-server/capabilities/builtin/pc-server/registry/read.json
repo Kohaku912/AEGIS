@@ -1,0 +1,18 @@
+{
+  "id": "pc-server.registry.read",
+  "title": "Read Registry",
+  "description": "Read a registry value",
+  "server_id": "pc-server",
+  "app_id": "registry",
+  "action": "read",
+  "risk": {"level": "read_only"},
+  "input": {
+    "type": "object",
+    "properties": {
+      "key": {"type": "string", "description": "Registry key path"},
+      "value_name": {"type": "string", "description": "Value name"}
+    },
+    "required": ["key", "value_name"]
+  },
+  "tags": ["registry", "observe"]
+}

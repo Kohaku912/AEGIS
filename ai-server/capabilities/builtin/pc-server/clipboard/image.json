@@ -1,0 +1,11 @@
+{
+  "id": "pc-server.clipboard.image",
+  "title": "Clipboard Image",
+  "description": "Get clipboard image as base64",
+  "server_id": "pc-server",
+  "app_id": "clipboard",
+  "action": "image",
+  "risk": {"level": "read_only"},
+  "input": {"type": "object", "properties": {}},
+  "tags": ["clipboard", "image", "observe"]
+}

@@ -457,10 +457,10 @@ Be specific and actionable. Focus on what's useful to remember."""
         # Update curiosity desire
         if self._desire and result.success:
             try:
-                self._desire.update_after_action(
-                    f"Explored: {candidate.topic}",
-                    result.findings[:200],
-                )
+                curiosity = self._desire.get_desire("curiosity")
+                if curiosity and curiosity.value < curiosity.expected_value:
+                    self._desire.update_value("curiosity", min(10.0, curiosity.value + 0.5), reason=f"Explored: {candidate.topic[:50]}")
+                    self._desire.save()
             except Exception:
                 pass
 

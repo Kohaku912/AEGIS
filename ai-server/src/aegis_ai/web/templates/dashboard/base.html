@@ -712,7 +712,7 @@
 
     loadHistory();
 
-    // SSE activity strip
+    // SSE activity strip - only new notifications
     (function(){
         const c = document.getElementById('llmNotify');
         const max = 5;
@@ -722,7 +722,7 @@
             const action = e.action || '';
             const detail = e.detail || {};
             let dt = '';
-            if (action === 'llm_call') dt = (detail.model||'') + ': ' + (detail.prompt_preview||'').slice(0,80);
+            if (action === 'llm_call') dt = (detail.model||'') + ': ' + (detail.response_preview||detail.prompt_preview||'').slice(0,100);
             else if (action.startsWith('tool_')) dt = (detail.capability_id||'') + ': ' + (detail.result_preview||'').slice(0,80);
             else dt = JSON.stringify(detail).slice(0,100);
             d.innerHTML = '<span class="notify-time">' + (e.time_str||'') + '</span><span class="notify-action">' + action + '</span><span class="notify-detail">' + dt + '</span>';
@@ -733,6 +733,72 @@
         try {
             const es = new EventSource('/api/audit/stream');
             es.onmessage = e => { try { add(JSON.parse(e.data)); } catch(err){} };
+        } catch(e){}
+    })();
+
+    // Real-time updates for desire states
+    (function(){
+        const desireEls = document.querySelectorAll('[data-desire]');
+        if (desireEls.length === 0) return;
+        try {
+            const es = new EventSource('/api/stream/desires');
+            es.onmessage = e => {
+                try {
+                    const desires = JSON.parse(e.data);
+                    desires.forEach(d => {
+                        const el = document.querySelector('[data-desire="' + d.name + '"]');
+                        if (el) {
+                            const valEl = el.querySelector('.desire-value');
+                            const frustEl = el.querySelector('.desire-frustration');
+                            if (valEl) valEl.textContent = d.value.toFixed(1) + '/10';
+                            if (frustEl) {
+                                frustEl.textContent = d.frustration.toFixed(1);
+                                frustEl.className = 'desire-frustration badge ' + 
+                                    (d.frustration > 3 ? 'badge-red' : d.frustration > 1 ? 'badge-yellow' : 'badge-green');
+                            }
+                        }
+                    });
+                } catch(err){}
+            };
+        } catch(e){}
+    })();
+
+    // Real-time updates for autonomous status
+    (function(){
+        const autoEls = document.querySelectorAll('[data-autonomous]');
+        if (autoEls.length === 0) return;
+        try {
+            const es = new EventSource('/api/stream/autonomous');
+            es.onmessage = e => {
+                try {
+                    const data = JSON.parse(e.data);
+                    const statusEl = document.querySelector('[data-autonomous="status"]');
+                    const countEl = document.querySelector('[data-autonomous="count"]');
+                    if (statusEl) {
+                        statusEl.textContent = data.running ? 'Running' : 'Stopped';
+                        statusEl.style.color = data.running ? 'var(--green)' : 'var(--red)';
+                    }
+                    if (countEl) countEl.textContent = data.execution_count;
+                } catch(err){}
+            };
+        } catch(e){}
+    })();
+
+    // Real-time updates for memory stats
+    (function(){
+        const memEls = document.querySelectorAll('[data-memory]');
+        if (memEls.length === 0) return;
+        try {
+            const es = new EventSource('/api/stream/memory');
+            es.onmessage = e => {
+                try {
+                    const data = JSON.parse(e.data);
+                    Object.keys(data).forEach(key => {
+                        const el = document.querySelector('[data-memory="' + key + '"]');
+                        if (el) el.textContent = data[key];
+                    });
+                } catch(err){}
+            };
         } catch(e){}
     })();
 </script>
