@@ -13,5 +13,6 @@
     },
     "required": ["amount"]
   },
-  "tags": ["mouse", "input"]
+  "tags": ["mouse", "input"],
+  "tcp_command": "mouse_scroll {amount}"
 }

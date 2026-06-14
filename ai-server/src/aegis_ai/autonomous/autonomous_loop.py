@@ -201,10 +201,8 @@ class AutonomousLoop:
                 time_since_last_run = now - self._last_run_ms
                 can_execute = time_since_last_run >= self._min_execution_interval_ms
 
-                if can_execute and (desire_triggered or (now >= self._next_run_ms and self._is_frustration_above_threshold())):
+                if can_execute and (desire_triggered or now >= self._next_run_ms):
                     self._execute_cycle()
-                elif can_execute and now >= self._next_run_ms:
-                    self._schedule_next(self._fallback_interval * 3)
                 else:
                     # Sleep until next event: next_run, observation, or 60s
                     sleep_ms = self._next_run_ms - now
@@ -218,29 +216,67 @@ class AutonomousLoop:
                 time.sleep(60)
 
     def _monitor_desires(self) -> bool:
-        """Lightweight desire monitoring — runs every tick.
+        """Desire monitoring — runs every tick.
 
-        Returns True if desires are critically low and execution should be
-        triggered immediately, regardless of the scheduled next-run time.
+        Returns True if any desire frustration exceeds the threshold,
+        triggering immediate execution via LLM.
         """
         if not self._desire:
             return False
         self._desire.apply_decay()
-        low = self._get_low_desires()
-        if low:
-            top = low[0]
+
+        # Check frustration directly (same logic as _is_frustration_above_threshold)
+        frustrated: list[dict[str, Any]] = []
+        for name, desire in self._desire.get_all_desires().items():
+            if desire.hidden:
+                continue
+            frustration = max(0, desire.expected_value - desire.value)
+            if frustration >= self._frustration_threshold:
+                frustrated.append({
+                    "name": name,
+                    "value": desire.value,
+                    "expected": desire.expected_value,
+                    "frustration": frustration,
+                    "gap": frustration,
+                })
+
+        if frustrated:
+            frustrated.sort(key=lambda d: d["gap"], reverse=True)
+            top = frustrated[0]
             logger.info(
-                "Desire check: %d low. Top: %s=%.1f (gap=%.1f)",
-                len(low), top["name"], top["value"], top["gap"],
+                "Desire check: %d frustrated. Top: %s=%.1f (frustration=%.1f, threshold=%.1f)",
+                len(frustrated), top["name"], top["value"], top["frustration"], self._frustration_threshold,
             )
-            # Trigger execution when top desire gap is significant (>= 2.0)
-            if top["gap"] >= 2.0:
-                logger.info(
-                    "Desire-driven trigger: %s gap=%.1f >= 2.0 — executing now",
-                    top["name"], top["gap"],
-                )
-                return True
+            self._llm_evaluate_desires(frustrated)
+            return True
         return False
+
+    def _llm_evaluate_desires(self, low_desires: list[dict[str, Any]]) -> None:
+        """Call LLM to evaluate low desire states and log the analysis."""
+        if not self._llm:
+            return
+        desire_context = "\n".join(
+            f"- {d['name']}: value={d['value']:.1f}, expected={d['expected']:.1f}, gap={d['gap']:.1f}"
+            for d in low_desires
+        )
+        prompt = (
+            "Evaluate these desire states and identify which need attention:\n"
+            f"{desire_context}\n"
+            'Respond with JSON: {"needs_action": true/false, "concerns": '
+            '[{"desire": "name", "gap": 2.0, "reason": "..."}], "summary": "..."}'
+        )
+        try:
+            result = self._llm.generate(
+                prompt=prompt,
+                system_prompt="You are AEGIS's desire evaluation system. Analyze desire states concisely. Output only JSON.",
+                max_tokens=300,
+            )
+            if result.success:
+                logger.info("LLM desire evaluation: %s", result.content[:300])
+            else:
+                logger.warning("LLM desire evaluation failed: %s", getattr(result, "error", "unknown"))
+        except Exception as e:
+            logger.warning("LLM desire evaluation error: %s", e)
 
     def _execute_cycle(self) -> None:
         """Execute autonomous tasks — only runs when scheduled or triggered."""
@@ -254,14 +290,8 @@ class AutonomousLoop:
 
         low_desires = self._get_low_desires()
         if not low_desires:
-            logger.info("All desires above threshold, using extended interval")
-            self._schedule_next(self._fallback_interval * 3)
-            return
-
-        all_near_expected = all(d["value"] >= d["expected"] * 0.9 for d in low_desires)
-        if all_near_expected:
-            logger.info("All low desires near expected values, extending interval")
-            self._schedule_next(self._fallback_interval * 2)
+            logger.info("All desires above threshold, scheduling normal interval")
+            self._schedule_next(self._fallback_interval)
             return
 
         desire_before = {}
@@ -304,134 +334,84 @@ class AutonomousLoop:
         self._save()
 
     def _get_low_desires(self) -> list[dict[str, Any]]:
-        """Get desires below threshold or with high frustration."""
         low = []
         for name, desire in self._desire.get_all_desires().items():
             frustration = max(0, desire.expected_value - desire.value)
-            threshold = 2.5
-            if desire.value < self._desire_threshold or frustration >= threshold:
+            if frustration >= self._frustration_threshold:
                 low.append({
                     "name": name,
                     "value": desire.value,
                     "expected": desire.expected_value,
                     "frustration": frustration,
-                    "gap": max(self._desire_threshold - desire.value, frustration),
+                    "gap": frustration,
                 })
         return sorted(low, key=lambda d: d["gap"], reverse=True)
 
     def _generate_tasks(self, low_desires: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        """Generate tasks to fulfill low desires using LLM."""
         if not self._llm:
-            return self._generate_default_tasks(low_desires)
+            logger.error("No LLM provider — cannot generate tasks")
+            return []
 
         desire_context = []
         for d in low_desires[:self._max_tasks]:
             desire_context.append(f"- {d['name']}: {d['value']:.1f}/10 (gap: {d['gap']:.1f})")
 
-        capabilities_context = ""
+        valid_cap_ids: list[str] = []
         if self._broker:
             try:
                 pc_ok = _check_port("localhost", 50052)
-                agora_ok = bool(os.environ.get("AGORA_TOKEN", ""))
                 room_ok = _check_port("localhost", 50055)
                 browser_ok = _check_port("localhost", 50053)
                 android_ok = _check_port("localhost", 50054)
-                
+
                 caps = self._broker.list_safe_capabilities()
                 if caps:
-                    lines = []
                     for c in caps:
                         cap_id = c.id
-                        if cap_id.startswith("pc.") and not pc_ok:
+                        if cap_id.startswith("pc-server.") and not pc_ok:
                             continue
-                        if cap_id.startswith("android.") and not android_ok:
+                        if cap_id.startswith("android-server.") and not android_ok:
                             continue
-                        if cap_id.startswith("browser.") and not browser_ok:
+                        if cap_id.startswith("browser-server.") and not browser_ok:
                             continue
-                        if cap_id.startswith("room.") and not room_ok:
+                        if cap_id.startswith("room-server.") and not room_ok:
                             continue
-                        if cap_id.startswith("ai.agora.") and not agora_ok:
-                            continue
-                        
-                        required_args = ""
-                        if cap_id == "ai.search.web" or cap_id == "ai.search.news":
-                            required_args = ' (requires: {"query": "search term"})'
-                        elif cap_id == "ai.agora.read_thread_posts":
-                            required_args = ' (requires: {"thread_id": 1})'
-                        
-                        lines.append(f"- {c.id}: {c.description}{required_args}")
-                    if lines:
-                        capabilities_context = "\nAvailable capabilities (only from running servers):\n" + "\n".join(lines)
+                        valid_cap_ids.append(cap_id)
             except Exception:
                 pass
 
-        memory_context = ""
-        if self._memory:
-            try:
-                memories = self._memory.search("recent autonomous tasks", limit=3)
-                if memories:
-                    memory_context = "\nRecent memories:\n" + "\n".join(
-                        f"- {m}" for m in memories
-                    )
-            except Exception:
-                pass
+        if not valid_cap_ids:
+            logger.error("No valid capabilities available — cannot generate tasks")
+            return []
 
-        lesson_context = ""
-        if self._lesson:
-            try:
-                top_desire = low_desires[0]["name"] if low_desires else ""
-                lessons = self._lesson.get_relevant(f"autonomous {top_desire}", count=2)
-                if lessons:
-                    lesson_context = "\nRelevant lessons:\n" + "\n".join(
-                        f"- {getattr(lesson, 'content', str(lesson))}" for lesson in lessons
-                    )
-            except Exception:
-                pass
+        cap_list = "\n".join(f"- {cid}" for cid in sorted(valid_cap_ids))
 
-        pc_ok = _check_port("localhost", 50052)
-        agora_ok = bool(os.environ.get("AGORA_TOKEN", ""))
-        server_status = f"\nServer status: PC={'online' if pc_ok else 'offline'}, AGORA={'configured' if agora_ok else 'not configured'}"
-
-        prompt = f"""You are AEGIS, an autonomous AI assistant. Your desires are low:
+        prompt = f"""Your desires are low:
 
 {chr(10).join(desire_context)}
-{capabilities_context}
-{memory_context}{lesson_context}{server_status}
 
-Select capabilities to fulfill these desires. Each task must use a capability_id from the list above.
+VALID capability IDs (use ONLY these exact strings):
+{cap_list}
 
-IMPORTANT RULES:
-- Only use capabilities that are listed above
-- For ai.search.web and ai.search.news, you MUST include "query" in arguments
-- For ai.agora.read_thread_posts, you MUST include "thread_id" in arguments
-- Do NOT use capabilities that are not listed
-- Match the capability to the desire (e.g., social tasks use AGORA, learning tasks use search)
-- For social_connection: POSTING on AGORA fulfills the desire more than just reading. Prioritize create_post over read_posts.
-- After posting, check for reactions/mentions to further fulfill social_connection
+Pick up to {self._max_tasks} capabilities to address the low desires.
+capability_id MUST be one of the exact strings above. Do NOT invent new IDs.
 
 Respond with JSON:
-{{
-  "tasks": [
-    {{
-      "desire": "desire_name",
-      "capability_id": "exact.capability.id",
-      "arguments": {{"key": "value"}},
-      "action": "description of what to do",
-      "expected_impact": 0.5
-    }}
-  ]
-}}
-
-Choose capabilities that best address each low desire. Up to {self._max_tasks} tasks total."""
+{{"tasks": [{{"desire": "name", "capability_id": "exact.id.from.list", "action": "what to do", "expected_impact": 0.5}}]}}"""
 
         result = self._llm.generate(
             prompt=prompt,
-            system_prompt="You are AEGIS's autonomous task generator. Select capabilities to fulfill desires. Output only JSON.",
-            max_tokens=800,
+            system_prompt=(
+                "You are AEGIS's autonomous task generator. "
+                "You MUST only use capability_id values from the provided list. "
+                "Never invent capability IDs. Output only JSON."
+            ),
+            max_tokens=500,
         )
 
         if not result.success:
-            return self._generate_default_tasks(low_desires)
+            logger.error("LLM task generation failed: %s", getattr(result, "error", "unknown"))
+            return []
 
         try:
             clean = result.content.strip()
@@ -444,10 +424,11 @@ Choose capabilities that best address each low desire. Up to {self._max_tasks} t
 
             data = json.loads(clean)
             tasks = data.get("tasks", [])
+            valid_set = set(valid_cap_ids)
             valid_tasks = []
             for t in tasks[:self._max_tasks]:
                 cap_id = t.get("capability_id", "")
-                if cap_id:
+                if cap_id and cap_id in valid_set:
                     valid_tasks.append({
                         "desire": t.get("desire", ""),
                         "action": t.get("action", f"Execute {cap_id}"),
@@ -455,129 +436,14 @@ Choose capabilities that best address each low desire. Up to {self._max_tasks} t
                         "arguments": t.get("arguments", {}),
                         "expected_impact": t.get("expected_impact", 0.5),
                     })
-            return valid_tasks if valid_tasks else self._generate_default_tasks(low_desires)
+                elif cap_id:
+                    logger.warning("LLM returned invalid capability: %s — skipping", cap_id)
+            if not valid_tasks:
+                logger.warning("LLM returned no valid tasks")
+            return valid_tasks
         except Exception as e:
             logger.warning("Failed to parse LLM tasks: %s", e)
-            return self._generate_default_tasks(low_desires)
-
-        if not result.success:
-            return self._generate_default_tasks(low_desires)
-
-        try:
-            clean = result.content.strip()
-            if clean.startswith("```"):
-                lines = clean.split("\n")
-                clean = "\n".join(lines[1:])
-                if clean.endswith("```"):
-                    clean = clean[:-3]
-                clean = clean.strip()
-
-            data = json.loads(clean)
-            tasks = data.get("tasks", [])
-            return tasks[:self._max_tasks]
-        except Exception as e:
-            logger.warning("Failed to parse LLM tasks: %s", e)
-            return self._generate_default_tasks(low_desires)
-
-    def _generate_default_tasks(self, low_desires: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        """Generate default tasks with actual capability_ids for real execution."""
-        pc_ok = _check_port("localhost", 50052)
-        agora_ok = bool(os.environ.get("AGORA_TOKEN", ""))
-
-        desire_capability_map = {
-            "user_helpfulness": {
-                "action": "Capture screenshot to understand what user is doing and find ways to help",
-                "capability_id": "pc.screenshot.get_screenshot",
-                "arguments": {},
-                "server": "pc",
-            },
-            "learning_progress": {
-                "action": "Search the web for new technologies and learning resources",
-                "capability_id": "ai.search.web",
-                "arguments": {"query": "new technology trends 2026", "max_results": 5},
-                "server": "ai",
-            },
-            "curiosity": {
-                "action": "Search the web for interesting topics and discoveries",
-                "capability_id": "ai.search.web",
-                "arguments": {"query": "interesting science discoveries", "max_results": 5},
-                "server": "ai",
-            },
-            "system_safety": {
-                "action": "Capture screenshot to verify system state and check for anomalies",
-                "capability_id": "pc.screenshot.get_screenshot",
-                "arguments": {},
-                "server": "pc",
-            },
-            "reliability": {
-                "action": "Get system info to verify system health and reliability",
-                "capability_id": "pc.system.get_os_info",
-                "arguments": {},
-                "server": "pc",
-            },
-            "social_connection": {
-                "action": "Read AGORA mentions, detect messages directed at AEGIS, generate and post replies",
-                "capability_id": "ai.agora.read_mentions",
-                "arguments": {"limit": 10},
-                "server": "agora",
-                "post_action": {
-                    "capability_id": "ai.agora.create_post",
-                    "arguments": {"thread_id": 1, "body": ""},
-                },
-            },
-            "autonomy": {
-                "action": "Search the web for AI autonomy and self-improvement techniques",
-                "capability_id": "ai.search.web",
-                "arguments": {"query": "AI autonomous agent self-improvement", "max_results": 5},
-                "server": "ai",
-            },
-            "creativity": {
-                "action": "Search the web for creative inspiration and ideas",
-                "capability_id": "ai.search.web",
-                "arguments": {"query": "creative problem solving techniques", "max_results": 5},
-                "server": "ai",
-            },
-            "purpose": {
-                "action": "Search the web for AI purpose and goal alignment research",
-                "capability_id": "ai.search.web",
-                "arguments": {"query": "AI goal alignment research", "max_results": 5},
-                "server": "ai",
-            },
-            "maintenance": {
-                "action": "Get system info to check system health and resource usage",
-                "capability_id": "pc.system.get_os_info",
-                "arguments": {},
-                "server": "pc",
-            },
-        }
-
-        agora_fallback = {
-            "action": "Check AGORA for new messages",
-            "capability_id": "ai.agora.read_posts",
-            "arguments": {"limit": 10},
-            "server": "agora",
-        }
-
-        tasks = []
-        for d in low_desires[:self._max_tasks]:
-            template = desire_capability_map.get(d["name"])
-            if template:
-                server = template["server"]
-                if server == "pc" and not pc_ok:
-                    if agora_ok:
-                        template = agora_fallback
-                    else:
-                        continue
-                elif server == "agora" and not agora_ok:
-                    continue
-                tasks.append({
-                    "desire": d["name"],
-                    "action": template["action"],
-                    "capability_id": template["capability_id"],
-                    "arguments": template["arguments"],
-                    "expected_impact": 0.5,
-                })
-        return tasks
+            return []
 
     def _execute_tasks(self, tasks: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Execute tasks with skill/workflow reuse and action tracing."""
@@ -640,7 +506,7 @@ Choose capabilities that best address each low desire. Up to {self._max_tasks} t
                         output = result.output or {}
                         full_output = output
                         result_summary = str(output.get("result", output.get("count", "Done")))
-                        if capability_id == "pc.screenshot.get_screenshot" and self._llm:
+                        if capability_id == "pc-server.screenshot.get_screenshot" and self._llm:
                             image_b64 = output.get("image_base64", "")
                             if image_b64:
                                 result_summary = self._analyze_screenshot(image_b64, desire_name)
@@ -881,18 +747,10 @@ Respond with JSON:
             
             if not success:
                 continue
-                
+
             desire = self._desire.get_desire(desire_name) if desire_name else None
             if desire and desire.value >= desire.expected_value * 0.9:
                 continue
-
-            if desire_name == "social_connection" and capability_id == "ai.agora.create_post" and success:
-                current = desire.value if desire else 5.0
-                boost = min(2.0, desire.expected_value - current + 1.0) if desire else 1.0
-                if desire:
-                    self._desire.update_value(desire_name, current + boost, reason="Posted on AGORA - active social engagement")
-                    logger.info("Social connection boosted by %.1f for posting", boost)
-                    continue
 
             logger.info("Updating desires for action: %s (success=%s)", action[:50], success)
 
@@ -943,21 +801,7 @@ Respond with JSON:
             if self._memory and hasattr(self._memory, 'add_conversation'):
                 try:
                     user_msg = f"[Autonomous] {action}"
-                    detail = f"Capability: {capability_id}, Result count: {observation}"
-                    if capability_id.startswith("ai.agora."):
-                        posts = full_output.get("posts", full_output.get("mentions", []))
-                        if posts:
-                            authors = list(set(p.get("author", "") for p in posts if p.get("author")))
-                            detail = f"Read {len(posts)} AGORA posts from: {', '.join(authors[:5])}"
-                        else:
-                            detail = f"Read {observation} AGORA posts"
-                    elif capability_id.startswith("ai.search."):
-                        results_list = full_output.get("results", [])
-                        if results_list:
-                            titles = [r.get("title", "")[:50] for r in results_list[:3]]
-                            detail = f"Web search found {len(results_list)} results: {', '.join(titles)}"
-                        else:
-                            detail = f"Web search found {observation} results"
+                    detail = f"Capability: {capability_id}, Result: {observation[:100]}"
                     bot_msg = f"{detail}. Success: {success}"
                     self._memory.add_conversation(user_msg, bot_msg)
                 except Exception as e:

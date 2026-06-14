@@ -7,5 +7,6 @@
   "action": "empty_recycle_bin",
   "risk": {"level": "approval_required"},
   "input": {"type": "object", "properties": {}},
-  "tags": ["system", "cleanup", "approval_required"]
+  "tags": ["system", "cleanup", "approval_required"],
+  "tcp_command": "empty_recycle_bin"
 }

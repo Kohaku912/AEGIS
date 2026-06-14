@@ -82,7 +82,7 @@ class LLMTaskInterpreter:
     """Interprets user natural language into structured TaskPlans.
 
     Usage:
-        interpreter = LLMTaskInterpreter(llm_provider=llm, context_builder=ctx)
+        interpreter = LLMTaskInterpreter(llm_provider=llm, context_builder=ctx, capability_catalog=catalog)
         plan = interpreter.interpret("Check my Twitter notifications and summarize")
     """
 
@@ -91,9 +91,11 @@ class LLMTaskInterpreter:
         llm_provider: Any = None,
         context_builder: Any = None,
         capability_registry: Any = None,
+        capability_catalog: Any = None,
     ) -> None:
         self._llm = llm_provider
         self._context = context_builder
+        self._catalog = capability_catalog
         self._registry = capability_registry
 
     def interpret(self, user_message: str, context_str: str = "") -> TaskPlan:
@@ -245,18 +247,28 @@ class LLMTaskInterpreter:
             return "Context unavailable"
 
     def _build_capability_list(self) -> str:
-        """Build capability list from registry."""
-        if not self._registry:
-            return "No capability registry available"
+        if self._catalog is not None:
+            try:
+                caps = self._catalog.list_for_llm()
+                lines = []
+                for cap in caps[:30]:
+                    params_str = ", ".join(cap.get("params", []))
+                    lines.append(f"- {cap['id']}: {cap['description']} (params: {params_str})")
+                return "\n".join(lines) if lines else "No capabilities registered"
+            except Exception:
+                pass
 
-        try:
-            caps = self._registry.list_all()
-            lines = []
-            for cap in caps[:30]:
-                lines.append(f"- {cap.id}: {cap.name} (risk: {cap.risk_level.name})")
-            return "\n".join(lines) if lines else "No capabilities registered"
-        except Exception:
-            return "Capabilities unavailable"
+        if self._registry is not None:
+            try:
+                caps = self._registry.list_all()
+                lines = []
+                for cap in caps[:30]:
+                    lines.append(f"- {cap.id}: {cap.name} (risk: {cap.risk_level.name})")
+                return "\n".join(lines) if lines else "No capabilities registered"
+            except Exception:
+                pass
+
+        return "No capability registry available"
 
     def _fallback_plan(self, user_message: str) -> TaskPlan:
         """Create fallback plan when LLM is not available."""

@@ -7,5 +7,6 @@
   "action": "installed_software",
   "risk": {"level": "read_only"},
   "input": {"type": "object", "properties": {}},
-  "tags": ["software", "system", "observe"]
+  "tags": ["software", "system", "observe"],
+  "tcp_command": "installed_software"
 }

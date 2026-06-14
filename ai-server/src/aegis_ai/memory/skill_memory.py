@@ -18,7 +18,7 @@ Usage:
         name="Read AGORA Messages",
         activation_conditions="User asks about messages OR social_connection desire is low",
         execution_steps=[
-            {"tool": "ai.agora.read_posts", "args": {"limit": 10}},
+            {"tool": "pc-server.screenshot.get_screenshot", "args": {}},
             {"tool": "llm", "action": "Summarize important messages"},
         ],
         termination_conditions="Posts read and summarized",

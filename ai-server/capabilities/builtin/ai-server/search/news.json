@@ -1,0 +1,18 @@
+{
+  "title": "News Search",
+  "description": "Search for news using DuckDuckGo.",
+  "server_id": "ai-server",
+  "app_id": "search",
+  "action": "news",
+  "risk": {"level": "low", "side_effects": [], "requires_approval": false},
+  "tags": ["builtin", "search", "read", "news"],
+  "only_master": false,
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "query": {"type": "string", "description": "Search query"},
+      "max_results": {"type": "integer", "description": "Maximum results", "default": 5}
+    },
+    "required": ["query"]
+  }
+}

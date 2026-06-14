@@ -23,8 +23,6 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
-    "pytest>=8.0",
-    "pytest-cov>=5.0",
     "ruff>=0.4",
     "grpcio-tools>=1.60",
     "mypy>=1.8",
@@ -32,16 +30,6 @@ dev = [
 
 [tool.setuptools.packages.find]
 where = ["src"]
-
-[tool.pytest.ini_options]
-testpaths = ["tests"]
-python_files = ["test_*.py"]
-markers = [
-    "e2e: End-to-end integration tests (approval flow, autonomous loop)",
-    "pc_local: PC Server local-only tests (real screenshot, real active window)",
-    "android_local: Android Server local-only tests (real ADB device)",
-    "room_local: Room Server local-only tests (real sensor hardware)",
-]
 
 [tool.ruff]
 target-version = "py312"
@@ -80,7 +68,3 @@ ignore = ["N802"]  # gRPC method names must be PascalCase (e.g. HealthCheck)
 "src/aegis_ai/mind/desire.py" = ["F841"]
 "src/aegis_ai/mind/emotion.py" = ["F841"]
 "src/aegis_ai/mind/goals.py" = ["F841"]
-# Test files
-"tests/test_health.py" = ["F401"]
-# Pre-existing test files: allow long lines in test data
-"tests/test_tool_registry.py" = ["E501"]

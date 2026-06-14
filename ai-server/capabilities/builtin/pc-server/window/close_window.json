@@ -12,5 +12,6 @@
     }
   },
   "risk": {"level": "medium", "side_effects": ["process_terminate"], "requires_approval": true},
-  "tags": ["builtin", "pc", "action", "window"]
+  "tags": ["builtin", "pc", "action", "window"],
+  "tcp_command": "close_window {title}"
 }

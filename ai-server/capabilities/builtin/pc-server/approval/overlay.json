@@ -14,5 +14,6 @@
     },
     "required": ["action"]
   },
-  "tags": ["overlay", "approval"]
+  "tags": ["overlay", "approval"],
+  "tcp_command": "overlay_approval {action}"
 }

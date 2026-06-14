@@ -13,5 +13,6 @@
     },
     "required": ["key"]
   },
-  "tags": ["registry", "observe"]
+  "tags": ["registry", "observe"],
+  "tcp_command": "list_registry_keys {key}"
 }

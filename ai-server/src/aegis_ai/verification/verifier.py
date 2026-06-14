@@ -43,8 +43,8 @@ _BROWSER_PATTERNS = [
 ]
 
 _PC_PATTERNS = [
-    "pc.screenshot", "pc.click", "pc.type", "pc.key", "pc.mouse",
-    "pc.keyboard", "pc.screen",
+    "pc-server.screenshot", "pc-server.click", "pc-server.type", "pc-server.key", "pc-server.mouse",
+    "pc-server.keyboard", "pc-server.screen",
 ]
 
 _ANDROID_PATTERNS = [

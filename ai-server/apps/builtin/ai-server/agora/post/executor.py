@@ -1,5 +1,5 @@
-import sys, json, os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', '..', '..', '..', 'src'))
+﻿import sys, json, os
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', '..', '..', '..', 'src'))
 from aegis_ai.integrations.agora.agora_service import AgoraService
 
 data = json.loads(sys.stdin.read())
@@ -18,3 +18,4 @@ if hasattr(result, "id"):
     print(json.dumps({"ok": True, "result": f"Posted to AGORA (ID: {result.id}): {message[:50]}"}))
 else:
     print(json.dumps({"ok": False, "error": f"Failed to post: {result}"}))
+

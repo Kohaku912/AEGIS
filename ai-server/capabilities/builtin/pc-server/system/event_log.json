@@ -13,5 +13,6 @@
       "count": {"type": "integer", "description": "Number of entries", "default": 10}
     }
   },
-  "tags": ["events", "system", "observe"]
+  "tags": ["events", "system", "observe"],
+  "tcp_command": "event_log {log_name}|{count}"
 }

@@ -5,7 +5,7 @@ Capabilities are defined by JSON files in:
 - capabilities/generated/<server_id>/<app_id>/<action>.json
 
 Capability ID is auto-generated from path:
-  <origin>.<server_id>.<app_id>.<action>
+  <server_id>.<app_id>.<action>
 
 Short name for LLM: <app_id>.<action>
 """
@@ -42,6 +42,8 @@ class CapabilityManifest:
     tags: list[str] = field(default_factory=list)
     short_name: str = ""
     only_master: bool = True
+    tcp_command: str = ""
+    extra: dict[str, Any] = field(default_factory=dict)
     file_path: str = ""
     loaded_at: int = 0
 
@@ -128,7 +130,7 @@ class FolderCapabilityRegistry:
         ids["origin"] = origin
 
         try:
-            data = json.loads(Path(path).read_text(encoding="utf-8"))
+            data = json.loads(Path(path).read_text(encoding="utf-8-sig"))
         except Exception as e:
             self._errors.append({"path": path, "error": str(e)})
             return
@@ -150,7 +152,7 @@ class FolderCapabilityRegistry:
             action=ids["action"],
             origin=origin,
             version=data.get("version", "1.0.0"),
-            input_schema=data.get("input_schema", {}),
+            input_schema=data.get("input_schema", data.get("input", {})),
             output_schema=data.get("output_schema", {}),
             risk_level=data.get("risk", {}).get("level", "low"),
             side_effects=data.get("risk", {}).get("side_effects", []),
@@ -158,6 +160,8 @@ class FolderCapabilityRegistry:
             tags=data.get("tags", []),
             short_name=short,
             only_master=data.get("only_master", True),
+            tcp_command=data.get("tcp_command", ""),
+            extra=data.get("extra", {}),
             file_path=path,
             loaded_at=int(time.time() * 1000),
         )
@@ -206,7 +210,7 @@ class ExecutorRegistry:
 
     def _load_one(self, path: str, origin: str) -> None:
         try:
-            data = json.loads(Path(path).read_text(encoding="utf-8"))
+            data = json.loads(Path(path).read_text(encoding="utf-8-sig"))
         except Exception:
             return
         p = Path(path)

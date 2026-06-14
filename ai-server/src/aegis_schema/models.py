@@ -112,14 +112,14 @@ class Capability(BaseModel):
     """A single capability that a server can perform.
 
     Registered with the Tool Broker at server startup.
-    The canonical ID format is: "{server_short}.{action}" (e.g. "pc.screenshot").
+    The canonical ID format is: "{server_id}.{app_id}.{action}" (e.g. "pc-server.screenshot.get_screenshot").
     """
 
     # Identity
     id: str = Field(
         ...,
-        description="Unique ID: '{server}.{action}' (e.g. 'pc.screenshot')",
-        pattern=r"^(pc|android|browser|room|dev|ai)\.[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)*$",
+        description="Unique ID: '{server_id}.{app_id}.{action}' (e.g. 'pc-server.screenshot.get_screenshot')",
+        pattern=r"^(ai-server|pc-server|browser-server|android-server|room-server|dev-server|pc|android|browser|room|dev|ai)\.[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)*$",
     )
     name: str = Field(..., min_length=1, max_length=128, description="Human-readable name")
     description: str = Field(..., min_length=1, max_length=1024, description="What this does")
@@ -213,17 +213,17 @@ class Capability(BaseModel):
     def id_server_type_consistency(self) -> Capability:
         """Ensure the capability ID prefix matches the declared server_type."""
         prefix_map = {
-            ServerType.PC: "pc",
-            ServerType.ANDROID: "android",
-            ServerType.BROWSER: "browser",
-            ServerType.ROOM: "room",
-            ServerType.DEV: "dev",
-            ServerType.AI: "ai",
+            ServerType.PC: ("pc", "pc-server"),
+            ServerType.ANDROID: ("android", "android-server"),
+            ServerType.BROWSER: ("browser", "browser-server"),
+            ServerType.ROOM: ("room", "room-server"),
+            ServerType.DEV: ("dev", "dev-server"),
+            ServerType.AI: ("ai", "ai-server"),
         }
-        expected_prefix = prefix_map.get(self.server_type)
-        if expected_prefix and not self.id.startswith(expected_prefix + "."):
+        expected_prefixes = prefix_map.get(self.server_type)
+        if expected_prefixes and not any(self.id.startswith(p + ".") for p in expected_prefixes):
             raise ValueError(
-                f"Capability ID '{self.id}' should start with '{expected_prefix}.' "
+                f"Capability ID '{self.id}' should start with one of {expected_prefixes} "
                 f"for server_type={self.server_type.name}"
             )
         return self

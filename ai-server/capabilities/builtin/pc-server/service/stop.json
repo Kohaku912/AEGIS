@@ -13,5 +13,6 @@
     },
     "required": ["name"]
   },
-  "tags": ["service", "stop", "approval_required"]
+  "tags": ["service", "stop", "approval_required"],
+  "tcp_command": "stop_service {name}"
 }

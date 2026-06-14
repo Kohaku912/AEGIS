@@ -13,5 +13,6 @@
     "required": ["x", "y"]
   },
   "risk": {"level": "safe", "side_effects": [], "requires_approval": false},
-  "tags": ["builtin", "pc", "action", "mouse"]
+  "tags": ["builtin", "pc", "action", "mouse"],
+  "tcp_command": "mouse_move {x},{y}"
 }

@@ -5,5 +5,6 @@
   "app_id": "clipboard",
   "action": "get_clipboard",
   "risk": {"level": "low", "side_effects": [], "requires_approval": false},
-  "tags": ["builtin", "pc", "read", "clipboard"]
+  "tags": ["builtin", "pc", "read", "clipboard"],
+  "tcp_command": "clipboard"
 }

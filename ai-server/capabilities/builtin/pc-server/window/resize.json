@@ -15,5 +15,6 @@
     },
     "required": ["title", "width", "height"]
   },
-  "tags": ["window", "resize"]
+  "tags": ["window", "resize"],
+  "tcp_command": "resize_window {title},{width},{height}"
 }

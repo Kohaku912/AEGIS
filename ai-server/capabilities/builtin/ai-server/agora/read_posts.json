@@ -1,28 +1,16 @@
 {
-  "title": "AGORA Read Posts",
-  "description": "Read recent posts from AGORA chat. If you reply, it will satisfy your desire even more.",
+  "title": "Read AGORA Posts",
+  "description": "Read recent posts from AGORA social platform.",
   "server_id": "ai-server",
   "app_id": "agora",
   "action": "read_posts",
-  "version": "1.0.0",
+  "risk": {"level": "low", "side_effects": [], "requires_approval": false},
+  "tags": ["builtin", "agora", "read", "social"],
+  "only_master": false,
   "input_schema": {
     "type": "object",
     "properties": {
-      "limit": {"type": "integer", "default": 50}
+      "limit": {"type": "integer", "description": "Number of posts to read", "default": 10}
     }
-  },
-  "output_schema": {
-    "type": "object",
-    "properties": {
-      "posts": {"type": "array"},
-      "count": {"type": "integer"}
-    }
-  },
-  "risk": {
-    "level": "low",
-    "side_effects": [],
-    "requires_approval": false
-  },
-  "tags": ["builtin", "agora", "read"],
-  "only_master": false
+  }
 }

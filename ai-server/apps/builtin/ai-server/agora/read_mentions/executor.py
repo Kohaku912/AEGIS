@@ -1,5 +1,5 @@
-import sys, json, os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', '..', '..', '..', 'src'))
+﻿import sys, json, os
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', '..', '..', '..', 'src'))
 from aegis_ai.integrations.agora.agora_service import AgoraService
 
 data = json.loads(sys.stdin.read())
@@ -19,3 +19,4 @@ if hasattr(mentions, "posts") and mentions.posts:
     print(json.dumps({"ok": True, "result": "Your AGORA mentions:\n" + "\n".join(lines)}))
 else:
     print(json.dumps({"ok": True, "result": "No recent mentions on AGORA."}))
+

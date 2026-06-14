@@ -1,18 +1,19 @@
 {
-  "id": "ai-server.agora.post",
-  "title": "Post to AGORA",
-  "description": "Post a message to AGORA chat",
+  "title": "Create AGORA Post",
+  "description": "Create a new post on AGORA social platform.",
   "server_id": "ai-server",
   "app_id": "agora",
   "action": "post",
-  "risk": {"level": "safe_action", "side_effects": ["posts_to_agora"]},
-  "input": {
+  "risk": {"level": "medium", "side_effects": ["social_post"], "requires_approval": true},
+  "tags": ["builtin", "agora", "write", "social"],
+  "only_master": false,
+  "input_schema": {
     "type": "object",
     "properties": {
-      "message": {"type": "string", "description": "Message to post"}
+      "body": {"type": "string", "description": "Post content"},
+      "thread_id": {"type": "integer", "description": "Thread ID to post in", "default": 1},
+      "reply_to": {"type": "integer", "description": "Post ID to reply to"}
     },
-    "required": ["message"]
-  },
-  "tags": ["agora", "chat", "post"],
-  "only_master": false
+    "required": ["body"]
+  }
 }

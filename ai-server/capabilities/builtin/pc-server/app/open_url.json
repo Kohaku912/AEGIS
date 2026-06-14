@@ -13,5 +13,6 @@
     },
     "required": ["url"]
   },
-  "tags": ["browser", "url", "open"]
+  "tags": ["browser", "url", "open"],
+  "tcp_command": "open_url {url}"
 }
