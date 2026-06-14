@@ -1,0 +1,11 @@
+{
+  "id": "pc-server.system.lock",
+  "title": "Lock Workstation",
+  "description": "Lock the Windows workstation",
+  "server_id": "pc-server",
+  "app_id": "system",
+  "action": "lock",
+  "risk": {"level": "safe_action"},
+  "input": {"type": "object", "properties": {}},
+  "tags": ["system", "lock"]
+}

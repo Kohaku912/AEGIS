@@ -172,7 +172,29 @@ class AdvancedMemory:
             name = e_data.get("name", "")
             if not name:
                 continue
-            entity = self._get_or_create_entity(name, e_data.get("type", "person"))
+            
+            aliases = e_data.get("aliases", [])
+            existing_entity = None
+            
+            for alias in [name] + aliases:
+                for eid, ent in self._entities.items():
+                    if ent.name.lower() == alias.lower():
+                        existing_entity = ent
+                        break
+                if existing_entity:
+                    break
+            
+            if existing_entity:
+                entity = existing_entity
+                if name.lower() != entity.name.lower():
+                    for alias in aliases:
+                        if alias.lower() not in [a.lower() for a in entity.attributes.get("aliases", [])]:
+                            entity.attributes.setdefault("aliases", []).append(alias)
+            else:
+                entity = self._get_or_create_entity(name, e_data.get("type", "person"))
+                if aliases:
+                    entity.attributes["aliases"] = aliases
+            
             entity.mention_count += 1
             entity.last_seen_ms = now
             if e_data.get("attributes"):
@@ -242,7 +264,7 @@ AEGIS: {bot_msg}
 Respond with JSON:
 {{
   "entities": [
-    {{"name": "...", "type": "person|place|thing|concept", "attributes": {{"key": "value"}}}}
+    {{"name": "...", "type": "person|place|thing|concept", "attributes": {{"key": "value"}}, "aliases": ["alias1", "alias2"]}}
   ],
   "facts": [
     {{"content": "...", "subject": "...", "predicate": "...", "object": "...", "confidence": 0.9, "importance": 0.5}}
@@ -251,9 +273,15 @@ Respond with JSON:
 
 Extract:
 - People mentioned (name, relationship, preferences)
+- If someone says "call me X" or "my name is X, Y", X is an ALIAS for the same person, NOT a separate entity
 - Places mentioned
 - Important facts, preferences, decisions
 - Action items or commitments
+
+IMPORTANT RULES:
+- If a user introduces themselves with a name AND a nickname/title (e.g., "I'm たつき, call me Master"), create ONE entity with the name as primary and the nickname as an alias
+- Do NOT create separate entities for the same person's name and nickname
+- "Master", "Sir", "Boss" etc. are titles/aliases, not separate people
 
 Only extract meaningful information. If nothing noteworthy, return empty arrays."""
 

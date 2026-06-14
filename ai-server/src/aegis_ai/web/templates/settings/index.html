@@ -34,7 +34,6 @@
     <h1>AEGIS Settings</h1>
     <div id="settings"></div>
     <div class="actions">
-        <button class="btn" onclick="saveSettings()">Save Changes</button>
         <button class="btn danger" onclick="resetSettings()">Reset to Defaults</button>
         <button class="btn" onclick="exportSettings()">Export JSON</button>
     </div>
@@ -64,7 +63,7 @@
                         settingDiv.innerHTML = `
                             <label>${key}</label>
                             <label class="toggle">
-                                <input type="checkbox" ${value ? 'checked' : ''} data-section="${section}" data-key="${key}">
+                                <input type="checkbox" ${value ? 'checked' : ''} data-section="${section}" data-key="${key}" onchange="saveSingleSetting('${section}', '${key}', this.checked)">
                                 <span class="slider"></span>
                             </label>
                         `;
@@ -78,20 +77,36 @@
                 }
                 container.appendChild(div);
             }
+
+            // Add change listeners to all toggles
+            document.querySelectorAll('.toggle input').forEach(input => {
+                input.addEventListener('change', async function() {
+                    const section = this.dataset.section;
+                    const key = this.dataset.key;
+                    settings[section][key] = this.checked;
+                    await saveSingleSetting(section, key, this.checked);
+                });
+            });
         }
 
-        async function saveSettings() {
-            const checkboxes = document.querySelectorAll('.toggle input');
-            for (const cb of checkboxes) {
-                const section = cb.dataset.section;
-                const key = cb.dataset.key;
-                await fetch(`/api/settings/${section}`, {
+        async function saveSingleSetting(section, key, value) {
+            const status = document.getElementById('status');
+            try {
+                const res = await fetch('/api/settings', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({[key]: cb.checked}),
+                    body: JSON.stringify({section, key, value}),
                 });
+                const data = await res.json();
+                if (data.ok) {
+                    status.className = 'status success';
+                    status.textContent = '✓ Saved';
+                    setTimeout(() => { status.style.display = 'none'; }, 2000);
+                }
+            } catch (e) {
+                status.className = 'status error';
+                status.textContent = 'Error: ' + e.message;
             }
-            showStatus('Settings saved!', 'success');
         }
 
         async function resetSettings() {

@@ -1,0 +1,18 @@
+{
+  "id": "pc-server.file.list",
+  "title": "List Directory",
+  "description": "List files in a directory",
+  "server_id": "pc-server",
+  "app_id": "file",
+  "action": "list",
+  "risk": {"level": "read_only"},
+  "input": {
+    "type": "object",
+    "properties": {
+      "path": {"type": "string", "description": "Directory path"},
+      "recursive": {"type": "boolean", "description": "Recursive listing", "default": false}
+    },
+    "required": ["path"]
+  },
+  "tags": ["files", "observe"]
+}

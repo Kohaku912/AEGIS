@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from typing import Any
 
 from aegis_ai.integrations.agora.agora_poller import AgoraPoller
@@ -10,6 +11,12 @@ from aegis_ai.integrations.agora.agora_service import AgoraService
 from aegis_ai.integrations.agora.agora_types import AgoraPost
 
 logger = logging.getLogger("aegis_ai.integrations.agora.bridge")
+
+MASTER_USERNAME = os.environ.get("AGORA_MASTER_USER", "tatsuki")
+
+
+def is_master(author_name: str) -> bool:
+    return author_name.lower() == MASTER_USERNAME.lower()
 
 
 def register_agora_capabilities(registry: Any) -> list[str]:
@@ -189,6 +196,9 @@ def evaluate_agora_notification(
     user_model: Any = None,
 ) -> Any:
     from aegis_ai.dialogue.interaction_policy import InteractionContext
+
+    if post and not is_master(post.author.name):
+        is_task_request = False
 
     urgency = "normal"
     if is_mention:

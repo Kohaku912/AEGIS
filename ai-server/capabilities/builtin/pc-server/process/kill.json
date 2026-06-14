@@ -1,0 +1,17 @@
+{
+  "id": "pc-server.process.kill",
+  "title": "Kill Process",
+  "description": "Kill a process by PID (requires approval)",
+  "server_id": "pc-server",
+  "app_id": "process",
+  "action": "kill",
+  "risk": {"level": "approval_required"},
+  "input": {
+    "type": "object",
+    "properties": {
+      "pid": {"type": "integer", "description": "Process ID"}
+    },
+    "required": ["pid"]
+  },
+  "tags": ["process", "kill", "approval_required"]
+}

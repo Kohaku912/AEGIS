@@ -1,0 +1,11 @@
+{
+  "id": "pc-server.network.info",
+  "title": "Network Info",
+  "description": "Get network information",
+  "server_id": "pc-server",
+  "app_id": "network",
+  "action": "info",
+  "risk": {"level": "read_only"},
+  "input": {"type": "object", "properties": {}},
+  "tags": ["network", "system", "observe"]
+}

@@ -1,0 +1,11 @@
+{
+  "id": "pc-server.system.windows_features",
+  "title": "Windows Features",
+  "description": "List enabled Windows features",
+  "server_id": "pc-server",
+  "app_id": "system",
+  "action": "windows_features",
+  "risk": {"level": "read_only"},
+  "input": {"type": "object", "properties": {}},
+  "tags": ["features", "system", "observe"]
+}

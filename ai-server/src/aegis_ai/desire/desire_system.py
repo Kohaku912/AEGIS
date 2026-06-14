@@ -418,6 +418,11 @@ class DesireSystem:
             "- Failed actions should decrease reliability/safety desires\n"
             "- Successful actions should increase relevant desires\n"
             "- Consider past actions for cumulative effects\n\n"
+            "SOCIAL DESIRE SPECIAL RULES:\n"
+            "- Posting on AGORA (create_post) fulfills social_connection MORE than just reading\n"
+            "- Receiving reactions/mentions after posting fulfills social_connection EVEN MORE\n"
+            "- Reading posts without engaging has LOW impact on social_connection\n"
+            "- Active participation (posting, replying) has HIGH impact on social_connection\n\n"
             "Respond with ONLY a JSON object:\n"
             '{"desire_updates": {"desire_name": {"new_value": 7.0, "reason": "..."}, ...}}\n\n'
             "Only include desires that actually changed."

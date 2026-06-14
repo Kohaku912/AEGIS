@@ -1,0 +1,11 @@
+{
+  "id": "pc-server.system.performance_counters",
+  "title": "Performance Counters",
+  "description": "Get system performance counters",
+  "server_id": "pc-server",
+  "app_id": "system",
+  "action": "performance_counters",
+  "risk": {"level": "read_only"},
+  "input": {"type": "object", "properties": {}},
+  "tags": ["performance", "system", "observe"]
+}

@@ -8,23 +8,38 @@
 //! - clipboard read with secret redaction
 //! - OS info
 //! - screen size
+//! - file listing/reading/searching
+//! - process listing
+//! - network info
+//! - disk info
+//! - running apps
+//! - environment variables
+//! - current directory
 //!
 //! Action capabilities (Level 1):
 //! - overlay display
 //! - app launch
 //! - window focus
 //! - mouse move
+//! - window resize/minimize/maximize/close
+//! - mouse drag/scroll
 //!
 //! Approval-required (Level 2):
 //! - mouse click
 //! - keyboard type
 //! - press hotkey
+//! - file write/delete
+//! - process kill
+//! - overlay approval (Y/N key)
 
 mod action;
 mod health;
 mod observe;
+mod observe_ext;
+mod overlay_approval;
 mod redaction;
 mod safety;
+mod system_ops;
 
 use std::env;
 

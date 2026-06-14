@@ -10,6 +10,11 @@ The PC Server handles **Windows operations** for AEGIS:
 - OS information
 - Screen size
 - Mouse and keyboard control (with approval)
+- File operations (read, list, search)
+- Process management
+- Network information
+- Disk information
+- Overlay approval UI (Y/N key)
 
 ## Technology Stack
 
@@ -25,11 +30,56 @@ pc-server/
 ├── src/
 │   ├── main.rs           # Entry point, TCP server
 │   ├── observe.rs        # Read-only operations (screenshot, windows, etc.)
+│   ├── observe_ext.rs    # Extended observe (files, processes, network)
 │   ├── action.rs         # Write operations (mouse, keyboard)
-│   └── hotkey.rs         # Hotkey parsing
+│   ├── overlay_approval.rs # Overlay approval UI
+│   ├── safety.rs         # Capability definitions
+│   ├── health.rs         # TCP command handler
+│   └── redaction.rs      # Secret redaction
 ├── tests/                # Test files
 └── Cargo.toml            # Dependencies
 ```
+
+## Capabilities (30 total)
+
+### Observe (Level 0: Read-only) — 15 capabilities
+- `pc.get_screenshot` - Capture screen
+- `pc.get_active_window` - Get foreground window
+- `pc.list_windows` - List all windows
+- `pc.get_clipboard` - Read clipboard
+- `pc.get_os_info` - OS information
+- `pc.get_screen_size` - Screen resolution
+- `pc.list_directory` - List files
+- `pc.read_file` - Read file content
+- `pc.search_files` - Search files
+- `pc.list_processes` - List processes
+- `pc.network_info` - Network info
+- `pc.disk_info` - Disk info
+- `pc.running_apps` - Running apps
+- `pc.env_vars` - Environment variables
+- `pc.cwd` - Current directory
+
+### Action (Level 1: Safe) — 9 capabilities
+- `pc.show_overlay` - Show overlay
+- `pc.hide_overlay` - Hide overlay
+- `pc.launch_app` - Launch app
+- `pc.focus_window` - Focus window
+- `pc.resize_window` - Resize window
+- `pc.minimize_window` - Minimize window
+- `pc.maximize_window` - Maximize window
+- `pc.mouse_move` - Move mouse
+- `pc.mouse_scroll` - Scroll
+
+### Approval (Level 2) — 10 capabilities
+- `pc.mouse_click` - Click (approval)
+- `pc.keyboard_type` - Type text (approval)
+- `pc.press_hotkey` - Press hotkey (approval)
+- `pc.close_window` - Close window (approval)
+- `pc.mouse_drag` - Drag mouse (approval)
+- `pc.write_file` - Write file (approval)
+- `pc.delete_file` - Delete file (approval)
+- `pc.kill_process` - Kill process (approval)
+- `pc.overlay_approval` - Show approval dialog
 
 ## Key Components
 

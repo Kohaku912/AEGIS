@@ -39,7 +39,7 @@
             <td>{{ c.server_id }}</td>
             <td>{{ c.app_id }}</td>
             <td>
-                <select id="risk-{{ c.id }}" onchange="updateApproval('{{ c.id }}')" style="background:#0d1117;border:1px solid #30363d;color:#c9d1d9;padding:4px;border-radius:4px;font-size:11px;">
+                <select id="risk-{{ c.id }}" onchange="updateAndSave('{{ c.id }}')" style="background:#0d1117;border:1px solid #30363d;color:#c9d1d9;padding:4px;border-radius:4px;font-size:11px;">
                     {% for r in risk_levels %}
                     <option value="{{ r }}" {{ 'selected' if r == c.risk_level else '' }}>{{ r }}</option>
                     {% endfor %}
@@ -53,7 +53,7 @@
                 {% endif %}
             </td>
             <td style="font-size:10px;color:#8b949e;">{{ c.tags|join(', ') }}</td>
-            <td><button onclick="saveRisk('{{ c.id }}')" style="background:#238636;color:white;border:none;padding:3px 8px;border-radius:4px;cursor:pointer;font-size:11px;">Save</button></td>
+            <td id="status-{{ c.id }}" style="font-size:10px;"></td>
         </tr>
         {% endfor %}
         </tbody>
@@ -62,20 +62,17 @@
 </div>
 
 <script>
-function updateApproval(capId) {
+async function updateAndSave(capId) {
     const select = document.getElementById('risk-' + capId);
     const approval = document.getElementById('approval-' + capId);
+    const statusEl = document.getElementById('status-' + capId);
     const risk = select.value;
+    
     const needsApproval = ['APPROVAL_REQUIRED', 'HIGH_RISK', 'FORBIDDEN'].includes(risk);
     approval.innerHTML = needsApproval
         ? '<span class="badge badge-red">YES</span>'
         : '<span class="badge badge-green">no</span>';
-}
-
-async function saveRisk(capId) {
-    const select = document.getElementById('risk-' + capId);
-    const risk = select.value;
-    const status = document.getElementById('saveStatus');
+    
     try {
         const res = await fetch('/api/capabilities/risk', {
             method: 'POST',
@@ -84,13 +81,13 @@ async function saveRisk(capId) {
         });
         const data = await res.json();
         if (data.ok) {
-            status.innerHTML = '<span style="color:#3fb950;">Saved: ' + capId + ' &rarr; ' + risk + '</span>';
-            setTimeout(() => { status.innerHTML = ''; }, 3000);
+            statusEl.innerHTML = '<span style="color:#3fb950;">✓</span>';
+            setTimeout(() => { statusEl.innerHTML = ''; }, 2000);
         } else {
-            status.innerHTML = '<span style="color:#f85149;">Error: ' + data.error + '</span>';
+            statusEl.innerHTML = '<span style="color:#f85149;">✗</span>';
         }
     } catch (e) {
-        status.innerHTML = '<span style="color:#f85149;">Error: ' + e.message + '</span>';
+        statusEl.innerHTML = '<span style="color:#f85149;">✗</span>';
     }
 }
 

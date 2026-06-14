@@ -1,0 +1,19 @@
+{
+  "id": "pc-server.window.resize",
+  "title": "Resize Window",
+  "description": "Resize a window to specified dimensions",
+  "server_id": "pc-server",
+  "app_id": "window",
+  "action": "resize",
+  "risk": {"level": "safe_action"},
+  "input": {
+    "type": "object",
+    "properties": {
+      "title": {"type": "string", "description": "Window title"},
+      "width": {"type": "integer"},
+      "height": {"type": "integer"}
+    },
+    "required": ["title", "width", "height"]
+  },
+  "tags": ["window", "resize"]
+}

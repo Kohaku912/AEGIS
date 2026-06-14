@@ -1,0 +1,11 @@
+{
+  "id": "pc-server.service.list",
+  "title": "List Services",
+  "description": "List Windows services",
+  "server_id": "pc-server",
+  "app_id": "service",
+  "action": "list",
+  "risk": {"level": "read_only"},
+  "input": {"type": "object", "properties": {}},
+  "tags": ["service", "system", "observe"]
+}

@@ -1,0 +1,18 @@
+{
+  "id": "pc-server.shell.powershell",
+  "title": "Execute PowerShell",
+  "description": "Execute a PowerShell command (requires approval)",
+  "server_id": "pc-server",
+  "app_id": "shell",
+  "action": "powershell",
+  "risk": {"level": "approval_required"},
+  "input": {
+    "type": "object",
+    "properties": {
+      "command": {"type": "string", "description": "PowerShell command"},
+      "working_dir": {"type": "string", "description": "Working directory"}
+    },
+    "required": ["command"]
+  },
+  "tags": ["shell", "powershell", "approval_required"]
+}

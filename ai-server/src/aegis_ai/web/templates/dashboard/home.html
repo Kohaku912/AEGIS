@@ -83,17 +83,13 @@
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px;">
             <div style="background:var(--surface2);border-radius:8px;padding:12px;">
                 <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;">Status</div>
-                <div style="font-size:18px;font-weight:700;">
-                    {% if autonomous.running %}
-                        <span style="color:var(--green);">Running</span>
-                    {% else %}
-                        <span style="color:var(--red);">Stopped</span>
-                    {% endif %}
+                <div data-autonomous="status" style="font-size:18px;font-weight:700;color:{% if autonomous.running %}var(--green){% else %}var(--red){% endif %};">
+                    {% if autonomous.running %}Running{% else %}Stopped{% endif %}
                 </div>
             </div>
             <div style="background:var(--surface2);border-radius:8px;padding:12px;">
                 <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;">Executions</div>
-                <div style="font-size:18px;font-weight:700;color:var(--accent);">{{ autonomous.execution_count }}</div>
+                <div data-autonomous="count" style="font-size:18px;font-weight:700;color:var(--accent);">{{ autonomous.execution_count }}</div>
             </div>
             <div style="background:var(--surface2);border-radius:8px;padding:12px;">
                 <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;">Skills Learned</div>
@@ -102,6 +98,10 @@
             <div style="background:var(--surface2);border-radius:8px;padding:12px;">
                 <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;">Traces</div>
                 <div style="font-size:18px;font-weight:700;">{{ autonomous.traces_count }}</div>
+            </div>
+            <div style="background:var(--surface2);border-radius:8px;padding:12px;">
+                <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;">Frustration Threshold</div>
+                <div style="font-size:18px;font-weight:700;">{{ autonomous.frustration_threshold }}</div>
             </div>
         </div>
         <div style="display:flex;gap:8px;">
@@ -170,10 +170,10 @@
         <div class="card-header">Desire States</div>
         {% for d in desires.desires %}
         {% set frustration = d.expected - d.value %}
-        <div style="padding:8px 0;border-bottom:1px solid var(--border);">
+        <div data-desire="{{ d.name }}" style="padding:8px 0;border-bottom:1px solid var(--border);">
             <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:5px;">
                 <span style="font-size:13px;font-weight:500;">{{ d.name }}</span>
-                <span class="badge {% if frustration > 3 %}badge-red{% elif frustration > 1 %}badge-yellow{% else %}badge-green{% endif %}">
+                <span class="desire-frustration badge {% if frustration > 3 %}badge-red{% elif frustration > 1 %}badge-yellow{% else %}badge-green{% endif %}">
                     {{ "%.1f"|format(frustration) }}
                 </span>
             </div>

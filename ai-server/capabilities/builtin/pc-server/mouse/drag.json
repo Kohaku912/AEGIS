@@ -1,0 +1,20 @@
+{
+  "id": "pc-server.mouse.drag",
+  "title": "Mouse Drag",
+  "description": "Drag mouse from one position to another (requires approval)",
+  "server_id": "pc-server",
+  "app_id": "mouse",
+  "action": "drag",
+  "risk": {"level": "approval_required"},
+  "input": {
+    "type": "object",
+    "properties": {
+      "from_x": {"type": "integer"},
+      "from_y": {"type": "integer"},
+      "to_x": {"type": "integer"},
+      "to_y": {"type": "integer"}
+    },
+    "required": ["from_x", "from_y", "to_x", "to_y"]
+  },
+  "tags": ["mouse", "input", "approval_required"]
+}

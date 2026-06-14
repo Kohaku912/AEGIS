@@ -1,0 +1,17 @@
+{
+  "id": "pc-server.app.open_url",
+  "title": "Open URL",
+  "description": "Open a URL in the default browser",
+  "server_id": "pc-server",
+  "app_id": "app",
+  "action": "open_url",
+  "risk": {"level": "safe_action"},
+  "input": {
+    "type": "object",
+    "properties": {
+      "url": {"type": "string", "description": "URL to open"}
+    },
+    "required": ["url"]
+  },
+  "tags": ["browser", "url", "open"]
+}

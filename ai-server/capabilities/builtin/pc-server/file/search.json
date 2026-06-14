@@ -1,0 +1,18 @@
+{
+  "id": "pc-server.file.search",
+  "title": "Search Files",
+  "description": "Search for files matching a pattern",
+  "server_id": "pc-server",
+  "app_id": "file",
+  "action": "search",
+  "risk": {"level": "read_only"},
+  "input": {
+    "type": "object",
+    "properties": {
+      "path": {"type": "string", "description": "Directory to search"},
+      "pattern": {"type": "string", "description": "Search pattern"}
+    },
+    "required": ["path", "pattern"]
+  },
+  "tags": ["files", "observe"]
+}
