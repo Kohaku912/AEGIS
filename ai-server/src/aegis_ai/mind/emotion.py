@@ -97,6 +97,24 @@ class Emotion:
             f"novelty_interest={s.novelty_interest:.1f}"
         )
 
+    def appraise_from_experience(
+        self,
+        action: str,
+        observation: str,
+        success: bool,
+        desire_name: str = "",
+    ) -> None:
+        """Update emotion state based on action outcome."""
+        with self._lock:
+            if success:
+                self._state.confidence = min(1.0, self._state.confidence + 0.02)
+                self._state.fatigue_proxy = max(0.0, self._state.fatigue_proxy - 0.01)
+                self._state.uncertainty = max(0.0, self._state.uncertainty - 0.01)
+            else:
+                self._state.confidence = max(0.0, self._state.confidence - 0.03)
+                self._state.uncertainty = min(1.0, self._state.uncertainty + 0.02)
+            self._persist()
+
     def _persist(self) -> None:
         record = {
             "urgency": self._state.urgency,

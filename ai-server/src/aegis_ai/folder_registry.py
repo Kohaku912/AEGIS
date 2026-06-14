@@ -137,7 +137,7 @@ class FolderCapabilityRegistry:
             self._errors.append({"path": path, "error": err})
             return
 
-        cap_id = f"{origin}.{ids['server_id']}.{ids['app_id']}.{ids['action']}"
+        cap_id = f"{ids['server_id']}.{ids['app_id']}.{ids['action']}"
         short = f"{ids['app_id']}.{ids['action']}"
 
         self._manifests[cap_id] = CapabilityManifest(

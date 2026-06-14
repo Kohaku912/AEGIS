@@ -16,3 +16,4 @@ from aegis_ai.mind.emotion import Emotion  # noqa: F401
 from aegis_ai.mind.goals import Goal, GoalManager, GoalStatus, GoalType  # noqa: F401
 from aegis_ai.mind.identity import Identity  # noqa: F401
 from aegis_ai.mind.priorities import PriorityEngine, PriorityScore  # noqa: F401
+from aegis_ai.mind.social_intelligence import SocialIntelligence  # noqa: F401

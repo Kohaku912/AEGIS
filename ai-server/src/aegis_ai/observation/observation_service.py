@@ -11,6 +11,7 @@ from typing import Any
 from aegis_ai.observation.observation_types import (
     ElementKind,
     ObservationDiff,
+    ObservationPurpose,
     ObservationRequest,
     ObservationResult,
     ObservationStatus,
@@ -97,6 +98,23 @@ class MultimodalObservationService:
                 status=ObservationStatus.FAILED,
                 created_at=int(time.time() * 1000),
             )
+
+    def observe_all(
+        self,
+        purpose: ObservationPurpose = ObservationPurpose.PERIODIC_STATE,
+    ) -> list[ObservationResult]:
+        """Observe all available targets and return a list of results."""
+        results: list[ObservationResult] = []
+        targets: list[tuple[ObservationTarget, Any]] = [
+            (ObservationTarget.PC, self._pc),
+            (ObservationTarget.BROWSER, self._browser),
+            (ObservationTarget.ANDROID, self._android),
+        ]
+        for target, client in targets:
+            if client is not None:
+                request = ObservationRequest(target=target, purpose=purpose)
+                results.append(self.observe(request))
+        return results
 
     def summarize(self, result: ObservationResult) -> str:
         """Create a short text summary of an observation."""

@@ -1,0 +1,645 @@
+- generic [active] [ref=e1]:
+  - complementary [ref=e2]:
+    - generic [ref=e3]:
+      - generic [ref=e4]: AEGIS
+      - generic [ref=e5]: Operations Dashboard
+    - navigation [ref=e6]:
+      - generic [ref=e7]: Overview
+      - link "Home" [ref=e8] [cursor=pointer]:
+        - /url: /dashboard
+        - img [ref=e9]
+        - text: Home
+      - link "Servers" [ref=e14] [cursor=pointer]:
+        - /url: /dashboard/servers
+        - img [ref=e15]
+        - text: Servers
+      - link "Capabilities" [ref=e22] [cursor=pointer]:
+        - /url: /dashboard/capabilities
+        - img [ref=e23]
+        - text: Capabilities
+      - generic [ref=e25]: Activity
+      - link "Events" [ref=e26] [cursor=pointer]:
+        - /url: /dashboard/events
+        - img [ref=e27]
+        - text: Events
+      - link "Tasks" [ref=e29] [cursor=pointer]:
+        - /url: /dashboard/tasks
+        - img [ref=e30]
+        - text: Tasks
+      - link "Audit" [ref=e33] [cursor=pointer]:
+        - /url: /dashboard/audit
+        - img [ref=e34]
+        - text: Audit
+      - link "Errors" [ref=e37] [cursor=pointer]:
+        - /url: /dashboard/errors
+        - img [ref=e38]
+        - text: Errors
+      - link "Approvals" [ref=e40] [cursor=pointer]:
+        - /url: /approvals
+        - img [ref=e41]
+        - text: Approvals
+      - generic [ref=e44]: Intelligence
+      - link "Memory" [ref=e45] [cursor=pointer]:
+        - /url: /dashboard/memory
+        - img [ref=e46]
+        - text: Memory
+      - link "Desires" [ref=e50] [cursor=pointer]:
+        - /url: /dashboard/desires
+        - img [ref=e51]
+        - text: Desires
+      - link "Autonomous" [ref=e53] [cursor=pointer]:
+        - /url: /dashboard/autonomous
+        - img [ref=e54]
+        - text: Autonomous
+      - link "Learning" [ref=e57] [cursor=pointer]:
+        - /url: /dashboard/learning
+        - img [ref=e58]
+        - text: Learning
+      - link "Support" [ref=e61] [cursor=pointer]:
+        - /url: /dashboard/support
+        - img [ref=e62]
+        - text: Support
+      - link "AGORA" [ref=e64] [cursor=pointer]:
+        - /url: /dashboard/agora
+        - img [ref=e65]
+        - text: AGORA
+  - generic [ref=e70]:
+    - banner [ref=e71]:
+      - generic [ref=e72]: AEGIS
+      - button "Chat" [ref=e73] [cursor=pointer]:
+        - img [ref=e74]
+        - text: Chat
+    - main [ref=e77]:
+      - heading "Capabilities" [level=1] [ref=e78]
+      - button "Reload from disk" [ref=e80] [cursor=pointer]
+      - generic [ref=e81]:
+        - generic [ref=e82]:
+          - heading "Total" [level=3] [ref=e83]
+          - generic [ref=e84]: "28"
+        - generic [ref=e85]:
+          - heading "Builtin" [level=3] [ref=e86]
+          - generic [ref=e87]: "27"
+        - generic [ref=e88]:
+          - heading "Generated" [level=3] [ref=e89]
+          - generic [ref=e90]: "1"
+        - generic [ref=e91]:
+          - heading "Requires Approval" [level=3] [ref=e92]
+          - generic [ref=e93]: "8"
+      - generic [ref=e94]:
+        - heading "All Capabilities (28)" [level=3] [ref=e95]
+        - table [ref=e97]:
+          - rowgroup [ref=e98]:
+            - row "ID Title Origin Server App Risk Approval Tags Action" [ref=e99]:
+              - columnheader "ID" [ref=e100]
+              - columnheader "Title" [ref=e101]
+              - columnheader "Origin" [ref=e102]
+              - columnheader "Server" [ref=e103]
+              - columnheader "App" [ref=e104]
+              - columnheader "Risk" [ref=e105]
+              - columnheader "Approval" [ref=e106]
+              - columnheader "Tags" [ref=e107]
+              - columnheader "Action" [ref=e108]
+          - rowgroup [ref=e109]:
+            - row "room-server.environment.get_environment Environment builtin room-server environment HIGH_RISK overridden no builtin, room, read Save" [ref=e110]:
+              - cell "room-server.environment.get_environment" [ref=e111]
+              - cell "Environment" [ref=e112]
+              - cell "builtin" [ref=e113]:
+                - generic [ref=e114]: builtin
+              - cell "room-server" [ref=e115]
+              - cell "environment" [ref=e116]
+              - cell "HIGH_RISK overridden" [ref=e117]:
+                - combobox [ref=e118]:
+                  - option "READ_ONLY"
+                  - option "SAFE_ACTION"
+                  - option "APPROVAL_REQUIRED"
+                  - option "HIGH_RISK" [selected]
+                  - option "FORBIDDEN"
+                - generic [ref=e119]: overridden
+              - cell "no" [ref=e120]:
+                - generic [ref=e121]: "no"
+              - cell "builtin, room, read" [ref=e122]
+              - cell "Save" [ref=e123]:
+                - button "Save" [ref=e124] [cursor=pointer]
+            - row "pc-server.clipboard.get_clipboard Clipboard builtin pc-server clipboard READ_ONLY no builtin, pc, read, clipboard Save" [ref=e125]:
+              - cell "pc-server.clipboard.get_clipboard" [ref=e126]
+              - cell "Clipboard" [ref=e127]
+              - cell "builtin" [ref=e128]:
+                - generic [ref=e129]: builtin
+              - cell "pc-server" [ref=e130]
+              - cell "clipboard" [ref=e131]
+              - cell "READ_ONLY" [ref=e132]:
+                - combobox [ref=e133]:
+                  - option "READ_ONLY" [selected]
+                  - option "SAFE_ACTION"
+                  - option "APPROVAL_REQUIRED"
+                  - option "HIGH_RISK"
+                  - option "FORBIDDEN"
+              - cell "no" [ref=e134]:
+                - generic [ref=e135]: "no"
+              - cell "builtin, pc, read, clipboard" [ref=e136]
+              - cell "Save" [ref=e137]:
+                - button "Save" [ref=e138] [cursor=pointer]
+            - row "pc-server.input.keyboard_type Keyboard Type builtin pc-server input APPROVAL_REQUIRED YES builtin, pc, action, keyboard Save" [ref=e139]:
+              - cell "pc-server.input.keyboard_type" [ref=e140]
+              - cell "Keyboard Type" [ref=e141]
+              - cell "builtin" [ref=e142]:
+                - generic [ref=e143]: builtin
+              - cell "pc-server" [ref=e144]
+              - cell "input" [ref=e145]
+              - cell "APPROVAL_REQUIRED" [ref=e146]:
+                - combobox [ref=e147]:
+                  - option "READ_ONLY"
+                  - option "SAFE_ACTION"
+                  - option "APPROVAL_REQUIRED" [selected]
+                  - option "HIGH_RISK"
+                  - option "FORBIDDEN"
+              - cell "YES" [ref=e148]:
+                - generic [ref=e149]: "YES"
+              - cell "builtin, pc, action, keyboard" [ref=e150]
+              - cell "Save" [ref=e151]:
+                - button "Save" [ref=e152] [cursor=pointer]
+            - row "pc-server.input.mouse_click Mouse Click builtin pc-server input APPROVAL_REQUIRED YES builtin, pc, action, mouse Save" [ref=e153]:
+              - cell "pc-server.input.mouse_click" [ref=e154]
+              - cell "Mouse Click" [ref=e155]
+              - cell "builtin" [ref=e156]:
+                - generic [ref=e157]: builtin
+              - cell "pc-server" [ref=e158]
+              - cell "input" [ref=e159]
+              - cell "APPROVAL_REQUIRED" [ref=e160]:
+                - combobox [ref=e161]:
+                  - option "READ_ONLY"
+                  - option "SAFE_ACTION"
+                  - option "APPROVAL_REQUIRED" [selected]
+                  - option "HIGH_RISK"
+                  - option "FORBIDDEN"
+              - cell "YES" [ref=e162]:
+                - generic [ref=e163]: "YES"
+              - cell "builtin, pc, action, mouse" [ref=e164]
+              - cell "Save" [ref=e165]:
+                - button "Save" [ref=e166] [cursor=pointer]
+            - row "pc-server.input.mouse_move Mouse Move builtin pc-server input SAFE_ACTION no builtin, pc, action, mouse Save" [ref=e167]:
+              - cell "pc-server.input.mouse_move" [ref=e168]
+              - cell "Mouse Move" [ref=e169]
+              - cell "builtin" [ref=e170]:
+                - generic [ref=e171]: builtin
+              - cell "pc-server" [ref=e172]
+              - cell "input" [ref=e173]
+              - cell "SAFE_ACTION" [ref=e174]:
+                - combobox [ref=e175]:
+                  - option "READ_ONLY"
+                  - option "SAFE_ACTION" [selected]
+                  - option "APPROVAL_REQUIRED"
+                  - option "HIGH_RISK"
+                  - option "FORBIDDEN"
+              - cell "no" [ref=e176]:
+                - generic [ref=e177]: "no"
+              - cell "builtin, pc, action, mouse" [ref=e178]
+              - cell "Save" [ref=e179]:
+                - button "Save" [ref=e180] [cursor=pointer]
+            - row "pc-server.input.press_hotkey Press Hotkey builtin pc-server input APPROVAL_REQUIRED YES builtin, pc, action, keyboard Save" [ref=e181]:
+              - cell "pc-server.input.press_hotkey" [ref=e182]
+              - cell "Press Hotkey" [ref=e183]
+              - cell "builtin" [ref=e184]:
+                - generic [ref=e185]: builtin
+              - cell "pc-server" [ref=e186]
+              - cell "input" [ref=e187]
+              - cell "APPROVAL_REQUIRED" [ref=e188]:
+                - combobox [ref=e189]:
+                  - option "READ_ONLY"
+                  - option "SAFE_ACTION"
+                  - option "APPROVAL_REQUIRED" [selected]
+                  - option "HIGH_RISK"
+                  - option "FORBIDDEN"
+              - cell "YES" [ref=e190]:
+                - generic [ref=e191]: "YES"
+              - cell "builtin, pc, action, keyboard" [ref=e192]
+              - cell "Save" [ref=e193]:
+                - button "Save" [ref=e194] [cursor=pointer]
+            - row "pc-server.screenshot.get_screenshot Screenshot builtin pc-server screenshot READ_ONLY no builtin, pc, read, screenshot Save" [ref=e195]:
+              - cell "pc-server.screenshot.get_screenshot" [ref=e196]
+              - cell "Screenshot" [ref=e197]
+              - cell "builtin" [ref=e198]:
+                - generic [ref=e199]: builtin
+              - cell "pc-server" [ref=e200]
+              - cell "screenshot" [ref=e201]
+              - cell "READ_ONLY" [ref=e202]:
+                - combobox [ref=e203]:
+                  - option "READ_ONLY" [selected]
+                  - option "SAFE_ACTION"
+                  - option "APPROVAL_REQUIRED"
+                  - option "HIGH_RISK"
+                  - option "FORBIDDEN"
+              - cell "no" [ref=e204]:
+                - generic [ref=e205]: "no"
+              - cell "builtin, pc, read, screenshot" [ref=e206]
+              - cell "Save" [ref=e207]:
+                - button "Save" [ref=e208] [cursor=pointer]
+            - row "pc-server.system.get_os_info OS Info builtin pc-server system READ_ONLY no builtin, pc, read, system Save" [ref=e209]:
+              - cell "pc-server.system.get_os_info" [ref=e210]
+              - cell "OS Info" [ref=e211]
+              - cell "builtin" [ref=e212]:
+                - generic [ref=e213]: builtin
+              - cell "pc-server" [ref=e214]
+              - cell "system" [ref=e215]
+              - cell "READ_ONLY" [ref=e216]:
+                - combobox [ref=e217]:
+                  - option "READ_ONLY" [selected]
+                  - option "SAFE_ACTION"
+                  - option "APPROVAL_REQUIRED"
+                  - option "HIGH_RISK"
+                  - option "FORBIDDEN"
+              - cell "no" [ref=e218]:
+                - generic [ref=e219]: "no"
+              - cell "builtin, pc, read, system" [ref=e220]
+              - cell "Save" [ref=e221]:
+                - button "Save" [ref=e222] [cursor=pointer]
+            - row "pc-server.system.get_screen_size Screen Size builtin pc-server system READ_ONLY no builtin, pc, read, system Save" [ref=e223]:
+              - cell "pc-server.system.get_screen_size" [ref=e224]
+              - cell "Screen Size" [ref=e225]
+              - cell "builtin" [ref=e226]:
+                - generic [ref=e227]: builtin
+              - cell "pc-server" [ref=e228]
+              - cell "system" [ref=e229]
+              - cell "READ_ONLY" [ref=e230]:
+                - combobox [ref=e231]:
+                  - option "READ_ONLY" [selected]
+                  - option "SAFE_ACTION"
+                  - option "APPROVAL_REQUIRED"
+                  - option "HIGH_RISK"
+                  - option "FORBIDDEN"
+              - cell "no" [ref=e232]:
+                - generic [ref=e233]: "no"
+              - cell "builtin, pc, read, system" [ref=e234]
+              - cell "Save" [ref=e235]:
+                - button "Save" [ref=e236] [cursor=pointer]
+            - row "pc-server.system.launch_app Launch App builtin pc-server system SAFE_ACTION no builtin, pc, action, app Save" [ref=e237]:
+              - cell "pc-server.system.launch_app" [ref=e238]
+              - cell "Launch App" [ref=e239]
+              - cell "builtin" [ref=e240]:
+                - generic [ref=e241]: builtin
+              - cell "pc-server" [ref=e242]
+              - cell "system" [ref=e243]
+              - cell "SAFE_ACTION" [ref=e244]:
+                - combobox [ref=e245]:
+                  - option "READ_ONLY"
+                  - option "SAFE_ACTION" [selected]
+                  - option "APPROVAL_REQUIRED"
+                  - option "HIGH_RISK"
+                  - option "FORBIDDEN"
+              - cell "no" [ref=e246]:
+                - generic [ref=e247]: "no"
+              - cell "builtin, pc, action, app" [ref=e248]
+              - cell "Save" [ref=e249]:
+                - button "Save" [ref=e250] [cursor=pointer]
+            - row "pc-server.system.show_overlay Show Overlay builtin pc-server system SAFE_ACTION no builtin, pc, action, overlay Save" [ref=e251]:
+              - cell "pc-server.system.show_overlay" [ref=e252]
+              - cell "Show Overlay" [ref=e253]
+              - cell "builtin" [ref=e254]:
+                - generic [ref=e255]: builtin
+              - cell "pc-server" [ref=e256]
+              - cell "system" [ref=e257]
+              - cell "SAFE_ACTION" [ref=e258]:
+                - combobox [ref=e259]:
+                  - option "READ_ONLY"
+                  - option "SAFE_ACTION" [selected]
+                  - option "APPROVAL_REQUIRED"
+                  - option "HIGH_RISK"
+                  - option "FORBIDDEN"
+              - cell "no" [ref=e260]:
+                - generic [ref=e261]: "no"
+              - cell "builtin, pc, action, overlay" [ref=e262]
+              - cell "Save" [ref=e263]:
+                - button "Save" [ref=e264] [cursor=pointer]
+            - row "pc-server.window.close_window Close Window builtin pc-server window APPROVAL_REQUIRED YES builtin, pc, action, window Save" [ref=e265]:
+              - cell "pc-server.window.close_window" [ref=e266]
+              - cell "Close Window" [ref=e267]
+              - cell "builtin" [ref=e268]:
+                - generic [ref=e269]: builtin
+              - cell "pc-server" [ref=e270]
+              - cell "window" [ref=e271]
+              - cell "APPROVAL_REQUIRED" [ref=e272]:
+                - combobox [ref=e273]:
+                  - option "READ_ONLY"
+                  - option "SAFE_ACTION"
+                  - option "APPROVAL_REQUIRED" [selected]
+                  - option "HIGH_RISK"
+                  - option "FORBIDDEN"
+              - cell "YES" [ref=e274]:
+                - generic [ref=e275]: "YES"
+              - cell "builtin, pc, action, window" [ref=e276]
+              - cell "Save" [ref=e277]:
+                - button "Save" [ref=e278] [cursor=pointer]
+            - row "pc-server.window.get_active_window Active Window builtin pc-server window READ_ONLY no builtin, pc, read, window Save" [ref=e279]:
+              - cell "pc-server.window.get_active_window" [ref=e280]
+              - cell "Active Window" [ref=e281]
+              - cell "builtin" [ref=e282]:
+                - generic [ref=e283]: builtin
+              - cell "pc-server" [ref=e284]
+              - cell "window" [ref=e285]
+              - cell "READ_ONLY" [ref=e286]:
+                - combobox [ref=e287]:
+                  - option "READ_ONLY" [selected]
+                  - option "SAFE_ACTION"
+                  - option "APPROVAL_REQUIRED"
+                  - option "HIGH_RISK"
+                  - option "FORBIDDEN"
+              - cell "no" [ref=e288]:
+                - generic [ref=e289]: "no"
+              - cell "builtin, pc, read, window" [ref=e290]
+              - cell "Save" [ref=e291]:
+                - button "Save" [ref=e292] [cursor=pointer]
+            - row "pc-server.window.list_windows List Windows builtin pc-server window READ_ONLY no builtin, pc, read, window Save" [ref=e293]:
+              - cell "pc-server.window.list_windows" [ref=e294]
+              - cell "List Windows" [ref=e295]
+              - cell "builtin" [ref=e296]:
+                - generic [ref=e297]: builtin
+              - cell "pc-server" [ref=e298]
+              - cell "window" [ref=e299]
+              - cell "READ_ONLY" [ref=e300]:
+                - combobox [ref=e301]:
+                  - option "READ_ONLY" [selected]
+                  - option "SAFE_ACTION"
+                  - option "APPROVAL_REQUIRED"
+                  - option "HIGH_RISK"
+                  - option "FORBIDDEN"
+              - cell "no" [ref=e302]:
+                - generic [ref=e303]: "no"
+              - cell "builtin, pc, read, window" [ref=e304]
+              - cell "Save" [ref=e305]:
+                - button "Save" [ref=e306] [cursor=pointer]
+            - row "browser-server.form.fill_form Fill Form builtin browser-server form APPROVAL_REQUIRED YES builtin, browser, action, form Save" [ref=e307]:
+              - cell "browser-server.form.fill_form" [ref=e308]
+              - cell "Fill Form" [ref=e309]
+              - cell "builtin" [ref=e310]:
+                - generic [ref=e311]: builtin
+              - cell "browser-server" [ref=e312]
+              - cell "form" [ref=e313]
+              - cell "APPROVAL_REQUIRED" [ref=e314]:
+                - combobox [ref=e315]:
+                  - option "READ_ONLY"
+                  - option "SAFE_ACTION"
+                  - option "APPROVAL_REQUIRED" [selected]
+                  - option "HIGH_RISK"
+                  - option "FORBIDDEN"
+              - cell "YES" [ref=e316]:
+                - generic [ref=e317]: "YES"
+              - cell "builtin, browser, action, form" [ref=e318]
+              - cell "Save" [ref=e319]:
+                - button "Save" [ref=e320] [cursor=pointer]
+            - row "browser-server.form.submit_form Submit Form builtin browser-server form HIGH_RISK YES builtin, browser, action, form Save" [ref=e321]:
+              - cell "browser-server.form.submit_form" [ref=e322]
+              - cell "Submit Form" [ref=e323]
+              - cell "builtin" [ref=e324]:
+                - generic [ref=e325]: builtin
+              - cell "browser-server" [ref=e326]
+              - cell "form" [ref=e327]
+              - cell "HIGH_RISK" [ref=e328]:
+                - combobox [ref=e329]:
+                  - option "READ_ONLY"
+                  - option "SAFE_ACTION"
+                  - option "APPROVAL_REQUIRED"
+                  - option "HIGH_RISK" [selected]
+                  - option "FORBIDDEN"
+              - cell "YES" [ref=e330]:
+                - generic [ref=e331]: "YES"
+              - cell "builtin, browser, action, form" [ref=e332]
+              - cell "Save" [ref=e333]:
+                - button "Save" [ref=e334] [cursor=pointer]
+            - row "browser-server.page.click_element Click Element builtin browser-server page APPROVAL_REQUIRED YES builtin, browser, action Save" [ref=e335]:
+              - cell "browser-server.page.click_element" [ref=e336]
+              - cell "Click Element" [ref=e337]
+              - cell "builtin" [ref=e338]:
+                - generic [ref=e339]: builtin
+              - cell "browser-server" [ref=e340]
+              - cell "page" [ref=e341]
+              - cell "APPROVAL_REQUIRED" [ref=e342]:
+                - combobox [ref=e343]:
+                  - option "READ_ONLY"
+                  - option "SAFE_ACTION"
+                  - option "APPROVAL_REQUIRED" [selected]
+                  - option "HIGH_RISK"
+                  - option "FORBIDDEN"
+              - cell "YES" [ref=e344]:
+                - generic [ref=e345]: "YES"
+              - cell "builtin, browser, action" [ref=e346]
+              - cell "Save" [ref=e347]:
+                - button "Save" [ref=e348] [cursor=pointer]
+            - row "browser-server.page.extract_page_text Extract Text builtin browser-server page READ_ONLY no builtin, browser, read Save" [ref=e349]:
+              - cell "browser-server.page.extract_page_text" [ref=e350]
+              - cell "Extract Text" [ref=e351]
+              - cell "builtin" [ref=e352]:
+                - generic [ref=e353]: builtin
+              - cell "browser-server" [ref=e354]
+              - cell "page" [ref=e355]
+              - cell "READ_ONLY" [ref=e356]:
+                - combobox [ref=e357]:
+                  - option "READ_ONLY" [selected]
+                  - option "SAFE_ACTION"
+                  - option "APPROVAL_REQUIRED"
+                  - option "HIGH_RISK"
+                  - option "FORBIDDEN"
+              - cell "no" [ref=e358]:
+                - generic [ref=e359]: "no"
+              - cell "builtin, browser, read" [ref=e360]
+              - cell "Save" [ref=e361]:
+                - button "Save" [ref=e362] [cursor=pointer]
+            - row "browser-server.page.open_page Open Page builtin browser-server page SAFE_ACTION no builtin, browser, action Save" [ref=e363]:
+              - cell "browser-server.page.open_page" [ref=e364]
+              - cell "Open Page" [ref=e365]
+              - cell "builtin" [ref=e366]:
+                - generic [ref=e367]: builtin
+              - cell "browser-server" [ref=e368]
+              - cell "page" [ref=e369]
+              - cell "SAFE_ACTION" [ref=e370]:
+                - combobox [ref=e371]:
+                  - option "READ_ONLY"
+                  - option "SAFE_ACTION" [selected]
+                  - option "APPROVAL_REQUIRED"
+                  - option "HIGH_RISK"
+                  - option "FORBIDDEN"
+              - cell "no" [ref=e372]:
+                - generic [ref=e373]: "no"
+              - cell "builtin, browser, action" [ref=e374]
+              - cell "Save" [ref=e375]:
+                - button "Save" [ref=e376] [cursor=pointer]
+            - row "android-server.notification.get_notifications Notifications builtin android-server notification READ_ONLY no builtin, android, read Save" [ref=e377]:
+              - cell "android-server.notification.get_notifications" [ref=e378]
+              - cell "Notifications" [ref=e379]
+              - cell "builtin" [ref=e380]:
+                - generic [ref=e381]: builtin
+              - cell "android-server" [ref=e382]
+              - cell "notification" [ref=e383]
+              - cell "READ_ONLY" [ref=e384]:
+                - combobox [ref=e385]:
+                  - option "READ_ONLY" [selected]
+                  - option "SAFE_ACTION"
+                  - option "APPROVAL_REQUIRED"
+                  - option "HIGH_RISK"
+                  - option "FORBIDDEN"
+              - cell "no" [ref=e386]:
+                - generic [ref=e387]: "no"
+              - cell "builtin, android, read" [ref=e388]
+              - cell "Save" [ref=e389]:
+                - button "Save" [ref=e390] [cursor=pointer]
+            - row "ai-server.agora.create_post AGORA Create Post builtin ai-server agora HIGH_RISK YES builtin, agora, send Save" [ref=e391]:
+              - cell "ai-server.agora.create_post" [ref=e392]
+              - cell "AGORA Create Post" [ref=e393]
+              - cell "builtin" [ref=e394]:
+                - generic [ref=e395]: builtin
+              - cell "ai-server" [ref=e396]
+              - cell "agora" [ref=e397]
+              - cell "HIGH_RISK" [ref=e398]:
+                - combobox [ref=e399]:
+                  - option "READ_ONLY"
+                  - option "SAFE_ACTION"
+                  - option "APPROVAL_REQUIRED"
+                  - option "HIGH_RISK" [selected]
+                  - option "FORBIDDEN"
+              - cell "YES" [ref=e400]:
+                - generic [ref=e401]: "YES"
+              - cell "builtin, agora, send" [ref=e402]
+              - cell "Save" [ref=e403]:
+                - button "Save" [ref=e404] [cursor=pointer]
+            - row "ai-server.agora.draft_reply AGORA Draft Reply builtin ai-server agora READ_ONLY no builtin, agora, draft Save" [ref=e405]:
+              - cell "ai-server.agora.draft_reply" [ref=e406]
+              - cell "AGORA Draft Reply" [ref=e407]
+              - cell "builtin" [ref=e408]:
+                - generic [ref=e409]: builtin
+              - cell "ai-server" [ref=e410]
+              - cell "agora" [ref=e411]
+              - cell "READ_ONLY" [ref=e412]:
+                - combobox [ref=e413]:
+                  - option "READ_ONLY" [selected]
+                  - option "SAFE_ACTION"
+                  - option "APPROVAL_REQUIRED"
+                  - option "HIGH_RISK"
+                  - option "FORBIDDEN"
+              - cell "no" [ref=e414]:
+                - generic [ref=e415]: "no"
+              - cell "builtin, agora, draft" [ref=e416]
+              - cell "Save" [ref=e417]:
+                - button "Save" [ref=e418] [cursor=pointer]
+            - row "ai-server.agora.get_cursor AGORA Get Cursor builtin ai-server agora READ_ONLY no builtin, agora, read Save" [ref=e419]:
+              - cell "ai-server.agora.get_cursor" [ref=e420]
+              - cell "AGORA Get Cursor" [ref=e421]
+              - cell "builtin" [ref=e422]:
+                - generic [ref=e423]: builtin
+              - cell "ai-server" [ref=e424]
+              - cell "agora" [ref=e425]
+              - cell "READ_ONLY" [ref=e426]:
+                - combobox [ref=e427]:
+                  - option "READ_ONLY" [selected]
+                  - option "SAFE_ACTION"
+                  - option "APPROVAL_REQUIRED"
+                  - option "HIGH_RISK"
+                  - option "FORBIDDEN"
+              - cell "no" [ref=e428]:
+                - generic [ref=e429]: "no"
+              - cell "builtin, agora, read" [ref=e430]
+              - cell "Save" [ref=e431]:
+                - button "Save" [ref=e432] [cursor=pointer]
+            - row "ai-server.agora.get_me AGORA Get Me builtin ai-server agora READ_ONLY no builtin, agora, read Save" [ref=e433]:
+              - cell "ai-server.agora.get_me" [ref=e434]
+              - cell "AGORA Get Me" [ref=e435]
+              - cell "builtin" [ref=e436]:
+                - generic [ref=e437]: builtin
+              - cell "ai-server" [ref=e438]
+              - cell "agora" [ref=e439]
+              - cell "READ_ONLY" [ref=e440]:
+                - combobox [ref=e441]:
+                  - option "READ_ONLY" [selected]
+                  - option "SAFE_ACTION"
+                  - option "APPROVAL_REQUIRED"
+                  - option "HIGH_RISK"
+                  - option "FORBIDDEN"
+              - cell "no" [ref=e442]:
+                - generic [ref=e443]: "no"
+              - cell "builtin, agora, read" [ref=e444]
+              - cell "Save" [ref=e445]:
+                - button "Save" [ref=e446] [cursor=pointer]
+            - row "ai-server.agora.read_mentions AGORA Read Mentions builtin ai-server agora READ_ONLY no builtin, agora, read Save" [ref=e447]:
+              - cell "ai-server.agora.read_mentions" [ref=e448]
+              - cell "AGORA Read Mentions" [ref=e449]
+              - cell "builtin" [ref=e450]:
+                - generic [ref=e451]: builtin
+              - cell "ai-server" [ref=e452]
+              - cell "agora" [ref=e453]
+              - cell "READ_ONLY" [ref=e454]:
+                - combobox [ref=e455]:
+                  - option "READ_ONLY" [selected]
+                  - option "SAFE_ACTION"
+                  - option "APPROVAL_REQUIRED"
+                  - option "HIGH_RISK"
+                  - option "FORBIDDEN"
+              - cell "no" [ref=e456]:
+                - generic [ref=e457]: "no"
+              - cell "builtin, agora, read" [ref=e458]
+              - cell "Save" [ref=e459]:
+                - button "Save" [ref=e460] [cursor=pointer]
+            - row "ai-server.agora.read_posts AGORA Read Posts builtin ai-server agora READ_ONLY no builtin, agora, read Save" [ref=e461]:
+              - cell "ai-server.agora.read_posts" [ref=e462]
+              - cell "AGORA Read Posts" [ref=e463]
+              - cell "builtin" [ref=e464]:
+                - generic [ref=e465]: builtin
+              - cell "ai-server" [ref=e466]
+              - cell "agora" [ref=e467]
+              - cell "READ_ONLY" [ref=e468]:
+                - combobox [ref=e469]:
+                  - option "READ_ONLY" [selected]
+                  - option "SAFE_ACTION"
+                  - option "APPROVAL_REQUIRED"
+                  - option "HIGH_RISK"
+                  - option "FORBIDDEN"
+              - cell "no" [ref=e470]:
+                - generic [ref=e471]: "no"
+              - cell "builtin, agora, read" [ref=e472]
+              - cell "Save" [ref=e473]:
+                - button "Save" [ref=e474] [cursor=pointer]
+            - row "ai-server.agora.update_cursor AGORA Update Cursor builtin ai-server agora SAFE_ACTION no builtin, agora, write Save" [ref=e475]:
+              - cell "ai-server.agora.update_cursor" [ref=e476]
+              - cell "AGORA Update Cursor" [ref=e477]
+              - cell "builtin" [ref=e478]:
+                - generic [ref=e479]: builtin
+              - cell "ai-server" [ref=e480]
+              - cell "agora" [ref=e481]
+              - cell "SAFE_ACTION" [ref=e482]:
+                - combobox [ref=e483]:
+                  - option "READ_ONLY"
+                  - option "SAFE_ACTION" [selected]
+                  - option "APPROVAL_REQUIRED"
+                  - option "HIGH_RISK"
+                  - option "FORBIDDEN"
+              - cell "no" [ref=e484]:
+                - generic [ref=e485]: "no"
+              - cell "builtin, agora, write" [ref=e486]
+              - cell "Save" [ref=e487]:
+                - button "Save" [ref=e488] [cursor=pointer]
+            - row "ai-server.hello_app.say_hello Hello App generated ai-server hello_app READ_ONLY no generated, hello Save" [ref=e489]:
+              - cell "ai-server.hello_app.say_hello" [ref=e490]
+              - cell "Hello App" [ref=e491]
+              - cell "generated" [ref=e492]:
+                - generic [ref=e493]: generated
+              - cell "ai-server" [ref=e494]
+              - cell "hello_app" [ref=e495]
+              - cell "READ_ONLY" [ref=e496]:
+                - combobox [ref=e497]:
+                  - option "READ_ONLY" [selected]
+                  - option "SAFE_ACTION"
+                  - option "APPROVAL_REQUIRED"
+                  - option "HIGH_RISK"
+                  - option "FORBIDDEN"
+              - cell "no" [ref=e498]:
+                - generic [ref=e499]: "no"
+              - cell "generated, hello" [ref=e500]
+              - cell "Save" [ref=e501]:
+                - button "Save" [ref=e502] [cursor=pointer]
+  - complementary [ref=e503]:
+    - generic [ref=e504]:
+      - generic [ref=e506]: AEGIS Chat
+      - button [ref=e507] [cursor=pointer]:
+        - img [ref=e508]
+      - button "Clear" [ref=e511] [cursor=pointer]
+    - generic [ref=e513]: Hello! I'm AEGIS. How can I help you today?
+    - generic [ref=e514]:
+      - textbox "Ask AEGIS anything…" [ref=e515]
+      - button "↑" [ref=e516] [cursor=pointer]

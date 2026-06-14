@@ -25,12 +25,55 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
-from aegis_schema.models import Capability, RiskLevel
+from aegis_schema.models import Capability, RiskLevel, ServerType
 from policy_engine import PolicyDecision, PolicyEngine, PolicyResult, create_default_policy_engine
 from tool_registry import ToolRegistry
 from server_executor import ServerExecutor
 
 logger = logging.getLogger("aegis_ai.tool_broker")
+
+
+def _capability_from_manifest(manifest: Any) -> Capability:
+    """Convert a FolderCapabilityRegistry manifest to a Capability."""
+    risk_map = {
+        "low": RiskLevel.READ_ONLY,
+        "safe": RiskLevel.SAFE_ACTION,
+        "medium": RiskLevel.APPROVAL_REQUIRED,
+        "high": RiskLevel.HIGH_RISK,
+        "critical": RiskLevel.FORBIDDEN,
+    }
+    risk = risk_map.get(getattr(manifest, "risk_level", "low"), RiskLevel.READ_ONLY)
+
+    server_id = getattr(manifest, "server_id", "ai-server")
+    server_type_map = {
+        "pc-server": ServerType.PC,
+        "browser-server": ServerType.BROWSER,
+        "android-server": ServerType.ANDROID,
+        "room-server": ServerType.ROOM,
+        "ai-server": ServerType.AI,
+    }
+    server_type = server_type_map.get(server_id, ServerType.AI)
+
+    prefix_map = {
+        "pc-server": "pc",
+        "browser-server": "browser",
+        "android-server": "android",
+        "room-server": "room",
+        "ai-server": "ai",
+    }
+    prefix = prefix_map.get(server_id, "ai")
+    app_id = getattr(manifest, "app_id", "")
+    action = getattr(manifest, "action", "")
+    converted_id = f"{prefix}.{app_id}.{action}"
+
+    return Capability(
+        id=converted_id,
+        name=manifest.title,
+        description=manifest.description,
+        server_type=server_type,
+        risk_level=risk,
+        tags=manifest.tags,
+    )
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -275,6 +318,7 @@ class ToolBroker:
         verification_service: Any = None,
         approval_queue: Any = None,
         server_executor: ServerExecutor | None = None,
+        folder_registry: Any = None,
     ) -> None:
         self._registry = registry
         self._policy = policy_engine or create_default_policy_engine()
@@ -282,6 +326,7 @@ class ToolBroker:
         self._verification = verification_service
         self._approval_queue = approval_queue
         self._server_executor = server_executor or ServerExecutor()
+        self._folder_registry = folder_registry
 
         # Mock executors: capability_id_prefix → executor function
         self._mock_executors: dict[str, MockExecutorFunc] = {}
@@ -338,8 +383,13 @@ class ToolBroker:
                     policy_decision="idempotent",
                 )
 
-        # Look up capability
+        # Look up capability — try ToolRegistry first, then FolderCapabilityRegistry
         cap = self._registry.get_capability(request.capability_id)
+        manifest = None
+        if cap is None and self._folder_registry is not None:
+            manifest = self._folder_registry.get(request.capability_id)
+            if manifest is not None:
+                cap = _capability_from_manifest(manifest)
         if cap is None:
             return ToolExecutionResult(
                 request_id=request.request_id,

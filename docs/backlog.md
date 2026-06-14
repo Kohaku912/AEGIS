@@ -1,14 +1,14 @@
 # AEGIS Backlog
 
-> **Last Updated**: 2026-06-12
-> **Total Tests**: 1204 passed, 0 failed
+> **Last Updated**: 2026-06-14
+> **Total Tests**: 1336+ passed
 
 ## P0 — Safety Issues (Must fix before any external use)
 
 | ID | Issue | Status |
 |----|-------|--------|
-| P0-01 | Chroma/OpenAI memory not integrated (semantic search is mock) | 🔲 Not started |
-| P0-02 | Real LLM not integrated (all LLM calls are mock) | 🔲 Not started |
+| P0-01 | Chroma/OpenAI memory not integrated (semantic search is mock) | ✅ Done — AdvancedMemory, PersonaMemory, ChromaSemanticMemory |
+| P0-02 | Real LLM not integrated (all LLM calls are mock) | ✅ Done — DeepSeek API via LLM Router |
 | P0-03 | Docker Compose incomplete (services not containerized) | 🔲 Not started |
 | P0-04 | No TLS for gRPC (plaintext only) | 🔲 Not started |
 | P0-05 | Single-user only (no multi-user auth) | 🔲 Not started |
@@ -43,6 +43,10 @@
 | ID | Issue | Status |
 |----|-------|--------|
 | P3-01 | LINE Bot real integration | 🔲 Not started |
+| P3-10 | AutonomousLoop desire-driven execution | ✅ Done — `src/aegis_ai/autonomous/autonomous_loop.py` |
+| P3-11 | Learning pipeline (ActionTrace → Lesson → Workflow → Skill) | ✅ Done |
+| P3-12 | SleepConsolidation memory maintenance | ✅ Done — `src/aegis_ai/memory/sleep_consolidation.py` |
+| P3-13 | CuriosityDrivenExploration | ✅ Done — `src/aegis_ai/autonomous/curiosity_exploration.py` |
 | P3-02 | Discord Bot real integration | 🔲 Not started |
 | P3-03 | Email SMTP real integration | 🔲 Not started |
 | P3-04 | Webhook real integration | 🔲 Not started |

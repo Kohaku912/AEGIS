@@ -79,13 +79,72 @@
 
     <!-- Autonomous Status -->
     <div class="card">
-        <div class="card-header">Autonomous Status</div>
-        {% for label, val in [('Autonomous Loop', settings.autonomous_enabled), ('Support Agent', settings.support_agent_enabled), ('Self-Development', settings.self_dev_enabled)] %}
-        <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border);">
-            <span style="font-size:13px;">{{ label }}</span>
-            <span class="badge {% if val %}badge-green{% else %}badge-gray{% endif %}">{{ 'Enabled' if val else 'Disabled' }}</span>
+        <div class="card-header">Autonomous Loop</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px;">
+            <div style="background:var(--surface2);border-radius:8px;padding:12px;">
+                <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;">Status</div>
+                <div style="font-size:18px;font-weight:700;">
+                    {% if autonomous.running %}
+                        <span style="color:var(--green);">Running</span>
+                    {% else %}
+                        <span style="color:var(--red);">Stopped</span>
+                    {% endif %}
+                </div>
+            </div>
+            <div style="background:var(--surface2);border-radius:8px;padding:12px;">
+                <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;">Executions</div>
+                <div style="font-size:18px;font-weight:700;color:var(--accent);">{{ autonomous.execution_count }}</div>
+            </div>
+            <div style="background:var(--surface2);border-radius:8px;padding:12px;">
+                <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;">Skills Learned</div>
+                <div style="font-size:18px;font-weight:700;">{{ autonomous.skills_count }}</div>
+            </div>
+            <div style="background:var(--surface2);border-radius:8px;padding:12px;">
+                <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;">Traces</div>
+                <div style="font-size:18px;font-weight:700;">{{ autonomous.traces_count }}</div>
+            </div>
         </div>
-        {% endfor %}
+        <div style="display:flex;gap:8px;">
+            <a href="/dashboard/autonomous" style="font-size:12px;color:var(--accent);">Autonomous →</a>
+            <a href="/dashboard/learning" style="font-size:12px;color:var(--accent);">Learning →</a>
+        </div>
+    </div>
+
+    <!-- Emotion State -->
+    <div class="card">
+        <div class="card-header">Emotion State</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;">
+            <div style="background:var(--surface2);border-radius:8px;padding:12px;">
+                <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;">Confidence</div>
+                <div style="font-size:18px;font-weight:700;color:{% if emotion.confidence > 0.7 %}var(--green){% elif emotion.confidence < 0.3 %}var(--red){% else %}var(--text){% endif %};">
+                    {{ "%.0f"|format(emotion.confidence * 100) }}%
+                </div>
+            </div>
+            <div style="background:var(--surface2);border-radius:8px;padding:12px;">
+                <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;">Urgency</div>
+                <div style="font-size:18px;font-weight:700;color:{% if emotion.urgency > 7 %}var(--red){% elif emotion.urgency > 4 %}var(--yellow){% else %}var(--green){% endif %};">
+                    {{ emotion.urgency }}/10
+                </div>
+            </div>
+            <div style="background:var(--surface2);border-radius:8px;padding:12px;">
+                <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;">Fatigue</div>
+                <div style="font-size:18px;font-weight:700;color:{% if emotion.fatigue_proxy > 0.7 %}var(--red){% elif emotion.fatigue_proxy > 0.4 %}var(--yellow){% else %}var(--green){% endif %};">
+                    {{ "%.0f"|format(emotion.fatigue_proxy * 100) }}%
+                </div>
+            </div>
+            <div style="background:var(--surface2);border-radius:8px;padding:12px;">
+                <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;">Uncertainty</div>
+                <div style="font-size:18px;font-weight:700;">{{ "%.0f"|format(emotion.uncertainty * 100) }}%</div>
+            </div>
+            <div style="background:var(--surface2);border-radius:8px;padding:12px;">
+                <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;">Risk Sensitivity</div>
+                <div style="font-size:18px;font-weight:700;">{{ "%.0f"|format(emotion.risk_sensitivity * 100) }}%</div>
+            </div>
+            <div style="background:var(--surface2);border-radius:8px;padding:12px;">
+                <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;">Novelty Interest</div>
+                <div style="font-size:18px;font-weight:700;">{{ "%.0f"|format(emotion.novelty_interest * 100) }}%</div>
+            </div>
+        </div>
     </div>
 
     {% if agora.configured %}

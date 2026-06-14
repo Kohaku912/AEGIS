@@ -1,0 +1,644 @@
+- generic [active] [ref=e1]:
+  - complementary [ref=e2]:
+    - generic [ref=e3]:
+      - generic [ref=e4]: AEGIS
+      - generic [ref=e5]: Operations Dashboard
+    - navigation [ref=e6]:
+      - generic [ref=e7]: Overview
+      - link "Home" [ref=e8] [cursor=pointer]:
+        - /url: /dashboard
+        - img [ref=e9]
+        - text: Home
+      - link "Servers" [ref=e14] [cursor=pointer]:
+        - /url: /dashboard/servers
+        - img [ref=e15]
+        - text: Servers
+      - link "Capabilities" [ref=e22] [cursor=pointer]:
+        - /url: /dashboard/capabilities
+        - img [ref=e23]
+        - text: Capabilities
+      - generic [ref=e25]: Activity
+      - link "Events" [ref=e26] [cursor=pointer]:
+        - /url: /dashboard/events
+        - img [ref=e27]
+        - text: Events
+      - link "Tasks" [ref=e29] [cursor=pointer]:
+        - /url: /dashboard/tasks
+        - img [ref=e30]
+        - text: Tasks
+      - link "Audit" [ref=e33] [cursor=pointer]:
+        - /url: /dashboard/audit
+        - img [ref=e34]
+        - text: Audit
+      - link "Errors" [ref=e37] [cursor=pointer]:
+        - /url: /dashboard/errors
+        - img [ref=e38]
+        - text: Errors
+      - link "Approvals" [ref=e40] [cursor=pointer]:
+        - /url: /approvals
+        - img [ref=e41]
+        - text: Approvals
+      - generic [ref=e44]: Intelligence
+      - link "Memory" [ref=e45] [cursor=pointer]:
+        - /url: /dashboard/memory
+        - img [ref=e46]
+        - text: Memory
+      - link "Desires" [ref=e50] [cursor=pointer]:
+        - /url: /dashboard/desires
+        - img [ref=e51]
+        - text: Desires
+      - link "Autonomous" [ref=e53] [cursor=pointer]:
+        - /url: /dashboard/autonomous
+        - img [ref=e54]
+        - text: Autonomous
+      - link "Learning" [ref=e57] [cursor=pointer]:
+        - /url: /dashboard/learning
+        - img [ref=e58]
+        - text: Learning
+      - link "Support" [ref=e61] [cursor=pointer]:
+        - /url: /dashboard/support
+        - img [ref=e62]
+        - text: Support
+      - link "AGORA" [ref=e64] [cursor=pointer]:
+        - /url: /dashboard/agora
+        - img [ref=e65]
+        - text: AGORA
+  - generic [ref=e70]:
+    - banner [ref=e71]:
+      - generic [ref=e72]: AEGIS
+      - button "Chat" [ref=e73] [cursor=pointer]:
+        - img [ref=e74]
+        - text: Chat
+    - main [ref=e77]:
+      - heading "Capabilities" [level=1] [ref=e78]
+      - button "Reload from disk" [ref=e80] [cursor=pointer]
+      - generic [ref=e81]:
+        - generic [ref=e82]:
+          - heading "Total" [level=3] [ref=e83]
+          - generic [ref=e84]: "28"
+        - generic [ref=e85]:
+          - heading "Builtin" [level=3] [ref=e86]
+          - generic [ref=e87]: "27"
+        - generic [ref=e88]:
+          - heading "Generated" [level=3] [ref=e89]
+          - generic [ref=e90]: "1"
+        - generic [ref=e91]:
+          - heading "Requires Approval" [level=3] [ref=e92]
+          - generic [ref=e93]: "8"
+      - generic [ref=e94]:
+        - heading "All Capabilities (28)" [level=3] [ref=e95]
+        - table [ref=e97]:
+          - rowgroup [ref=e98]:
+            - row "ID Title Origin Server App Risk Approval Tags Action" [ref=e99]:
+              - columnheader "ID" [ref=e100]
+              - columnheader "Title" [ref=e101]
+              - columnheader "Origin" [ref=e102]
+              - columnheader "Server" [ref=e103]
+              - columnheader "App" [ref=e104]
+              - columnheader "Risk" [ref=e105]
+              - columnheader "Approval" [ref=e106]
+              - columnheader "Tags" [ref=e107]
+              - columnheader "Action" [ref=e108]
+          - rowgroup [ref=e109]:
+            - row "room-server.environment.get_environment Environment builtin room-server environment LOW no builtin, room, read Save" [ref=e110]:
+              - cell "room-server.environment.get_environment" [ref=e111]
+              - cell "Environment" [ref=e112]
+              - cell "builtin" [ref=e113]:
+                - generic [ref=e114]: builtin
+              - cell "room-server" [ref=e115]
+              - cell "environment" [ref=e116]
+              - cell "LOW" [ref=e117]:
+                - combobox [ref=e118]:
+                  - option "LOW" [selected]
+                  - option "SAFE"
+                  - option "MEDIUM"
+                  - option "HIGH"
+                  - option "CRITICAL"
+              - cell "no" [ref=e119]:
+                - generic [ref=e120]: "no"
+              - cell "builtin, room, read" [ref=e121]
+              - cell "Save" [ref=e122]:
+                - button "Save" [ref=e123] [cursor=pointer]
+            - row "pc-server.clipboard.get_clipboard Clipboard builtin pc-server clipboard LOW no builtin, pc, read, clipboard Save" [ref=e124]:
+              - cell "pc-server.clipboard.get_clipboard" [ref=e125]
+              - cell "Clipboard" [ref=e126]
+              - cell "builtin" [ref=e127]:
+                - generic [ref=e128]: builtin
+              - cell "pc-server" [ref=e129]
+              - cell "clipboard" [ref=e130]
+              - cell "LOW" [ref=e131]:
+                - combobox [ref=e132]:
+                  - option "LOW" [selected]
+                  - option "SAFE"
+                  - option "MEDIUM"
+                  - option "HIGH"
+                  - option "CRITICAL"
+              - cell "no" [ref=e133]:
+                - generic [ref=e134]: "no"
+              - cell "builtin, pc, read, clipboard" [ref=e135]
+              - cell "Save" [ref=e136]:
+                - button "Save" [ref=e137] [cursor=pointer]
+            - row "pc-server.input.keyboard_type Keyboard Type builtin pc-server input MEDIUM YES builtin, pc, action, keyboard Save" [ref=e138]:
+              - cell "pc-server.input.keyboard_type" [ref=e139]
+              - cell "Keyboard Type" [ref=e140]
+              - cell "builtin" [ref=e141]:
+                - generic [ref=e142]: builtin
+              - cell "pc-server" [ref=e143]
+              - cell "input" [ref=e144]
+              - cell "MEDIUM" [ref=e145]:
+                - combobox [ref=e146]:
+                  - option "LOW"
+                  - option "SAFE"
+                  - option "MEDIUM" [selected]
+                  - option "HIGH"
+                  - option "CRITICAL"
+              - cell "YES" [ref=e147]:
+                - generic [ref=e148]: "YES"
+              - cell "builtin, pc, action, keyboard" [ref=e149]
+              - cell "Save" [ref=e150]:
+                - button "Save" [ref=e151] [cursor=pointer]
+            - row "pc-server.input.mouse_click Mouse Click builtin pc-server input MEDIUM YES builtin, pc, action, mouse Save" [ref=e152]:
+              - cell "pc-server.input.mouse_click" [ref=e153]
+              - cell "Mouse Click" [ref=e154]
+              - cell "builtin" [ref=e155]:
+                - generic [ref=e156]: builtin
+              - cell "pc-server" [ref=e157]
+              - cell "input" [ref=e158]
+              - cell "MEDIUM" [ref=e159]:
+                - combobox [ref=e160]:
+                  - option "LOW"
+                  - option "SAFE"
+                  - option "MEDIUM" [selected]
+                  - option "HIGH"
+                  - option "CRITICAL"
+              - cell "YES" [ref=e161]:
+                - generic [ref=e162]: "YES"
+              - cell "builtin, pc, action, mouse" [ref=e163]
+              - cell "Save" [ref=e164]:
+                - button "Save" [ref=e165] [cursor=pointer]
+            - row "pc-server.input.mouse_move Mouse Move builtin pc-server input SAFE no builtin, pc, action, mouse Save" [ref=e166]:
+              - cell "pc-server.input.mouse_move" [ref=e167]
+              - cell "Mouse Move" [ref=e168]
+              - cell "builtin" [ref=e169]:
+                - generic [ref=e170]: builtin
+              - cell "pc-server" [ref=e171]
+              - cell "input" [ref=e172]
+              - cell "SAFE" [ref=e173]:
+                - combobox [ref=e174]:
+                  - option "LOW"
+                  - option "SAFE" [selected]
+                  - option "MEDIUM"
+                  - option "HIGH"
+                  - option "CRITICAL"
+              - cell "no" [ref=e175]:
+                - generic [ref=e176]: "no"
+              - cell "builtin, pc, action, mouse" [ref=e177]
+              - cell "Save" [ref=e178]:
+                - button "Save" [ref=e179] [cursor=pointer]
+            - row "pc-server.input.press_hotkey Press Hotkey builtin pc-server input MEDIUM YES builtin, pc, action, keyboard Save" [ref=e180]:
+              - cell "pc-server.input.press_hotkey" [ref=e181]
+              - cell "Press Hotkey" [ref=e182]
+              - cell "builtin" [ref=e183]:
+                - generic [ref=e184]: builtin
+              - cell "pc-server" [ref=e185]
+              - cell "input" [ref=e186]
+              - cell "MEDIUM" [ref=e187]:
+                - combobox [ref=e188]:
+                  - option "LOW"
+                  - option "SAFE"
+                  - option "MEDIUM" [selected]
+                  - option "HIGH"
+                  - option "CRITICAL"
+              - cell "YES" [ref=e189]:
+                - generic [ref=e190]: "YES"
+              - cell "builtin, pc, action, keyboard" [ref=e191]
+              - cell "Save" [ref=e192]:
+                - button "Save" [ref=e193] [cursor=pointer]
+            - row "pc-server.screenshot.get_screenshot Screenshot builtin pc-server screenshot LOW no builtin, pc, read, screenshot Save" [ref=e194]:
+              - cell "pc-server.screenshot.get_screenshot" [ref=e195]
+              - cell "Screenshot" [ref=e196]
+              - cell "builtin" [ref=e197]:
+                - generic [ref=e198]: builtin
+              - cell "pc-server" [ref=e199]
+              - cell "screenshot" [ref=e200]
+              - cell "LOW" [ref=e201]:
+                - combobox [ref=e202]:
+                  - option "LOW" [selected]
+                  - option "SAFE"
+                  - option "MEDIUM"
+                  - option "HIGH"
+                  - option "CRITICAL"
+              - cell "no" [ref=e203]:
+                - generic [ref=e204]: "no"
+              - cell "builtin, pc, read, screenshot" [ref=e205]
+              - cell "Save" [ref=e206]:
+                - button "Save" [ref=e207] [cursor=pointer]
+            - row "pc-server.system.get_os_info OS Info builtin pc-server system LOW no builtin, pc, read, system Save" [ref=e208]:
+              - cell "pc-server.system.get_os_info" [ref=e209]
+              - cell "OS Info" [ref=e210]
+              - cell "builtin" [ref=e211]:
+                - generic [ref=e212]: builtin
+              - cell "pc-server" [ref=e213]
+              - cell "system" [ref=e214]
+              - cell "LOW" [ref=e215]:
+                - combobox [ref=e216]:
+                  - option "LOW" [selected]
+                  - option "SAFE"
+                  - option "MEDIUM"
+                  - option "HIGH"
+                  - option "CRITICAL"
+              - cell "no" [ref=e217]:
+                - generic [ref=e218]: "no"
+              - cell "builtin, pc, read, system" [ref=e219]
+              - cell "Save" [ref=e220]:
+                - button "Save" [ref=e221] [cursor=pointer]
+            - row "pc-server.system.get_screen_size Screen Size builtin pc-server system LOW no builtin, pc, read, system Save" [ref=e222]:
+              - cell "pc-server.system.get_screen_size" [ref=e223]
+              - cell "Screen Size" [ref=e224]
+              - cell "builtin" [ref=e225]:
+                - generic [ref=e226]: builtin
+              - cell "pc-server" [ref=e227]
+              - cell "system" [ref=e228]
+              - cell "LOW" [ref=e229]:
+                - combobox [ref=e230]:
+                  - option "LOW" [selected]
+                  - option "SAFE"
+                  - option "MEDIUM"
+                  - option "HIGH"
+                  - option "CRITICAL"
+              - cell "no" [ref=e231]:
+                - generic [ref=e232]: "no"
+              - cell "builtin, pc, read, system" [ref=e233]
+              - cell "Save" [ref=e234]:
+                - button "Save" [ref=e235] [cursor=pointer]
+            - row "pc-server.system.launch_app Launch App builtin pc-server system SAFE no builtin, pc, action, app Save" [ref=e236]:
+              - cell "pc-server.system.launch_app" [ref=e237]
+              - cell "Launch App" [ref=e238]
+              - cell "builtin" [ref=e239]:
+                - generic [ref=e240]: builtin
+              - cell "pc-server" [ref=e241]
+              - cell "system" [ref=e242]
+              - cell "SAFE" [ref=e243]:
+                - combobox [ref=e244]:
+                  - option "LOW"
+                  - option "SAFE" [selected]
+                  - option "MEDIUM"
+                  - option "HIGH"
+                  - option "CRITICAL"
+              - cell "no" [ref=e245]:
+                - generic [ref=e246]: "no"
+              - cell "builtin, pc, action, app" [ref=e247]
+              - cell "Save" [ref=e248]:
+                - button "Save" [ref=e249] [cursor=pointer]
+            - row "pc-server.system.show_overlay Show Overlay builtin pc-server system SAFE no builtin, pc, action, overlay Save" [ref=e250]:
+              - cell "pc-server.system.show_overlay" [ref=e251]
+              - cell "Show Overlay" [ref=e252]
+              - cell "builtin" [ref=e253]:
+                - generic [ref=e254]: builtin
+              - cell "pc-server" [ref=e255]
+              - cell "system" [ref=e256]
+              - cell "SAFE" [ref=e257]:
+                - combobox [ref=e258]:
+                  - option "LOW"
+                  - option "SAFE" [selected]
+                  - option "MEDIUM"
+                  - option "HIGH"
+                  - option "CRITICAL"
+              - cell "no" [ref=e259]:
+                - generic [ref=e260]: "no"
+              - cell "builtin, pc, action, overlay" [ref=e261]
+              - cell "Save" [ref=e262]:
+                - button "Save" [ref=e263] [cursor=pointer]
+            - row "pc-server.window.close_window Close Window builtin pc-server window MEDIUM YES builtin, pc, action, window Save" [ref=e264]:
+              - cell "pc-server.window.close_window" [ref=e265]
+              - cell "Close Window" [ref=e266]
+              - cell "builtin" [ref=e267]:
+                - generic [ref=e268]: builtin
+              - cell "pc-server" [ref=e269]
+              - cell "window" [ref=e270]
+              - cell "MEDIUM" [ref=e271]:
+                - combobox [ref=e272]:
+                  - option "LOW"
+                  - option "SAFE"
+                  - option "MEDIUM" [selected]
+                  - option "HIGH"
+                  - option "CRITICAL"
+              - cell "YES" [ref=e273]:
+                - generic [ref=e274]: "YES"
+              - cell "builtin, pc, action, window" [ref=e275]
+              - cell "Save" [ref=e276]:
+                - button "Save" [ref=e277] [cursor=pointer]
+            - row "pc-server.window.get_active_window Active Window builtin pc-server window LOW no builtin, pc, read, window Save" [ref=e278]:
+              - cell "pc-server.window.get_active_window" [ref=e279]
+              - cell "Active Window" [ref=e280]
+              - cell "builtin" [ref=e281]:
+                - generic [ref=e282]: builtin
+              - cell "pc-server" [ref=e283]
+              - cell "window" [ref=e284]
+              - cell "LOW" [ref=e285]:
+                - combobox [ref=e286]:
+                  - option "LOW" [selected]
+                  - option "SAFE"
+                  - option "MEDIUM"
+                  - option "HIGH"
+                  - option "CRITICAL"
+              - cell "no" [ref=e287]:
+                - generic [ref=e288]: "no"
+              - cell "builtin, pc, read, window" [ref=e289]
+              - cell "Save" [ref=e290]:
+                - button "Save" [ref=e291] [cursor=pointer]
+            - row "pc-server.window.list_windows List Windows builtin pc-server window LOW no builtin, pc, read, window Save" [ref=e292]:
+              - cell "pc-server.window.list_windows" [ref=e293]
+              - cell "List Windows" [ref=e294]
+              - cell "builtin" [ref=e295]:
+                - generic [ref=e296]: builtin
+              - cell "pc-server" [ref=e297]
+              - cell "window" [ref=e298]
+              - cell "LOW" [ref=e299]:
+                - combobox [ref=e300]:
+                  - option "LOW" [selected]
+                  - option "SAFE"
+                  - option "MEDIUM"
+                  - option "HIGH"
+                  - option "CRITICAL"
+              - cell "no" [ref=e301]:
+                - generic [ref=e302]: "no"
+              - cell "builtin, pc, read, window" [ref=e303]
+              - cell "Save" [ref=e304]:
+                - button "Save" [ref=e305] [cursor=pointer]
+            - row "browser-server.form.fill_form Fill Form builtin browser-server form MEDIUM YES builtin, browser, action, form Save" [ref=e306]:
+              - cell "browser-server.form.fill_form" [ref=e307]
+              - cell "Fill Form" [ref=e308]
+              - cell "builtin" [ref=e309]:
+                - generic [ref=e310]: builtin
+              - cell "browser-server" [ref=e311]
+              - cell "form" [ref=e312]
+              - cell "MEDIUM" [ref=e313]:
+                - combobox [ref=e314]:
+                  - option "LOW"
+                  - option "SAFE"
+                  - option "MEDIUM" [selected]
+                  - option "HIGH"
+                  - option "CRITICAL"
+              - cell "YES" [ref=e315]:
+                - generic [ref=e316]: "YES"
+              - cell "builtin, browser, action, form" [ref=e317]
+              - cell "Save" [ref=e318]:
+                - button "Save" [ref=e319] [cursor=pointer]
+            - row "browser-server.form.submit_form Submit Form builtin browser-server form HIGH YES builtin, browser, action, form Save" [ref=e320]:
+              - cell "browser-server.form.submit_form" [ref=e321]
+              - cell "Submit Form" [ref=e322]
+              - cell "builtin" [ref=e323]:
+                - generic [ref=e324]: builtin
+              - cell "browser-server" [ref=e325]
+              - cell "form" [ref=e326]
+              - cell "HIGH" [ref=e327]:
+                - combobox [ref=e328]:
+                  - option "LOW"
+                  - option "SAFE"
+                  - option "MEDIUM"
+                  - option "HIGH" [selected]
+                  - option "CRITICAL"
+              - cell "YES" [ref=e329]:
+                - generic [ref=e330]: "YES"
+              - cell "builtin, browser, action, form" [ref=e331]
+              - cell "Save" [ref=e332]:
+                - button "Save" [ref=e333] [cursor=pointer]
+            - row "browser-server.page.click_element Click Element builtin browser-server page MEDIUM YES builtin, browser, action Save" [ref=e334]:
+              - cell "browser-server.page.click_element" [ref=e335]
+              - cell "Click Element" [ref=e336]
+              - cell "builtin" [ref=e337]:
+                - generic [ref=e338]: builtin
+              - cell "browser-server" [ref=e339]
+              - cell "page" [ref=e340]
+              - cell "MEDIUM" [ref=e341]:
+                - combobox [ref=e342]:
+                  - option "LOW"
+                  - option "SAFE"
+                  - option "MEDIUM" [selected]
+                  - option "HIGH"
+                  - option "CRITICAL"
+              - cell "YES" [ref=e343]:
+                - generic [ref=e344]: "YES"
+              - cell "builtin, browser, action" [ref=e345]
+              - cell "Save" [ref=e346]:
+                - button "Save" [ref=e347] [cursor=pointer]
+            - row "browser-server.page.extract_page_text Extract Text builtin browser-server page LOW no builtin, browser, read Save" [ref=e348]:
+              - cell "browser-server.page.extract_page_text" [ref=e349]
+              - cell "Extract Text" [ref=e350]
+              - cell "builtin" [ref=e351]:
+                - generic [ref=e352]: builtin
+              - cell "browser-server" [ref=e353]
+              - cell "page" [ref=e354]
+              - cell "LOW" [ref=e355]:
+                - combobox [ref=e356]:
+                  - option "LOW" [selected]
+                  - option "SAFE"
+                  - option "MEDIUM"
+                  - option "HIGH"
+                  - option "CRITICAL"
+              - cell "no" [ref=e357]:
+                - generic [ref=e358]: "no"
+              - cell "builtin, browser, read" [ref=e359]
+              - cell "Save" [ref=e360]:
+                - button "Save" [ref=e361] [cursor=pointer]
+            - row "browser-server.page.open_page Open Page builtin browser-server page SAFE no builtin, browser, action Save" [ref=e362]:
+              - cell "browser-server.page.open_page" [ref=e363]
+              - cell "Open Page" [ref=e364]
+              - cell "builtin" [ref=e365]:
+                - generic [ref=e366]: builtin
+              - cell "browser-server" [ref=e367]
+              - cell "page" [ref=e368]
+              - cell "SAFE" [ref=e369]:
+                - combobox [ref=e370]:
+                  - option "LOW"
+                  - option "SAFE" [selected]
+                  - option "MEDIUM"
+                  - option "HIGH"
+                  - option "CRITICAL"
+              - cell "no" [ref=e371]:
+                - generic [ref=e372]: "no"
+              - cell "builtin, browser, action" [ref=e373]
+              - cell "Save" [ref=e374]:
+                - button "Save" [ref=e375] [cursor=pointer]
+            - row "android-server.notification.get_notifications Notifications builtin android-server notification LOW no builtin, android, read Save" [ref=e376]:
+              - cell "android-server.notification.get_notifications" [ref=e377]
+              - cell "Notifications" [ref=e378]
+              - cell "builtin" [ref=e379]:
+                - generic [ref=e380]: builtin
+              - cell "android-server" [ref=e381]
+              - cell "notification" [ref=e382]
+              - cell "LOW" [ref=e383]:
+                - combobox [ref=e384]:
+                  - option "LOW" [selected]
+                  - option "SAFE"
+                  - option "MEDIUM"
+                  - option "HIGH"
+                  - option "CRITICAL"
+              - cell "no" [ref=e385]:
+                - generic [ref=e386]: "no"
+              - cell "builtin, android, read" [ref=e387]
+              - cell "Save" [ref=e388]:
+                - button "Save" [ref=e389] [cursor=pointer]
+            - row "ai-server.agora.create_post AGORA Create Post builtin ai-server agora HIGH YES builtin, agora, send Save" [ref=e390]:
+              - cell "ai-server.agora.create_post" [ref=e391]
+              - cell "AGORA Create Post" [ref=e392]
+              - cell "builtin" [ref=e393]:
+                - generic [ref=e394]: builtin
+              - cell "ai-server" [ref=e395]
+              - cell "agora" [ref=e396]
+              - cell "HIGH" [ref=e397]:
+                - combobox [ref=e398]:
+                  - option "LOW"
+                  - option "SAFE"
+                  - option "MEDIUM"
+                  - option "HIGH" [selected]
+                  - option "CRITICAL"
+              - cell "YES" [ref=e399]:
+                - generic [ref=e400]: "YES"
+              - cell "builtin, agora, send" [ref=e401]
+              - cell "Save" [ref=e402]:
+                - button "Save" [ref=e403] [cursor=pointer]
+            - row "ai-server.agora.draft_reply AGORA Draft Reply builtin ai-server agora LOW no builtin, agora, draft Save" [ref=e404]:
+              - cell "ai-server.agora.draft_reply" [ref=e405]
+              - cell "AGORA Draft Reply" [ref=e406]
+              - cell "builtin" [ref=e407]:
+                - generic [ref=e408]: builtin
+              - cell "ai-server" [ref=e409]
+              - cell "agora" [ref=e410]
+              - cell "LOW" [ref=e411]:
+                - combobox [ref=e412]:
+                  - option "LOW" [selected]
+                  - option "SAFE"
+                  - option "MEDIUM"
+                  - option "HIGH"
+                  - option "CRITICAL"
+              - cell "no" [ref=e413]:
+                - generic [ref=e414]: "no"
+              - cell "builtin, agora, draft" [ref=e415]
+              - cell "Save" [ref=e416]:
+                - button "Save" [ref=e417] [cursor=pointer]
+            - row "ai-server.agora.get_cursor AGORA Get Cursor builtin ai-server agora LOW no builtin, agora, read Save" [ref=e418]:
+              - cell "ai-server.agora.get_cursor" [ref=e419]
+              - cell "AGORA Get Cursor" [ref=e420]
+              - cell "builtin" [ref=e421]:
+                - generic [ref=e422]: builtin
+              - cell "ai-server" [ref=e423]
+              - cell "agora" [ref=e424]
+              - cell "LOW" [ref=e425]:
+                - combobox [ref=e426]:
+                  - option "LOW" [selected]
+                  - option "SAFE"
+                  - option "MEDIUM"
+                  - option "HIGH"
+                  - option "CRITICAL"
+              - cell "no" [ref=e427]:
+                - generic [ref=e428]: "no"
+              - cell "builtin, agora, read" [ref=e429]
+              - cell "Save" [ref=e430]:
+                - button "Save" [ref=e431] [cursor=pointer]
+            - row "ai-server.agora.get_me AGORA Get Me builtin ai-server agora LOW no builtin, agora, read Save" [ref=e432]:
+              - cell "ai-server.agora.get_me" [ref=e433]
+              - cell "AGORA Get Me" [ref=e434]
+              - cell "builtin" [ref=e435]:
+                - generic [ref=e436]: builtin
+              - cell "ai-server" [ref=e437]
+              - cell "agora" [ref=e438]
+              - cell "LOW" [ref=e439]:
+                - combobox [ref=e440]:
+                  - option "LOW" [selected]
+                  - option "SAFE"
+                  - option "MEDIUM"
+                  - option "HIGH"
+                  - option "CRITICAL"
+              - cell "no" [ref=e441]:
+                - generic [ref=e442]: "no"
+              - cell "builtin, agora, read" [ref=e443]
+              - cell "Save" [ref=e444]:
+                - button "Save" [ref=e445] [cursor=pointer]
+            - row "ai-server.agora.read_mentions AGORA Read Mentions builtin ai-server agora LOW no builtin, agora, read Save" [ref=e446]:
+              - cell "ai-server.agora.read_mentions" [ref=e447]
+              - cell "AGORA Read Mentions" [ref=e448]
+              - cell "builtin" [ref=e449]:
+                - generic [ref=e450]: builtin
+              - cell "ai-server" [ref=e451]
+              - cell "agora" [ref=e452]
+              - cell "LOW" [ref=e453]:
+                - combobox [ref=e454]:
+                  - option "LOW" [selected]
+                  - option "SAFE"
+                  - option "MEDIUM"
+                  - option "HIGH"
+                  - option "CRITICAL"
+              - cell "no" [ref=e455]:
+                - generic [ref=e456]: "no"
+              - cell "builtin, agora, read" [ref=e457]
+              - cell "Save" [ref=e458]:
+                - button "Save" [ref=e459] [cursor=pointer]
+            - row "ai-server.agora.read_posts AGORA Read Posts builtin ai-server agora LOW no builtin, agora, read Save" [ref=e460]:
+              - cell "ai-server.agora.read_posts" [ref=e461]
+              - cell "AGORA Read Posts" [ref=e462]
+              - cell "builtin" [ref=e463]:
+                - generic [ref=e464]: builtin
+              - cell "ai-server" [ref=e465]
+              - cell "agora" [ref=e466]
+              - cell "LOW" [ref=e467]:
+                - combobox [ref=e468]:
+                  - option "LOW" [selected]
+                  - option "SAFE"
+                  - option "MEDIUM"
+                  - option "HIGH"
+                  - option "CRITICAL"
+              - cell "no" [ref=e469]:
+                - generic [ref=e470]: "no"
+              - cell "builtin, agora, read" [ref=e471]
+              - cell "Save" [ref=e472]:
+                - button "Save" [ref=e473] [cursor=pointer]
+            - row "ai-server.agora.update_cursor AGORA Update Cursor builtin ai-server agora SAFE no builtin, agora, write Save" [ref=e474]:
+              - cell "ai-server.agora.update_cursor" [ref=e475]
+              - cell "AGORA Update Cursor" [ref=e476]
+              - cell "builtin" [ref=e477]:
+                - generic [ref=e478]: builtin
+              - cell "ai-server" [ref=e479]
+              - cell "agora" [ref=e480]
+              - cell "SAFE" [ref=e481]:
+                - combobox [ref=e482]:
+                  - option "LOW"
+                  - option "SAFE" [selected]
+                  - option "MEDIUM"
+                  - option "HIGH"
+                  - option "CRITICAL"
+              - cell "no" [ref=e483]:
+                - generic [ref=e484]: "no"
+              - cell "builtin, agora, write" [ref=e485]
+              - cell "Save" [ref=e486]:
+                - button "Save" [ref=e487] [cursor=pointer]
+            - row "ai-server.hello_app.say_hello Hello App generated ai-server hello_app LOW no generated, hello Save" [ref=e488]:
+              - cell "ai-server.hello_app.say_hello" [ref=e489]
+              - cell "Hello App" [ref=e490]
+              - cell "generated" [ref=e491]:
+                - generic [ref=e492]: generated
+              - cell "ai-server" [ref=e493]
+              - cell "hello_app" [ref=e494]
+              - cell "LOW" [ref=e495]:
+                - combobox [ref=e496]:
+                  - option "LOW" [selected]
+                  - option "SAFE"
+                  - option "MEDIUM"
+                  - option "HIGH"
+                  - option "CRITICAL"
+              - cell "no" [ref=e497]:
+                - generic [ref=e498]: "no"
+              - cell "generated, hello" [ref=e499]
+              - cell "Save" [ref=e500]:
+                - button "Save" [ref=e501] [cursor=pointer]
+  - complementary [ref=e502]:
+    - generic [ref=e503]:
+      - generic [ref=e505]: AEGIS Chat
+      - button [ref=e506] [cursor=pointer]:
+        - img [ref=e507]
+      - button "Clear" [ref=e510] [cursor=pointer]
+    - generic [ref=e512]: Hello! I'm AEGIS. How can I help you today?
+    - generic [ref=e513]:
+      - textbox "Ask AEGIS anything…" [ref=e514]
+      - button "↑" [ref=e515] [cursor=pointer]

@@ -54,3 +54,28 @@ class MockLLMProvider:
             cost_estimate=0.0,
             success=True,
         )
+
+    def generate_with_image(
+        self,
+        prompt: str,
+        image_base64: str,
+        system_prompt: str = "",
+        max_tokens: int = 2000,
+        temperature: float = 0.7,
+        detail: str = "low",
+    ) -> LLMResponse:
+        """Generate a mock response for image input."""
+        self.call_log.append({
+            "prompt": prompt[:100],
+            "has_image": True,
+            "system_prompt": system_prompt[:100],
+        })
+        content = "I can see the image. It shows a desktop environment with various application windows and system elements."
+        return LLMResponse(
+            content=content,
+            model_used="mock-model",
+            provider_used="mock",
+            tokens_used=len(content.split()),
+            cost_estimate=0.0,
+            success=True,
+        )

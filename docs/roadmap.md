@@ -1,7 +1,7 @@
 # AEGIS Roadmap
 
-> **Last Updated**: 2026-06-12
-> **Current Phase**: Alpha (local-only, mock providers)
+> **Last Updated**: 2026-06-14
+> **Current Phase**: Beta (real LLM, desire-driven autonomy)
 
 ## Milestones
 
@@ -24,7 +24,13 @@
 | Mind Layer (Identity/Desire/Emotion/Goals) | ✅ Done |
 | Memory (episodic/semantic/procedural) | ✅ Done |
 | Scheduler | ✅ Done |
-| Reflection Loop | ✅ Done |
+| AutonomousLoop (`src/aegis_ai/autonomous/autonomous_loop.py`) | ✅ Done |
+| Planner (`src/aegis_ai/autonomous/planner.py`) | ✅ Done |
+| CuriosityDrivenExploration (`src/aegis_ai/autonomous/curiosity_exploration.py`) | ✅ Done |
+| Learning Pipeline (ActionTrace → Lesson → Workflow → Skill) | ✅ Done |
+| SleepConsolidation (`src/aegis_ai/memory/sleep_consolidation.py`) | ✅ Done |
+| SocialIntelligence (`src/aegis_ai/mind/social_intelligence.py`) | ✅ Done |
+| Observation Service (`src/aegis_ai/observation/observation_service.py`) | ✅ Done |
 | Settings + Permissions | ✅ Done |
 | Dashboard + Observability | ✅ Done |
 | LLM Router + Cost Tracker | ✅ Done |
@@ -36,7 +42,7 @@
 | Voice I/O Gate (stubs) | ✅ Done |
 | Evaluation Harness | ✅ Done |
 | Prompt Regression Pack | ✅ Done |
-| **Tests**: 1204 passed, 0 failed | ✅ |
+| **Tests**: 1336+ passed | ✅ |
 | **Lint**: ruff clean | ✅ |
 
 ### Beta — Personal Daily Use

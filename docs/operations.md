@@ -1,7 +1,7 @@
 # AEGIS Operations Guide
 
 > **Status**: Beta
-> **Last Updated**: 2026-06-12
+> **Last Updated**: 2026-06-14
 
 ## 日常運用
 
@@ -30,6 +30,10 @@ docker compose down
 - Dashboard: http://127.0.0.1:8090
 - Health: http://127.0.0.1:8090/health
 - API: http://127.0.0.1:8090/api/dashboard/overview
+- Autonomous Loop Status: http://127.0.0.1:8090/api/autonomous/status
+- Desire States: http://127.0.0.1:8090/api/desires
+- Manual Trigger: `POST http://127.0.0.1:8090/api/autonomous/trigger`
+- Start/Stop Loop: `POST /api/autonomous/start`, `POST /api/autonomous/stop`
 
 ## バックアップ
 

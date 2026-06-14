@@ -160,6 +160,29 @@ class ObservationResult:
             "created_at": self.created_at,
         }
 
+    @property
+    def actionable(self) -> bool:
+        return (
+            self.status == ObservationStatus.SUCCESS
+            and len(self.detected_elements) > 0
+        )
+
+    @property
+    def importance(self) -> float:
+        score = 0.0
+        if self.status in (ObservationStatus.FAILED, ObservationStatus.UNAVAILABLE):
+            return 0.0
+        errors = [e for e in self.detected_elements if e.kind == ElementKind.ERROR_MESSAGE]
+        if errors:
+            score += 0.5
+        if self.detected_elements:
+            score += 0.3
+        if self.status == ObservationStatus.PARTIAL:
+            score += 0.1
+        if self.status == ObservationStatus.SUCCESS:
+            score += 0.2
+        return min(score, 1.0)
+
     def to_context_string(self, max_len: int = 500) -> str:
         parts = [f"[{self.target.value}] {self.status.value}"]
         if self.active_window:

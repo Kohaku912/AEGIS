@@ -141,6 +141,71 @@ def _build_memory_context(query: str) -> str:
     except Exception as e:
         logger.debug("Advanced memory failed: %s", e)
 
+    # Get experiential memory context
+    try:
+        from aegis_ai.memory.experiential import ExperientialMemory
+        from aegis_ai.llm.factory import create_llm_provider as _create_llm
+        _llm = _create_llm()
+        exp_memory = ExperientialMemory(
+            data_dir=os.path.join(_DATA_DIR, "memory"),
+            llm_provider=_llm,
+        )
+        exp_context = exp_memory.get_context_string(max_chars=500)
+        if exp_context:
+            context_parts.append("EXPERIENTIAL MEMORY:\n" + exp_context)
+    except Exception as e:
+        logger.debug("Experiential memory failed: %s", e)
+
+    # Get affect system context (personality, mood, emotion)
+    try:
+        from aegis_ai.mind.affect_system import AffectSystem
+        affect = AffectSystem(data_dir=_DATA_DIR)
+        affect_context = affect.to_context_string()
+        if affect_context:
+            context_parts.append("AFFECT STATE:\n" + affect_context)
+    except Exception as e:
+        logger.debug("Affect system failed: %s", e)
+
+    # Get person memory context
+    try:
+        from aegis_ai.memory.person_memory import PersonMemory
+        pm = PersonMemory(path=os.path.join(_DATA_DIR, "memory", "persons.jsonl"))
+        person_context = pm.get_context_string(max_chars=300)
+        if person_context:
+            context_parts.append("PEOPLE:\n" + person_context)
+    except Exception as e:
+        logger.debug("Person memory failed: %s", e)
+
+    # Get semantic memory context
+    try:
+        from aegis_ai.memory.semantic_memory import SemanticMemory
+        sm = SemanticMemory(path=os.path.join(_DATA_DIR, "memory", "semantic.jsonl"))
+        sem_context = sm.get_context_string(max_chars=400)
+        if sem_context:
+            context_parts.append("KNOWLEDGE:\n" + sem_context)
+    except Exception as e:
+        logger.debug("Semantic memory failed: %s", e)
+
+    # Get skill memory context
+    try:
+        from aegis_ai.memory.skill_memory import SkillMemory
+        sk = SkillMemory(path=os.path.join(_DATA_DIR, "memory", "skills.jsonl"))
+        skill_context = sk.get_context_string(max_chars=300)
+        if skill_context:
+            context_parts.append("SKILLS:\n" + skill_context)
+    except Exception as e:
+        logger.debug("Skill memory failed: %s", e)
+
+    # Get social intelligence context
+    try:
+        from aegis_ai.social.intelligence import SocialIntelligenceSystem
+        sis = SocialIntelligenceSystem(data_dir=os.path.join(_DATA_DIR, "social"))
+        social_context = sis.get_social_context_string(max_chars=400)
+        if social_context:
+            context_parts.append("SOCIAL:\n" + social_context)
+    except Exception as e:
+        logger.debug("Social intelligence failed: %s", e)
+
     # Fallback to basic memory
     if not any("MEMORY CONTEXT" in p for p in context_parts):
         try:
@@ -175,20 +240,95 @@ class DashboardApp:
             from aegis_ai.autonomous.autonomous_loop import AutonomousLoop
             from aegis_ai.desire.desire_system import DesireSystem
             from aegis_ai.llm.factory import create_llm_provider
+            from aegis_ai.memory.experiential import ExperientialMemory
+            from tool_broker import ToolBroker
+            from tool_registry import ToolRegistry
+            from aegis_ai.folder_registry import FolderCapabilityRegistry
+
             llm = create_llm_provider()
             desire = DesireSystem(
                 data_dir=os.path.join(_DATA_DIR, "desires"),
                 llm_provider=llm,
             )
+
+            experiential = ExperientialMemory(
+                data_dir=os.path.join(_DATA_DIR, "memory"),
+                llm_provider=llm,
+            )
+
+            # Create ToolBroker for capability execution
+            registry = ToolRegistry()
+            folder_reg = FolderCapabilityRegistry(
+                capabilities_dir=str(Path(_DATA_DIR).parent / "capabilities"),
+            )
+            for manifest in folder_reg.list_all():
+                from tool_broker import _capability_from_manifest
+                cap = _capability_from_manifest(manifest)
+                registry.register_capability(cap)
+
+            broker = ToolBroker(registry=registry)
+
+            from aegis_ai.mind.affect_system import AffectSystem
+            affect = AffectSystem(data_dir=_DATA_DIR)
+
+            from aegis_ai.memory.action_trace import ActionTraceMemory
+            from aegis_ai.memory.lesson_memory import LessonMemory
+            from aegis_ai.memory.workflow_memory import WorkflowMemory
+            from aegis_ai.memory.skill_memory import SkillMemory
+
+            action_trace = ActionTraceMemory(path=os.path.join(_DATA_DIR, "memory", "action_traces.jsonl"))
+            lesson_mem = LessonMemory(path=os.path.join(_DATA_DIR, "memory", "lessons.jsonl"))
+            workflow_mem = WorkflowMemory(path=os.path.join(_DATA_DIR, "memory", "workflows.jsonl"))
+            skill_mem = SkillMemory(path=os.path.join(_DATA_DIR, "memory", "skills.jsonl"))
+
             self._autonomous_loop = AutonomousLoop(
                 llm_provider=llm,
                 desire_system=desire,
+                tool_broker=broker,
+                experiential_memory=experiential,
+                affect_system=affect,
+                action_trace=action_trace,
+                skill_memory=skill_mem,
+                workflow_memory=workflow_mem,
+                lesson_memory=lesson_mem,
                 data_dir=os.path.join(_DATA_DIR, "autonomous"),
-                desire_threshold=2.0,
+                desire_threshold=4.0,
                 fallback_interval_seconds=300,
             )
+
+            from aegis_ai.autonomous.spontaneous_observation import SpontaneousObservationSystem
+            from aegis_ai.autonomous.curiosity_exploration import CuriosityDrivenExplorationSystem
+
+            from aegis_ai.memory.episodic_memory import EpisodicMemory
+            from aegis_ai.memory.semantic_memory import SemanticMemory
+            from aegis_ai.memory.association_memory import AssociationMemory
+            from aegis_ai.memory.person_memory import PersonMemory
+
+            episodic_mem = EpisodicMemory(path=os.path.join(_DATA_DIR, "memory", "episodic.jsonl"))
+            semantic_mem = SemanticMemory(path=os.path.join(_DATA_DIR, "memory", "semantic.jsonl"))
+            association_mem = AssociationMemory(path=os.path.join(_DATA_DIR, "memory", "associations.jsonl"))
+            person_mem = PersonMemory(path=os.path.join(_DATA_DIR, "memory", "persons.jsonl"))
+
+            obs_system = SpontaneousObservationSystem(
+                llm=llm, broker=broker, desire_system=desire, affect_system=affect,
+                episodic_memory=episodic_mem, semantic_memory=semantic_mem,
+                person_memory=person_mem, action_trace=action_trace,
+                data_dir=os.path.join(_DATA_DIR, "autonomous"),
+            )
+
+            curiosity_system = CuriosityDrivenExplorationSystem(
+                llm=llm, desire_system=desire,
+                episodic_memory=episodic_mem, semantic_memory=semantic_mem,
+                association_memory=association_mem, action_trace=action_trace,
+                person_memory=person_mem,
+                data_dir=os.path.join(_DATA_DIR, "autonomous"),
+            )
+
+            self._autonomous_loop.set_observation_system(obs_system)
+            self._autonomous_loop.set_curiosity_system(curiosity_system)
+
             self._autonomous_loop.start()
-            logger.info("Autonomous loop started with threshold=2.0, interval=300s")
+            logger.info("Autonomous loop started with threshold=4.0, interval=300s")
         except Exception as exc:
             logger.warning("Failed to start autonomous loop: %s", exc)
 
@@ -321,6 +461,40 @@ class DashboardApp:
             except Exception:
                 pass
 
+            autonomous_data = {"running": False, "execution_count": 0, "skills_count": 0, "traces_count": 0}
+            try:
+                if self._autonomous_loop:
+                    loop_status = self._autonomous_loop.get_status()
+                    autonomous_data["running"] = loop_status.get("running", False)
+                    autonomous_data["execution_count"] = loop_status.get("execution_count", 0)
+                from aegis_ai.memory.skill_memory import SkillMemory
+                sm = SkillMemory(path=os.path.join(_DATA_DIR, "memory", "skills.jsonl"))
+                autonomous_data["skills_count"] = sm.get_stats().get("total", 0)
+                from aegis_ai.memory.action_trace import ActionTraceMemory
+                atm = ActionTraceMemory(path=os.path.join(_DATA_DIR, "memory", "action_traces.jsonl"))
+                autonomous_data["traces_count"] = atm.get_stats().get("total_traces", 0)
+            except Exception:
+                pass
+
+            # Emotion state
+            emotion_data = {
+                "urgency": 0, "confidence": 0.5, "uncertainty": 0.5,
+                "fatigue_proxy": 0.0, "risk_sensitivity": 0.5, "novelty_interest": 0.5,
+            }
+            try:
+                from aegis_ai.mind.emotion import Emotion
+                emotion = Emotion(path=os.path.join(_DATA_DIR, "mind_emotion.jsonl"))
+                emotion_data = {
+                    "urgency": emotion.urgency,
+                    "confidence": round(emotion.confidence, 2),
+                    "uncertainty": round(emotion._state.uncertainty, 2),
+                    "fatigue_proxy": round(emotion.fatigue_proxy, 2),
+                    "risk_sensitivity": round(emotion.risk_sensitivity, 2),
+                    "novelty_interest": round(emotion._state.novelty_interest, 2),
+                }
+            except Exception:
+                pass
+
             return render_template("dashboard/home.html",
                 servers=status["servers"],
                 server_summary=status["summary"],
@@ -343,6 +517,8 @@ class DashboardApp:
                 agora=agora_data,
                 desires=desire_data,
                 world=world_data,
+                autonomous=autonomous_data,
+                emotion=emotion_data,
             )
 
         @app.route("/dashboard/servers")
@@ -361,39 +537,56 @@ class DashboardApp:
         def capabilities():
             caps = []
             errors = []
+
+            risk_label_map = {
+                "low": "READ_ONLY",
+                "safe": "SAFE_ACTION",
+                "medium": "APPROVAL_REQUIRED",
+                "high": "HIGH_RISK",
+                "critical": "FORBIDDEN",
+                "read_only": "READ_ONLY",
+                "safe_action": "SAFE_ACTION",
+                "approval_required": "APPROVAL_REQUIRED",
+                "high_risk": "HIGH_RISK",
+                "forbidden": "FORBIDDEN",
+            }
+
             try:
                 from aegis_ai.folder_registry import FolderCapabilityRegistry
                 from policy_engine import PolicyEngine
                 reg = FolderCapabilityRegistry(
                     capabilities_dir=str(Path(_DATA_DIR).parent / "capabilities"),
                 )
-                engine = PolicyEngine()
+                engine = PolicyEngine(data_dir=_DATA_DIR)
                 for m in reg.list_all():
                     effective = engine._risk_overrides.get(m.capability_id, None)
-                    risk = effective.name if effective and hasattr(effective, "name") else m.risk_level
+                    if effective and hasattr(effective, "name"):
+                        risk = effective.name
+                    else:
+                        risk = risk_label_map.get(m.risk_level.lower(), "READ_ONLY")
                     caps.append({
                         "id": m.capability_id,
                         "short_name": m.short_name,
                         "title": m.title,
                         "description": m.description,
-                        "risk_level": risk.upper(),
-                        "original_risk": m.risk_level.upper(),
+                        "risk_level": risk,
                         "server_id": m.server_id,
                         "app_id": m.app_id,
                         "action": m.action,
                         "origin": m.origin,
-                        "requires_approval": m.requires_approval,
+                        "requires_approval": risk in ("APPROVAL_REQUIRED", "HIGH_RISK", "FORBIDDEN"),
                         "side_effects": m.side_effects,
                         "tags": m.tags,
-                        "overridden": effective is not None,
                     })
                 errors = reg.errors()
             except Exception as exc:
                 logger.warning("Capabilities load failed: %s", exc)
 
-            risk_levels = ["LOW", "SAFE", "MEDIUM", "HIGH", "CRITICAL"]
+            risk_levels = ["READ_ONLY", "SAFE_ACTION", "APPROVAL_REQUIRED", "HIGH_RISK", "FORBIDDEN"]
+
             return render_template("dashboard/capabilities.html",
                 capabilities=caps, risk_levels=risk_levels, errors=errors,
+                risk_label_map=risk_label_map,
             )
 
         @app.route("/api/capabilities/reload", methods=["POST"])
@@ -421,7 +614,7 @@ class DashboardApp:
             try:
                 from aegis_schema.models import RiskLevel
                 from policy_engine import PolicyEngine
-                engine = PolicyEngine()
+                engine = PolicyEngine(data_dir=_DATA_DIR)
                 level = RiskLevel[risk]
                 engine.set_risk_override(cap_id, level)
                 return jsonify({"ok": True, "capability_id": cap_id, "risk_level": risk})
@@ -805,6 +998,150 @@ class DashboardApp:
                 logger.warning("Desires page error: %s", exc)
             return render_template("dashboard/desires.html", desires=desire_data)
 
+        @app.route("/dashboard/autonomous")
+        def autonomous_page():
+            import json as json_lib
+            status_data = {"running": False, "execution_count": 0, "last_run_str": "-", "next_run_str": "-"}
+            desire_list = []
+            executions = []
+            observation_data = {"last_str": "-"}
+            curiosity_data = {"level": 0.0, "explorations": 0}
+
+            try:
+                if self._autonomous_loop:
+                    st = self._autonomous_loop.get_status()
+                    status_data["running"] = st.get("running", False)
+                    status_data["execution_count"] = st.get("execution_count", 0)
+                    last_ms = st.get("last_run_ms", 0)
+                    next_ms = st.get("next_run_ms", 0)
+                    if last_ms > 0:
+                        status_data["last_run_str"] = time.strftime("%H:%M:%S", time.localtime(last_ms / 1000))
+                    if next_ms > 0:
+                        status_data["next_run_str"] = time.strftime("%H:%M:%S", time.localtime(next_ms / 1000))
+            except Exception:
+                pass
+
+            try:
+                from aegis_ai.desire.desire_system import DesireSystem
+                ds = DesireSystem(data_dir=os.path.join(_DATA_DIR, "desires"))
+                for name, d in ds.get_all_desires().items():
+                    desire_list.append({
+                        "name": name, "value": d.value, "expected": d.expected_value,
+                        "frustration": max(0, d.expected_value - d.value),
+                    })
+                desire_list.sort(key=lambda x: x["frustration"], reverse=True)
+            except Exception:
+                pass
+
+            try:
+                log_path = os.path.join(_DATA_DIR, "autonomous", "execution_log.jsonl")
+                if os.path.exists(log_path):
+                    with open(log_path, encoding="utf-8") as f:
+                        for line in f:
+                            if line.strip():
+                                entry = json_lib.loads(line)
+                                ts = entry.get("timestamp_ms", 0)
+                                for task in entry.get("tasks", []):
+                                    result = entry.get("results", [{}])[0] if entry.get("results") else {}
+                                    executions.append({
+                                        "time_str": time.strftime("%H:%M:%S", time.localtime(ts / 1000)) if ts > 0 else "-",
+                                        "desire": task.get("desire", ""),
+                                        "action": task.get("action", ""),
+                                        "result": result.get("result", ""),
+                                        "success": result.get("success", False),
+                                    })
+                executions.reverse()
+            except Exception:
+                pass
+
+            try:
+                from aegis_ai.autonomous.curiosity_exploration import CuriosityDrivenExplorationSystem
+                from aegis_ai.desire.desire_system import DesireSystem
+                ds = DesireSystem(data_dir=os.path.join(_DATA_DIR, "desires"))
+                curiosity = CuriosityDrivenExplorationSystem(desire_system=ds, data_dir=os.path.join(_DATA_DIR, "autonomous"))
+                curiosity_data["level"] = curiosity.curiosity_level
+                curiosity_data["explorations"] = curiosity.get_exploration_stats().get("total_explorations", 0)
+            except Exception:
+                pass
+
+            return render_template("dashboard/autonomous.html",
+                status=status_data, desires=desire_list, executions=executions,
+                observation=observation_data, curiosity=curiosity_data,
+            )
+
+        @app.route("/dashboard/learning")
+        def learning_page():
+            import json as json_lib
+            stats_data = {"total_traces": 0, "total_lessons": 0, "total_workflows": 0, "total_skills": 0}
+            traces_list = []
+            skills_list = []
+            lessons_list = []
+            consolidation_data = {"last_str": "-", "count": 0, "interval_hours": 6}
+
+            try:
+                from aegis_ai.memory.action_trace import ActionTraceMemory
+                atm = ActionTraceMemory(path=os.path.join(_DATA_DIR, "memory", "action_traces.jsonl"))
+                atm_stats = atm.get_stats()
+                stats_data["total_traces"] = atm_stats.get("total_traces", 0)
+                for t in atm.get_successful(count=10) + atm.get_failed(count=5):
+                    traces_list.append({
+                        "time_str": time.strftime("%H:%M:%S", time.localtime(t.completed_at_ms / 1000)) if t.completed_at_ms > 0 else "-",
+                        "goal": t.goal, "desire": t.desire_name,
+                        "step_count": len(t.steps), "success": t.success,
+                        "duration_str": f"{t.duration_ms / 1000:.1f}s" if t.duration_ms > 0 else "-",
+                    })
+                traces_list.sort(key=lambda x: x["time_str"], reverse=True)
+            except Exception:
+                pass
+
+            try:
+                from aegis_ai.memory.skill_memory import SkillMemory
+                sm = SkillMemory(path=os.path.join(_DATA_DIR, "memory", "skills.jsonl"))
+                sm_stats = sm.get_stats()
+                stats_data["total_skills"] = sm_stats.get("total", 0)
+                for s in sm.get_active():
+                    skills_list.append({
+                        "name": s.name, "success_rate": s.success_rate,
+                        "total_uses": s.success_count + s.failure_count,
+                        "deprecated": s.deprecated, "is_reliable": s.is_reliable,
+                        "last_used_str": time.strftime("%m-%d %H:%M", time.localtime(s.last_used_at_ms / 1000)) if s.last_used_at_ms > 0 else "never",
+                    })
+                skills_list.sort(key=lambda x: x["success_rate"], reverse=True)
+            except Exception:
+                pass
+
+            try:
+                from aegis_ai.memory.lesson_memory import LessonMemory
+                lm = LessonMemory(path=os.path.join(_DATA_DIR, "memory", "lessons.jsonl"))
+                lm_stats = lm.get_stats() if hasattr(lm, "get_stats") else {}
+                stats_data["total_lessons"] = lm_stats.get("total", 0)
+                for l in lm.get_recent(count=10) if hasattr(lm, "get_recent") else []:
+                    lessons_list.append({
+                        "time_str": time.strftime("%m-%d %H:%M", time.localtime(l.created_at_ms / 1000)) if hasattr(l, "created_at_ms") and l.created_at_ms > 0 else "-",
+                        "content": l.content if hasattr(l, "content") else str(l),
+                        "type": l.lesson_type if hasattr(l, "lesson_type") else "-",
+                        "source_goal": l.source_goal if hasattr(l, "source_goal") else "-",
+                    })
+            except Exception:
+                pass
+
+            try:
+                from aegis_ai.memory.sleep_consolidation import SleepConsolidationSystem
+                sleep = SleepConsolidationSystem(data_dir=os.path.join(_DATA_DIR, "memory"))
+                sleep_status = sleep.get_status()
+                consolidation_data["count"] = sleep_status.get("consolidation_count", 0)
+                consolidation_data["interval_hours"] = sleep_status.get("auto_interval_hours", 6)
+                last_ms = sleep_status.get("last_consolidation_ms", 0)
+                if last_ms > 0:
+                    consolidation_data["last_str"] = time.strftime("%m-%d %H:%M", time.localtime(last_ms / 1000))
+            except Exception:
+                pass
+
+            return render_template("dashboard/learning.html",
+                stats=stats_data, traces=traces_list, skills=skills_list,
+                lessons=lessons_list, consolidation=consolidation_data,
+            )
+
         @app.route("/api/desires/update", methods=["POST"])
         def api_desires_update():
             from flask import request
@@ -887,6 +1224,18 @@ class DashboardApp:
 
             # Auto-save to memory
             _auto_save_memory(user_msg, bot_msg)
+
+            # Appraise interaction emotion
+            try:
+                from aegis_ai.mind.affect_system import AffectSystem
+                affect = AffectSystem(data_dir=_DATA_DIR)
+                affect.appraise_user_interaction(
+                    user_message=user_msg,
+                    bot_response=bot_msg[:200],
+                    positive_outcome=True,
+                )
+            except Exception:
+                pass
 
         def _load_chat_history() -> list[dict]:
             """Load chat history from file."""

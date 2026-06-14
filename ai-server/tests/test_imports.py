@@ -56,17 +56,15 @@ class TestImports:
         assert ctx.identity == "AEGIS — autonomous multi-device AI assistant"
 
     def test_import_autonomous_loop(self):
-        from aegis_ai.autonomous_loop import AutonomousLoop, LoopPhase  # noqa: F401
+        from aegis_ai.autonomous.autonomous_loop import AutonomousLoop  # noqa: F401
 
         _ = AutonomousLoop()
-        assert LoopPhase.IDLE is not None
-        assert LoopPhase.OBSERVE is not None
 
     def test_import_planner(self):
-        from aegis_ai.planner import Plan, Planner  # noqa: F401
+        from aegis_ai.autonomous.planner import AutonomousPlanner, ExecutionPlan  # noqa: F401
 
-        planner = Planner()
-        plan = planner.create_plan("test goal")
+        planner = AutonomousPlanner()
+        plan = planner.plan("test goal")
         assert plan.goal == "test goal"
 
     def test_import_audit(self):

@@ -44,10 +44,12 @@ flowchart TB
         EventBus["Event Bus"]
         TriggerEngine["Trigger Engine"]
         ContextBuilder["Context Builder"]
-        Mind["Mind Layer\nIdentity / Desire / Emotion / Goals"]
+        Mind["Mind Layer\nIdentity / Desire / Emotion / Goals / SocialIntelligence"]
         Memory["Memory System\nEpisodic / Semantic / Procedural / Reflection"]
+        Observation["Observation System\nMulti-server observation aggregation"]
         AutonomousLoop["Autonomous Loop\nObserve→Think→Plan→Act→Verify→Reflect"]
         Planner["Planner"]
+        Curiosity["Curiosity Exploration"]
         Researcher["Research Agent"]
         SupportAgent["Support Agent"]
         SelfDevAgent["Self Development Agent"]
@@ -74,7 +76,10 @@ flowchart TB
     ContextBuilder --> Memory
     ContextBuilder --> AutonomousLoop
     Memory --> ContextBuilder
+    Servers -->|observations| Observation
+    Observation --> EventBus
     AutonomousLoop --> Planner
+    Planner --> Curiosity
     Planner --> Researcher & SupportAgent & SelfDevAgent
     Researcher & SupportAgent & SelfDevAgent --> ToolBroker
     ToolBroker --> Policy
@@ -92,9 +97,9 @@ flowchart TB
     classDef server fill:#f8f8f8,stroke:#777
     classDef risk fill:#fff7dc,stroke:#b58a00
 
-    class EventBus,TriggerEngine,ContextBuilder,AutonomousLoop,Planner,Researcher,SupportAgent,SelfDevAgent,ToolBroker,Audit core
+    class EventBus,TriggerEngine,ContextBuilder,AutonomousLoop,Planner,Curiosity,Researcher,SupportAgent,SelfDevAgent,ToolBroker,Audit core
     class Mind mind
-    class Memory memory
+    class Memory,Observation memory
     class PCServer,AndroidServer,BrowserServer,RoomServer,DevServer server
     class Policy,ApprovalUI risk
 ```
@@ -109,7 +114,6 @@ flowchart TB
 | **Self-improving** | Dev Server enables AEGIS to fix and extend its own code in sandboxed workflows |
 | **Extensible** | Servers register capabilities dynamically via Tool Broker; new servers can be added |
 | **Offline-first** | All core logic runs locally; cloud LLM is optional/cacheable |
-| **Technology Decision Gate** | AI agents MUST NOT make major technology choices autonomously. See `AGENTS.md` §Technology Decision Gate. When multiple viable options exist for the same feature, present a structured comparison and ask the user. |
 | **Technology Decision Gate** | AI agents MUST NOT make major technology choices autonomously. See `AGENTS.md` §Technology Decision Gate. When multiple viable options exist for the same feature, present a structured comparison and ask the user. |
 
 ### 2.3 Communication
@@ -256,8 +260,10 @@ ai-server/src/
 ├── event_bus.py          # Ingests events from all servers
 ├── trigger_engine.py     # Decides when to wake the Autonomous Loop
 ├── context_builder.py    # Assembles context for LLM/decision
-├── autonomous_loop.py    # Main observe→think→plan→act→verify→reflect loop
-├── planner.py            # Task decomposition, prioritization
+├── autonomous/
+│   ├── autonomous_loop.py    # Main observe→think→plan→act→verify→reflect loop
+│   ├── planner.py            # Task decomposition, prioritization
+│   └── curiosity_exploration.py  # Novelty-seeking exploration tasks
 ├── agents/
 │   ├── research.py       # Deep information gathering
 │   ├── support.py        # Proactive user assistance
@@ -274,6 +280,8 @@ ai-server/src/
 │   ├── desire.py         # Goals, curiosity, priorities
 │   ├── emotion.py        # Urgency, confidence state
 │   └── goals.py          # Short/long-term goal tracking
+├── observation/
+│   └── observation_service.py  # Multi-server observation aggregation
 ├── scheduler.py          # Cron-like scheduled tasks
 └── audit.py              # Immutable decision log
 ```
@@ -291,6 +299,8 @@ ai-server/src/
 
 ### 5.3 Autonomous Loop
 
+**Location**: `src/aegis_ai/autonomous/autonomous_loop.py`
+
 The core decision loop. Every cycle follows this sequence:
 
 ```
@@ -307,6 +317,8 @@ Observe → Think → Plan → Act → Verify → Reflect
 | **Reflect** | Write to Reflection Log: what worked, what failed, what to try next |
 
 ### 5.4 Planner
+
+**Location**: `src/aegis_ai/autonomous/planner.py`
 
 Decomposes high-level goals into executable steps:
 - Task dependency resolution
@@ -381,8 +393,50 @@ A structured model of AEGIS's "personality" — NOT sentient, but a persistent s
 | **Desire** | Priorities: help user > learn > stay safe > be curious |
 | **Emotion** | State indicators: urgency level, confidence, fatigue proxy |
 | **Goals** | Active short-term and long-term goals with progress tracking |
+| **SocialIntelligence** | Relationship awareness, social context, interaction style adaptation |
 
 The Mind Layer is **not** a source of autonomous action — it biases the Planner and LLM, but all actions still go through the Policy Engine.
+
+### 5.12 Learning Pipeline
+
+AEGIS improves through a structured learning pipeline that converts experience into reusable skills:
+
+```
+ActionTrace → Lesson → Workflow → Skill
+```
+
+| Stage | Description | Storage |
+|-------|-------------|---------|
+| **ActionTrace** | Raw record of actions taken, parameters, results, and context | Episodic memory |
+| **Lesson** | Distilled insight from one or more traces (what worked, what failed) | Reflection memory |
+| **Workflow** | Proven sequence of steps for a recurring task pattern | Procedural memory |
+| **Skill** | Generalized, reusable capability derived from successful workflows | Procedural memory (skill library) |
+
+The pipeline is driven by the Self Development Agent and the Reflection system. Successful patterns are reinforced; failures are logged to avoid repetition.
+
+### 5.13 Observation System
+
+**Purpose**: Aggregate and normalize observations from all capability servers into a unified stream.
+
+**Location**: `src/aegis_ai/observation/observation_service.py`
+
+The Observation Service:
+- Receives raw observations from PC, Android, Browser, Room, and Dev servers
+- Normalizes into a common observation schema
+- Filters noise and deduplicates
+- Feeds processed observations into the Event Bus and Context Builder
+
+### 5.14 Curiosity Exploration
+
+**Purpose**: Novelty-seeking behavior that drives AEGIS to explore new information, tools, and patterns beyond immediate user needs.
+
+**Location**: `src/aegis_ai/autonomous/curiosity_exploration.py`
+
+Curiosity Exploration:
+- Generates exploration tasks when the curiosity desire is high
+- Samples from unexplored capabilities, unknown domains, and novel web sources
+- Results feed back into memory and the learning pipeline
+- Balanced against safety constraints — exploration never bypasses Policy Engine
 
 ---
 
