@@ -41,6 +41,7 @@ class CapabilityManifest:
     requires_approval: bool = False
     tags: list[str] = field(default_factory=list)
     short_name: str = ""
+    only_master: bool = True
     file_path: str = ""
     loaded_at: int = 0
 
@@ -156,6 +157,7 @@ class FolderCapabilityRegistry:
             requires_approval=data.get("risk", {}).get("requires_approval", False),
             tags=data.get("tags", []),
             short_name=short,
+            only_master=data.get("only_master", True),
             file_path=path,
             loaded_at=int(time.time() * 1000),
         )
@@ -190,6 +192,7 @@ class ExecutorRegistry:
     def __init__(self, apps_dir: str = "apps") -> None:
         self._dir = Path(apps_dir)
         self._executors: dict[str, ExecutorManifest] = {}
+        self._apps_dir = Path(apps_dir)
         self._load()
 
     def _load(self) -> None:
@@ -198,24 +201,26 @@ class ExecutorRegistry:
             origin_dir = self._dir / origin
             if not origin_dir.exists():
                 continue
-            for app_dir in origin_dir.iterdir():
-                if not app_dir.is_dir():
-                    continue
-                exec_dir = app_dir / "executors"
-                if not exec_dir.exists():
-                    continue
-                for f in exec_dir.glob("*.json"):
-                    self._load_one(str(f), origin, app_dir.name)
+            for json_path in origin_dir.rglob("executor.json"):
+                self._load_one(str(json_path), origin)
 
-    def _load_one(self, path: str, origin: str, app_id: str) -> None:
+    def _load_one(self, path: str, origin: str) -> None:
         try:
             data = json.loads(Path(path).read_text(encoding="utf-8"))
         except Exception:
             return
-        action = data.get("action", Path(path).stem)
-        if action != Path(path).stem:
+        p = Path(path)
+        try:
+            relative = p.parent.relative_to(self._dir / origin)
+        except ValueError:
             return
-        key = f"{origin}.{app_id}.{action}"
+        parts = relative.parts
+        if len(parts) < 3:
+            return
+        server_id = parts[0]
+        app_id = parts[1]
+        action = parts[2]
+        key = f"{origin}.{server_id}.{app_id}.{action}"
         self._executors[key] = ExecutorManifest(
             action=action,
             executor_type=data.get("type", "command"),
@@ -233,14 +238,15 @@ class ExecutorRegistry:
         self._load()
         return {"old": old, "new": len(self._executors)}
 
-    def get(self, origin: str, app_id: str, action: str) -> ExecutorManifest | None:
-        return self._executors.get(f"{origin}.{app_id}.{action}")
+    def get(self, manifest: CapabilityManifest) -> ExecutorManifest | None:
+        key = f"{manifest.origin}.{manifest.server_id}.{manifest.app_id}.{manifest.action}"
+        return self._executors.get(key)
 
     def execute(self, manifest: CapabilityManifest, arguments: dict[str, Any]) -> ExecutionResult:
         cap_id = manifest.capability_id
         start = time.perf_counter()
 
-        exec_manifest = self.get(manifest.origin, manifest.app_id, manifest.action)
+        exec_manifest = self.get(manifest)
         if exec_manifest is None:
             return ExecutionResult(
                 ok=False, capability_id=cap_id,
@@ -255,10 +261,10 @@ class ExecutorRegistry:
                 meta=self._meta(manifest, 0),
             )
 
-        app_dir = Path(exec_manifest.file_path).parent.parent
-        work_dir = str((app_dir / exec_manifest.working_dir).resolve())
-
-        if ".." in exec_manifest.working_dir:
+        exec_file = Path(exec_manifest.file_path)
+        work_dir = str((exec_file.parent / exec_manifest.working_dir).resolve())
+        apps_root = str(self._apps_dir.resolve())
+        if not work_dir.startswith(apps_root):
             return ExecutionResult(
                 ok=False, capability_id=cap_id,
                 error={"code": "WORKING_DIR_VIOLATION", "message": "Cannot escape app folder"},

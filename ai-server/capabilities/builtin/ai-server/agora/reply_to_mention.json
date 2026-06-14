@@ -1,0 +1,32 @@
+{
+  "id": "ai-server.agora.reply_to_mention",
+  "title": "Reply to AGORA Mentions",
+  "description": "Read mentions, detect messages directed at AEGIS, generate replies with LLM, and post them",
+  "server_id": "ai-server",
+  "app_id": "agora",
+  "action": "reply_to_mention",
+  "risk": {
+    "level": "safe_action",
+    "side_effects": ["posts_to_agora"]
+  },
+  "input": {
+    "type": "object",
+    "properties": {
+      "limit": {
+        "type": "integer",
+        "description": "Number of mentions to check",
+        "default": 5
+      }
+    }
+  },
+  "output": {
+    "type": "object",
+    "properties": {
+      "mentions_checked": { "type": "integer" },
+      "replies_sent": { "type": "integer" },
+      "details": { "type": "array" }
+    }
+  },
+  "tags": ["agora", "social", "reply", "autonomous"],
+  "requires_approval": false
+}

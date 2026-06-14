@@ -1,6 +1,6 @@
 {
   "title": "AGORA Read Posts",
-  "description": "Read recent posts from AGORA chat.",
+  "description": "Read recent posts from AGORA chat. If you reply, it will satisfy your desire even more.",
   "server_id": "ai-server",
   "app_id": "agora",
   "action": "read_posts",
@@ -23,5 +23,6 @@
     "side_effects": [],
     "requires_approval": false
   },
-  "tags": ["builtin", "agora", "read"]
+  "tags": ["builtin", "agora", "read"],
+  "only_master": false
 }

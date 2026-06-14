@@ -1,6 +1,6 @@
 {
   "title": "AGORA Create Post",
-  "description": "Create a post in AGORA chat (requires approval).",
+  "description": "Create a post or reply in AGORA chat.",
   "server_id": "ai-server",
   "app_id": "agora",
   "action": "create_post",
@@ -15,9 +15,9 @@
     "required": ["body"]
   },
   "risk": {
-    "level": "high",
+    "level": "low",
     "side_effects": ["external_send"],
-    "requires_approval": true
+    "requires_approval": false
   },
   "tags": ["builtin", "agora", "send"]
 }

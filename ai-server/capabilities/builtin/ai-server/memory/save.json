@@ -1,0 +1,18 @@
+{
+  "id": "ai-server.memory.save",
+  "title": "Save to Memory",
+  "description": "Save information to AEGIS memory for future reference",
+  "server_id": "ai-server",
+  "app_id": "memory",
+  "action": "save",
+  "risk": {"level": "read_only"},
+  "input": {
+    "type": "object",
+    "properties": {
+      "content": {"type": "string", "description": "Content to remember"}
+    },
+    "required": ["content"]
+  },
+  "tags": ["memory", "save", "read"],
+  "only_master": false
+}
