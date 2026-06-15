@@ -83,13 +83,66 @@ class CapabilityCatalog:
             {
                 "id": m.capability_id,
                 "short_name": m.short_name,
+                "title": m.title,
                 "description": m.description,
                 "params": list(m.input_schema.get("properties", {}).keys()),
+                "required_params": m.input_schema.get("required", []),
+                "input_schema": m.input_schema,
                 "risk": m.risk_level,
                 "only_master": m.only_master,
             }
             for m in self._cap_reg.list_all()
         ]
+
+    def list_for_tools(self, cap_ids: set[str] | None = None) -> list[dict[str, Any]]:
+        """Convert capabilities to OpenAI tool format for tool calling.
+
+        Args:
+            cap_ids: If provided, only include these capability IDs.
+
+        Returns:
+            List of OpenAI tool definitions.
+        """
+        tools = []
+        for m in self._cap_reg.list_all():
+            if cap_ids and m.capability_id not in cap_ids:
+                continue
+            props = m.input_schema.get("properties", {})
+            required = m.input_schema.get("required", [])
+            parameters = {"type": "object", "properties": {}, "required": required}
+            for pname, pschema in props.items():
+                parameters["properties"][pname] = pschema
+            tool_name = m.capability_id.replace(".", "__")
+            tools.append({
+                "type": "function",
+                "function": {
+                    "name": tool_name,
+                    "description": f"{m.title}: {m.description}",
+                    "parameters": parameters,
+                },
+            })
+        return tools
+
+    def tool_name_to_cap_id(self, tool_name: str) -> str:
+        """Convert tool function name back to capability ID (double underscore to dot)."""
+        return tool_name.replace("__", ".")
+
+    def to_tool_registry_capabilities(self) -> list:
+        """Convert all manifests to Capability objects for ToolRegistry registration."""
+        from aegis_schema.models import Capability, RiskLevel, ServerType
+        risk_map = {"low": RiskLevel.READ_ONLY, "safe": RiskLevel.SAFE_ACTION, "medium": RiskLevel.APPROVAL_REQUIRED, "high": RiskLevel.HIGH_RISK}
+        server_type_map = {"pc-server": ServerType.PC, "browser-server": ServerType.BROWSER, "android-server": ServerType.ANDROID, "room-server": ServerType.ROOM, "ai-server": ServerType.AI}
+        caps = []
+        for m in self._cap_reg.list_all():
+            caps.append(Capability(
+                id=m.capability_id,
+                name=m.title,
+                description=m.description,
+                server_type=server_type_map.get(m.server_id, ServerType.AI),
+                risk_level=risk_map.get(m.risk_level, RiskLevel.READ_ONLY),
+                tags=m.tags,
+            ))
+        return caps
 
     def execute(self, cap_id: str, arguments: dict[str, Any]) -> ExecutionResult:
         """Execute a capability by any ID format."""

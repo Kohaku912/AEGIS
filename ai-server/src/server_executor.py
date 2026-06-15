@@ -57,7 +57,11 @@ class ServerExecutor:
                 result = self._catalog.execute(cap_id, params)
                 if result.ok:
                     return result.result if isinstance(result.result, dict) else {"result": result.result}
-                return {"error": result.error.get("message", "Execution failed"), "code": result.error.get("code", "")}
+                return {
+                    "error": result.error.get("message", "Execution failed"),
+                    "code": result.error.get("code", ""),
+                    "details": result.error.get("details", {}),
+                }
 
             return {"error": f"No client for server '{server_id}'."}
 

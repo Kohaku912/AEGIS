@@ -7,10 +7,25 @@
   "input_schema": {
     "type": "object",
     "properties": {
-      "fields": {"type": "object"}
+      "fields": {
+        "type": "object"
+      }
     },
-    "required": ["fields"]
+    "required": [
+      "fields"
+    ]
   },
-  "risk": {"level": "medium", "side_effects": ["form_data_entry"], "requires_approval": true},
-  "tags": ["builtin", "browser", "action", "form"]
+  "risk": {
+    "level": "safe",
+    "side_effects": [
+      "form_data_entry"
+    ],
+    "requires_approval": false
+  },
+  "tags": [
+    "builtin",
+    "browser",
+    "action",
+    "form"
+  ]
 }

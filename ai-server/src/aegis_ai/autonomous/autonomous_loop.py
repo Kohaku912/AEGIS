@@ -356,7 +356,7 @@ class AutonomousLoop:
         for d in low_desires[:self._max_tasks]:
             desire_context.append(f"- {d['name']}: {d['value']:.1f}/10 (gap: {d['gap']:.1f})")
 
-        valid_cap_ids: list[str] = []
+        valid_cap_ids: set[str] = set()
         if self._broker:
             try:
                 pc_ok = _check_port("localhost", 50052)
@@ -376,7 +376,7 @@ class AutonomousLoop:
                             continue
                         if cap_id.startswith("room-server.") and not room_ok:
                             continue
-                        valid_cap_ids.append(cap_id)
+                        valid_cap_ids.add(cap_id)
             except Exception:
                 pass
 
@@ -384,66 +384,70 @@ class AutonomousLoop:
             logger.error("No valid capabilities available — cannot generate tasks")
             return []
 
-        cap_list = "\n".join(f"- {cid}" for cid in sorted(valid_cap_ids))
+        catalog = None
+        if self._broker and hasattr(self._broker, '_catalog') and self._broker._catalog:
+            catalog = self._broker._catalog
+
+        if not catalog:
+            logger.error("No capability catalog available — cannot generate tasks")
+            return []
+
+        tools = catalog.list_for_tools(valid_cap_ids)
+        if not tools:
+            logger.error("No tools generated from catalog")
+            return []
 
         prompt = f"""Your desires are low:
 
 {chr(10).join(desire_context)}
 
-VALID capability IDs (use ONLY these exact strings):
-{cap_list}
+Select up to {self._max_tasks} capabilities to address the low desires.
+For each, provide all required arguments."""
 
-Pick up to {self._max_tasks} capabilities to address the low desires.
-capability_id MUST be one of the exact strings above. Do NOT invent new IDs.
-
-Respond with JSON:
-{{"tasks": [{{"desire": "name", "capability_id": "exact.id.from.list", "action": "what to do", "expected_impact": 0.5}}]}}"""
-
-        result = self._llm.generate(
+        result = self._llm.generate_with_tools(
             prompt=prompt,
+            tools=tools,
             system_prompt=(
                 "You are AEGIS's autonomous task generator. "
-                "You MUST only use capability_id values from the provided list. "
-                "Never invent capability IDs. Output only JSON."
+                "Select capabilities to fulfill low desires. "
+                "Call the appropriate functions with all required arguments."
             ),
-            max_tokens=500,
+            max_tokens=1000,
         )
 
         if not result.success:
             logger.error("LLM task generation failed: %s", getattr(result, "error", "unknown"))
             return []
 
-        try:
-            clean = result.content.strip()
-            if clean.startswith("```"):
-                lines = clean.split("\n")
-                clean = "\n".join(lines[1:])
-                if clean.endswith("```"):
-                    clean = clean[:-3]
-                clean = clean.strip()
-
-            data = json.loads(clean)
-            tasks = data.get("tasks", [])
-            valid_set = set(valid_cap_ids)
-            valid_tasks = []
-            for t in tasks[:self._max_tasks]:
-                cap_id = t.get("capability_id", "")
-                if cap_id and cap_id in valid_set:
-                    valid_tasks.append({
-                        "desire": t.get("desire", ""),
-                        "action": t.get("action", f"Execute {cap_id}"),
-                        "capability_id": cap_id,
-                        "arguments": t.get("arguments", {}),
-                        "expected_impact": t.get("expected_impact", 0.5),
-                    })
-                elif cap_id:
-                    logger.warning("LLM returned invalid capability: %s — skipping", cap_id)
-            if not valid_tasks:
-                logger.warning("LLM returned no valid tasks")
-            return valid_tasks
-        except Exception as e:
-            logger.warning("Failed to parse LLM tasks: %s", e)
+        if not result.tool_calls:
+            logger.warning("LLM returned no tool calls")
             return []
+
+        valid_tasks = []
+        top_desire = low_desires[0]["name"] if low_desires else ""
+        for i, tc in enumerate(result.tool_calls[:self._max_tasks]):
+            cap_id = catalog.tool_name_to_cap_id(tc["function"])
+            args = tc["arguments"]
+            manifest = catalog.resolve(cap_id)
+            if manifest:
+                schema = manifest.input_schema
+                required = schema.get("required", [])
+                missing = [r for r in required if r not in args or not args[r]]
+                if missing:
+                    logger.warning("LLM task missing required args for %s: %s", cap_id, missing)
+                    continue
+            desire = low_desires[i]["name"] if i < len(low_desires) else top_desire
+            valid_tasks.append({
+                "desire": desire,
+                "action": f"Execute {cap_id}",
+                "capability_id": cap_id,
+                "arguments": args,
+                "expected_impact": 0.5,
+            })
+
+        if not valid_tasks:
+            logger.warning("LLM returned no valid tasks")
+        return valid_tasks
 
     def _execute_tasks(self, tasks: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Execute tasks with skill/workflow reuse and action tracing."""
@@ -512,8 +516,13 @@ Respond with JSON:
                                 result_summary = self._analyze_screenshot(image_b64, desire_name)
                         success = True
                     else:
-                        result_summary = f"Failed: {result.error}"[:200]
+                        error_details = result.output or {}
+                        stderr = error_details.get("error", {}).get("details", {}).get("stderr", "") if isinstance(error_details.get("error"), dict) else ""
+                        result_summary = f"Failed: {result.error}"
+                        if stderr:
+                            result_summary += f"\nstderr: {stderr}"
                         failure_reason = result.error
+                        full_output = error_details
 
                     if trace:
                         self._action_trace.add_step(trace, description=action, tool_call=capability_id,
@@ -632,52 +641,70 @@ Respond with JSON:
                 f"Desire: {task.get('desire', '')}"
             )
 
-        prompt = f"""You are AEGIS. Based on the following task results, determine if any follow-up actions are needed.
+        catalog = None
+        if self._broker and hasattr(self._broker, '_catalog') and self._broker._catalog:
+            catalog = self._broker._catalog
+
+        if not catalog:
+            return []
+
+        valid_cap_ids: set[str] = set()
+        if self._broker:
+            try:
+                caps = self._broker.list_safe_capabilities()
+                if caps:
+                    for c in caps:
+                        valid_cap_ids.add(c.id)
+            except Exception:
+                pass
+
+        tools = catalog.list_for_tools(valid_cap_ids)
+        if not tools:
+            return []
+
+        prompt = f"""Based on the following task results, determine if any follow-up actions are needed.
 
 Previous tasks:
 {chr(10).join(context_parts)}
 
 Rules:
-- Only suggest follow-up if the result contains actionable information
+- Only call a function if the result contains actionable information
 - For social tasks: if there are mentions/messages directed at AEGIS, suggest replying
 - For search tasks: if results are interesting, suggest saving to memory
 - For system tasks: if anomalies detected, suggest investigation
-- If no follow-up needed, return empty tasks array
-
-Respond with JSON:
-{{"tasks": [{{"desire": "desire_name", "capability_id": "exact.capability.id", "arguments": {{}}, "action": "what to do", "expected_impact": 0.5}}]}}"""
+- If no follow-up needed, do not call any function"""
 
         try:
-            result = self._llm.generate(
+            result = self._llm.generate_with_tools(
                 prompt=prompt,
-                system_prompt="You are AEGIS deciding follow-up actions. Output only JSON. If no follow-up needed, output {\"tasks\": []}",
+                tools=tools,
+                system_prompt="You are AEGIS deciding follow-up actions. Only call functions if follow-up is needed.",
                 max_tokens=500,
             )
-            if not result.success:
+
+            if not result.success or not result.tool_calls:
                 return []
 
-            clean = result.content.strip()
-            if clean.startswith("```"):
-                lines = clean.split("\n")
-                clean = "\n".join(lines[1:])
-                if clean.endswith("```"):
-                    clean = clean[:-3]
-                clean = clean.strip()
-
-            import json as _json
-            data = _json.loads(clean)
-            tasks = data.get("tasks", [])
             valid_tasks = []
-            for t in tasks[:2]:
-                cap_id = t.get("capability_id", "")
-                if cap_id:
-                    valid_tasks.append({
-                        "desire": t.get("desire", ""),
-                        "action": t.get("action", f"Follow-up: {cap_id}"),
-                        "capability_id": cap_id,
-                        "arguments": t.get("arguments", {}),
-                        "expected_impact": t.get("expected_impact", 0.3),
-                    })
+            for tc in result.tool_calls[:2]:
+                cap_id = catalog.tool_name_to_cap_id(tc["function"])
+                args = tc["arguments"]
+                manifest = catalog.resolve(cap_id)
+                if manifest:
+                    schema = manifest.input_schema
+                    required = schema.get("required", [])
+                    missing = [r for r in required if r not in args or not args[r]]
+                    if missing:
+                        logger.warning("Follow-up task missing required args for %s: %s", cap_id, missing)
+                        continue
+                desire = previous_tasks[0].get("desire", "") if previous_tasks else ""
+                valid_tasks.append({
+                    "desire": desire,
+                    "action": f"Follow-up: {cap_id}",
+                    "capability_id": cap_id,
+                    "arguments": args,
+                    "expected_impact": 0.3,
+                })
             return valid_tasks
         except Exception as e:
             logger.debug("Follow-up generation failed: %s", e)
@@ -717,48 +744,57 @@ Respond with JSON:
             return "Screenshot captured (analysis error)"
 
     def _update_desires(self, results: list[dict[str, Any]]) -> None:
-        """Update desires based on task results using LLM evaluation with history."""
+        """Update desires based on task results using fulfillment rules."""
         if not self._desire:
             return
 
         self._desire.apply_decay()
-        
-        needs_update = False
-        for result in results:
-            desire_name = result.get("desire", "")
-            if desire_name:
-                desire = self._desire.get_desire(desire_name)
-                if desire and desire.value < desire.expected_value * 0.9:
-                    needs_update = True
-                    break
-        
-        if not needs_update:
-            logger.info("All executed desires above expected, skipping LLM update")
-            return
 
-        history = self._load_recent_history()
+        from aegis_ai.desire.fulfillment import evaluate_task_result, TaskEffect
 
         for result in results:
-            action = result.get("action", "")
-            observation = result.get("result", "")
-            success = result.get("success", False)
             desire_name = result.get("desire", "")
             capability_id = result.get("capability_id", "")
-            
-            if not success:
+            success = result.get("success", False)
+            output = result.get("full_output", {})
+
+            if not desire_name:
                 continue
 
-            desire = self._desire.get_desire(desire_name) if desire_name else None
-            if desire and desire.value >= desire.expected_value * 0.9:
+            desire = self._desire.get_desire(desire_name)
+            if not desire:
                 continue
 
-            logger.info("Updating desires for action: %s (success=%s)", action[:50], success)
+            if desire.value >= desire.expected_value * 0.9:
+                continue
 
-            update_result = self._desire.update_after_action(
-                action, observation,
-                history=history,
+            task_result = evaluate_task_result(
+                capability_id=capability_id,
+                tool_success=success,
+                output=output,
+                desire_name=desire_name,
             )
-            logger.info("Desire update result: %s", update_result)
+
+            logger.info(
+                "Task evaluation: cap=%s effect=%s deltas=%s",
+                capability_id, task_result.task_effect.value, task_result.desire_delta_hint,
+            )
+
+            if task_result.task_effect == TaskEffect.NO_EFFECT:
+                continue
+
+            for d_name, delta in task_result.desire_delta_hint.items():
+                if delta != 0.0:
+                    current = self._desire.get_desire(d_name)
+                    if current:
+                        new_val = max(0.0, min(10.0, current.value + delta))
+                        self._desire.update_value(
+                            d_name, new_val,
+                            reason=f"{task_result.summary} ({capability_id})",
+                        )
+                        logger.info("Desire %s: %.1f -> %.1f (delta=%.1f)", d_name, current.value, new_val, delta)
+
+        self._desire.save()
 
     def _load_recent_history(self, max_entries: int = 5) -> list[dict[str, Any]]:
         log_path = self._data_dir / "execution_log.jsonl"
@@ -776,15 +812,18 @@ Respond with JSON:
             return []
 
     def _record_experiences(self, tasks: list[dict[str, Any]], results: list[dict[str, Any]]) -> None:
-        """Record experiences and appraise emotions from task execution."""
         for i, task in enumerate(tasks):
             result = results[i] if i < len(results) else {}
+            success = result.get("success", False)
+
+            if not success:
+                continue
+
             action = task.get("action", "Unknown task")
             capability_id = task.get("capability_id", result.get("capability_id", ""))
             observation = result.get("result", "")
             full_output = result.get("full_output", {})
             desire_name = task.get("desire", "")
-            success = result.get("success", False)
 
             if self._experiential:
                 try:

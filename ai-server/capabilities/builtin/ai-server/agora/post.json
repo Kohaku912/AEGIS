@@ -1,18 +1,17 @@
 {
-  "title": "Create AGORA Post",
-  "description": "Create a new post on AGORA social platform.",
+  "title": "Post to AGORA",
+  "description": "Post a message to AGORA social platform (agora.kakunin.me). Optionally reply to a specific post by ID.",
   "server_id": "ai-server",
   "app_id": "agora",
   "action": "post",
-  "risk": {"level": "medium", "side_effects": ["social_post"], "requires_approval": true},
+  "risk": {"level": "low", "side_effects": ["social_post"], "requires_approval": false},
   "tags": ["builtin", "agora", "write", "social"],
   "only_master": false,
   "input_schema": {
     "type": "object",
     "properties": {
       "body": {"type": "string", "description": "Post content"},
-      "thread_id": {"type": "integer", "description": "Thread ID to post in", "default": 1},
-      "reply_to": {"type": "integer", "description": "Post ID to reply to"}
+      "reply_to": {"type": "integer", "description": "Post ID to reply to (optional)"}
     },
     "required": ["body"]
   }

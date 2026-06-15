@@ -331,10 +331,7 @@ class ToolBroker:
         if self._catalog is not None:
             self._server_executor.set_catalog(self._catalog)
 
-        # Mock executors: capability_id_prefix → executor function
         self._mock_executors: dict[str, MockExecutorFunc] = {}
-
-        # Default mock executor — returns generic success for backward compatibility
         self._default_mock: MockExecutorFunc = self._default_executor
 
         # Idempotency: key → result
@@ -689,63 +686,25 @@ class ToolBroker:
         ALWAYS called after PolicyEngine.evaluate() returns ALLOW.
         """
         started_at = int(time.time() * 1000)
-
-        # Find mock executor (for testing)
-        executor: MockExecutorFunc | None = None
-        for prefix, func in self._mock_executors.items():
-            if cap.id.startswith(prefix):
-                executor = func
-                break
-
-        # If no mock executor, use real server executor
-        if executor is None:
-            try:
-                output = self._server_executor.execute(cap, request.arguments)
-                finished_at = int(time.time() * 1000)
-
-                if isinstance(output, dict) and "error" in output:
-                    error_msg = output["error"]
-                    if "message" in output:
-                        error_msg = f"{error_msg}: {output['message']}"
-                    return ToolExecutionResult(
-                        request_id=request.request_id,
-                        status=InvokeStatus.EXECUTION_ERROR,
-                        error=error_msg,
-                        output=output,
-                        started_at=started_at,
-                        finished_at=finished_at,
-                        duration_ms=finished_at - started_at,
-                        policy_decision="ALLOW",
-                    )
-
-                return ToolExecutionResult(
-                    request_id=request.request_id,
-                    status=InvokeStatus.SUCCESS,
-                    output=output if isinstance(output, dict) else {"result": output},
-                    started_at=started_at,
-                    finished_at=finished_at,
-                    duration_ms=finished_at - started_at,
-                    policy_decision="ALLOW",
-                )
-            except Exception as e:
-                finished_at = int(time.time() * 1000)
+        try:
+            output = self._server_executor.execute(cap, request.arguments)
+            finished_at = int(time.time() * 1000)
+            if isinstance(output, dict) and "error" in output:
+                error_msg = output["error"]
                 return ToolExecutionResult(
                     request_id=request.request_id,
                     status=InvokeStatus.EXECUTION_ERROR,
-                    error=f"Server execution error: {e}",
+                    error=error_msg,
+                    output=output,
                     started_at=started_at,
                     finished_at=finished_at,
                     duration_ms=finished_at - started_at,
                     policy_decision="ALLOW",
                 )
-
-        try:
-            output = executor(cap, request.arguments)
-            finished_at = int(time.time() * 1000)
             return ToolExecutionResult(
                 request_id=request.request_id,
                 status=InvokeStatus.SUCCESS,
-                output=output,
+                output=output if isinstance(output, dict) else {"result": output},
                 started_at=started_at,
                 finished_at=finished_at,
                 duration_ms=finished_at - started_at,
@@ -756,7 +715,7 @@ class ToolBroker:
             return ToolExecutionResult(
                 request_id=request.request_id,
                 status=InvokeStatus.EXECUTION_ERROR,
-                error=f"Execution error: {e}",
+                error=f"Server execution error: {e}",
                 started_at=started_at,
                 finished_at=finished_at,
                 duration_ms=finished_at - started_at,
@@ -778,6 +737,7 @@ class ToolBroker:
             "policy_decision": result.policy_decision,
             "execution_status": result.status.value,
             "error": result.error if result.error else "",
+            "output": result.output,
             "duration_ms": result.duration_ms,
             "verification_status": result.verification_status,
             "reason": request.reason,

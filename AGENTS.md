@@ -217,21 +217,51 @@ Aliases are built at startup from JSON manifests. Code MUST use canonical format
 
 | Desire | Description |
 |--------|-------------|
-| **social_connectivity** | Need for social interaction and connection |
-| **personal_fulfillment** | Need for growth, achievement, self-actualization |
-| **curiosity** | Need for exploration, learning, discovery |
-| **safety** | Need for security, stability, protection |
-| **recognition** | Need for acknowledgment, appreciation, respect |
-| **autonomy** | Need for independence, control, self-determination |
-| **creativity** | Need for self-expression, innovation, creative output |
-| **purpose** | Need for meaning, direction, sense of purpose |
+| **user_helpfulness** | Need to effectively assist the user |
+| **reliability** | Need to be dependable and error-free |
+| **system_safety** | Need for security and protection |
+| **curiosity** | Need for exploration and learning |
+| **social_connection** | Need for social interaction |
+| **autonomy** | Need for independence and self-determination |
+| **creativity** | Need for creative expression |
+| **purpose** | Need for meaningful action |
+| **learning_progress** | Need for growth and learning |
+| **maintenance** | Need for system health |
+
+### Task Evaluation (3-tier)
+
+| Field | Description |
+|-------|-------------|
+| `tool_success` | Whether the tool execution succeeded (bool) |
+| `task_effect` | Classification: `useful`, `no_effect`, `failed`, `blocked`, `needs_followup` |
+| `desire_delta_hint` | Per-desire delta based on fulfillment conditions |
+
+### Desire Fulfillment Rules
+
+| Desire | Condition | Delta |
+|--------|-----------|-------|
+| **user_helpfulness** | User request completed | +0.8 |
+| | Mention reply created | +0.5 |
+| | No new posts | 0.0 |
+| | Tool error | -0.3 |
+| **reliability** | Error diagnosed and fixed | +0.8 |
+| | Healthcheck passed | +0.4 |
+| | Tool error | -0.3 |
+| **system_safety** | Security check done | +0.8 |
+| | Safety info saved | +0.3 |
+| **curiosity** | New info summarized | +0.5 |
+| | Empty results | 0.0 |
+| **social_connection** | Posted to AGORA | +0.8 |
+| | Read new posts | +0.3 |
+| | No new posts | 0.0 |
 
 ### How It Works
 
 1. **Time-based decay**: Desires naturally decrease over time
-2. **Action evaluation**: LLM evaluates how actions affect desires
-3. **Task generation**: When desires are low, generate tasks to fulfill them
-4. **Self-scheduling**: LLM decides when to run next based on desire states
+2. **Task execution**: Tool calling executes capabilities
+3. **Result evaluation**: `evaluate_task_result()` classifies effect and computes deltas
+4. **Desire update**: Deltas are applied to desire values
+5. **No-effect handling**: "No new posts" etc. are `task_effect=no_effect` with delta=0.0 (no decrease)
 
 ---
 
@@ -260,18 +290,18 @@ Aliases are built at startup from JSON manifests. Code MUST use canonical format
 
 ### Features
 
-- **Streaming chat**: Real-time LLM response display
+- **Streaming chat**: Real-time LLM response display with tool calling
 - **Memory integration**: AdvancedMemory context in LLM prompts
 - **Desire context**: Current desire states in LLM prompts
-- **All actions through LLM**: Every result passes through LLM for final response
+- **Tool calling**: Chat uses CapabilityCatalog for capability execution
 - **Settings management**: All settings changes persist to `config/settings.json`
 
 ### Chat API
 
 | Endpoint | Method | Purpose |
 |----------|--------|---------|
-| `/api/chat/send` | POST | Send message (non-streaming) |
-| `/api/chat/stream` | POST | Send message (streaming) |
+| `/api/chat/send` | POST | Send message (non-streaming, tool calling) |
+| `/api/chat/stream` | POST | Send message (streaming, tool calling) |
 | `/api/chat/history` | GET | Get chat history |
 | `/api/chat/clear` | POST | Clear chat history |
 
