@@ -253,7 +253,15 @@ class LLMTaskInterpreter:
                 lines = []
                 for cap in caps[:30]:
                     params_str = ", ".join(cap.get("params", []))
-                    lines.append(f"- {cap['id']}: {cap['description']} (params: {params_str})")
+                    required_str = ", ".join(cap.get("required_params", []))
+                    title = cap.get("title", "")
+                    desc = cap.get("description", "")
+                    line = f"- {cap['id']}: {title} — {desc}"
+                    if params_str:
+                        line += f"\n  params: {params_str}"
+                    if required_str:
+                        line += f"\n  required: {required_str}"
+                    lines.append(line)
                 return "\n".join(lines) if lines else "No capabilities registered"
             except Exception:
                 pass

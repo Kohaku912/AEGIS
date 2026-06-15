@@ -27,6 +27,7 @@ class LLMResponse:
     cost_estimate: float = 0.0
     success: bool = True
     error: str = ""
+    tool_calls: list[dict[str, Any]] | None = None
 
 
 class OpenAIProvider:
@@ -120,6 +121,110 @@ class OpenAIProvider:
             logger.error("OpenAI API call failed: %s", e)
             self._audit_log(
                 action="llm_call",
+                decision="error",
+                detail={
+                    "model": self._model,
+                    "prompt_preview": prompt,
+                    "error": str(e),
+                    "duration_ms": round(duration_ms, 1),
+                },
+            )
+            return LLMResponse(
+                success=False,
+                error=str(e),
+                model_used=self._model,
+                provider_used="openai",
+            )
+
+    def generate_with_tools(
+        self,
+        prompt: str,
+        tools: list[dict[str, Any]],
+        system_prompt: str = "",
+        max_tokens: int = 1000,
+        temperature: float = 0.3,
+    ) -> LLMResponse:
+        """Generate a response using OpenAI tool calling.
+
+        Args:
+            prompt: User prompt
+            tools: OpenAI tool definitions (list of function schemas)
+            system_prompt: Optional system prompt
+            max_tokens: Max response tokens
+            temperature: Sampling temperature
+
+        Returns:
+            LLMResponse with tool_calls populated if the model chose tools
+        """
+        logger.info("LLM tool call: model=%s tools=%d prompt_len=%d", self._model, len(tools), len(prompt))
+        messages = []
+        if system_prompt:
+            messages.append({"role": "system", "content": system_prompt})
+        messages.append({"role": "user", "content": prompt})
+
+        start = time.time()
+        try:
+            response = self._client.chat.completions.create(
+                model=self._model,
+                messages=messages,
+                tools=tools,
+                tool_choice="auto",
+                max_tokens=max_tokens,
+                temperature=temperature,
+            )
+
+            choice = response.choices[0]
+            content = choice.message.content or ""
+            tokens = response.usage.total_tokens if response.usage else 0
+            duration_ms = (time.time() - start) * 1000
+
+            tool_calls = None
+            if choice.message.tool_calls:
+                tool_calls = []
+                for tc in choice.message.tool_calls:
+                    import json as _json
+                    try:
+                        args = _json.loads(tc.function.arguments)
+                    except Exception:
+                        args = {}
+                    tool_calls.append({
+                        "id": tc.id,
+                        "function": tc.function.name,
+                        "arguments": args,
+                    })
+
+            logger.info(
+                "LLM tool call success: model=%s tokens=%d duration=%.1fms tool_calls=%d",
+                self._model, tokens, duration_ms, len(tool_calls) if tool_calls else 0,
+            )
+
+            self._audit_log(
+                action="llm_tool_call",
+                decision="success",
+                detail={
+                    "model": self._model,
+                    "prompt_preview": prompt,
+                    "response_preview": content,
+                    "tool_calls": tool_calls,
+                    "tokens": tokens,
+                    "duration_ms": round(duration_ms, 1),
+                },
+            )
+
+            return LLMResponse(
+                content=content,
+                model_used=self._model,
+                provider_used="openai",
+                tokens_used=tokens,
+                cost_estimate=tokens * 0.000002,
+                success=True,
+                tool_calls=tool_calls,
+            )
+        except Exception as e:
+            duration_ms = (time.time() - start) * 1000
+            logger.error("OpenAI tool call failed: %s", e)
+            self._audit_log(
+                action="llm_tool_call",
                 decision="error",
                 detail={
                     "model": self._model,

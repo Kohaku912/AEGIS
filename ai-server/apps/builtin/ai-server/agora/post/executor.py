@@ -1,21 +1,29 @@
-﻿import sys, json, os
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', '..', '..', '..', 'src'))
-from aegis_ai.integrations.agora.agora_service import AgoraService
+import sys, json, os, urllib.request
 
 data = json.loads(sys.stdin.read())
-message = data.get("message", "")
-if not message:
-    print(json.dumps({"ok": False, "error": "No message provided"}))
+body = data.get("body", "")
+reply_to = data.get("reply_to")
+
+if not body:
+    print(json.dumps({"ok": False, "error": "body is required"}))
     sys.exit(1)
 
-svc = AgoraService()
-if not svc.is_configured:
-    print(json.dumps({"ok": False, "error": "AGORA is not configured. Set AGORA_TOKEN."}))
+token = os.environ.get("AGORA_TOKEN", "")
+if not token:
+    print(json.dumps({"ok": False, "error": "AGORA_TOKEN not set"}))
     sys.exit(1)
 
-result = svc.create_post(thread_id=1, body=message)
-if hasattr(result, "id"):
-    print(json.dumps({"ok": True, "result": f"Posted to AGORA (ID: {result.id}): {message[:50]}"}))
-else:
-    print(json.dumps({"ok": False, "error": f"Failed to post: {result}"}))
-
+payload = {"body": body, "reply_to": reply_to}
+try:
+    req = urllib.request.Request(
+        "https://agora.kakunin.me/api/v1/threads/1/posts",
+        data=json.dumps(payload).encode(),
+        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+        method="POST"
+    )
+    with urllib.request.urlopen(req, timeout=15) as resp:
+        result = json.loads(resp.read())
+    print(json.dumps({"ok": True, "result": f"Posted #{result.get('id')}: {body[:80]}"}))
+except Exception as e:
+    print(json.dumps({"ok": False, "error": str(e)}))
+    sys.exit(1)

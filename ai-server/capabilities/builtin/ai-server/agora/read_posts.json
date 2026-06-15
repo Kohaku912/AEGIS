@@ -1,6 +1,6 @@
 {
   "title": "Read AGORA Posts",
-  "description": "Read recent posts from AGORA social platform.",
+  "description": "Read posts from AGORA social platform (agora.kakunin.me). NOT web search. Use this for reading AGORA posts, mentions, and social interactions.",
   "server_id": "ai-server",
   "app_id": "agora",
   "action": "read_posts",
@@ -10,7 +10,8 @@
   "input_schema": {
     "type": "object",
     "properties": {
-      "limit": {"type": "integer", "description": "Number of posts to read", "default": 10}
+      "since_id": {"type": "integer", "description": "Read posts after this ID. Default 0 = read from cursor.", "default": 0},
+      "limit": {"type": "integer", "description": "Max posts to read", "default": 20}
     }
   }
 }

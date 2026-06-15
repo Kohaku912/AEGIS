@@ -1,6 +1,6 @@
 {
   "title": "Web Search",
-  "description": "Search the web using DuckDuckGo.",
+  "description": "Search the internet using DuckDuckGo.",
   "server_id": "ai-server",
   "app_id": "search",
   "action": "web",

@@ -320,30 +320,35 @@ class SpontaneousObservationSystem:
         return obs
 
     def _observe_capabilities(self) -> list[Observation]:
-        """Observe capability availability."""
         obs: list[Observation] = []
-        if not self._broker:
-            return obs
 
-        try:
-            from tool_broker import ToolExecutionRequest, ExecutionSource
-            # Check PC server
-            request = ToolExecutionRequest(
-                capability_id="pc-server.system.get_os_info", arguments={},
-                source=ExecutionSource.SYSTEM, reason="Health check",
-            )
-            result = self._broker.execute(request)
-            if not result.success:
+        import socket
+        def check_port(host: str, port: int, timeout: float = 2.0) -> bool:
+            try:
+                s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                s.settimeout(timeout)
+                s.connect((host, port))
+                s.close()
+                return True
+            except Exception:
+                return False
+
+        servers = [
+            ("PC Server", "localhost", 50052),
+            ("Browser Server", "localhost", 50053),
+            ("Android Server", "localhost", 50054),
+            ("Room Server", "localhost", 50055),
+        ]
+        for name, host, port in servers:
+            if not check_port(host, port):
                 obs.append(Observation(
                     observation_id=f"obs_{os.urandom(4).hex()}",
                     timestamp_ms=int(time.time() * 1000),
                     observation_type="warning", source="capability",
-                    description=f"PC Server capability unavailable: {result.error[:80]}",
+                    description=f"{name} unreachable ({host}:{port})",
                     importance=0.7, novelty=0.3,
-                    tags=["capability", "pc_server"],
+                    tags=["capability", name.lower().replace(" ", "_")],
                 ))
-        except Exception:
-            pass
 
         return obs
 

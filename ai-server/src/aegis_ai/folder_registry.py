@@ -295,7 +295,14 @@ class ExecutorRegistry:
                     error={
                         "code": "EXECUTION_FAILED",
                         "message": f"Exit {result.returncode}",
-                        "details": {"exit_code": result.returncode, "stderr": result.stderr[:2000]},
+                        "details": {
+                            "exit_code": result.returncode,
+                            "stderr": result.stderr,
+                            "stdout": result.stdout,
+                            "command": exec_manifest.command,
+                            "working_dir": work_dir,
+                            "executor_file": str(exec_manifest.file_path),
+                        },
                     },
                     meta=self._meta(manifest, dur),
                 )
@@ -313,14 +320,31 @@ class ExecutorRegistry:
             dur = (time.perf_counter() - start) * 1000
             return ExecutionResult(
                 ok=False, capability_id=cap_id,
-                error={"code": "EXECUTION_TIMEOUT", "message": f"Timed out after {timeout}s"},
+                error={
+                    "code": "EXECUTION_TIMEOUT",
+                    "message": f"Timed out after {timeout}s",
+                    "details": {
+                        "command": exec_manifest.command,
+                        "working_dir": work_dir,
+                        "executor_file": str(exec_manifest.file_path),
+                        "timeout_ms": exec_manifest.timeout_ms,
+                    },
+                },
                 meta=self._meta(manifest, dur),
             )
         except Exception as e:
             dur = (time.perf_counter() - start) * 1000
             return ExecutionResult(
                 ok=False, capability_id=cap_id,
-                error={"code": "EXECUTION_ERROR", "message": str(e)[:500]},
+                error={
+                    "code": "EXECUTION_ERROR",
+                    "message": str(e),
+                    "details": {
+                        "command": exec_manifest.command,
+                        "working_dir": work_dir,
+                        "executor_file": str(exec_manifest.file_path),
+                    },
+                },
                 meta=self._meta(manifest, dur),
             )
 

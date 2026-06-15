@@ -406,26 +406,22 @@ class DesireSystem:
                 history_context = "\nRecent past actions:\n" + "\n".join(history_lines)
 
         prompt = (
-            "You are AEGIS's desire evaluation system. Objectively analyze how this action affects desires.\n\n"
+            "You are AEGIS's desire evaluation system. Analyze how this action affects desires.\n\n"
             f"Action performed: {action}\n"
             f"Result: {observation}\n"
             f"{history_context}\n\n"
             "Current desire states:\n"
             + "\n".join(desire_context) + "\n\n"
-            "Evaluate objectively:\n"
-            "- How much did this action fulfill each desire? (0-10 scale)\n"
-            "- Consider the action's actual impact, not just intent\n"
-            "- Failed actions should decrease reliability/safety desires\n"
-            "- Successful actions should increase relevant desires\n"
-            "- Consider past actions for cumulative effects\n\n"
-            "SOCIAL DESIRE SPECIAL RULES:\n"
-            "- Posting on AGORA (create_post) fulfills social_connection MORE than just reading\n"
-            "- Receiving reactions/mentions after posting fulfills social_connection EVEN MORE\n"
-            "- Reading posts without engaging has LOW impact on social_connection\n"
-            "- Active participation (posting, replying) has HIGH impact on social_connection\n\n"
+            "For each desire that changed, provide a DELTA (change amount):\n"
+            "- Positive delta = desire increased (action helped)\n"
+            "- Negative delta = desire decreased (action failed/hurt)\n"
+            "- Range: -2.0 to +2.0 per desire\n"
+            "- Small change: ±0.3, Medium: ±0.8, Large: ±1.5\n"
+            "- Failed actions should give negative delta to reliability\n"
+            "- Successful actions should give positive delta to relevant desires\n\n"
             "Respond with ONLY a JSON object:\n"
-            '{"desire_updates": {"desire_name": {"new_value": 7.0, "reason": "..."}, ...}}\n\n'
-            "Only include desires that actually changed."
+            '{"desire_updates": {"desire_name": {"delta": 0.5, "reason": "..."}, ...}}\n\n'
+            "Only include desires that actually changed. Use delta, NOT absolute values."
         )
 
         result = self._llm.generate(
@@ -462,10 +458,13 @@ class DesireSystem:
             applied: dict[str, Any] = {}
             for name, update in updates.items():
                 if name in self._desires and not self._desires[name].hidden:
-                    new_val = _clamp(float(update.get("new_value", self._desires[name].value)))
+                    delta = float(update.get("delta", 0))
+                    delta = max(-3.0, min(3.0, delta))
+                    current = self._desires[name].value
+                    new_val = _clamp(current + delta)
                     reason = update.get("reason", "")
                     self.update_value(name, new_val, reason=reason)
-                    applied[name] = {"new_value": new_val, "reason": reason}
+                    applied[name] = {"delta": delta, "new_value": new_val, "reason": reason}
 
             return {"updates": applied}
 
