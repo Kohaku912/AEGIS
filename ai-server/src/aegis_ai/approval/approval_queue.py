@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
 import time
 import uuid
 from pathlib import Path
@@ -44,6 +45,7 @@ class ApprovalQueue:
         self._memory_store = memory_store
         self._requests: dict[str, ApprovalRequest] = {}
         self._executed: set[str] = set()
+        self._lock = threading.RLock()
         self._load()
 
     # ── Public API ────────────────────────────────────────────
@@ -92,8 +94,9 @@ class ApprovalQueue:
             status="pending",
         )
 
-        self._requests[req.approval_id] = req
-        self._save()
+        with self._lock:
+            self._requests[req.approval_id] = req
+            self._save()
 
         if self._audit is not None:
             self._record_audit("approval_enqueued", req)
@@ -103,33 +106,37 @@ class ApprovalQueue:
 
     def list_pending(self) -> list[ApprovalRequest]:
         """Return non-expired pending requests."""
-        self._expire_old()
-        return [r for r in self._requests.values() if r.status == "pending"]
+        with self._lock:
+            self._expire_old()
+            return [r for r in self._requests.values() if r.status == "pending"]
 
     def get(self, approval_id: str) -> ApprovalRequest | None:
-        return self._requests.get(approval_id)
+        with self._lock:
+            return self._requests.get(approval_id)
 
     def approve(self, approval_id: str, user_note: str = "") -> ApprovalRequest | None:
-        req = self._requests.get(approval_id)
-        if req is None or req.status != "pending":
-            return None
-        if req.is_expired():
-            req.status = "expired"
+        with self._lock:
+            req = self._requests.get(approval_id)
+            if req is None or req.status != "pending":
+                return None
+            if req.is_expired():
+                req.status = "expired"
+                self._save()
+                return None
+            req.status = "approved"
             self._save()
-            return None
-        req.status = "approved"
-        self._save()
         if self._audit is not None:
             self._record_audit("approval_granted", req, user_note=user_note)
         self._record_approval_memory(req, "approved", user_note)
         return req
 
     def reject(self, approval_id: str, reason: str = "") -> ApprovalRequest | None:
-        req = self._requests.get(approval_id)
-        if req is None or req.status != "pending":
-            return None
-        req.status = "rejected"
-        self._save()
+        with self._lock:
+            req = self._requests.get(approval_id)
+            if req is None or req.status != "pending":
+                return None
+            req.status = "rejected"
+            self._save()
         if self._audit is not None:
             self._record_audit("approval_rejected", req, reason=reason)
         self._record_approval_memory(req, "rejected", reason)
@@ -141,58 +148,65 @@ class ApprovalQueue:
         modified_arguments: dict[str, Any],
         user_note: str = "",
     ) -> ApprovalRequest | None:
-        req = self._requests.get(approval_id)
-        if req is None or req.status != "pending":
-            return None
-        if req.is_expired():
-            req.status = "expired"
+        with self._lock:
+            req = self._requests.get(approval_id)
+            if req is None or req.status != "pending":
+                return None
+            if req.is_expired():
+                req.status = "expired"
+                self._save()
+                return None
+            req.arguments = dict(modified_arguments)
+            req.arguments_summary = _summarize_arguments(modified_arguments)
+            req.status = "modified"
             self._save()
-            return None
-        req.arguments = dict(modified_arguments)
-        req.arguments_summary = _summarize_arguments(modified_arguments)
-        req.status = "modified"
-        self._save()
         if self._audit is not None:
             self._record_audit("approval_modified", req, user_note=user_note)
         return req
 
     def cancel(self, approval_id: str, reason: str = "") -> ApprovalRequest | None:
-        req = self._requests.get(approval_id)
-        if req is None or req.status not in ("pending", "approved", "modified"):
-            return None
-        req.status = "cancelled"
-        self._save()
+        with self._lock:
+            req = self._requests.get(approval_id)
+            if req is None or req.status not in ("pending", "approved", "modified"):
+                return None
+            req.status = "cancelled"
+            self._save()
         if self._audit is not None:
             self._record_audit("approval_cancelled", req, reason=reason)
         return req
 
     def expire_old_requests(self, now_ms: int | None = None) -> int:
-        return self._expire_old(now_ms)
+        with self._lock:
+            return self._expire_old(now_ms)
 
     def mark_executed(self, approval_id: str, result: Any = None) -> None:
-        req = self._requests.get(approval_id)
-        if req is None:
-            return
-        req.status = "executed"
-        self._executed.add(approval_id)
-        self._save()
+        with self._lock:
+            req = self._requests.get(approval_id)
+            if req is None:
+                return
+            req.status = "executed"
+            self._executed.add(approval_id)
+            self._save()
         if self._audit is not None:
             self._record_audit("approval_executed", req)
 
     def mark_failed(self, approval_id: str, error: str = "") -> None:
-        req = self._requests.get(approval_id)
-        if req is None:
-            return
-        req.status = "failed"
-        self._save()
+        with self._lock:
+            req = self._requests.get(approval_id)
+            if req is None:
+                return
+            req.status = "failed"
+            self._save()
         if self._audit is not None:
             self._record_audit("approval_failed", req, reason=error)
 
     def is_executed(self, approval_id: str) -> bool:
-        return approval_id in self._executed
+        with self._lock:
+            return approval_id in self._executed
 
     def get_all(self) -> list[ApprovalRequest]:
-        return list(self._requests.values())
+        with self._lock:
+            return list(self._requests.values())
 
     def format_pending_summary(self) -> str:
         pending = self.list_pending()

@@ -1,15 +1,58 @@
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
 
 from aegis_ai.web import dashboard_routes
 from aegis_ai.web import chat_tools
 
 
+def _runtime(tmp_path):
+    from approval import ApprovalStore
+    from event_bus import EventBus
+    from policy_engine import PolicyEngine
+    from tool_broker import ToolBroker
+    from tool_registry import ToolRegistry
+
+    from aegis_ai.approval import ApprovalQueue
+    from aegis_ai.audit import AuditLog
+    from aegis_ai.capability_catalog import CapabilityCatalog
+    from aegis_ai.settings.store import SettingsStore
+
+    data_dir = tmp_path / "data"
+    catalog = CapabilityCatalog(
+        capabilities_dir=str(data_dir / "capabilities"),
+        apps_dir=str(data_dir / "apps"),
+    )
+    registry = ToolRegistry()
+    audit_log = AuditLog(path=str(data_dir / "audit.jsonl"))
+    approval_store = ApprovalStore()
+    policy_engine = PolicyEngine(approval_store=approval_store, data_dir=str(data_dir))
+    broker = ToolBroker(registry=registry, policy_engine=policy_engine, audit_log=audit_log, catalog=catalog)
+    return SimpleNamespace(
+        settings_store=SettingsStore(
+            path=str(tmp_path / "config" / "settings.json"),
+            audit_path=str(data_dir / "settings_audit.jsonl"),
+        ),
+        audit_log=audit_log,
+        capability_catalog=catalog,
+        folder_registry=catalog.get_folder_registry(),
+        tool_registry=registry,
+        event_bus=EventBus(),
+        approval_store=approval_store,
+        approval_queue=ApprovalQueue(data_dir=str(data_dir / "approvals"), audit_log=audit_log),
+        policy_engine=policy_engine,
+        tool_broker=broker,
+        llm_gateway=object(),
+        autonomous_loop=None,
+        start_autonomous_if_enabled=lambda: None,
+    )
+
+
 def _app(monkeypatch, tmp_path):
     monkeypatch.setattr(dashboard_routes, "_DATA_DIR", str(tmp_path / "data"))
     monkeypatch.setattr(dashboard_routes.DashboardApp, "_start_autonomous_loop", lambda self: None)
-    return dashboard_routes.DashboardApp().app
+    return dashboard_routes.DashboardApp(runtime=_runtime(tmp_path)).app
 
 
 def test_dashboard_registers_settings_blueprint(monkeypatch, tmp_path) -> None:
@@ -63,9 +106,6 @@ def test_server_status_reports_degraded_and_unconfigured(monkeypatch, tmp_path) 
     def fake_check_port(host: str, port: int, timeout: float = 2.0) -> bool:
         return port in {8090, 50051, 50052, 50053}
 
-    def fake_pc_command(cmd: str, host: str = "localhost", port: int = 50052):
-        return {"version": "test-pc", "capabilities": 40}
-
     def fake_http_json(url: str, timeout: float = 2.0):
         return {
             "status": "degraded",
@@ -81,7 +121,6 @@ def test_server_status_reports_degraded_and_unconfigured(monkeypatch, tmp_path) 
         }
 
     monkeypatch.setattr(dashboard_routes, "_check_port", fake_check_port)
-    monkeypatch.setattr(dashboard_routes, "_send_pc_command", fake_pc_command)
     monkeypatch.setattr(dashboard_routes, "_http_json", fake_http_json)
 
     client = _app(monkeypatch, tmp_path).test_client()
@@ -117,18 +156,6 @@ def test_capability_risk_update_allows_127_loopback(monkeypatch, tmp_path) -> No
         ),
         encoding="utf-8",
     )
-
-    class FakeManifest:
-        file_path = str(manifest_path)
-
-    class FakeCatalog:
-        def resolve(self, cap_id: str):
-            return FakeManifest() if cap_id == "pc-server.test.sample" else None
-
-        def reload(self) -> None:
-            return None
-
-    monkeypatch.setattr("aegis_ai.web.chat_tools.get_catalog", lambda: FakeCatalog())
 
     response = client.post(
         "/api/capabilities/risk",
@@ -330,8 +357,6 @@ def test_chat_respond_uses_shared_decision_memory_profile(monkeypatch, tmp_path)
 
     monkeypatch.setattr(dashboard_routes, "build_shared_memory_context", fake_builder)
     monkeypatch.setattr(chat_tools, "call_llm_with_tools", fake_call_llm_with_tools)
-    monkeypatch.setattr(dashboard_routes.DashboardApp, "_create_llm_provider", lambda self: object())
-
     client = _app(monkeypatch, tmp_path).test_client()
     response = client.post(
         "/api/chat/respond",

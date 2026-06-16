@@ -12,6 +12,7 @@ Architecture reference: docs/architecture.md §5.3
 from __future__ import annotations
 
 import logging
+import threading
 from dataclasses import dataclass
 from enum import Enum, auto
 from typing import Any
@@ -53,6 +54,8 @@ class LLMRequest:
     structured_output_schema: dict[str, Any] | None = None
     request_id: str = ""
     caller: str = ""  # Which agent is making the request
+    context_meta: dict[str, Any] | None = None
+    json_mode: bool = False
 
 
 @dataclass
@@ -66,6 +69,7 @@ class LLMResponse:
     request_id: str = ""
     success: bool = True
     error: str = ""
+    tool_calls: list[dict[str, Any]] | None = None
 
 
 class LLMRouter:
@@ -88,15 +92,18 @@ class LLMRouter:
         self._cost_tracker = cost_tracker
         self._audit = audit_log
         self._default_provider = "mock"
+        self._lock = threading.RLock()
 
     def register_provider(self, name: str, provider: Any) -> None:
         """Register an LLM provider."""
-        self._providers[name] = provider
+        with self._lock:
+            self._providers[name] = provider
         logger.info("LLM provider '%s' registered", name)
 
     def set_default_provider(self, name: str) -> None:
         """Set the default provider."""
-        self._default_provider = name
+        with self._lock:
+            self._default_provider = name
 
     def route(self, request: LLMRequest) -> LLMResponse:
         """Route an LLM request to the appropriate provider.
@@ -130,7 +137,8 @@ class LLMRouter:
                 )
 
         # Get provider
-        provider = self._providers.get(provider_name)
+        with self._lock:
+            provider = self._providers.get(provider_name)
         if not provider:
             return LLMResponse(
                 success=False,
@@ -145,6 +153,8 @@ class LLMRouter:
                 system_prompt=request.system_prompt,
                 max_tokens=request.max_tokens,
                 temperature=request.temperature,
+                context_meta=request.context_meta,
+                json_mode=request.json_mode,
             )
 
             # Record cost
@@ -168,7 +178,7 @@ class LLMRouter:
                     },
                 )
 
-            return response
+            return self._normalize_provider_response(response, provider_name, request.request_id)
 
         except Exception as e:
             logger.error("LLM request failed: %s", e)
@@ -177,6 +187,109 @@ class LLMRouter:
                 error=str(e),
                 request_id=request.request_id,
             )
+
+    def route_with_tools(
+        self,
+        request: LLMRequest,
+        tools: list[dict[str, Any]],
+    ) -> LLMResponse:
+        """Route an LLM request that allows native tool calling."""
+        provider_name = self._select_provider(request.task_type)
+        with self._lock:
+            provider = self._providers.get(provider_name)
+        if not provider:
+            return LLMResponse(
+                success=False,
+                error=f"LLM provider '{provider_name}' not found",
+                request_id=request.request_id,
+            )
+
+        try:
+            if hasattr(provider, "generate_with_tools"):
+                response = provider.generate_with_tools(
+                    prompt=request.prompt,
+                    tools=tools,
+                    system_prompt=request.system_prompt,
+                    max_tokens=request.max_tokens,
+                    temperature=request.temperature,
+                    context_meta=request.context_meta,
+                )
+            else:
+                response = provider.generate(
+                    prompt=request.prompt,
+                    system_prompt=request.system_prompt,
+                    max_tokens=request.max_tokens,
+                    temperature=request.temperature,
+                    context_meta=request.context_meta,
+                )
+            return self._normalize_provider_response(response, provider_name, request.request_id)
+        except Exception as e:
+            logger.error("LLM tool request failed: %s", e)
+            return LLMResponse(success=False, error=str(e), request_id=request.request_id)
+
+    def route_with_image(
+        self,
+        request: LLMRequest,
+        image_base64: str,
+        *,
+        detail: str = "low",
+    ) -> LLMResponse:
+        """Route an LLM request with a single image input."""
+        return self.route_with_media(request, [image_base64], detail=detail, media_kind="image")
+
+    def route_with_media(
+        self,
+        request: LLMRequest,
+        image_base64s: list[str],
+        *,
+        detail: str = "low",
+        media_kind: str = "image",
+    ) -> LLMResponse:
+        """Route an LLM request with image or video frame inputs."""
+        provider_name = self._select_provider(request.task_type)
+        with self._lock:
+            provider = self._providers.get(provider_name)
+        if not provider:
+            return LLMResponse(
+                success=False,
+                error=f"LLM provider '{provider_name}' not found",
+                request_id=request.request_id,
+            )
+
+        try:
+            if hasattr(provider, "generate_with_media"):
+                response = provider.generate_with_media(
+                    prompt=request.prompt,
+                    image_base64s=image_base64s,
+                    system_prompt=request.system_prompt,
+                    max_tokens=request.max_tokens,
+                    temperature=request.temperature,
+                    detail=detail,
+                    context_meta=request.context_meta,
+                    media_kind=media_kind,
+                )
+            elif hasattr(provider, "generate_with_image") and image_base64s:
+                response = provider.generate_with_image(
+                    prompt=request.prompt,
+                    image_base64=image_base64s[0],
+                    system_prompt=request.system_prompt,
+                    max_tokens=request.max_tokens,
+                    temperature=request.temperature,
+                    detail=detail,
+                    context_meta=request.context_meta,
+                )
+            else:
+                response = provider.generate(
+                    prompt=request.prompt,
+                    system_prompt=request.system_prompt,
+                    max_tokens=request.max_tokens,
+                    temperature=request.temperature,
+                    context_meta=request.context_meta,
+                )
+            return self._normalize_provider_response(response, provider_name, request.request_id)
+        except Exception as e:
+            logger.error("LLM media request failed: %s", e)
+            return LLMResponse(success=False, error=str(e), request_id=request.request_id)
 
     def _select_provider(self, task_type: TaskType) -> str:
         """Select provider based on task type and settings."""
@@ -190,7 +303,25 @@ class LLMRouter:
 
     def _find_local_provider(self) -> str:
         """Find a local/mock provider."""
-        for name in self._providers:
+        with self._lock:
+            names = list(self._providers)
+        for name in names:
             if name in ("mock", "local"):
                 return name
         return ""
+
+    @staticmethod
+    def _normalize_provider_response(response: Any, provider_name: str, request_id: str) -> LLMResponse:
+        if isinstance(response, LLMResponse):
+            return response
+        return LLMResponse(
+            content=getattr(response, "content", ""),
+            model_used=getattr(response, "model_used", ""),
+            provider_used=getattr(response, "provider_used", provider_name),
+            tokens_used=getattr(response, "tokens_used", 0),
+            cost_estimate=getattr(response, "cost_estimate", 0.0),
+            request_id=getattr(response, "request_id", request_id),
+            success=getattr(response, "success", True),
+            error=getattr(response, "error", ""),
+            tool_calls=getattr(response, "tool_calls", None),
+        )

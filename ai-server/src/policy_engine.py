@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import re
+import threading
 from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum, auto
@@ -260,6 +261,7 @@ class PolicyEngine:
         self._data_dir = Path(data_dir)
         self._data_dir.mkdir(parents=True, exist_ok=True)
         self._overrides_path = self._data_dir / "risk_overrides.json"
+        self._lock = threading.RLock()
         self._load_overrides()
 
     # ── Public Evaluation API ──────────────────────────────
@@ -268,7 +270,8 @@ class PolicyEngine:
         """Set the autonomy profile."""
         valid = ("conservative", "balanced", "permissive_owner_assisted")
         if profile in valid:
-            self._autonomy_profile = profile
+            with self._lock:
+                self._autonomy_profile = profile
 
     def evaluate_tool_invocation(
         self,
@@ -326,8 +329,15 @@ class PolicyEngine:
     ) -> PolicyResult:
         params = params or {}
         cap_id = capability.id
+        with self._lock:
+            blocked_ids = set(self._blocked_ids)
+            blocked_patterns = list(self._blocked_patterns)
+            rules = list(self._rules.get(cap_id, []))
+            global_rules = list(self._global_rules)
+            risk_overrides = dict(self._risk_overrides)
+            autonomy_profile = self._autonomy_profile
 
-        if cap_id in self._blocked_ids:
+        if cap_id in blocked_ids:
             return PolicyResult(
                 decision=PolicyDecision.DENY,
                 reason=f"Capability '{cap_id}' is permanently blocked.",
@@ -346,7 +356,7 @@ class PolicyEngine:
                     audit_required=True,
                 )
 
-        for pattern in self._blocked_patterns:
+        for pattern in blocked_patterns:
             if pattern.match(cap_id):
                 return PolicyResult(
                     decision=PolicyDecision.DENY,
@@ -355,18 +365,18 @@ class PolicyEngine:
                     risk_level=capability.risk_level,
                 )
 
-        for rule in self._rules.get(cap_id, []):
+        for rule in rules:
             result = rule(capability, params)
             if result is not None:
                 return self._finalize(result, capability, params)
 
-        for rule in self._global_rules:
+        for rule in global_rules:
             result = rule(capability, params)
             if result is not None:
                 return self._finalize(result, capability, params)
 
         # ── Permissive owner-assisted patterns (no approval needed) ──
-        if self._autonomy_profile == "permissive_owner_assisted":
+        if autonomy_profile == "permissive_owner_assisted":
             for pattern in self._permissive_read:
                 if pattern.match(cap_id):
                     return PolicyResult(
@@ -401,7 +411,7 @@ class PolicyEngine:
                     capability, params, reason_override=f"'{cap_id}' matches explicit approval pattern."
                 )
 
-        effective_risk = self._risk_overrides.get(cap_id, capability.risk_level)
+        effective_risk = risk_overrides.get(cap_id, capability.risk_level)
         decision = self.DEFAULT_RISK_MAP.get(effective_risk, PolicyDecision.DENY)
 
         reason_map = {
@@ -473,16 +483,19 @@ class PolicyEngine:
     # ── Configuration API ───────────────────────────────────
 
     def block_capability(self, capability_id: str) -> None:
-        self._blocked_ids.add(capability_id)
+        with self._lock:
+            self._blocked_ids.add(capability_id)
 
     def block_pattern(self, pattern: str) -> None:
-        self._blocked_patterns.append(re.compile(pattern))
+        with self._lock:
+            self._blocked_patterns.append(re.compile(pattern))
 
     def set_risk_override(self, capability_id: str, risk_level: RiskLevel) -> None:
         if risk_level.value < 1:
             raise ValueError("Cannot override to UNSPECIFIED risk level")
-        self._risk_overrides[capability_id] = risk_level
-        self._save_overrides()
+        with self._lock:
+            self._risk_overrides[capability_id] = risk_level
+            self._save_overrides()
 
     def _load_overrides(self) -> None:
         if not self._overrides_path.exists():
@@ -504,12 +517,14 @@ class PolicyEngine:
             json.dump(data, f, indent=2)
 
     def add_rule(self, capability_id: str, rule: RuleFunc) -> None:
-        if capability_id not in self._rules:
-            self._rules[capability_id] = []
-        self._rules[capability_id].append(rule)
+        with self._lock:
+            if capability_id not in self._rules:
+                self._rules[capability_id] = []
+            self._rules[capability_id].append(rule)
 
     def add_global_rule(self, rule: RuleFunc) -> None:
-        self._global_rules.append(rule)
+        with self._lock:
+            self._global_rules.append(rule)
 
     @property
     def approval_store(self) -> ApprovalStore:

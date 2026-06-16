@@ -6,6 +6,7 @@ Supports agentic multi-step tool calling loops.
 
 from __future__ import annotations
 
+import inspect
 import json
 import logging
 import os
@@ -19,6 +20,12 @@ _DATA_DIR = str(Path(__file__).resolve().parent.parent.parent.parent / "data")
 
 
 def get_catalog():
+    try:
+        from aegis_ai.runtime import get_runtime
+
+        return get_runtime().capability_catalog
+    except Exception:
+        pass
     from aegis_ai.capability_catalog import CapabilityCatalog
     caps_dir = str(Path(_DATA_DIR).parent / "capabilities")
     apps_dir = str(Path(_DATA_DIR).parent / "apps")
@@ -31,7 +38,7 @@ def get_tools_for_chat(catalog=None):
     return catalog.list_for_tools()
 
 
-def execute_tool_call(catalog, function_name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+def execute_tool_call(catalog, function_name: str, arguments: dict[str, Any], runtime: Any = None) -> dict[str, Any]:
     cap_id = catalog.tool_name_to_cap_id(function_name)
     if not catalog.resolve(cap_id):
         return {
@@ -44,17 +51,13 @@ def execute_tool_call(catalog, function_name: str, arguments: dict[str, Any]) ->
         }
 
     try:
-        from tool_broker import ToolBroker, ToolExecutionRequest, ExecutionSource
-        from tool_registry import ToolRegistry
-        from aegis_ai.audit import AuditLog
+        from tool_broker import ToolExecutionRequest, ExecutionSource
 
-        audit_log = AuditLog(path=os.path.join(_DATA_DIR, "audit.jsonl"))
+        if runtime is None:
+            from aegis_ai.runtime import get_runtime
 
-        registry = ToolRegistry()
-        for cap in catalog.to_tool_registry_capabilities():
-            registry.register_capability(cap)
-
-        broker = ToolBroker(registry=registry, audit_log=audit_log, catalog=catalog)
+            runtime = get_runtime()
+        broker = runtime.tool_broker
 
         request = ToolExecutionRequest(
             capability_id=cap_id,
@@ -109,6 +112,23 @@ def execute_tool_call(catalog, function_name: str, arguments: dict[str, Any]) ->
             "output": {},
             "error": str(e),
         }
+
+
+def _execute_tool_call(
+    catalog,
+    function_name: str,
+    arguments: dict[str, Any],
+    runtime: Any = None,
+) -> dict[str, Any]:
+    """Call the tool execution hook while preserving older test fakes."""
+
+    try:
+        parameters = inspect.signature(execute_tool_call).parameters
+    except (TypeError, ValueError):
+        parameters = {}
+    if "runtime" in parameters:
+        return execute_tool_call(catalog, function_name, arguments, runtime=runtime)
+    return execute_tool_call(catalog, function_name, arguments)
 
 
 def _stringify_tool_output(output: dict[str, Any]) -> str:
@@ -340,9 +360,17 @@ def call_llm_with_tools(
     catalog=None,
     max_tool_rounds: int = 15,
     context_meta: dict[str, Any] | None = None,
+    runtime: Any = None,
 ) -> dict[str, Any]:
+    if runtime is None:
+        try:
+            from aegis_ai.runtime import get_runtime
+
+            runtime = get_runtime()
+        except Exception:
+            runtime = None
     if catalog is None:
-        catalog = get_catalog()
+        catalog = runtime.capability_catalog if runtime is not None else get_catalog()
 
     tools = get_tools_for_chat(catalog)
     if not tools:
@@ -420,7 +448,7 @@ def call_llm_with_tools(
             "arguments": json.dumps(args, ensure_ascii=False),
         })
 
-        tool_result = execute_tool_call(catalog, func_name, args)
+        tool_result = _execute_tool_call(catalog, func_name, args, runtime=runtime)
         all_tool_results.append({
             "function": func_name,
             "cap_id": catalog.tool_name_to_cap_id(func_name),

@@ -14,6 +14,7 @@ Backward-compatible aliases:
 from __future__ import annotations
 
 import logging
+import threading
 from typing import Any
 
 from aegis_ai.folder_registry import (
@@ -41,44 +42,51 @@ class CapabilityCatalog:
         self._cap_reg = FolderCapabilityRegistry(capabilities_dir)
         self._exec_reg = ExecutorRegistry(apps_dir) if apps_dir else None
         self._aliases: dict[str, str] = {}
+        self._lock = threading.RLock()
         self._load_aliases()
 
     def _load_aliases(self) -> None:
         """Build old-ID → canonical-ID mappings for backward compatibility."""
-        for manifest in self._cap_reg.list_all():
-            short = f"{manifest.app_id}.{manifest.action}"
-            self._aliases[short] = manifest.capability_id
+        with self._lock:
+            for manifest in self._cap_reg.list_all():
+                short = f"{manifest.app_id}.{manifest.action}"
+                self._aliases[short] = manifest.capability_id
 
-            short_prefix = _PREFIX_MAP.get(manifest.server_id)
-            if short_prefix:
-                old_id = f"{short_prefix}.{manifest.app_id}.{manifest.action}"
-                self._aliases[old_id] = manifest.capability_id
+                short_prefix = _PREFIX_MAP.get(manifest.server_id)
+                if short_prefix:
+                    old_id = f"{short_prefix}.{manifest.app_id}.{manifest.action}"
+                    self._aliases[old_id] = manifest.capability_id
 
     def reload(self) -> dict[str, Any]:
         """Reload capabilities from disk and rebuild aliases."""
-        result = self._cap_reg.reload()
-        self._aliases.clear()
-        self._load_aliases()
-        if self._exec_reg:
-            self._exec_reg.reload()
-        return result
+        with self._lock:
+            result = self._cap_reg.reload()
+            self._aliases.clear()
+            self._load_aliases()
+            if self._exec_reg:
+                self._exec_reg.reload()
+            return result
 
     def resolve(self, cap_id: str) -> CapabilityManifest | None:
         """Resolve any ID format (canonical, short, or old-prefix) to manifest."""
-        direct = self._cap_reg.get(cap_id)
-        if direct:
-            return direct
-        aliased = self._aliases.get(cap_id)
-        if aliased:
-            return self._cap_reg.get(aliased)
-        return None
+        with self._lock:
+            direct = self._cap_reg.get(cap_id)
+            if direct:
+                return direct
+            aliased = self._aliases.get(cap_id)
+            if aliased:
+                return self._cap_reg.get(aliased)
+            return None
 
     def list_all(self, origin: str | None = None) -> list[CapabilityManifest]:
         """List all capabilities."""
-        return self._cap_reg.list_all(origin=origin)
+        with self._lock:
+            return self._cap_reg.list_all(origin=origin)
 
     def list_for_llm(self) -> list[dict[str, Any]]:
         """Get capability list formatted for LLM consumption."""
+        with self._lock:
+            manifests = self._cap_reg.list_all()
         return [
             {
                 "id": m.capability_id,
@@ -91,7 +99,7 @@ class CapabilityCatalog:
                 "risk": m.risk_level,
                 "only_master": m.only_master,
             }
-            for m in self._cap_reg.list_all()
+            for m in manifests
         ]
 
     def list_for_tools(self, cap_ids: set[str] | None = None) -> list[dict[str, Any]]:
@@ -104,7 +112,9 @@ class CapabilityCatalog:
             List of OpenAI tool definitions.
         """
         tools = []
-        for m in self._cap_reg.list_all():
+        with self._lock:
+            manifests = self._cap_reg.list_all()
+        for m in manifests:
             if cap_ids and m.capability_id not in cap_ids:
                 continue
             props = m.input_schema.get("properties", {})
@@ -130,10 +140,19 @@ class CapabilityCatalog:
     def to_tool_registry_capabilities(self) -> list:
         """Convert all manifests to Capability objects for ToolRegistry registration."""
         from aegis_schema.models import Capability, RiskLevel, ServerType
-        risk_map = {"low": RiskLevel.READ_ONLY, "safe": RiskLevel.SAFE_ACTION, "medium": RiskLevel.APPROVAL_REQUIRED, "high": RiskLevel.HIGH_RISK}
+        risk_map = {
+            "low": RiskLevel.READ_ONLY,
+            "safe": RiskLevel.SAFE_ACTION,
+            "medium": RiskLevel.APPROVAL_REQUIRED,
+            "high": RiskLevel.HIGH_RISK,
+            "critical": RiskLevel.FORBIDDEN,
+            "forbidden": RiskLevel.FORBIDDEN,
+        }
         server_type_map = {"pc-server": ServerType.PC, "browser-server": ServerType.BROWSER, "android-server": ServerType.ANDROID, "room-server": ServerType.ROOM, "ai-server": ServerType.AI}
         caps = []
-        for m in self._cap_reg.list_all():
+        with self._lock:
+            manifests = self._cap_reg.list_all()
+        for m in manifests:
             caps.append(Capability(
                 id=m.capability_id,
                 name=m.title,
@@ -168,7 +187,9 @@ class CapabilityCatalog:
         return self._cap_reg
 
     def count(self) -> int:
-        return self._cap_reg.count()
+        with self._lock:
+            return self._cap_reg.count()
 
     def errors(self) -> list[dict[str, str]]:
-        return self._cap_reg.errors()
+        with self._lock:
+            return self._cap_reg.errors()

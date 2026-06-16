@@ -16,6 +16,7 @@ import json
 import logging
 import os
 import subprocess
+import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -110,18 +111,20 @@ class FolderCapabilityRegistry:
         self._manifests: dict[str, CapabilityManifest] = {}
         self._short_names: dict[str, str] = {}
         self._errors: list[dict[str, str]] = []
+        self._lock = threading.RLock()
         self._load()
 
     def _load(self) -> None:
-        self._manifests.clear()
-        self._short_names.clear()
-        self._errors.clear()
-        for origin in ("builtin", "generated"):
-            origin_dir = self._dir / origin
-            if not origin_dir.exists():
-                continue
-            for json_path in origin_dir.rglob("*.json"):
-                self._load_one(str(json_path), origin)
+        with self._lock:
+            self._manifests.clear()
+            self._short_names.clear()
+            self._errors.clear()
+            for origin in ("builtin", "generated"):
+                origin_dir = self._dir / origin
+                if not origin_dir.exists():
+                    continue
+                for json_path in origin_dir.rglob("*.json"):
+                    self._load_one(str(json_path), origin)
 
     def _load_one(self, path: str, origin: str) -> None:
         ids = _derive_ids(path, str(self._dir))
@@ -175,22 +178,26 @@ class FolderCapabilityRegistry:
         return {"old": old, "new": len(self._manifests), "errors": self._errors}
 
     def get(self, cap_id: str) -> CapabilityManifest | None:
-        if cap_id in self._manifests:
-            return self._manifests[cap_id]
-        full = self._short_names.get(cap_id)
-        return self._manifests.get(full) if full else None
+        with self._lock:
+            if cap_id in self._manifests:
+                return self._manifests[cap_id]
+            full = self._short_names.get(cap_id)
+            return self._manifests.get(full) if full else None
 
     def list_all(self, origin: str | None = None) -> list[CapabilityManifest]:
-        result = list(self._manifests.values())
+        with self._lock:
+            result = list(self._manifests.values())
         if origin:
             result = [m for m in result if m.origin == origin]
         return result
 
     def errors(self) -> list[dict[str, str]]:
-        return list(self._errors)
+        with self._lock:
+            return list(self._errors)
 
     def count(self) -> int:
-        return len(self._manifests)
+        with self._lock:
+            return len(self._manifests)
 
 
 class ExecutorRegistry:
@@ -198,16 +205,18 @@ class ExecutorRegistry:
         self._dir = Path(apps_dir)
         self._executors: dict[str, ExecutorManifest] = {}
         self._apps_dir = Path(apps_dir)
+        self._lock = threading.RLock()
         self._load()
 
     def _load(self) -> None:
-        self._executors.clear()
-        for origin in ("builtin", "generated"):
-            origin_dir = self._dir / origin
-            if not origin_dir.exists():
-                continue
-            for json_path in origin_dir.rglob("executor.json"):
-                self._load_one(str(json_path), origin)
+        with self._lock:
+            self._executors.clear()
+            for origin in ("builtin", "generated"):
+                origin_dir = self._dir / origin
+                if not origin_dir.exists():
+                    continue
+                for json_path in origin_dir.rglob("executor.json"):
+                    self._load_one(str(json_path), origin)
 
     def _load_one(self, path: str, origin: str) -> None:
         try:
@@ -246,7 +255,8 @@ class ExecutorRegistry:
 
     def get(self, manifest: CapabilityManifest) -> ExecutorManifest | None:
         key = f"{manifest.origin}.{manifest.server_id}.{manifest.app_id}.{manifest.action}"
-        return self._executors.get(key)
+        with self._lock:
+            return self._executors.get(key)
 
     def execute(self, manifest: CapabilityManifest, arguments: dict[str, Any]) -> ExecutionResult:
         cap_id = manifest.capability_id
@@ -358,4 +368,5 @@ class ExecutorRegistry:
         }
 
     def count(self) -> int:
-        return len(self._executors)
+        with self._lock:
+            return len(self._executors)

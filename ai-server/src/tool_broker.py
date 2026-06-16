@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import logging
 import re
+import threading
 import time
 import uuid
 from collections.abc import Callable
@@ -339,6 +340,7 @@ class ToolBroker:
 
         # Pending approval requests
         self._pending_approvals: dict[str, ToolExecutionRequest] = {}
+        self._lock = threading.RLock()
 
     # ── Public API — the ONLY way to invoke tools ──────────────
 
@@ -375,7 +377,8 @@ class ToolBroker:
 
         # Idempotency check
         if request.idempotency_key:
-            cached = self._idempotency_cache.get(request.idempotency_key)
+            with self._lock:
+                cached = self._idempotency_cache.get(request.idempotency_key)
             if cached is not None:
                 return ToolExecutionResult(
                     request_id=request.request_id,
@@ -425,7 +428,8 @@ class ToolBroker:
 
         if policy_result.decision == PolicyDecision.ASK_APPROVAL:
             request.requires_approval = True
-            self._pending_approvals[request.request_id] = request
+            with self._lock:
+                self._pending_approvals[request.request_id] = request
 
             approval_id = ""
             if self._approval_queue is not None:
@@ -451,7 +455,8 @@ class ToolBroker:
 
         # Idempotency cache
         if request.idempotency_key and result.success:
-            self._idempotency_cache[request.idempotency_key] = result
+            with self._lock:
+                self._idempotency_cache[request.idempotency_key] = result
 
         # Verification
         if self._verification is not None:
@@ -658,20 +663,24 @@ class ToolBroker:
         return self._registry.get_safe_capabilities()
 
     def get_pending_approvals(self) -> dict[str, ToolExecutionRequest]:
-        return dict(self._pending_approvals)
+        with self._lock:
+            return dict(self._pending_approvals)
 
     def clear_pending_approval(self, request_id: str) -> None:
-        self._pending_approvals.pop(request_id, None)
+        with self._lock:
+            self._pending_approvals.pop(request_id, None)
 
     # ── Mock Executor Registration ─────────────────────────────
 
     def register_mock(self, capability_id_prefix: str, executor: MockExecutorFunc) -> None:
         """Register a mock executor for testing."""
-        self._mock_executors[capability_id_prefix] = executor
+        with self._lock:
+            self._mock_executors[capability_id_prefix] = executor
 
     def set_default_mock(self, executor: MockExecutorFunc) -> None:
         """Override the default executor (for testing only)."""
-        self._default_mock = executor
+        with self._lock:
+            self._default_mock = executor
 
     # ── Internal — the ONLY execution path ─────────────────────
 
