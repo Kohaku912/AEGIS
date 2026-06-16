@@ -32,13 +32,47 @@ def get_catalog():
     return CapabilityCatalog(capabilities_dir=caps_dir, apps_dir=apps_dir)
 
 
-def get_tools_for_chat(catalog=None):
+def get_tools_for_chat(
+    catalog=None,
+    user_message: str = "",
+    session_context: dict[str, Any] | None = None,
+    runtime: Any = None,
+):
     if catalog is None:
         catalog = get_catalog()
+    retriever = getattr(runtime, "capability_retriever", None) if runtime is not None else None
+    if retriever is not None:
+        selection = retriever.select_for_request(
+            user_message,
+            session_context or {},
+            top_k_schema=8,
+            top_k_summary=50,
+        )
+        return selection.tools
     return catalog.list_for_tools()
 
 
+def get_capability_selection(
+    catalog=None,
+    user_message: str = "",
+    session_context: dict[str, Any] | None = None,
+    runtime: Any = None,
+):
+    retriever = getattr(runtime, "capability_retriever", None) if runtime is not None else None
+    if retriever is None:
+        return None
+    return retriever.select_for_request(
+        user_message,
+        session_context or {},
+        top_k_schema=8,
+        top_k_summary=50,
+    )
+
+
 def execute_tool_call(catalog, function_name: str, arguments: dict[str, Any], runtime: Any = None) -> dict[str, Any]:
+    if function_name in {"capability__search", "capability__describe"}:
+        return _execute_meta_tool(function_name, arguments, runtime=runtime, catalog=catalog)
+
     cap_id = catalog.tool_name_to_cap_id(function_name)
     if not catalog.resolve(cap_id):
         return {
@@ -89,21 +123,21 @@ def execute_tool_call(catalog, function_name: str, arguments: dict[str, Any], ru
                 "needs_user_input": output.get("needs_user_input", False),
                 "needs_user_input_for": output.get("needs_user_input_for", []),
             }
-        else:
-            output = result.output or {}
-            error_msg = result.error or ""
-            if not error_msg and isinstance(output, dict):
-                error_msg = output.get("stderr", "") or output.get("error", "") or output.get("message", "")
-            if not error_msg:
-                error_msg = str(output) if output else "Unknown error"
-            return {
-                "success": False,
-                "result": f"Failed: {error_msg}",
-                "output": output,
-                "error": error_msg,
-                "needs_user_input": False,
-                "needs_user_input_for": [],
-            }
+
+        output = result.output or {}
+        error_msg = result.error or ""
+        if not error_msg and isinstance(output, dict):
+            error_msg = output.get("stderr", "") or output.get("error", "") or output.get("message", "")
+        if not error_msg:
+            error_msg = str(output) if output else "Unknown error"
+        return {
+            "success": False,
+            "result": f"Failed: {error_msg}",
+            "output": output,
+            "error": error_msg,
+            "needs_user_input": False,
+            "needs_user_input_for": [],
+        }
     except Exception as e:
         logger.error("Tool execution error for %s: %s", cap_id, e)
         return {
@@ -113,6 +147,59 @@ def execute_tool_call(catalog, function_name: str, arguments: dict[str, Any], ru
             "error": str(e),
         }
 
+
+def _execute_meta_tool(
+    function_name: str,
+    arguments: dict[str, Any],
+    *,
+    runtime: Any = None,
+    catalog: Any = None,
+) -> dict[str, Any]:
+    retriever = getattr(runtime, "capability_retriever", None) if runtime is not None else None
+    if function_name == "capability__search":
+        query = str(arguments.get("query", ""))
+        top_k = int(arguments.get("top_k", 10) or 10)
+        summaries = retriever.search_lightweight(query, top_k=top_k) if retriever else []
+        return {
+            "success": True,
+            "result": json.dumps(summaries, ensure_ascii=False),
+            "output": {"summaries": summaries},
+            "error": "",
+            "needs_user_input": False,
+            "needs_user_input_for": [],
+        }
+
+    if function_name == "capability__describe":
+        cap_id = str(arguments.get("capability_id", ""))
+        detail = retriever.describe(cap_id) if retriever else None
+        if detail is None and catalog is not None and hasattr(catalog, "describe"):
+            detail = catalog.describe(cap_id)
+        if detail is None:
+            return {
+                "success": False,
+                "result": f"Capability '{cap_id}' not found.",
+                "output": {},
+                "error": f"Capability '{cap_id}' not found.",
+                "needs_user_input": False,
+                "needs_user_input_for": [],
+            }
+        return {
+            "success": True,
+            "result": json.dumps(detail, ensure_ascii=False),
+            "output": {"detail": detail, "described_capability_id": detail.get("id", cap_id)},
+            "error": "",
+            "needs_user_input": False,
+            "needs_user_input_for": [],
+        }
+
+    return {
+        "success": False,
+        "result": f"Unknown meta tool '{function_name}'.",
+        "output": {},
+        "error": f"Unknown meta tool '{function_name}'.",
+        "needs_user_input": False,
+        "needs_user_input_for": [],
+    }
 
 def _execute_tool_call(
     catalog,
@@ -268,6 +355,7 @@ def _build_tool_loop_prompt(
     *,
     user_message: str,
     tool_list: str,
+    lightweight_catalog: list[dict[str, Any]] | None = None,
     conversation_history: list[dict[str, str]],
 ) -> str:
     """Build a prompt that preserves the original goal across tool rounds."""
@@ -288,18 +376,29 @@ def _build_tool_loop_prompt(
 
     history_block = "\n\nPrevious tool activity:\n" + "\n\n".join(history_lines) if history_lines else ""
 
+    catalog_lines = []
+    for item in lightweight_catalog or []:
+        tags = ", ".join(item.get("tags", []))
+        catalog_lines.append(
+            f"- {item.get('id', '')}: {item.get('title', '')} "
+            f"(risk: {item.get('risk', '')}, tags: {tags}) - {item.get('short_desc', '')}"
+        )
+    catalog_block = "\n\nLightweight capability catalog:\n" + "\n".join(catalog_lines) if catalog_lines else ""
+
     return (
         f"Original user request:\n{user_message}\n"
         f"{history_block}\n\n"
-        f"Available tools:\n{tool_list}\n\n"
-        "- ask_user: Ask the user a question with options\n\n"
+        f"Available full-schema tools:\n{tool_list}\n"
+        f"{catalog_block}\n\n"
         "INSTRUCTIONS:\n"
         "- To use a tool, respond with ONLY:\n"
         '<tool_call>{"name": "tool_name", "arguments": {"key": "value"}}</tool_call>\n'
         "- To ask the user a question, use ask_user tool:\n"
         '<tool_call>{"name": "ask_user", "arguments": {"question": "Your question?", "options": ["option1", "option2"]}}</tool_call>\n'
         "- For text input: {\"name\": \"ask_user\", \"arguments\": {\"question\": \"...\", \"options\": []}}\n"
-        "- ONLY use tools listed above. Do NOT invent tool names.\n"
+        "- ONLY call full-schema tools listed above. Do NOT invent tool names.\n"
+        "- Use capability__search to find more capability summaries.\n"
+        "- Use capability__describe to fetch full schema before calling a capability that only appears in the lightweight catalog.\n"
         "- For normal text file saves, prefer pc-server__file__write instead of shell commands.\n"
         "- Use shell tools only when a dedicated capability cannot perform the task.\n"
         "- If no tool is needed, respond normally.\n"
@@ -372,7 +471,19 @@ def call_llm_with_tools(
     if catalog is None:
         catalog = runtime.capability_catalog if runtime is not None else get_catalog()
 
-    tools = get_tools_for_chat(catalog)
+    selection = get_capability_selection(
+        catalog,
+        user_message=user_message,
+        session_context=context_meta,
+        runtime=runtime,
+    )
+    lightweight_catalog = selection.lightweight_catalog if selection is not None else []
+    tools = selection.tools if selection is not None else get_tools_for_chat(
+        catalog,
+        user_message=user_message,
+        session_context=context_meta,
+        runtime=runtime,
+    )
     if not tools:
         result = llm.generate(
             prompt=user_message,
@@ -386,7 +497,6 @@ def call_llm_with_tools(
             "tool_results": [],
         }
 
-    tool_list = "\n".join(f"- {t['function']['name']}: {t['function']['description']}" for t in tools)
     valid_tool_names: set[str] = {t['function']['name'] for t in tools}
     valid_tool_names.add("ask_user")
 
@@ -395,9 +505,11 @@ def call_llm_with_tools(
     conversation_history = []
     final_response = ""
     for round_num in range(max_tool_rounds):
+        tool_list = "\n".join(f"- {t['function']['name']}: {t['function']['description']}" for t in tools)
         current_prompt = _build_tool_loop_prompt(
             user_message=user_message,
             tool_list=tool_list,
+            lightweight_catalog=lightweight_catalog,
             conversation_history=conversation_history,
         )
         result, tc = _generate_tool_step(
@@ -449,6 +561,17 @@ def call_llm_with_tools(
         })
 
         tool_result = _execute_tool_call(catalog, func_name, args, runtime=runtime)
+        described_cap_id = ""
+        if func_name == "capability__describe" and tool_result.get("success"):
+            output = tool_result.get("output", {})
+            described_cap_id = output.get("described_capability_id", "")
+            if described_cap_id:
+                existing_names = {tool["function"]["name"] for tool in tools}
+                for tool in catalog.list_for_tools({described_cap_id}):
+                    name = tool["function"]["name"]
+                    if name not in existing_names:
+                        tools.append(tool)
+                        valid_tool_names.add(name)
         all_tool_results.append({
             "function": func_name,
             "cap_id": catalog.tool_name_to_cap_id(func_name),

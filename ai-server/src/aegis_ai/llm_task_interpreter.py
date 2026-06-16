@@ -96,10 +96,12 @@ class LLMTaskInterpreter:
         context_builder: Any = None,
         capability_registry: Any = None,
         capability_catalog: Any = None,
+        capability_retriever: Any = None,
     ) -> None:
         self._llm = llm_provider
         self._context = context_builder
         self._catalog = capability_catalog
+        self._retriever = capability_retriever
         self._registry = capability_registry
 
     def interpret(self, user_message: str, context_str: str = "") -> TaskPlan:
@@ -116,7 +118,7 @@ class LLMTaskInterpreter:
         ctx = context_str or self._build_context()
         if shared_context.text:
             ctx = f"{shared_context.text}\n\n{ctx}" if ctx else shared_context.text
-        caps = self._build_capability_list()
+        caps = self._build_capability_list(user_message)
 
         # Format prompt
         prompt = INTERPRETATION_PROMPT.format(
@@ -255,7 +257,37 @@ class LLMTaskInterpreter:
         except Exception:
             return "Context unavailable"
 
-    def _build_capability_list(self) -> str:
+    def _build_capability_list(self, user_message: str = "") -> str:
+        if self._retriever is not None:
+            try:
+                selection = self._retriever.select_for_request(
+                    user_message,
+                    {},
+                    top_k_schema=8,
+                    top_k_summary=50,
+                )
+                lines = [
+                    "Full schema candidates:",
+                ]
+                for tool in selection.retrieved_schema_tools:
+                    fn = tool.get("function", {})
+                    cap_id = fn.get("name", "").replace("__", ".")
+                    params = ", ".join(fn.get("parameters", {}).get("properties", {}).keys())
+                    lines.append(f"- {cap_id}: {fn.get('description', '')}")
+                    if params:
+                        lines.append(f"  params: {params}")
+                lines.append("")
+                lines.append("Lightweight catalog:")
+                for item in selection.lightweight_catalog:
+                    tags = ", ".join(item.get("tags", []))
+                    lines.append(
+                        f"- {item.get('id', '')}: {item.get('title', '')} "
+                        f"(risk: {item.get('risk', '')}, tags: {tags}) - {item.get('short_desc', '')}"
+                    )
+                return "\n".join(lines) if len(lines) > 3 else "No capabilities registered"
+            except Exception:
+                logger.debug("Capability retriever failed in task interpreter", exc_info=True)
+
         if self._catalog is not None:
             try:
                 caps = self._catalog.list_for_llm()

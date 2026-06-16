@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from aegis_ai.capability_catalog import CapabilityCatalog
+from aegis_ai.capability_index import CapabilityIndex, CapabilityRetriever
 from aegis_ai.config import Config, get_config
 from aegis_ai.context_builder import ContextBuilder
 from aegis_ai.folder_registry import FolderCapabilityRegistry
@@ -148,6 +149,8 @@ class AegisRuntime:
     tool_registry: Any
     folder_registry: FolderCapabilityRegistry
     capability_catalog: CapabilityCatalog
+    capability_index: CapabilityIndex
+    capability_retriever: CapabilityRetriever
     approval_store: Any
     approval_queue: Any
     policy_engine: Any
@@ -239,6 +242,11 @@ def _build_runtime(config: Config) -> AegisRuntime:
         capabilities_dir=str(base_dir / "capabilities"),
         apps_dir=str(base_dir / "apps"),
     )
+    capability_index = CapabilityIndex(
+        capability_catalog,
+        chroma_path=str(Path(data_dir) / "chroma" / "capabilities"),
+    )
+    capability_retriever = CapabilityRetriever(capability_catalog, capability_index)
     folder_registry = capability_catalog.get_folder_registry()
 
     tool_registry = ToolRegistry()
@@ -275,12 +283,14 @@ def _build_runtime(config: Config) -> AegisRuntime:
         event_bus=event_bus,
         tool_broker=tool_broker,
         multimodal_llm=llm_gateway,
+        capability_retriever=capability_retriever,
     )
     session_manager = SessionManager()
     interaction_router = InteractionRouter(
         llm_provider=llm_gateway,
         context_builder=context_builder,
         capability_catalog=capability_catalog,
+        capability_retriever=capability_retriever,
         tool_broker=tool_broker,
         approval_store=approval_store,
         audit_log=audit_log,
@@ -296,6 +306,8 @@ def _build_runtime(config: Config) -> AegisRuntime:
         tool_registry=tool_registry,
         folder_registry=folder_registry,
         capability_catalog=capability_catalog,
+        capability_index=capability_index,
+        capability_retriever=capability_retriever,
         approval_store=approval_store,
         approval_queue=approval_queue,
         policy_engine=policy_engine,
@@ -357,6 +369,7 @@ def _create_autonomous_loop(runtime: AegisRuntime) -> Any:
         max_tasks_per_cycle=max(1, min(4, settings.autonomous.max_autonomous_runs_per_hour)),
         fallback_interval_seconds=max(1, settings.autonomous.cooldown_seconds),
     )
+    loop._capability_retriever = runtime.capability_retriever
     loop._min_execution_interval_ms = max(1, settings.autonomous.cooldown_seconds) * 1000
 
     episodic_mem = EpisodicMemory(path=os.path.join(memory_dir, "episodic.jsonl"))

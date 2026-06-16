@@ -93,6 +93,9 @@ class CapabilityCatalog:
                 "short_name": m.short_name,
                 "title": m.title,
                 "description": m.description,
+                "tags": list(m.tags),
+                "aliases": list(m.aliases),
+                "examples": list(m.examples),
                 "params": list(m.input_schema.get("properties", {}).keys()),
                 "required_params": m.input_schema.get("required", []),
                 "input_schema": m.input_schema,
@@ -132,6 +135,42 @@ class CapabilityCatalog:
                 },
             })
         return tools
+
+    def list_lightweight(self, cap_ids: list[str] | set[str] | None = None) -> list[dict[str, Any]]:
+        """Return schema-free summaries for LLM lightweight catalogs."""
+        ids = set(cap_ids) if cap_ids is not None else None
+        with self._lock:
+            manifests = self._cap_reg.list_all()
+        summaries = []
+        for m in manifests:
+            if ids is not None and m.capability_id not in ids:
+                continue
+            summaries.append({
+                "id": m.capability_id,
+                "title": m.title,
+                "tags": list(m.tags),
+                "risk": m.risk_level,
+                "short_desc": m.description[:220],
+            })
+        return summaries
+
+    def describe(self, cap_id: str) -> dict[str, Any] | None:
+        """Return detailed manifest data for capability metadata lookup."""
+        manifest = self.resolve(cap_id)
+        if manifest is None:
+            return None
+        return {
+            "id": manifest.capability_id,
+            "short_name": manifest.short_name,
+            "title": manifest.title,
+            "description": manifest.description,
+            "tags": list(manifest.tags),
+            "aliases": list(manifest.aliases),
+            "examples": list(manifest.examples),
+            "risk": manifest.risk_level,
+            "input_schema": manifest.input_schema or {"type": "object", "properties": {}},
+            "notes": manifest.extra.get("notes", ""),
+        }
 
     def tool_name_to_cap_id(self, tool_name: str) -> str:
         """Convert tool function name back to capability ID (double underscore to dot)."""

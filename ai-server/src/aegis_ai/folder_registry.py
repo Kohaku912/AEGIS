@@ -41,6 +41,8 @@ class CapabilityManifest:
     side_effects: list[str] = field(default_factory=list)
     requires_approval: bool = False
     tags: list[str] = field(default_factory=list)
+    aliases: list[str] = field(default_factory=list)
+    examples: list[Any] = field(default_factory=list)
     short_name: str = ""
     only_master: bool = True
     tcp_command: str = ""
@@ -162,6 +164,8 @@ class FolderCapabilityRegistry:
             side_effects=data.get("risk", {}).get("side_effects", []),
             requires_approval=data.get("risk", {}).get("requires_approval", False),
             tags=data.get("tags", []),
+            aliases=data.get("aliases", []),
+            examples=data.get("examples", []),
             short_name=short,
             only_master=data.get("only_master", True),
             tcp_command=data.get("tcp_command", ""),

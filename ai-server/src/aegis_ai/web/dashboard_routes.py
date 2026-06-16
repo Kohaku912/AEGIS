@@ -1080,6 +1080,8 @@ class DashboardApp:
         def api_capabilities_reload():
             try:
                 result = self._runtime.capability_catalog.reload()
+                if getattr(self._runtime, "capability_index", None) is not None:
+                    self._runtime.capability_index.reindex()
                 return jsonify({"ok": True, **result})
             except Exception as exc:
                 return jsonify({"ok": False, "error": str(exc)}), 500
