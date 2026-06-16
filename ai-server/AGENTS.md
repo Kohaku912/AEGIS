@@ -14,7 +14,7 @@ The AI Server is the **central brain** of AEGIS. It handles:
 
 - **Language**: Python 3.14
 - **Framework**: Flask (dashboard), gRPC (server communication)
-- **LLM**: DeepSeek API (`deepseek-chat` model)
+- **LLM**: DeepSeek API (`deepseek-v4-flash` model)
 - **Embedding**: OpenAI API (`text-embedding-3-small`)
 - **Vector DB**: ChromaDB
 - **Testing**: pytest
@@ -30,7 +30,8 @@ ai-server/
 │   │   ├── chroma_semantic.py  # ChromaSemanticMemory
 │   │   └── consolidation.py    # MemoryConsolidator
 │   ├── desire/           # Desire system
-│   │   └── desire_system.py    # DesireSystem (D2A-inspired)
+│   │   ├── desire_system.py    # DesireSystem (D2A-inspired)
+│   │   └── fulfillment.py      # Desire fulfillment rules
 │   ├── autonomous/       # Autonomous loop
 │   │   └── autonomous_loop.py  # AutonomousLoop
 │   ├── llm/              # LLM integration
@@ -38,82 +39,88 @@ ai-server/
 │   │   └── providers/    # LLM providers (OpenAI, mock)
 │   ├── web/              # Dashboard
 │   │   ├── dashboard_routes.py  # Flask routes
+│   │   ├── chat_tools.py  # Chat tool calling
 │   │   └── templates/    # HTML templates
 │   └── policy_engine.py  # Safety gates
 ├── capabilities/         # Capability definitions (JSON manifests)
 │   ├── builtin/
 │   │   ├── pc-server/
 │   │   ├── browser-server/
+│   │   ├── ai-server/
 │   │   ├── android-server/
 │   │   └── room-server/
 │   └── generated/
-├── tests/                # Test files
-└── data/                 # Runtime data
-    ├── memory/           # AdvancedMemory data
-    ├── persona.jsonl     # PersonaMemory data
-    ├── chroma/           # ChromaDB data
-    ├── desires/          # Desire state
-    ├── autonomous/       # Autonomous loop state
-    └── chat_history.jsonl # Chat history
+├── apps/                 # Capability executors
+│   └── builtin/
+│       ├── pc-server/
+│       ├── browser-server/
+│       ├── ai-server/
+│       ├── android-server/
+│       └── room-server/
+├── config/               # Persistent settings
+│   └── settings.json
+└── data/                 # Runtime data (ephemeral)
+    ├── memory/
+    ├── desires/
+    ├── autonomous/
+    └── audit.jsonl
 ```
 
 ## Key Components
 
-### Memory System (`src/aegis_ai/memory/`)
+### Capability Management
 
-**AdvancedMemory** (Zep-inspired):
-- Entity tracking (people, places, things)
-- Fact extraction from conversations
-- Temporal awareness (valid_at, invalid_at)
-- Importance scoring
-- LLM-based extraction
+**CapabilityCatalog** (`capability_catalog.py`):
+- Single source of truth for all capabilities
+- Loads from `capabilities/` folder
+- Provides `list_for_llm()` and `list_for_tools()`
+- Alias management (old IDs → canonical IDs)
 
-**PersonaMemory**:
-- Person tracking with relationships
-- Conversation history
-- Topic tracking
-
-**ChromaSemanticMemory**:
-- Vector DB with Chroma
-- OpenAI embeddings
-- Semantic search
+**Tool calling in chat** (`web/chat_tools.py`):
+- `call_llm_with_tools()` — LLM with tool calling support
+- `ask_user` tool for user input during task execution
+- DeepSeek native format parsing support
+- **Recursive multi-step tool calling** (max 5 rounds)
+- XML tag format support (`<pc-server__shell__powershell><command>...</command></pc-server__shell__powershell>`)
+- Error handling with retry logic
 
 ### Desire System (`src/aegis_ai/desire/`)
 
-**8 Desires** (0-10 scale):
-- social_connectivity, personal_fulfillment, curiosity, safety
-- recognition, autonomy, creativity, purpose
+**10 Desires** (0-10 scale):
+- user_helpfulness, reliability, system_safety, curiosity
+- social_connection, autonomy, creativity, purpose
+- learning_progress, maintenance
 
-**Features**:
-- Time-based decay
-- LLM-based evaluation after actions
-- Task generation for low desires
-- Self-scheduling
+**Fulfillment rules** (`fulfillment.py`):
+- Per-desire conditions with delta values
+- `evaluate_task_result()` classifies effect
+- `TaskEffect`: useful, no_effect, failed, blocked, needs_followup
 
 ### Autonomous Loop (`src/aegis_ai/autonomous/`)
 
 **Features**:
-- Desire-driven task execution
-- Self-scheduling (LLM decides next run)
-- Fallback: 1 hour if not called
-- Manual trigger via API
+- Desire-driven task execution via tool calling
+- `_generate_tasks()` uses CapabilityCatalog.list_for_tools()
+- `_generate_follow_up_tasks()` with tool calling
+- `_update_desires()` uses fulfillment rules (delta-based)
+- Frustration-based trigger (threshold: 2.0)
 
 ### Dashboard (`src/aegis_ai/web/`)
 
 **Features**:
-- Streaming chat (real-time LLM response)
-- Memory integration
-- Desire context
-- All actions through LLM
-- Settings management (persists to `config/settings.json`)
+- Tool calling chat with `call_llm_with_tools()`
+- `ask_user` tool for interactive user input
+- Memory context with system-reminder filtering
+- Settings persistence to `config/settings.json`
 
 ## API Endpoints
 
 ### Chat API
 | Endpoint | Method | Purpose |
 |----------|--------|---------|
-| `/api/chat/send` | POST | Send message (non-streaming) |
-| `/api/chat/stream` | POST | Send message (streaming) |
+| `/api/chat/send` | POST | Send message (tool calling, ask_user support) |
+| `/api/chat/respond` | POST | Respond to ask_user question |
+| `/api/chat/stream` | POST | Send message (streaming, tool calling) |
 | `/api/chat/history` | GET | Get chat history |
 | `/api/chat/clear` | POST | Clear chat history |
 
@@ -181,3 +188,9 @@ Audit logs are written to `data/settings_audit.jsonl`.
 5. **Self-scheduling**: AI decides when to run next
 6. **Folder-based capabilities**: All capabilities defined in JSON manifests, no hardcoded definitions
 7. **Persistent settings**: Settings stored in `config/settings.json`, survives `data/` deletion
+8. **Text-based tool calling for DeepSeek**: Use regex to parse `<tool_call>...</tool_call>` from LLM response instead of OpenAI's `tools` parameter
+9. **Monkey-patch for browser-use DeepSeek compatibility**: `_patch_browser_use_models()` patches `ChatOpenAI.ainvoke()` globally to normalize DeepSeek's malformed JSON before pydantic validation
+10. **Interactive user confirmation via `ask_user` tool**: LLM can ask user questions mid-task, dashboard shows selection/text UI, user responds via `/api/chat/respond`
+11. **Recursive tool calling loop**: LLM can call multiple tools in sequence, results are fed back to LLM for next decision
+12. **Multiple tool call formats**: Supports `<tool_call>`, DeepSeek DSML, XML tag, and plain JSON formats
+13. **Browser verification detection**: Browser agent detects CAPTCHA/phone verification and returns `needs_user_input` to pause for user intervention

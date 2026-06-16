@@ -2,74 +2,104 @@
 
 ## Purpose
 
-The Browser Server handles **web browsing** for AEGIS:
+The Browser Server handles **web browsing** for AEGIS using browser-use:
 - Page navigation
 - Content extraction
-- Link following
-- Screenshot capture
-- Form interaction
+- Form filling
+- AI-driven browser automation
 
 ## Technology Stack
 
 - **Language**: Python
-- **Framework**: browser-use (primary), Playwright (fallback)
-- **Port**: 50053 (gRPC)
-- **Testing**: pytest
+- **Framework**: browser-use (AI-driven), Playwright (direct)
+- **Port**: 50053 (HTTP)
+- **LLM**: DeepSeek API via browser-use
 
 ## Directory Structure
 
 ```
 browser-server/
-├── src/
-│   ├── main.py           # Entry point
-│   ├── executor.py       # Browser task executor
-│   └── safety.py         # Safety boundaries
-├── tests/                # Test files
-└── requirements.txt      # Dependencies
+├── src/aegis_browser/
+│   ├── main.py           # HTTP server entry point
+│   ├── browser_use_agent.py  # browser-use integration with DeepSeek compatibility
+│   ├── config.py         # Configuration
+│   ├── safety.py         # Safety rules
+│   ├── task_models.py    # BrowserTask, BrowserTaskResult
+│   └── trace.py          # Execution tracing
+├── config.json           # LLM API key configuration
+└── AGENTS.md
 ```
 
 ## Key Components
 
-### Browser Task Executor (`src/executor.py`)
+### HTTP Server (`main.py`)
+
+Endpoints:
+- `GET /health` — Health check
+- `GET /capabilities` — List capabilities
+- `POST /browse` — URL browsing via Playwright
+- `POST /execute` — AI-driven browser tasks via browser-use
+
+### Browser-Use Agent (`browser_use_agent.py`)
 
 **Features**:
-- browser-use Agent for natural language tasks
-- Playwright fallback for direct automation
-- LLM-based content summarization
-- Screenshot capture
+- DeepSeek compatibility via `_patch_browser_use_models()`
+- `keep_alive=True` to keep browser open between tasks
+- Safety rules (no CAPTCHA bypass, no purchases)
+- **Verification detection**: Detects CAPTCHA, phone verification, 2FA and returns `needs_user_input`
+- **Pydantic model_validate_json patch**: Normalizes JSON before validation (strips markdown, fixes action format)
 
-**API**:
-- `execute_task(task)` — Execute browser task
-- `get_page_content(url)` — Get page content
-- `take_screenshot()` — Capture page screenshot
+**DeepSeek Compatibility**:
+- Normalizes `{"click": 811}` → `{"click": {"index": 811}}`
+- Handles markdown code blocks in responses
+- Monkey-patches `ChatOpenAI.ainvoke()` for JSON normalization
+- Monkey-patches `BaseModel.model_validate_json()` for pre-validation normalization
 
-### Safety Module (`src/safety.py`)
+### Configuration (`config.json`)
 
-**Features**:
-- URL validation
-- Content filtering
-- Action approval
-
-## Usage
-
-```python
-from browser_server.executor import BrowserTaskExecutor
-
-executor = BrowserTaskExecutor(llm_provider=llm)
-result = executor.execute_task("Search for Python tutorials")
+```json
+{
+  "llm": {
+    "model": "deepseek-v4-flash",
+    "api_key": "...",
+    "base_url": "https://api.deepseek.com"
+  }
+}
 ```
+
+## Capability
+
+Single capability: `browser-server.page.browse`
+
+Accepts natural language task descriptions and executes them using browser-use.
+
+**Verification Detection**:
+When the browser agent encounters verification steps (CAPTCHA, phone verification, 2FA), it:
+1. Detects the verification pattern in the result text
+2. Returns `needs_user_input=True` with the reason
+3. The chat system pauses and asks the user to complete the verification
+4. After the user responds, the browser task continues
+
+Detected patterns:
+- verify your identity / phone
+- phone verification
+- scan QR code
+- verification code / enter the code
+- two-factor / 2FA
+- CAPTCHA
+- prove/verify you are human
 
 ## Dependencies
 
-```txt
-browser-use>=0.13.0
-playwright>=1.40.0
-openai>=1.0.0
-```
+- browser-use>=0.13.1
+- playwright>=1.40.0
 
 ## Key Design Decisions
 
-1. **browser-use primary**: Use browser-use Agent for natural language tasks
-2. **Playwright fallback**: Direct Playwright when browser-use unavailable
-3. **LLM summarization**: All content summarized by LLM before returning
-4. **Safety boundaries**: URL validation and content filtering
+1. **browser-use primary**: AI-driven browser automation via browser-use Agent
+2. **DeepSeek compatibility**: Monkey-patch for JSON format normalization
+3. **keep_alive**: Browser stays open between tasks
+4. **Safety rules**: No CAPTCHA bypass, no purchases, no credential filling
+5. **HTTP API**: Simple REST API for integration with AI Server
+6. **Verification detection**: Detects verification steps and pauses for user intervention
+7. **Pydantic patch**: Normalizes JSON before validation to handle DeepSeek's output format

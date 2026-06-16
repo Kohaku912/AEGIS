@@ -14,8 +14,16 @@
         <div class="val green">{{ summary.online_servers }}</div>
     </div>
     <div class="stat-card">
+        <div class="label">Degraded</div>
+        <div class="val {% if summary.degraded_servers > 0 %}yellow{% endif %}">{{ summary.degraded_servers }}</div>
+    </div>
+    <div class="stat-card">
+        <div class="label">Unconfigured</div>
+        <div class="val">{{ summary.unconfigured_servers }}</div>
+    </div>
+    <div class="stat-card">
         <div class="label">Offline</div>
-        <div class="val {% if summary.total_servers - summary.online_servers > 0 %}red{% endif %}">{{ summary.total_servers - summary.online_servers }}</div>
+        <div class="val {% if summary.offline_servers > 0 %}red{% endif %}">{{ summary.offline_servers }}</div>
     </div>
 </div>
 
@@ -28,10 +36,11 @@
                 <th>Server ID</th>
                 <th>Type</th>
                 <th>Status</th>
+                <th>Mode</th>
                 <th>Capabilities</th>
                 <th>Version</th>
                 <th>Host</th>
-                <th>Heartbeat</th>
+                <th>Detail</th>
             </tr>
         </thead>
         <tbody>
@@ -40,16 +49,26 @@
             <td style="font-family:monospace;font-size:11px;color:var(--text-muted);">{{ s.server_id }}</td>
             <td>{{ s.server_type }}</td>
             <td>
-                <span class="badge {% if s.status == 'ONLINE' %}badge-green{% else %}badge-red{% endif %}">
+                <span class="badge {% if s.status == 'ONLINE' %}badge-green{% elif s.status == 'DEGRADED' %}badge-yellow{% elif s.status == 'UNCONFIGURED' %}badge-gray{% else %}badge-red{% endif %}">
                     <span class="status-dot {% if s.status == 'ONLINE' %}status-online{% else %}status-offline{% endif %}" style="margin-right:4px;"></span>
                     {{ s.status }}
                 </span>
             </td>
+            <td style="font-size:12px;color:var(--text-muted);">{{ s.mode }}</td>
             <td>{{ s.registered_capabilities }}</td>
             <td style="color:var(--text-muted);font-size:12px;">{{ s.version }}</td>
             <td style="font-family:monospace;font-size:11px;">{{ s.host }}:{{ s.port }}</td>
-            <td style="color:{% if s.heartbeat_age_seconds > 60 %}var(--red){% elif s.heartbeat_age_seconds > 30 %}var(--yellow){% else %}var(--text-muted){% endif %};font-size:12px;">
-                {{ s.heartbeat_age_seconds }}s ago
+            <td style="font-size:12px;max-width:380px;">
+                <div>{{ s.degraded_reason or s.status_detail }}</div>
+                {% if s.recovery_hint %}
+                <div style="margin-top:4px;color:var(--text-muted);">{{ s.recovery_hint }}</div>
+                {% endif %}
+                {% if s.dependencies %}
+                <details style="margin-top:6px;">
+                    <summary style="cursor:pointer;color:var(--accent);">dependencies</summary>
+                    <pre style="margin-top:6px;font-size:11px;">{{ s.dependencies | tojson(indent=2) }}</pre>
+                </details>
+                {% endif %}
             </td>
         </tr>
         {% endfor %}

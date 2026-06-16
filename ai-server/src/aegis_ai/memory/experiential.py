@@ -29,6 +29,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from aegis_ai.llm.json_utils import extract_json_object
+
 logger = logging.getLogger("aegis_ai.memory.experiential")
 
 
@@ -190,22 +192,15 @@ Guidelines:
         result = self._llm.generate(
             prompt=prompt,
             system_prompt="You are an experience evaluator. Output only valid JSON.",
-            max_tokens=300,
+            max_tokens=600,
+            json_mode=True,
         )
 
         if not result.success:
             return
 
         try:
-            clean = result.content.strip()
-            if clean.startswith("```"):
-                lines = clean.split("\n")
-                clean = "\n".join(lines[1:])
-                if clean.endswith("```"):
-                    clean = clean[:-3]
-                clean = clean.strip()
-
-            data = json.loads(clean)
+            data = extract_json_object(result.content)
             exp.emotion_label = data.get("emotion_label", "neutral")
             exp.emotion_valence = max(-1.0, min(1.0, float(data.get("emotion_valence", 0.0))))
             exp.emotion_arousal = max(0.0, min(1.0, float(data.get("emotion_arousal", 0.0))))

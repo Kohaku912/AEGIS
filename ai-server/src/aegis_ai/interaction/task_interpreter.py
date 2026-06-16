@@ -12,9 +12,14 @@ import json
 import logging
 from dataclasses import dataclass, field
 from enum import Enum, auto
+from pathlib import Path
 from typing import Any
 
+from aegis_ai.llm.json_utils import extract_json_object
+from aegis_ai.llm.memory_context import build_shared_memory_context
+
 logger = logging.getLogger("aegis_ai.interaction.task_interpreter")
+_DATA_DIR = str(Path(__file__).resolve().parent.parent.parent / "data")
 
 
 class TaskType(Enum):
@@ -117,9 +122,16 @@ Respond with ONLY the JSON object, no markdown fences."""
         if not self._llm:
             return self._fallback_plan(user_message)
 
+        shared_context = build_shared_memory_context(
+            query=user_message,
+            data_dir=_DATA_DIR,
+            profile="decision",
+        )
         prompt = user_message
+        if shared_context.text:
+            prompt = f"Shared memory context:\n{shared_context.text}\n\nUser message: {user_message}"
         if context:
-            prompt = f"Context: {context}\n\nUser message: {user_message}"
+            prompt = f"{prompt}\n\nAdditional context: {context}"
 
         try:
             result = self._llm.generate(
@@ -127,6 +139,8 @@ Respond with ONLY the JSON object, no markdown fences."""
                 system_prompt=self.SYSTEM_PROMPT,
                 max_tokens=1000,
                 temperature=0.1,
+                context_meta=shared_context.audit_detail(),
+                json_mode=True,
             )
 
             if not result.success:
@@ -141,19 +155,8 @@ Respond with ONLY the JSON object, no markdown fences."""
 
     def _parse_response(self, llm_output: str, user_message: str) -> TaskPlan:
         """Parse LLM JSON response into TaskPlan."""
-        # Try to extract JSON from response
-        text = llm_output.strip()
-
-        # Remove markdown fences if present
-        if text.startswith("```"):
-            lines = text.split("\n")
-            text = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
-            text = text.strip()
-            if text.endswith("```"):
-                text = text[:-3].strip()
-
         try:
-            data = json.loads(text)
+            data = extract_json_object(llm_output)
         except json.JSONDecodeError:
             logger.warning("Failed to parse LLM response as JSON, using fallback")
             return self._fallback_plan(user_message)

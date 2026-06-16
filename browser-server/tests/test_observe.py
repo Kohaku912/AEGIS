@@ -8,22 +8,13 @@ from aegis_browser.safety import CAPABILITIES, SafetyLevel
 
 
 class TestCapabilityDefinitions:
-    def test_all_observe_capabilities_are_level_0(self):
-        observe_caps = [
-            "browser.extract_page_text", "browser.get_screenshot",
-            "browser.get_current_url", "browser.get_page_title", "browser.get_links",
-        ]
-        for cap_id in observe_caps:
-            assert cap_id in CAPABILITIES, f"Missing capability: {cap_id}"
-            cap = CAPABILITIES[cap_id]
-            assert cap["safety_level"] == SafetyLevel.LEVEL_0_READ, \
-                f"{cap_id} should be LEVEL_0_READ, got {cap['safety_level']}"
-
-    def test_open_page_is_level_1(self):
-        assert CAPABILITIES["browser.open_page"]["safety_level"] == SafetyLevel.LEVEL_1_SAFE_ACT
-
-    def test_run_task_readonly_is_level_1(self):
-        assert CAPABILITIES["browser.run_task_readonly"]["safety_level"] == SafetyLevel.LEVEL_1_SAFE_ACT
+    def test_browser_browse_capability_is_canonical(self):
+        cap_id = "browser-server.page.browse"
+        assert cap_id in CAPABILITIES
+        cap = CAPABILITIES[cap_id]
+        assert cap["safety_level"] == SafetyLevel.LEVEL_1_SAFE_ACT
+        assert cap["requires_approval"] is False
+        assert "browser" in cap["tags"]
 
 
 class TestExtractPageText:

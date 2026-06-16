@@ -1,0 +1,20 @@
+{
+  "title": "Show Display Overlay",
+  "description": "Display text overlay on screen. Shows information that auto-dismisses or can be closed with ESC.",
+  "server_id": "pc-server",
+  "app_id": "overlay",
+  "action": "show_display",
+  "risk": {"level": "low", "side_effects": [], "requires_approval": false},
+  "tags": ["overlay", "display", "observe"],
+  "only_master": false,
+  "tcp_command": "show_display {title}|{body}|{duration}",
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "title": {"type": "string", "description": "Overlay title", "default": "AEGIS"},
+      "body": {"type": "string", "description": "Text to display (supports multiple lines)"},
+      "duration": {"type": "integer", "description": "Display duration in seconds (0 = until ESC)", "default": 10}
+    },
+    "required": ["body"]
+  }
+}

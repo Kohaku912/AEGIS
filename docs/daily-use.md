@@ -15,8 +15,8 @@ docker compose up -d
 ### 2. 確認
 
 ```
-http://127.0.0.1:8090          # Dashboard
-http://127.0.0.1:8080/approvals # Approval UI
+http://0.0.0.0:8090          # Dashboard
+http://0.0.0.0:8080/approvals # Approval UI
 ```
 
 ### 3. 使いたい操作

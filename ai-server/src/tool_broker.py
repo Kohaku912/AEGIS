@@ -689,7 +689,7 @@ class ToolBroker:
         try:
             output = self._server_executor.execute(cap, request.arguments)
             finished_at = int(time.time() * 1000)
-            if isinstance(output, dict) and "error" in output:
+            if isinstance(output, dict) and output.get("error"):
                 error_msg = output["error"]
                 return ToolExecutionResult(
                     request_id=request.request_id,

@@ -12,7 +12,7 @@ print()
 print('[1] Chat: "Open example.com"')
 data = json.dumps({'text': 'open https://example.com'}).encode()
 req = urllib.request.Request(
-    'http://127.0.0.1:8090/api/chat/send',
+    'http://0.0.0.0:8090/api/chat/send',
     data=data,
     headers={'Content-Type': 'application/json'}
 )
@@ -30,7 +30,7 @@ print()
 print('[2] Chat: "Take a screenshot"')
 data = json.dumps({'text': 'Take a screenshot'}).encode()
 req = urllib.request.Request(
-    'http://127.0.0.1:8090/api/chat/send',
+    'http://0.0.0.0:8090/api/chat/send',
     data=data,
     headers={'Content-Type': 'application/json'}
 )
@@ -50,7 +50,7 @@ print()
 print('[3] Chat: "What is AEGIS?"')
 data = json.dumps({'text': 'What is AEGIS?'}).encode()
 req = urllib.request.Request(
-    'http://127.0.0.1:8090/api/chat/send',
+    'http://0.0.0.0:8090/api/chat/send',
     data=data,
     headers={'Content-Type': 'application/json'}
 )

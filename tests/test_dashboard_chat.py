@@ -8,14 +8,14 @@ print()
 
 # Test Dashboard
 try:
-    r = urllib.request.urlopen('http://127.0.0.1:8090/health', timeout=5)
+    r = urllib.request.urlopen('http://0.0.0.0:8090/health', timeout=5)
     print('Dashboard:', r.status, r.read().decode())
 except Exception as e:
     print('Dashboard Error:', e)
 
 # Test API servers endpoint
 try:
-    r = urllib.request.urlopen('http://127.0.0.1:8090/api/servers', timeout=5)
+    r = urllib.request.urlopen('http://0.0.0.0:8090/api/servers', timeout=5)
     data = json.loads(r.read().decode())
     print('Servers:', data['summary'])
     for s in data['servers']:
@@ -30,7 +30,7 @@ except Exception as e:
 try:
     data = json.dumps({'text': 'Take a screenshot'}).encode()
     req = urllib.request.Request(
-        'http://127.0.0.1:8090/api/chat/send',
+        'http://0.0.0.0:8090/api/chat/send',
         data=data,
         headers={'Content-Type': 'application/json'}
     )
@@ -46,7 +46,7 @@ except Exception as e:
 try:
     data = json.dumps({'text': 'What is AEGIS?'}).encode()
     req = urllib.request.Request(
-        'http://127.0.0.1:8090/api/chat/send',
+        'http://0.0.0.0:8090/api/chat/send',
         data=data,
         headers={'Content-Type': 'application/json'}
     )

@@ -50,6 +50,42 @@ def get_settings():
     return jsonify(_settings_store.get().model_dump())
 
 
+@settings_ui_bp.route("/api/settings", methods=["POST"])
+def update_single_setting():
+    """Update one setting field.
+
+    Kept for compatibility with older settings pages that posted
+    {section, key, value} to /api/settings.
+    """
+    if not _settings_store:
+        return jsonify({"error": "Settings store not available"}), 500
+
+    data = request.get_json(silent=True) or {}
+    section = data.get("section")
+    key = data.get("key")
+    if not section or not key:
+        return jsonify({"success": False, "errors": ["section and key are required"]}), 400
+
+    errors = _settings_store.update_section(
+        str(section),
+        {str(key): data.get("value")},
+        "web_user",
+        "Updated via settings UI",
+    )
+
+    if errors:
+        return jsonify({"success": False, "errors": errors}), 400
+
+    if _audit_log:
+        _audit_log.log_decision(
+            "settings_changed", f"settings.{section}.{key}", "UPDATED",
+            reason="Updated via settings UI",
+            detail={"section": section, "key": key, "value": data.get("value")},
+        )
+
+    return jsonify({"success": True})
+
+
 @settings_ui_bp.route("/api/settings/<section>", methods=["POST"])
 def update_section(section: str):
     """Update a settings section."""

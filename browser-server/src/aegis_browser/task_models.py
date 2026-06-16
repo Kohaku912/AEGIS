@@ -31,6 +31,7 @@ class BrowserTask:
     """
     task_id: str = ""
     natural_language_goal: str = ""
+    max_steps: int = 50
 
     # Safety constraints
     allowed_actions: list[str] = field(default_factory=lambda: [
@@ -46,7 +47,6 @@ class BrowserTask:
     ])
 
     forbidden_actions: list[str] = field(default_factory=lambda: [
-        "solve_captcha",
         "bypass_bot_detection",
         "use_proxy_for_evasion",
         "enter_password_without_user",
@@ -155,9 +155,10 @@ SIGNUP_TASK = BrowserTask(
         "open_link",
         "fill_non_sensitive_form",
         "create_free_account_if_no_payment_or_captcha",
+        "fill_form",
+        "click_button",
     ],
     forbidden_actions=[
-        "solve_captcha",
         "bypass_bot_detection",
         "use_proxy_for_evasion",
         "enter_password_without_user",
@@ -170,11 +171,11 @@ SIGNUP_TASK = BrowserTask(
         "send_email",
         "spam",
         "bulk_signup",
+        "solve_captcha",
     ],
     stop_conditions=[
         "captcha_detected",
         "payment_required",
         "identity_verification_required",
-        "age_verification_required",
     ],
 )

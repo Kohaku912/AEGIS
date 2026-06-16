@@ -1,9 +1,0 @@
-{
-  "title": "Extract Text",
-  "description": "Extract text content from the current page.",
-  "server_id": "browser-server",
-  "app_id": "page",
-  "action": "extract_page_text",
-  "risk": {"level": "low", "side_effects": [], "requires_approval": false},
-  "tags": ["builtin", "browser", "read"]
-}

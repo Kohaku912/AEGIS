@@ -45,7 +45,7 @@ except Exception as e:
 # Test 3: Dashboard access
 print('[3] Dashboard access...')
 try:
-    response = urllib.request.urlopen('http://127.0.0.1:8090/', timeout=5)
+    response = urllib.request.urlopen('http://0.0.0.0:8090/', timeout=5)
     print(f'  [PASS] Dashboard: HTTP {response.status}')
 except Exception as e:
     print(f'  [FAIL] Dashboard: {e}')
@@ -53,7 +53,7 @@ except Exception as e:
 # Test 4: Web Chat access
 print('[4] Web Chat access...')
 try:
-    response = urllib.request.urlopen('http://127.0.0.1:8091/chat', timeout=5)
+    response = urllib.request.urlopen('http://0.0.0.0:8091/chat', timeout=5)
     print(f'  [PASS] Web Chat: HTTP {response.status}')
 except Exception as e:
     print(f'  [FAIL] Web Chat: {e}')

@@ -98,9 +98,9 @@ class CLIChannel:
     def _show_status(self) -> None:
         """Show system status."""
         print("\nAEGIS Status:")
-        print("  Dashboard: http://127.0.0.1:8090")
-        print("  Approvals: http://127.0.0.1:8080/approvals")
-        print("  Chat: http://127.0.0.1:8091/chat")
+        print("  Dashboard: http://0.0.0.0:8090")
+        print("  Approvals: http://0.0.0.0:8080/approvals")
+        print("  Chat: http://0.0.0.0:8091/chat")
 
     def _approve(self, approval_id: str) -> None:
         """Approve a pending request."""

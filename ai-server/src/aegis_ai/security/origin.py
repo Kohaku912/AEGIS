@@ -36,9 +36,9 @@ class OriginChecker:
         """
         # Allow localhost
         if self._allow_localhost:
-            if remote_addr in ("127.0.0.1", "::1", "localhost"):
+            if remote_addr in ("0.0.0.0", "::1", "localhost"):
                 return True
-            if origin and any(loc in origin for loc in ("localhost", "127.0.0.1")):
+            if origin and any(loc in origin for loc in ("localhost", "0.0.0.0")):
                 return True
 
         # Check explicit allowed origins

@@ -9,6 +9,18 @@
         <div class="label">Total Entries</div>
         <div class="val">{{ stats.total_entries }}</div>
     </div>
+    <div class="stat-card">
+        <div class="label">LLM Events</div>
+        <div class="val accent">{{ stats.llm_entries }}</div>
+    </div>
+    <div class="stat-card">
+        <div class="label">Tool Events</div>
+        <div class="val">{{ stats.tool_entries }}</div>
+    </div>
+    <div class="stat-card">
+        <div class="label">Errors</div>
+        <div class="val red">{{ stats.error_entries }}</div>
+    </div>
 </div>
 
 <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px;margin-bottom:16px;">
@@ -36,6 +48,49 @@
 </div>
 
 <div class="card">
+    <div class="card-header">LLM / Tool Timeline <span style="font-weight:400;text-transform:none;font-size:11px;color:var(--text-muted);">newest first</span></div>
+    {% if timeline %}
+    <div style="display:flex;flex-direction:column;gap:12px;">
+        {% for item in timeline %}
+        <div style="border:1px solid var(--border);border-radius:10px;padding:14px;background:var(--surface2);">
+            <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px;">
+                <span style="font-size:11px;color:var(--text-muted);white-space:nowrap;">{{ item.time_str }}</span>
+                <span class="badge {% if item.status_tone == 'green' %}badge-green{% elif item.status_tone == 'red' %}badge-red{% else %}badge-yellow{% endif %}">{{ item.status_label }}</span>
+                <span style="font-weight:600;">{{ item.stage }}</span>
+                {% if item.capability_id %}
+                <span style="font-family:monospace;font-size:11px;color:var(--accent);">{{ item.capability_id }}</span>
+                {% endif %}
+                {% if item.actor %}
+                <span style="font-size:11px;color:var(--text-muted);">actor: {{ item.actor }}</span>
+                {% endif %}
+            </div>
+            <div style="font-size:14px;line-height:1.5;margin-bottom:8px;">{{ item.summary }}</div>
+            {% if item.preview %}
+            <div style="font-size:12px;color:var(--text-muted);margin-bottom:8px;">{{ item.preview }}</div>
+            {% endif %}
+            {% if item.meta %}
+            <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:8px;">
+                {% for meta in item.meta %}
+                <span class="badge badge-gray" style="font-size:10px;">{{ meta }}</span>
+                {% endfor %}
+            </div>
+            {% endif %}
+            {% if item.reason %}
+            <div style="font-size:12px;color:var(--text-muted);margin-bottom:8px;">Reason: {{ item.reason }}</div>
+            {% endif %}
+            <details>
+                <summary style="cursor:pointer;font-size:12px;color:var(--accent);">Raw detail</summary>
+                <pre style="margin-top:10px;padding:12px;background:rgba(15,23,42,0.45);border:1px solid var(--border);border-radius:8px;overflow:auto;font-size:11px;line-height:1.5;white-space:pre-wrap;">{{ item.raw_detail }}</pre>
+            </details>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div style="padding:20px;color:var(--text-muted);">No audit timeline entries yet.</div>
+    {% endif %}
+</div>
+
+<div class="card">
     <div class="card-header">All Entries <span style="font-weight:400;text-transform:none;font-size:11px;color:var(--text-muted);">newest first</span></div>
     <div style="overflow-x:auto;">
     <table>
@@ -55,7 +110,13 @@
             </td>
             <td style="font-size:12px;">{{ e.actor }}</td>
             <td style="max-width:180px;font-size:12px;color:var(--text-muted);">{{ e.reason[:80] }}</td>
-            <td style="max-width:240px;font-size:11px;color:var(--text-muted);">{{ e.detail_summary }}</td>
+            <td style="max-width:240px;font-size:11px;color:var(--text-muted);">
+                <div>{{ e.detail_summary }}</div>
+                <details style="margin-top:6px;">
+                    <summary style="cursor:pointer;color:var(--accent);">detail</summary>
+                    <pre style="margin-top:8px;white-space:pre-wrap;font-size:11px;line-height:1.45;">{{ e.detail_pretty }}</pre>
+                </details>
+            </td>
         </tr>
         {% endfor %}
         </tbody>

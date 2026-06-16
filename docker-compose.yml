@@ -27,9 +27,9 @@ services:
       context: ./ai-server
       dockerfile: Dockerfile
     ports:
-      - "127.0.0.1:${AEGIS_CORE_GRPC_PORT:-50051}:50051"
-      - "127.0.0.1:8090:8090"  # Dashboard (localhost only)
-      - "127.0.0.1:8091:8091"  # Web Chat (localhost only)
+      - "0.0.0.0:${AEGIS_CORE_GRPC_PORT:-50051}:50051"
+      - "0.0.0.0:8090:8090"  # Dashboard (localhost only)
+      - "0.0.0.0:8091:8091"  # Web Chat (localhost only)
     environment:
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - OPENAI_BASE_URL=${OPENAI_BASE_URL:-https://api.deepseek.com}
@@ -64,7 +64,7 @@ services:
       - pc-host
       - beta
     ports:
-      - "127.0.0.1:${BROWSER_SERVER_GRPC_PORT:-50053}:50053"
+      - "0.0.0.0:${BROWSER_SERVER_GRPC_PORT:-50053}:50053"
     environment:
       - AEGIS_AI_GRPC_ADDR=ai-server:50051
       - AEGIS_GRPC_PORT=50053

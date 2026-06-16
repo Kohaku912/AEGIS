@@ -72,9 +72,9 @@ python -c "
 from aegis_ai.interaction import InteractionRouter, WebChatApp
 router = InteractionRouter()
 app = WebChatApp(router=router)
-app.run(host='127.0.0.1', port=8091)
+app.run(host='0.0.0.0', port=8091)
 "
-# Open http://127.0.0.1:8091/chat
+# Open http://0.0.0.0:8091/chat
 ```
 
 ### CLI

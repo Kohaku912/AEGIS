@@ -51,12 +51,14 @@ fn main() {
         return;
     }
 
-    let port = args.windows(2)
+    let port = args
+        .windows(2)
         .find(|w| w[0] == "--port")
         .map(|w| w[1].clone())
         .unwrap_or_else(|| "50052".to_string());
 
-    let bind_addr = args.windows(2)
+    let bind_addr = args
+        .windows(2)
         .find(|w| w[0] == "--bind")
         .map(|w| w[1].clone())
         .unwrap_or_else(|| "0.0.0.0".to_string());
@@ -70,9 +72,18 @@ fn main() {
     println!();
 
     let caps = safety::get_capabilities();
-    let observe_count = caps.iter().filter(|c| c.safety_level == safety::SafetyLevel::Level0Read).count();
-    let action_count = caps.iter().filter(|c| c.safety_level == safety::SafetyLevel::Level1SafeAct).count();
-    let approval_count = caps.iter().filter(|c| c.safety_level == safety::SafetyLevel::Level2Approval).count();
+    let observe_count = caps
+        .iter()
+        .filter(|c| c.safety_level == safety::SafetyLevel::Level0Read)
+        .count();
+    let action_count = caps
+        .iter()
+        .filter(|c| c.safety_level == safety::SafetyLevel::Level1SafeAct)
+        .count();
+    let approval_count = caps
+        .iter()
+        .filter(|c| c.safety_level == safety::SafetyLevel::Level2Approval)
+        .count();
 
     println!("Capabilities: {} total", caps.len());
     println!("  Observe (Level 0): {}", observe_count);
@@ -81,7 +92,10 @@ fn main() {
     println!();
 
     let info = observe::get_os_info();
-    println!("OS: {} {} ({})", info.os_name, info.os_version, info.architecture);
+    println!(
+        "OS: {} {} ({})",
+        info.os_name, info.os_version, info.architecture
+    );
     println!("Host: {} / {}", info.hostname, info.username);
 
     let screen = observe::get_screen_size();
@@ -89,9 +103,18 @@ fn main() {
 
     println!();
     println!("Bind: {}", full_addr);
-    println!("Real PC actions: {}", if enable_real_actions { "ENABLED" } else { "DISABLED (mock)" });
+    println!(
+        "Real PC actions: {}",
+        if enable_real_actions {
+            "ENABLED"
+        } else {
+            "DISABLED (mock)"
+        }
+    );
     println!();
-    println!("Commands: health, screenshot, active_window, windows, os_info, screen_size, clipboard");
+    println!(
+        "Commands: health, screenshot, active_window, windows, os_info, screen_size, clipboard"
+    );
     println!("          show_overlay, hide_overlay, launch_app, focus_window");
     println!("          mouse_move, mouse_click, keyboard_type, press_hotkey (approval required)");
     println!("          capabilities, quit");

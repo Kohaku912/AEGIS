@@ -528,6 +528,11 @@ class SupportAgent:
                 f"Recent events ({len(ctx.recent_events)}): "
                 + ", ".join(str(e.event_type) for e in ctx.recent_events[:5])
             )
+        if ctx.recent_media_summaries:
+            parts.append(
+                f"Recent media ({len(ctx.recent_media_summaries)}): "
+                + "; ".join(ctx.recent_media_summaries[:3])
+            )
         if ctx.recent_episodes:
             parts.append(f"Recent episodes: {'; '.join(ctx.recent_episodes[:3])}")
         if ctx.relevant_facts:

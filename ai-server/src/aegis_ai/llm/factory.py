@@ -64,7 +64,7 @@ def create_llm_provider(
     if provider_name in ("openai", "deepseek"):
         from aegis_ai.llm.providers.openai_provider import OpenAIProvider
 
-        default_model = "deepseek-chat" if provider_name == "deepseek" else "gpt-4o-mini"
+        default_model = "deepseek-v4-flash" if provider_name == "deepseek" else "gpt-4o-mini"
         return OpenAIProvider(
             model=model_name or default_model,
             api_key=api_key,
@@ -77,7 +77,40 @@ def create_llm_provider(
         return MockLLMProvider()
 
 
-def create_llm_provider_from_settings(settings_store: Any = None) -> Any:
+def create_multimodal_llm_provider(
+    provider_name: str | None = None,
+    model: str | None = None,
+    api_key: str | None = None,
+    base_url: str | None = None,
+    audit_log: Any = None,
+) -> Any:
+    """Create an LLM provider optimized for image/video understanding."""
+    api_key = api_key or os.getenv("LLM_VISION_API_KEY") or os.getenv("LLM_API_KEY", "")
+    base_url = base_url or os.getenv("LLM_VISION_BASE_URL") or os.getenv("LLM_BASE_URL", "")
+    model_name = model or os.getenv("LLM_VISION_MODEL_NAME", "qwen3-vl-flash")
+
+    if provider_name is None:
+        if api_key:
+            provider_name = "openai"
+        else:
+            provider_name = "mock"
+
+    if provider_name == "openai":
+        from aegis_ai.llm.providers.openai_provider import OpenAIProvider
+
+        return OpenAIProvider(
+            model=model_name,
+            api_key=api_key,
+            base_url=base_url if base_url else None,
+            audit_log=audit_log,
+        )
+
+    from aegis_ai.llm.providers.mock import MockLLMProvider
+
+    return MockLLMProvider()
+
+
+def create_llm_provider_from_settings(settings_store: Any = None, audit_log: Any = None) -> Any:
     """Create LLM provider from settings store.
 
     Args:
@@ -89,7 +122,7 @@ def create_llm_provider_from_settings(settings_store: Any = None) -> Any:
     if settings_store:
         settings = settings_store.get()
         if settings.privacy.external_llm_allowed:
-            return create_llm_provider()
+            return create_llm_provider(audit_log=audit_log)
         else:
             # Local only - use mock
             from aegis_ai.llm.providers.mock import MockLLMProvider

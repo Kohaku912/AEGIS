@@ -3,7 +3,7 @@
 # Usage:
 #   .\scripts\start-pc-server-host.ps1
 #   .\scripts\start-pc-server-host.ps1 -Port 50052
-#   .\scripts\start-pc-server-host.ps1 -Bind "127.0.0.1"
+#   .\scripts\start-pc-server-host.ps1 -Bind "0.0.0.0"
 
 param(
     [int]$Port = 50052,

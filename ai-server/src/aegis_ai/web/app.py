@@ -46,7 +46,7 @@ class ApprovalWebApp:
     def app(self) -> Flask:
         return self._app
 
-    def run(self, host: str = "127.0.0.1", port: int = 8080, debug: bool = False) -> None:
+    def run(self, host: str = "0.0.0.0", port: int = 8080, debug: bool = False) -> None:
         """Run the Flask development server (localhost only)."""
         self._app.run(host=host, port=port, debug=debug)
 

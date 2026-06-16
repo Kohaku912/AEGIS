@@ -61,9 +61,9 @@ Write-Host ""
 Write-Host "  Profiles: $($profiles -join ', ')" -ForegroundColor White
 Write-Host ""
 Write-Host "  Services:" -ForegroundColor White
-Write-Host "    AI Server:      http://127.0.0.1:8090 (Dashboard)" -ForegroundColor White
-Write-Host "    AI Server:      http://127.0.0.1:8091 (Web Chat)" -ForegroundColor White
-Write-Host "    Browser Server: http://127.0.0.1:50053" -ForegroundColor White
+Write-Host "    AI Server:      http://0.0.0.0:8090 (Dashboard)" -ForegroundColor White
+Write-Host "    AI Server:      http://0.0.0.0:8091 (Web Chat)" -ForegroundColor White
+Write-Host "    Browser Server: http://0.0.0.0:50053" -ForegroundColor White
 Write-Host ""
 Write-Host "  PC Server (external):" -ForegroundColor Yellow
 Write-Host "    Start with: .\scripts\start-pc-server-host.ps1" -ForegroundColor White

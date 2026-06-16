@@ -27,7 +27,7 @@
 
 ```
 症状: 承認が pending のまま
-確認: http://127.0.0.1:8080/approvals
+確認: http://0.0.0.0:8080/approvals
 解決: 承認するか reject するか
 ```
 

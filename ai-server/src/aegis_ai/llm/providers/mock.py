@@ -25,12 +25,15 @@ class MockLLMProvider:
         system_prompt: str = "",
         max_tokens: int = 2000,
         temperature: float = 0.7,
+        context_meta: dict[str, Any] | None = None,
+        json_mode: bool = False,
     ) -> LLMResponse:
         """Generate a mock response."""
         self.call_log.append({
             "prompt": prompt[:100],
             "system_prompt": system_prompt[:100],
             "max_tokens": max_tokens,
+            "json_mode": json_mode,
         })
 
         prompt_lower = prompt.lower()
@@ -63,6 +66,7 @@ class MockLLMProvider:
         max_tokens: int = 2000,
         temperature: float = 0.7,
         detail: str = "low",
+        context_meta: dict[str, Any] | None = None,
     ) -> LLMResponse:
         """Generate a mock response for image input."""
         self.call_log.append({
@@ -71,6 +75,38 @@ class MockLLMProvider:
             "system_prompt": system_prompt[:100],
         })
         content = "I can see the image. It shows a desktop environment with various application windows and system elements."
+        return LLMResponse(
+            content=content,
+            model_used="mock-model",
+            provider_used="mock",
+            tokens_used=len(content.split()),
+            cost_estimate=0.0,
+            success=True,
+        )
+
+    def generate_with_media(
+        self,
+        prompt: str,
+        image_base64s: list[str],
+        system_prompt: str = "",
+        max_tokens: int = 2000,
+        temperature: float = 0.7,
+        detail: str = "low",
+        context_meta: dict[str, Any] | None = None,
+        media_kind: str = "image",
+    ) -> LLMResponse:
+        """Generate a mock response for image or video input."""
+        self.call_log.append({
+            "prompt": prompt[:100],
+            "has_media": True,
+            "media_kind": media_kind,
+            "media_count": len([item for item in image_base64s if item]),
+            "system_prompt": system_prompt[:100],
+        })
+        if media_kind == "video":
+            content = "The video shows a changing screen or scene across the provided keyframes."
+        else:
+            content = "I can see the image. It shows a desktop environment with various application windows and system elements."
         return LLMResponse(
             content=content,
             model_used="mock-model",

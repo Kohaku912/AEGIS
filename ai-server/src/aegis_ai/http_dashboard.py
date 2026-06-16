@@ -53,7 +53,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             </ul>
             <h2>Quick Links</h2>
             <ul>
-                <li><a href="http://127.0.0.1:8091/chat" style="color: #58a6ff;">Web Chat</a></li>
+                <li><a href="http://0.0.0.0:8091/chat" style="color: #58a6ff;">Web Chat</a></li>
             </ul>
         </body>
         </html>

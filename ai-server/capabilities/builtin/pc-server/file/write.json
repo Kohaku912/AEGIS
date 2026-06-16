@@ -1,0 +1,20 @@
+{
+  "id": "pc-server.file.write",
+  "title": "Write File",
+  "description": "Write text content to a file on the PC. Use this for normal user-requested saves to non-sensitive locations.",
+  "server_id": "pc-server",
+  "app_id": "file",
+  "action": "write",
+  "risk": {"level": "safe"},
+  "input": {
+    "type": "object",
+    "properties": {
+      "path": {"type": "string", "description": "Destination file path"},
+      "content": {"type": "string", "description": "Text content to write"},
+      "append": {"type": "boolean", "description": "Append instead of overwrite", "default": false}
+    },
+    "required": ["path", "content"]
+  },
+  "tags": ["files", "write"],
+  "tcp_command": "write_file {path}|{content}|{append}"
+}
