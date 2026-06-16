@@ -46,6 +46,7 @@ class InteractionRouter:
         context_builder: Any = None,
         capability_registry: Any = None,
         capability_catalog: Any = None,
+        capability_retriever: Any = None,
         tool_broker: Any = None,
         approval_store: Any = None,
         audit_log: Any = None,
@@ -59,6 +60,7 @@ class InteractionRouter:
         self._context = context_builder
         self._registry = capability_registry
         self._catalog = capability_catalog
+        self._retriever = capability_retriever
         self._broker = tool_broker
         self._approval = approval_store
         self._audit = audit_log
@@ -79,6 +81,7 @@ class InteractionRouter:
                 context_builder=self._context,
                 capability_registry=self._registry,
                 capability_catalog=self._catalog,
+                capability_retriever=self._retriever,
             )
         return self._interpreter
 

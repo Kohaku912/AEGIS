@@ -6,6 +6,11 @@
   "action": "browse",
   "risk": {"level": "safe", "side_effects": ["sends HTTP request", "executes page JavaScript"], "requires_approval": false},
   "tags": ["browser", "web", "ai", "automation"],
+  "aliases": ["ブラウザで開いて", "Webページを開く", "サイトを見て", "ページを操作"],
+  "examples": [
+    {"user": "ブラウザでexample.comを開いて", "arguments": {"task": "Open https://example.com and report the page title"}},
+    {"user": "サイトを見て内容を確認して", "arguments": {"task": "Open the requested site and summarize the visible content"}}
+  ],
   "only_master": false,
   "input_schema": {
     "type": "object",

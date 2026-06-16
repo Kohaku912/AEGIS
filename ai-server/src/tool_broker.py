@@ -26,6 +26,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
+from jsonschema import ValidationError, validate
+
 from aegis_schema.models import Capability, RiskLevel, ServerType
 from policy_engine import PolicyDecision, PolicyEngine, PolicyResult, create_default_policy_engine
 from server_executor import ServerExecutor
@@ -392,8 +394,28 @@ class ToolBroker:
                 )
 
         # Look up capability — try ToolRegistry first, then FolderCapabilityRegistry
+        manifest = self._resolve_manifest(request.capability_id)
+        if manifest is None:
+            return ToolExecutionResult(
+                request_id=request.request_id,
+                status=InvokeStatus.NOT_FOUND,
+                error=f"Capability '{request.capability_id}' is not registered in the capability catalog.",
+                started_at=request.created_at,
+                finished_at=int(time.time() * 1000),
+            )
+        request.capability_id = manifest.capability_id
+        validation_error = self._validate_arguments(manifest, request.arguments)
+        if validation_error:
+            return ToolExecutionResult(
+                request_id=request.request_id,
+                status=InvokeStatus.DENIED,
+                error=validation_error,
+                started_at=request.created_at,
+                finished_at=int(time.time() * 1000),
+                policy_decision="VALIDATION_DENY",
+            )
+
         cap = self._registry.get_capability(request.capability_id)
-        manifest = None
         if cap is None and self._folder_registry is not None:
             manifest = self._folder_registry.get(request.capability_id)
             if manifest is not None:
@@ -507,6 +529,22 @@ class ToolBroker:
         """Invoke AFTER user approval."""
         params = params or {}
 
+        manifest = self._resolve_manifest(capability_id)
+        if manifest is None:
+            return InvokeResult(
+                status=InvokeStatus.NOT_FOUND,
+                capability_id=capability_id,
+                error=f"Capability '{capability_id}' is not registered in the capability catalog.",
+            )
+        capability_id = manifest.capability_id
+        validation_error = self._validate_arguments(manifest, params)
+        if validation_error:
+            return InvokeResult(
+                status=InvokeStatus.DENIED,
+                capability_id=capability_id,
+                error=validation_error,
+            )
+
         cap = self._registry.get_capability(capability_id)
         if cap is None:
             return InvokeResult(
@@ -591,11 +629,29 @@ class ToolBroker:
                 error=f"Approval '{approval_id}' is not approved (status={appr.status}).",
             )
 
-        cap = self._registry.get_capability(appr.capability_id)
+        manifest = self._resolve_manifest(appr.capability_id)
+        if manifest is None:
+            self._approval_queue.mark_failed(approval_id, f"Capability '{appr.capability_id}' not found in catalog.")
+            return ToolExecutionResult(
+                status=InvokeStatus.NOT_FOUND,
+                error=f"Capability '{appr.capability_id}' not found in catalog.",
+                approval_id=approval_id,
+            )
+        validation_error = self._validate_arguments(manifest, appr.arguments)
+        if validation_error:
+            self._approval_queue.mark_failed(approval_id, validation_error)
+            return ToolExecutionResult(
+                status=InvokeStatus.DENIED,
+                error=validation_error,
+                policy_decision="VALIDATION_DENY",
+                approval_id=approval_id,
+            )
+
+        cap = self._registry.get_capability(manifest.capability_id)
         if cap is None:
             return ToolExecutionResult(
                 status=InvokeStatus.NOT_FOUND,
-                error=f"Capability '{appr.capability_id}' not found.",
+                error=f"Capability '{manifest.capability_id}' not found.",
             )
 
         policy_result = self._policy.evaluate(cap, appr.arguments)
@@ -621,7 +677,7 @@ class ToolBroker:
         request = ToolExecutionRequest(
             request_id=appr.request_id,
             task_id=appr.task_id,
-            capability_id=appr.capability_id,
+            capability_id=manifest.capability_id,
             tool_name=appr.tool_name,
             arguments=appr.arguments,
             source=self._resolve_source(appr.source),
@@ -650,6 +706,21 @@ class ToolBroker:
 
     def find_capability(self, capability_id: str) -> Capability | None:
         return self._registry.get_capability(capability_id)
+
+    def _resolve_manifest(self, capability_id: str) -> Any | None:
+        if self._catalog is None:
+            return None
+        return self._catalog.resolve(capability_id)
+
+    def _validate_arguments(self, manifest: Any, arguments: dict[str, Any]) -> str:
+        schema = getattr(manifest, "input_schema", None) or {"type": "object", "properties": {}}
+        try:
+            validate(instance=arguments or {}, schema=schema)
+            return ""
+        except ValidationError as exc:
+            path = ".".join(str(part) for part in exc.path)
+            location = f" at '{path}'" if path else ""
+            return f"Invalid arguments for '{manifest.capability_id}'{location}: {exc.message}"
 
     def search_capabilities(
         self,

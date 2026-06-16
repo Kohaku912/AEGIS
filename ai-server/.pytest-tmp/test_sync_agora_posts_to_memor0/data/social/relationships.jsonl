@@ -1,2 +1,0 @@
-{"person_a": "Alice", "person_b": "AEGIS", "relationship_type": "acquaintance", "closeness": 0.3, "interaction_count": 1, "last_interaction_ms": 1781624940459, "topics_together": [], "average_sentiment": 0.0, "notes": ""}
-{"person_a": "Bob", "person_b": "Alice", "relationship_type": "acquaintance", "closeness": 0.3, "interaction_count": 1, "last_interaction_ms": 1781624940461, "topics_together": [], "average_sentiment": 0.0, "notes": ""}

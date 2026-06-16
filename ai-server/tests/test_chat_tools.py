@@ -1,8 +1,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
+from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
+from aegis_ai.capability_catalog import CapabilityCatalog
+from aegis_ai.capability_index import CapabilityIndex, CapabilityRetriever
 from aegis_ai.web import chat_tools
 
 
@@ -260,3 +265,64 @@ def test_screenshot_tool_result_is_summarized_for_follow_up_prompt(monkeypatch) 
     assert result["response"] == "Understood."
     assert llm.vision_prompts
     assert "The browser is open on a signup form with visible input fields." in llm.prompts[1]
+
+
+def _write_chat_cap(root: Path, index: int) -> None:
+    app_id = f"dummy{index}"
+    path = root / "builtin" / "ai-server" / app_id / "run.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps({
+            "title": f"Dummy {index}",
+            "description": f"Dummy capability {index}",
+            "server_id": "ai-server",
+            "app_id": app_id,
+            "action": "run",
+            "risk": {"level": "low", "requires_approval": False},
+            "input_schema": {"type": "object", "properties": {"value": {"type": "string"}}},
+        }),
+        encoding="utf-8",
+    )
+
+
+def test_get_tools_for_chat_uses_retriever_not_full_catalog(tmp_path: Path) -> None:
+    caps_dir = tmp_path / "capabilities"
+    for i in range(40):
+        _write_chat_cap(caps_dir, i)
+    catalog = CapabilityCatalog(str(caps_dir))
+    retriever = CapabilityRetriever(catalog, CapabilityIndex(catalog, enable_chroma=False))
+    runtime = SimpleNamespace(capability_retriever=retriever)
+
+    tools = chat_tools.get_tools_for_chat(
+        catalog,
+        user_message="dummy task",
+        runtime=runtime,
+    )
+    names = {tool["function"]["name"] for tool in tools}
+
+    assert len(tools) == 11
+    assert "ask_user" in names
+    assert "capability__search" in names
+    assert "capability__describe" in names
+
+
+def test_meta_tool_call_does_not_use_tool_broker(tmp_path: Path) -> None:
+    caps_dir = tmp_path / "capabilities"
+    _write_chat_cap(caps_dir, 1)
+    catalog = CapabilityCatalog(str(caps_dir))
+    retriever = CapabilityRetriever(catalog, CapabilityIndex(catalog, enable_chroma=False))
+
+    class FailingBroker:
+        def execute(self, request):
+            raise AssertionError("meta tools must not call ToolBroker")
+
+    runtime = SimpleNamespace(capability_retriever=retriever, tool_broker=FailingBroker())
+    result = chat_tools.execute_tool_call(
+        catalog,
+        "capability__describe",
+        {"capability_id": "ai-server.dummy1.run"},
+        runtime=runtime,
+    )
+
+    assert result["success"] is True
+    assert result["output"]["described_capability_id"] == "ai-server.dummy1.run"

@@ -89,6 +89,7 @@ class AutonomousLoop:
         self._observation = observation_system
         self._curiosity = curiosity_system
         self._policy = policy_engine
+        self._capability_retriever = None
         self._data_dir = Path(data_dir)
         self._data_dir.mkdir(parents=True, exist_ok=True)
 
@@ -607,7 +608,24 @@ class AutonomousLoop:
             logger.error("No capability catalog available — cannot generate tasks")
             return []
 
-        tools = catalog.list_for_tools(valid_cap_ids)
+        query_parts = [d["name"] for d in low_desires[:self._max_tasks]]
+        query_parts.extend(
+            obs.get("description", "")
+            for obs in pending_observations
+            if obs.get("description")
+        )
+        retrieval_query = "; ".join(part for part in query_parts if part)
+        if self._capability_retriever is not None:
+            selection = self._capability_retriever.select_for_request(
+                retrieval_query,
+                {},
+                top_k_schema=max(8, self._max_tasks * 2),
+                top_k_summary=50,
+                allowed_ids=valid_cap_ids,
+            )
+            tools = selection.retrieved_schema_tools
+        else:
+            tools = catalog.list_for_tools(valid_cap_ids)
         if not tools:
             logger.error("No tools generated from catalog")
             return []
@@ -621,14 +639,8 @@ Select up to {self._max_tasks} capabilities to address the low desires.
 For each, provide all required arguments.
 Do not invent capabilities.
 Prefer actions that avoid repeating recent failed approaches when memory shows they were ineffective."""
-        query_parts = [d["name"] for d in low_desires[:self._max_tasks]]
-        query_parts.extend(
-            obs.get("description", "")
-            for obs in pending_observations
-            if obs.get("description")
-        )
         prompt, memory_meta = self._build_shared_llm_prompt(
-            query="; ".join(part for part in query_parts if part),
+            query=retrieval_query,
             base_prompt=prompt,
             profile="decision",
         )
@@ -906,7 +918,26 @@ Prefer actions that avoid repeating recent failed approaches when memory shows t
             except Exception:
                 pass
 
-        tools = catalog.list_for_tools(valid_cap_ids)
+        follow_up_query = "; ".join(
+            part
+            for part in [
+                *(task.get("capability_id", "") for task in previous_tasks),
+                *(task.get("action", "") for task in previous_tasks),
+                *(result.get("result", "")[:120] for result in previous_results),
+            ]
+            if part
+        )
+        if self._capability_retriever is not None:
+            selection = self._capability_retriever.select_for_request(
+                follow_up_query,
+                {},
+                top_k_schema=8,
+                top_k_summary=50,
+                allowed_ids=valid_cap_ids or None,
+            )
+            tools = selection.retrieved_schema_tools
+        else:
+            tools = catalog.list_for_tools(valid_cap_ids)
         if not tools:
             return []
         valid_tool_names = {tool["function"]["name"] for tool in tools}
@@ -923,15 +954,6 @@ Rules:
 - For system tasks: if anomalies detected, suggest investigation
 - If no follow-up needed, do not call any function
 - Do not repeat invalid or previously failed tool choices unless memory indicates a new reason they should work now"""
-        follow_up_query = "; ".join(
-            part
-            for part in [
-                *(task.get("capability_id", "") for task in previous_tasks),
-                *(task.get("action", "") for task in previous_tasks),
-                *(result.get("result", "")[:120] for result in previous_results),
-            ]
-            if part
-        )
         prompt, memory_meta = self._build_shared_llm_prompt(
             query=follow_up_query,
             base_prompt=prompt,

@@ -96,6 +96,7 @@ class ContextBuilder:
         memory_store: Any = None,
         world_state_store: Any = None,
         multimodal_llm: Any = None,
+        capability_retriever: Any = None,
     ) -> None:
         self._event_bus = event_bus
         self._episodic = episodic_memory
@@ -111,6 +112,7 @@ class ContextBuilder:
         self._user_model_store = user_model_store
         self._memory_store = memory_store
         self._world_state_store = world_state_store
+        self._capability_retriever = capability_retriever
         self._goals_list: list[str] = []
         self._last_context: Context | None = None
         self._multimodal_llm = multimodal_llm or self._create_default_multimodal_llm()
@@ -190,7 +192,18 @@ class ContextBuilder:
             refs = self._reflection.list_recent(MAX_REFLECTIONS)
             ctx.recent_reflections = [f"Reflection: {r.summary}" for r in refs]
 
-        if self._tool_broker:
+        if self._capability_retriever:
+            try:
+                selection = self._capability_retriever.select_for_request(
+                    triggering_query,
+                    {},
+                    top_k_schema=8,
+                    top_k_summary=MAX_CAPABILITIES,
+                )
+                ctx.available_capability_ids = list(selection.all_candidate_ids[:MAX_CAPABILITIES])
+            except Exception:
+                ctx.available_capability_ids = []
+        elif self._tool_broker:
             try:
                 safe_caps = self._tool_broker.list_safe_capabilities()
                 ctx.available_capability_ids = [c.id for c in safe_caps[:MAX_CAPABILITIES]]
