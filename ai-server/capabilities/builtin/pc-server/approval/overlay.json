@@ -5,15 +5,30 @@
   "server_id": "pc-server",
   "app_id": "approval",
   "action": "overlay",
-  "risk": {"level": "approval_required"},
+  "risk": {
+    "level": "safe",
+    "requires_approval": false
+  },
   "input": {
     "type": "object",
     "properties": {
-      "action": {"type": "string", "description": "Action to approve"},
-      "timeout": {"type": "integer", "description": "Timeout in seconds", "default": 30}
+      "action": {
+        "type": "string",
+        "description": "Action to approve"
+      },
+      "timeout": {
+        "type": "integer",
+        "description": "Timeout in seconds",
+        "default": 30
+      }
     },
-    "required": ["action"]
+    "required": [
+      "action"
+    ]
   },
-  "tags": ["overlay", "approval"],
+  "tags": [
+    "overlay",
+    "approval"
+  ],
   "tcp_command": "overlay_approval {action}"
 }

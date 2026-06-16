@@ -1,8 +1,8 @@
-﻿{
-    "type":  "command",
-    "command":  "C:\\\\Users\\\\kohak\\\\programs\\\\AEGIS\\\\ai-server\\\\.venv\\\\Scripts\\\\python.exe executor.py",
-    "working_dir":  ".",
-    "timeout_ms":  30000,
-    "stdin":  "json",
-    "stdout":  "json"
+{
+  "type": "http",
+  "endpoint": "http://localhost:50053/execute",
+  "method": "POST",
+  "timeout_ms": 120000,
+  "stdin": "json",
+  "stdout": "json"
 }

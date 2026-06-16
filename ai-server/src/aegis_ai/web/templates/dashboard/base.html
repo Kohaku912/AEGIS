@@ -430,6 +430,26 @@
             flex-shrink: 0;
         }
         #chatSend:hover { background: var(--accent-hover); }
+        .chat-choice-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+        .chat-choice-row button {
+            background: var(--accent-dim);
+            border: 1px solid rgba(34,211,238,0.22);
+            color: var(--accent);
+            padding: 5px 9px;
+            border-radius: 7px;
+            cursor: pointer;
+            font-size: 12px;
+        }
+        .chat-followup-row { display: flex; gap: 6px; margin-top: 8px; }
+        .chat-followup-row input {
+            min-width: 0;
+            flex: 1;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            color: var(--text);
+            border-radius: 7px;
+            padding: 6px 8px;
+        }
 
         /* === LLM ACTIVITY STRIP === */
         #llmNotify {
@@ -605,8 +625,8 @@
         <div class="chat-msg assistant">Hello! I'm AEGIS. How can I help you today?</div>
     </div>
     <div class="chat-input-row">
-        <input type="text" id="chatInput" placeholder="Ask AEGIS anything…" onkeypress="if(event.key==='Enter')sendMessage()">
-        <button id="chatSend" onclick="sendMessage()">↑</button>
+        <input type="text" id="chatInput" placeholder="Ask AEGIS anything..." onkeypress="if(event.key==='Enter')sendMessage()">
+        <button id="chatSend" onclick="sendMessage()">Send</button>
     </div>
 </aside>
 
@@ -671,7 +691,7 @@
         if (!text) return;
         appendMsg(text, 'user');
         input.value = '';
-        const thinking = appendMsg('…', 'assistant');
+        const thinking = appendMsg('...', 'assistant');
         try {
             const res = await fetch('/api/chat/stream', {
                 method:'POST', headers:{'Content-Type':'application/json'},
@@ -679,7 +699,7 @@
             });
             const reader = res.body.getReader();
             const dec = new TextDecoder();
-            let full = '', hasImg = false, imgData = '';
+            let full = '', hasImg = false, imgData = '', waitingForInput = false;
             while(true) {
                 const {done, value} = await reader.read();
                 if (done) break;
@@ -689,25 +709,103 @@
                         const d = JSON.parse(line.slice(6));
                         if (d.type==='text') { full += d.content; thinking.innerHTML = formatResponse(full); }
                         else if (d.type==='image') { hasImg=true; imgData=d.content; }
+                        else if (d.type==='user_input_needed') {
+                            waitingForInput = true;
+                            renderUserInputNeeded(thinking, d);
+                        }
                         else if (d.type==='done' && hasImg) {
-                            thinking.innerHTML = formatResponse(full) + '<img src="data:image/png;base64,' + imgData + '" style="max-width:100%;border-radius:8px;margin-top:6px;">';
-                        } else if (d.type==='error') { thinking.innerHTML = '<span style="color:var(--red);">Error: ' + d.content + '</span>'; }
+                            thinking.innerHTML = formatResponse(full);
+                            const img = document.createElement('img');
+                            img.src = 'data:image/png;base64,' + imgData;
+                            img.style.cssText = 'max-width:100%;border-radius:8px;margin-top:6px;';
+                            thinking.appendChild(img);
+                        } else if (d.type==='error') { thinking.innerHTML = '<span style="color:var(--red);">Error: ' + escapeHtml(d.content) + '</span>'; }
                     } catch(e) {}
                 }
                 document.getElementById('chatMessages').scrollTop = 999999;
             }
-            if (!full && !hasImg) thinking.textContent = 'No response.';
-        } catch(e) { thinking.innerHTML = '<span style="color:var(--red);">Error: ' + e.message + '</span>'; }
+            if (!full && !hasImg && !waitingForInput) thinking.textContent = 'No response.';
+        } catch(e) { thinking.innerHTML = '<span style="color:var(--red);">Error: ' + escapeHtml(e.message) + '</span>'; }
         document.getElementById('chatMessages').scrollTop = 999999;
     }
 
+    function escapeHtml(value) {
+        return String(value ?? '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
     function formatResponse(t) {
+        t = escapeHtml(t);
         t = t.replace(/```json\n([\s\S]*?)\n```/g, '<pre>$1</pre>');
         t = t.replace(/```([\s\S]*?)```/g, '<pre>$1</pre>');
         t = t.replace(/`([^`]+)`/g, '<code>$1</code>');
         t = t.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
         t = t.replace(/\n/g, '<br>');
         return t;
+    }
+
+    function renderUserInputNeeded(container, data) {
+        container.innerHTML = formatResponse(data.question || 'AEGIS needs your input to continue.');
+        const pendingContext = data.pending_context || {};
+        const options = Array.isArray(data.options) ? data.options : [];
+        if (options.length) {
+            const row = document.createElement('div');
+            row.className = 'chat-choice-row';
+            options.forEach(option => {
+                const btn = document.createElement('button');
+                btn.type = 'button';
+                btn.textContent = option;
+                btn.onclick = () => sendFollowUpResponse(option, pendingContext);
+                row.appendChild(btn);
+            });
+            container.appendChild(row);
+        }
+        const follow = document.createElement('div');
+        follow.className = 'chat-followup-row';
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.placeholder = 'Type your response...';
+        const button = document.createElement('button');
+        button.className = 'btn btn-primary';
+        button.type = 'button';
+        button.textContent = 'Send';
+        button.onclick = () => {
+            const value = input.value.trim();
+            if (value) sendFollowUpResponse(value, pendingContext);
+        };
+        input.onkeypress = event => {
+            if (event.key === 'Enter') button.click();
+        };
+        follow.appendChild(input);
+        follow.appendChild(button);
+        container.appendChild(follow);
+    }
+
+    async function sendFollowUpResponse(response, pendingContext) {
+        appendMsg(response, 'user');
+        const thinking = appendMsg('...', 'assistant');
+        try {
+            const res = await fetch('/api/chat/respond', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({response, pending_context: pendingContext})
+            });
+            const data = await res.json();
+            if (data.needs_user_input) {
+                renderUserInputNeeded(thinking, data);
+            } else if (data.error) {
+                thinking.innerHTML = '<span style="color:var(--red);">Error: ' + escapeHtml(data.error) + '</span>';
+            } else {
+                thinking.innerHTML = formatResponse(data.response || 'No response.');
+            }
+        } catch(e) {
+            thinking.innerHTML = '<span style="color:var(--red);">Error: ' + escapeHtml(e.message) + '</span>';
+        }
+        document.getElementById('chatMessages').scrollTop = 999999;
     }
 
     loadHistory();
@@ -725,7 +823,7 @@
             if (action === 'llm_call') dt = (detail.model||'') + ': ' + (detail.response_preview||detail.prompt_preview||'').slice(0,100);
             else if (action.startsWith('tool_')) dt = (detail.capability_id||'') + ': ' + (detail.result_preview||'').slice(0,80);
             else dt = JSON.stringify(detail).slice(0,100);
-            d.innerHTML = '<span class="notify-time">' + (e.time_str||'') + '</span><span class="notify-action">' + action + '</span><span class="notify-detail">' + dt + '</span>';
+            d.innerHTML = '<span class="notify-time">' + escapeHtml(e.time_str||'') + '</span><span class="notify-action">' + escapeHtml(action) + '</span><span class="notify-detail">' + escapeHtml(dt) + '</span>';
             c.insertBefore(d, c.firstChild);
             while(c.children.length > max) c.removeChild(c.lastChild);
             setTimeout(()=>{ if(d.parentNode) d.parentNode.removeChild(d); }, 20000);

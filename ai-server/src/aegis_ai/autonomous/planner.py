@@ -18,7 +18,11 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from enum import Enum
+from pathlib import Path
 from typing import Any
+
+from aegis_ai.llm.json_utils import extract_json_object
+from aegis_ai.llm.memory_context import build_shared_memory_context
 
 logger = logging.getLogger("aegis_ai.autonomous.planner")
 
@@ -132,6 +136,12 @@ class AutonomousPlanner:
         self._policy = policy_engine
         self._data_dir = data_dir
 
+    def _memory_root(self) -> Path:
+        data_path = Path(self._data_dir)
+        if data_path.name == "plans":
+            return data_path.parent.parent
+        return data_path.parent
+
     def plan(self, goal: str, context: str = "") -> ExecutionPlan:
         plan = ExecutionPlan(
             plan_id=f"plan_{uuid.uuid4().hex[:10]}",
@@ -185,11 +195,20 @@ OR if the goal should not be executed:
   "cancel": true,
   "reason": "why not to do this"
 }}"""
+        memory_context = build_shared_memory_context(
+            query=f"{goal}\n{context}".strip(),
+            data_dir=str(self._memory_root()),
+            profile="decision",
+        )
+        if memory_context.text:
+            prompt = f"Shared memory context:\n{memory_context.text}\n\n{prompt}"
 
         result = self._llm.generate(
             prompt=prompt,
             system_prompt="You are AEGIS's autonomous planner. Output only JSON. Be safe and conservative.",
             max_tokens=1000,
+            context_meta=memory_context.audit_detail(),
+            json_mode=True,
         )
 
         if not result.success:
@@ -198,15 +217,7 @@ OR if the goal should not be executed:
             return plan
 
         try:
-            clean = result.content.strip()
-            if clean.startswith("```"):
-                lines = clean.split("\n")
-                clean = "\n".join(lines[1:])
-                if clean.endswith("```"):
-                    clean = clean[:-3]
-                clean = clean.strip()
-
-            data = json.loads(clean)
+            data = extract_json_object(result.content)
 
             if data.get("cancel"):
                 plan.status = PlanStatus.CANCELLED
@@ -297,10 +308,22 @@ OR if the goal should not be executed:
     def _execute_subtask(self, subtask: Subtask) -> dict[str, Any]:
         if not subtask.capability_id:
             if self._llm:
+                memory_context = build_shared_memory_context(
+                    query=subtask.description,
+                    data_dir=str(self._memory_root()),
+                    profile="decision",
+                )
+                prompt = (
+                    f"Execute this task and provide the result:\n\n{subtask.description}\n\n"
+                    "Respond with the actual output or result."
+                )
+                if memory_context.text:
+                    prompt = f"Shared memory context:\n{memory_context.text}\n\n{prompt}"
                 result = self._llm.generate(
-                    prompt=f"Execute this task and provide the result:\n\n{subtask.description}\n\nRespond with the actual output or result.",
+                    prompt=prompt,
                     system_prompt="You are AEGIS executing a task. Produce the actual result.",
                     max_tokens=500,
+                    context_meta=memory_context.audit_detail(),
                 )
                 if result.success and result.content:
                     return {"success": True, "output": {"result": result.content.strip()}}

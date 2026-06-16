@@ -23,6 +23,9 @@ import time
 from pathlib import Path
 from typing import Any
 
+from aegis_ai.llm.json_utils import extract_json_object
+from aegis_ai.llm.memory_context import build_shared_memory_context
+
 logger = logging.getLogger("aegis_ai.autonomous.autonomous_loop")
 
 
@@ -99,10 +102,12 @@ class AutonomousLoop:
         self._next_run_ms: int = 0
         self._last_run_ms: int = 0
         self._execution_log: list[dict[str, Any]] = []
+        self._pending_actionable_observations: list[dict[str, Any]] = []
         self._last_observation_ms: int = 0
         self._observation_interval_ms: int = 60_000  # 1 minute
         self._desire_check_interval_ms: int = 60_000  # 1 minute — desire check every tick
         self._last_desire_check_ms: int = 0
+        self._last_desire_signature: str = ""
         self._min_execution_interval_ms: int = 60_000  # Minimum 1 minute between executions
 
         # Load state
@@ -192,6 +197,8 @@ class AutonomousLoop:
                         actionable = [o for o in observations if o.actionable and o.importance >= 0.7]
                         if actionable:
                             logger.info("Observation found %d actionable items", len(actionable))
+                            self._pending_actionable_observations = [o.to_dict() for o in actionable[:5]]
+                            desire_triggered = True
                     except Exception as e:
                         logger.warning("Observation failed: %s", e)
                     finally:
@@ -247,7 +254,19 @@ class AutonomousLoop:
                 "Desire check: %d frustrated. Top: %s=%.1f (frustration=%.1f, threshold=%.1f)",
                 len(frustrated), top["name"], top["value"], top["frustration"], self._frustration_threshold,
             )
-            self._llm_evaluate_desires(frustrated)
+            signature = "|".join(
+                f"{d['name']}:{round(float(d['frustration']), 1)}"
+                for d in frustrated[:3]
+            )
+            now_ms = int(time.time() * 1000)
+            should_evaluate = (
+                signature != self._last_desire_signature
+                or now_ms - self._last_desire_check_ms >= self._desire_check_interval_ms
+            )
+            if should_evaluate:
+                self._llm_evaluate_desires(frustrated)
+                self._last_desire_signature = signature
+                self._last_desire_check_ms = now_ms
             return True
         return False
 
@@ -266,10 +285,16 @@ class AutonomousLoop:
             '[{"desire": "name", "gap": 2.0, "reason": "..."}], "summary": "..."}'
         )
         try:
+            prompt, memory_meta = self._build_shared_llm_prompt(
+                query=", ".join(d["name"] for d in low_desires),
+                base_prompt=prompt,
+                profile="decision",
+            )
             result = self._llm.generate(
                 prompt=prompt,
                 system_prompt="You are AEGIS's desire evaluation system. Analyze desire states concisely. Output only JSON.",
                 max_tokens=300,
+                context_meta=memory_meta,
             )
             if result.success:
                 logger.info("LLM desire evaluation: %s", result.content[:300])
@@ -290,9 +315,18 @@ class AutonomousLoop:
 
         low_desires = self._get_low_desires()
         if not low_desires:
-            logger.info("All desires above threshold, scheduling normal interval")
-            self._schedule_next(self._fallback_interval)
-            return
+            if self._pending_actionable_observations:
+                low_desires = [{
+                    "name": "maintenance",
+                    "value": 0.0,
+                    "expected": 1.0,
+                    "frustration": 1.0,
+                    "gap": 1.0,
+                }]
+            else:
+                logger.info("All desires above threshold, scheduling normal interval")
+                self._schedule_next(self._fallback_interval)
+                return
 
         desire_before = {}
         if self._desire:
@@ -347,6 +381,166 @@ class AutonomousLoop:
                 })
         return sorted(low, key=lambda d: d["gap"], reverse=True)
 
+    def _memory_root(self) -> Path:
+        return self._data_dir.parent
+
+    def _build_shared_llm_prompt(
+        self,
+        *,
+        query: str,
+        base_prompt: str,
+        profile: str = "decision",
+    ) -> tuple[str, dict[str, Any]]:
+        memory_context = build_shared_memory_context(
+            query=query,
+            data_dir=str(self._memory_root()),
+            profile=profile,
+        )
+        if memory_context.text:
+            prompt = f"Shared memory context:\n{memory_context.text}\n\n{base_prompt}"
+        else:
+            prompt = base_prompt
+        return prompt, memory_context.audit_detail()
+
+    def _log_audit_event(
+        self,
+        *,
+        action: str,
+        capability_id: str,
+        decision: str,
+        reason: str,
+        detail: dict[str, Any] | None = None,
+    ) -> None:
+        try:
+            from aegis_ai.audit import AuditLog
+
+            audit = AuditLog(path=str(self._memory_root() / "audit.jsonl"))
+            audit.log_decision(
+                action=action,
+                capability_id=capability_id,
+                decision=decision,
+                reason=reason,
+                actor="autonomous",
+                detail=detail or {},
+            )
+        except Exception:
+            logger.debug("Failed to write autonomous audit event", exc_info=True)
+
+    def _record_failure_lesson(
+        self,
+        *,
+        title: str,
+        content: str,
+        related_desire: str = "",
+        related_task_id: str = "",
+        failure_type: str = "",
+    ) -> None:
+        try:
+            from aegis_ai.memory.memory_store import MemoryStore
+            from aegis_ai.memory.memory_types import MemoryRecord, MemorySource, MemoryType, Sensitivity, Visibility
+
+            store = MemoryStore(data_dir=str(self._memory_root() / "memory_store"))
+            store.add_memory(MemoryRecord(
+                memory_type=MemoryType.FAILURE_LESSON.value,
+                title=title[:120],
+                content=content[:500],
+                source=MemorySource.SYSTEM_OBSERVATION.value,
+                related_task_id=related_task_id,
+                related_desire=related_desire,
+                structured_data={"failure_type": failure_type} if failure_type else {},
+                confidence=0.8,
+                importance=0.8,
+                visibility=Visibility.LLM_VISIBLE.value,
+                sensitivity=Sensitivity.NORMAL.value,
+            ))
+        except Exception:
+            logger.debug("Failed to record autonomous failure lesson", exc_info=True)
+
+    def _recent_failure_penalty(self, source_desire: str) -> tuple[float, str]:
+        if not source_desire:
+            return 0.0, ""
+        try:
+            from aegis_ai.memory.memory_store import MemoryStore
+
+            store = MemoryStore(data_dir=str(self._memory_root() / "memory_store"))
+            failure_lessons = store.search_memories(
+                memory_type="failure_lesson",
+                related_desire=source_desire,
+                min_importance=0.5,
+                limit=3,
+            )
+            approval_lessons = store.search_memories(
+                memory_type="approval_lesson",
+                related_desire=source_desire,
+                min_importance=0.5,
+                limit=3,
+            )
+        except Exception:
+            logger.debug("Failed to load memory penalties", exc_info=True)
+            return 0.0, ""
+
+        penalty = 0.0
+        reasons: list[str] = []
+        if failure_lessons:
+            penalty += 0.3 * len(failure_lessons)
+            reasons.append(f"{len(failure_lessons)} past failure lesson(s) for {source_desire}")
+        rejected = [record for record in approval_lessons if "rejected" in record.content.lower()]
+        if rejected:
+            penalty += 0.2 * len(rejected)
+            reasons.append(f"{len(rejected)} approval rejection lesson(s) for {source_desire}")
+        return penalty, "; ".join(reasons)
+
+    def _normalize_tool_call(
+        self,
+        *,
+        catalog: Any,
+        tool_call: dict[str, Any],
+        valid_tool_names: set[str],
+        source: str,
+        related_desire: str,
+    ) -> tuple[str, dict[str, Any], Any] | None:
+        function_name = tool_call.get("function", "")
+        arguments = tool_call.get("arguments", {})
+        if function_name not in valid_tool_names:
+            reason = f"LLM selected an unregistered tool name: {function_name or '<empty>'}"
+            logger.warning("%s (%s)", reason, source)
+            self._log_audit_event(
+                action="autonomous_tool_selection",
+                capability_id=function_name or "unknown",
+                decision="REJECT",
+                reason=reason,
+                detail={"source": source, "tool_call": tool_call},
+            )
+            self._record_failure_lesson(
+                title=f"Invalid autonomous tool: {function_name or 'unknown'}",
+                content=reason,
+                related_desire=related_desire,
+                failure_type="capability_missing",
+            )
+            return None
+
+        cap_id = catalog.tool_name_to_cap_id(function_name)
+        manifest = catalog.resolve(cap_id)
+        if manifest is None:
+            reason = f"LLM selected a capability that is not in the catalog: {cap_id}"
+            logger.warning("%s (%s)", reason, source)
+            self._log_audit_event(
+                action="autonomous_tool_selection",
+                capability_id=cap_id,
+                decision="REJECT",
+                reason=reason,
+                detail={"source": source, "tool_call": tool_call},
+            )
+            self._record_failure_lesson(
+                title=f"Missing autonomous capability: {cap_id}",
+                content=reason,
+                related_desire=related_desire,
+                failure_type="capability_missing",
+            )
+            return None
+
+        return cap_id, arguments, manifest
+
     def _generate_tasks(self, low_desires: list[dict[str, Any]]) -> list[dict[str, Any]]:
         if not self._llm:
             logger.error("No LLM provider — cannot generate tasks")
@@ -355,6 +549,15 @@ class AutonomousLoop:
         desire_context = []
         for d in low_desires[:self._max_tasks]:
             desire_context.append(f"- {d['name']}: {d['value']:.1f}/10 (gap: {d['gap']:.1f})")
+        pending_observations = list(self._pending_actionable_observations[:5])
+        if pending_observations:
+            desire_context.append("\nActionable observations:")
+            for obs in pending_observations:
+                desire_context.append(
+                    f"- {obs.get('source', 'system')}: {obs.get('description', '')} "
+                    f"(suggested: {obs.get('suggested_action', '')})"
+                )
+            self._pending_actionable_observations = []
 
         valid_cap_ids: set[str] = set()
         if self._broker:
@@ -396,13 +599,27 @@ class AutonomousLoop:
         if not tools:
             logger.error("No tools generated from catalog")
             return []
+        valid_tool_names = {tool["function"]["name"] for tool in tools}
 
         prompt = f"""Your desires are low:
 
 {chr(10).join(desire_context)}
 
 Select up to {self._max_tasks} capabilities to address the low desires.
-For each, provide all required arguments."""
+For each, provide all required arguments.
+Do not invent capabilities.
+Prefer actions that avoid repeating recent failed approaches when memory shows they were ineffective."""
+        query_parts = [d["name"] for d in low_desires[:self._max_tasks]]
+        query_parts.extend(
+            obs.get("description", "")
+            for obs in pending_observations
+            if obs.get("description")
+        )
+        prompt, memory_meta = self._build_shared_llm_prompt(
+            query="; ".join(part for part in query_parts if part),
+            base_prompt=prompt,
+            profile="decision",
+        )
 
         result = self._llm.generate_with_tools(
             prompt=prompt,
@@ -413,6 +630,7 @@ For each, provide all required arguments."""
                 "Call the appropriate functions with all required arguments."
             ),
             max_tokens=1000,
+            context_meta=memory_meta,
         )
 
         if not result.success:
@@ -426,23 +644,42 @@ For each, provide all required arguments."""
         valid_tasks = []
         top_desire = low_desires[0]["name"] if low_desires else ""
         for i, tc in enumerate(result.tool_calls[:self._max_tasks]):
-            cap_id = catalog.tool_name_to_cap_id(tc["function"])
-            args = tc["arguments"]
-            manifest = catalog.resolve(cap_id)
-            if manifest:
-                schema = manifest.input_schema
-                required = schema.get("required", [])
-                missing = [r for r in required if r not in args or not args[r]]
-                if missing:
-                    logger.warning("LLM task missing required args for %s: %s", cap_id, missing)
-                    continue
             desire = low_desires[i]["name"] if i < len(low_desires) else top_desire
+            normalized = self._normalize_tool_call(
+                catalog=catalog,
+                tool_call=tc,
+                valid_tool_names=valid_tool_names,
+                source="task_generation",
+                related_desire=desire,
+            )
+            if normalized is None:
+                continue
+            cap_id, args, manifest = normalized
+            schema = manifest.input_schema or {}
+            required = schema.get("required", [])
+            missing = [r for r in required if r not in args or not args[r]]
+            if missing:
+                logger.warning("LLM task missing required args for %s: %s", cap_id, missing)
+                continue
+            penalty, penalty_reason = self._recent_failure_penalty(desire)
+            if penalty >= 1.0:
+                logger.info("Skipping %s due to memory penalty: %s", cap_id, penalty_reason)
+                self._log_audit_event(
+                    action="autonomous_task_penalty",
+                    capability_id=cap_id,
+                    decision="SKIP",
+                    reason=penalty_reason or "memory penalty",
+                    detail={"source": "task_generation", "desire": desire, "penalty": penalty},
+                )
+                continue
             valid_tasks.append({
                 "desire": desire,
                 "action": f"Execute {cap_id}",
                 "capability_id": cap_id,
                 "arguments": args,
-                "expected_impact": 0.5,
+                "expected_impact": max(0.1, 0.5 - min(penalty, 0.4)),
+                "memory_penalty": penalty,
+                "memory_penalty_reason": penalty_reason,
             })
 
         if not valid_tasks:
@@ -609,7 +846,6 @@ For each, provide all required arguments."""
         all_follow_ups: list[dict[str, Any]] = []
         current_tasks = initial_tasks
         current_results = initial_results
-
         for iteration in range(max_iterations):
             follow_up_tasks = self._generate_follow_up_tasks(current_tasks, current_results)
             if not follow_up_tasks:
@@ -661,6 +897,7 @@ For each, provide all required arguments."""
         tools = catalog.list_for_tools(valid_cap_ids)
         if not tools:
             return []
+        valid_tool_names = {tool["function"]["name"] for tool in tools}
 
         prompt = f"""Based on the following task results, determine if any follow-up actions are needed.
 
@@ -672,7 +909,22 @@ Rules:
 - For social tasks: if there are mentions/messages directed at AEGIS, suggest replying
 - For search tasks: if results are interesting, suggest saving to memory
 - For system tasks: if anomalies detected, suggest investigation
-- If no follow-up needed, do not call any function"""
+- If no follow-up needed, do not call any function
+- Do not repeat invalid or previously failed tool choices unless memory indicates a new reason they should work now"""
+        follow_up_query = "; ".join(
+            part
+            for part in [
+                *(task.get("capability_id", "") for task in previous_tasks),
+                *(task.get("action", "") for task in previous_tasks),
+                *(result.get("result", "")[:120] for result in previous_results),
+            ]
+            if part
+        )
+        prompt, memory_meta = self._build_shared_llm_prompt(
+            query=follow_up_query,
+            base_prompt=prompt,
+            profile="decision",
+        )
 
         try:
             result = self._llm.generate_with_tools(
@@ -680,6 +932,7 @@ Rules:
                 tools=tools,
                 system_prompt="You are AEGIS deciding follow-up actions. Only call functions if follow-up is needed.",
                 max_tokens=500,
+                context_meta=memory_meta,
             )
 
             if not result.success or not result.tool_calls:
@@ -687,23 +940,42 @@ Rules:
 
             valid_tasks = []
             for tc in result.tool_calls[:2]:
-                cap_id = catalog.tool_name_to_cap_id(tc["function"])
-                args = tc["arguments"]
-                manifest = catalog.resolve(cap_id)
-                if manifest:
-                    schema = manifest.input_schema
-                    required = schema.get("required", [])
-                    missing = [r for r in required if r not in args or not args[r]]
-                    if missing:
-                        logger.warning("Follow-up task missing required args for %s: %s", cap_id, missing)
-                        continue
                 desire = previous_tasks[0].get("desire", "") if previous_tasks else ""
+                normalized = self._normalize_tool_call(
+                    catalog=catalog,
+                    tool_call=tc,
+                    valid_tool_names=valid_tool_names,
+                    source="follow_up_generation",
+                    related_desire=desire,
+                )
+                if normalized is None:
+                    continue
+                cap_id, args, manifest = normalized
+                schema = manifest.input_schema or {}
+                required = schema.get("required", [])
+                missing = [r for r in required if r not in args or not args[r]]
+                if missing:
+                    logger.warning("Follow-up task missing required args for %s: %s", cap_id, missing)
+                    continue
+                penalty, penalty_reason = self._recent_failure_penalty(desire)
+                if penalty >= 1.0:
+                    logger.info("Skipping follow-up %s due to memory penalty: %s", cap_id, penalty_reason)
+                    self._log_audit_event(
+                        action="autonomous_task_penalty",
+                        capability_id=cap_id,
+                        decision="SKIP",
+                        reason=penalty_reason or "memory penalty",
+                        detail={"source": "follow_up_generation", "desire": desire, "penalty": penalty},
+                    )
+                    continue
                 valid_tasks.append({
                     "desire": desire,
                     "action": f"Follow-up: {cap_id}",
                     "capability_id": cap_id,
                     "arguments": args,
-                    "expected_impact": 0.3,
+                    "expected_impact": max(0.1, 0.3 - min(penalty, 0.2)),
+                    "memory_penalty": penalty,
+                    "memory_penalty_reason": penalty_reason,
                 })
             return valid_tasks
         except Exception as e:
@@ -715,7 +987,16 @@ Rules:
         if not self._llm:
             return "Screenshot captured (no LLM for analysis)"
 
-        if not hasattr(self._llm, 'generate_with_image'):
+        vision_llm = self._llm
+        if hasattr(self._llm, "_supports_vision") and not self._llm._supports_vision():
+            try:
+                from aegis_ai.llm.factory import create_multimodal_llm_provider
+
+                vision_llm = create_multimodal_llm_provider()
+            except Exception:
+                vision_llm = self._llm
+
+        if not hasattr(vision_llm, 'generate_with_image'):
             return "Screenshot captured (LLM does not support vision)"
 
         try:
@@ -729,7 +1010,7 @@ Rules:
                 "4. Any opportunities to be helpful\n\n"
                 "Keep your response under 200 words."
             )
-            result = self._llm.generate_with_image(
+            result = vision_llm.generate_with_image(
                 prompt=prompt,
                 image_base64=image_base64,
                 system_prompt="You are AEGIS analyzing your own screenshot. Be concise and observational.",
@@ -924,26 +1205,34 @@ Respond with JSON:
   "interval_seconds": 1800,
   "reason": "Brief explanation"
 }}"""
+        schedule_query = "; ".join(
+            part
+            for part in [
+                *(result.get("action", "") for result in results),
+                *(result.get("result", "")[:120] for result in results),
+                *desire_states,
+            ]
+            if part
+        )
+        prompt, memory_meta = self._build_shared_llm_prompt(
+            query=schedule_query or "autonomous scheduling",
+            base_prompt=prompt,
+            profile="decision",
+        )
 
         result = self._llm.generate(
             prompt=prompt,
             system_prompt="You are AEGIS's scheduling system. Decide when to run next. Output only JSON.",
-            max_tokens=200,
+            max_tokens=500,
+            context_meta=memory_meta,
+            json_mode=True,
         )
 
         if not result.success:
             return self._fallback_interval
 
         try:
-            clean = result.content.strip()
-            if clean.startswith("```"):
-                lines = clean.split("\n")
-                clean = "\n".join(lines[1:])
-                if clean.endswith("```"):
-                    clean = clean[:-3]
-                clean = clean.strip()
-
-            data = json.loads(clean)
+            data = extract_json_object(result.content)
             interval = data.get("interval_seconds", self._fallback_interval)
             # Clamp to reasonable range
             interval = max(300, min(7200, interval))

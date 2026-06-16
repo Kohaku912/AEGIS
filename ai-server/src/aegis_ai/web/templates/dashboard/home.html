@@ -12,6 +12,15 @@
         </div>
     </div>
     <div class="stat-card">
+        <div class="label">Needs Attention</div>
+        {% set attention = server_summary.degraded_servers + server_summary.offline_servers %}
+        <div class="val {% if attention > 0 %}yellow{% else %}green{% endif %}">{{ attention }}</div>
+    </div>
+    <div class="stat-card">
+        <div class="label">Unconfigured</div>
+        <div class="val">{{ server_summary.unconfigured_servers }}</div>
+    </div>
+    <div class="stat-card">
         <div class="label">Pending Approvals</div>
         <div class="val {% if pending_approvals|length > 0 %}yellow{% endif %}">{{ pending_approvals|length }}</div>
     </div>

@@ -251,8 +251,9 @@ Aliases are built at startup from JSON manifests. Code MUST use canonical format
 | | Safety info saved | +0.3 |
 | **curiosity** | New info summarized | +0.5 |
 | | Empty results | 0.0 |
-| **social_connection** | Posted to AGORA | +0.8 |
-| | Read new posts | +0.3 |
+| **social_connection** | Posted to AGORA | +1.0 |
+| | Read new posts | +0.1 (barely satisfies) |
+| | Reactions received | +0.5 (meaningful) |
 | | No new posts | 0.0 |
 
 ### How It Works
@@ -295,6 +296,33 @@ Aliases are built at startup from JSON manifests. Code MUST use canonical format
 - **Desire context**: Current desire states in LLM prompts
 - **Tool calling**: Chat uses CapabilityCatalog for capability execution
 - **Settings management**: All settings changes persist to `config/settings.json`
+
+### Agentic Tool Calling Loop
+
+The chat system supports **recursive multi-step tool calling** (max 5 rounds):
+
+1. LLM receives user message and available tools
+2. LLM calls a tool (or responds directly if no tool needed)
+3. Tool executes and returns result
+4. Result is fed back to the LLM
+5. LLM decides: call another tool OR respond with summary
+6. Loop continues until LLM responds without tool call, or max rounds reached
+
+**Supported tool call formats:**
+- `` format
+- DeepSeek DSML format (`<｜DSML｜invoke ...>`)
+- XML tag format (`<pc-server__shell__powershell><command>...</command></pc-server__shell__powershell>`)
+- Plain JSON (`{"name": "...", "arguments": {...}}`)
+
+**Error handling:**
+- Tool failures are reported back to the LLM with error details
+- LLM can retry with different arguments or try alternative approaches
+- Command failures (exit code != 0) are properly detected and reported
+
+**User input handling:**
+- When a tool requires user input (e.g., browser verification), the loop pauses
+- User is prompted to complete the action
+- After user responds, the loop continues with the next tool call
 
 ### Chat API
 
@@ -394,36 +422,51 @@ The following operations MUST go through explicit user approval:
 
 ---
 
-## Current Status (2026-06-13)
+## Current Status (2026-06-16)
 
 ### Implemented Systems
 
-| System | Status | Tests |
+| System | Status | Notes |
 |--------|--------|-------|
-| **Memory System** | ✅ Complete | 8 tests |
-| **Desire System** | ✅ Complete | 7 tests |
-| **Autonomous Loop** | ✅ Complete | 5 tests |
-| **Dashboard** | ✅ Complete | 14 pages |
-| **PC Server** | ✅ Complete | 6 features |
-| **LLM Integration** | ✅ Complete | DeepSeek API |
+| **Capability Management** | ✅ Complete | Folder-based, JSON manifests, canonical ID format |
+| **Desire System** | ✅ Complete | Delta-based evaluation, fulfillment rules |
+| **Autonomous Loop** | ✅ Complete | Tool calling, frustration-based trigger |
+| **Dashboard** | ✅ Complete | Tool calling chat, user input support |
+| **PC Server** | ✅ Complete | Rust, TCP protocol, 40+ capabilities |
+| **Browser Server** | ✅ Complete | browser-use, DeepSeek compatibility patch, verification detection |
+| **LLM Integration** | ✅ Complete | DeepSeek API, tool calling, JSON fallback |
 
 ### Key Files
 
 | File | Purpose |
 |------|---------|
-| `ai-server/src/aegis_ai/memory/advanced.py` | AdvancedMemory (Zep-inspired) |
-| `ai-server/src/aegis_ai/desire/desire_system.py` | DesireSystem (D2A-inspired) |
-| `ai-server/src/aegis_ai/autonomous/autonomous_loop.py` | AutonomousLoop |
-| `ai-server/src/aegis_ai/web/dashboard_routes.py` | Dashboard with streaming chat |
-| `ai-server/src/aegis_ai/llm/factory.py` | LLM provider factory |
+| `ai-server/src/aegis_ai/capability_catalog.py` | Unified capability catalog (single source of truth) |
+| `ai-server/src/aegis_ai/folder_registry.py` | Folder-based capability and executor loading |
+| `ai-server/src/tool_broker.py` | Capability invocation with safety enforcement |
+| `ai-server/src/server_executor.py` | HTTP/TCP routing to server clients |
+| `ai-server/src/aegis_ai/autonomous/autonomous_loop.py` | Desire-driven autonomous execution |
+| `ai-server/src/aegis_ai/desire/desire_system.py` | Desire management with delta-based updates |
+| `ai-server/src/aegis_ai/desire/fulfillment.py` | Desire fulfillment rules and task evaluation |
+| `ai-server/src/aegis_ai/web/chat_tools.py` | Chat tool calling (ask_user support, recursive loop) |
+| `ai-server/src/aegis_ai/web/dashboard_routes.py` | Dashboard with tool calling, ask_user support |
+| `browser-server/src/aegis_browser/browser_use_agent.py` | browser-use with DeepSeek compatibility, verification detection |
+| `browser-server/src/aegis_browser/main.py` | HTTP server for browser automation |
 
-### Environment
+### Servers
 
-- **Python**: `C:\Users\kohak\AppData\Local\Python\pythoncore-3.14-64\python.exe`
-- **LLM**: DeepSeek API (`deepseek-chat` model)
-- **Embedding**: OpenAI API (`text-embedding-3-small`)
-- **Dashboard**: Flask on port 8090
-- **PC Server**: Rust on port 50052
+| Server | Language | Port | Status |
+|--------|----------|------|--------|
+| **AI Server** | Python 3.14 | 8090 | ✅ Running |
+| **PC Server** | Rust | 50052 | ✅ Running |
+| **Browser Server** | Python | 50053 | ✅ Running |
+
+### Capability Count: 53
+
+- pc-server: 40 capabilities
+- browser-server: 1 capability (page.browse via browser-use)
+- ai-server: 4 capabilities (agora, memory, search)
+- android-server: 1 capability
+- room-server: 1 capability
 
 ---
 

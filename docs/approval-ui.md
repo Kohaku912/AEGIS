@@ -28,7 +28,7 @@ from aegis_ai.web.app import ApprovalWebApp
 from approval import ApprovalStore
 store = ApprovalStore()
 app = ApprovalWebApp(store)
-app.run(host='127.0.0.1', port=8080)
+app.run(host='0.0.0.0', port=8080)
 "
 ```
 
@@ -39,7 +39,7 @@ app.run(host='127.0.0.1', port=8080)
 | CSRF | Per-request CSRF tokens in POST forms |
 | Approval ID guessing | UUID-based (64-bit entropy) |
 | Secret exposure | Payload preview masks password/token/secret values |
-| External access | Default `127.0.0.1` only |
+| External access | Default `0.0.0.0` only |
 | Expired approvals | `is_expired()` check before any action; UI disables buttons |
 | Permanent denial | `reject_and_remember` blocks capability permanently |
 

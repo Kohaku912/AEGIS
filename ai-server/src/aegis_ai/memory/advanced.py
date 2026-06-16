@@ -24,6 +24,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from aegis_ai.llm.json_utils import extract_json_object
+
 logger = logging.getLogger("aegis_ai.memory.advanced")
 
 
@@ -288,21 +290,15 @@ Only extract meaningful information. If nothing noteworthy, return empty arrays.
         result = self._llm.generate(
             prompt=prompt,
             system_prompt="You are a memory extraction system. Extract entities and facts from conversations. Output only JSON.",
-            max_tokens=500,
+            max_tokens=1000,
+            json_mode=True,
         )
 
         if not result.success:
             return {"entities": [], "facts": []}
 
         try:
-            clean = result.content.strip()
-            if clean.startswith("```"):
-                lines = clean.split("\n")
-                clean = "\n".join(lines[1:])
-                if clean.endswith("```"):
-                    clean = clean[:-3]
-                clean = clean.strip()
-            return json.loads(clean)
+            return extract_json_object(result.content)
         except Exception:
             return {"entities": [], "facts": []}
 

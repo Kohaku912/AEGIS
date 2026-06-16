@@ -15,8 +15,8 @@ docker compose up -d
 
 ```bash
 docker compose ps
-# Dashboard: http://127.0.0.1:8090
-# Approvals: http://127.0.0.1:8080/approvals
+# Dashboard: http://0.0.0.0:8090
+# Approvals: http://0.0.0.0:8080/approvals
 ```
 
 ### 停止
@@ -27,12 +27,12 @@ docker compose down
 
 ## 監視
 
-- Dashboard: http://127.0.0.1:8090
-- Health: http://127.0.0.1:8090/health
-- API: http://127.0.0.1:8090/api/dashboard/overview
-- Autonomous Loop Status: http://127.0.0.1:8090/api/autonomous/status
-- Desire States: http://127.0.0.1:8090/api/desires
-- Manual Trigger: `POST http://127.0.0.1:8090/api/autonomous/trigger`
+- Dashboard: http://0.0.0.0:8090
+- Health: http://0.0.0.0:8090/health
+- API: http://0.0.0.0:8090/api/dashboard/overview
+- Autonomous Loop Status: http://0.0.0.0:8090/api/autonomous/status
+- Desire States: http://0.0.0.0:8090/api/desires
+- Manual Trigger: `POST http://0.0.0.0:8090/api/autonomous/trigger`
 - Start/Stop Loop: `POST /api/autonomous/start`, `POST /api/autonomous/stop`
 
 ## バックアップ

@@ -1,0 +1,75 @@
+{
+  "version": "1.0.0",
+  "servers": {
+    "browser_server_enabled": true,
+    "pc_server_enabled": true,
+    "android_server_enabled": true,
+    "room_server_enabled": true,
+    "dev_server_enabled": true,
+    "health_check_interval_seconds": 30,
+    "reconnect_policy": "exponential"
+  },
+  "capabilities": {
+    "disabled_capabilities": [],
+    "per_capability": {},
+    "allowlist": [],
+    "denylist": []
+  },
+  "autonomous": {
+    "autonomous_loop_enabled": true,
+    "support_agent_enabled": true,
+    "research_watch_enabled": true,
+    "self_dev_proposal_enabled": true,
+    "daily_briefing_enabled": true,
+    "max_autonomous_runs_per_hour": 20,
+    "max_autonomous_runs_per_day": 100,
+    "cooldown_seconds": 60
+  },
+  "memory": {
+    "episodic_retention_days": 90,
+    "semantic_memory_enabled": true,
+    "procedural_learning_enabled": true,
+    "reflection_enabled": true,
+    "sensitive_data_storage_enabled": false
+  },
+  "notifications": {
+    "approval_notification_enabled": true,
+    "support_suggestions_enabled": true,
+    "daily_briefing_notification": true,
+    "error_notification": true,
+    "quiet_hours_enabled": false,
+    "quiet_hours_start": "22:00",
+    "quiet_hours_end": "08:00"
+  },
+  "privacy": {
+    "screenshot_retention_hours": 24,
+    "notification_text_retention_hours": 168,
+    "clipboard_capture_enabled": true,
+    "camera_snapshot_enabled": false,
+    "external_llm_allowed": true,
+    "web_search_allowed": true
+  },
+  "voice": {
+    "voice_enabled": false,
+    "stt_provider": "none",
+    "tts_provider": "none",
+    "record_audio": false,
+    "external_voice_api_allowed": false,
+    "push_to_talk_only": true,
+    "wake_word_enabled": false,
+    "voice_data_retention_hours": 0
+  },
+  "autonomy": {
+    "profile": "permissive_owner_assisted",
+    "owned_account_reading_enabled": true,
+    "owned_message_summary_enabled": true,
+    "low_risk_signup_enabled": true,
+    "low_risk_signup_without_approval": true,
+    "external_send_requires_approval": true,
+    "publish_requires_approval": true,
+    "payment_requires_approval": true,
+    "captcha_bypass_forbidden": true,
+    "bulk_signup_forbidden": true,
+    "stealth_browser_forbidden": true
+  }
+}

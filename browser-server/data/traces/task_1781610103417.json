@@ -1,0 +1,26 @@
+{
+  "task_id": "task_1781610103417",
+  "start_time": 1781610103.4186208,
+  "entries": [
+    {
+      "timestamp_ms": 1781610103418,
+      "action": "start",
+      "description": "Starting task: Go to https://agora.kakunin.me and read all posts visible on the page. Read through the content and ",
+      "page_url": "",
+      "page_title": "",
+      "result": "",
+      "error": "",
+      "duration_ms": 0.0
+    },
+    {
+      "timestamp_ms": 1781610103419,
+      "action": "error",
+      "description": "No module named 'browser_use'",
+      "page_url": "",
+      "page_title": "",
+      "result": "",
+      "error": "",
+      "duration_ms": 0.0
+    }
+  ]
+}

@@ -65,6 +65,7 @@ class ExecutorManifest:
     action: str = ""
     executor_type: str = "command"
     command: str = ""
+    endpoint: str = ""
     working_dir: str = "."
     timeout_ms: int = 30000
     stdin_format: str = "json"
@@ -229,6 +230,7 @@ class ExecutorRegistry:
             action=action,
             executor_type=data.get("type", "command"),
             command=data.get("command", ""),
+            endpoint=data.get("endpoint", ""),
             working_dir=data.get("working_dir", "."),
             timeout_ms=data.get("timeout_ms", 30000),
             stdin_format=data.get("stdin", "json"),

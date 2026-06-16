@@ -8,7 +8,7 @@ pages = ['/', '/dashboard/servers', '/dashboard/capabilities', '/dashboard/event
 print('=== Dashboard Pages ===')
 for page in pages:
     try:
-        r = urllib.request.urlopen('http://127.0.0.1:8090' + page, timeout=5)
+        r = urllib.request.urlopen('http://0.0.0.0:8090' + page, timeout=5)
         print(f'[PASS] {page}: {r.status}')
     except Exception as e:
         print(f'[FAIL] {page}: {e}')
@@ -17,7 +17,7 @@ print()
 print('=== Chat Screenshot Test ===')
 data = json.dumps({'text': 'screenshot'}).encode()
 req = urllib.request.Request(
-    'http://127.0.0.1:8090/api/chat/send',
+    'http://0.0.0.0:8090/api/chat/send',
     data=data,
     headers={'Content-Type': 'application/json'}
 )

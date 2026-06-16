@@ -12,12 +12,6 @@ pub struct ActionResult {
     pub details: String,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct MousePosition {
-    pub x: i32,
-    pub y: i32,
-}
-
 /// Check if real PC actions are enabled.
 pub fn is_real_actions_enabled() -> bool {
     std::env::args().any(|a| a == "--enable-real-pc-actions")
@@ -37,9 +31,8 @@ pub fn mouse_move(x: i32, y: i32) -> ActionResult {
     {
         unsafe {
             use windows_sys::Win32::UI::Input::KeyboardAndMouse::*;
-            use windows_sys::Win32::UI::WindowsAndMessaging::*;
 
-            let mut input = INPUT {
+            let input = INPUT {
                 r#type: INPUT_MOUSE,
                 Anonymous: INPUT_0 {
                     mi: MOUSEINPUT {
@@ -52,7 +45,7 @@ pub fn mouse_move(x: i32, y: i32) -> ActionResult {
                     },
                 },
             };
-            SendInput(1, &mut input, std::mem::size_of::<INPUT>() as i32);
+            SendInput(1, &input, std::mem::size_of::<INPUT>() as i32);
         }
         ActionResult {
             success: true,
@@ -83,10 +76,9 @@ pub fn mouse_click(x: i32, y: i32, button: &str) -> ActionResult {
     {
         unsafe {
             use windows_sys::Win32::UI::Input::KeyboardAndMouse::*;
-            use windows_sys::Win32::UI::WindowsAndMessaging::*;
 
             // Move to position
-            let mut move_input = INPUT {
+            let move_input = INPUT {
                 r#type: INPUT_MOUSE,
                 Anonymous: INPUT_0 {
                     mi: MOUSEINPUT {
@@ -99,7 +91,7 @@ pub fn mouse_click(x: i32, y: i32, button: &str) -> ActionResult {
                     },
                 },
             };
-            SendInput(1, &mut move_input, std::mem::size_of::<INPUT>() as i32);
+            SendInput(1, &move_input, std::mem::size_of::<INPUT>() as i32);
 
             // Click
             let (down_flag, up_flag) = match button {
@@ -108,27 +100,35 @@ pub fn mouse_click(x: i32, y: i32, button: &str) -> ActionResult {
                 _ => (MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP),
             };
 
-            let mut down = INPUT {
+            let down = INPUT {
                 r#type: INPUT_MOUSE,
                 Anonymous: INPUT_0 {
                     mi: MOUSEINPUT {
-                        dx: 0, dy: 0, mouseData: 0,
-                        dwFlags: down_flag, time: 0, dwExtraInfo: 0,
+                        dx: 0,
+                        dy: 0,
+                        mouseData: 0,
+                        dwFlags: down_flag,
+                        time: 0,
+                        dwExtraInfo: 0,
                     },
                 },
             };
-            SendInput(1, &mut down, std::mem::size_of::<INPUT>() as i32);
+            SendInput(1, &down, std::mem::size_of::<INPUT>() as i32);
 
-            let mut up = INPUT {
+            let up = INPUT {
                 r#type: INPUT_MOUSE,
                 Anonymous: INPUT_0 {
                     mi: MOUSEINPUT {
-                        dx: 0, dy: 0, mouseData: 0,
-                        dwFlags: up_flag, time: 0, dwExtraInfo: 0,
+                        dx: 0,
+                        dy: 0,
+                        mouseData: 0,
+                        dwFlags: up_flag,
+                        time: 0,
+                        dwExtraInfo: 0,
                     },
                 },
             };
-            SendInput(1, &mut up, std::mem::size_of::<INPUT>() as i32);
+            SendInput(1, &up, std::mem::size_of::<INPUT>() as i32);
         }
         ActionResult {
             success: true,
@@ -159,7 +159,6 @@ pub fn keyboard_type(text: &str) -> ActionResult {
     {
         unsafe {
             use windows_sys::Win32::UI::Input::KeyboardAndMouse::*;
-            use windows_sys::Win32::UI::WindowsAndMessaging::*;
 
             for ch in text.chars() {
                 let mut inputs = [
@@ -232,16 +231,42 @@ pub fn press_hotkey(keys: &str) -> ActionResult {
             "space" => 0x20,
             "backspace" => 0x08,
             "delete" | "del" => 0x2E,
-            "a" => 0x41, "b" => 0x42, "c" => 0x43, "d" => 0x44,
-            "e" => 0x45, "f" => 0x46, "g" => 0x47, "h" => 0x48,
-            "i" => 0x49, "j" => 0x4A, "k" => 0x4B, "l" => 0x4C,
-            "m" => 0x4D, "n" => 0x4E, "o" => 0x4F, "p" => 0x50,
-            "q" => 0x51, "r" => 0x52, "s" => 0x53, "t" => 0x54,
-            "u" => 0x55, "v" => 0x56, "w" => 0x57, "x" => 0x58,
-            "y" => 0x59, "z" => 0x5A,
-            "1" => 0x31, "2" => 0x32, "3" => 0x33, "4" => 0x34,
-            "5" => 0x35, "6" => 0x36, "7" => 0x37, "8" => 0x38,
-            "9" => 0x39, "0" => 0x30,
+            "a" => 0x41,
+            "b" => 0x42,
+            "c" => 0x43,
+            "d" => 0x44,
+            "e" => 0x45,
+            "f" => 0x46,
+            "g" => 0x47,
+            "h" => 0x48,
+            "i" => 0x49,
+            "j" => 0x4A,
+            "k" => 0x4B,
+            "l" => 0x4C,
+            "m" => 0x4D,
+            "n" => 0x4E,
+            "o" => 0x4F,
+            "p" => 0x50,
+            "q" => 0x51,
+            "r" => 0x52,
+            "s" => 0x53,
+            "t" => 0x54,
+            "u" => 0x55,
+            "v" => 0x56,
+            "w" => 0x57,
+            "x" => 0x58,
+            "y" => 0x59,
+            "z" => 0x5A,
+            "1" => 0x31,
+            "2" => 0x32,
+            "3" => 0x33,
+            "4" => 0x34,
+            "5" => 0x35,
+            "6" => 0x36,
+            "7" => 0x37,
+            "8" => 0x38,
+            "9" => 0x39,
+            "0" => 0x30,
             _ => 0,
         };
         if vk != 0 {
@@ -253,11 +278,10 @@ pub fn press_hotkey(keys: &str) -> ActionResult {
     {
         unsafe {
             use windows_sys::Win32::UI::Input::KeyboardAndMouse::*;
-            use windows_sys::Win32::UI::WindowsAndMessaging::*;
 
             // Press all keys down
             for &vk in &vk_codes {
-                let mut input = INPUT {
+                let input = INPUT {
                     r#type: INPUT_KEYBOARD,
                     Anonymous: INPUT_0 {
                         ki: KEYBDINPUT {
@@ -269,12 +293,12 @@ pub fn press_hotkey(keys: &str) -> ActionResult {
                         },
                     },
                 };
-                SendInput(1, &mut input, std::mem::size_of::<INPUT>() as i32);
+                SendInput(1, &input, std::mem::size_of::<INPUT>() as i32);
             }
 
             // Release all keys in reverse order
             for &vk in vk_codes.iter().rev() {
-                let mut input = INPUT {
+                let input = INPUT {
                     r#type: INPUT_KEYBOARD,
                     Anonymous: INPUT_0 {
                         ki: KEYBDINPUT {
@@ -286,7 +310,7 @@ pub fn press_hotkey(keys: &str) -> ActionResult {
                         },
                     },
                 };
-                SendInput(1, &mut input, std::mem::size_of::<INPUT>() as i32);
+                SendInput(1, &input, std::mem::size_of::<INPUT>() as i32);
             }
         }
         ActionResult {

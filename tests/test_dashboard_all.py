@@ -23,7 +23,7 @@ pages = [
 
 for page, name in pages:
     try:
-        r = urllib.request.urlopen('http://127.0.0.1:8090' + page, timeout=5)
+        r = urllib.request.urlopen('http://0.0.0.0:8090' + page, timeout=5)
         content = r.read().decode()
         print(f'[PASS] {name} ({page}): {r.status} | {len(content)} bytes')
     except Exception as e:

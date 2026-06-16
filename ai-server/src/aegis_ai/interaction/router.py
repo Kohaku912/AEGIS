@@ -152,7 +152,7 @@ class InteractionRouter:
                     step.status = StepStatus.NEEDS_APPROVAL
                 response.text = (
                     f"This requires approval for: {', '.join(s.description for s in approval_steps)}\n"
-                    f"Approval UI: http://127.0.0.1:8080/approvals"
+                    f"Approval UI: http://0.0.0.0:8080/approvals"
                 )
                 response.pending_approvals = [
                     {"step_id": s.step_id, "description": s.description}
@@ -319,7 +319,7 @@ class InteractionRouter:
         """Handle status check."""
         response.text = (
             "AEGIS is running. Use the Dashboard for detailed status:\n"
-            "http://127.0.0.1:8090"
+            "http://0.0.0.0:8090"
         )
         return response
 
@@ -340,7 +340,7 @@ class InteractionRouter:
         if self._settings:
             response.text = (
                 "Settings:\n"
-                "- Dashboard: http://127.0.0.1:8090"
+                "- Dashboard: http://0.0.0.0:8090"
             )
         else:
             response.text = "Settings not available."
@@ -351,7 +351,7 @@ class InteractionRouter:
         if self._approval:
             pending = self._approval.get_pending()
             if pending:
-                response.text = f"You have {len(pending)} pending approval(s).\nApproval UI: http://127.0.0.1:8080/approvals"
+                response.text = f"You have {len(pending)} pending approval(s).\nApproval UI: http://0.0.0.0:8080/approvals"
             else:
                 response.text = "No pending approvals."
         else:

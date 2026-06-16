@@ -5,14 +5,26 @@
   "server_id": "pc-server",
   "app_id": "app",
   "action": "open_url",
-  "risk": {"level": "safe_action"},
+  "risk": {
+    "level": "medium",
+    "requires_approval": true
+  },
   "input": {
     "type": "object",
     "properties": {
-      "url": {"type": "string", "description": "URL to open"}
+      "url": {
+        "type": "string",
+        "description": "URL to open"
+      }
     },
-    "required": ["url"]
+    "required": [
+      "url"
+    ]
   },
-  "tags": ["browser", "url", "open"],
+  "tags": [
+    "browser",
+    "url",
+    "open"
+  ],
   "tcp_command": "open_url {url}"
 }

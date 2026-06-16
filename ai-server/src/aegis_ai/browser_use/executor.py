@@ -13,9 +13,13 @@ import logging
 import re
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
+from aegis_ai.llm.memory_context import build_shared_memory_context
+
 logger = logging.getLogger("aegis_ai.browser_use.executor")
+_DATA_DIR = str(Path(__file__).resolve().parent.parent.parent / "data")
 
 
 @dataclass
@@ -92,6 +96,31 @@ class BrowserUseTaskExecutor:
     def __init__(self, llm_client: Any = None, safety: BrowserUseSafetyBoundary | None = None) -> None:
         self._llm = llm_client
         self._safety = safety or BrowserUseSafetyBoundary()
+
+    def _summarize_page_content(self, title: str, text: str, task: str) -> str:
+        summary = text[:2000]
+        if not self._llm or len(text) <= 200:
+            return summary
+        try:
+            memory_context = build_shared_memory_context(
+                query=task or title,
+                data_dir=_DATA_DIR,
+                profile="summary",
+            )
+            prompt = f"Summarize this webpage content concisely:\n\nTitle: {title}\n\nContent:\n{text[:3000]}"
+            if memory_context.text:
+                prompt = f"Shared memory context:\n{memory_context.text}\n\n{prompt}"
+            llm_result = self._llm.generate(
+                prompt=prompt,
+                system_prompt="You are a web content summarizer. Be concise and informative.",
+                max_tokens=500,
+                context_meta=memory_context.audit_detail(),
+            )
+            if llm_result.success:
+                return llm_result.content
+        except Exception as exc:
+            logger.warning("LLM summarization failed: %s", exc)
+        return summary
 
     def execute(self, task: str, context: str = "") -> BrowserTaskResult:
         """Execute a browser task synchronously."""
@@ -198,18 +227,7 @@ class BrowserUseTaskExecutor:
                 """)
 
                 # Use LLM to summarize if available
-                summary = text[:2000]
-                if self._llm and len(text) > 200:
-                    try:
-                        llm_result = self._llm.generate(
-                            prompt=f"Summarize this webpage content concisely:\n\nTitle: {title}\n\nContent:\n{text[:3000]}",
-                            system_prompt="You are a web content summarizer. Be concise and informative.",
-                            max_tokens=500,
-                        )
-                        if llm_result.success:
-                            summary = llm_result.content
-                    except Exception as e:
-                        logger.warning("LLM summarization failed: %s", e)
+                summary = self._summarize_page_content(title, text, task)
 
                 return BrowserTaskResult(
                     success=True,

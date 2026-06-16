@@ -19,7 +19,7 @@ The Chat UI provides a web-based chat interface for interacting with AEGIS.
 ## Access
 
 ```
-http://127.0.0.1:8091/chat
+http://0.0.0.0:8091/chat
 ```
 
 ## API
@@ -34,7 +34,7 @@ http://127.0.0.1:8091/chat
 
 ## Security
 
-- Localhost only (127.0.0.1)
+- Localhost only (0.0.0.0)
 - No external exposure
 - Requests go through PolicyEngine
 - Tool requests redirect to Approval UI

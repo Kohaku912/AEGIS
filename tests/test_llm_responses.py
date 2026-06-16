@@ -15,7 +15,7 @@ for name, text in tests:
     print(f'=== {name} ===')
     data = json.dumps({'text': text}).encode()
     req = urllib.request.Request(
-        'http://127.0.0.1:8090/api/chat/send',
+        'http://0.0.0.0:8090/api/chat/send',
         data=data,
         headers={'Content-Type': 'application/json'}
     )

@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 from aegis_browser.browser_use_agent import BrowserUseAgent, SafetyStop
+from aegis_browser.config import Config
+from aegis_browser.main import get_runtime_health
+from aegis_browser.session import BrowserSession
 from aegis_browser.task_models import (
     BrowserTask,
     BrowserTaskResult,
@@ -205,3 +208,48 @@ class TestBrowserUseAgent:
         agent._running = True
         agent.stop()
         assert agent.is_running() is False
+
+
+class TestBrowserRuntimeHealth:
+    """Runtime health exposes dependency and profile state."""
+
+    def test_runtime_health_reports_profile_and_dependency_mode(self, tmp_path, monkeypatch):
+        config = Config(
+            browser_profile_root=str(tmp_path / "profiles"),
+            browser_session_root=str(tmp_path / "sessions"),
+            browser_profile_name="owner",
+        )
+
+        monkeypatch.setattr("aegis_browser.main._module_available", lambda name: name == "playwright")
+
+        health = get_runtime_health(config)
+
+        assert health["status"] == "degraded"
+        assert health["mode"] == "fallback"
+        assert health["browser_use_available"] is False
+        assert health["playwright_available"] is True
+        assert health["profile_root"] == str(tmp_path / "profiles")
+        assert health["profile_name"] == "owner"
+        assert health["profile_dir"].endswith("owner")
+        assert "browser-use" in health["degraded_reason"]
+
+    def test_browser_session_profile_directory_is_stable(self, tmp_path):
+        session = BrowserSession(
+            session_id="owner",
+            profile_dir=str(tmp_path / "profiles"),
+            session_dir=str(tmp_path / "sessions"),
+        )
+
+        session.ensure_dirs()
+        first_path = session.profile_dir
+        session.record_page_visit("https://example.com")
+        session.save_state()
+
+        reloaded = BrowserSession(
+            session_id="owner",
+            profile_dir=str(tmp_path / "profiles"),
+            session_dir=str(tmp_path / "sessions"),
+        )
+
+        assert reloaded.profile_dir == first_path
+        assert reloaded.load_state() is True

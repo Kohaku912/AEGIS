@@ -86,10 +86,14 @@ fn collect_files(dir: &Path, files: &mut Vec<FileInfo>) -> Result<(), String> {
     let entries = std::fs::read_dir(dir).map_err(|e| format!("Failed to read dir: {e}"))?;
     for entry in entries {
         let entry = entry.map_err(|e| format!("Failed to read entry: {e}"))?;
-        let metadata = entry.metadata().map_err(|e| format!("Failed to get metadata: {e}"))?;
+        let metadata = entry
+            .metadata()
+            .map_err(|e| format!("Failed to get metadata: {e}"))?;
         let name = entry.file_name().to_string_lossy().to_string();
         let path = entry.path().to_string_lossy().to_string();
-        let extension = entry.path().extension()
+        let extension = entry
+            .path()
+            .extension()
             .map(|e| e.to_string_lossy().to_string())
             .unwrap_or_default();
 
@@ -98,8 +102,13 @@ fn collect_files(dir: &Path, files: &mut Vec<FileInfo>) -> Result<(), String> {
             path,
             size_bytes: metadata.len(),
             is_dir: metadata.is_dir(),
-            modified_ms: metadata.modified()
-                .map(|t| t.duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis() as u64)
+            modified_ms: metadata
+                .modified()
+                .map(|t| {
+                    t.duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_millis() as u64
+                })
                 .unwrap_or(0),
             extension,
         });
@@ -107,17 +116,26 @@ fn collect_files(dir: &Path, files: &mut Vec<FileInfo>) -> Result<(), String> {
     Ok(())
 }
 
-fn collect_files_recursive(dir: &Path, files: &mut Vec<FileInfo>, depth: usize, max_depth: usize) -> Result<(), String> {
+fn collect_files_recursive(
+    dir: &Path,
+    files: &mut Vec<FileInfo>,
+    depth: usize,
+    max_depth: usize,
+) -> Result<(), String> {
     if depth >= max_depth {
         return Ok(());
     }
     let entries = std::fs::read_dir(dir).map_err(|e| format!("Failed to read dir: {e}"))?;
     for entry in entries {
         let entry = entry.map_err(|e| format!("Failed to read entry: {e}"))?;
-        let metadata = entry.metadata().map_err(|e| format!("Failed to get metadata: {e}"))?;
+        let metadata = entry
+            .metadata()
+            .map_err(|e| format!("Failed to get metadata: {e}"))?;
         let name = entry.file_name().to_string_lossy().to_string();
         let path = entry.path().to_string_lossy().to_string();
-        let extension = entry.path().extension()
+        let extension = entry
+            .path()
+            .extension()
             .map(|e| e.to_string_lossy().to_string())
             .unwrap_or_default();
 
@@ -126,8 +144,13 @@ fn collect_files_recursive(dir: &Path, files: &mut Vec<FileInfo>, depth: usize, 
             path: path.clone(),
             size_bytes: metadata.len(),
             is_dir: metadata.is_dir(),
-            modified_ms: metadata.modified()
-                .map(|t| t.duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis() as u64)
+            modified_ms: metadata
+                .modified()
+                .map(|t| {
+                    t.duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_millis() as u64
+                })
                 .unwrap_or(0),
             extension,
         });
@@ -156,15 +179,15 @@ pub fn read_file(file_path: &str, max_bytes: usize) -> Result<String, String> {
         &content
     };
 
-    String::from_utf8(content.to_vec())
-        .map_err(|_| "File is not valid UTF-8".to_string())
+    String::from_utf8(content.to_vec()).map_err(|_| "File is not valid UTF-8".to_string())
 }
 
 /// Search for files matching a pattern
 pub fn search_files(dir_path: &str, pattern: &str) -> Result<Vec<FileInfo>, String> {
     let files = list_files(dir_path, true)?;
     let pattern_lower = pattern.to_lowercase();
-    Ok(files.into_iter()
+    Ok(files
+        .into_iter()
         .filter(|f| f.name.to_lowercase().contains(&pattern_lower))
         .collect())
 }
@@ -175,15 +198,17 @@ pub fn list_processes() -> Result<Vec<ProcessInfo>, String> {
     let mut system = System::new_all();
     system.refresh_all();
 
-    Ok(system.processes().values().map(|p| {
-        ProcessInfo {
+    Ok(system
+        .processes()
+        .values()
+        .map(|p| ProcessInfo {
             pid: p.pid().as_u32(),
             name: p.name().to_string(),
             cpu_usage: p.cpu_usage(),
             memory_mb: p.memory() / 1024 / 1024,
             status: format!("{:?}", p.status()),
-        }
-    }).collect())
+        })
+        .collect())
 }
 
 /// Get network information
@@ -196,7 +221,7 @@ pub fn get_network_info() -> Result<NetworkInfo, String> {
         hostname,
         local_ip: local_ip_address::local_ip()
             .map(|ip| ip.to_string())
-            .unwrap_or_else(|_| "127.0.0.1".to_string()),
+            .unwrap_or_else(|_| "0.0.0.0".to_string()),
         interfaces: Vec::new(),
     })
 }
@@ -206,29 +231,31 @@ pub fn get_disk_info() -> Result<Vec<DiskInfo>, String> {
     use sysinfo::Disks;
     let disks = Disks::new_with_refreshed_list();
 
-    Ok(disks.iter().map(|d| {
-        DiskInfo {
+    Ok(disks
+        .iter()
+        .map(|d| DiskInfo {
             name: d.name().to_string_lossy().to_string(),
             mount_point: d.mount_point().to_string_lossy().to_string(),
             total_bytes: d.total_space(),
             free_bytes: d.available_space(),
             used_bytes: d.total_space() - d.available_space(),
             file_system: d.file_system().to_string_lossy().to_string(),
-        }
-    }).collect())
+        })
+        .collect())
 }
 
 /// List running applications with windows
 pub fn list_running_apps() -> Result<Vec<RunningApp>, String> {
     let windows = x_win::get_open_windows().map_err(|e| format!("Failed to list windows: {e}"))?;
-    Ok(windows.into_iter().map(|w| {
-        RunningApp {
+    Ok(windows
+        .into_iter()
+        .map(|w| RunningApp {
             name: w.info.exec_name,
             pid: w.info.process_id,
             window_title: w.title,
             exe_path: String::new(),
-        }
-    }).collect())
+        })
+        .collect())
 }
 
 /// Get environment variables

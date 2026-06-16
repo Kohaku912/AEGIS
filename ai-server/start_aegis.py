@@ -7,10 +7,10 @@ Services:
 - CLI in terminal
 
 User interaction:
-- Web Chat: http://127.0.0.1:8091/chat
+- Web Chat: http://0.0.0.0:8091/chat
 - CLI: Terminal input
-- Dashboard: http://127.0.0.1:8090/ (monitoring)
-- Approval UI: http://127.0.0.1:8080/ (when needed)
+- Dashboard: http://0.0.0.0:8090/ (monitoring)
+- Approval UI: http://0.0.0.0:8080/ (when needed)
 
 Usage:
     python start_aegis.py
@@ -48,9 +48,9 @@ def start_dashboard():
     """Start Dashboard in background thread."""
     from aegis_ai.web.dashboard_routes import DashboardApp
 
-    logger.info("Dashboard: starting on http://127.0.0.1:8090")
+    logger.info("Dashboard: starting on http://0.0.0.0:8090")
     app = DashboardApp()
-    app.run(host="127.0.0.1", port=8090, debug=False)
+    app.run(host="0.0.0.0", port=8090, debug=False)
 
 
 def start_web_chat():
@@ -63,9 +63,9 @@ def start_web_chat():
     llm = create_llm_provider()
     router = InteractionRouter(llm_provider=llm)
     sessions = SessionManager()
-    logger.info("Web Chat: starting on http://127.0.0.1:8091/chat")
+    logger.info("Web Chat: starting on http://0.0.0.0:8091/chat")
     app = WebChatApp(router=router, session_manager=sessions)
-    app.run(host="127.0.0.1", port=8091, debug=False)
+    app.run(host="0.0.0.0", port=8091, debug=False)
 
 
 def start_cli():
@@ -87,11 +87,11 @@ def start_cli():
     print()
     print("  AIに指示を出すには:")
     print("    1. CLI:   このターミナルで直接入力")
-    print("    2. Web:   http://127.0.0.1:8091/chat")
+    print("    2. Web:   http://0.0.0.0:8091/chat")
     print()
     print("  モニタリング:")
-    print("    Dashboard:   http://127.0.0.1:8090/")
-    print("    Approval UI: http://127.0.0.1:8080/ (承認が必要な時)")
+    print("    Dashboard:   http://0.0.0.0:8090/")
+    print("    Approval UI: http://0.0.0.0:8080/ (承認が必要な時)")
     print()
     print("  例: 「天気を調べて」「スクリーンショットを撮って」")
     print("=" * 60)

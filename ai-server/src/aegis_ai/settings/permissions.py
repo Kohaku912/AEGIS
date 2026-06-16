@@ -68,10 +68,17 @@ class SettingsPermissionGuard:
         server_prefix = capability.id.split(".")[0]
         server_enabled_map = {
             "browser": settings.servers.browser_server_enabled,
+            "browser-server": settings.servers.browser_server_enabled,
             "pc": settings.servers.pc_server_enabled,
+            "pc-server": settings.servers.pc_server_enabled,
             "android": settings.servers.android_server_enabled,
+            "android-server": settings.servers.android_server_enabled,
             "room": settings.servers.room_server_enabled,
+            "room-server": settings.servers.room_server_enabled,
             "dev": settings.servers.dev_server_enabled,
+            "dev-server": settings.servers.dev_server_enabled,
+            "ai": True,
+            "ai-server": True,
         }
         if not server_enabled_map.get(server_prefix, True):
             return PolicyResult(
@@ -107,7 +114,7 @@ class SettingsPermissionGuard:
                 risk_level=capability.risk_level,
             )
 
-        if capability.id in ("room.get_camera_snapshot",) and not settings.privacy.camera_snapshot_enabled:
+        if capability.id in ("room.get_camera_snapshot", "room-server.camera.get_snapshot") and not settings.privacy.camera_snapshot_enabled:
             return PolicyResult(
                 decision=PolicyDecision.DENY,
                 reason="Camera snapshot is disabled in privacy settings",

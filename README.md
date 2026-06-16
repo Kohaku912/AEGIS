@@ -42,13 +42,13 @@ python start_aegis.py  # Starts AI Server + Dashboard + Web Chat + CLI
 | Item | Status |
 |------|--------|
 | Phase | Beta (real LLM, real devices) |
-| Tests | 1328 passed, 7 skipped |
 | Lint | ruff clean |
 | Safety | PolicyEngine structural, 4 levels |
-| Capabilities | 62 registered (observe/action/approval) |
+| Capabilities | 53 registered (folder-based JSON manifests) |
 | LLM | DeepSeek API (OpenAI compatible) |
 | Dashboard | HTTP server on port 8090 |
-| Web Chat | Flask on port 8091 |
+| PC Server | Rust TCP on port 50052 |
+| Browser Server | Python HTTP on port 50053 |
 
 ## Documentation
 

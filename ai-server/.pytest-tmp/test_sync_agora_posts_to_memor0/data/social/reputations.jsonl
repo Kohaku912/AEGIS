@@ -1,0 +1,2 @@
+{"person_name": "Alice", "person_id": 11, "helpfulness": 0.5, "reliability": 0.5, "friendliness": 0.5, "expertise": 0.5, "activity_level": 0.02, "post_count": 1, "reply_count": 0, "overall_score": 0.5}
+{"person_name": "Bob", "person_id": 12, "helpfulness": 0.5, "reliability": 0.5, "friendliness": 0.5, "expertise": 0.5, "activity_level": 0.02, "post_count": 0, "reply_count": 1, "overall_score": 0.5}

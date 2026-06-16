@@ -78,12 +78,12 @@ DESIRE_FULFILLMENT = {
         },
     },
     "social_connection": {
-        "description": "Fulfilled by social interactions",
+        "description": "Fulfilled by social interactions (posting is primary, reading barely satisfies)",
         "conditions": {
-            "posted_to_agora": 0.8,              # Actually posted to AGORA
-            "replied_to_mention": 0.7,           # Replied to someone who mentioned AEGIS
-            "read_new_posts": 0.3,               # Read new posts (passive)
-            "reactions_received": 0.5,           # Got reactions on posts
+            "posted_to_agora": 1.0,              # Actually posted to AGORA (maximum satisfaction)
+            "replied_to_mention": 0.9,           # Replied to someone who mentioned AEGIS
+            "read_new_posts": 0.1,               # Read new posts (passive, barely satisfies)
+            "reactions_received": 0.5,           # Got reactions on posts (meaningful but less than posting)
             "no_new_posts": 0.0,                 # No new posts
             "tool_error": -0.3,                  # Tool error
         },

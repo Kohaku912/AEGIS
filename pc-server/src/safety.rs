@@ -313,7 +313,11 @@ pub fn get_capabilities() -> Vec<CapabilityDef> {
             requires_approval: true,
             side_effects: vec!["Inputs text".into()],
             timeout_ms: 5000,
-            tags: vec!["keyboard".into(), "input".into(), "approval_required".into()],
+            tags: vec![
+                "keyboard".into(),
+                "input".into(),
+                "approval_required".into(),
+            ],
         },
         CapabilityDef {
             id: "pc.press_hotkey".into(),
@@ -323,7 +327,11 @@ pub fn get_capabilities() -> Vec<CapabilityDef> {
             requires_approval: true,
             side_effects: vec!["Triggers keyboard shortcut".into()],
             timeout_ms: 2000,
-            tags: vec!["keyboard".into(), "hotkey".into(), "approval_required".into()],
+            tags: vec![
+                "keyboard".into(),
+                "hotkey".into(),
+                "approval_required".into(),
+            ],
         },
         // ── File Operations (Level 2: Approval required) ──
         CapabilityDef {

@@ -1,5 +1,5 @@
 {% extends "dashboard/base.html" %}
-{% block title %}AEGIS — Capabilities{% endblock %}
+{% block title %}AEGIS - Capabilities{% endblock %}
 {% block content %}
 <h1>Capabilities</h1>
 <div style="display:flex;gap:12px;align-items:center;margin-bottom:16px;">
@@ -39,7 +39,7 @@
             <td>{{ c.server_id }}</td>
             <td>{{ c.app_id }}</td>
             <td>
-                <select id="risk-{{ c.id }}" onchange="updateAndSave('{{ c.id }}')" style="background:#0d1117;border:1px solid #30363d;color:#c9d1d9;padding:4px;border-radius:4px;font-size:11px;">
+                <select id="risk-{{ c.id }}" data-saved-risk="{{ c.risk_level }}" onchange="updateAndSave('{{ c.id }}')" style="background:#0d1117;border:1px solid #30363d;color:#c9d1d9;padding:4px;border-radius:4px;font-size:11px;">
                     {% for r in risk_levels %}
                     <option value="{{ r }}" {{ 'selected' if r == c.risk_level else '' }}>{{ r }}</option>
                     {% endfor %}
@@ -53,7 +53,7 @@
                 {% endif %}
             </td>
             <td style="font-size:10px;color:#8b949e;">{{ c.tags|join(', ') }}</td>
-            <td id="status-{{ c.id }}" style="font-size:10px;"></td>
+            <td id="status-{{ c.id }}" style="font-size:10px;max-width:260px;"></td>
         </tr>
         {% endfor %}
         </tbody>
@@ -67,12 +67,11 @@ async function updateAndSave(capId) {
     const approval = document.getElementById('approval-' + capId);
     const statusEl = document.getElementById('status-' + capId);
     const risk = select.value;
-    
-    const needsApproval = ['APPROVAL_REQUIRED', 'HIGH_RISK', 'FORBIDDEN'].includes(risk);
-    approval.innerHTML = needsApproval
-        ? '<span class="badge badge-red">YES</span>'
-        : '<span class="badge badge-green">no</span>';
-    
+    const previousRisk = select.dataset.savedRisk || risk;
+
+    updateApprovalBadge(approval, risk);
+    statusEl.innerHTML = '<span style="color:#58a6ff;">Saving...</span>';
+
     try {
         const res = await fetch('/api/capabilities/risk', {
             method: 'POST',
@@ -81,14 +80,35 @@ async function updateAndSave(capId) {
         });
         const data = await res.json();
         if (data.ok) {
-            statusEl.innerHTML = '<span style="color:#3fb950;">✓</span>';
+            select.dataset.savedRisk = risk;
+            statusEl.innerHTML = '<span style="color:#3fb950;">Saved</span>';
             setTimeout(() => { statusEl.innerHTML = ''; }, 2000);
-        } else {
-            statusEl.innerHTML = '<span style="color:#f85149;">✗</span>';
+            return;
         }
+        select.value = previousRisk;
+        updateApprovalBadge(approval, previousRisk);
+        statusEl.innerHTML = '<span style="color:#f85149;">' + escapeHtml(data.error || 'Save failed') + '</span>';
     } catch (e) {
-        statusEl.innerHTML = '<span style="color:#f85149;">✗</span>';
+        select.value = previousRisk;
+        updateApprovalBadge(approval, previousRisk);
+        statusEl.innerHTML = '<span style="color:#f85149;">' + escapeHtml(e.message) + '</span>';
     }
+}
+
+function updateApprovalBadge(approval, risk) {
+    const needsApproval = ['APPROVAL_REQUIRED', 'HIGH_RISK', 'FORBIDDEN'].includes(risk);
+    approval.innerHTML = needsApproval
+        ? '<span class="badge badge-red">YES</span>'
+        : '<span class="badge badge-green">no</span>';
+}
+
+function escapeHtml(value) {
+    return String(value)
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#039;');
 }
 
 async function reloadCapabilities() {
@@ -101,10 +121,10 @@ async function reloadCapabilities() {
             status.innerHTML = '<span style="color:#3fb950;">Reloaded: ' + data.new_count + ' capabilities (' + (data.errors ? data.errors.length : 0) + ' errors)</span>';
             setTimeout(() => location.reload(), 1000);
         } else {
-            status.innerHTML = '<span style="color:#f85149;">Error: ' + data.error + '</span>';
+            status.innerHTML = '<span style="color:#f85149;">Error: ' + escapeHtml(data.error) + '</span>';
         }
     } catch (e) {
-        status.innerHTML = '<span style="color:#f85149;">Error: ' + e.message + '</span>';
+        status.innerHTML = '<span style="color:#f85149;">Error: ' + escapeHtml(e.message) + '</span>';
     }
 }
 </script>

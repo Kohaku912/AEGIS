@@ -17,9 +17,13 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
+from aegis_ai.llm.memory_context import build_shared_memory_context
+
 logger = logging.getLogger("aegis_ai.briefing.provider")
+_DATA_DIR = str(Path(__file__).resolve().parent.parent.parent / "data")
 
 
 @dataclass
@@ -182,10 +186,19 @@ class DailyBriefingProvider:
         """Generate summary using LLM."""
         try:
             content = "\n\n".join([f"## {s.title}\n{s.content}" for s in briefing.sections])
+            memory_context = build_shared_memory_context(
+                query="daily briefing summary",
+                data_dir=_DATA_DIR,
+                profile="summary",
+            )
+            prompt = f"Summarize this daily briefing concisely:\n\n{content}"
+            if memory_context.text:
+                prompt = f"Shared memory context:\n{memory_context.text}\n\n{prompt}"
             result = self._llm.generate(
-                prompt=f"Summarize this daily briefing concisely:\n\n{content}",
+                prompt=prompt,
                 system_prompt="You are AEGIS, a helpful AI assistant. Provide a brief daily summary.",
                 max_tokens=300,
+                context_meta=memory_context.audit_detail(),
             )
             if result.success:
                 return result.content

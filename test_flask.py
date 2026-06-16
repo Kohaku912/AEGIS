@@ -15,7 +15,7 @@ def health():
     return {'status': 'ok'}
 
 def run_server():
-    app.run(host='127.0.0.1', port=8092, debug=False, use_reloader=False)
+    app.run(host='0.0.0.0', port=8092, debug=False, use_reloader=False)
 
 if __name__ == '__main__':
     # Start server in background thread
@@ -27,14 +27,14 @@ if __name__ == '__main__':
     
     # Test the server
     try:
-        response = urllib.request.urlopen('http://127.0.0.1:8092/health', timeout=5)
+        response = urllib.request.urlopen('http://0.0.0.0:8092/health', timeout=5)
         print(f'Status: {response.status}')
         print(f'Content: {response.read().decode()}')
     except Exception as e:
         print(f'Error: {e}')
     
     # Keep server running
-    print('Server running on http://127.0.0.1:8092')
+    print('Server running on http://0.0.0.0:8092')
     print('Press Ctrl+C to stop')
     try:
         while True:

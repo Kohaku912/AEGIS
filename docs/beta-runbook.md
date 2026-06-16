@@ -74,7 +74,7 @@ python -m aegis_ai.main
 ```bash
 cd ai-server
 python -c "from aegis_ai.web.dashboard_routes import DashboardApp; DashboardApp().run()"
-# http://127.0.0.1:8090
+# http://0.0.0.0:8090
 ```
 
 ### 2.3 Approval UI 起動
@@ -82,7 +82,7 @@ python -c "from aegis_ai.web.dashboard_routes import DashboardApp; DashboardApp(
 ```bash
 cd ai-server
 python -c "from aegis_ai.web.app import ApprovalWebApp; from approval import ApprovalStore; ApprovalWebApp(ApprovalStore()).run()"
-# http://127.0.0.1:8080
+# http://0.0.0.0:8080
 ```
 
 ### 2.4 Docker Compose で全サービス起動
@@ -99,7 +99,7 @@ docker compose ps
 ### 3.1 Dashboard 確認
 
 ```
-http://127.0.0.1:8090
+http://0.0.0.0:8090
 ```
 
 確認項目:
@@ -112,7 +112,7 @@ http://127.0.0.1:8090
 ### 3.2 Pending Approval 確認
 
 ```
-http://127.0.0.1:8080/approvals
+http://0.0.0.0:8080/approvals
 ```
 
 ### 3.3 テスト実行
@@ -141,7 +141,7 @@ docker compose down
 | 問題 | 解決策 |
 |------|--------|
 | Server disconnected | `docker compose ps` で確認 → `docker compose restart` |
-| Approval stuck | Dashboard → Tasks → 確認、または `http://127.0.0.1:8080/approvals` |
+| Approval stuck | Dashboard → Tasks → 確認、または `http://0.0.0.0:8080/approvals` |
 | テスト失敗 | `pytest --tb=short` で詳細確認 |
 | Port 使用中 | `.env` でポート変更、または `docker compose down` 後再起動 |
 

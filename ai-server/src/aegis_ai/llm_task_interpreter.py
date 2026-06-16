@@ -12,11 +12,15 @@ from __future__ import annotations
 import json
 import logging
 import uuid
+from pathlib import Path
 from typing import Any
 
+from aegis_ai.llm.json_utils import extract_json_object
+from aegis_ai.llm.memory_context import build_shared_memory_context
 from aegis_ai.task_plan import PlanStep, RiskCategory, TaskPlan
 
 logger = logging.getLogger("aegis_ai.llm_task_interpreter")
+_DATA_DIR = str(Path(__file__).resolve().parent.parent.parent / "data")
 
 
 INTERPRETATION_PROMPT = """You are AEGIS's task interpreter.
@@ -104,7 +108,14 @@ class LLMTaskInterpreter:
             return self._fallback_plan(user_message)
 
         # Build context
+        shared_context = build_shared_memory_context(
+            query=user_message,
+            data_dir=_DATA_DIR,
+            profile="decision",
+        )
         ctx = context_str or self._build_context()
+        if shared_context.text:
+            ctx = f"{shared_context.text}\n\n{ctx}" if ctx else shared_context.text
         caps = self._build_capability_list()
 
         # Format prompt
@@ -122,6 +133,8 @@ class LLMTaskInterpreter:
                     system_prompt="You are a task interpreter. Output only valid JSON.",
                     max_tokens=2000,
                     temperature=0.1,
+                    context_meta=shared_context.audit_detail(),
+                    json_mode=True,
                 )
 
                 if not result.success:
@@ -142,17 +155,8 @@ class LLMTaskInterpreter:
 
     def _parse_response(self, llm_output: str, user_message: str) -> TaskPlan | None:
         """Parse LLM JSON response into TaskPlan."""
-        text = llm_output.strip()
-
-        # Remove markdown fences
-        if text.startswith("```"):
-            lines = text.split("\n")
-            text = "\n".join(lines[1:] if lines[0].startswith("```") else lines)
-            if text.endswith("```"):
-                text = text[:-3].strip()
-
         try:
-            data = json.loads(text)
+            data = extract_json_object(llm_output)
         except json.JSONDecodeError:
             logger.warning("Failed to parse LLM response as JSON")
             return None
@@ -242,6 +246,11 @@ class LLMTaskInterpreter:
                 parts.append(f"Goals: {', '.join(ctx.current_goals[:3])}")
             if ctx.recent_events:
                 parts.append(f"Recent events: {len(ctx.recent_events)} events")
+            if ctx.recent_media_summaries:
+                parts.append(
+                    "Recent media: "
+                    + "; ".join(ctx.recent_media_summaries[:2])
+                )
             return "\n".join(parts) if parts else "Context available but empty"
         except Exception:
             return "Context unavailable"

@@ -55,7 +55,9 @@ pub fn get_screenshot() -> Result<ScreenshotResult, String> {
 
     let screens = Screen::all().map_err(|e| format!("Failed to get screens: {e}"))?;
     let screen = screens.first().ok_or("No screens found")?;
-    let image = screen.capture().map_err(|e| format!("Failed to capture: {e}"))?;
+    let image = screen
+        .capture()
+        .map_err(|e| format!("Failed to capture: {e}"))?;
 
     let buffer = encode_bmp(image.rgba(), image.width(), image.height())?;
 
@@ -94,7 +96,7 @@ fn encode_bmp(rgba: &[u8], width: u32, height: u32) -> Result<Vec<u8>, String> {
             bmp.push(rgba[i + 1]);
             bmp.push(rgba[i]);
         }
-        bmp.extend(std::iter::repeat(0u8).take(padding));
+        bmp.extend(std::iter::repeat_n(0u8, padding));
     }
     Ok(bmp)
 }
@@ -109,8 +111,8 @@ pub fn get_active_window() -> Result<WindowInfo, String> {
         title: window.title,
         process_name: window.info.exec_name,
         pid: window.info.process_id,
-        x: window.position.x as i32,
-        y: window.position.y as i32,
+        x: window.position.x,
+        y: window.position.y,
         width: window.position.width as u32,
         height: window.position.height as u32,
         is_minimized: false,
@@ -130,8 +132,8 @@ pub fn list_windows() -> Result<Vec<WindowInfo>, String> {
             title: w.title,
             process_name: w.info.exec_name,
             pid: w.info.process_id,
-            x: w.position.x as i32,
-            y: w.position.y as i32,
+            x: w.position.x,
+            y: w.position.y,
             width: w.position.width as u32,
             height: w.position.height as u32,
             is_minimized: false,
@@ -145,9 +147,16 @@ pub fn list_windows() -> Result<Vec<WindowInfo>, String> {
 // ═══════════════════════════════════════════════════════════
 
 pub fn get_clipboard() -> Result<String, String> {
-    let mut clipboard = arboard::Clipboard::new().map_err(|e| format!("Failed to access clipboard: {e}"))?;
-    let text = clipboard.get_text().map_err(|e| format!("Failed to read clipboard: {e}"))?;
-    Ok(if text.is_empty() { "[EMPTY]".into() } else { text })
+    let mut clipboard =
+        arboard::Clipboard::new().map_err(|e| format!("Failed to access clipboard: {e}"))?;
+    let text = clipboard
+        .get_text()
+        .map_err(|e| format!("Failed to read clipboard: {e}"))?;
+    Ok(if text.is_empty() {
+        "[EMPTY]".into()
+    } else {
+        crate::redaction::redact_secrets(&text)
+    })
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -174,12 +183,15 @@ pub fn get_screen_size() -> ScreenSize {
     if let Ok(screens) = Screen::all() {
         if let Some(screen) = screens.first() {
             return ScreenSize {
-                width: screen.display_info.width as u32,
-                height: screen.display_info.height as u32,
+                width: screen.display_info.width,
+                height: screen.display_info.height,
             };
         }
     }
-    ScreenSize { width: 1920, height: 1080 }
+    ScreenSize {
+        width: 1920,
+        height: 1080,
+    }
 }
 
 // ═══════════════════════════════════════════════════════════

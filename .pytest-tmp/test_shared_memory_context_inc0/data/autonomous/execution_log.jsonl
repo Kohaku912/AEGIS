@@ -1,0 +1,2 @@
+{"timestamp_ms": 1000, "tasks": [{"action": "Retry browser task", "capability_id": "browser-server.page.browse"}], "results": [{"success": false, "result": "Timeout while loading page"}]}
+{"timestamp_ms": 2000, "tasks": [{"action": "Retry browser task", "capability_id": "browser-server.page.browse"}], "results": [{"success": false, "result": "Timeout while loading page"}]}

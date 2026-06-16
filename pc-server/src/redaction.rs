@@ -63,19 +63,34 @@ pub fn redact_secrets(text: &str) -> String {
 /// Check if a path is in a sensitive directory that should not be monitored.
 pub fn is_sensitive_directory(path: &str) -> bool {
     let sensitive_patterns = [
-        ".ssh", ".gnupg", ".aws", ".gcloud", ".azure",
+        ".ssh",
+        ".gnupg",
+        ".aws",
+        ".gcloud",
+        ".azure",
         "AppData\\Roaming\\Microsoft\\Crypto",
-        "/etc/ssl", "/etc/ssh",
+        "/etc/ssl",
+        "/etc/ssh",
     ];
     let path_lower = path.to_lowercase();
-    sensitive_patterns.iter().any(|p| path_lower.contains(&p.to_lowercase()))
+    sensitive_patterns
+        .iter()
+        .any(|p| path_lower.contains(&p.to_lowercase()))
 }
 
 /// Check if a path contains credential files that should be excluded.
 pub fn is_credential_file(path: &str) -> bool {
     let cred_patterns = [
-        ".pem", ".key", ".crt", "credentials", ".env", "id_rsa", "id_ed25519",
-        "token", "secret", "password",
+        ".pem",
+        ".key",
+        ".crt",
+        "credentials",
+        ".env",
+        "id_rsa",
+        "id_ed25519",
+        "token",
+        "secret",
+        "password",
     ];
     let path_lower = path.to_lowercase();
     cred_patterns.iter().any(|p| path_lower.contains(p))

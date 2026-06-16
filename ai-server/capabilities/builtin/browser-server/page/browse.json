@@ -1,18 +1,18 @@
 {
-  "id": "browser-server.page.browse",
-  "title": "Browse URL",
-  "description": "Open a URL and get the page content",
+  "title": "Browse with AI",
+  "description": "Use AI agent to browse websites and perform complex multi-step tasks. Navigate pages, fill forms, create accounts, click buttons, handle multi-page flows. The agent can handle tasks like: 'Go to https://accounts.google.com/signup and create an account with first name Taro, last name Yamada, username taro.test.2026, password Str0ngP@ss!'",
   "server_id": "browser-server",
   "app_id": "page",
   "action": "browse",
-  "risk": {"level": "read_only"},
-  "input": {
+  "risk": {"level": "safe", "side_effects": ["sends HTTP request", "executes page JavaScript"], "requires_approval": false},
+  "tags": ["browser", "web", "ai", "automation"],
+  "only_master": false,
+  "input_schema": {
     "type": "object",
     "properties": {
-      "url": {"type": "string", "description": "URL to browse"}
+      "task": {"type": "string", "description": "Detailed task description including URL and what to do. For complex tasks like account creation, include all required details (name, username, password, etc.). Example: 'Go to https://accounts.google.com/signup and create account with first name Taro, last name Yamada, username taro.test.2026, password Str0ngP@ss!'"},
+      "max_steps": {"type": "integer", "description": "Maximum number of steps the agent can take (default: 50). Increase for complex multi-page flows.", "default": 50}
     },
-    "required": ["url"]
-  },
-  "tags": ["browser", "web", "browse", "read"],
-  "only_master": false
+    "required": ["task"]
+  }
 }

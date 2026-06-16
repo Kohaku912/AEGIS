@@ -7,7 +7,7 @@ sys.stdout.reconfigure(encoding='utf-8')
 print('=== Test Streaming Chat ===')
 data = json.dumps({'text': 'What is Python?'}).encode()
 req = urllib.request.Request(
-    'http://127.0.0.1:8090/api/chat/stream',
+    'http://0.0.0.0:8090/api/chat/stream',
     data=data,
     headers={'Content-Type': 'application/json'}
 )
