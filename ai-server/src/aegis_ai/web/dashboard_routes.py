@@ -17,6 +17,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import inspect
 import ipaddress
 import re
 import socket
@@ -34,6 +35,19 @@ from aegis_ai.llm.memory_context import build_shared_memory_context
 logger = logging.getLogger("aegis_ai.web.dashboard")
 
 
+def _call_llm_with_runtime(call_llm_with_tools, llm, text, system_prompt, *, catalog, context_meta, runtime):
+    """Call chat_tools while preserving older test fakes."""
+
+    try:
+        parameters = inspect.signature(call_llm_with_tools).parameters
+    except (TypeError, ValueError):
+        parameters = {}
+    kwargs = {"catalog": catalog, "context_meta": context_meta}
+    if "runtime" in parameters:
+        kwargs["runtime"] = runtime
+    return call_llm_with_tools(llm, text, system_prompt, **kwargs)
+
+
 def _check_port(host: str, port: int, timeout: float = 2.0) -> bool:
     """Check if a port is open."""
     try:
@@ -44,26 +58,6 @@ def _check_port(host: str, port: int, timeout: float = 2.0) -> bool:
         return True
     except Exception:
         return False
-
-
-def _send_pc_command(cmd: str, host: str = "localhost", port: int = 50052) -> dict[str, Any] | None:
-    """Send a command to PC Server and return response."""
-    try:
-        s = socket.socket()
-        s.settimeout(5)
-        s.connect((host, port))
-        s.sendall((cmd + "\n").encode())
-        resp = b""
-        while True:
-            chunk = s.recv(4096)
-            if not chunk or b"\n" in chunk:
-                resp += chunk
-                break
-            resp += chunk
-        s.close()
-        return json.loads(resp.decode().strip())
-    except Exception:
-        return None
 
 
 def _http_json(url: str, timeout: float = 2.0) -> dict[str, Any] | None:
@@ -138,10 +132,17 @@ def _load_settings_for_status() -> Any:
         return None
 
 
-def _runtime_server_status(settings: Any = None) -> dict[str, Any]:
+def _runtime_server_status(settings: Any = None, runtime: Any = None) -> dict[str, Any]:
     settings = settings or _load_settings_for_status()
     server_settings = getattr(settings, "servers", None)
     servers: list[dict[str, Any]] = []
+    if runtime is None:
+        try:
+            from aegis_ai.runtime import get_runtime
+
+            runtime = get_runtime()
+        except Exception:
+            runtime = None
 
     dashboard_ok = _check_port("localhost", 8090)
     servers.append(_server_entry(
@@ -173,8 +174,15 @@ def _runtime_server_status(settings: Any = None) -> dict[str, Any]:
 
     pc_expected = bool(getattr(server_settings, "pc_server_enabled", True))
     pc_ok = _check_port("localhost", 50052) if pc_expected else False
-    pc_info = _send_pc_command("health") if pc_ok else None
-    pc_status = "ONLINE" if pc_info else ("DEGRADED" if pc_ok else "OFFLINE")
+    pc_capabilities = "0"
+    if runtime is not None:
+        try:
+            from aegis_schema.models import ServerType
+
+            pc_capabilities = str(len(runtime.tool_registry.get_capabilities_by_server_type(ServerType.PC)))
+        except Exception:
+            pc_capabilities = "0"
+    pc_status = "ONLINE" if pc_ok else "OFFLINE"
     servers.append(_server_entry(
         server_id="pc-server",
         server_type="PC",
@@ -182,12 +190,11 @@ def _runtime_server_status(settings: Any = None) -> dict[str, Any]:
         port=50052,
         expected=pc_expected,
         status=pc_status,
-        registered_capabilities=str(pc_info.get("capabilities", 0)) if pc_info else "0",
-        version=str(pc_info.get("version", "-")) if pc_info else "-",
+        registered_capabilities=pc_capabilities,
+        version="-",
         mode="tcp",
-        status_detail="PC Server health command succeeded." if pc_info else "PC port is reachable but health failed." if pc_ok else "PC Server is not reachable.",
-        degraded_reason="" if pc_info else "TCP health command did not return valid JSON." if pc_ok else "",
-        recovery_hint="" if pc_info else "Restart PC Server from an elevated shell if the process cannot be stopped normally.",
+        status_detail="PC Server port is reachable." if pc_ok else "PC Server is not reachable.",
+        recovery_hint="" if pc_ok else "Restart PC Server from an elevated shell if the process cannot be stopped normally.",
     ))
 
     browser_expected = bool(getattr(server_settings, "browser_server_enabled", True))
@@ -264,60 +271,6 @@ def _server_status_context_for_prompt() -> str:
             f"{server['status']} mode={server.get('mode', '-')}. {detail}"
         )
     return "\n".join(lines)
-
-
-def _browse_url(url: str) -> str:
-    """Browse to a URL using Playwright and return content."""
-    try:
-        import asyncio
-        from playwright.async_api import async_playwright
-
-        async def _browse():
-            async with async_playwright() as p:
-                browser = await p.chromium.launch(headless=True)
-                page = await browser.new_page()
-                try:
-                    await page.goto(url, timeout=30000)
-                    title = await page.title()
-
-                    # Get page text
-                    text = await page.evaluate("""
-                        (() => {
-                            const exclude = ['script', 'style', 'nav', 'footer'];
-                            const clone = document.body.cloneNode(true);
-                            exclude.forEach(tag => {
-                                clone.querySelectorAll(tag).forEach(el => el.remove());
-                            });
-                            return (clone.textContent || '').replace(/\\s{3,}/g, '\\n\\n').trim();
-                        })()
-                    """)
-
-                    # Get links
-                    links = await page.evaluate("""
-                        Array.from(document.querySelectorAll('a[href]')).slice(0, 10).map(a => ({
-                            href: a.href,
-                            text: a.textContent.trim().substring(0, 100)
-                        }))
-                    """)
-
-                    # Build response
-                    result_parts = [f"**{title}**\n"]
-                    result_parts.append(f"URL: {url}\n")
-                    result_parts.append(f"Content:\n{text[:2000]}\n")
-
-                    if links:
-                        result_parts.append("\nLinks:")
-                        for link in links[:5]:
-                            result_parts.append(f"  - {link['text']}: {link['href']}")
-
-                    return "\n".join(result_parts)
-                finally:
-                    await browser.close()
-
-        return asyncio.run(_browse())
-
-    except Exception as e:
-        return f"Browser error: {str(e)}"
 
 
 def _clean_llm_response(text: str) -> str:
@@ -851,139 +804,32 @@ def _load_memory_snapshot() -> dict[str, Any]:
 class DashboardApp:
     """Flask-based operations dashboard for AEGIS."""
 
-    def __init__(self) -> None:
+    def __init__(self, runtime: Any = None) -> None:
+        if runtime is None:
+            from aegis_ai.runtime import get_runtime
+
+            runtime = get_runtime()
+        self._runtime = runtime
         self._app = Flask(__name__, template_folder="templates")
         self._start_time = time.time()
-        self._autonomous_loop = None
-        from aegis_ai.audit import AuditLog
-        from aegis_ai.settings.store import SettingsStore
+        self._autonomous_loop = runtime.autonomous_loop
         from aegis_ai.web.settings_ui_routes import init_settings_ui, settings_ui_bp
 
-        self._audit_log = AuditLog(path=os.path.join(_DATA_DIR, "audit.jsonl"))
-        self._settings_store = SettingsStore(
-            path=str(Path(_DATA_DIR).parent / "config" / "settings.json"),
-            audit_path=os.path.join(_DATA_DIR, "settings_audit.jsonl"),
-        )
+        self._audit_log = runtime.audit_log
+        self._settings_store = runtime.settings_store
         init_settings_ui(self._settings_store, self._audit_log)
         self._app.register_blueprint(settings_ui_bp)
         self._setup_routes()
-        self._start_autonomous_loop()
+        self._autonomous_loop = runtime.autonomous_loop
 
     def _create_llm_provider(self, audit_log: Any = None) -> Any:
         """Create an LLM provider that honors dashboard settings."""
-        from aegis_ai.llm.factory import create_llm_provider_from_settings
-
-        return create_llm_provider_from_settings(
-            self._settings_store,
-            audit_log=audit_log or self._audit_log,
-        )
+        return self._runtime.llm_gateway
 
     def _start_autonomous_loop(self) -> None:
         try:
-            from aegis_ai.autonomous.autonomous_loop import AutonomousLoop
-            from aegis_ai.desire.desire_system import DesireSystem
-            from aegis_ai.memory.experiential import ExperientialMemory
-            from aegis_ai.memory.advanced import AdvancedMemory
-            from tool_broker import ToolBroker, _capability_from_manifest
-            from tool_registry import ToolRegistry
-            from aegis_ai.capability_catalog import CapabilityCatalog
-
-            settings = self._settings_store.get()
-            if not settings.autonomous.autonomous_loop_enabled:
-                logger.info("Autonomous loop disabled by settings")
-                return
-
-            audit_log = self._audit_log
-            llm = self._create_llm_provider(audit_log=audit_log)
-            desire = DesireSystem(
-                data_dir=os.path.join(_DATA_DIR, "desires"),
-                llm_provider=llm,
-            )
-
-            experiential = ExperientialMemory(
-                data_dir=os.path.join(_DATA_DIR, "memory"),
-                llm_provider=llm,
-            )
-
-            advanced_memory = AdvancedMemory(
-                data_dir=os.path.join(_DATA_DIR, "memory"),
-                llm_provider=llm,
-            )
-
-            caps_dir = str(Path(_DATA_DIR).parent / "capabilities")
-            apps_dir = str(Path(_DATA_DIR).parent / "apps")
-            catalog = CapabilityCatalog(capabilities_dir=caps_dir, apps_dir=apps_dir)
-
-            registry = ToolRegistry()
-            for cap in catalog.to_tool_registry_capabilities():
-                registry.register_capability(cap)
-
-            broker = ToolBroker(registry=registry, audit_log=audit_log, catalog=catalog)
-
-            from aegis_ai.mind.affect_system import AffectSystem
-            affect = AffectSystem(data_dir=_DATA_DIR)
-
-            from aegis_ai.memory.action_trace import ActionTraceMemory
-            from aegis_ai.memory.lesson_memory import LessonMemory
-            from aegis_ai.memory.workflow_memory import WorkflowMemory
-            from aegis_ai.memory.skill_memory import SkillMemory
-
-            action_trace = ActionTraceMemory(path=os.path.join(_DATA_DIR, "memory", "action_traces.jsonl"))
-            lesson_mem = LessonMemory(path=os.path.join(_DATA_DIR, "memory", "lessons.jsonl"))
-            workflow_mem = WorkflowMemory(path=os.path.join(_DATA_DIR, "memory", "workflows.jsonl"))
-            skill_mem = SkillMemory(path=os.path.join(_DATA_DIR, "memory", "skills.jsonl"))
-
-            self._autonomous_loop = AutonomousLoop(
-                llm_provider=llm,
-                desire_system=desire,
-                memory_system=advanced_memory,
-                tool_broker=broker,
-                experiential_memory=experiential,
-                affect_system=affect,
-                action_trace=action_trace,
-                skill_memory=skill_mem,
-                workflow_memory=workflow_mem,
-                lesson_memory=lesson_mem,
-                data_dir=os.path.join(_DATA_DIR, "autonomous"),
-                desire_threshold=4.0,
-                max_tasks_per_cycle=max(1, min(4, settings.autonomous.max_autonomous_runs_per_hour)),
-                fallback_interval_seconds=max(1, settings.autonomous.cooldown_seconds),
-            )
-            self._autonomous_loop._min_execution_interval_ms = max(1, settings.autonomous.cooldown_seconds) * 1000
-
-            from aegis_ai.autonomous.spontaneous_observation import SpontaneousObservationSystem
-            from aegis_ai.autonomous.curiosity_exploration import CuriosityDrivenExplorationSystem
-
-            from aegis_ai.memory.episodic_memory import EpisodicMemory
-            from aegis_ai.memory.semantic_memory import SemanticMemory
-            from aegis_ai.memory.association_memory import AssociationMemory
-            from aegis_ai.memory.person_memory import PersonMemory
-
-            episodic_mem = EpisodicMemory(path=os.path.join(_DATA_DIR, "memory", "episodic.jsonl"))
-            semantic_mem = SemanticMemory(path=os.path.join(_DATA_DIR, "memory", "semantic.jsonl"))
-            association_mem = AssociationMemory(path=os.path.join(_DATA_DIR, "memory", "associations.jsonl"))
-            person_mem = PersonMemory(path=os.path.join(_DATA_DIR, "memory", "persons.jsonl"))
-
-            obs_system = SpontaneousObservationSystem(
-                llm=llm, broker=broker, desire_system=desire, affect_system=affect,
-                episodic_memory=episodic_mem, semantic_memory=semantic_mem,
-                person_memory=person_mem, action_trace=action_trace,
-                data_dir=os.path.join(_DATA_DIR, "autonomous"),
-            )
-
-            curiosity_system = CuriosityDrivenExplorationSystem(
-                llm=llm, desire_system=desire,
-                episodic_memory=episodic_mem, semantic_memory=semantic_mem,
-                association_memory=association_mem, action_trace=action_trace,
-                person_memory=person_mem,
-                data_dir=os.path.join(_DATA_DIR, "autonomous"),
-            )
-
-            self._autonomous_loop.set_observation_system(obs_system)
-            self._autonomous_loop.set_curiosity_system(curiosity_system)
-
-            self._autonomous_loop.start()
-            logger.info("Autonomous loop started with threshold=4.0, interval=300s")
+            self._runtime.start_autonomous_if_enabled()
+            self._autonomous_loop = self._runtime.autonomous_loop
         except Exception as exc:
             logger.warning("Failed to start autonomous loop: %s", exc)
 
@@ -1198,13 +1044,8 @@ class DashboardApp:
             }
 
             try:
-                from aegis_ai.folder_registry import FolderCapabilityRegistry
-                from policy_engine import PolicyEngine
-                reg = FolderCapabilityRegistry(
-                    capabilities_dir=str(Path(_DATA_DIR).parent / "capabilities"),
-                )
-                engine = PolicyEngine(data_dir=_DATA_DIR)
-                for m in reg.list_all():
+                engine = self._runtime.policy_engine
+                for m in self._runtime.folder_registry.list_all():
                     effective = engine._risk_overrides.get(m.capability_id, None)
                     if effective and hasattr(effective, "name"):
                         risk = effective.name
@@ -1224,7 +1065,7 @@ class DashboardApp:
                         "side_effects": m.side_effects,
                         "tags": m.tags,
                     })
-                errors = reg.errors()
+                errors = self._runtime.folder_registry.errors()
             except Exception as exc:
                 logger.warning("Capabilities load failed: %s", exc)
 
@@ -1238,11 +1079,7 @@ class DashboardApp:
         @app.route("/api/capabilities/reload", methods=["POST"])
         def api_capabilities_reload():
             try:
-                from aegis_ai.folder_registry import FolderCapabilityRegistry
-                reg = FolderCapabilityRegistry(
-                    capabilities_dir=str(Path(_DATA_DIR).parent / "capabilities"),
-                )
-                result = reg.reload()
+                result = self._runtime.capability_catalog.reload()
                 return jsonify({"ok": True, **result})
             except Exception as exc:
                 return jsonify({"ok": False, "error": str(exc)}), 500
@@ -1250,7 +1087,6 @@ class DashboardApp:
         @app.route("/api/capabilities/risk", methods=["POST"])
         def api_capabilities_risk():
             from flask import request
-            from aegis_ai.web.chat_tools import get_catalog
             from urllib.parse import urlparse
 
             origin = request.headers.get("Origin") or request.headers.get("Referer") or ""
@@ -1270,7 +1106,8 @@ class DashboardApp:
                 return jsonify({"error": "capability_id and risk_level required"}), 400
 
             try:
-                catalog = get_catalog()
+                catalog = self._runtime.capability_catalog
+                catalog.reload()
                 manifest = catalog.resolve(cap_id)
                 if not manifest:
                     return jsonify({"error": f"Capability '{cap_id}' not found"}), 404
@@ -1347,66 +1184,33 @@ class DashboardApp:
             if not cap_id:
                 return jsonify({"error": "capability_id required"}), 400
             try:
-                # Try ExecutorRegistry (apps-based) first
-                from aegis_ai.folder_registry import FolderCapabilityRegistry, ExecutorRegistry
-                cap_reg = FolderCapabilityRegistry(
-                    capabilities_dir=str(Path(_DATA_DIR).parent / "capabilities"),
+                from tool_broker import ExecutionSource, ToolExecutionRequest
+
+                request_obj = ToolExecutionRequest(
+                    capability_id=cap_id,
+                    arguments=arguments,
+                    source=ExecutionSource.USER_EXPLICIT,
+                    reason="Dashboard capability test",
                 )
-                manifest = cap_reg.get(cap_id)
-                if manifest is not None:
-                    exec_reg = ExecutorRegistry(
-                        apps_dir=str(Path(_DATA_DIR).parent / "apps"),
-                    )
-                    result = exec_reg.execute(manifest, arguments)
-                    if result.ok:
-                        return jsonify({
-                            "ok": True,
-                            "capability_id": cap_id,
-                            "result": result.result,
-                            "meta": result.meta,
-                        })
-                    # If executor not found, fall through to ToolBroker
-                    if result.error.get("code") != "EXECUTOR_NOT_FOUND":
-                        return jsonify({
-                            "ok": False,
-                            "capability_id": cap_id,
-                            "error": result.error,
-                            "meta": result.meta,
-                        }), 400
-
-                # Fallback: use ToolBroker (ServerExecutor) for built-in capabilities
-                if self._autonomous_loop and hasattr(self._autonomous_loop, '_broker'):
-                    from tool_broker import ToolExecutionRequest, ExecutionSource
-                    request_obj = ToolExecutionRequest(
-                        capability_id=cap_id,
-                        arguments=arguments,
-                        source=ExecutionSource.USER_EXPLICIT,
-                        reason="Dashboard capability test",
-                    )
-                    result = self._autonomous_loop._broker.execute(request_obj)
-                    if result.success:
-                        return jsonify({
-                            "ok": True,
-                            "capability_id": cap_id,
-                            "result": result.output,
-                        })
+                result = self._runtime.tool_broker.execute(request_obj)
+                if result.success:
                     return jsonify({
-                        "ok": False,
+                        "ok": True,
                         "capability_id": cap_id,
-                        "error": result.error,
-                    }), 400
-
-                return jsonify({"error": f"Capability '{cap_id}' not found."}), 404
+                        "result": result.output,
+                    })
+                status = 404 if result.status.name == "NOT_FOUND" else 400
+                return jsonify({
+                    "ok": False,
+                    "capability_id": cap_id,
+                    "error": result.error,
+                }), status
             except Exception as exc:
                 return jsonify({"error": str(exc)}), 500
 
         @app.route("/api/capabilities/list")
         def api_capabilities_list():
             try:
-                from aegis_ai.folder_registry import FolderCapabilityRegistry
-                reg = FolderCapabilityRegistry(
-                    capabilities_dir=str(Path(_DATA_DIR).parent / "capabilities"),
-                )
                 caps = [{
                     "id": m.capability_id,
                     "short_name": m.short_name,
@@ -1415,43 +1219,45 @@ class DashboardApp:
                     "origin": m.origin,
                     "risk_level": m.risk_level,
                     "requires_approval": m.requires_approval,
-                } for m in reg.list_all()]
+                } for m in self._runtime.folder_registry.list_all()]
                 return jsonify({"capabilities": caps, "count": len(caps)})
             except Exception as exc:
                 return jsonify({"error": str(exc)}), 500
 
         @app.route("/dashboard/events")
         def events():
-            # Get recent events from PC Server
-            pc_events = []
+            recent_events = []
             try:
-                pc_health = _send_pc_command("health")
-                if pc_health:
-                    pc_events.append({
-                        "event_type": "pc.server_health",
-                        "source": "pc-server",
-                        "timestamp": time.time(),
-                        "data": pc_health,
+                for event in self._runtime.event_bus.list_recent_events(100):
+                    recent_events.append({
+                        "event_type": event.event_type,
+                        "source": event.source_server_id,
+                        "timestamp": event.timestamp_ms / 1000 if event.timestamp_ms else time.time(),
+                        "data": event.payload_json,
                     })
             except Exception:
                 pass
             return render_template("dashboard/events.html",
-                events=pc_events,
-                stats={"total_published": len(pc_events)},
+                events=recent_events,
+                stats={"total_published": len(recent_events)},
             )
 
         @app.route("/dashboard/tasks")
         def tasks():
             # Show current system tasks
             current_tasks = []
-            pc_health = _send_pc_command("health")
-            if pc_health:
+            try:
+                from aegis_schema.models import ServerType
+
+                pc_capabilities = self._runtime.tool_registry.get_capabilities_by_server_type(ServerType.PC)
                 current_tasks.append({
                     "task_id": "pc_health_monitor",
                     "name": "PC Server Health Monitor",
                     "status": "active",
-                    "description": f"PC Server v{pc_health.get('version', 'unknown')} - {pc_health.get('capabilities', 0)} capabilities",
+                    "description": f"PC Server registry contains {len(pc_capabilities)} capabilities",
                 })
+            except Exception:
+                pass
             return render_template("dashboard/tasks.html",
                 pending_tasks=current_tasks,
                 trigger_stats={"tasks_generated": len(current_tasks)},
@@ -2063,17 +1869,19 @@ class DashboardApp:
 
             def generate():
                 try:
-                    from aegis_ai.web.chat_tools import call_llm_with_tools, get_catalog
-                    llm = self._create_llm_provider()
+                    from aegis_ai.web.chat_tools import call_llm_with_tools
+                    llm = self._runtime.llm_gateway
                     system_prompt, memory_meta, _ = _build_chat_system_prompt(text)
 
-                    catalog = get_catalog()
-                    result = call_llm_with_tools(
+                    catalog = self._runtime.capability_catalog
+                    result = _call_llm_with_runtime(
+                        call_llm_with_tools,
                         llm,
                         text,
                         system_prompt,
                         catalog=catalog,
                         context_meta=memory_meta,
+                        runtime=self._runtime,
                     )
 
                     if result.get("needs_user_input"):
@@ -2112,17 +1920,19 @@ class DashboardApp:
                 return jsonify({"error": "No text provided"}), 400
 
             try:
-                from aegis_ai.web.chat_tools import call_llm_with_tools, get_catalog
-                llm = self._create_llm_provider()
+                from aegis_ai.web.chat_tools import call_llm_with_tools
+                llm = self._runtime.llm_gateway
                 system_prompt, memory_meta, _ = _build_chat_system_prompt(text)
 
-                catalog = get_catalog()
-                result = call_llm_with_tools(
+                catalog = self._runtime.capability_catalog
+                result = _call_llm_with_runtime(
+                    call_llm_with_tools,
                     llm,
                     text,
                     system_prompt,
                     catalog=catalog,
                     context_meta=memory_meta,
+                    runtime=self._runtime,
                 )
 
                 if result.get("needs_user_input"):
@@ -2168,8 +1978,8 @@ class DashboardApp:
                 return jsonify({"error": "No response provided"}), 400
 
             try:
-                from aegis_ai.web.chat_tools import call_llm_with_tools, get_catalog
-                llm = self._create_llm_provider()
+                from aegis_ai.web.chat_tools import call_llm_with_tools
+                llm = self._runtime.llm_gateway
 
                 original_message = pending_context.get("original_message", "")
                 browser_task = pending_context.get("browser_task", "")
@@ -2184,13 +1994,15 @@ class DashboardApp:
                     follow_up = f"{original_message}\n\nUser answered: {user_response}"
 
                 system_prompt, memory_meta, _ = _build_chat_system_prompt(follow_up)
-                catalog = get_catalog()
-                result = call_llm_with_tools(
+                catalog = self._runtime.capability_catalog
+                result = _call_llm_with_runtime(
+                    call_llm_with_tools,
                     llm,
                     follow_up,
                     system_prompt,
                     catalog=catalog,
                     context_meta=memory_meta,
+                    runtime=self._runtime,
                 )
 
                 response_text = result["response"]

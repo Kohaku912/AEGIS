@@ -15,6 +15,7 @@ Architecture reference: docs/architecture.md §5.8
 
 from __future__ import annotations
 
+import threading
 from dataclasses import dataclass, field
 
 from aegis_schema.models import Capability, RiskLevel, ServerInfo, ServerStatus, ServerType
@@ -33,7 +34,7 @@ class RegistryStats:
 class ToolRegistry:
     """In-memory registry of servers and their capabilities.
 
-    Thread-safe: no. Single-threaded asyncio usage assumed.
+    Thread-safe for concurrent reads and writes in one process.
 
     Usage:
         registry = ToolRegistry()
@@ -48,6 +49,8 @@ class ToolRegistry:
 
     # ── Server Management ──────────────────────────────────
 
+        self._lock = threading.RLock()
+
     def register_server(self, server_info: ServerInfo) -> None:
         """Register or update a server.
 
@@ -60,26 +63,29 @@ class ToolRegistry:
         if not server_info.server_id:
             raise ValueError("server_id must not be empty")
 
-        self._servers[server_info.server_id] = server_info
-        if server_info.server_id not in self._server_caps:
-            self._server_caps[server_info.server_id] = set()
+        with self._lock:
+            self._servers[server_info.server_id] = server_info
+            if server_info.server_id not in self._server_caps:
+                self._server_caps[server_info.server_id] = set()
 
-        # Sync capability_ids from ServerInfo
-        for cap_id in server_info.capability_ids:
-            if cap_id in self._capabilities:
-                self._server_caps[server_info.server_id].add(cap_id)
+            # Sync capability_ids from ServerInfo
+            for cap_id in server_info.capability_ids:
+                if cap_id in self._capabilities:
+                    self._server_caps[server_info.server_id].add(cap_id)
 
     def unregister_server(self, server_id: str) -> None:
         """Remove a server and all its capability associations.
 
         Note: Capability definitions themselves are NOT deleted.
         """
-        self._servers.pop(server_id, None)
-        self._server_caps.pop(server_id, None)
+        with self._lock:
+            self._servers.pop(server_id, None)
+            self._server_caps.pop(server_id, None)
 
     def get_server(self, server_id: str) -> ServerInfo | None:
         """Get a registered server by ID."""
-        return self._servers.get(server_id)
+        with self._lock:
+            return self._servers.get(server_id)
 
     def list_servers(
         self,
@@ -87,7 +93,8 @@ class ToolRegistry:
         status: ServerStatus | None = None,
     ) -> list[ServerInfo]:
         """List servers, optionally filtered."""
-        result = list(self._servers.values())
+        with self._lock:
+            result = list(self._servers.values())
         if server_type is not None:
             result = [s for s in result if s.server_type == server_type]
         if status is not None:
@@ -116,17 +123,20 @@ class ToolRegistry:
                 "risk_level is FORBIDDEN"
             )
 
-        self._capabilities[capability.id] = capability
+        with self._lock:
+            self._capabilities[capability.id] = capability
 
     def unregister_capability(self, capability_id: str) -> None:
         """Remove a capability from the registry."""
-        self._capabilities.pop(capability_id, None)
-        for caps in self._server_caps.values():
-            caps.discard(capability_id)
+        with self._lock:
+            self._capabilities.pop(capability_id, None)
+            for caps in self._server_caps.values():
+                caps.discard(capability_id)
 
     def get_capability(self, capability_id: str) -> Capability | None:
         """Get a capability by its exact ID."""
-        return self._capabilities.get(capability_id)
+        with self._lock:
+            return self._capabilities.get(capability_id)
 
     def find_capability(self, capability_id: str) -> Capability | None:
         """Alias for get_capability. Returns None if not found."""
@@ -145,7 +155,8 @@ class ToolRegistry:
             max_risk_level: Return only capabilities with risk_level <= this.
             tags: Return capabilities that have ALL specified tags (AND match).
         """
-        result = list(self._capabilities.values())
+        with self._lock:
+            result = list(self._capabilities.values())
 
         if server_type is not None:
             result = [c for c in result if c.server_type == server_type]
@@ -175,7 +186,10 @@ class ToolRegistry:
         query_lower = query.lower()
         result = []
 
-        for cap in self._capabilities.values():
+        with self._lock:
+            capabilities = list(self._capabilities.values())
+
+        for cap in capabilities:
             # Check server_type filter
             if server_type is not None and cap.server_type != server_type:
                 continue
@@ -198,8 +212,9 @@ class ToolRegistry:
 
     def get_capabilities_for_server(self, server_id: str) -> list[Capability]:
         """Get all capabilities registered to a specific server instance."""
-        cap_ids = self._server_caps.get(server_id, set())
-        return [self._capabilities[cid] for cid in cap_ids if cid in self._capabilities]
+        with self._lock:
+            cap_ids = set(self._server_caps.get(server_id, set()))
+            return [self._capabilities[cid] for cid in cap_ids if cid in self._capabilities]
 
     def get_capabilities_by_server_type(self, server_type: ServerType) -> list[Capability]:
         """Get all capabilities for a given server type."""
@@ -218,7 +233,9 @@ class ToolRegistry:
     def get_approval_capabilities(self) -> list[Capability]:
         """Get capabilities that require approval (APPROVAL_REQUIRED + HIGH_RISK)."""
         result = []
-        for cap in self._capabilities.values():
+        with self._lock:
+            capabilities = list(self._capabilities.values())
+        for cap in capabilities:
             if cap.risk_level in (RiskLevel.APPROVAL_REQUIRED, RiskLevel.HIGH_RISK):
                 result.append(cap)
         return result
@@ -227,24 +244,25 @@ class ToolRegistry:
 
     def stats(self) -> RegistryStats:
         """Get registry summary statistics."""
+        with self._lock:
+            capabilities = list(self._capabilities.values())
+            servers = list(self._servers.values())
+
         stats = RegistryStats(
-            total_capabilities=len(self._capabilities),
-            total_servers=len(self._servers),
-            online_servers=sum(
-                1 for s in self._servers.values()
-                if s.status == ServerStatus.ONLINE
-            ),
+            total_capabilities=len(capabilities),
+            total_servers=len(servers),
+            online_servers=sum(1 for s in servers if s.status == ServerStatus.ONLINE),
         )
 
         # Count by server type
-        for cap in self._capabilities.values():
+        for cap in capabilities:
             key = cap.server_type.name
             stats.capabilities_by_server[key] = (
                 stats.capabilities_by_server.get(key, 0) + 1
             )
 
         # Count by risk level
-        for cap in self._capabilities.values():
+        for cap in capabilities:
             key = cap.risk_level.name
             stats.capabilities_by_risk[key] = (
                 stats.capabilities_by_risk.get(key, 0) + 1
@@ -253,7 +271,9 @@ class ToolRegistry:
         return stats
 
     def __len__(self) -> int:
-        return len(self._capabilities)
+        with self._lock:
+            return len(self._capabilities)
 
     def __contains__(self, capability_id: str) -> bool:
-        return capability_id in self._capabilities
+        with self._lock:
+            return capability_id in self._capabilities

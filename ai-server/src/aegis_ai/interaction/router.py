@@ -45,6 +45,7 @@ class InteractionRouter:
         llm_provider: Any = None,
         context_builder: Any = None,
         capability_registry: Any = None,
+        capability_catalog: Any = None,
         tool_broker: Any = None,
         approval_store: Any = None,
         audit_log: Any = None,
@@ -57,6 +58,7 @@ class InteractionRouter:
         self._llm = llm_provider
         self._context = context_builder
         self._registry = capability_registry
+        self._catalog = capability_catalog
         self._broker = tool_broker
         self._approval = approval_store
         self._audit = audit_log
@@ -76,6 +78,7 @@ class InteractionRouter:
                 llm_provider=self._llm,
                 context_builder=self._context,
                 capability_registry=self._registry,
+                capability_catalog=self._catalog,
             )
         return self._interpreter
 
@@ -91,22 +94,8 @@ class InteractionRouter:
         )
 
         try:
-            text_lower = message.text.lower().strip()
-
-            # Handle system commands directly (no LLM needed)
-            if any(kw in text_lower for kw in ["status", "health", "what's happening"]):
-                return self._handle_status(response)
-            elif any(kw in text_lower for kw in ["help", "what can you do", "how to"]):
-                return self._handle_help(response)
-            elif any(kw in text_lower for kw in ["settings", "config"]):
-                return self._handle_settings(response)
-            elif any(kw in text_lower for kw in ["approve", "reject", "pending"]):
-                return self._handle_approval(message, response)
-            elif any(kw in text_lower for kw in ["accept", "feedback", "thanks"]):
-                return self._handle_support_feedback(message, response)
-            else:
-                # Main path: LLM Task Interpreter
-                return self._handle_llm_interpreted(message, response)
+            # Main path: LLM Task Interpreter. User intent is interpreted by the LLM.
+            return self._handle_llm_interpreted(message, response)
 
         except Exception as e:
             logger.error("Interaction routing failed: %s", e)
@@ -207,59 +196,26 @@ class InteractionRouter:
 
     def _execute_browser_step(self, step: Any) -> str:
         """Execute a browser step."""
-        if self._browser:
-            try:
-                task = step.description
-                if step.params.get("url"):
-                    task = f"Go to {step.params['url']} and {step.description}"
-
-                result = self._browser.execute(task)
-                if result.success:
-                    step.status = StepStatus.COMPLETED
-                    step.result = result.result_text
-                    return result.result_text
-                else:
-                    step.status = StepStatus.FAILED
-                    step.error = result.error
-                    return f"[FAIL] {step.description}: {result.error}"
-            except Exception as e:
-                step.status = StepStatus.FAILED
-                step.error = str(e)
-                return f"[ERROR] {step.description}: {e}"
-        else:
-            return self._execute_browser_fallback(step)
-
-    def _execute_browser_fallback(self, step: Any) -> str:
-        """Fallback browser execution using direct playwright."""
-        import re
-
-        url = step.params.get("url", "")
-        if not url:
-            url_match = re.search(r'https?://[^\s]+', step.description)
-            url = url_match.group(0) if url_match else ""
-
-        if not url:
-            return f"[INFO] {step.description} (no URL found)"
+        if not self._broker:
+            return f"[INFO] {step.description} (ToolBroker not available)"
 
         try:
-            import asyncio
-
-            from playwright.async_api import async_playwright
-
-            async def browse():
-                async with async_playwright() as p:
-                    browser = await p.chromium.launch(headless=True)
-                    page = await browser.new_page()
-                    await page.goto(url, timeout=30000)
-                    title = await page.title()
-                    text = await page.evaluate("document.body.innerText")
-                    await browser.close()
-                    return title, text[:2000]
-
-            title, content = asyncio.run(browse())
-            step.status = StepStatus.COMPLETED
-            return f"**{title}**\n\n{content}"
-
+            task = step.description
+            if step.params.get("url"):
+                task = f"Go to {step.params['url']} and {step.description}"
+            result = self._broker.invoke_tool(
+                "browser-server.page.browse",
+                {"task": task},
+                caller="interaction-router",
+            )
+            if result.success:
+                step.status = StepStatus.COMPLETED
+                step.result = result.output
+                output = result.output or {}
+                return str(output.get("result") or output.get("content") or output)
+            step.status = StepStatus.FAILED
+            step.error = result.error
+            return f"[FAIL] {step.description}: {result.error}"
         except Exception as e:
             step.status = StepStatus.FAILED
             return f"[ERROR] Browser: {e}"

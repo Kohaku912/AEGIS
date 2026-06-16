@@ -9,6 +9,7 @@ Architecture reference: docs/architecture.md §6.3
 from __future__ import annotations
 
 import time
+import threading
 from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -42,7 +43,7 @@ class _Subscription:
 class EventBus:
     """In-memory event bus with deduplication and priority queue.
 
-    Thread-safe: no. Single-threaded asyncio usage assumed.
+    Thread-safe for concurrent publishers and dashboard/gRPC readers.
 
     Features:
     - publish/subscribe pattern
@@ -86,6 +87,7 @@ class EventBus:
 
         # Stats
         self.stats = EventBusStats()
+        self._lock = threading.RLock()
 
     # ── Publish ──────────────────────────────────────────────
 
@@ -94,29 +96,29 @@ class EventBus:
 
         Returns True if the event was accepted, False if it was deduplicated.
         """
-        self.stats.total_published += 1
+        with self._lock:
+            self.stats.total_published += 1
 
-        # 1. Dedup check
-        if self._is_duplicate(event):
-            self.stats.total_deduplicated += 1
-            return False
+            # 1. Dedup check
+            if self._is_duplicate(event):
+                self.stats.total_deduplicated += 1
+                return False
 
-        # 2. Track dedup key
-        if event.dedupe_key:
-            self._dedup_tracker[event.dedupe_key] = time.monotonic()
+            # 2. Track dedup key
+            if event.dedupe_key:
+                self._dedup_tracker[event.dedupe_key] = time.monotonic()
 
-        # 3. Enqueue by priority
-        self._enqueue(event)
+            # 3. Enqueue by priority
+            self._enqueue(event)
 
-        # 4. Add to recent history
-        self._recent_events.append(event)
+            # 4. Add to recent history
+            self._recent_events.append(event)
+
+            self.stats.total_delivered += 1
+            self.stats.queue_size = self._queue_size()
 
         # 5. Notify subscribers (filtered)
         self._notify_subscribers(event)
-
-        # 6. Update stats
-        self.stats.total_delivered += 1
-        self.stats.queue_size = self._queue_size()
 
         return True
 
@@ -136,45 +138,51 @@ class EventBus:
         Returns:
             A subscriber ID that can be used with unsubscribe().
         """
-        self._sub_counter += 1
-        sub_id = f"sub_{self._sub_counter}"
-        self._subscriptions.append(
-            _Subscription(
-                handler=handler,
-                event_filter=event_filter,
-                subscriber_id=sub_id,
+        with self._lock:
+            self._sub_counter += 1
+            sub_id = f"sub_{self._sub_counter}"
+            self._subscriptions.append(
+                _Subscription(
+                    handler=handler,
+                    event_filter=event_filter,
+                    subscriber_id=sub_id,
+                )
             )
-        )
-        self.stats.subscriber_count = len(self._subscriptions)
+            self.stats.subscriber_count = len(self._subscriptions)
         return sub_id
 
     def unsubscribe(self, subscriber_id: str) -> bool:
         """Remove a subscriber by ID. Returns True if found and removed."""
-        for i, sub in enumerate(self._subscriptions):
-            if sub.subscriber_id == subscriber_id:
-                self._subscriptions.pop(i)
-                self.stats.subscriber_count = len(self._subscriptions)
-                return True
+        with self._lock:
+            for i, sub in enumerate(self._subscriptions):
+                if sub.subscriber_id == subscriber_id:
+                    self._subscriptions.pop(i)
+                    self.stats.subscriber_count = len(self._subscriptions)
+                    return True
         return False
 
     # ── Query ────────────────────────────────────────────────
 
     def list_recent_events(self, n: int = 50) -> list[Event]:
         """Return the most recent N events."""
-        items = list(self._recent_events)
+        with self._lock:
+            items = list(self._recent_events)
         return items[-n:] if n < len(items) else items
 
     def drain_urgent(self) -> list[Event]:
         """Drain and return all URGENT events from the queue."""
-        return self._drain_queue(self._urgent_queue)
+        with self._lock:
+            return self._drain_queue(self._urgent_queue)
 
     def drain_normal(self) -> list[Event]:
         """Drain and return all NORMAL events from the queue."""
-        return self._drain_queue(self._normal_queue)
+        with self._lock:
+            return self._drain_queue(self._normal_queue)
 
     def drain_background(self) -> list[Event]:
         """Drain and return all BACKGROUND events from the queue."""
-        return self._drain_queue(self._background_queue)
+        with self._lock:
+            return self._drain_queue(self._background_queue)
 
     def drain_all(self) -> list[Event]:
         """Drain all queued events in priority order."""
@@ -186,7 +194,8 @@ class EventBus:
 
     def pending_count(self) -> int:
         """Number of events waiting in queues."""
-        return self._queue_size()
+        with self._lock:
+            return self._queue_size()
 
     # ── Internal ─────────────────────────────────────────────
 
@@ -218,7 +227,9 @@ class EventBus:
 
     def _notify_subscribers(self, event: Event) -> None:
         """Notify all subscribers whose filter matches the event."""
-        for sub in self._subscriptions:
+        with self._lock:
+            subscriptions = list(self._subscriptions)
+        for sub in subscriptions:
             try:
                 if sub.event_filter is None or sub.event_filter(event):
                     sub.handler(event)

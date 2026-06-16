@@ -109,6 +109,7 @@ class AutonomousLoop:
         self._last_desire_check_ms: int = 0
         self._last_desire_signature: str = ""
         self._min_execution_interval_ms: int = 60_000  # Minimum 1 minute between executions
+        self._lock = threading.RLock()
 
         # Load state
         self._load()
@@ -151,21 +152,25 @@ class AutonomousLoop:
 
     def get_threshold(self) -> float:
         """Get current frustration threshold."""
-        return self._frustration_threshold
+        with self._lock:
+            return self._frustration_threshold
 
     def set_threshold(self, value: float) -> None:
         """Set frustration threshold (0.0-10.0)."""
-        self._frustration_threshold = max(0.0, min(10.0, value))
-        logger.info("Frustration threshold set to %.1f", self._frustration_threshold)
+        with self._lock:
+            self._frustration_threshold = max(0.0, min(10.0, value))
+            current = self._frustration_threshold
+        logger.info("Frustration threshold set to %.1f", current)
 
     def start(self) -> None:
         """Start the autonomous loop in background."""
-        if self._running:
-            return
+        with self._lock:
+            if self._running:
+                return
 
-        self._running = True
-        self._thread = threading.Thread(target=self._run_loop, daemon=True)
-        self._thread.start()
+            self._running = True
+            self._thread = threading.Thread(target=self._run_loop, daemon=True)
+            self._thread.start()
         logger.info("Autonomous loop started")
 
     def set_observation_system(self, obs_system: Any) -> None:
@@ -178,14 +183,20 @@ class AutonomousLoop:
 
     def stop(self) -> None:
         """Stop the autonomous loop."""
-        self._running = False
-        if self._thread:
-            self._thread.join(timeout=5)
+        with self._lock:
+            self._running = False
+            thread = self._thread
+        if thread:
+            thread.join(timeout=5)
         logger.info("Autonomous loop stopped")
 
     def _run_loop(self) -> None:
         """Main loop — desire monitoring, observation, and execution."""
-        while self._running:
+        while True:
+            with self._lock:
+                running = self._running
+            if not running:
+                break
             try:
                 desire_triggered = self._monitor_desires()
                 now = int(time.time() * 1000)
@@ -306,7 +317,8 @@ class AutonomousLoop:
     def _execute_cycle(self) -> None:
         """Execute autonomous tasks — only runs when scheduled or triggered."""
         logger.info("Starting autonomous execution cycle")
-        self._last_run_ms = int(time.time() * 1000)
+        with self._lock:
+            self._last_run_ms = int(time.time() * 1000)
 
         if not self._desire:
             logger.warning("No desire system, using fallback interval")
@@ -1244,7 +1256,8 @@ Respond with JSON:
 
     def _schedule_next(self, interval_seconds: int) -> None:
         """Schedule the next execution."""
-        self._next_run_ms = int(time.time() * 1000) + (interval_seconds * 1000)
+        with self._lock:
+            self._next_run_ms = int(time.time() * 1000) + (interval_seconds * 1000)
         logger.info("Next autonomous run scheduled in %d seconds", interval_seconds)
 
     def _log_execution(self, tasks: list[dict[str, Any]], results: list[dict[str, Any]]) -> None:
@@ -1255,7 +1268,8 @@ Respond with JSON:
             "results": results,
             "next_run_ms": self._next_run_ms,
         }
-        self._execution_log.append(entry)
+        with self._lock:
+            self._execution_log.append(entry)
 
         # Save to file
         log_path = self._data_dir / "execution_log.jsonl"
@@ -1265,14 +1279,15 @@ Respond with JSON:
     def get_status(self) -> dict[str, Any]:
         """Get autonomous loop status."""
         now = int(time.time() * 1000)
-        return {
-            "running": self._running,
-            "last_run_ms": self._last_run_ms,
-            "next_run_ms": self._next_run_ms,
-            "seconds_until_next": max(0, (self._next_run_ms - now) / 1000),
-            "execution_count": len(self._execution_log),
-            "frustration_threshold": self._frustration_threshold,
-        }
+        with self._lock:
+            return {
+                "running": self._running,
+                "last_run_ms": self._last_run_ms,
+                "next_run_ms": self._next_run_ms,
+                "seconds_until_next": max(0, (self._next_run_ms - now) / 1000),
+                "execution_count": len(self._execution_log),
+                "frustration_threshold": self._frustration_threshold,
+            }
 
     def trigger_now(self) -> dict[str, Any]:
         """Manually trigger an autonomous cycle."""

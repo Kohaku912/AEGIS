@@ -11,6 +11,7 @@ Architecture reference: docs/architecture.md §7.4
 from __future__ import annotations
 
 import time
+import threading
 import uuid
 from dataclasses import dataclass
 from enum import Enum, auto
@@ -121,6 +122,7 @@ class ApprovalStore:
         self._consumed: set[str] = set()
         # Permanently denied capabilities (via reject_and_remember)
         self._denied_capabilities: set[str] = set()
+        self._lock = threading.RLock()
 
     # ── Create ──────────────────────────────────────────────
 
@@ -149,32 +151,35 @@ class ApprovalStore:
             expires_at_ms=now_ms + self._request_timeout_ms,
             status=ApprovalStatus.PENDING,
         )
-        self._requests[req.approval_id] = req
+        with self._lock:
+            self._requests[req.approval_id] = req
         return req
 
     # ── Approve / Reject ────────────────────────────────────
 
     def approve(self, approval_id: str, approval_type: ApprovalType = ApprovalType.ONE_TIME) -> bool:
         """Approve a pending request. Returns True if successful."""
-        req = self._requests.get(approval_id)
-        if req is None or req.status != ApprovalStatus.PENDING:
-            return False
-        if req.is_expired():
-            req.status = ApprovalStatus.EXPIRED
-            return False
+        with self._lock:
+            req = self._requests.get(approval_id)
+            if req is None or req.status != ApprovalStatus.PENDING:
+                return False
+            if req.is_expired():
+                req.status = ApprovalStatus.EXPIRED
+                return False
 
-        req.status = ApprovalStatus.APPROVED
-        req.approved_type = approval_type
-        return True
+            req.status = ApprovalStatus.APPROVED
+            req.approved_type = approval_type
+            return True
 
     def reject(self, approval_id: str) -> bool:
         """Reject a pending request. Returns True if successful."""
-        req = self._requests.get(approval_id)
-        if req is None or req.status != ApprovalStatus.PENDING:
-            return False
+        with self._lock:
+            req = self._requests.get(approval_id)
+            if req is None or req.status != ApprovalStatus.PENDING:
+                return False
 
-        req.status = ApprovalStatus.REJECTED
-        return True
+            req.status = ApprovalStatus.REJECTED
+            return True
 
     # ── Convenience methods ─────────────────────────────────
 
@@ -192,22 +197,25 @@ class ApprovalStore:
         Once rejected with remember, future requests for the same capability
         are automatically denied without prompting the user again.
         """
-        req = self._requests.get(approval_id)
-        if req is None or req.status != ApprovalStatus.PENDING:
-            return False
+        with self._lock:
+            req = self._requests.get(approval_id)
+            if req is None or req.status != ApprovalStatus.PENDING:
+                return False
 
-        req.status = ApprovalStatus.REJECTED
+            req.status = ApprovalStatus.REJECTED
         # Remember this denial — block the capability permanently
-        self._denied_capabilities.add(req.capability_id)
-        return True
+            self._denied_capabilities.add(req.capability_id)
+            return True
 
     def is_permanently_denied(self, capability_id: str) -> bool:
         """Check if a capability has been permanently denied (via reject_and_remember)."""
-        return capability_id in self._denied_capabilities
+        with self._lock:
+            return capability_id in self._denied_capabilities
 
     def forget_denial(self, capability_id: str) -> None:
         """Remove a permanent denial (for testing/admin override)."""
-        self._denied_capabilities.discard(capability_id)
+        with self._lock:
+            self._denied_capabilities.discard(capability_id)
 
     # ── Query ───────────────────────────────────────────────
 
@@ -220,71 +228,76 @@ class ApprovalStore:
 
         Returns False if the capability has been permanently denied via reject_and_remember.
         """
-        # Check permanent denials first
-        if capability_id in self._denied_capabilities:
-            return False
+        with self._lock:
+            # Check permanent denials first
+            if capability_id in self._denied_capabilities:
+                return False
 
-        self._expire_old()
+            self._expire_old()
 
-        for req in self._requests.values():
-            if req.capability_id != capability_id:
-                continue
-            if not req.is_valid_approval():
-                continue
-            if req.approval_id in self._consumed:
-                continue
-
-            # Check session expiry
-            if req.approved_type == ApprovalType.SESSION:
-                now_ms = int(time.time() * 1000)
-                if now_ms > req.created_at_ms + self._session_validity_ms:
+            for req in self._requests.values():
+                if req.capability_id != capability_id:
+                    continue
+                if not req.is_valid_approval():
+                    continue
+                if req.approval_id in self._consumed:
                     continue
 
-            return True
+                # Check session expiry
+                if req.approved_type == ApprovalType.SESSION:
+                    now_ms = int(time.time() * 1000)
+                    if now_ms > req.created_at_ms + self._session_validity_ms:
+                        continue
 
-        return False
+                return True
+
+            return False
 
     def consume_approval(self, capability_id: str) -> ApprovalRequest | None:
         """Find and consume a valid one-time approval. Returns the request or None."""
-        self._expire_old()
+        with self._lock:
+            self._expire_old()
 
-        for req in self._requests.values():
-            if req.capability_id != capability_id:
-                continue
-            if not req.is_valid_approval():
-                continue
-            if req.approval_id in self._consumed:
-                continue
+            for req in self._requests.values():
+                if req.capability_id != capability_id:
+                    continue
+                if not req.is_valid_approval():
+                    continue
+                if req.approval_id in self._consumed:
+                    continue
 
-            # Session approvals are not consumed
-            if req.approved_type == ApprovalType.ONE_TIME:
-                self._consumed.add(req.approval_id)
-                return req
-            elif req.approved_type == ApprovalType.SESSION:
-                return req  # Not consumed, can be reused
+                # Session approvals are not consumed
+                if req.approved_type == ApprovalType.ONE_TIME:
+                    self._consumed.add(req.approval_id)
+                    return req
+                elif req.approved_type == ApprovalType.SESSION:
+                    return req  # Not consumed, can be reused
 
-        return None
+            return None
 
     def get_pending_requests(self) -> list[ApprovalRequest]:
         """Get all currently pending (non-expired) approval requests."""
-        self._expire_old()
-        return [
-            req for req in self._requests.values()
-            if req.status == ApprovalStatus.PENDING and not req.is_expired()
-        ]
+        with self._lock:
+            self._expire_old()
+            return [
+                req for req in self._requests.values()
+                if req.status == ApprovalStatus.PENDING and not req.is_expired()
+            ]
 
     def get_request(self, approval_id: str) -> ApprovalRequest | None:
         """Get a request by ID."""
-        return self._requests.get(approval_id)
+        with self._lock:
+            return self._requests.get(approval_id)
 
     def get_approved_capabilities(self) -> set[str]:
         """Get the set of capability IDs that currently have valid approval."""
-        self._expire_old()
-        approved: set[str] = set()
-        for req in self._requests.values():
-            if req.is_valid_approval() and req.approval_id not in self._consumed:
-                approved.add(req.capability_id)
-        return approved
+        with self._lock:
+            self._expire_old()
+            approved: set[str] = set()
+            for req in self._requests.values():
+                if req.is_valid_approval() and req.approval_id not in self._consumed:
+                    approved.add(req.capability_id)
+            return approved
 
     # ── Expiry ──────────────────────────────────────────────
 
@@ -294,17 +307,19 @@ class ApprovalStore:
 
     def clear(self) -> None:
         """Clear all requests and denials (for testing)."""
-        self._requests.clear()
-        self._consumed.clear()
-        self._denied_capabilities.clear()
+        with self._lock:
+            self._requests.clear()
+            self._consumed.clear()
+            self._denied_capabilities.clear()
 
     # ── Internal ────────────────────────────────────────────
 
     def _expire_old(self) -> int:
         """Mark expired pending requests as EXPIRED. Returns count."""
-        count = 0
-        for req in self._requests.values():
-            if req.status == ApprovalStatus.PENDING and req.is_expired():
-                req.status = ApprovalStatus.EXPIRED
-                count += 1
-        return count
+        with self._lock:
+            count = 0
+            for req in self._requests.values():
+                if req.status == ApprovalStatus.PENDING and req.is_expired():
+                    req.status = ApprovalStatus.EXPIRED
+                    count += 1
+            return count

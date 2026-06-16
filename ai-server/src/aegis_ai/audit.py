@@ -83,11 +83,12 @@ class AuditLog:
         if not self._path.exists():
             return []
         records: list[dict[str, Any]] = []
-        with open(self._path, encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if line:
-                    records.append(json.loads(line))
+        with self._lock:
+            with open(self._path, encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if line:
+                        records.append(json.loads(line))
         return records
 
     # ── Utility ─────────────────────────────────────────────
