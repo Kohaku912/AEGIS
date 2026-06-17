@@ -219,7 +219,6 @@ class MemoryManager:
         return True
 
     def get_stats(self) -> dict[str, Any]:
-        """Get memory system statistics."""
         stats: dict[str, Any] = {}
         for name, backend in [
             ("advanced", self._advanced),
@@ -236,6 +235,25 @@ class MemoryManager:
                 except Exception:
                     stats[name] = {"error": "unavailable"}
         return stats
+
+    def get_backend(self, name: str) -> Any:
+        """Get a specific memory backend by name.
+
+        Names: advanced, episodic, semantic, skill, lesson, workflow,
+               experiential, person, store, association, action_trace.
+        """
+        mapping = {
+            "advanced": self._advanced,
+            "episodic": self._episodic,
+            "semantic": self._semantic,
+            "skill": self._skill,
+            "lesson": self._lesson,
+            "workflow": self._workflow,
+            "experiential": self._experiential,
+            "person": self._person,
+            "store": self._store,
+        }
+        return mapping.get(name)
 
     # ── Internal ──────────────────────────────────────────────
 

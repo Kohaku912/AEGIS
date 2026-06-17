@@ -68,6 +68,33 @@ def _http_json(url: str, timeout: float = 2.0) -> dict[str, Any] | None:
         return None
 
 
+def _get_mem_backend(name: str, runtime: Any = None, data_dir: str = "") -> Any:
+    """Get a memory backend from runtime.memory_manager."""
+    dd = data_dir or os.path.join(_DATA_DIR, "memory")
+    if runtime is None:
+        try:
+            from aegis_ai.runtime import get_runtime
+            runtime = get_runtime()
+        except Exception:
+            runtime = None
+    if runtime and hasattr(runtime, "memory_manager") and runtime.memory_manager:
+        backend = runtime.memory_manager.get_backend(name)
+        if backend is not None:
+            return backend
+    factories = {
+        "advanced": lambda dd=dd: __import__("aegis_ai.memory.advanced", fromlist=["AdvancedMemory"]).AdvancedMemory(data_dir=dd),
+        "episodic": lambda dd=dd: __import__("aegis_ai.memory.episodic_memory", fromlist=["EpisodicMemory"]).EpisodicMemory(path=os.path.join(dd, "episodic.jsonl")),
+        "semantic": lambda dd=dd: __import__("aegis_ai.memory.semantic_memory", fromlist=["SemanticMemory"]).SemanticMemory(path=os.path.join(dd, "semantic.jsonl")),
+        "skill": lambda dd=dd: __import__("aegis_ai.memory.skill_memory", fromlist=["SkillMemory"]).SkillMemory(path=os.path.join(dd, "skills.jsonl")),
+        "lesson": lambda dd=dd: __import__("aegis_ai.memory.lesson_memory", fromlist=["LessonMemory"]).LessonMemory(path=os.path.join(dd, "lessons.jsonl")),
+        "workflow": lambda dd=dd: __import__("aegis_ai.memory.workflow_memory", fromlist=["WorkflowMemory"]).WorkflowMemory(path=os.path.join(dd, "workflows.jsonl")),
+        "experiential": lambda dd=dd: __import__("aegis_ai.memory.experiential", fromlist=["ExperientialMemory"]).ExperientialMemory(data_dir=dd),
+        "person": lambda dd=dd: __import__("aegis_ai.memory.person_memory", fromlist=["PersonMemory"]).PersonMemory(path=os.path.join(dd, "persons.jsonl")),
+    }
+    factory = factories.get(name)
+    return factory() if factory else None
+
+
 def _is_local_request_host(value: str | None) -> bool:
     """Return True for loopback hosts used by the local dashboard."""
     if value in {None, "", "localhost", "0.0.0.0", "::1"}:
@@ -135,115 +162,95 @@ def _load_settings_for_status() -> Any:
 def _runtime_server_status(settings: Any = None, runtime: Any = None) -> dict[str, Any]:
     settings = settings or _load_settings_for_status()
     server_settings = getattr(settings, "servers", None)
-    servers: list[dict[str, Any]] = []
     if runtime is None:
         try:
             from aegis_ai.runtime import get_runtime
-
             runtime = get_runtime()
         except Exception:
             runtime = None
 
-    dashboard_ok = _check_port("localhost", 8090)
-    servers.append(_server_entry(
-        server_id="dashboard",
-        server_type="Dashboard",
-        host="localhost",
-        port=8090,
-        status="ONLINE" if dashboard_ok else "OFFLINE",
-        registered_capabilities="UI",
-        version="Flask",
-        mode="web",
-        status_detail="Dashboard web UI is reachable." if dashboard_ok else "Dashboard port is not reachable.",
-        recovery_hint="" if dashboard_ok else "Start dashboard with python -m aegis_ai.dashboard.",
-    ))
+    snapshot = runtime.status_manager.get_snapshot() if runtime else {}
+    servers: list[dict[str, Any]] = []
 
-    ai_ok = _check_port("localhost", 50051)
-    servers.append(_server_entry(
-        server_id="ai-server",
-        server_type="AI",
-        host="localhost",
-        port=50051,
-        status="ONLINE" if ai_ok else "OFFLINE",
-        registered_capabilities="Core",
-        version="-",
-        mode="grpc",
-        status_detail="AI gRPC port is reachable." if ai_ok else "AI gRPC port is not reachable.",
-        recovery_hint="" if ai_ok else "Start AI server with python -m aegis_ai.main.",
-    ))
+    _STATUS_MAP = {"online": "ONLINE", "offline": "OFFLINE", "degraded": "DEGRADED", "unknown": "OFFLINE", "disabled": "DISABLED"}
+
+    def _status_entry(server_id: str, server_type: str, port: int, expected: bool = True,
+                      registered_capabilities: str = "0", version: str = "-", mode: str = "unavailable",
+                      status_detail_ok: str = "", status_detail_fail: str = "", recovery_hint: str = "",
+                      dependencies: dict[str, Any] | None = None) -> dict[str, Any]:
+        s = snapshot.get(server_id, {})
+        raw_status = s.get("status", "unknown")
+        status = _STATUS_MAP.get(raw_status, "OFFLINE")
+        if not expected:
+            status = "UNCONFIGURED"
+            mode = "disabled"
+        ok = status in ("ONLINE", "DEGRADED")
+        return _server_entry(
+            server_id=server_id, server_type=server_type, host="localhost", port=port, expected=expected,
+            status=status, registered_capabilities=registered_capabilities, version=version, mode=mode,
+            status_detail=status_detail_ok if ok else status_detail_fail,
+            degraded_reason=s.get("error", "") if status == "DEGRADED" else "",
+            recovery_hint="" if ok else recovery_hint,
+            dependencies=dependencies,
+        )
+
+    servers.append(_status_entry("dashboard", "Dashboard", 8090, registered_capabilities="UI",
+        version="Flask", mode="web", status_detail_ok="Dashboard web UI is reachable.",
+        status_detail_fail="Dashboard port is not reachable.",
+        recovery_hint="Start dashboard with python -m aegis_ai.dashboard."))
+
+    servers.append(_status_entry("ai-server", "AI", 50051, registered_capabilities="Core",
+        mode="grpc", status_detail_ok="AI gRPC port is reachable.",
+        status_detail_fail="AI gRPC port is not reachable.",
+        recovery_hint="Start AI server with python -m aegis_ai.main."))
 
     pc_expected = bool(getattr(server_settings, "pc_server_enabled", True))
-    pc_ok = _check_port("localhost", 50052) if pc_expected else False
     pc_capabilities = "0"
     if runtime is not None:
         try:
             from aegis_schema.models import ServerType
-
             pc_capabilities = str(len(runtime.tool_registry.get_capabilities_by_server_type(ServerType.PC)))
         except Exception:
             pc_capabilities = "0"
-    pc_status = "ONLINE" if pc_ok else "OFFLINE"
-    servers.append(_server_entry(
-        server_id="pc-server",
-        server_type="PC",
-        host="localhost",
-        port=50052,
-        expected=pc_expected,
-        status=pc_status,
-        registered_capabilities=pc_capabilities,
-        version="-",
-        mode="tcp",
-        status_detail="PC Server port is reachable." if pc_ok else "PC Server is not reachable.",
-        recovery_hint="" if pc_ok else "Restart PC Server from an elevated shell if the process cannot be stopped normally.",
-    ))
+    servers.append(_status_entry("pc-server", "PC", 50052, expected=pc_expected,
+        registered_capabilities=pc_capabilities, mode="tcp",
+        status_detail_ok="PC Server port is reachable.",
+        status_detail_fail="PC Server is not reachable.",
+        recovery_hint="Restart PC Server from an elevated shell."))
 
     browser_expected = bool(getattr(server_settings, "browser_server_enabled", True))
-    browser_ok = _check_port("localhost", 50053) if browser_expected else False
+    browser_raw = snapshot.get("browser-server", {}).get("status", "unknown")
+    browser_ok = browser_raw in ("online", "degraded")
     browser_health = _http_json("http://127.0.0.1:50053/health") if browser_ok else None
     browser_degraded = bool(browser_health and browser_health.get("mode") != "full")
-    browser_status = "DEGRADED" if browser_degraded else "ONLINE" if browser_health else "OFFLINE"
+    browser_status = "DEGRADED" if browser_degraded else "ONLINE" if browser_health else ("DEGRADED" if browser_raw == "degraded" else "OFFLINE")
+    if not browser_expected:
+        browser_status = "UNCONFIGURED"
     servers.append(_server_entry(
-        server_id="browser-server",
-        server_type="Browser",
-        host="localhost",
-        port=50053,
-        expected=browser_expected,
-        status=browser_status,
+        server_id="browser-server", server_type="Browser", host="localhost", port=50053,
+        expected=browser_expected, status=browser_status,
         registered_capabilities=str(browser_health.get("capabilities", 0)) if browser_health else "0",
         version=str(browser_health.get("version", "-")) if browser_health else "-",
         mode=str(browser_health.get("mode", "unavailable")) if browser_health else "unavailable",
         status_detail="Browser automation is in full mode." if browser_health and not browser_degraded else "Browser Server is running in degraded/fallback mode." if browser_health else "Browser Server is not reachable.",
         degraded_reason=str(browser_health.get("degraded_reason", "")) if browser_health else "",
         recovery_hint=str(browser_health.get("recovery_hint", "")) if browser_health else "Start Browser Server with python -m aegis_browser.main.",
-        dependencies={
-            "browser_use": browser_health.get("browser_use_available") if browser_health else False,
-            "playwright": browser_health.get("playwright_available") if browser_health else False,
-            "profile_root": browser_health.get("profile_root", "") if browser_health else "",
-            "profile_name": browser_health.get("profile_name", "") if browser_health else "",
-        },
-    ))
+        dependencies={"browser_use": browser_health.get("browser_use_available") if browser_health else False,
+                       "playwright": browser_health.get("playwright_available") if browser_health else False,
+                       "profile_root": browser_health.get("profile_root", "") if browser_health else "",
+                       "profile_name": browser_health.get("profile_name", "") if browser_health else ""}))
 
     optional_specs = [
-        ("android-server", "Android", 50054, bool(getattr(server_settings, "android_server_enabled", True)), "Connect/start the Android companion server when a device is available."),
-        ("room-server", "Room", 50055, bool(getattr(server_settings, "room_server_enabled", True)), "Start Room Server when sensors or IoT devices are configured."),
-        ("dev-server", "Dev", int(os.getenv("AEGIS_DEV_SERVER_PORT", "50056")), bool(getattr(server_settings, "dev_server_enabled", True)), "Start Dev Server only when self-development tooling is needed."),
+        ("android-server", "Android", 50054, bool(getattr(server_settings, "android_server_enabled", True)), "Connect/start the Android companion server."),
+        ("room-server", "Room", 50055, bool(getattr(server_settings, "room_server_enabled", True)), "Start Room Server when sensors are configured."),
+        ("dev-server", "Dev", int(os.getenv("AEGIS_DEV_SERVER_PORT", "50056")), bool(getattr(server_settings, "dev_server_enabled", True)), "Start Dev Server when self-development tooling is needed."),
     ]
     for server_id, server_type, port, expected, hint in optional_specs:
-        ok = _check_port("localhost", port) if expected else False
-        status = "ONLINE" if ok else "UNCONFIGURED"
-        detail = f"{server_type} Server port is reachable." if ok else f"{server_type} Server is enabled but no local instance is reachable."
-        servers.append(_server_entry(
-            server_id=server_id,
-            server_type=server_type,
-            host="localhost",
-            port=port,
-            expected=expected,
-            status=status,
-            registered_capabilities="Configured" if ok else "0",
-            mode="grpc" if ok else "not_connected",
-            status_detail=detail,
-            recovery_hint="" if ok else hint,
-        ))
+        servers.append(_status_entry(server_id, server_type, port, expected=expected,
+            registered_capabilities="Configured" if expected else "0", mode="grpc",
+            status_detail_ok=f"{server_type} Server port is reachable.",
+            status_detail_fail=f"{server_type} Server is enabled but not reachable.",
+            recovery_hint=hint))
 
     online = sum(1 for s in servers if s["status"] == "ONLINE")
     degraded = sum(1 for s in servers if s["status"] == "DEGRADED")
@@ -612,9 +619,7 @@ def _load_memory_snapshot() -> dict[str, Any]:
     mem = None
 
     try:
-        from aegis_ai.memory.advanced import AdvancedMemory
-
-        mem = AdvancedMemory(data_dir=os.path.join(_DATA_DIR, "memory"))
+        mem = _get_mem_backend("advanced")
         advanced_stats = mem.get_stats()
 
         for ent in sorted(mem.get_all_entities(), key=lambda item: item.last_seen_ms, reverse=True):
@@ -693,9 +698,7 @@ def _load_memory_snapshot() -> dict[str, Any]:
             pass
 
     try:
-        from aegis_ai.memory.chroma_semantic import ChromaSemanticMemory
-
-        sem = ChromaSemanticMemory(chroma_path=os.path.join(_DATA_DIR, "chroma"))
+        sem = _get_mem_backend("semantic")
         stats = sem.get_stats()
         semantic_count = stats.get("chroma_count", 0) or stats.get("jsonl_facts", 0)
         semantic_entries = sem.get_all(limit=max(semantic_count, 1))
@@ -703,9 +706,7 @@ def _load_memory_snapshot() -> dict[str, Any]:
         logger.warning("Chroma load failed: %s", exc)
 
     try:
-        from aegis_ai.memory.person_memory import PersonMemory
-
-        person_mem = PersonMemory(path=os.path.join(_DATA_DIR, "memory", "persons.jsonl"))
+        person_mem = _get_mem_backend("person")
         person_records = sorted(person_mem.get_all(), key=lambda item: item.last_seen_ms, reverse=True)
         persona_count = len(person_records)
         for person in person_records:
@@ -737,9 +738,7 @@ def _load_memory_snapshot() -> dict[str, Any]:
             pass
 
     try:
-        from aegis_ai.memory.experiential import ExperientialMemory
-
-        experiential = ExperientialMemory(data_dir=os.path.join(_DATA_DIR, "memory"))
+        experiential = _get_mem_backend("experiential")
         experience_count = len(experiential._experiences)
         for exp in sorted(experiential._experiences, key=lambda item: item.timestamp_ms, reverse=True):
             experiences.append({
@@ -819,6 +818,8 @@ class DashboardApp:
         self._settings_store = runtime.settings_store
         init_settings_ui(self._settings_store, self._audit_log)
         self._app.register_blueprint(settings_ui_bp)
+        from aegis_ai.web.manager_routes import init_manager_routes
+        init_manager_routes(self._app, runtime)
         self._setup_routes()
         self._autonomous_loop = runtime.autonomous_loop
 
@@ -929,9 +930,8 @@ class DashboardApp:
                     autonomous_data["running"] = loop_status.get("running", False)
                     autonomous_data["execution_count"] = loop_status.get("execution_count", 0)
                     autonomous_data["frustration_threshold"] = loop_status.get("frustration_threshold", 2.0)
-                from aegis_ai.memory.skill_memory import SkillMemory
-                sm = SkillMemory(path=os.path.join(_DATA_DIR, "memory", "skills.jsonl"))
-                autonomous_data["skills_count"] = sm.get_stats().get("total", 0)
+                sm = _get_mem_backend("skill")
+                autonomous_data["skills_count"] = sm.get_stats().get("total", 0) if sm else 0
                 from aegis_ai.memory.action_trace import ActionTraceMemory
                 atm = ActionTraceMemory(path=os.path.join(_DATA_DIR, "memory", "action_traces.jsonl"))
                 autonomous_data["traces_count"] = atm.get_stats().get("total_traces", 0)
@@ -959,35 +959,34 @@ class DashboardApp:
 
             memory_stats = {"episodic_count": 0, "semantic_count": 0, "procedural_count": 0, "reflection_count": 0}
             try:
-                from aegis_ai.memory.advanced import AdvancedMemory
-                _llm = self._create_llm_provider()
-                _mem = AdvancedMemory(data_dir=os.path.join(_DATA_DIR, "memory"), llm_provider=_llm)
-                _mem_stats = _mem.get_stats()
-                memory_stats["reflection_count"] = _mem_stats.get("conversations", 0)
+                _mem = _get_mem_backend("advanced")
+                if _mem:
+                    _mem_stats = _mem.get_stats()
+                    memory_stats["reflection_count"] = _mem_stats.get("conversations", 0)
             except Exception:
                 pass
 
             try:
-                from aegis_ai.memory.episodic_memory import EpisodicMemory
-                _ep = EpisodicMemory(path=os.path.join(_DATA_DIR, "memory", "episodic.jsonl"))
-                _ep_stats = _ep.get_stats()
-                memory_stats["episodic_count"] = _ep_stats.get("total_episodes", 0)
+                _ep = _get_mem_backend("episodic")
+                if _ep:
+                    _ep_stats = _ep.get_stats()
+                    memory_stats["episodic_count"] = _ep_stats.get("total_episodes", 0)
             except Exception:
                 pass
 
             try:
-                from aegis_ai.memory.semantic_memory import SemanticMemory
-                _sm = SemanticMemory(path=os.path.join(_DATA_DIR, "memory", "semantic.jsonl"))
-                _sm_stats = _sm.get_stats()
-                memory_stats["semantic_count"] = _sm_stats.get("total_entries", 0)
+                _sm = _get_mem_backend("semantic")
+                if _sm:
+                    _sm_stats = _sm.get_stats()
+                    memory_stats["semantic_count"] = _sm_stats.get("total_entries", 0)
             except Exception:
                 pass
 
             try:
-                from aegis_ai.memory.skill_memory import SkillMemory
-                _sk = SkillMemory(path=os.path.join(_DATA_DIR, "memory", "skills.jsonl"))
-                _sk_stats = _sk.get_stats()
-                memory_stats["procedural_count"] = _sk_stats.get("total", 0)
+                _sk = _get_mem_backend("skill")
+                if _sk:
+                    _sk_stats = _sk.get_stats()
+                    memory_stats["procedural_count"] = _sk_stats.get("total", 0)
             except Exception:
                 pass
 
@@ -1283,14 +1282,10 @@ class DashboardApp:
         def api_memory_reload():
             chroma_synced = 0
             try:
-                from aegis_ai.memory.advanced import AdvancedMemory
-                from aegis_ai.memory.chroma_semantic import ChromaSemanticMemory
-
-                memory_dir = os.path.join(_DATA_DIR, "memory")
-                advanced_memory = AdvancedMemory(data_dir=memory_dir)
+                advanced_memory = _get_mem_backend("advanced")
                 try:
-                    semantic = ChromaSemanticMemory(chroma_path=os.path.join(_DATA_DIR, "chroma"))
-                    if semantic.get_stats().get("chroma_available"):
+                    semantic = _get_mem_backend("semantic")
+                    if semantic and semantic.get_stats().get("chroma_available"):
                         chroma_synced = semantic.sync_from_advanced_memory(advanced_memory)
                 except Exception as exc:
                     logger.warning("Memory reload Chroma sync failed: %s", exc)
@@ -1470,8 +1465,7 @@ class DashboardApp:
                 last_state = ""
                 while True:
                     try:
-                        from aegis_ai.memory.advanced import AdvancedMemory
-                        mem = AdvancedMemory(data_dir=os.path.join(_DATA_DIR, "memory"))
+                        mem = _get_mem_backend("advanced")
                         stats = mem.get_stats()
                         state = j.dumps(stats, sort_keys=True)
                         if state != last_state:
@@ -1651,8 +1645,7 @@ class DashboardApp:
                 pass
 
             try:
-                from aegis_ai.memory.skill_memory import SkillMemory
-                sm = SkillMemory(path=os.path.join(_DATA_DIR, "memory", "skills.jsonl"))
+                sm = _get_mem_backend("skill")
                 sm_stats = sm.get_stats()
                 stats_data["total_skills"] = sm_stats.get("total", 0)
                 for s in sm.get_active():
@@ -1667,8 +1660,7 @@ class DashboardApp:
                 pass
 
             try:
-                from aegis_ai.memory.lesson_memory import LessonMemory
-                lm = LessonMemory(path=os.path.join(_DATA_DIR, "memory", "lessons.jsonl"))
+                lm = _get_mem_backend("lesson")
                 lm_stats = lm.get_stats() if hasattr(lm, "get_stats") else {}
                 stats_data["total_lessons"] = lm_stats.get("total", 0)
                 for l in lm.get_recent(count=10) if hasattr(lm, "get_recent") else []:
@@ -1743,15 +1735,15 @@ class DashboardApp:
 
             memory = {"episodic_count": 0, "semantic_count": 0}
             try:
-                from aegis_ai.memory.episodic_memory import EpisodicMemory
-                _ep = EpisodicMemory(path=os.path.join(_DATA_DIR, "memory", "episodic.jsonl"))
-                memory["episodic_count"] = _ep.get_stats().get("total_episodes", 0)
+                _ep = _get_mem_backend("episodic")
+                if _ep:
+                    memory["episodic_count"] = _ep.get_stats().get("total_episodes", 0)
             except Exception:
                 pass
             try:
-                from aegis_ai.memory.semantic_memory import SemanticMemory
-                _sm = SemanticMemory(path=os.path.join(_DATA_DIR, "memory", "semantic.jsonl"))
-                memory["semantic_count"] = _sm.get_stats().get("total_entries", 0)
+                _sm = _get_mem_backend("semantic")
+                if _sm:
+                    memory["semantic_count"] = _sm.get_stats().get("total_entries", 0)
             except Exception:
                 pass
 
@@ -1824,10 +1816,9 @@ class DashboardApp:
         def _auto_save_memory(user_msg: str, bot_msg: str):
             """Use AdvancedMemory to extract and save entities/facts, and update desires."""
             try:
-                from aegis_ai.memory.advanced import AdvancedMemory
-                llm = self._create_llm_provider()
-                memory = AdvancedMemory(data_dir=os.path.join(_DATA_DIR, "memory"), llm_provider=llm)
-                memory.add_conversation(user_msg, bot_msg)
+                memory = _get_mem_backend("advanced")
+                if memory:
+                    memory.add_conversation(user_msg, bot_msg)
             except Exception as e:
                 logger.debug("Auto-save memory failed: %s", e)
 

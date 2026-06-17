@@ -430,27 +430,43 @@ The following operations MUST go through explicit user approval:
 |--------|--------|-------|
 | **Capability Management** | ✅ Complete | Folder-based, JSON manifests, canonical ID format |
 | **Desire System** | ✅ Complete | Delta-based evaluation, fulfillment rules |
-| **Autonomous Loop** | ✅ Complete | Tool calling, frustration-based trigger |
-| **Dashboard** | ✅ Complete | Tool calling chat, user input support |
+| **Autonomous Loop** | ✅ Complete | Tool calling, frustration-based trigger, TaskManager integrated |
+| **Dashboard** | ✅ Complete | Tool calling chat, user input support, Manager API routes (19 routes) |
 | **PC Server** | ✅ Complete | Rust, TCP protocol, 40+ capabilities |
 | **Browser Server** | ✅ Complete | browser-use, DeepSeek compatibility patch, verification detection |
 | **LLM Integration** | ✅ Complete | DeepSeek API, tool calling, JSON fallback |
 | **Approval System** | ✅ Complete | ApprovalManager + Fanout, multi-channel (Dashboard SSE, PC overlay, Android, Room) |
 | **Manager Architecture** | ✅ Complete | TaskManager, MemoryManager, SleepManager, EventManager, AuditManager, StatusManager, NotificationManager |
+| **Runtime Integration** | ✅ Complete | Single entry point, all managers wired, _build_runtime post-init fixed |
+| **E2E Testing** | ✅ Complete | 8 lifecycle tests covering full approval flow, concurrent operations, all managers |
+
+### Architecture Invariants
+
+| Rule | Description |
+|------|-------------|
+| **Runtime singleton** | `AegisRuntime` is the sole entry point. External code MUST NOT create services directly. |
+| **Manager pattern** | All state mutations go through Managers. Managers are owned by AegisRuntime. |
+| **MemoryManager** | All memory backends accessed through `runtime.memory_manager.get_backend()`. |
+| **EventManager** | All event publishing through `runtime.event_manager.publish()`. |
+| **StatusManager** | All server status via `runtime.status_manager.get_snapshot()`. No `_check_port()` in routes. |
+| **TaskManager** | AutonomousLoop creates/finishes tasks via TaskManager. |
+| **AuditManager** | JSONL tail reader only. No `read_all()` in main path. |
 
 ### Key Files
 
 | File | Purpose |
 |------|---------|
-| `ai-server/src/aegis_ai/capability_catalog.py` | Unified capability catalog (single source of truth) |
-| `ai-server/src/aegis_ai/folder_registry.py` | Folder-based capability and executor loading |
-| `ai-server/src/tool_broker.py` | Capability invocation with safety enforcement |
-| `ai-server/src/server_executor.py` | HTTP/TCP routing to server clients |
-| `ai-server/src/aegis_ai/autonomous/autonomous_loop.py` | Desire-driven autonomous execution |
-| `ai-server/src/aegis_ai/desire/desire_system.py` | Desire management with delta-based updates |
-| `ai-server/src/aegis_ai/desire/fulfillment.py` | Desire fulfillment rules and task evaluation |
-| `ai-server/src/aegis_ai/web/chat_tools.py` | Chat tool calling (ask_user support, recursive loop) |
-| `ai-server/src/aegis_ai/web/dashboard_routes.py` | Dashboard with tool calling, ask_user support |
+| `ai-server/src/aegis_ai/runtime.py` | Process-wide singleton, builds and wires all managers |
+| `ai-server/src/aegis_ai/task/task_manager.py` | 9-state task lifecycle management |
+| `ai-server/src/aegis_ai/memory/memory_manager.py` | Unified memory entry point, `get_backend()` for backends |
+| `ai-server/src/aegis_ai/memory/sleep.py` | SleepManager for memory consolidation |
+| `ai-server/src/aegis_ai/event/event_manager.py` | Event persistence, cursor queries, dead letter |
+| `ai-server/src/aegis_ai/audit/audit_manager.py` | JSONL tail reader, cursor pagination, no read_all |
+| `ai-server/src/aegis_ai/status/status_manager.py` | Background health checks, cached snapshots |
+| `ai-server/src/aegis_ai/notification/notification_manager.py` | Non-approval notification management |
+| `ai-server/src/aegis_ai/web/manager_routes.py` | 19 Manager API routes (tasks/events/audit/status/notifications/memory/sleep) |
+| `ai-server/src/aegis_ai/autonomous/autonomous_loop.py` | TaskManager integration for task lifecycle tracking |
+| `ai-server/tests/test_e2e_lifecycle.py` | 8 E2E tests: approval lifecycle, concurrent tasks, all managers | |
 | `ai-server/src/aegis_ai/approval/approval_manager.py` | Unified approval lifecycle manager |
 | `ai-server/src/aegis_ai/approval/fanout.py` | Multi-channel approval delivery (ApprovalFanout + ApprovalChannel ABC) |
 | `ai-server/src/aegis_ai/approval/channels/dashboard.py` | Dashboard SSE approval channel |
@@ -467,6 +483,7 @@ The following operations MUST go through explicit user approval:
 | `aegis_ai/memory/memory_manager.py` | Unified memory entry point across 15+ backends |
 | `aegis_ai/memory/sleep.py` | Memory consolidation during idle periods |
 | `aegis_ai/web/manager_routes.py` | Dashboard API routes for all Managers |
+| `tests/test_e2e_lifecycle.py` | E2E lifecycle tests (approval, task, status, sleep, notification, event) |
 
 ### Servers
 

@@ -246,13 +246,44 @@ def _build_runtime(config: Config) -> AegisRuntime:
     from aegis_ai.notification.notification_manager import NotificationManager
     from aegis_ai.memory.memory_manager import MemoryManager
     from aegis_ai.memory.sleep import SleepManager
+    from aegis_ai.memory.advanced import AdvancedMemory
+    from aegis_ai.memory.episodic_memory import EpisodicMemory
+    from aegis_ai.memory.semantic_memory import SemanticMemory
+    from aegis_ai.memory.skill_memory import SkillMemory
+    from aegis_ai.memory.lesson_memory import LessonMemory
+    from aegis_ai.memory.workflow_memory import WorkflowMemory
+    from aegis_ai.memory.experiential import ExperientialMemory
+    from aegis_ai.memory.person_memory import PersonMemory
+    from aegis_ai.memory.action_trace import ActionTraceMemory
+    from aegis_ai.memory.association_memory import AssociationMemory
+
+    memory_dir = os.path.join(data_dir, "memory")
+    advanced_memory = AdvancedMemory(data_dir=memory_dir, llm_provider=llm_gateway)
+    episodic_memory = EpisodicMemory(path=os.path.join(memory_dir, "episodic.jsonl"))
+    semantic_memory = SemanticMemory(path=os.path.join(memory_dir, "semantic.jsonl"))
+    skill_memory = SkillMemory(path=os.path.join(memory_dir, "skills.jsonl"))
+    lesson_memory = LessonMemory(path=os.path.join(memory_dir, "lessons.jsonl"))
+    workflow_memory = WorkflowMemory(path=os.path.join(memory_dir, "workflows.jsonl"))
+    experiential_memory = ExperientialMemory(data_dir=memory_dir, llm_provider=llm_gateway)
+    person_memory = PersonMemory(path=os.path.join(memory_dir, "persons.jsonl"))
 
     event_manager = EventManager(event_bus=event_bus, data_dir=data_dir)
     audit_manager = AuditManager(audit_log=audit_log, data_dir=data_dir)
     status_manager = StatusManager(event_manager=event_manager)
     task_manager = TaskManager(event_manager=event_manager, audit_manager=audit_manager, data_dir=data_dir)
     notification_manager = NotificationManager(event_manager=event_manager)
-    memory_manager = MemoryManager(event_manager=event_manager, llm_gateway=llm_gateway)
+    memory_manager = MemoryManager(
+        advanced_memory=advanced_memory,
+        episodic_memory=episodic_memory,
+        semantic_memory=semantic_memory,
+        skill_memory=skill_memory,
+        lesson_memory=lesson_memory,
+        workflow_memory=workflow_memory,
+        experiential_memory=experiential_memory,
+        person_memory=person_memory,
+        llm_gateway=llm_gateway,
+        event_manager=event_manager,
+    )
     sleep_manager = SleepManager(
         memory_manager=memory_manager,
         event_manager=event_manager,
@@ -260,7 +291,7 @@ def _build_runtime(config: Config) -> AegisRuntime:
         llm_gateway=llm_gateway,
     )
 
-    return AegisRuntime(
+    runtime = AegisRuntime(
         config=config,
         data_dir=data_dir,
         settings_store=settings_store,
@@ -305,29 +336,27 @@ def _create_autonomous_loop(runtime: AegisRuntime) -> Any:
     from aegis_ai.autonomous.spontaneous_observation import SpontaneousObservationSystem
     from aegis_ai.desire.desire_system import DesireSystem
     from aegis_ai.memory.action_trace import ActionTraceMemory
-    from aegis_ai.memory.advanced import AdvancedMemory
     from aegis_ai.memory.association_memory import AssociationMemory
-    from aegis_ai.memory.episodic_memory import EpisodicMemory
-    from aegis_ai.memory.experiential import ExperientialMemory
-    from aegis_ai.memory.lesson_memory import LessonMemory
-    from aegis_ai.memory.person_memory import PersonMemory
-    from aegis_ai.memory.semantic_memory import SemanticMemory
-    from aegis_ai.memory.skill_memory import SkillMemory
-    from aegis_ai.memory.workflow_memory import WorkflowMemory
     from aegis_ai.mind.affect_system import AffectSystem
 
     settings = runtime.settings_store.get()
     data_dir = runtime.data_dir
     memory_dir = os.path.join(data_dir, "memory")
+    mm = runtime.memory_manager
 
     desire = DesireSystem(data_dir=os.path.join(data_dir, "desires"), llm_provider=runtime.llm_gateway)
-    experiential = ExperientialMemory(data_dir=memory_dir, llm_provider=runtime.llm_gateway)
-    advanced_memory = AdvancedMemory(data_dir=memory_dir, llm_provider=runtime.llm_gateway)
     affect = AffectSystem(data_dir=data_dir)
     action_trace = ActionTraceMemory(path=os.path.join(memory_dir, "action_traces.jsonl"))
-    lesson_mem = LessonMemory(path=os.path.join(memory_dir, "lessons.jsonl"))
-    workflow_mem = WorkflowMemory(path=os.path.join(memory_dir, "workflows.jsonl"))
-    skill_mem = SkillMemory(path=os.path.join(memory_dir, "skills.jsonl"))
+    association_mem = AssociationMemory(path=os.path.join(memory_dir, "associations.jsonl"))
+
+    advanced_memory = mm.get_backend("advanced")
+    experiential = mm.get_backend("experiential")
+    lesson_mem = mm.get_backend("lesson")
+    workflow_mem = mm.get_backend("workflow")
+    skill_mem = mm.get_backend("skill")
+    episodic_mem = mm.get_backend("episodic")
+    semantic_mem = mm.get_backend("semantic")
+    person_mem = mm.get_backend("person")
 
     loop = AutonomousLoop(
         llm_provider=runtime.llm_gateway,
@@ -342,6 +371,7 @@ def _create_autonomous_loop(runtime: AegisRuntime) -> Any:
         lesson_memory=lesson_mem,
         policy_engine=runtime.policy_engine,
         audit_log=runtime.audit_log,
+        task_manager=runtime.task_manager,
         data_dir=os.path.join(data_dir, "autonomous"),
         desire_threshold=4.0,
         max_tasks_per_cycle=max(1, min(4, settings.autonomous.max_autonomous_runs_per_hour)),
@@ -349,11 +379,6 @@ def _create_autonomous_loop(runtime: AegisRuntime) -> Any:
     )
     loop._capability_retriever = runtime.capability_retriever
     loop._min_execution_interval_ms = max(1, settings.autonomous.cooldown_seconds) * 1000
-
-    episodic_mem = EpisodicMemory(path=os.path.join(memory_dir, "episodic.jsonl"))
-    semantic_mem = SemanticMemory(path=os.path.join(memory_dir, "semantic.jsonl"))
-    association_mem = AssociationMemory(path=os.path.join(memory_dir, "associations.jsonl"))
-    person_mem = PersonMemory(path=os.path.join(memory_dir, "persons.jsonl"))
 
     loop.set_observation_system(
         SpontaneousObservationSystem(

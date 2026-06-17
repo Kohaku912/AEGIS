@@ -230,6 +230,22 @@ class TestAuditManager:
 
 class TestStatusManager:
 
+    def test_background_checks_start(self):
+        from aegis_ai.status.status_manager import StatusManager
+
+        manager = StatusManager()
+        try:
+            assert manager._servers["ai-server"][1] == 50051
+            assert manager._servers["dashboard"][1] == 8090
+
+            manager.start_background_checks()
+
+            assert manager._running is True
+            assert manager._check_thread is not None
+            assert manager._check_thread.is_alive()
+        finally:
+            manager.stop_background_checks()
+
     def test_get_snapshot(self, status_manager):
         snapshot = status_manager.get_snapshot()
         assert "ai-server" in snapshot
