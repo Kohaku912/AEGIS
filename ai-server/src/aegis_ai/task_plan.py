@@ -175,8 +175,13 @@ class TaskPlan:
             "risk_notes": self.risk_notes,
             "approval_needed": self.approval_needed,
             "expected_result": self.expected_result,
+            "required_context": self.required_context,
+            "required_capabilities": self.required_capabilities,
+            "stop_conditions": self.stop_conditions,
+            "verification_plan": self.verification_plan,
             "needs_browser": self.needs_browser,
             "needs_device": self.needs_device,
+            "raw_llm_response": self.raw_llm_response,
         }
 
     @classmethod

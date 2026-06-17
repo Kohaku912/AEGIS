@@ -86,6 +86,30 @@ class AegisRuntime:
             except Exception:
                 logger.debug("Failed to stop autonomous loop", exc_info=True)
 
+    @property
+    def _legacy_audit_log(self) -> Any:
+        import warnings
+        warnings.warn("Direct audit_log access is deprecated. Use audit_manager instead.", DeprecationWarning, stacklevel=2)
+        return self.audit_log
+
+    @property
+    def _legacy_event_bus(self) -> Any:
+        import warnings
+        warnings.warn("Direct event_bus access is deprecated. Use event_manager instead.", DeprecationWarning, stacklevel=2)
+        return self.event_bus
+
+    @property
+    def _legacy_approval_store(self) -> Any:
+        import warnings
+        warnings.warn("Direct approval_store access is deprecated. Use approval_manager instead.", DeprecationWarning, stacklevel=2)
+        return self.approval_store
+
+    @property
+    def _legacy_approval_queue(self) -> Any:
+        import warnings
+        warnings.warn("Direct approval_queue access is deprecated. Use approval_manager instead.", DeprecationWarning, stacklevel=2)
+        return self.approval_queue
+
 
 _RUNTIME: AegisRuntime | None = None
 _RUNTIME_LOCK = threading.RLock()

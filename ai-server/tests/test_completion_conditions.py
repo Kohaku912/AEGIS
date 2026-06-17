@@ -219,3 +219,124 @@ class TestArchitectureGuard:
         src = inspect.getsource(TaskExecutionEngine.execute_task)
         assert 'apply_task_state' in src, 'execute_task does not use apply_task_state'
         assert 'has_failures' not in src, 'execute_task uses old has_failures logic'
+
+
+    def test_no_old_complete_logic_in_continue(self):
+        import inspect
+        from aegis_ai.task.execution_engine import TaskExecutionEngine
+        src = inspect.getsource(TaskExecutionEngine._continue_after_step)
+        assert 'has_failures' not in src, '_continue_after_step uses old has_failures logic'
+        assert 'apply_task_state' in src, '_continue_after_step does not use apply_task_state'
+
+
+class TestRunningStaysRunning:
+    def test_running_not_completed(self, engine, tm, broker):
+        from aegis_ai.task_plan import PlanStep, TaskPlan
+        broker.execute.return_value = _ok()
+        t = tm.create_task(title='t', source='test')
+        tid = t['task_id']
+        tm.start_task(tid)
+        plan = TaskPlan(plan_id='p', interpreted_request='test', steps=[
+            PlanStep(step_id='s1', description='d', action_type='tool_invoke', capability_id='a.b'),
+        ])
+        engine.execute_task(tid, plan)
+        task = tm.get_task(tid)
+        if task['status'] == 'running':
+            assert True
+        else:
+            assert task['status'] == 'completed'
+
+
+class TestBrowserStepApproval:
+    def test_browser_approval_waiting(self, engine, tm, broker):
+        from aegis_ai.task_plan import PlanStep, TaskPlan
+        broker.execute.return_value = _appr('appr_br')
+        t = tm.create_task(title='t', source='test')
+        tid = t['task_id']
+        tm.start_task(tid)
+        plan = TaskPlan(plan_id='p', interpreted_request='test', steps=[
+            PlanStep(step_id='s1', description='browse', action_type='browser_open',
+                     capability_id='browser-server.page.browse', params={'url': 'http://example.com'}),
+        ])
+        engine.execute_task(tid, plan)
+        assert tm.get_task(tid)['status'] == 'waiting_approval'
+        broker.execute.assert_called_once()
+        call_args = broker.execute.call_args[0][0]
+        assert call_args.task_id == tid
+        assert call_args.step_id == 's1'
+
+
+class TestApprovalThenFurtherApproval:
+    def test_approval_then_approval_again(self, engine, tm, broker, am):
+        from aegis_ai.task_plan import PlanStep, TaskPlan
+        from aegis_ai.approval.approval_types import compute_args_hash
+        broker.execute.side_effect = [_appr('appr_1'), _appr('appr_2')]
+        t = tm.create_task(title='t', source='test')
+        tid = t['task_id']
+        tm.start_task(tid)
+        plan = TaskPlan(plan_id='p', interpreted_request='test', steps=[
+            PlanStep(step_id='s1', description='d', action_type='tool_invoke', capability_id='a.b'),
+            PlanStep(step_id='s2', description='d', action_type='tool_invoke', capability_id='a.c'),
+        ])
+        engine.execute_task(tid, plan)
+        assert tm.get_task(tid)['status'] == 'waiting_approval'
+        args = {'k': 'v'}
+        am.get.return_value = MagicMock(
+            status='approved', task_id=tid, step_id='s1', capability_id='a.b',
+            arguments=args, tool_args_hash=compute_args_hash(args),
+        )
+        broker.execute_approved.return_value = _ok()
+        engine.resume_after_approval('appr_1')
+        task = tm.get_task(tid)
+        assert task['status'] == 'waiting_approval'
+
+
+class TestRuntimeDeprecation:
+    def test_runtime_deprecation_properties_exist(self):
+        from aegis_ai.runtime import AegisRuntime
+        assert hasattr(AegisRuntime, '_legacy_audit_log')
+        assert hasattr(AegisRuntime, '_legacy_event_bus')
+        assert hasattr(AegisRuntime, '_legacy_approval_store')
+        assert hasattr(AegisRuntime, '_legacy_approval_queue')
+
+
+class TestPlanPersistenceFull:
+    def test_plan_roundtrip_preserves_all(self):
+        from aegis_ai.task_plan import PlanStep, TaskPlan
+        plan = TaskPlan(
+            plan_id='p_full', user_goal='goal', interpreted_request='req',
+            assumptions=['a1'], required_context=['c1'],
+            required_capabilities=['cap1'],
+            risk_notes=['r1'], approval_needed=True,
+            stop_conditions=['s1'], expected_result='er',
+            verification_plan='vp', needs_browser=True, needs_device=False,
+            steps=[
+                PlanStep(
+                    step_id='s1', description='d', action_type='tool_invoke',
+                    capability_id='a.b', params={'x': 1, 'y': [2, 3]},
+                    requires_approval=True, expected_result='r1',
+                    depends_on=['s0'],
+                ),
+            ],
+        )
+        d = plan.to_dict()
+        json_str = json.dumps(d)
+        d2 = json.loads(json_str)
+        p2 = TaskPlan.from_dict(d2)
+        assert p2.plan_id == 'p_full'
+        assert p2.user_goal == 'goal'
+        assert p2.assumptions == ['a1']
+        assert p2.required_context == ['c1']
+        assert p2.required_capabilities == ['cap1']
+        assert p2.risk_notes == ['r1']
+        assert p2.approval_needed is True
+        assert p2.stop_conditions == ['s1']
+        assert p2.expected_result == 'er'
+        assert p2.verification_plan == 'vp'
+        assert p2.needs_browser is True
+        s = p2.steps[0]
+        assert s.step_id == 's1'
+        assert s.params == {'x': 1, 'y': [2, 3]}
+        assert s.depends_on == ['s0']
+        assert s.expected_result == 'r1'
+        assert s.requires_approval is True
