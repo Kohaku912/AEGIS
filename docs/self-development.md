@@ -77,11 +77,12 @@ all autonomous behavior.
 | Spontaneous observation | Periodic environment scan (every 5 minutes) |
 | Curiosity exploration | Triggers when curiosity desire ≥ 6.0 |
 | Reflection | Writes reflections after each task for future learning |
+| **TaskManager integration** | Creates task before execution, completes/fails after |
 
 **Constructor dependencies**: `llm_provider`, `desire_system`, `memory_system`,
 `reflection_engine`, `tool_broker`, `world_state_store`, `experiential_memory`,
 `affect_system`, `action_trace`, `skill_memory`, `workflow_memory`, `lesson_memory`,
-`observation_system`, `curiosity_system`, `policy_engine`
+`observation_system`, `curiosity_system`, `policy_engine`, `task_manager` (optional)
 
 ### AutonomousPlanner
 

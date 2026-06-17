@@ -2,7 +2,7 @@
 
 > **Status**: Implemented — Desire-driven with self-scheduling
 > **Source**: `ai-server/src/aegis_ai/autonomous/autonomous_loop.py`
-> **Related**: `docs/architecture.md` §5.11, `docs/mind-layer.md`
+> **Related**: `docs/architecture.md` §5.12, `docs/mind-layer.md`
 
 ## Overview
 

@@ -1,7 +1,7 @@
 # AEGIS — 未実装・未テスト一覧
 
-> **最終更新**: 2026-06-12
-> **テスト**: 1328 passed, 7 skipped
+> **最終更新**: 2026-06-17
+> **テスト**: 157 passed, 0 failed
 > **Lint**: All checks passed
 
 ---

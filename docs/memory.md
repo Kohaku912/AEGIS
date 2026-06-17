@@ -1,7 +1,7 @@
 # Memory System — Design & Usage
 
-> **Status**: Implemented (2026-06-13)
-> **Related**: `docs/architecture.md` §5.10
+> **Status**: Implemented (2026-06-17)
+> **Related**: `docs/architecture.md` §5.11
 
 ## Overview
 
@@ -11,6 +11,28 @@ Inspired by Zep (https://github.com/getzep/zep) for human-like memory.
 The system has two layers:
 1. **Core memory** — entity/fact tracking, person data, semantic search
 2. **Learning memory** — action traces, lessons, workflows, skills (promoted via sleep consolidation)
+
+### Unified Entry Point: MemoryManager
+
+**File**: `ai-server/src/aegis_ai/memory/memory_manager.py`
+
+All memory backends are accessed through `MemoryManager.get_backend(name)`:
+
+```python
+from aegis_ai.memory.memory_manager import MemoryManager
+
+mm = MemoryManager(data_dir="data")
+advanced = mm.get_backend("advanced")    # AdvancedMemory
+episodic = mm.get_backend("episodic")    # EpisodicMemory
+semantic = mm.get_backend("semantic")    # SemanticMemory
+person = mm.get_backend("person")        # PersonaMemory
+```
+
+Available backends: `advanced`, `episodic`, `semantic`, `skill`, `lesson`,
+`workflow`, `experiential`, `person`, `store`.
+
+Runtime wires all memory through `runtime.memory_manager.get_backend()` —
+external code MUST NOT create memory backends directly.
 
 ## Memory Components
 
@@ -161,6 +183,14 @@ Periodically consolidates short-term memories into long-term organized memory. I
 
 Runs automatically (default: every 6 hours) or can be triggered manually.
 
+#### SleepManager (`memory/sleep.py`)
+
+Runtime-managed wrapper around SleepConsolidation. Provides:
+- **Auto-consolidation**: Runs during idle periods
+- **Manual trigger**: POST `/api/sleep/trigger`
+- **Status**: GET `/api/sleep/status`
+- Integrated with AegisRuntime as `runtime.sleep_manager`
+
 **Consolidation pipeline:**
 
 ```
@@ -255,13 +285,18 @@ After each autonomous action:
 |----------|--------|---------|
 | `/api/chat/stream` | POST | Chat with memory context |
 | `/dashboard/memory` | GET | View memory data |
+| `/api/memory/<backend>` | GET | Get memory backend data (via MemoryManager) |
+| `/api/memory/<backend>/search` | POST | Search memory backend |
+| `/api/sleep/status` | GET | Sleep consolidation status (SleepManager) |
+| `/api/sleep/trigger` | POST | Trigger manual consolidation |
 
 ## Design Decisions
 
 1. **LLM-managed**: LLM decides what to remember/search/delete
 2. **No keyword matching**: All memory operations through LLM
 3. **Zep-inspired**: Entity tracking, fact extraction, temporal awareness
-4. **ChromaDB**: Vector DB for semantic search
+4. **ChromaDB**: Vector DB for semantic search (with JSONL fallback)
 5. **JSONL storage**: Simple, reliable, human-readable
 6. **Sleep consolidation**: Experience → knowledge promotion during idle periods
 7. **Learning hierarchy**: Traces → Lessons → Workflows → Skills (ExpeL/Voyager/Reflexion)
+8. **MemoryManager**: Unified entry point — all backends accessed through `runtime.memory_manager.get_backend()`

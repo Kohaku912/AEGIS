@@ -1,7 +1,7 @@
 # AEGIS Implementation Status
 
-> **Last Updated**: 2026-06-14
-> **Tests**: 1336+ passed, 7 skipped
+> **Last Updated**: 2026-06-17
+> **Tests**: 157 passed, 0 failed
 > **Lint**: ruff clean
 
 ## Module Status
@@ -22,6 +22,33 @@
 | Planner | `src/aegis_ai/autonomous/planner.py` | ✅ Done | 20 |
 | gRPC Server | `src/grpc_server.py` | ✅ Done | — |
 | Config | `src/config.py` | ✅ Done | — |
+
+### Runtime & Managers
+
+| Module | File | Status | Notes |
+|--------|------|--------|-------|
+| AegisRuntime | `src/aegis_ai/runtime.py` | ✅ Done | Process-wide singleton |
+| TaskManager | `src/aegis_ai/task/task_manager.py` | ✅ Done | 9-state lifecycle |
+| MemoryManager | `src/aegis_ai/memory/memory_manager.py` | ✅ Done | Unified memory entry |
+| SleepManager | `src/aegis_ai/memory/sleep.py` | ✅ Done | Consolidation during idle |
+| EventManager | `src/aegis_ai/event/event_manager.py` | ✅ Done | Persistence + cursor queries |
+| AuditManager | `src/aegis_ai/audit/audit_manager.py` | ✅ Done | JSONL tail reader |
+| StatusManager | `src/aegis_ai/status/status_manager.py` | ✅ Done | Background health checks |
+| NotificationManager | `src/aegis_ai/notification/notification_manager.py` | ✅ Done | Non-approval notifications |
+| ApprovalManager | `src/aegis_ai/approval/approval_manager.py` | ✅ Done | Lifecycle management |
+| ApprovalFanout | `src/aegis_ai/approval/fanout.py` | ✅ Done | Multi-channel delivery |
+
+### LLM Integration
+
+| Module | File | Status | Notes |
+|--------|------|--------|-------|
+| LLMGateway | `src/aegis_ai/llm/gateway.py` | ✅ Done | Facade over LLMRouter |
+| LLMRouter | `src/aegis_ai/llm/router.py` | ✅ Done | Task routing |
+| LLMFactory | `src/aegis_ai/llm/factory.py` | ✅ Done | Provider factory |
+| PromptRegistry | `src/aegis_ai/llm/prompt_registry.py` | ✅ Done | YAML-backed prompts |
+| LLMSettingsResolver | `src/aegis_ai/llm/settings_resolver.py` | ✅ Done | YAML-backed profiles |
+| CostTracker | `src/aegis_ai/llm/cost_tracker.py` | ✅ Done | Token/cost tracking |
+| ChatTools | `src/aegis_ai/web/chat_tools.py` | ✅ Done | Text-based tool calling |
 
 ### Agents
 
@@ -68,20 +95,14 @@
 
 ### Dashboard
 
-| Module | File | Status | Tests |
+| Module | File | Status | Notes |
 |--------|------|--------|-------|
-| Dashboard Routes | `src/aegis_ai/web/dashboard_routes.py` | ✅ Done | 14 pages |
-| Streaming Chat | `src/aegis_ai/web/dashboard_routes.py` | ✅ Done | — |
-| Memory Integration | `src/aegis_ai/web/dashboard_routes.py` | ✅ Done | — |
-| Desire Context | `src/aegis_ai/web/dashboard_routes.py` | ✅ Done | — |
-
-### LLM Integration
-
-| Module | File | Status | Tests |
-|--------|------|--------|-------|
-| LLM Factory | `src/aegis_ai/llm/factory.py` | ✅ Done | — |
-| OpenAI Provider | `src/aegis_ai/llm/providers/openai_provider.py` | ✅ Done | — |
-| Mock Provider | `src/aegis_ai/llm/providers/mock.py` | ✅ Done | — |
+| DashboardApp | `src/aegis_ai/web/app.py` | ✅ Done | Flask app entry |
+| Dashboard Routes | `src/aegis_ai/web/dashboard_routes.py` | ✅ Done | 14 pages + streaming chat |
+| Manager Routes | `src/aegis_ai/web/manager_routes.py` | ✅ Done | 19 API routes |
+| Chat Tool Calling | `src/aegis_ai/web/chat_tools.py` | ✅ Done | CapabilityCatalog-driven |
+| Settings Routes | `src/aegis_ai/web/settings_routes.py` | ✅ Done | Settings CRUD |
+| Settings UI | `src/aegis_ai/web/settings_ui_routes.py` | ✅ Done | Web UI forms |
 
 ### PC Server (Rust)
 
@@ -95,6 +116,9 @@
 | Screen Size | `src/observe.rs` | ✅ Done | Real API |
 | Mouse Click | `src/action.rs` | ✅ Done | Skeleton |
 | Keyboard Type | `src/action.rs` | ✅ Done | Skeleton |
+| Overlay (custom overlay) | `src/overlay.rs` | ✅ Done | Custom click-through |
+| Shell (powershell/cmd) | `src/shell.rs` | ✅ Done | TCP command |
+| TCP Server | `src/main.rs` | ✅ Done | JSON protocol |
 
 ### Browser Server (Python)
 
@@ -102,6 +126,15 @@
 |--------|------|--------|-------|
 | Browser Executor | `src/executor.py` | ✅ Done | 28 |
 | Safety Module | `src/safety.py` | ✅ Done | (included) |
+| browser-use Agent | `src/aegis_browser/browser_use_agent.py` | ✅ Done | DeepSeek compat + verification |
+
+### E2E Lifecycle Tests
+
+| Test | File | Status |
+|------|------|--------|
+| Approval lifecycle | `tests/test_e2e_lifecycle.py` | ✅ 8 tests |
+| Concurrent tasks | `tests/test_e2e_lifecycle.py` | ✅ (included) |
+| All managers | `tests/test_e2e_lifecycle.py` | ✅ (included) |
 
 ## Test Summary
 
@@ -125,14 +158,18 @@
 | Desire System | 7 |
 | Autonomous Loop | 5 |
 | Browser Server | 28 |
-| **Total** | **1336+** |
+| E2E Lifecycle | 8 |
+| **Total** | **157** |
 
 ## Key Features Implemented
 
-1. **Memory System**: Zep-inspired with entity tracking, fact extraction, temporal awareness
-2. **Desire System**: D2A-inspired with 8 intrinsic motivations
-3. **Autonomous Loop**: Desire-driven task execution with self-scheduling
-4. **Dashboard**: Streaming chat with memory and desire integration
-5. **PC Server**: Real Windows API for screenshot, windows, clipboard
-6. **LLM Integration**: DeepSeek API with streaming support
-7. **Safety**: PolicyEngine with approval gates
+1. **Runtime Singleton**: AegisRuntime with 7 Managers — single entry point
+2. **Memory System**: Zep-inspired with entity tracking, fact extraction, temporal awareness
+3. **Desire System**: D2A-inspired with 10 intrinsic motivations
+4. **Autonomous Loop**: Desire-driven task execution with TaskManager tracking
+5. **Dashboard**: Streaming chat with tool calling + 19 Manager API routes
+6. **PC Server**: Real Windows API (Rust) for screenshot, windows, overlay, shell
+7. **Browser Server**: browser-use with DeepSeek compatibility patch
+8. **LLM Integration**: LLMGateway + PromptRegistry (YAML) + text-based tool calling
+9. **Approval System**: ApprovalManager + Fanout with 4 channels (Dashboard, PC, Android, Room)
+10. **Safety**: PolicyEngine with approval gates + deterministic safety enforcement

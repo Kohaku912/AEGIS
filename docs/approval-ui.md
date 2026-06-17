@@ -1,13 +1,32 @@
 # Approval UI — Design & Usage
 
-> **Status**: Phase 3.4 — Minimal implementation (2026-06-11)  
+> **Status**: Implemented — ApprovalManager + Fanout (2026-06-17)  
 > **Related**: [`architecture.md`](architecture.md) §7.4, [`AGENTS.md`](../AGENTS.md) Security Policy
 
 ## Overview
 
-The Approval UI is a Flask-based web application that presents pending approval requests to the user. When AEGIS attempts a Level 2/3 operation, the PolicyEngine creates an `ApprovalRequest` in the `ApprovalStore`. The user can view, approve, or reject these requests.
+The Approval system handles Level 2/3 operations through a unified lifecycle:
+
+1. **ApprovalManager** (`approval/approval_manager.py`) — Central lifecycle management
+2. **ApprovalFanout** (`approval/fanout.py`) — Multi-channel delivery to users
+3. **Approval channels** — Dashboard SSE, PC overlay, Android notification, Room display
+
+When AEGIS attempts a Level 2/3 operation, the PolicyEngine creates an `ApprovalRequest`.
+The ApprovalManager routes it through the Fanout to all configured channels.
+
+## Architecture
+
+```
+PolicyEngine → ApprovalManager → ApprovalFanout
+                                    ├── DashboardChannel (SSE to web UI)
+                                    ├── PCOverlayChannel (overlay on PC screen)
+                                    ├── AndroidChannel (Android notification)
+                                    └── RoomChannel (Room Server display + TTS)
+```
 
 ## Endpoints
+
+### Approval Web UI
 
 | Method | Path | Purpose |
 |--------|------|---------|
@@ -18,6 +37,17 @@ The Approval UI is a Flask-based web application that presents pending approval 
 | POST | `/approvals/{id}/reject` | Deny this request |
 | POST | `/approvals/{id}/reject-remember` | Deny + permanently block capability |
 | GET | `/health` | Health check |
+
+### Dashboard SSE Approval
+
+Approval requests are pushed to the dashboard via Server-Sent Events.
+Users can approve/reject directly from the dashboard UI.
+
+### PC Server Overlay
+
+Custom click-through overlay windows with keyboard-only interaction (Y/N/ESC).
+Uses `WS_EX_TOPMOST | WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_TOOLWINDOW`
+with `GetAsyncKeyState` for global keyboard capture.
 
 ## Running
 
@@ -49,3 +79,4 @@ app.run(host='0.0.0.0', port=8080)
 - `ToolBroker.invoke_tool_approved()` requires a valid approval in the store
 - The AI cannot create fake approval records
 - `PolicyEngine` controls are structural, not prompt-based
+- Support Agent does NOT bypass PolicyEngine / Approval UI

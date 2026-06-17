@@ -1,7 +1,7 @@
 # AEGIS Operations Guide
 
 > **Status**: Beta
-> **Last Updated**: 2026-06-14
+> **Last Updated**: 2026-06-17
 
 ## 日常運用
 
@@ -17,6 +17,9 @@ docker compose up -d
 docker compose ps
 # Dashboard: http://0.0.0.0:8090
 # Approvals: http://0.0.0.0:8080/approvals
+# Manager API: http://0.0.0.0:8090/api/tasks, /api/events, /api/audit, /api/status
+# Memory API: http://0.0.0.0:8090/api/memory/advanced
+# Sleep API: http://0.0.0.0:8090/api/sleep/status
 ```
 
 ### 停止
@@ -29,7 +32,11 @@ docker compose down
 
 - Dashboard: http://0.0.0.0:8090
 - Health: http://0.0.0.0:8090/health
-- API: http://0.0.0.0:8090/api/dashboard/overview
+- Server Status: http://0.0.0.0:8090/api/status (StatusManager.get_snapshot())
+- Tasks: http://0.0.0.0:8090/api/tasks
+- Events: http://0.0.0.0:8090/api/events
+- Audit: http://0.0.0.0:8090/api/audit
+- Notifications: http://0.0.0.0:8090/api/notifications
 - Autonomous Loop Status: http://0.0.0.0:8090/api/autonomous/status
 - Desire States: http://0.0.0.0:8090/api/desires
 - Manual Trigger: `POST http://0.0.0.0:8090/api/autonomous/trigger`
@@ -56,8 +63,10 @@ exporter.export_all('data/backups/', redacted=True)
 
 ## 設定変更
 
+設定は `config/settings.json` に永続化されます（`data/settings.json` ではありません）。
+
 ```bash
-# Dashboard → Settings で変更
+# Dashboard → Settings UI で変更
 # または直接:
 cd ai-server
 python -c "

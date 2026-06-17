@@ -131,13 +131,27 @@ The desire system drives the autonomous execution loop:
 ### Task Execution Pipeline
 
 For each task the loop:
-1. Begins an **ActionTrace** for tracking
-2. Searches **SkillMemory** for a reusable skill
-3. Falls back to **WorkflowMemory** if no skill found
-4. Retrieves relevant **LessonMemory** entries
-5. Executes via ToolBroker (capability) or AutonomousPlanner (LLM plan)
-6. Records result to skill/workflow memory
-7. Completes the action trace
+1. **Creates a Task** via TaskManager (9-state lifecycle)
+2. Begins an **ActionTrace** for tracking
+3. Searches **SkillMemory** for a reusable skill
+4. Falls back to **WorkflowMemory** if no skill found
+5. Retrieves relevant **LessonMemory** entries
+6. Executes via ToolBroker (capability) or AutonomousPlanner (LLM plan)
+7. **Completes/Fails the Task** via TaskManager
+8. Records result to skill/workflow memory
+9. Completes the action trace
+
+### Task Evaluation (3-tier)
+
+| Field | Description |
+|-------|-------------|
+| `tool_success` | Whether the tool execution succeeded (bool) |
+| `task_effect` | Classification: `useful`, `no_effect`, `failed`, `blocked`, `needs_followup` |
+| `desire_delta_hint` | Per-desire delta based on fulfillment conditions |
+
+The fulfillment rules are defined in `ai-server/src/aegis_ai/desire/fulfillment.py`
+as per-desire condition→delta pairs. "No new posts" etc. are `task_effect=NO_EFFECT`
+with delta=0.0 (no desire decrease).
 
 ### Self-Scheduling
 

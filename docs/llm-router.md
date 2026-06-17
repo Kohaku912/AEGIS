@@ -1,28 +1,50 @@
 # LLM Router — Design & Usage
 
-> **Status**: Implemented
-> **Related**: `docs/model-policy.md`, `docs/architecture.md` §5.3
+> **Status**: Implemented (2026-06-17)
+> **Related**: `docs/model-policy.md`, `docs/architecture.md` §5.10
 
 ## Overview
 
-The LLM Router routes tasks to appropriate LLM models based on task type,
-privacy requirements, cost budget, and provider availability.
-
-## Architecture
+The LLM system routes tasks to appropriate LLM models based on task type,
+privacy requirements, cost budget, and provider availability. Architecture:
 
 ```
-Agent (Research/Support/SelfDev/Reflection)
-  ↓ LLMRequest(task_type, prompt, privacy_level)
-LLMRouter
-  ├── Privacy check (LOCAL_ONLY → mock/local only)
-  ├── Cost budget check (daily/monthly limits)
-  ├── Model Policy lookup (task_type → model profile)
-  └── Provider dispatch
-        ├── MockLLMProvider (CI/testing)
-        ├── OpenAIProvider (optional)
-        ├── AnthropicProvider (optional)
-        └── LocalProvider (optional)
+LLMGateway (facade)
+  ├── LLMSettingsResolver (YAML profiles from config/llm.yaml)
+  ├── LLMRouter
+  │     ├── Privacy check (LOCAL_ONLY → mock/local only)
+  │     ├── Cost budget check (daily/monthly limits)
+  │     ├── Model Policy lookup (task_type → model profile)
+  │     └── Provider dispatch
+  │           ├── MockLLMProvider (CI/testing)
+  │           ├── OpenAIProvider (DeepSeek/OpenAI compatible)
+  │           └── LocalProvider (optional)
+  └── PromptRegistry (YAML prompts from config/prompts.yaml)
 ```
+
+### LLMGateway
+
+**File**: `src/aegis_ai/llm/gateway.py`
+
+Runtime-owned facade over LLMRouter. Created once at startup via
+`create_llm_provider_from_settings()`. Backward-compatible method
+signatures with optional `profile` keyword for profile-based resolution.
+
+### PromptRegistry
+
+**File**: `src/aegis_ai/llm/prompt_registry.py`
+
+YAML-backed prompt management. `ai-server/config/prompts.yaml` is the
+source of truth. Loads, renders, hot-reloads (mtime-gated), and updates
+prompts with fail-closed validation.
+
+### LLMSettingsResolver
+
+**File**: `src/aegis_ai/llm/settings_resolver.py`
+
+YAML-backed LLM profile resolution. `ai-server/config/llm.yaml` is the
+source of truth. Validates against allowed_models/max_tokens_upper_bound/
+temperature bounds. Hot-reloads on mtime change.
 
 ## Task Types
 
@@ -65,6 +87,19 @@ request = LLMRequest(
 response = router.route(request)
 ```
 
+## Text-Based Tool Calling (DeepSeek)
+
+When using DeepSeek, AEGIS uses text-based tool calling with regex parsing
+of `<tool_call>...</tool_call>` instead of OpenAI's `tools` parameter
+(DeepSeek returns unparsable native format when `tools` is used).
+
+The `call_llm_with_tools()` function in `chat_tools.py` handles:
+1. Prompt construction with tool descriptions
+2. LLM call
+3. Regex parsing of tool calls
+4. Tool execution via ToolBroker
+5. Follow-up response generation
+
 ## Cost Control
 
 ```python
@@ -73,7 +108,6 @@ from aegis_ai.llm import CostTracker
 tracker = CostTracker(daily_budget=10.0, monthly_budget=100.0)
 router = LLMRouter(cost_tracker=tracker)
 
-# Check budget before request
 if tracker.can_afford(estimated_tokens=500):
     response = router.route(request)
 ```
