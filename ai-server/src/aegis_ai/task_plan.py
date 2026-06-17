@@ -200,6 +200,7 @@ class TaskPlan:
             verification_plan=data.get("verification_plan", ""),
             needs_browser=data.get("needs_browser", False),
             needs_device=data.get("needs_device", False),
+            raw_llm_response=data.get("raw_llm_response", ""),
         )
         for sd in data.get("steps", []):
             plan.steps.append(PlanStep.from_dict(sd))
