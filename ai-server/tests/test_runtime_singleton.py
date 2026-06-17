@@ -172,4 +172,4 @@ def test_shared_components_thread_safety_smoke(tmp_path) -> None:
     assert bus.pending_count() == 20
     assert len(approvals.get_approved_capabilities()) == 20
     assert len(audit.read_all()) == 20
-    assert Path(tmp_path / "audit.jsonl").exists()
+    assert Path(tmp_path / "audit.db").exists()

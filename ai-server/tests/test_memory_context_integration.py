@@ -189,11 +189,7 @@ def test_autonomous_loop_rejects_invalid_tool_calls_and_audits_them(tmp_path) ->
     assert llm.context_meta is not None
     assert llm.context_meta.get("memory_profile") == "decision"
 
-    audit_records = [
-        json.loads(line)
-        for line in (tmp_path / "data" / "audit.jsonl").read_text(encoding="utf-8").splitlines()
-        if line.strip()
-    ]
+    audit_records = loop._audit_log.read_all()
     assert any(
         record["action"] == "autonomous_tool_selection"
         and record["decision"] == "REJECT"

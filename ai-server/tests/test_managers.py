@@ -200,15 +200,18 @@ class TestAuditManager:
         from aegis_ai.audit import AuditEntry
         for i in range(5):
             audit_manager.append(AuditEntry(action=f"test_{i}", actor="test"))
-        result = audit_manager.list_recent(limit=2)
+        result = audit_manager.list_recent(limit=2, page=1)
         assert len(result["entries"]) == 2
-        assert result["next_cursor"] is not None
+        assert result["total"] == 5
+        assert result["total_pages"] == 3
+        result2 = audit_manager.list_recent(limit=2, page=2)
+        assert len(result2["entries"]) == 2
 
-    def test_summary_no_raw_detail(self, audit_manager):
+    def test_summary_has_detail(self, audit_manager):
         from aegis_ai.audit import AuditEntry
-        audit_manager.append(AuditEntry(action="test", actor="test", detail={"secret": "value"}))
+        audit_manager.append(AuditEntry(action="test", actor="test", detail={"key": "value"}))
         result = audit_manager.list_recent(limit=1)
-        assert "secret" not in str(result["entries"][0])
+        assert result["entries"][0]["detail"]["key"] == "value"
 
     def test_get_detail(self, audit_manager):
         from aegis_ai.audit import AuditEntry

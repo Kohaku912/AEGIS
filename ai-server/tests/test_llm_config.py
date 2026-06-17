@@ -297,5 +297,5 @@ class TestAuditEntry:
         log.append(AuditEntry(action="policy_decision", decision="ALLOW"))
         records = log.read_all()
         assert len(records) == 1
-        assert "profile_id" not in records[0]
-        assert "model" not in records[0]
+        assert records[0]["profile_id"] == ""
+        assert records[0]["model"] == ""
