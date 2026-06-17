@@ -318,6 +318,7 @@ class ToolBroker:
         audit_log: Any = None,
         verification_service: Any = None,
         approval_queue: Any = None,
+        approval_manager: Any = None,
         server_executor: ServerExecutor | None = None,
         folder_registry: Any = None,
         catalog: Any = None,
@@ -327,6 +328,7 @@ class ToolBroker:
         self._audit = audit_log
         self._verification = verification_service
         self._approval_queue = approval_queue
+        self._approval_manager = approval_manager
         self._server_executor = server_executor
         self._folder_registry = folder_registry
         self._catalog = catalog
@@ -454,7 +456,10 @@ class ToolBroker:
                 self._pending_approvals[request.request_id] = request
 
             approval_id = ""
-            if self._approval_queue is not None:
+            if self._approval_manager is not None:
+                appr = self._approval_manager.create_request(request, policy_result)
+                approval_id = appr.approval_id
+            elif self._approval_queue is not None:
                 appr = self._approval_queue.enqueue(request, policy_result)
                 approval_id = appr.approval_id
 
@@ -595,22 +600,34 @@ class ToolBroker:
     def execute_approved(self, approval_id: str) -> ToolExecutionResult:
         """Execute a previously approved request.
 
-        Looks up the approval in the queue, re-evaluates policy,
-        and executes if ALLOW. One-time execution per approval_id.
+        Looks up the approval in the manager/queue, re-evaluates policy,
+        validates arguments, and executes if ALLOW. One-time execution per approval_id.
         """
-        if self._approval_queue is None:
+        manager = self._approval_manager
+        queue = self._approval_queue
+
+        if manager is None and queue is None:
             return ToolExecutionResult(
                 status=InvokeStatus.DENIED,
-                error="No approval queue configured.",
+                error="No approval manager or queue configured.",
             )
 
-        if self._approval_queue.is_executed(approval_id):
-            return ToolExecutionResult(
-                status=InvokeStatus.DENIED,
-                error=f"Approval '{approval_id}' already executed.",
-            )
+        # Check double-execution
+        if manager is not None:
+            if manager.is_executed(approval_id):
+                return ToolExecutionResult(
+                    status=InvokeStatus.DENIED,
+                    error=f"Approval '{approval_id}' already executed.",
+                )
+            appr = manager.get(approval_id)
+        else:
+            if queue.is_executed(approval_id):
+                return ToolExecutionResult(
+                    status=InvokeStatus.DENIED,
+                    error=f"Approval '{approval_id}' already executed.",
+                )
+            appr = queue.get(approval_id)
 
-        appr = self._approval_queue.get(approval_id)
         if appr is None:
             return ToolExecutionResult(
                 status=InvokeStatus.NOT_FOUND,
@@ -629,17 +646,28 @@ class ToolBroker:
                 error=f"Approval '{approval_id}' is not approved (status={appr.status}).",
             )
 
+        # Mark as executing
+        if manager is not None:
+            manager.mark_executing(approval_id)
+
         manifest = self._resolve_manifest(appr.capability_id)
         if manifest is None:
-            self._approval_queue.mark_failed(approval_id, f"Capability '{appr.capability_id}' not found in catalog.")
+            error_msg = f"Capability '{appr.capability_id}' not found in catalog."
+            if manager is not None:
+                manager.mark_failed(approval_id, error_msg)
+            else:
+                queue.mark_failed(approval_id, error_msg)
             return ToolExecutionResult(
                 status=InvokeStatus.NOT_FOUND,
-                error=f"Capability '{appr.capability_id}' not found in catalog.",
+                error=error_msg,
                 approval_id=approval_id,
             )
         validation_error = self._validate_arguments(manifest, appr.arguments)
         if validation_error:
-            self._approval_queue.mark_failed(approval_id, validation_error)
+            if manager is not None:
+                manager.mark_failed(approval_id, validation_error)
+            else:
+                queue.mark_failed(approval_id, validation_error)
             return ToolExecutionResult(
                 status=InvokeStatus.DENIED,
                 error=validation_error,
@@ -654,12 +682,17 @@ class ToolBroker:
                 error=f"Capability '{manifest.capability_id}' not found.",
             )
 
+        # Re-evaluate policy (MANDATORY)
         policy_result = self._policy.evaluate(cap, appr.arguments)
         if policy_result.decision == PolicyDecision.DENY:
-            self._approval_queue.mark_failed(approval_id, policy_result.reason)
+            error_msg = f"Policy denies after approval: {policy_result.reason}"
+            if manager is not None:
+                manager.mark_failed(approval_id, error_msg)
+            else:
+                queue.mark_failed(approval_id, error_msg)
             return ToolExecutionResult(
                 status=InvokeStatus.DENIED,
-                error=f"Policy denies after approval: {policy_result.reason}",
+                error=error_msg,
                 policy_decision="DENY",
                 policy_result=policy_result,
                 approval_id=approval_id,
@@ -690,16 +723,16 @@ class ToolBroker:
         result.policy_result = policy_result
         result.approval_id = approval_id
 
-        if self._verification is not None:
-            vr = self._verification.build_request(request, result)
-            verification = self._verification.verify(vr)
-            result.verification_status = verification.status.value
-            self._verification.record_verification(vr, verification)
-
         if result.success:
-            self._approval_queue.mark_executed(approval_id, result)
+            if manager is not None:
+                manager.mark_executed(approval_id, result)
+            else:
+                queue.mark_executed(approval_id, result)
         else:
-            self._approval_queue.mark_failed(approval_id, result.error)
+            if manager is not None:
+                manager.mark_failed(approval_id, result.error)
+            else:
+                queue.mark_failed(approval_id, result.error)
 
         self._record_audit(request, result)
         return result

@@ -2113,13 +2113,18 @@ class DashboardApp:
             except Exception as e:
                 return jsonify({"error": str(e)})
 
+        @app.route("/dashboard/approvals")
+        def dashboard_approvals():
+            return render_template("dashboard/approvals.html")
+
         @app.route("/api/approvals/pending")
         def approvals_pending():
             """Get pending approval requests."""
             try:
-                from aegis_ai.approval import ApprovalQueue
-                queue = ApprovalQueue(data_dir=os.path.join(_DATA_DIR, "approvals"))
-                pending = queue.list_pending()
+                from aegis_ai.runtime import get_runtime
+                rt = get_runtime()
+                manager = rt.approval_manager
+                pending = manager.list_pending()
                 return jsonify({"approvals": [r.to_dict() for r in pending]})
             except Exception as e:
                 return jsonify({"error": str(e)})
@@ -2128,9 +2133,10 @@ class DashboardApp:
         def approval_detail(approval_id):
             """Get approval detail."""
             try:
-                from aegis_ai.approval import ApprovalQueue
-                queue = ApprovalQueue(data_dir=os.path.join(_DATA_DIR, "approvals"))
-                req = queue.get(approval_id)
+                from aegis_ai.runtime import get_runtime
+                rt = get_runtime()
+                manager = rt.approval_manager
+                req = manager.get(approval_id)
                 if req is None:
                     return jsonify({"error": "Not found"}), 404
                 return jsonify(req.to_dict())
@@ -2142,10 +2148,11 @@ class DashboardApp:
             """Approve a pending request."""
             try:
                 from flask import request as flask_request
-                from aegis_ai.approval import ApprovalQueue
-                queue = ApprovalQueue(data_dir=os.path.join(_DATA_DIR, "approvals"))
+                from aegis_ai.runtime import get_runtime
+                rt = get_runtime()
+                manager = rt.approval_manager
                 note = flask_request.json.get("note", "") if flask_request.is_json else ""
-                req = queue.approve(approval_id, user_note=note)
+                req = manager.approve(approval_id, channel="dashboard", user="user")
                 if req is None:
                     return jsonify({"error": "Not found or not pending"}), 404
                 return jsonify(req.to_dict())
@@ -2157,10 +2164,11 @@ class DashboardApp:
             """Reject a pending request."""
             try:
                 from flask import request as flask_request
-                from aegis_ai.approval import ApprovalQueue
-                queue = ApprovalQueue(data_dir=os.path.join(_DATA_DIR, "approvals"))
+                from aegis_ai.runtime import get_runtime
+                rt = get_runtime()
+                manager = rt.approval_manager
                 reason = flask_request.json.get("reason", "") if flask_request.is_json else ""
-                req = queue.reject(approval_id, reason=reason)
+                req = manager.reject(approval_id, channel="dashboard", user="user", reason=reason)
                 if req is None:
                     return jsonify({"error": "Not found or not pending"}), 404
                 return jsonify(req.to_dict())
@@ -2172,13 +2180,13 @@ class DashboardApp:
             """Modify arguments and approve."""
             try:
                 from flask import request as flask_request
-                from aegis_ai.approval import ApprovalQueue
-                queue = ApprovalQueue(data_dir=os.path.join(_DATA_DIR, "approvals"))
+                from aegis_ai.runtime import get_runtime
+                rt = get_runtime()
+                manager = rt.approval_manager
                 if not flask_request.is_json:
                     return jsonify({"error": "JSON body required"}), 400
                 args = flask_request.json.get("arguments", {})
-                note = flask_request.json.get("note", "")
-                req = queue.modify_and_approve(approval_id, args, user_note=note)
+                req = manager.modify_and_approve(approval_id, args, channel="dashboard", user="user")
                 if req is None:
                     return jsonify({"error": "Not found or not pending"}), 404
                 return jsonify(req.to_dict())
@@ -2190,12 +2198,47 @@ class DashboardApp:
             """Cancel a pending request."""
             try:
                 from flask import request as flask_request
-                from aegis_ai.approval import ApprovalQueue
-                queue = ApprovalQueue(data_dir=os.path.join(_DATA_DIR, "approvals"))
+                from aegis_ai.runtime import get_runtime
+                rt = get_runtime()
+                manager = rt.approval_manager
                 reason = flask_request.json.get("reason", "") if flask_request.is_json else ""
-                req = queue.cancel(approval_id, reason=reason)
+                req = manager.cancel(approval_id, reason=reason)
                 if req is None:
                     return jsonify({"error": "Not found or not cancellable"}), 404
                 return jsonify(req.to_dict())
             except Exception as e:
                 return jsonify({"error": str(e)})
+
+        @app.route("/api/approvals/events")
+        def approval_events():
+            """SSE stream for real-time approval events."""
+            from flask import Response
+            import uuid
+
+            client_id = f"sse_{uuid.uuid4().hex[:8]}"
+
+            def generate():
+                try:
+                    from aegis_ai.runtime import get_runtime
+                    rt = get_runtime()
+                    dashboard_channel = getattr(rt, "_dashboard_approval_channel", None)
+                    if dashboard_channel is None:
+                        yield f"data: {json.dumps({'error': 'Dashboard channel not initialized'})}\n\n"
+                        return
+                    q = dashboard_channel.register_client(client_id)
+                    try:
+                        yield f"data: {json.dumps({'type': 'connected', 'client_id': client_id})}\n\n"
+                        while True:
+                            try:
+                                data = q.get(timeout=30)
+                                yield f"data: {data}\n\n"
+                            except queue.Empty:
+                                yield f"data: {json.dumps({'type': 'heartbeat'})}\n\n"
+                    finally:
+                        dashboard_channel.unregister_client(client_id)
+                except GeneratorExit:
+                    pass
+                except Exception as e:
+                    yield f"data: {json.dumps({'error': str(e)})}\n\n"
+
+            return Response(generate(), mimetype='text/event-stream')

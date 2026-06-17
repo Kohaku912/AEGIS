@@ -6,6 +6,7 @@ same LLM router, tool broker, policy engine, event bus, registry, and audit log.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import threading
@@ -20,121 +21,10 @@ from aegis_ai.context_builder import ContextBuilder
 from aegis_ai.folder_registry import FolderCapabilityRegistry
 from aegis_ai.interaction.router import InteractionRouter
 from aegis_ai.interaction.session import SessionManager
-from aegis_ai.llm.router import LLMRequest, LLMResponse, LLMRouter, PrivacyLevel, TaskType
+from aegis_ai.llm.gateway import LLMGateway
+from aegis_ai.llm.router import LLMRouter
 
 logger = logging.getLogger("aegis_ai.runtime")
-
-
-class LLMGateway:
-    """Provider-compatible facade that always routes through LLMRouter."""
-
-    def __init__(self, router: LLMRouter) -> None:
-        self._router = router
-
-    def generate(
-        self,
-        prompt: str,
-        system_prompt: str = "",
-        max_tokens: int = 2000,
-        temperature: float = 0.7,
-        context_meta: dict[str, Any] | None = None,
-        json_mode: bool = False,
-    ) -> LLMResponse:
-        request = self._request(
-            prompt=prompt,
-            system_prompt=system_prompt,
-            max_tokens=max_tokens,
-            temperature=temperature,
-            context_meta=context_meta,
-            json_mode=json_mode,
-        )
-        return self._router.route(request)
-
-    def generate_with_tools(
-        self,
-        prompt: str,
-        tools: list[dict[str, Any]],
-        system_prompt: str = "",
-        max_tokens: int = 1000,
-        temperature: float = 0.3,
-        context_meta: dict[str, Any] | None = None,
-    ) -> LLMResponse:
-        request = self._request(
-            prompt=prompt,
-            system_prompt=system_prompt,
-            max_tokens=max_tokens,
-            temperature=temperature,
-            context_meta=context_meta,
-        )
-        return self._router.route_with_tools(request, tools)
-
-    def generate_with_image(
-        self,
-        prompt: str,
-        image_base64: str,
-        system_prompt: str = "",
-        max_tokens: int = 2000,
-        temperature: float = 0.7,
-        detail: str = "low",
-        context_meta: dict[str, Any] | None = None,
-    ) -> LLMResponse:
-        request = self._request(
-            prompt=prompt,
-            system_prompt=system_prompt,
-            max_tokens=max_tokens,
-            temperature=temperature,
-            context_meta=context_meta,
-        )
-        return self._router.route_with_image(request, image_base64, detail=detail)
-
-    def generate_with_media(
-        self,
-        prompt: str,
-        image_base64s: list[str],
-        system_prompt: str = "",
-        max_tokens: int = 2000,
-        temperature: float = 0.7,
-        detail: str = "low",
-        context_meta: dict[str, Any] | None = None,
-        media_kind: str = "image",
-    ) -> LLMResponse:
-        request = self._request(
-            prompt=prompt,
-            system_prompt=system_prompt,
-            max_tokens=max_tokens,
-            temperature=temperature,
-            context_meta=context_meta,
-        )
-        return self._router.route_with_media(
-            request,
-            image_base64s,
-            detail=detail,
-            media_kind=media_kind,
-        )
-
-    @staticmethod
-    def _request(
-        *,
-        prompt: str,
-        system_prompt: str,
-        max_tokens: int,
-        temperature: float,
-        context_meta: dict[str, Any] | None = None,
-        json_mode: bool = False,
-    ) -> LLMRequest:
-        meta = context_meta or {}
-        return LLMRequest(
-            task_type=TaskType.HIGH_REASONING_TASK if json_mode else TaskType.SMALL_FAST_TASK,
-            prompt=prompt,
-            system_prompt=system_prompt,
-            privacy_level=PrivacyLevel.INTERNAL,
-            max_tokens=max_tokens,
-            temperature=temperature,
-            caller=str(meta.get("caller", "runtime")),
-            request_id=str(meta.get("request_id", "")),
-            context_meta=context_meta,
-            json_mode=json_mode,
-        )
 
 
 @dataclass
@@ -153,15 +43,25 @@ class AegisRuntime:
     capability_retriever: CapabilityRetriever
     approval_store: Any
     approval_queue: Any
+    approval_manager: Any
     policy_engine: Any
     server_executor: Any
     tool_broker: Any
     llm_router: LLMRouter
     llm_gateway: LLMGateway
+    prompt_registry: Any
+    settings_resolver: Any
     context_builder: ContextBuilder
     interaction_router: InteractionRouter
     session_manager: SessionManager
     autonomous_loop: Any = None
+    event_manager: Any = None
+    audit_manager: Any = None
+    status_manager: Any = None
+    task_manager: Any = None
+    notification_manager: Any = None
+    memory_manager: Any = None
+    sleep_manager: Any = None
     _lock: threading.RLock | None = None
 
     def start_autonomous_if_enabled(self) -> None:
@@ -220,6 +120,8 @@ def _build_runtime(config: Config) -> AegisRuntime:
     from aegis_ai.audit import AuditLog
     from aegis_ai.llm.factory import create_llm_provider_from_settings
     from aegis_ai.llm.providers.mock import MockLLMProvider
+    from aegis_ai.llm.prompt_registry import PromptRegistry
+    from aegis_ai.llm.settings_resolver import LLMSettingsResolver
     from aegis_ai.settings.store import SettingsStore
 
     base_dir = Path(__file__).resolve().parents[2]
@@ -236,6 +138,37 @@ def _build_runtime(config: Config) -> AegisRuntime:
         approval_validity_ms=config.approval_validity_ms,
     )
     approval_queue = ApprovalQueue(data_dir=os.path.join(data_dir, "approvals"), audit_log=audit_log)
+    from aegis_ai.approval.approval_manager import ApprovalManager
+    from aegis_ai.approval.channels.dashboard import DashboardApprovalChannel
+    from aegis_ai.approval.fanout import ApprovalFanout, ApprovalEvent
+    approval_manager = ApprovalManager(approval_queue=approval_queue, audit_log=audit_log)
+    approval_fanout = ApprovalFanout(audit_log=audit_log)
+    dashboard_approval_channel = DashboardApprovalChannel()
+    approval_fanout.register_channel(dashboard_approval_channel)
+
+    def _on_approval_state_change(event_dict):
+        """Fanout approval events to all channels."""
+        try:
+            req = event_dict.get("request")
+            event = ApprovalEvent.from_request(
+                req,
+                event_type=event_dict.get("event_type", ""),
+                channel=event_dict.get("channel", ""),
+                user=event_dict.get("user", ""),
+            )
+            loop = asyncio.new_event_loop()
+            try:
+                if event_dict.get("event_type") == "created":
+                    loop.run_until_complete(approval_fanout.fanout(event))
+                else:
+                    loop.run_until_complete(approval_fanout.fanout_update(event))
+            finally:
+                loop.close()
+        except Exception:
+            logger.debug("Approval fanout failed", exc_info=True)
+
+    approval_manager.on_state_change(_on_approval_state_change)
+
     policy_engine = PolicyEngine(approval_store=approval_store, data_dir=data_dir)
 
     capability_catalog = CapabilityCatalog(
@@ -263,6 +196,7 @@ def _build_runtime(config: Config) -> AegisRuntime:
         policy_engine=policy_engine,
         audit_log=audit_log,
         approval_queue=approval_queue,
+        approval_manager=approval_manager,
         server_executor=server_executor,
         folder_registry=folder_registry,
         catalog=capability_catalog,
@@ -277,7 +211,15 @@ def _build_runtime(config: Config) -> AegisRuntime:
         llm_router.register_provider("default", provider)
         llm_router.register_provider("mock", MockLLMProvider())
         llm_router.set_default_provider("default")
-    llm_gateway = LLMGateway(llm_router)
+
+    prompt_registry = PromptRegistry(str(base_dir / "config" / "prompts.yaml"))
+    settings_resolver = LLMSettingsResolver(str(base_dir / "config" / "llm.yaml"))
+    llm_gateway = LLMGateway(
+        router=llm_router,
+        settings_resolver=settings_resolver,
+        prompt_registry=prompt_registry,
+        audit_log=audit_log,
+    )
 
     context_builder = ContextBuilder(
         event_bus=event_bus,
@@ -297,6 +239,27 @@ def _build_runtime(config: Config) -> AegisRuntime:
         settings_store=settings_store,
     )
 
+    from aegis_ai.event.event_manager import EventManager
+    from aegis_ai.audit.audit_manager import AuditManager
+    from aegis_ai.status.status_manager import StatusManager
+    from aegis_ai.task.task_manager import TaskManager
+    from aegis_ai.notification.notification_manager import NotificationManager
+    from aegis_ai.memory.memory_manager import MemoryManager
+    from aegis_ai.memory.sleep import SleepManager
+
+    event_manager = EventManager(event_bus=event_bus, data_dir=data_dir)
+    audit_manager = AuditManager(audit_log=audit_log, data_dir=data_dir)
+    status_manager = StatusManager(event_manager=event_manager)
+    task_manager = TaskManager(event_manager=event_manager, audit_manager=audit_manager, data_dir=data_dir)
+    notification_manager = NotificationManager(event_manager=event_manager)
+    memory_manager = MemoryManager(event_manager=event_manager, llm_gateway=llm_gateway)
+    sleep_manager = SleepManager(
+        memory_manager=memory_manager,
+        event_manager=event_manager,
+        audit_manager=audit_manager,
+        llm_gateway=llm_gateway,
+    )
+
     return AegisRuntime(
         config=config,
         data_dir=data_dir,
@@ -310,16 +273,30 @@ def _build_runtime(config: Config) -> AegisRuntime:
         capability_retriever=capability_retriever,
         approval_store=approval_store,
         approval_queue=approval_queue,
+        approval_manager=approval_manager,
         policy_engine=policy_engine,
         server_executor=server_executor,
         tool_broker=tool_broker,
         llm_router=llm_router,
         llm_gateway=llm_gateway,
+        prompt_registry=prompt_registry,
+        settings_resolver=settings_resolver,
         context_builder=context_builder,
         interaction_router=interaction_router,
         session_manager=session_manager,
+        event_manager=event_manager,
+        audit_manager=audit_manager,
+        status_manager=status_manager,
+        task_manager=task_manager,
+        notification_manager=notification_manager,
+        memory_manager=memory_manager,
+        sleep_manager=sleep_manager,
         _lock=threading.RLock(),
     )
+    runtime._dashboard_approval_channel = dashboard_approval_channel
+    runtime._approval_fanout = approval_fanout
+    status_manager.start_background_checks()
+    return runtime
 
 
 def _create_autonomous_loop(runtime: AegisRuntime) -> Any:
