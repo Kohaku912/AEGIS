@@ -532,7 +532,9 @@ class ToolBroker:
         *,
         caller: str = "user-approved",
     ) -> InvokeResult:
-        """Invoke AFTER user approval."""
+        """Invoke AFTER user approval. DEPRECATED: use execute_approved(approval_id) instead."""
+        import warnings
+        warnings.warn("invoke_tool_approved is deprecated. Use execute_approved instead.", DeprecationWarning, stacklevel=2)
         params = params or {}
 
         manifest = self._resolve_manifest(capability_id)

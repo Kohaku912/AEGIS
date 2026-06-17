@@ -380,7 +380,7 @@ class SelfDevAgent:
 
                     self._approval_store.approve(approval_req.approval_id, ApprovalType.ONE_TIME)
                     # Re-invoke with approval
-                    approved_result = self._tool_broker.invoke_tool_approved(capability_id, params)
+                    approved_result = self._tool_broker.execute_approved(approval_req.approval_id)
                     if approved_result.success:
                         return approved_result.output
                     return {"error": approved_result.error, "success": False}

@@ -378,7 +378,7 @@ Audit logs are written to `data/settings_audit.jsonl`.
 - **Test command**: `cd ai-server && pytest`
 
 ### Test Status
-- **Total tests**: 191 passing
+- **Total tests**: 196 passing
 - **Memory system**: 8 tests
 - **Desire system**: 7 tests
 - **Autonomous loop**: 5 tests
@@ -439,7 +439,7 @@ The following operations MUST go through explicit user approval:
 | **Manager Architecture** | ✅ Complete | TaskManager, MemoryManager, SleepManager, EventManager, AuditManager, StatusManager, NotificationManager |
 | **Runtime Integration** | ✅ Complete | Single entry point, all managers wired, _build_runtime post-init fixed |
 | **TaskExecutionEngine** | ✅ Complete | Approval-aware step execution, pause/resume, args hash verification, PromptRegistry/LLMSettingsResolver integration |
-| **E2E Testing** | ✅ Complete | 8 lifecycle tests + 9 execution engine tests covering full approval flow, concurrent operations, all managers |
+| **E2E Testing** | ✅ Complete | 8 lifecycle tests + 14 execution engine tests covering multi-step approval, continuation, plan persistence, args tampering |
 
 ### Architecture Invariants
 
@@ -451,7 +451,7 @@ The following operations MUST go through explicit user approval:
 | **EventManager** | All event publishing through `runtime.event_manager.publish()`. |
 | **StatusManager** | All server status via `runtime.status_manager.get_snapshot()`. No `_check_port()` in routes. |
 | **TaskManager** | AutonomousLoop creates/finishes tasks via TaskManager. Step-level tracking via add_step/update_step_status. |
-| **TaskExecutionEngine** | Step execution, approval pause/resume, cancel/retry all through TaskExecutionEngine. InteractionRouter delegates step execution to it. |
+| **TaskExecutionEngine** | Canonical execution engine. All step execution through execute_task/resume_after_approval/continue_task. InteractionRouter is thin (no step execution). invoke_tool_approved is deprecated. |
 | **AuditManager** | JSONL tail reader only. No `read_all()` in main path. |
 
 ### Key Files
@@ -460,7 +460,7 @@ The following operations MUST go through explicit user approval:
 |------|---------|
 | `ai-server/src/aegis_ai/runtime.py` | Process-wide singleton, builds and wires all managers |
 | `ai-server/src/aegis_ai/task/task_manager.py` | 9-state task lifecycle management with step-level tracking |
-| `ai-server/src/aegis_ai/task/execution_engine.py` | Approval-aware step execution engine (execute, pause, resume, cancel, retry) |
+| `ai-server/src/aegis_ai/task/execution_engine.py` | Canonical execution engine: execute_task, resume_after_approval with continuation, continue_task, cancel, retry |
 | `ai-server/src/aegis_ai/memory/memory_manager.py` | Unified memory entry point, `get_backend()` for backends |
 | `ai-server/src/aegis_ai/memory/sleep.py` | SleepManager for memory consolidation |
 | `ai-server/src/aegis_ai/event/event_manager.py` | Event persistence, cursor queries, dead letter |
