@@ -53,6 +53,22 @@ class PlanStep:
     result: Any = None
     error: str = ""
 
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "step_id": self.step_id,
+            "description": self.description,
+            "action_type": self.action_type,
+            "capability_id": self.capability_id,
+            "params": self.params,
+            "risk_category": self.risk_category.name,
+            "requires_approval": self.requires_approval,
+            "expected_result": self.expected_result,
+            "depends_on": self.depends_on,
+            "status": self.status.name,
+            "result": self.result,
+            "error": self.error,
+        }
+
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> PlanStep:
         risk_str = data.get("risk_category", "READ")
@@ -76,6 +92,8 @@ class PlanStep:
             expected_result=data.get("expected_result", ""),
             depends_on=data.get("depends_on", []),
             status=status,
+            result=data.get("result"),
+            error=data.get("error", ""),
         )
 
 
@@ -153,21 +171,7 @@ class TaskPlan:
             "user_goal": self.user_goal,
             "interpreted_request": self.interpreted_request,
             "assumptions": self.assumptions,
-            "steps": [
-                {
-                    "step_id": s.step_id,
-                    "description": s.description,
-                    "action_type": s.action_type,
-                    "capability_id": s.capability_id,
-                    "params": s.params,
-                    "risk_category": s.risk_category.name,
-                    "requires_approval": s.requires_approval,
-                    "expected_result": s.expected_result,
-                    "depends_on": s.depends_on,
-                    "status": s.status.name,
-                }
-                for s in self.steps
-            ],
+            "steps": [s.to_dict() for s in self.steps],
             "risk_notes": self.risk_notes,
             "approval_needed": self.approval_needed,
             "expected_result": self.expected_result,

@@ -378,7 +378,7 @@ Audit logs are written to `data/settings_audit.jsonl`.
 - **Test command**: `cd ai-server && pytest`
 
 ### Test Status
-- **Total tests**: 198 passing
+- **Total tests**: 210 passing
 - **Memory system**: 8 tests
 - **Desire system**: 7 tests
 - **Autonomous loop**: 5 tests
