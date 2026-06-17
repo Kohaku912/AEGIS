@@ -55,11 +55,17 @@ class ApprovalManager:
         self,
         approval_queue: ApprovalQueue,
         audit_log: Any = None,
+        task_manager: Any = None,
     ) -> None:
         self._queue = approval_queue
         self._audit = audit_log
+        self._task_manager = task_manager
         self._callbacks: list[Callable[[dict[str, Any]], None]] = []
         self._lock = threading.RLock()
+
+        # Register TaskManager callback if provided
+        if task_manager:
+            self.on_state_change(self._task_manager_callback)
 
     # ── Public API ────────────────────────────────────────────
 
@@ -299,3 +305,18 @@ class ApprovalManager:
             )
         except Exception:
             logger.debug("Failed to record approval audit", exc_info=True)
+
+    def _task_manager_callback(self, event: dict[str, Any]) -> None:
+        """Callback to update TaskManager when approval state changes."""
+        if not self._task_manager:
+            return
+
+        task_id = event.get("request", {}).task_id if hasattr(event.get("request", {}), "task_id") else None
+        if not task_id:
+            return
+
+        event_type = event.get("event_type")
+        if event_type == "approved":
+            self._task_manager.resume_after_approval(task_id)
+        elif event_type == "rejected":
+            self._task_manager.fail_task(task_id, error="Approval rejected")

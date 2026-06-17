@@ -96,7 +96,10 @@ class DataExporter:
             manifest.contents.append("settings")
 
         if self._audit:
-            audit_data = self._audit.read_all()
+            if hasattr(self._audit, 'read_all_for_export'):
+                audit_data = self._audit.read_all_for_export()
+            else:
+                audit_data = []
             if redacted:
                 audit_data = [scrub_dict(entry) for entry in audit_data]
             data["audit"] = audit_data
@@ -237,7 +240,10 @@ class DataExporter:
         """Export audit log only."""
         if not self._audit:
             return ""
-        data = self._audit.read_all()
+        if hasattr(self._audit, 'read_all_for_export'):
+            data = self._audit.read_all_for_export()
+        else:
+            data = []
         if redacted:
             data = [scrub_dict(entry) for entry in data]
         json_str = json.dumps(data, ensure_ascii=False, indent=2)

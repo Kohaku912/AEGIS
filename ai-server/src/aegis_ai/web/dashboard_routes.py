@@ -20,10 +20,7 @@ import os
 import inspect
 import ipaddress
 import re
-import socket
 import time
-import urllib.error
-import urllib.request
 from pathlib import Path
 from typing import Any
 
@@ -48,29 +45,8 @@ def _call_llm_with_runtime(call_llm_with_tools, llm, text, system_prompt, *, cat
     return call_llm_with_tools(llm, text, system_prompt, **kwargs)
 
 
-def _check_port(host: str, port: int, timeout: float = 2.0) -> bool:
-    """Check if a port is open."""
-    try:
-        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        s.settimeout(timeout)
-        s.connect((host, port))
-        s.close()
-        return True
-    except Exception:
-        return False
-
-
-def _http_json(url: str, timeout: float = 2.0) -> dict[str, Any] | None:
-    try:
-        with urllib.request.urlopen(url, timeout=timeout) as resp:
-            return json.loads(resp.read().decode("utf-8", errors="replace"))
-    except (OSError, urllib.error.URLError, json.JSONDecodeError):
-        return None
-
-
 def _get_mem_backend(name: str, runtime: Any = None, data_dir: str = "") -> Any:
     """Get a memory backend from runtime.memory_manager."""
-    dd = data_dir or os.path.join(_DATA_DIR, "memory")
     if runtime is None:
         try:
             from aegis_ai.runtime import get_runtime
@@ -78,21 +54,8 @@ def _get_mem_backend(name: str, runtime: Any = None, data_dir: str = "") -> Any:
         except Exception:
             runtime = None
     if runtime and hasattr(runtime, "memory_manager") and runtime.memory_manager:
-        backend = runtime.memory_manager.get_backend(name)
-        if backend is not None:
-            return backend
-    factories = {
-        "advanced": lambda dd=dd: __import__("aegis_ai.memory.advanced", fromlist=["AdvancedMemory"]).AdvancedMemory(data_dir=dd),
-        "episodic": lambda dd=dd: __import__("aegis_ai.memory.episodic_memory", fromlist=["EpisodicMemory"]).EpisodicMemory(path=os.path.join(dd, "episodic.jsonl")),
-        "semantic": lambda dd=dd: __import__("aegis_ai.memory.semantic_memory", fromlist=["SemanticMemory"]).SemanticMemory(path=os.path.join(dd, "semantic.jsonl")),
-        "skill": lambda dd=dd: __import__("aegis_ai.memory.skill_memory", fromlist=["SkillMemory"]).SkillMemory(path=os.path.join(dd, "skills.jsonl")),
-        "lesson": lambda dd=dd: __import__("aegis_ai.memory.lesson_memory", fromlist=["LessonMemory"]).LessonMemory(path=os.path.join(dd, "lessons.jsonl")),
-        "workflow": lambda dd=dd: __import__("aegis_ai.memory.workflow_memory", fromlist=["WorkflowMemory"]).WorkflowMemory(path=os.path.join(dd, "workflows.jsonl")),
-        "experiential": lambda dd=dd: __import__("aegis_ai.memory.experiential", fromlist=["ExperientialMemory"]).ExperientialMemory(data_dir=dd),
-        "person": lambda dd=dd: __import__("aegis_ai.memory.person_memory", fromlist=["PersonMemory"]).PersonMemory(path=os.path.join(dd, "persons.jsonl")),
-    }
-    factory = factories.get(name)
-    return factory() if factory else None
+        return runtime.memory_manager.get_backend(name)
+    return None
 
 
 def _is_local_request_host(value: str | None) -> bool:
@@ -219,26 +182,25 @@ def _runtime_server_status(settings: Any = None, runtime: Any = None) -> dict[st
         recovery_hint="Restart PC Server from an elevated shell."))
 
     browser_expected = bool(getattr(server_settings, "browser_server_enabled", True))
-    browser_raw = snapshot.get("browser-server", {}).get("status", "unknown")
-    browser_ok = browser_raw in ("online", "degraded")
-    browser_health = _http_json("http://127.0.0.1:50053/health") if browser_ok else None
-    browser_degraded = bool(browser_health and browser_health.get("mode") != "full")
-    browser_status = "DEGRADED" if browser_degraded else "ONLINE" if browser_health else ("DEGRADED" if browser_raw == "degraded" else "OFFLINE")
+    browser_snapshot = snapshot.get("browser-server", {})
+    browser_raw = browser_snapshot.get("status", "unknown")
+    browser_status = _STATUS_MAP.get(browser_raw, "OFFLINE")
     if not browser_expected:
         browser_status = "UNCONFIGURED"
+    browser_ok = browser_status in ("ONLINE", "DEGRADED")
     servers.append(_server_entry(
         server_id="browser-server", server_type="Browser", host="localhost", port=50053,
         expected=browser_expected, status=browser_status,
-        registered_capabilities=str(browser_health.get("capabilities", 0)) if browser_health else "0",
-        version=str(browser_health.get("version", "-")) if browser_health else "-",
-        mode=str(browser_health.get("mode", "unavailable")) if browser_health else "unavailable",
-        status_detail="Browser automation is in full mode." if browser_health and not browser_degraded else "Browser Server is running in degraded/fallback mode." if browser_health else "Browser Server is not reachable.",
-        degraded_reason=str(browser_health.get("degraded_reason", "")) if browser_health else "",
-        recovery_hint=str(browser_health.get("recovery_hint", "")) if browser_health else "Start Browser Server with python -m aegis_browser.main.",
-        dependencies={"browser_use": browser_health.get("browser_use_available") if browser_health else False,
-                       "playwright": browser_health.get("playwright_available") if browser_health else False,
-                       "profile_root": browser_health.get("profile_root", "") if browser_health else "",
-                       "profile_name": browser_health.get("profile_name", "") if browser_health else ""}))
+        registered_capabilities=str(browser_snapshot.get("capabilities", 0)),
+        version=str(browser_snapshot.get("version", "-")),
+        mode=str(browser_snapshot.get("mode", "unavailable")),
+        status_detail="Browser automation is in full mode." if browser_ok else "Browser Server is not reachable.",
+        degraded_reason=str(browser_snapshot.get("error", "")) if browser_status == "DEGRADED" else "",
+        recovery_hint="" if browser_ok else "Start Browser Server with python -m aegis_browser.main.",
+        dependencies={"browser_use": browser_snapshot.get("browser_use_available", False),
+                       "playwright": browser_snapshot.get("playwright_available", False),
+                       "profile_root": browser_snapshot.get("profile_root", ""),
+                       "profile_name": browser_snapshot.get("profile_name", "")}))
 
     optional_specs = [
         ("android-server", "Android", 50054, bool(getattr(server_settings, "android_server_enabled", True)), "Connect/start the Android companion server."),
@@ -753,9 +715,10 @@ def _load_memory_snapshot() -> dict[str, Any]:
         logger.warning("Experiential memory load failed: %s", exc)
 
     try:
-        from aegis_ai.memory.action_trace import ActionTraceMemory
-
-        trace_memory = ActionTraceMemory(path=os.path.join(_DATA_DIR, "memory", "action_traces.jsonl"))
+        trace_memory = _get_mem_backend("action_trace")
+        if trace_memory is None:
+            from aegis_ai.memory.action_trace import ActionTraceMemory
+            trace_memory = ActionTraceMemory(path=os.path.join(_DATA_DIR, "memory", "action_traces.jsonl"))
         traces = sorted(
             trace_memory._traces.values(),
             key=lambda item: item.completed_at_ms or item.started_at_ms,
@@ -932,8 +895,10 @@ class DashboardApp:
                     autonomous_data["frustration_threshold"] = loop_status.get("frustration_threshold", 2.0)
                 sm = _get_mem_backend("skill")
                 autonomous_data["skills_count"] = sm.get_stats().get("total", 0) if sm else 0
-                from aegis_ai.memory.action_trace import ActionTraceMemory
-                atm = ActionTraceMemory(path=os.path.join(_DATA_DIR, "memory", "action_traces.jsonl"))
+                atm = _get_mem_backend("action_trace")
+                if atm is None:
+                    from aegis_ai.memory.action_trace import ActionTraceMemory
+                    atm = ActionTraceMemory(path=os.path.join(_DATA_DIR, "memory", "action_traces.jsonl"))
                 autonomous_data["traces_count"] = atm.get_stats().get("total_traces", 0)
             except Exception:
                 pass
@@ -1078,7 +1043,7 @@ class DashboardApp:
         @app.route("/api/capabilities/reload", methods=["POST"])
         def api_capabilities_reload():
             try:
-                result = self._runtime.capability_catalog.reload()
+                result = self._runtime.tool_broker._catalog.reload()
                 if getattr(self._runtime, "capability_index", None) is not None:
                     self._runtime.capability_index.reindex()
                 return jsonify({"ok": True, **result})
@@ -1107,7 +1072,7 @@ class DashboardApp:
                 return jsonify({"error": "capability_id and risk_level required"}), 400
 
             try:
-                catalog = self._runtime.capability_catalog
+                catalog = self._runtime.tool_broker._catalog
                 catalog.reload()
                 manifest = catalog.resolve(cap_id)
                 if not manifest:
@@ -1629,8 +1594,10 @@ class DashboardApp:
             consolidation_data = {"last_str": "-", "count": 0, "interval_hours": 6}
 
             try:
-                from aegis_ai.memory.action_trace import ActionTraceMemory
-                atm = ActionTraceMemory(path=os.path.join(_DATA_DIR, "memory", "action_traces.jsonl"))
+                atm = _get_mem_backend("action_trace")
+                if atm is None:
+                    from aegis_ai.memory.action_trace import ActionTraceMemory
+                    atm = ActionTraceMemory(path=os.path.join(_DATA_DIR, "memory", "action_traces.jsonl"))
                 atm_stats = atm.get_stats()
                 stats_data["total_traces"] = atm_stats.get("total_traces", 0)
                 for t in atm.get_successful(count=10) + atm.get_failed(count=5):
@@ -1866,7 +1833,7 @@ class DashboardApp:
                     llm = self._runtime.llm_gateway
                     system_prompt, memory_meta, _ = _build_chat_system_prompt(text)
 
-                    catalog = self._runtime.capability_catalog
+                    catalog = self._runtime.tool_broker._catalog
                     result = _call_llm_with_runtime(
                         call_llm_with_tools,
                         llm,
@@ -1912,12 +1879,21 @@ class DashboardApp:
             if not text:
                 return jsonify({"error": "No text provided"}), 400
 
+            task_id = None
             try:
+                # Create TaskManager task for chat
+                if hasattr(self._runtime, 'task_manager') and self._runtime.task_manager:
+                    task_id = self._runtime.task_manager.create_task(
+                        title=f"Chat: {text[:50]}",
+                        source="chat",
+                        description=text,
+                    )
+
                 from aegis_ai.web.chat_tools import call_llm_with_tools
                 llm = self._runtime.llm_gateway
                 system_prompt, memory_meta, _ = _build_chat_system_prompt(text)
 
-                catalog = self._runtime.capability_catalog
+                catalog = self._runtime.tool_broker._catalog
                 result = _call_llm_with_runtime(
                     call_llm_with_tools,
                     llm,
@@ -1930,6 +1906,11 @@ class DashboardApp:
 
                 if result.get("needs_user_input"):
                     tool_pending = result.get("pending_context", {})
+                    if task_id:
+                        self._runtime.task_manager.update_step(
+                            task_id, "waiting_user_input", "waiting",
+                            result={"question": result.get("question", "")}
+                        )
                     return jsonify({
                         "needs_user_input": True,
                         "question": result.get("question", ""),
@@ -1945,6 +1926,16 @@ class DashboardApp:
                 response_text = result["response"]
                 tool_results = result["tool_results"]
 
+                # Record tool execution in TaskManager
+                if task_id and tool_results:
+                    for tr in tool_results:
+                        self._runtime.task_manager.update_step(
+                            task_id,
+                            tr.get("function", "unknown"),
+                            "completed" if tr.get("success") else "failed",
+                            result={"output": str(tr.get("result", ""))[:200]}
+                        )
+
                 resp = {"response": response_text}
                 if tool_results:
                     resp["tool_results"] = [
@@ -1953,11 +1944,21 @@ class DashboardApp:
                     ]
 
                 _save_chat(text, response_text)
+
+                # Complete TaskManager task
+                if task_id:
+                    self._runtime.task_manager.complete_task(task_id, result={"response": response_text[:200]})
+
                 return jsonify(resp)
 
             except Exception as e:
                 resp = {"response": f"Error: {str(e)}"}
                 _save_chat(text, resp["response"])
+
+                # Fail TaskManager task
+                if task_id:
+                    self._runtime.task_manager.fail_task(task_id, error=str(e))
+
                 return jsonify(resp)
 
         @app.route("/api/chat/respond", methods=["POST"])
@@ -1987,7 +1988,7 @@ class DashboardApp:
                     follow_up = f"{original_message}\n\nUser answered: {user_response}"
 
                 system_prompt, memory_meta, _ = _build_chat_system_prompt(follow_up)
-                catalog = self._runtime.capability_catalog
+                catalog = self._runtime.tool_broker._catalog
                 result = _call_llm_with_runtime(
                     call_llm_with_tools,
                     llm,
