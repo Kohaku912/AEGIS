@@ -126,6 +126,10 @@ class TaskManager:
             "child_task_ids": [],
             "retry_count": 0,
             "priority": priority,
+            "plan_json": "",
+            "current_step_id": "",
+            "waiting_approval_step_id": "",
+            "waiting_approval_id": "",
         }
         with self._lock:
             self._tasks[task_id] = task
@@ -301,6 +305,52 @@ class TaskManager:
             if task is None:
                 return None
             return self._find_step(task, step_id)
+
+    def save_plan(self, task_id: str, plan_json: str) -> bool:
+        with self._lock:
+            task = self._tasks.get(task_id)
+            if task is None:
+                return False
+            task["plan_json"] = plan_json
+            self._save()
+        return True
+
+    def get_plan_json(self, task_id: str) -> str:
+        with self._lock:
+            task = self._tasks.get(task_id)
+            if task is None:
+                return ""
+            return task.get("plan_json", "")
+
+    def set_waiting_approval(self, task_id: str, step_id: str, approval_id: str) -> bool:
+        with self._lock:
+            task = self._tasks.get(task_id)
+            if task is None:
+                return False
+            task["waiting_approval_step_id"] = step_id
+            task["waiting_approval_id"] = approval_id
+            task["current_step_id"] = step_id
+            self._save()
+        return True
+
+    def get_waiting_approval_info(self, task_id: str) -> dict[str, str]:
+        with self._lock:
+            task = self._tasks.get(task_id)
+            if task is None:
+                return {}
+            return {
+                "step_id": task.get("waiting_approval_step_id", ""),
+                "approval_id": task.get("waiting_approval_id", ""),
+            }
+
+    def set_current_step(self, task_id: str, step_id: str) -> bool:
+        with self._lock:
+            task = self._tasks.get(task_id)
+            if task is None:
+                return False
+            task["current_step_id"] = step_id
+            self._save()
+        return True
 
     # ── Internal ──────────────────────────────────────────────
 

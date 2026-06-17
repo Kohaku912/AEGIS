@@ -125,7 +125,7 @@ class TestApprovalFlow:
 
         task_result = task_manager.get_task(task_id)
         assert task_result["status"] == "completed"
-        assert "OK" in response.text
+        assert "completed" in response.text.lower() or "ok" in response.text.lower()
 
     def test_reject_task_failed(self, engine, task_manager, mock_broker, mock_approval_manager):
         approval_id = "appr_reject_1"

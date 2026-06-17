@@ -1,11 +1,9 @@
-"""Interaction Router — Beta version with LLM Task Interpreter.
+# -*- coding: utf-8 -*-
+'''Interaction Router - LLM Task Interpreter + TaskExecutionEngine.
 
 Routes user messages through LLM Task Interpreter.
-The LLM understands natural language and produces structured TaskPlans
-that are validated by Planner and executed through ToolBroker.
-
-Architecture: docs/beta-architecture.md
-"""
+All step execution is delegated to TaskExecutionEngine.
+'''
 
 from __future__ import annotations
 
@@ -16,29 +14,22 @@ from typing import Any
 
 from aegis_ai.interaction.message import Message, Response
 from aegis_ai.llm_task_interpreter import LLMTaskInterpreter
-from aegis_ai.task_plan import RiskCategory, StepStatus, TaskPlan
+from aegis_ai.task_plan import RiskCategory, TaskPlan
 
 logger = logging.getLogger("aegis_ai.interaction.router")
 
 
 class InteractionRouter:
-    """Routes user messages using LLM Task Interpreter.
+    '''Routes user messages using LLM Task Interpreter.
 
-    Flow:
-    1. User message → LLM Task Interpreter → TaskPlan
-    2. TaskPlan → Planner validation → PolicyEngine check
-    3. Steps → ToolBroker execution (or Approval UI)
-    4. Results → Response to user
+    Responsibilities (thin router):
+    1. LLM interprets user message -> TaskPlan
+    2. Task creation via TaskManager
+    3. Delegation to TaskExecutionEngine for step execution
+    4. Response formatting
 
-    Usage:
-        router = InteractionRouter(
-            llm_provider=llm,
-            context_builder=ctx,
-            tool_broker=broker,
-            approval_store=approvals,
-        )
-        response = router.route(message)
-    """
+    Does NOT execute steps directly.
+    '''
 
     def __init__(
         self,
@@ -73,11 +64,9 @@ class InteractionRouter:
         self._settings = settings_store
         self._task_manager = task_manager
         self._execution_engine = execution_engine
-
         self._interpreter: LLMTaskInterpreter | None = None
 
     def _get_interpreter(self) -> LLMTaskInterpreter:
-        """Get or create LLM Task Interpreter."""
         if self._interpreter is None:
             self._interpreter = LLMTaskInterpreter(
                 llm_provider=self._llm,
@@ -89,178 +78,75 @@ class InteractionRouter:
         return self._interpreter
 
     def route(self, message: Message) -> Response:
-        """Route a user message through LLM Task Interpreter."""
         now_ms = int(time.time() * 1000)
-
         response = Response(
-            response_id=f"resp_{uuid.uuid4().hex[:8]}",
+            response_id=f'resp_{uuid.uuid4().hex[:8]}',
             message_id=message.message_id,
             channel=message.channel,
             timestamp_ms=now_ms,
         )
-
         try:
-            # Main path: LLM Task Interpreter. User intent is interpreted by the LLM.
             return self._handle_llm_interpreted(message, response)
-
         except Exception as e:
             logger.error("Interaction routing failed: %s", e)
-            response.text = f"Sorry, something went wrong: {e}"
-
-        # Audit
+            response.text = f'Sorry, something went wrong: {e}'
         if self._audit:
             self._audit.log_decision(
                 "interaction", "route", "HANDLED",
                 detail={"channel": message.channel.name, "text": message.text[:100]},
             )
-
         return response
 
     def _handle_llm_interpreted(self, message: Message, response: Response) -> Response:
-        """Main handler: LLM interprets → TaskPlan → execute."""
         interpreter = self._get_interpreter()
         plan = interpreter.interpret(message.text)
-
-        # Execute the plan
         return self._execute_plan(plan, response)
 
     def _execute_plan(self, plan: TaskPlan, response: Response) -> Response:
-        """Execute a TaskPlan via TaskExecutionEngine."""
         task_id = None
         try:
             if self._task_manager:
                 task = self._task_manager.create_task(
-                    title=f"Router: {plan.interpreted_request[:50]}",
+                    title=f'Router: {plan.interpreted_request[:50]}',
                     source="router",
                     goal=plan.interpreted_request,
                 )
                 task_id = task["task_id"]
                 self._task_manager.start_task(task_id)
-
             if not plan.steps and not plan.interpreted_request:
                 response.text = plan.expected_result or "I need an LLM provider to understand your request."
                 if task_id:
                     self._task_manager.fail_task(task_id, error="LLM provider not available")
                 return response
-
             if plan.has_blocked_steps():
                 blocked = [s for s in plan.steps if s.risk_category == RiskCategory.BLOCKED]
                 reasons = [s.description for s in blocked]
-                response.text = f"Some actions are blocked: {', '.join(reasons)}"
+                response.text = "Some actions are blocked: " + ", ".join(reasons)
                 if task_id:
-                    self._task_manager.fail_task(task_id, error=f"Blocked: {', '.join(reasons)}")
+                    self._task_manager.fail_task(task_id, error="Blocked: " + ", ".join(reasons))
                 return response
-
-            if self._execution_engine and task_id:
-                exec_response = self._execution_engine.execute_task(task_id, plan)
-                response.text = exec_response.text
+            if not self._execution_engine:
+                response.text = "Execution engine not available."
+                if task_id:
+                    self._task_manager.fail_task(task_id, error="Execution engine not available")
                 return response
-
-            results = []
-            for step in plan.steps:
-                if step.status != StepStatus.PENDING:
-                    continue
-                if step.depends_on:
-                    deps_met = all(
-                        any(s.step_id == dep and s.status == StepStatus.COMPLETED for s in plan.steps)
-                        for dep in step.depends_on
-                    )
-                    if not deps_met:
-                        continue
-                step_result = self._execute_step_fallback(step, plan)
-                results.append(step_result)
-
-            response.text = "\n".join(results) or plan.expected_result or "No actions to execute."
-
-            if task_id:
-                has_failures = any(s.status == StepStatus.FAILED for s in plan.steps)
-                if has_failures:
-                    self._task_manager.fail_task(task_id, error="Some steps failed")
-                else:
-                    self._task_manager.complete_task(task_id, result_summary=response.text[:200])
-
+            exec_response = self._execution_engine.execute_task(task_id, plan)
+            response.text = exec_response.text
             return response
-
         except Exception as e:
             logger.error("Plan execution failed: %s", e)
-            response.text = f"Sorry, plan execution failed: {e}"
+            response.text = f'Sorry, plan execution failed: {e}'
             if task_id:
                 self._task_manager.fail_task(task_id, error=str(e))
             return response
 
-    def _execute_step_fallback(self, step: Any, plan: TaskPlan) -> str:
-        """Fallback step execution when TaskExecutionEngine is not available."""
-        if step.action_type.startswith("browser_") and self._broker:
-            try:
-                task_desc = step.description
-                if step.params.get("url"):
-                    task_desc = f"Go to {step.params['url']} and {step.description}"
-                result = self._broker.invoke_tool(
-                    "browser-server.page.browse", {"task": task_desc}, caller="interaction-router",
-                )
-                if result.success:
-                    step.status = StepStatus.COMPLETED
-                    step.result = result.output
-                    output = result.output or {}
-                    return str(output.get("result") or output.get("content") or output)
-                step.status = StepStatus.FAILED
-                step.error = result.error
-                return f"[FAIL] {step.description}: {result.error}"
-            except Exception as e:
-                step.status = StepStatus.FAILED
-                return f"[ERROR] Browser: {e}"
-
-        if step.action_type == "tool_invoke" and step.capability_id and self._broker:
-            try:
-                result = self._broker.invoke_tool(step.capability_id, step.params)
-                if result.success:
-                    step.status = StepStatus.COMPLETED
-                    step.result = result.output
-                    return f"[OK] {step.description}"
-                elif result.status.name == "APPROVAL_NEEDED":
-                    step.status = StepStatus.NEEDS_APPROVAL
-                    return f"[APPROVAL] {step.description} — needs approval"
-                step.status = StepStatus.FAILED
-                step.error = result.error
-                return f"[FAIL] {step.description}: {result.error}"
-            except Exception as e:
-                step.status = StepStatus.FAILED
-                return f"[ERROR] {step.description}: {e}"
-
-        if step.action_type.startswith("llm_") and self._llm:
-            try:
-                prompt = step.description
-                if step.params.get("content"):
-                    prompt = f"{step.description}\n\nContent:\n{step.params['content']}"
-                result = self._llm.generate(
-                    prompt=prompt,
-                    system_prompt="You are AEGIS. Perform the requested analysis concisely.",
-                    max_tokens=1000,
-                )
-                if result.success:
-                    step.status = StepStatus.COMPLETED
-                    step.result = result.content
-                    return result.content
-                step.status = StepStatus.FAILED
-                return f"[FAIL] {step.description}: {result.error}"
-            except Exception as e:
-                step.status = StepStatus.FAILED
-                return f"[ERROR] {step.description}: {e}"
-
-        return f"[INFO] {step.description}"
-
     def _handle_status(self, response: Response) -> Response:
-        """Handle status check."""
-        response.text = (
-            "AEGIS is running. Use the Dashboard for detailed status:\n"
-            "http://0.0.0.0:8090"
-        )
+        response.text = "AEGIS is running. Use the Dashboard for detailed status:\nhttp://0.0.0.0:8090"
         return response
 
     def _handle_help(self, response: Response) -> Response:
-        """Handle help request."""
         response.text = (
-            "I'm AEGIS, your autonomous AI assistant. I can:\n"
+            "I am AEGIS, your autonomous AI assistant. I can:\n"
             "- Research topics and browse the web\n"
             "- Read and summarize your messages (SNS, email)\n"
             "- Create drafts for posts and replies\n"
@@ -270,18 +156,13 @@ class InteractionRouter:
         return response
 
     def _handle_settings(self, response: Response) -> Response:
-        """Handle settings request."""
         if self._settings:
-            response.text = (
-                "Settings:\n"
-                "- Dashboard: http://0.0.0.0:8090"
-            )
+            response.text = "Settings:\n- Dashboard: http://0.0.0.0:8090"
         else:
             response.text = "Settings not available."
         return response
 
     def _handle_approval(self, message: Message, response: Response) -> Response:
-        """Handle approval request."""
         if self._approval:
             pending = self._approval.get_pending()
             if pending:
@@ -293,12 +174,11 @@ class InteractionRouter:
         return response
 
     def _handle_support_feedback(self, message: Message, response: Response) -> Response:
-        """Handle support feedback."""
         text_lower = message.text.lower()
         if any(w in text_lower for w in ["accept", "yes", "ok", "thanks"]):
             response.text = "Thank you for the feedback!"
         elif any(w in text_lower for w in ["reject", "no"]):
-            response.text = "Understood. I'll adjust."
+            response.text = "Understood. I will adjust."
         else:
             response.text = "Could you clarify your feedback?"
         return response
