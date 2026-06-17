@@ -272,6 +272,14 @@ def _build_runtime(config: Config) -> AegisRuntime:
     status_manager = StatusManager(event_manager=event_manager)
     task_manager = TaskManager(event_manager=event_manager, audit_manager=audit_manager, data_dir=data_dir)
     notification_manager = NotificationManager(event_manager=event_manager)
+
+    # Wire TaskManager to InteractionRouter
+    interaction_router._task_manager = task_manager
+
+    # Wire TaskManager to ApprovalManager
+    approval_manager._task_manager = task_manager
+    approval_manager.on_state_change(approval_manager._task_manager_callback)
+
     memory_manager = MemoryManager(
         advanced_memory=advanced_memory,
         episodic_memory=episodic_memory,
@@ -349,6 +357,9 @@ def _create_autonomous_loop(runtime: AegisRuntime) -> Any:
     action_trace = ActionTraceMemory(path=os.path.join(memory_dir, "action_traces.jsonl"))
     association_mem = AssociationMemory(path=os.path.join(memory_dir, "associations.jsonl"))
 
+    # Wire action_trace to MemoryManager
+    mm._action_trace = action_trace
+
     advanced_memory = mm.get_backend("advanced")
     experiential = mm.get_backend("experiential")
     lesson_mem = mm.get_backend("lesson")
@@ -405,4 +416,22 @@ def _create_autonomous_loop(runtime: AegisRuntime) -> Any:
             data_dir=os.path.join(data_dir, "autonomous"),
         )
     )
+
+    # Wire SleepManager to SleepConsolidationSystem
+    from aegis_ai.memory.sleep_consolidation import SleepConsolidationSystem
+    consolidation_system = SleepConsolidationSystem(
+        episodic=episodic_mem,
+        semantic=semantic_mem,
+        person=person_mem,
+        association=association_mem,
+        experiential=experiential,
+        action_trace=action_trace,
+        lesson=lesson_mem,
+        workflow=workflow_mem,
+        skill=skill_mem,
+        llm=runtime.llm_gateway,
+        data_dir=memory_dir,
+    )
+    runtime.sleep_manager._consolidation_system = consolidation_system
+
     return loop

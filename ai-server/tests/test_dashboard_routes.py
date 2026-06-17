@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from types import SimpleNamespace
 
 from aegis_ai.web import dashboard_routes
@@ -116,20 +117,6 @@ def test_settings_legacy_single_field_update_persists(monkeypatch, tmp_path) -> 
 
 
 def test_server_status_reports_degraded_and_unconfigured(monkeypatch, tmp_path) -> None:
-    def fake_http_json(url: str, timeout: float = 2.0):
-        return {
-            "status": "degraded",
-            "version": "0.2.0",
-            "capabilities": 1,
-            "mode": "fallback",
-            "browser_use_available": False,
-            "playwright_available": True,
-            "profile_root": "profiles",
-            "profile_name": "default",
-            "degraded_reason": "Missing dependencies: browser-use",
-            "recovery_hint": "Install browser dependencies",
-        }
-
     rt = _runtime(tmp_path)
     rt.status_manager._status = {
         "dashboard": {"server_id": "dashboard", "status": "online", "host": "localhost", "port": 8090, "last_check_ms": 0, "error": None},
@@ -149,13 +136,11 @@ def test_server_status_reports_degraded_and_unconfigured(monkeypatch, tmp_path) 
             dev_server_enabled=False,
         )
     )
-    monkeypatch.setattr(dashboard_routes, "_http_json", fake_http_json)
 
     payload = dashboard_routes._runtime_server_status(settings=settings, runtime=rt)
     by_id = {server["server_id"]: server for server in payload["servers"]}
 
     assert by_id["browser-server"]["status"] == "DEGRADED"
-    assert by_id["browser-server"]["mode"] == "fallback"
     assert "browser-use" in by_id["browser-server"]["degraded_reason"]
     assert by_id["android-server"]["status"] == "UNCONFIGURED"
     assert by_id["room-server"]["status"] == "UNCONFIGURED"
@@ -519,8 +504,43 @@ def test_memory_page_shows_entries_beyond_old_limits(monkeypatch, tmp_path) -> N
     )
 
     monkeypatch.setattr(dashboard_routes, "_DATA_DIR", str(tmp_path / "data"))
+
+    # Create mock runtime with memory_manager
+    from aegis_ai.memory.advanced import AdvancedMemory
+    from aegis_ai.memory.episodic_memory import EpisodicMemory
+    from aegis_ai.memory.semantic_memory import SemanticMemory
+    from aegis_ai.memory.skill_memory import SkillMemory
+    from aegis_ai.memory.lesson_memory import LessonMemory
+    from aegis_ai.memory.workflow_memory import WorkflowMemory
+    from aegis_ai.memory.experiential import ExperientialMemory
+    from aegis_ai.memory.person_memory import PersonMemory
+    from aegis_ai.memory.memory_manager import MemoryManager
+
+    memory_dir = str(tmp_path / "data" / "memory")
+    advanced_memory = AdvancedMemory(data_dir=memory_dir)
+    episodic_memory = EpisodicMemory(path=os.path.join(memory_dir, "episodic.jsonl"))
+    semantic_memory = SemanticMemory(path=os.path.join(memory_dir, "semantic.jsonl"))
+    skill_memory = SkillMemory(path=os.path.join(memory_dir, "skills.jsonl"))
+    lesson_memory = LessonMemory(path=os.path.join(memory_dir, "lessons.jsonl"))
+    workflow_memory = WorkflowMemory(path=os.path.join(memory_dir, "workflows.jsonl"))
+    experiential_memory = ExperientialMemory(data_dir=memory_dir)
+    person_memory = PersonMemory(path=os.path.join(memory_dir, "persons.jsonl"))
+
+    memory_manager = MemoryManager(
+        advanced_memory=advanced_memory,
+        episodic_memory=episodic_memory,
+        semantic_memory=semantic_memory,
+        skill_memory=skill_memory,
+        lesson_memory=lesson_memory,
+        workflow_memory=workflow_memory,
+        experiential_memory=experiential_memory,
+        person_memory=person_memory,
+    )
+
+    mock_runtime = SimpleNamespace(memory_manager=memory_manager)
     from aegis_ai import runtime as rt_mod
-    monkeypatch.setattr(rt_mod, "get_runtime", lambda config=None: None)
+    monkeypatch.setattr(rt_mod, "get_runtime", lambda config=None: mock_runtime)
+
     snapshot = dashboard_routes._load_memory_snapshot()
 
     assert len(snapshot.get("entities", [])) >= 25

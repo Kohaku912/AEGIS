@@ -49,12 +49,14 @@ class SleepManager:
         event_manager: Any = None,
         audit_manager: Any = None,
         llm_gateway: Any = None,
+        consolidation_system: Any = None,
         idle_threshold_s: float = 3600.0,
     ) -> None:
         self._memory_manager = memory_manager
         self._event_manager = event_manager
         self._audit_manager = audit_manager
         self._llm = llm_gateway
+        self._consolidation_system = consolidation_system
         self._idle_threshold = idle_threshold_s
 
         self._state = SleepState.IDLE
@@ -150,6 +152,13 @@ class SleepManager:
             if self._memory_manager is not None:
                 merged = self._memory_manager.deduplicate()
                 summary["memories_merged"] = merged
+
+            # Run full consolidation pipeline if available
+            if self._consolidation_system is not None:
+                consolidation_results = self._consolidation_system.consolidate()
+                summary["consolidation"] = consolidation_results
+                summary["lessons_extracted"] = consolidation_results.get("lessons_extracted", 0)
+                summary["memories_archived"] = consolidation_results.get("episodes_summarized", 0)
 
             self._last_summary = summary
         except Exception as e:

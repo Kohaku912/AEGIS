@@ -145,6 +145,13 @@ class AuditManager:
             "action_counts": action_counts,
         }
 
+    def read_all_for_export(self, max_entries: int = 50000) -> list[dict[str, Any]]:
+        """Read all audit entries for export purposes.
+
+        Uses tail reader with large limit to avoid loading entire file.
+        """
+        return self._read_tail(max_entries)
+
     # ── Rotation ──────────────────────────────────────────────
 
     def rotate(self) -> int:

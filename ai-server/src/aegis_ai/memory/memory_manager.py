@@ -55,6 +55,7 @@ class MemoryManager:
         experiential_memory: Any = None,
         person_memory: Any = None,
         memory_store: Any = None,
+        action_trace: Any = None,
         llm_gateway: Any = None,
         event_manager: Any = None,
     ) -> None:
@@ -67,6 +68,7 @@ class MemoryManager:
         self._experiential = experiential_memory
         self._person = person_memory
         self._store = memory_store
+        self._action_trace = action_trace
         self._llm = llm_gateway
         self._event_manager = event_manager
         self._lock = threading.Lock()
@@ -252,6 +254,7 @@ class MemoryManager:
             "experiential": self._experiential,
             "person": self._person,
             "store": self._store,
+            "action_trace": self._action_trace,
         }
         return mapping.get(name)
 

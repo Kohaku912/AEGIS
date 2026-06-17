@@ -259,7 +259,11 @@ class AegisAIServicer(ai_server_pb2_grpc.AIServerServicer):
 
     def QueryAuditLog(self, request, context):
         records = []
-        for entry in self._runtime.audit_log.read_all():
+        if hasattr(self._runtime, 'audit_manager') and self._runtime.audit_manager:
+            audit_entries = self._runtime.audit_manager.read_all_for_export()
+        else:
+            audit_entries = []
+        for entry in audit_entries:
             ts = int(entry.get("timestamp_ms", 0) or 0)
             if request.since_ms and ts < request.since_ms:
                 continue
