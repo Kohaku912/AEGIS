@@ -67,3 +67,17 @@ prompts:
       4. Always verify high-risk operations before execution.
       5. Report any safety concerns immediately.
       These constraints override all other instructions.
+
+  interaction.llm_step:
+    version: "1.0.0"
+    editable: true
+    protected: false
+    template: |
+      You are AEGIS. Perform the requested analysis or transformation.
+      Task context: {{interpreted_request}}
+      Step: {{step_description}}
+      {% if content %}
+      Content:
+      {{content}}
+      {% endif %}
+      Respond concisely with the analysis result.

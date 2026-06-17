@@ -65,7 +65,7 @@ class TestE2ELifecycle:
         tm.start_task(task_id)
         assert tm.get_task(task_id)["status"] == "running"
 
-        tm.wait_for_approval(task_id, "appr_e2e_001")
+        tm.wait_for_approval(task_id, approval_id="appr_e2e_001")
         assert tm.get_task(task_id)["status"] == "waiting_approval"
         assert tm.get_task(task_id)["related_approval_id"] == "appr_e2e_001"
 
@@ -91,7 +91,7 @@ class TestE2ELifecycle:
         task = tm.create_task(title="Delete production data", source="user")
         task_id = task["task_id"]
         tm.start_task(task_id)
-        tm.wait_for_approval(task_id, "appr_e2e_002")
+        tm.wait_for_approval(task_id, approval_id="appr_e2e_002")
 
         tm.cancel_task(task_id, reason="approval rejected")
         assert tm.get_task(task_id)["status"] == "cancelled"

@@ -116,6 +116,7 @@ class InvokeStatus(Enum):
 class ToolExecutionRequest:
     request_id: str = ""
     task_id: str = ""
+    step_id: str = ""
     source: ExecutionSource = ExecutionSource.SYSTEM
     capability_id: str = ""
     tool_name: str = ""

@@ -50,6 +50,15 @@ _VALID_TRANSITIONS: dict[str, set[str]] = {
     "expired": set(),
 }
 
+_VALID_STEP_TRANSITIONS: dict[str, set[str]] = {
+    "pending": {"running", "needs_approval", "cancelled"},
+    "running": {"completed", "failed", "needs_approval", "cancelled"},
+    "needs_approval": {"running", "cancelled", "failed"},
+    "completed": set(),
+    "failed": {"pending"},
+    "cancelled": set(),
+}
+
 
 class TaskManager:
     """Centralized task lifecycle management.
@@ -141,17 +150,35 @@ class TaskManager:
             self._save()
         return task
 
-    def wait_for_approval(self, task_id: str, approval_id: str) -> dict[str, Any] | None:
-        """Transition to waiting_approval and link approval."""
+    def wait_for_approval(self, task_id: str, step_id: str = "", approval_id: str = "") -> dict[str, Any] | None:
+        """Transition to waiting_approval and link approval.
+
+        If step_id is provided, also marks that step as needs_approval.
+        """
         with self._lock:
             task = self._tasks.get(task_id)
             if task is None:
                 return None
             task["related_approval_id"] = approval_id
+            if step_id:
+                step = self._find_step(task, step_id)
+                if step is not None:
+                    step["status"] = "needs_approval"
+                    step["approval_id"] = approval_id
         return self._transition(task_id, TaskStatus.WAITING_APPROVAL)
 
-    def resume_after_approval(self, task_id: str) -> dict[str, Any] | None:
-        """Resume task after approval granted."""
+    def resume_after_approval(self, task_id: str, step_id: str = "") -> dict[str, Any] | None:
+        """Resume task after approval granted.
+
+        If step_id is provided, also marks that step as running.
+        """
+        with self._lock:
+            task = self._tasks.get(task_id)
+            if task is not None and step_id:
+                step = self._find_step(task, step_id)
+                if step is not None:
+                    step["status"] = "running"
+                    self._save()
         return self._transition(task_id, TaskStatus.RUNNING)
 
     def complete_task(self, task_id: str, result_summary: str = "") -> dict[str, Any] | None:
@@ -201,7 +228,87 @@ class TaskManager:
         """List tasks waiting for approval."""
         return self.list_tasks(status=TaskStatus.WAITING_APPROVAL.value)
 
+    # ── Step-level API ─────────────────────────────────────────
+
+    def add_step(
+        self,
+        task_id: str,
+        step_id: str,
+        step_name: str = "",
+        capability_id: str = "",
+    ) -> dict[str, Any] | None:
+        """Add a step to a task's step list.
+
+        Returns the created step dict, or None if task not found.
+        """
+        with self._lock:
+            task = self._tasks.get(task_id)
+            if task is None:
+                return None
+            if self._find_step(task, step_id) is not None:
+                return self._find_step(task, step_id)
+            step = {
+                "step_id": step_id,
+                "name": step_name,
+                "capability_id": capability_id,
+                "status": "pending",
+                "result": None,
+                "error": "",
+                "approval_id": "",
+                "created_at": int(time.time() * 1000),
+                "updated_at": int(time.time() * 1000),
+            }
+            task["steps"].append(step)
+            self._save()
+        return step
+
+    def update_step_status(
+        self,
+        task_id: str,
+        step_id: str,
+        status: str,
+        result: Any = None,
+        error: str = "",
+    ) -> dict[str, Any] | None:
+        """Update a step's status within a task.
+
+        Returns the updated step dict, or None if not found.
+        """
+        with self._lock:
+            task = self._tasks.get(task_id)
+            if task is None:
+                return None
+            step = self._find_step(task, step_id)
+            if step is None:
+                return None
+            current = step["status"]
+            if status not in _VALID_STEP_TRANSITIONS.get(current, set()):
+                logger.warning("Invalid step transition: %s -> %s", current, status)
+                return None
+            step["status"] = status
+            step["updated_at"] = int(time.time() * 1000)
+            if result is not None:
+                step["result"] = result
+            if error:
+                step["error"] = error
+            self._save()
+        return step
+
+    def get_step(self, task_id: str, step_id: str) -> dict[str, Any] | None:
+        """Get a specific step from a task."""
+        with self._lock:
+            task = self._tasks.get(task_id)
+            if task is None:
+                return None
+            return self._find_step(task, step_id)
+
     # ── Internal ──────────────────────────────────────────────
+
+    def _find_step(self, task: dict[str, Any], step_id: str) -> dict[str, Any] | None:
+        for step in task.get("steps", []):
+            if step.get("step_id") == step_id:
+                return step
+        return None
 
     def _transition(self, task_id: str, new_status: TaskStatus) -> dict[str, Any] | None:
         with self._lock:

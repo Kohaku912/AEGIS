@@ -15,6 +15,7 @@ from aegis_ai.approval.approval_types import (
     ApprovalRequest,
     _generate_user_facing_summary,
     _summarize_arguments,
+    compute_args_hash,
 )
 
 logger = logging.getLogger("aegis_ai.approval.approval_queue")
@@ -65,6 +66,7 @@ class ApprovalQueue:
         source_desire = getattr(tool_request, "source_desire", "")
         frustration = getattr(tool_request, "frustration", 0.0)
         task_id = getattr(tool_request, "task_id", "")
+        step_id = getattr(tool_request, "step_id", "")
         risk_level = getattr(tool_request, "risk_level", None)
         risk_name = risk_level.name.lower() if hasattr(risk_level, "name") else "medium"
         policy_reason = getattr(policy_result, "reason", "") if policy_result else ""
@@ -76,6 +78,7 @@ class ApprovalQueue:
             approval_id=f"appr_{uuid.uuid4().hex[:10]}",
             request_id=request_id,
             task_id=task_id,
+            step_id=step_id,
             source=source_val,
             source_desire=source_desire,
             frustration=frustration,
@@ -83,6 +86,9 @@ class ApprovalQueue:
             tool_name=tool_name,
             arguments=dict(arguments),
             arguments_summary=_summarize_arguments(arguments),
+            tool_args_hash=compute_args_hash(arguments),
+            resume_token=uuid.uuid4().hex[:16],
+            created_from=source_val,
             risk_level=risk_name,
             policy_decision="ASK_APPROVAL",
             approval_reason=policy_reason,

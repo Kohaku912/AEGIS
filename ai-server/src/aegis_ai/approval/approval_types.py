@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import re
 import time
+import uuid
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
@@ -82,11 +85,18 @@ _EXPIRY_BY_RISK: dict[str, int] = {
 }
 
 
+def compute_args_hash(arguments: dict[str, Any]) -> str:
+    """Compute SHA-256 hash of tool arguments for tamper detection."""
+    canonical = json.dumps(arguments, sort_keys=True, ensure_ascii=False)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
 @dataclass
 class ApprovalRequest:
     approval_id: str = ""
     request_id: str = ""
     task_id: str = ""
+    step_id: str = ""
     source: str = ""
     source_desire: str = ""
     frustration: float = 0.0
@@ -94,6 +104,9 @@ class ApprovalRequest:
     tool_name: str = ""
     arguments: dict[str, Any] = field(default_factory=dict)
     arguments_summary: str = ""
+    tool_args_hash: str = ""
+    resume_token: str = ""
+    created_from: str = ""
     risk_level: str = ""
     policy_decision: str = ""
     approval_reason: str = ""
@@ -113,12 +126,16 @@ class ApprovalRequest:
             "approval_id": self.approval_id,
             "request_id": self.request_id,
             "task_id": self.task_id,
+            "step_id": self.step_id,
             "source": self.source,
             "source_desire": self.source_desire,
             "frustration": self.frustration,
             "capability_id": self.capability_id,
             "tool_name": self.tool_name,
             "arguments_summary": self.arguments_summary,
+            "tool_args_hash": self.tool_args_hash,
+            "resume_token": self.resume_token,
+            "created_from": self.created_from,
             "risk_level": self.risk_level,
             "policy_decision": self.policy_decision,
             "approval_reason": self.approval_reason,

@@ -54,6 +54,15 @@ profiles:
     timeout_seconds: 120
     max_tool_rounds: 5
 
+  task_analysis:
+    provider: "openai"
+    model: "deepseek-v4-flash"
+    max_tokens: 2048
+    temperature: 0.3
+    reasoning_level: "medium"
+    timeout_seconds: 30
+    max_tool_rounds: 3
+
 safety:
   allowed_models:
     - "deepseek-v4-flash"
