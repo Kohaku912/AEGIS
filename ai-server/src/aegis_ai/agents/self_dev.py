@@ -95,7 +95,7 @@ class SelfDevAgent:
         approval_store: Any = None,
     ) -> None:
         self._tool_broker = tool_broker
-        self._audit = audit_log or AuditLog()
+        self._audit = audit_log
         self._reflection = reflection_log
         self._approval_store = approval_store
         self._last_result: SelfDevResult | None = None

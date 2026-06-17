@@ -20,16 +20,9 @@ _DATA_DIR = str(Path(__file__).resolve().parent.parent.parent.parent / "data")
 
 
 def get_catalog():
-    try:
-        from aegis_ai.runtime import get_runtime
+    from aegis_ai.runtime import get_runtime
 
-        return get_runtime().capability_catalog
-    except Exception:
-        pass
-    from aegis_ai.capability_catalog import CapabilityCatalog
-    caps_dir = str(Path(_DATA_DIR).parent / "capabilities")
-    apps_dir = str(Path(_DATA_DIR).parent / "apps")
-    return CapabilityCatalog(capabilities_dir=caps_dir, apps_dir=apps_dir)
+    return get_runtime().capability_catalog
 
 
 def get_tools_for_chat(

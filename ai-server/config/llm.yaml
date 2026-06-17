@@ -1,0 +1,65 @@
+version: "1.0.0"
+profiles:
+  chat_balanced:
+    provider: "openai"
+    model: "deepseek-v4-flash"
+    max_tokens: 4096
+    temperature: 0.7
+    reasoning_level: "medium"
+    timeout_seconds: 30
+    max_tool_rounds: 5
+  
+  tool_planning:
+    provider: "openai"
+    model: "deepseek-v4-flash"
+    max_tokens: 2048
+    temperature: 0.3
+    reasoning_level: "high"
+    timeout_seconds: 60
+    max_tool_rounds: 10
+  
+  json_generation:
+    provider: "openai"
+    model: "deepseek-v4-flash"
+    max_tokens: 4096
+    temperature: 0.1
+    reasoning_level: "medium"
+    timeout_seconds: 30
+    max_tool_rounds: 3
+  
+  long_answer:
+    provider: "openai"
+    model: "deepseek-v4-flash"
+    max_tokens: 8192
+    temperature: 0.7
+    reasoning_level: "medium"
+    timeout_seconds: 60
+    max_tool_rounds: 5
+  
+  vision_observation:
+    provider: "openai"
+    model: "deepseek-v4-flash"
+    max_tokens: 1024
+    temperature: 0.5
+    reasoning_level: "low"
+    timeout_seconds: 30
+    max_tool_rounds: 3
+  
+  self_development:
+    provider: "openai"
+    model: "deepseek-v4-flash"
+    max_tokens: 4096
+    temperature: 0.5
+    reasoning_level: "high"
+    timeout_seconds: 120
+    max_tool_rounds: 5
+
+safety:
+  allowed_models:
+    - "deepseek-v4-flash"
+    - "deepseek-v3"
+    - "gpt-4o"
+    - "gpt-4o-mini"
+  max_tokens_upper_bound: 128000
+  max_temperature: 2.0
+  min_temperature: 0.0

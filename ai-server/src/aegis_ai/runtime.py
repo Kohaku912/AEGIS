@@ -364,6 +364,7 @@ def _create_autonomous_loop(runtime: AegisRuntime) -> Any:
         workflow_memory=workflow_mem,
         lesson_memory=lesson_mem,
         policy_engine=runtime.policy_engine,
+        audit_log=runtime.audit_log,
         data_dir=os.path.join(data_dir, "autonomous"),
         desire_threshold=4.0,
         max_tasks_per_cycle=max(1, min(4, settings.autonomous.max_autonomous_runs_per_hour)),
