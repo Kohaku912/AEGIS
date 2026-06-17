@@ -237,11 +237,11 @@ def test_capability_risk_update_rejects_non_localhost_origin(monkeypatch, tmp_pa
 
 
 def test_dashboard_audit_shows_llm_tool_timeline(monkeypatch, tmp_path) -> None:
-    client = _app(monkeypatch, tmp_path).test_client()
-    data_dir = tmp_path / "data"
-    data_dir.mkdir(parents=True, exist_ok=True)
-    audit_path = data_dir / "audit.jsonl"
-    entries = [
+    from aegis_ai.audit import AuditEntry
+    dashboard_app = dashboard_routes.DashboardApp(runtime=_runtime(tmp_path))
+    client = dashboard_app.app.test_client()
+    audit_mgr = dashboard_app._runtime.audit_manager
+    entries_data = [
         {
             "entry_id": "a1",
             "timestamp_ms": 1000,
@@ -277,7 +277,10 @@ def test_dashboard_audit_shows_llm_tool_timeline(monkeypatch, tmp_path) -> None:
             },
         },
     ]
-    audit_path.write_text("\n".join(json.dumps(entry) for entry in entries) + "\n", encoding="utf-8")
+    for e in entries_data:
+        detail = e.pop("detail", {})
+        entry = AuditEntry(**e, detail=detail)
+        audit_mgr.append(entry)
 
     response = client.get("/dashboard/audit")
     body = response.data.decode("utf-8")

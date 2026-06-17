@@ -1267,23 +1267,43 @@ class DashboardApp:
 
         @app.route("/dashboard/audit")
         def audit():
-            entries = _load_audit_entries()
-            action_counts: dict[str, int] = {}
+            from flask import request as flask_req
+            page = int(flask_req.args.get("page", 1))
+            per_page = 20
+            result = self._runtime.audit_manager.list_recent(limit=per_page, page=page)
+            entries = result.get("entries", [])
+            total = result.get("total", 0)
+            total_pages = result.get("total_pages", 1)
             for entry in entries:
-                action = entry.get("action", "unknown")
+                entry["time_str"] = _format_timestamp_ms(entry.get("timestamp_ms", 0))
+                detail = entry.get("detail", {})
+                if isinstance(detail, dict):
+                    parts = []
+                    for key, value in list(detail.items())[:3]:
+                        parts.append(f"{key}={_truncate_text(value, 60)}")
+                    entry["detail_summary"] = ", ".join(parts)
+                else:
+                    entry["detail_summary"] = _truncate_text(detail, 100)
+                entry["detail_pretty"] = _pretty_json(detail)
+            action_counts: dict[str, int] = {}
+            all_entries = self._runtime.audit_manager._log.read_all()
+            for e in all_entries:
+                action = e.get("action", "unknown")
                 action_counts[action] = action_counts.get(action, 0) + 1
-            entries = list(reversed(entries))
-            total = len(entries)
             action_counts = dict(sorted(action_counts.items(), key=lambda item: item[1], reverse=True))
-            timeline = _build_audit_timeline(entries)
+            timeline = _build_audit_timeline(entries[:50])
             return render_template("dashboard/audit.html",
                 entries=entries,
                 timeline=timeline,
+                page=page,
+                per_page=per_page,
+                total_entries=total,
+                total_pages=total_pages,
                 stats={
                     "total_entries": total,
-                    "llm_entries": sum(1 for e in entries if e.get("action", "").startswith("llm_")),
-                    "tool_entries": sum(1 for e in entries if e.get("action") == "tool_execution"),
-                    "error_entries": sum(1 for e in entries if _is_error_audit_entry(e)),
+                    "llm_entries": sum(1 for e in all_entries if e.get("action", "").startswith("llm_")),
+                    "tool_entries": sum(1 for e in all_entries if e.get("action") == "tool_execution"),
+                    "error_entries": sum(1 for e in all_entries if _is_error_audit_entry(e)),
                 },
                 action_counts=action_counts,
             )

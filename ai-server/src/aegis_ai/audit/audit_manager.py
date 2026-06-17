@@ -74,22 +74,11 @@ class AuditManager:
         task_id: str | None = None,
         approval_id: str | None = None,
         errors_only: bool = False,
+        page: int = 1,
     ) -> dict[str, Any]:
-        """List recent audit entries with cursor pagination.
-
-        Uses JSONL tail reader — only reads last N lines.
-        Returns: {entries: [...], next_cursor: str | None}
-        """
-        read_limit = limit * 3 if (action or task_id or approval_id or errors_only) else limit
-        entries = self._read_tail(read_limit)
-
-        if cursor:
-            idx = 0
-            for i, e in enumerate(entries):
-                if e.get("entry_id") == cursor:
-                    idx = i + 1
-                    break
-            entries = entries[idx:]
+        """List recent audit entries with pagination."""
+        page_data = self._log.read_page(page=page, per_page=limit)
+        entries = page_data["entries"]
 
         if action:
             entries = [e for e in entries if e.get("action") == action]
@@ -100,24 +89,57 @@ class AuditManager:
         if errors_only:
             entries = [e for e in entries if e.get("action", "").endswith("_failed") or e.get("detail", {}).get("error")]
 
-        entries = entries[-limit:]
-        summaries = [self._to_summary(e) for e in entries]
-        next_cursor = summaries[-1].get("entry_id") if len(summaries) == limit and summaries else None
-        return {"entries": summaries, "next_cursor": next_cursor}
+        for e in entries:
+            e["time_str"] = ""
+            detail = e.get("detail", {})
+            if isinstance(detail, dict):
+                parts = []
+                for key, value in list(detail.items())[:3]:
+                    v = str(value)[:60]
+                    parts.append(f"{key}={v}")
+                e["detail_summary"] = ", ".join(parts)
+            else:
+                e["detail_summary"] = str(detail)[:100]
+            import json as _j
+            try:
+                e["detail_pretty"] = _j.dumps(detail, indent=2, ensure_ascii=False) if detail else "{}"
+            except Exception:
+                e["detail_pretty"] = "{}"
+        return {
+            "entries": entries,
+            "page": page_data["page"],
+            "per_page": page_data["per_page"],
+            "total": page_data["total"],
+            "total_pages": page_data["total_pages"],
+            "next_cursor": None,
+        }
 
     def get_detail(self, entry_id: str) -> dict[str, Any] | None:
-        """Get full detail for a single audit entry by scanning from end."""
-        return self._read_by_id_reverse(entry_id)
+        """Get full detail for a single audit entry."""
+        import sqlite3
+        conn = self._log._get_conn()
+        conn.row_factory = sqlite3.Row
+        row = conn.execute('SELECT * FROM audit WHERE entry_id = ?', (entry_id,)).fetchone()
+        if row is None:
+            return None
+        d = dict(row)
+        detail_json = d.pop('detail_json', '{}')
+        try:
+            d['detail'] = json.loads(detail_json) if detail_json else {}
+        except Exception:
+            d['detail'] = {}
+        d.pop('id', None)
+        return d
 
     def search(
         self,
         query: str,
         limit: int = 50,
     ) -> list[dict[str, Any]]:
-        """Search audit entries by scanning from end."""
+        """Search audit entries."""
         query_lower = query.lower()
         results: list[dict[str, Any]] = []
-        for e in reversed(self._read_tail(5000)):
+        for e in self._log.read_all():
             text = json.dumps(e, ensure_ascii=False).lower()
             if query_lower in text:
                 results.append(self._to_summary(e))
@@ -128,7 +150,7 @@ class AuditManager:
     def summarize(self, period_hours: int = 24) -> dict[str, Any]:
         """Summarize audit activity for a period."""
         cutoff_ms = int(time.time() * 1000) - (period_hours * 3_600_000)
-        recent = [e for e in self._read_tail(5000) if e.get("timestamp_ms", 0) >= cutoff_ms]
+        recent = [e for e in self._log.read_all() if e.get("timestamp_ms", 0) >= cutoff_ms]
 
         action_counts: dict[str, int] = {}
         error_count = 0
