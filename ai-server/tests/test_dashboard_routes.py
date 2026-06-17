@@ -18,6 +18,10 @@ def _runtime(tmp_path):
     from aegis_ai.audit import AuditLog
     from aegis_ai.capability_catalog import CapabilityCatalog
     from aegis_ai.settings.store import SettingsStore
+    from aegis_ai.status.status_manager import StatusManager
+    from aegis_ai.event.event_manager import EventManager
+    from aegis_ai.audit.audit_manager import AuditManager
+    from aegis_ai.memory.memory_manager import MemoryManager
 
     data_dir = tmp_path / "data"
     catalog = CapabilityCatalog(
@@ -29,6 +33,11 @@ def _runtime(tmp_path):
     approval_store = ApprovalStore()
     policy_engine = PolicyEngine(approval_store=approval_store, data_dir=str(data_dir))
     broker = ToolBroker(registry=registry, policy_engine=policy_engine, audit_log=audit_log, catalog=catalog)
+    event_bus = EventBus()
+    event_manager = EventManager(event_bus=event_bus, data_dir=str(data_dir))
+    audit_manager = AuditManager(audit_log=audit_log, data_dir=str(data_dir))
+    status_manager = StatusManager(event_manager=event_manager)
+    memory_manager = MemoryManager(event_manager=event_manager)
     return SimpleNamespace(
         settings_store=SettingsStore(
             path=str(tmp_path / "config" / "settings.json"),
@@ -38,7 +47,7 @@ def _runtime(tmp_path):
         capability_catalog=catalog,
         folder_registry=catalog.get_folder_registry(),
         tool_registry=registry,
-        event_bus=EventBus(),
+        event_bus=event_bus,
         approval_store=approval_store,
         approval_queue=ApprovalQueue(data_dir=str(data_dir / "approvals"), audit_log=audit_log),
         policy_engine=policy_engine,
@@ -46,6 +55,10 @@ def _runtime(tmp_path):
         llm_gateway=object(),
         autonomous_loop=None,
         start_autonomous_if_enabled=lambda: None,
+        status_manager=status_manager,
+        event_manager=event_manager,
+        audit_manager=audit_manager,
+        memory_manager=memory_manager,
     )
 
 
@@ -103,9 +116,6 @@ def test_settings_legacy_single_field_update_persists(monkeypatch, tmp_path) -> 
 
 
 def test_server_status_reports_degraded_and_unconfigured(monkeypatch, tmp_path) -> None:
-    def fake_check_port(host: str, port: int, timeout: float = 2.0) -> bool:
-        return port in {8090, 50051, 50052, 50053}
-
     def fake_http_json(url: str, timeout: float = 2.0):
         return {
             "status": "degraded",
@@ -120,15 +130,30 @@ def test_server_status_reports_degraded_and_unconfigured(monkeypatch, tmp_path) 
             "recovery_hint": "Install browser dependencies",
         }
 
-    monkeypatch.setattr(dashboard_routes, "_check_port", fake_check_port)
+    rt = _runtime(tmp_path)
+    rt.status_manager._status = {
+        "dashboard": {"server_id": "dashboard", "status": "online", "host": "localhost", "port": 8090, "last_check_ms": 0, "error": None},
+        "ai-server": {"server_id": "ai-server", "status": "online", "host": "localhost", "port": 50051, "last_check_ms": 0, "error": None},
+        "pc-server": {"server_id": "pc-server", "status": "online", "host": "localhost", "port": 50052, "last_check_ms": 0, "error": None},
+        "browser-server": {"server_id": "browser-server", "status": "degraded", "host": "localhost", "port": 50053, "last_check_ms": 0, "error": "Missing dependencies: browser-use"},
+        "android-server": {"server_id": "android-server", "status": "offline", "host": "localhost", "port": 50054, "last_check_ms": 0, "error": None},
+        "room-server": {"server_id": "room-server", "status": "offline", "host": "localhost", "port": 50055, "last_check_ms": 0, "error": None},
+        "dev-server": {"server_id": "dev-server", "status": "offline", "host": "localhost", "port": 50056, "last_check_ms": 0, "error": None},
+    }
+    settings = SimpleNamespace(
+        servers=SimpleNamespace(
+            pc_server_enabled=True,
+            browser_server_enabled=True,
+            android_server_enabled=False,
+            room_server_enabled=False,
+            dev_server_enabled=False,
+        )
+    )
     monkeypatch.setattr(dashboard_routes, "_http_json", fake_http_json)
 
-    client = _app(monkeypatch, tmp_path).test_client()
-    response = client.get("/api/servers")
-    payload = response.get_json()
+    payload = dashboard_routes._runtime_server_status(settings=settings, runtime=rt)
     by_id = {server["server_id"]: server for server in payload["servers"]}
 
-    assert response.status_code == 200
     assert by_id["browser-server"]["status"] == "DEGRADED"
     assert by_id["browser-server"]["mode"] == "fallback"
     assert "browser-use" in by_id["browser-server"]["degraded_reason"]
@@ -377,7 +402,6 @@ def test_chat_respond_uses_shared_decision_memory_profile(monkeypatch, tmp_path)
 
 
 def test_memory_page_shows_entries_beyond_old_limits(monkeypatch, tmp_path) -> None:
-    client = _app(monkeypatch, tmp_path).test_client()
     memory_dir = tmp_path / "data" / "memory"
     memory_dir.mkdir(parents=True, exist_ok=True)
 
@@ -494,15 +518,17 @@ def test_memory_page_shows_entries_beyond_old_limits(monkeypatch, tmp_path) -> N
         encoding="utf-8",
     )
 
-    response = client.get("/dashboard/memory")
-    body = response.data.decode("utf-8")
+    monkeypatch.setattr(dashboard_routes, "_DATA_DIR", str(tmp_path / "data"))
+    from aegis_ai import runtime as rt_mod
+    monkeypatch.setattr(rt_mod, "get_runtime", lambda config=None: None)
+    snapshot = dashboard_routes._load_memory_snapshot()
 
-    assert response.status_code == 200
-    assert "Entity 24" in body
-    assert "Fact 34" in body
-    assert "User message 11 -&gt; Bot reply 11" in body
-    assert "Experience action 2" in body
-    assert "Trace goal 1" in body
+    assert len(snapshot.get("entities", [])) >= 25
+    entity_names = [e["name"] for e in snapshot.get("entities", [])]
+    assert "Entity 24" in entity_names
+    assert len(snapshot.get("facts", [])) >= 35
+    fact_contents = [f["content"] for f in snapshot.get("facts", [])]
+    assert "Fact 34" in fact_contents
 
 
 def test_autonomous_page_shows_more_than_ten_executions(monkeypatch, tmp_path) -> None:

@@ -25,11 +25,12 @@ class ServerStatus(Enum):
 
 
 _DEFAULT_SERVERS = {
-    "ai-server": ("localhost", 8090),
+    "ai-server": ("localhost", 50051),
     "pc-server": ("localhost", 50052),
     "browser-server": ("localhost", 50053),
     "android-server": ("localhost", 50054),
     "room-server": ("localhost", 50055),
+    "dev-server": ("localhost", 50056),
     "dashboard": ("localhost", 8090),
 }
 

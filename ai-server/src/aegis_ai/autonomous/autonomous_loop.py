@@ -69,6 +69,7 @@ class AutonomousLoop:
         curiosity_system: Any = None,
         policy_engine: Any = None,
         audit_log: Any = None,
+        task_manager: Any = None,
         data_dir: str = "data/autonomous",
         desire_threshold: float = 4.0,
         max_tasks_per_cycle: int = 3,
@@ -92,6 +93,7 @@ class AutonomousLoop:
         self._policy = policy_engine
         self._capability_retriever = None
         self._audit_log = audit_log
+        self._task_manager = task_manager
         self._data_dir = Path(data_dir)
         self._data_dir.mkdir(parents=True, exist_ok=True)
 
@@ -723,6 +725,21 @@ Prefer actions that avoid repeating recent failed approaches when memory shows t
 
             logger.info("Executing task: %s (for %s)", action[:50], desire_name)
 
+            # Create task in TaskManager
+            task_id = ""
+            if self._task_manager:
+                try:
+                    task_obj = self._task_manager.create_task(
+                        title=action[:100],
+                        goal=action,
+                        source="autonomous",
+                        priority=0,
+                    )
+                    task_id = task_obj.get("task_id", "")
+                    self._task_manager.start_task(task_id)
+                except Exception:
+                    pass
+
             # Begin action trace
             trace = None
             if self._action_trace:
@@ -829,6 +846,15 @@ Prefer actions that avoid repeating recent failed approaches when memory shows t
                     trace, success=success, result_summary=result_summary[:200],
                     failure_reason=failure_reason[:200],
                 )
+
+            if task_id and self._task_manager:
+                try:
+                    if success:
+                        self._task_manager.complete_task(task_id, result_summary=result_summary[:200])
+                    else:
+                        self._task_manager.fail_task(task_id, error=failure_reason[:200])
+                except Exception:
+                    pass
 
             results.append({
                 "desire": desire_name, "action": action,

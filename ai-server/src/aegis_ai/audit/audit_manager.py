@@ -1,7 +1,8 @@
 """Audit Manager — centralized audit log with cursor pagination and search.
 
 Wraps AuditLog as internal implementation. Adds:
-- Cursor-based pagination (no read_all)
+- JSONL tail reader (NO read_all in normal path)
+- Cursor-based pagination
 - Filtered search
 - Rotation
 - Summary vs detail separation
@@ -26,8 +27,8 @@ logger = logging.getLogger("aegis_ai.audit.audit_manager")
 class AuditManager:
     """Centralized audit log management.
 
-    Wraps AuditLog for write operations. Adds cursor-based
-    pagination and filtered search for read operations.
+    Wraps AuditLog for write operations. Uses JSONL tail reader
+    for read operations — never loads entire file.
 
     Parameters
     ----------
@@ -47,6 +48,7 @@ class AuditManager:
         self._data_dir.mkdir(parents=True, exist_ok=True)
         self._archive_dir = self._data_dir / "audit_archive"
         self._lock = threading.Lock()
+        self._audit_path: Path = audit_log._path
 
     # ── Write (delegate to AuditLog) ──────────────────────────
 
@@ -62,7 +64,7 @@ class AuditManager:
         """Convenience: log an approval event."""
         return self._log.log_approval(**kwargs)
 
-    # ── Read with cursor pagination ───────────────────────────
+    # ── Read with tail reader (NO read_all) ───────────────────
 
     def list_recent(
         self,
@@ -75,10 +77,11 @@ class AuditManager:
     ) -> dict[str, Any]:
         """List recent audit entries with cursor pagination.
 
+        Uses JSONL tail reader — only reads last N lines.
         Returns: {entries: [...], next_cursor: str | None}
-        Each entry is a summary (no raw detail_json).
         """
-        entries = self._log.read_all()
+        read_limit = limit * 3 if (action or task_id or approval_id or errors_only) else limit
+        entries = self._read_tail(read_limit)
 
         if cursor:
             idx = 0
@@ -103,23 +106,18 @@ class AuditManager:
         return {"entries": summaries, "next_cursor": next_cursor}
 
     def get_detail(self, entry_id: str) -> dict[str, Any] | None:
-        """Get full detail for a single audit entry."""
-        entries = self._log.read_all()
-        for e in entries:
-            if e.get("entry_id") == entry_id:
-                return e
-        return None
+        """Get full detail for a single audit entry by scanning from end."""
+        return self._read_by_id_reverse(entry_id)
 
     def search(
         self,
         query: str,
         limit: int = 50,
     ) -> list[dict[str, Any]]:
-        """Search audit entries by text query."""
-        entries = self._log.read_all()
+        """Search audit entries by scanning from end."""
         query_lower = query.lower()
-        results = []
-        for e in entries:
+        results: list[dict[str, Any]] = []
+        for e in reversed(self._read_tail(5000)):
             text = json.dumps(e, ensure_ascii=False).lower()
             if query_lower in text:
                 results.append(self._to_summary(e))
@@ -130,8 +128,7 @@ class AuditManager:
     def summarize(self, period_hours: int = 24) -> dict[str, Any]:
         """Summarize audit activity for a period."""
         cutoff_ms = int(time.time() * 1000) - (period_hours * 3_600_000)
-        entries = self._log.read_all()
-        recent = [e for e in entries if e.get("timestamp_ms", 0) >= cutoff_ms]
+        recent = [e for e in self._read_tail(5000) if e.get("timestamp_ms", 0) >= cutoff_ms]
 
         action_counts: dict[str, int] = {}
         error_count = 0
@@ -153,7 +150,7 @@ class AuditManager:
     def rotate(self) -> int:
         """Rotate old entries to archive. Returns count rotated."""
         self._archive_dir.mkdir(parents=True, exist_ok=True)
-        entries = self._log.read_all()
+        entries = self._read_tail(10000)
         if len(entries) < 10000:
             return 0
 
@@ -172,6 +169,97 @@ class AuditManager:
             return 0
 
         return len(old)
+
+    # ── JSONL Tail Reader ─────────────────────────────────────
+
+    def _read_tail(self, n: int) -> list[dict[str, Any]]:
+        """Read last N lines from JSONL file using reverse seek."""
+        path = self._audit_path
+        if not path.exists():
+            return []
+        try:
+            return self._reverse_read(path, n)
+        except Exception:
+            logger.debug("Tail reader failed, falling back to read_all", exc_info=True)
+            return self._log.read_all()
+
+    def _reverse_read(self, path: Path, n: int) -> list[dict[str, Any]]:
+        """Read last N lines from file using reverse seek."""
+        entries: list[dict[str, Any]] = []
+        with open(path, "rb") as f:
+            f.seek(0, 2)
+            file_size = f.tell()
+            chunk_size = 65536
+            pos = file_size
+            remainder = b""
+
+            while pos > 0 and len(entries) < n:
+                read_size = min(chunk_size, pos)
+                pos -= read_size
+                f.seek(pos)
+                chunk = f.read(read_size)
+                lines = (chunk + remainder).split(b"\n")
+                remainder = lines[0]
+                for line in reversed(lines[1:]):
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        entries.insert(0, json.loads(line.decode("utf-8", errors="replace")))
+                        if len(entries) >= n:
+                            break
+                    except (json.JSONDecodeError, UnicodeDecodeError):
+                        continue
+
+            if remainder.strip() and len(entries) < n:
+                try:
+                    entries.insert(0, json.loads(remainder.strip().decode("utf-8", errors="replace")))
+                except (json.JSONDecodeError, UnicodeDecodeError):
+                    pass
+
+        return entries[-n:]
+
+    def _read_by_id_reverse(self, entry_id: str) -> dict[str, Any] | None:
+        """Scan from end of JSONL to find entry by ID."""
+        path = self._audit_path
+        if not path.exists():
+            return None
+        try:
+            with open(path, "rb") as f:
+                f.seek(0, 2)
+                file_size = f.tell()
+                chunk_size = 65536
+                pos = file_size
+                remainder = b""
+
+                while pos > 0:
+                    read_size = min(chunk_size, pos)
+                    pos -= read_size
+                    f.seek(pos)
+                    chunk = f.read(read_size)
+                    lines = (chunk + remainder).split(b"\n")
+                    remainder = lines[0]
+                    for line in reversed(lines[1:]):
+                        line = line.strip()
+                        if not line:
+                            continue
+                        try:
+                            entry = json.loads(line.decode("utf-8", errors="replace"))
+                            if entry.get("entry_id") == entry_id:
+                                return entry
+                        except (json.JSONDecodeError, UnicodeDecodeError):
+                            continue
+
+                if remainder.strip():
+                    try:
+                        entry = json.loads(remainder.strip().decode("utf-8", errors="replace"))
+                        if entry.get("entry_id") == entry_id:
+                            return entry
+                    except (json.JSONDecodeError, UnicodeDecodeError):
+                        pass
+        except Exception:
+            logger.debug("Reverse scan failed", exc_info=True)
+        return None
 
     # ── Internal ──────────────────────────────────────────────
 
