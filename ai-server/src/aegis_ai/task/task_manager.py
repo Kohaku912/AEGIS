@@ -208,6 +208,10 @@ class TaskManager:
         """Cancel a task."""
         return self._transition(task_id, TaskStatus.CANCELLED)
 
+    def pause_task(self, task_id: str) -> dict[str, Any] | None:
+        """Pause a task (e.g., waiting for dependencies)."""
+        return self._transition(task_id, TaskStatus.PAUSED)
+
     def list_tasks(self, status: str | None = None, source: str | None = None, limit: int = 100) -> list[dict[str, Any]]:
         """List tasks with optional filters."""
         with self._lock:

@@ -2,13 +2,14 @@
 '''Task Execution Engine - canonical execution path.
 
 Single source of truth for all step execution.
-Approval-aware with continuation support.
+Completion is only allowed when ALL steps are in terminal state.
 '''
 
 from __future__ import annotations
 
 import json
 import logging
+from enum import Enum
 from typing import Any
 
 from aegis_ai.task.task_manager import TaskManager
@@ -17,8 +18,14 @@ from aegis_ai.task_plan import PlanStep, StepStatus, TaskPlan
 logger = logging.getLogger('aegis_ai.task.execution_engine')
 
 
-_COMPLETE_STEP_STATUSES = frozenset({'completed', 'skipped', 'cancelled'})
-_BLOCKING_STEP_STATUSES = frozenset({'pending', 'running', 'needs_approval', 'waiting_dependency'})
+class TaskFinalState(Enum):
+    ALL_COMPLETED = 'all_completed'
+    HAS_FAILED = 'has_failed'
+    HAS_NEEDS_APPROVAL = 'has_needs_approval'
+    HAS_PENDING = 'has_pending'
+    HAS_RUNNING = 'has_running'
+    HAS_WAITING_DEPENDENCY = 'has_waiting_dependency'
+    EMPTY = 'empty'
 
 
 class ExecutionResponse:
@@ -45,6 +52,90 @@ class TaskExecutionEngine:
         self._settings_resolver = settings_resolver
         self._plans: dict[str, TaskPlan] = {}
 
+    def evaluate_plan_state(self, plan: TaskPlan) -> TaskFinalState:
+        if not plan.steps:
+            return TaskFinalState.EMPTY
+        for step in plan.steps:
+            if step.status == StepStatus.NEEDS_APPROVAL:
+                return TaskFinalState.HAS_NEEDS_APPROVAL
+        for step in plan.steps:
+            if step.status == StepStatus.FAILED:
+                return TaskFinalState.HAS_FAILED
+        for step in plan.steps:
+            if step.status == StepStatus.RUNNING:
+                return TaskFinalState.HAS_RUNNING
+        for step in plan.steps:
+            if step.status == StepStatus.PENDING:
+                if step.depends_on:
+                    deps_met = all(
+                        any(s.step_id == dep and s.status == StepStatus.COMPLETED for s in plan.steps)
+                        for dep in step.depends_on
+                    )
+                    if not deps_met:
+                        return TaskFinalState.HAS_WAITING_DEPENDENCY
+                return TaskFinalState.HAS_PENDING
+        terminal = {StepStatus.COMPLETED, StepStatus.SKIPPED}
+        all_done = all(s.status in terminal for s in plan.steps)
+        if all_done:
+            return TaskFinalState.ALL_COMPLETED
+        return TaskFinalState.HAS_PENDING
+
+    def can_complete_task(self, plan: TaskPlan) -> bool:
+        return self.evaluate_plan_state(plan) == TaskFinalState.ALL_COMPLETED
+
+    def has_pending_executable_steps(self, plan: TaskPlan) -> bool:
+        for step in plan.steps:
+            if step.status != StepStatus.PENDING:
+                continue
+            if not step.depends_on:
+                return True
+            deps_met = all(
+                any(s.step_id == dep and s.status == StepStatus.COMPLETED for s in plan.steps)
+                for dep in step.depends_on
+            )
+            if deps_met:
+                return True
+        return False
+
+    def has_waiting_dependency_steps(self, plan: TaskPlan) -> bool:
+        for step in plan.steps:
+            if step.status != StepStatus.PENDING:
+                continue
+            if step.depends_on:
+                deps_met = all(
+                    any(s.step_id == dep and s.status == StepStatus.COMPLETED for s in plan.steps)
+                    for dep in step.depends_on
+                )
+                if not deps_met:
+                    return True
+        return False
+
+    def apply_task_state(self, task_id: str, plan: TaskPlan) -> None:
+        state = self.evaluate_plan_state(plan)
+        task = self._task_manager.get_task(task_id)
+        if not task:
+            return
+        current = task['status']
+        if state == TaskFinalState.HAS_NEEDS_APPROVAL:
+            if current != 'waiting_approval':
+                self._task_manager.wait_for_approval(task_id)
+        elif state == TaskFinalState.HAS_FAILED:
+            if current not in ('failed',):
+                self._task_manager.fail_task(task_id, error='Step(s) failed')
+        elif state == TaskFinalState.HAS_RUNNING:
+            pass
+        elif state == TaskFinalState.HAS_WAITING_DEPENDENCY:
+            if current not in ('paused',):
+                try:
+                    self._task_manager.pause_task(task_id)
+                except (AttributeError, Exception):
+                    pass
+        elif state == TaskFinalState.HAS_PENDING:
+            pass
+        elif state == TaskFinalState.ALL_COMPLETED:
+            if current not in ('completed',):
+                self._task_manager.complete_task(task_id, result_summary='All steps completed')
+
     def execute_task(self, task_id: str, plan: TaskPlan) -> ExecutionResponse:
         self._plans[task_id] = plan
         plan_json = json.dumps(plan.to_dict(), ensure_ascii=False)
@@ -67,59 +158,47 @@ class TaskExecutionEngine:
             step_result = self._execute_step(task_id, step, plan)
             results.append(step_result)
             if step.status == StepStatus.NEEDS_APPROVAL:
+                self.apply_task_state(task_id, plan)
                 return ExecutionResponse(text='\n'.join(results), task_id=task_id)
             elif step.status == StepStatus.FAILED:
                 self._task_manager.update_step_status(task_id, step.step_id, 'failed', error=step.error)
-                self._task_manager.fail_task(task_id, error='Step ' + step.step_id + ' failed')
+                self.apply_task_state(task_id, plan)
                 return ExecutionResponse(text='\n'.join(results), task_id=task_id)
             elif step.status == StepStatus.COMPLETED:
                 self._task_manager.update_step_status(task_id, step.step_id, 'completed', result=step.result)
-        self._try_complete_task(task_id)
+        self._sync_plan_from_task_manager(task_id, plan)
+        self.apply_task_state(task_id, plan)
         return ExecutionResponse(
             text='\n'.join(results) or plan.expected_result or 'No actions to execute.',
             task_id=task_id,
         )
 
-    def _try_complete_task(self, task_id: str) -> None:
-        task = self._task_manager.get_task(task_id)
-        if not task:
-            return
-        if task['status'] == 'waiting_approval':
-            return
-        steps = task.get('steps', [])
-        if not steps:
-            return
-        has_blocking = any(s.get('status') in _BLOCKING_STEP_STATUSES for s in steps)
-        if has_blocking:
-            return
-        has_failed = any(s.get('status') == 'failed' for s in steps)
-        if has_failed:
-            self._task_manager.fail_task(task_id, error='Some steps failed')
-            return
-        all_terminal = all(s.get('status') in _COMPLETE_STEP_STATUSES | {'failed'} for s in steps)
-        if all_terminal and not has_failed:
-            self._task_manager.complete_task(task_id, result_summary='All steps completed')
-
     def _execute_step(self, task_id: str, step: PlanStep, plan: TaskPlan) -> str:
         if step.action_type.startswith('browser_'):
-            return self._execute_browser_step(task_id, step)
+            return self._execute_tool_step(task_id, step, capability_override='browser-server.page.browse')
         if step.action_type == 'tool_invoke' and step.capability_id:
             return self._execute_tool_step(task_id, step)
         if step.action_type.startswith('llm_'):
             return self._execute_llm_step(task_id, step, plan)
         return f'[INFO] {step.description}'
 
-    def _execute_tool_step(self, task_id: str, step: PlanStep) -> str:
+    def _execute_tool_step(self, task_id: str, step: PlanStep, capability_override: str = '') -> str:
         from tool_broker import ExecutionSource, InvokeStatus, ToolExecutionRequest
         if not self._tool_broker:
             return f'[INFO] {step.description} (ToolBroker not available)'
+        cap_id = capability_override or step.capability_id
+        args = dict(step.params)
+        if capability_override and step.params.get('url'):
+            args = {'task': f'Go to {step.params["url"]} and {step.description}'}
+        elif capability_override:
+            args = {'task': step.description}
         request = ToolExecutionRequest(
             task_id=task_id,
-            capability_id=step.capability_id,
-            arguments=step.params,
+            step_id=step.step_id,
+            capability_id=cap_id,
+            arguments=args,
             source=ExecutionSource.USER_EXPLICIT,
             reason=f'Step {step.step_id}: {step.description[:80]}',
-            step_id=step.step_id,
         )
         result = self._tool_broker.execute(request)
         if result.success:
@@ -136,31 +215,6 @@ class TaskExecutionEngine:
             step.status = StepStatus.FAILED
             step.error = result.error
             return f'[FAIL] {step.description}: {result.error}'
-
-    def _execute_browser_step(self, task_id: str, step: PlanStep) -> str:
-        if not self._tool_broker:
-            return f'[INFO] {step.description} (ToolBroker not available)'
-        try:
-            task_desc = step.description
-            if step.params.get('url'):
-                task_desc = f'Go to {step.params["url"]} and {step.description}'
-            result = self._tool_broker.invoke_tool(
-                'browser-server.page.browse', {'task': task_desc}, caller='execution-engine',
-            )
-            if result.success:
-                step.status = StepStatus.COMPLETED
-                step.result = result.output
-                output = result.output or {}
-                return str(output.get('result') or output.get('content') or output)
-            elif result.status.name == 'APPROVAL_NEEDED':
-                step.status = StepStatus.NEEDS_APPROVAL
-                return f'[APPROVAL] {step.description} -- needs approval'
-            step.status = StepStatus.FAILED
-            step.error = result.error
-            return f'[FAIL] {step.description}: {result.error}'
-        except Exception as e:
-            step.status = StepStatus.FAILED
-            return f'[ERROR] Browser: {e}'
 
     def _execute_llm_step(self, task_id: str, step: PlanStep, plan: TaskPlan) -> str:
         if not self._llm_gateway:
@@ -232,7 +286,6 @@ class TaskExecutionEngine:
     def _continue_after_step(self, task_id: str, completed_step_id: str) -> ExecutionResponse:
         plan = self._plans.get(task_id)
         if plan is None:
-            self._try_complete_task(task_id)
             return ExecutionResponse(text=f'[OK] Step {completed_step_id} completed', task_id=task_id)
         results: list[str] = []
         found_completed = False
@@ -257,21 +310,23 @@ class TaskExecutionEngine:
             step_result = self._execute_step(task_id, step, plan)
             results.append(step_result)
             if step.status == StepStatus.NEEDS_APPROVAL:
+                self.apply_task_state(task_id, plan)
                 return ExecutionResponse(text='\n'.join(results), task_id=task_id)
             elif step.status == StepStatus.FAILED:
                 self._task_manager.update_step_status(task_id, step.step_id, 'failed', error=step.error)
-                self._task_manager.fail_task(task_id, error=f'Step {step.step_id} failed')
+                self.apply_task_state(task_id, plan)
                 return ExecutionResponse(text='\n'.join(results), task_id=task_id)
             elif step.status == StepStatus.COMPLETED:
                 self._task_manager.update_step_status(task_id, step.step_id, 'completed', result=step.result)
-        self._try_complete_task(task_id)
+        self._sync_plan_from_task_manager(task_id, plan)
+        self.apply_task_state(task_id, plan)
         return ExecutionResponse(text='\n'.join(results) or f'Step {completed_step_id} completed', task_id=task_id)
 
     def continue_task(self, task_id: str) -> ExecutionResponse:
         task = self._task_manager.get_task(task_id)
         if task is None:
             return ExecutionResponse(text=f'Task {task_id} not found')
-        if task['status'] not in ('running', 'waiting_approval'):
+        if task['status'] not in ('running', 'waiting_approval', 'paused'):
             return ExecutionResponse(text=f'Task {task_id} not in executable state (status={task["status"]})')
         plan = self._plans.get(task_id)
         if plan is None:
@@ -291,16 +346,25 @@ class TaskExecutionEngine:
                     'needs_approval': StepStatus.NEEDS_APPROVAL,
                     'running': StepStatus.RUNNING,
                     'cancelled': StepStatus.SKIPPED,
+                    'pending': StepStatus.PENDING,
                 }
                 step.status = status_map.get(ts['status'], StepStatus.PENDING)
-        last_completed = ''
-        for step in reversed(plan.steps):
-            if step.status == StepStatus.COMPLETED:
-                last_completed = step.step_id
-                break
-        if last_completed:
-            return self._continue_after_step(task_id, last_completed)
-        return self.execute_task(task_id, plan)
+                if ts.get('result') is not None:
+                    step.result = ts['result']
+                if ts.get('error'):
+                    step.error = ts['error']
+        if self.has_pending_executable_steps(plan):
+            last_completed = ''
+            for step in reversed(plan.steps):
+                if step.status == StepStatus.COMPLETED:
+                    last_completed = step.step_id
+                    break
+            if last_completed:
+                return self._continue_after_step(task_id, last_completed)
+            return self.execute_task(task_id, plan)
+        self.apply_task_state(task_id, plan)
+        state = self.evaluate_plan_state(plan)
+        return ExecutionResponse(text=f'Task state: {state.value}', task_id=task_id)
 
     def cancel_task(self, task_id: str, reason: str = '') -> dict[str, Any] | None:
         task = self._task_manager.get_task(task_id)
@@ -317,6 +381,13 @@ class TaskExecutionEngine:
         if step.get('status') != 'failed':
             return f'Step {step_id} is not in failed state (status={step.get("status")})'
         self._task_manager.update_step_status(task_id, step_id, 'pending')
+        plan = self._plans.get(task_id)
+        if plan:
+            for ps in plan.steps:
+                if ps.step_id == step_id:
+                    ps.status = StepStatus.PENDING
+                    break
+            return self.execute_task(task_id, plan)
         plan_step = PlanStep(
             step_id=step_id,
             description=step.get('name', ''),
@@ -329,6 +400,24 @@ class TaskExecutionEngine:
         elif plan_step.status == StepStatus.FAILED:
             self._task_manager.update_step_status(task_id, step_id, 'failed', error=plan_step.error)
         return result
+
+    def _sync_plan_from_task_manager(self, task_id: str, plan: TaskPlan) -> None:
+        for step in plan.steps:
+            ts = self._task_manager.get_step(task_id, step.step_id)
+            if ts:
+                status_map = {
+                    'completed': StepStatus.COMPLETED,
+                    'failed': StepStatus.FAILED,
+                    'needs_approval': StepStatus.NEEDS_APPROVAL,
+                    'running': StepStatus.RUNNING,
+                    'cancelled': StepStatus.SKIPPED,
+                    'pending': StepStatus.PENDING,
+                }
+                step.status = status_map.get(ts['status'], step.status)
+                if ts.get('result') is not None:
+                    step.result = ts['result']
+                if ts.get('error'):
+                    step.error = ts['error']
 
     def _get_system_prompt(self, prompt_id: str, default: str = '') -> str:
         if self._prompt_registry:
