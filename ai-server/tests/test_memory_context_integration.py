@@ -4,6 +4,7 @@ import json
 from types import SimpleNamespace
 
 from aegis_ai.autonomous.autonomous_loop import AutonomousLoop
+from aegis_ai.audit import AuditLog
 from aegis_ai.briefing.provider import BriefingSection, DailyBriefing, DailyBriefingProvider
 from aegis_ai.browser_use.executor import BrowserUseTaskExecutor
 from aegis_ai.llm.memory_context import build_shared_memory_context
@@ -177,6 +178,7 @@ def test_autonomous_loop_rejects_invalid_tool_calls_and_audits_them(tmp_path) ->
         llm_provider=llm,
         tool_broker=_FakeBroker(),
         data_dir=str(tmp_path / "data" / "autonomous"),
+        audit_log=AuditLog(path=str(tmp_path / "data" / "audit.jsonl")),
     )
 
     tasks = loop._generate_tasks([

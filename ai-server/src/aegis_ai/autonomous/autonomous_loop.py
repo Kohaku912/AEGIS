@@ -68,6 +68,7 @@ class AutonomousLoop:
         observation_system: Any = None,
         curiosity_system: Any = None,
         policy_engine: Any = None,
+        audit_log: Any = None,
         data_dir: str = "data/autonomous",
         desire_threshold: float = 4.0,
         max_tasks_per_cycle: int = 3,
@@ -90,6 +91,7 @@ class AutonomousLoop:
         self._curiosity = curiosity_system
         self._policy = policy_engine
         self._capability_retriever = None
+        self._audit_log = audit_log
         self._data_dir = Path(data_dir)
         self._data_dir.mkdir(parents=True, exist_ok=True)
 
@@ -425,10 +427,9 @@ class AutonomousLoop:
         detail: dict[str, Any] | None = None,
     ) -> None:
         try:
-            from aegis_ai.audit import AuditLog
-
-            audit = AuditLog(path=str(self._memory_root() / "audit.jsonl"))
-            audit.log_decision(
+            if self._audit_log is None:
+                return
+            self._audit_log.log_decision(
                 action=action,
                 capability_id=capability_id,
                 decision=decision,

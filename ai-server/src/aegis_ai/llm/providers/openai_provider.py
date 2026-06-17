@@ -462,15 +462,5 @@ class OpenAIProvider:
                     decision=decision,
                     detail=detail,
                 ))
-            else:
-                from aegis_ai.audit import AuditEntry, AuditLog
-                log = AuditLog()
-                log.append(AuditEntry(
-                    action=action,
-                    actor="llm",
-                    capability_id=f"llm.{self._model}",
-                    decision=decision,
-                    detail=detail,
-                ))
         except Exception:
             pass

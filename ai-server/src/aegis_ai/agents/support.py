@@ -151,7 +151,7 @@ class SupportAgent:
         self._context_builder = context_builder or ContextBuilder()
         self._llm = llm_client or MockLLMClient()
         self._tool_broker = tool_broker
-        self._audit = audit_log or AuditLog()
+        self._audit = audit_log
         self._episodic = episodic_memory
         self._research_agent = research_agent
         self._self_dev_agent = self_dev_agent

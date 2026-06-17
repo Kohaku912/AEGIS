@@ -327,11 +327,11 @@ class ToolBroker:
         self._audit = audit_log
         self._verification = verification_service
         self._approval_queue = approval_queue
-        self._server_executor = server_executor or ServerExecutor()
+        self._server_executor = server_executor
         self._folder_registry = folder_registry
         self._catalog = catalog
 
-        if self._catalog is not None:
+        if self._catalog is not None and self._server_executor is not None:
             self._server_executor.set_catalog(self._catalog)
 
         self._mock_executors: dict[str, MockExecutorFunc] = {}
