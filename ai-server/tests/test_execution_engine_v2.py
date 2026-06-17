@@ -1,4 +1,5 @@
-"""E2E tests for TaskExecutionEngine - multi-step approval flow."""
+# -*- coding: utf-8 -*-
+'''E2E tests for TaskExecutionEngine - multi-step approval flow.'''
 
 from __future__ import annotations
 
@@ -7,7 +8,6 @@ import tempfile
 from unittest.mock import MagicMock
 
 import pytest
-
 from tool_broker import InvokeStatus
 
 
@@ -30,199 +30,150 @@ def mock_approval_manager():
 @pytest.fixture
 def engine(task_manager, mock_broker, mock_approval_manager):
     from aegis_ai.task.execution_engine import TaskExecutionEngine
-    return TaskExecutionEngine(
-        task_manager=task_manager,
-        tool_broker=mock_broker,
-        approval_manager=mock_approval_manager,
-    )
+    return TaskExecutionEngine(task_manager=task_manager, tool_broker=mock_broker, approval_manager=mock_approval_manager)
 
 
-def _success_result():
-    return MagicMock(
-        success=True,
-        status=InvokeStatus.SUCCESS,
-        output={'result': 'ok'},
-        error='',
-        approval_id='',
-        request_id='req_1',
-    )
+def _success():
+    return MagicMock(success=True, status=InvokeStatus.SUCCESS, output={'r': 'ok'}, error='', approval_id='', request_id='r1')
 
 
-def _approval_result(approval_id='appr_test_1'):
-    return MagicMock(
-        success=False,
-        status=InvokeStatus.APPROVAL_NEEDED,
-        error='needs approval',
-        approval_id=approval_id,
-        request_id='req_1',
-        output={},
-    )
+def _approval(aid='appr_1'):
+    return MagicMock(success=False, status=InvokeStatus.APPROVAL_NEEDED, error='needs approval', approval_id=aid, request_id='r1', output={})
 
 
-def _fail_result(error='tool failed'):
-    return MagicMock(
-        success=False,
-        status=InvokeStatus.EXECUTION_ERROR,
-        output={},
-        error=error,
-        approval_id='',
-        request_id='req_1',
-    )
+def _fail(msg='fail'):
+    return MagicMock(success=False, status=InvokeStatus.EXECUTION_ERROR, output={}, error=msg, approval_id='', request_id='r1')
 
 
 class TestMultiStepApproval:
-    def test_multi_step_with_approval(self, engine, task_manager, mock_broker, mock_approval_manager):
+    def test_approval_not_completed(self, engine, task_manager, mock_broker):
         from aegis_ai.task_plan import PlanStep, TaskPlan
-        approval_id = 'appr_multi_1'
-        call_count = [0]
-        def side_effect(request):
-            call_count[0] += 1
-            if call_count[0] == 1:
-                return _success_result()
-            elif call_count[0] == 2:
-                return _approval_result(approval_id)
-            else:
-                return _success_result()
-        mock_broker.execute.side_effect = side_effect
-        task = task_manager.create_task(title='multi-step', source='test')
-        task_id = task['task_id']
-        task_manager.start_task(task_id)
-        plan = TaskPlan(
-            plan_id='plan_multi',
-            interpreted_request='multi step test',
-            steps=[
-                PlanStep(step_id='s1', description='step 1', action_type='tool_invoke', capability_id='test.a'),
-                PlanStep(step_id='s2', description='step 2', action_type='tool_invoke', capability_id='test.b'),
-                PlanStep(step_id='s3', description='step 3', action_type='tool_invoke', capability_id='test.c'),
-            ],
-        )
-        response = engine.execute_task(task_id, plan)
-        assert 'APPROVAL' in response.text
-        task_result = task_manager.get_task(task_id)
-        assert task_result['status'] == 'waiting_approval'
-        assert task_result['waiting_approval_step_id'] == 's2'
-        assert task_result['waiting_approval_id'] == approval_id
-        from aegis_ai.approval.approval_types import compute_args_hash
-        mock_approval_manager.get.return_value = MagicMock(
-            status='approved',
-            task_id=task_id,
-            step_id='s2',
-            capability_id='test.b',
-            arguments={'key': 'value'},
-            tool_args_hash=compute_args_hash({'key': 'value'}),
-        )
-        mock_broker.execute_approved.return_value = _success_result()
-        response = engine.resume_after_approval(approval_id)
-        task_result = task_manager.get_task(task_id)
-        assert task_result['status'] == 'completed'
-        s1 = task_manager.get_step(task_id, 's1')
-        s2 = task_manager.get_step(task_id, 's2')
-        s3 = task_manager.get_step(task_id, 's3')
-        assert s1['status'] == 'completed'
-        assert s2['status'] == 'completed'
-        assert s3['status'] == 'completed'
+        mock_broker.execute.side_effect = [_success(), _approval('appr_x')]
+        task = task_manager.create_task(title='t', source='test')
+        tid = task['task_id']
+        task_manager.start_task(tid)
+        plan = TaskPlan(plan_id='p', interpreted_request='test', steps=[
+            PlanStep(step_id='s1', description='s1', action_type='tool_invoke', capability_id='a.b'),
+            PlanStep(step_id='s2', description='s2', action_type='tool_invoke', capability_id='a.c'),
+            PlanStep(step_id='s3', description='s3', action_type='tool_invoke', capability_id='a.d'),
+        ])
+        engine.execute_task(tid, plan)
+        t = task_manager.get_task(tid)
+        assert t['status'] == 'waiting_approval'
+        assert t['waiting_approval_step_id'] == 's2'
+        assert t['waiting_approval_id'] == 'appr_x'
 
-    def test_reject_cancels_task(self, engine, task_manager, mock_broker):
+    def test_resume_then_continue(self, engine, task_manager, mock_broker, mock_approval_manager):
         from aegis_ai.task_plan import PlanStep, TaskPlan
-        mock_broker.execute.return_value = _approval_result('appr_reject')
-        task = task_manager.create_task(title='reject test', source='test')
-        task_id = task['task_id']
-        task_manager.start_task(task_id)
-        plan = TaskPlan(
-            plan_id='plan_reject',
-            interpreted_request='reject test',
-            steps=[PlanStep(step_id='s1', description='step 1', action_type='tool_invoke', capability_id='test.a')],
+        from aegis_ai.approval.approval_types import compute_args_hash
+        mock_broker.execute.side_effect = [_success(), _approval('appr_y'), _success()]
+        task = task_manager.create_task(title='t', source='test')
+        tid = task['task_id']
+        task_manager.start_task(tid)
+        plan = TaskPlan(plan_id='p', interpreted_request='test', steps=[
+            PlanStep(step_id='s1', description='s1', action_type='tool_invoke', capability_id='a.b'),
+            PlanStep(step_id='s2', description='s2', action_type='tool_invoke', capability_id='a.c'),
+            PlanStep(step_id='s3', description='s3', action_type='tool_invoke', capability_id='a.d'),
+        ])
+        engine.execute_task(tid, plan)
+        args = {'key': 'value'}
+        mock_approval_manager.get.return_value = MagicMock(
+            status='approved', task_id=tid, step_id='s2', capability_id='a.c',
+            arguments=args, tool_args_hash=compute_args_hash(args),
         )
-        engine.execute_task(task_id, plan)
-        task_manager.fail_task(task_id, error='Approval rejected')
-        task_result = task_manager.get_task(task_id)
-        assert task_result['status'] == 'failed'
+        mock_broker.execute_approved.return_value = _success()
+        engine.resume_after_approval('appr_y')
+        t = task_manager.get_task(tid)
+        assert t['status'] == 'completed'
+        assert task_manager.get_step(tid, 's1')['status'] == 'completed'
+        assert task_manager.get_step(tid, 's2')['status'] == 'completed'
+        assert task_manager.get_step(tid, 's3')['status'] == 'completed'
+
+    def test_reject_fails_task(self, engine, task_manager, mock_broker):
+        from aegis_ai.task_plan import PlanStep, TaskPlan
+        mock_broker.execute.return_value = _approval('appr_z')
+        task = task_manager.create_task(title='t', source='test')
+        tid = task['task_id']
+        task_manager.start_task(tid)
+        plan = TaskPlan(plan_id='p', interpreted_request='test', steps=[
+            PlanStep(step_id='s1', description='s1', action_type='tool_invoke', capability_id='a.b'),
+        ])
+        engine.execute_task(tid, plan)
+        task_manager.fail_task(tid, error='rejected')
+        assert task_manager.get_task(tid)['status'] == 'failed'
 
 
 class TestTamperedArgs:
-    def test_tampered_args_detected(self, engine, task_manager, mock_broker, mock_approval_manager):
+    def test_tampered_args_denied(self, engine, task_manager, mock_broker, mock_approval_manager):
         from aegis_ai.task_plan import PlanStep, TaskPlan
         from aegis_ai.approval.approval_types import compute_args_hash
-        mock_broker.execute.return_value = _approval_result('appr_tamper')
-        task = task_manager.create_task(title='tamper test', source='test')
-        task_id = task['task_id']
-        task_manager.start_task(task_id)
-        plan = TaskPlan(
-            plan_id='plan_tamper',
-            interpreted_request='tamper test',
-            steps=[PlanStep(step_id='s1', description='step 1', action_type='tool_invoke', capability_id='test.a')],
-        )
-        engine.execute_task(task_id, plan)
+        mock_broker.execute.return_value = _approval('appr_t')
+        task = task_manager.create_task(title='t', source='test')
+        tid = task['task_id']
+        task_manager.start_task(tid)
+        plan = TaskPlan(plan_id='p', interpreted_request='test', steps=[
+            PlanStep(step_id='s1', description='s1', action_type='tool_invoke', capability_id='a.b'),
+        ])
+        engine.execute_task(tid, plan)
         mock_approval_manager.get.return_value = MagicMock(
-            status='approved',
-            task_id=task_id,
-            step_id='s1',
-            capability_id='test.a',
-            arguments={'key': 'tampered'},
-            tool_args_hash=compute_args_hash({'key': 'original'}),
+            status='approved', task_id=tid, step_id='s1', capability_id='a.b',
+            arguments={'k': 'tampered'}, tool_args_hash=compute_args_hash({'k': 'original'}),
         )
-        response = engine.resume_after_approval('appr_tamper')
-        assert 'DENIED' in response.text or 'tampered' in response.text.lower()
+        resp = engine.resume_after_approval('appr_t')
+        assert 'DENIED' in resp.text or 'tampered' in resp.text.lower()
         mock_broker.execute_approved.assert_not_called()
 
 
 class TestPlanPersistence:
-    def test_plan_saved_on_execute(self, engine, task_manager, mock_broker):
+    def test_from_dict_roundtrip(self):
         from aegis_ai.task_plan import PlanStep, TaskPlan
-        mock_broker.execute.return_value = _success_result()
-        task = task_manager.create_task(title='persist test', source='test')
-        task_id = task['task_id']
-        task_manager.start_task(task_id)
-        plan = TaskPlan(
-            plan_id='plan_persist',
-            interpreted_request='persist test',
-            steps=[PlanStep(step_id='s1', description='step 1', action_type='tool_invoke', capability_id='test.a')],
-        )
-        engine.execute_task(task_id, plan)
-        plan_json = task_manager.get_plan_json(task_id)
-        assert plan_json != ''
-        data = json.loads(plan_json)
-        assert data['plan_id'] == 'plan_persist'
-        assert len(data['steps']) == 1
+        plan = TaskPlan(plan_id='p1', interpreted_request='test', expected_result='ok', steps=[
+            PlanStep(step_id='s1', description='desc', action_type='tool_invoke', capability_id='a.b',
+                     params={'x': 1}, depends_on=['s0'], expected_result='r1'),
+        ])
+        d = plan.to_dict()
+        plan2 = TaskPlan.from_dict(d)
+        assert plan2.plan_id == 'p1'
+        assert plan2.interpreted_request == 'test'
+        assert plan2.expected_result == 'ok'
+        assert len(plan2.steps) == 1
+        s = plan2.steps[0]
+        assert s.step_id == 's1'
+        assert s.params == {'x': 1}
+        assert s.depends_on == ['s0']
+        assert s.expected_result == 'r1'
+        assert s.action_type == 'tool_invoke'
+
+    def test_plan_saved_and_restored(self, engine, task_manager, mock_broker):
+        from aegis_ai.task_plan import PlanStep, TaskPlan
+        mock_broker.execute.return_value = _success()
+        task = task_manager.create_task(title='t', source='test')
+        tid = task['task_id']
+        task_manager.start_task(tid)
+        plan = TaskPlan(plan_id='p_rest', interpreted_request='test', steps=[
+            PlanStep(step_id='s1', description='d1', action_type='tool_invoke', capability_id='a.b', params={'k': 'v'}, depends_on=[]),
+        ])
+        engine.execute_task(tid, plan)
+        pj = task_manager.get_plan_json(tid)
+        assert pj != ''
+        data = json.loads(pj)
+        restored = TaskPlan.from_dict(data)
+        assert restored.steps[0].params == {'k': 'v'}
+        assert restored.steps[0].depends_on == []
 
 
-class TestContinueTask:
-    def test_continue_after_approval(self, engine, task_manager, mock_broker, mock_approval_manager):
-        from aegis_ai.task_plan import PlanStep, TaskPlan
-        from aegis_ai.approval.approval_types import compute_args_hash
-        call_count = [0]
-        def side_effect(request):
-            call_count[0] += 1
-            if call_count[0] == 1:
-                return _success_result()
-            elif call_count[0] == 2:
-                return _approval_result('appr_cont')
-            else:
-                return _success_result()
-        mock_broker.execute.side_effect = side_effect
-        task = task_manager.create_task(title='continue test', source='test')
-        task_id = task['task_id']
-        task_manager.start_task(task_id)
-        plan = TaskPlan(
-            plan_id='plan_cont',
-            interpreted_request='continue test',
-            steps=[
-                PlanStep(step_id='s1', description='step 1', action_type='tool_invoke', capability_id='test.a'),
-                PlanStep(step_id='s2', description='step 2', action_type='tool_invoke', capability_id='test.b'),
-                PlanStep(step_id='s3', description='step 3', action_type='tool_invoke', capability_id='test.c'),
-            ],
-        )
-        engine.execute_task(task_id, plan)
-        mock_approval_manager.get.return_value = MagicMock(
-            status='approved',
-            task_id=task_id,
-            step_id='s2',
-            capability_id='test.b',
-            arguments={'key': 'value'},
-            tool_args_hash=compute_args_hash({'key': 'value'}),
-        )
-        mock_broker.execute_approved.return_value = _success_result()
-        engine.resume_after_approval('appr_cont')
-        task_result = task_manager.get_task(task_id)
-        assert task_result['status'] == 'completed'
-        assert task_manager.get_step(task_id, 's3')['status'] == 'completed'
+class TestInvokeApprovedDeprecated:
+    def test_invoke_tool_approved_warns(self):
+        from tool_broker import ToolBroker, ToolRegistry
+        import warnings
+        reg = ToolRegistry()
+        broker = ToolBroker(registry=reg)
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter('always')
+            try:
+                broker.invoke_tool_approved('nonexistent.cap')
+            except Exception:
+                pass
+            depr = [x for x in w if issubclass(x.category, DeprecationWarning)]
+            assert len(depr) > 0, 'No DeprecationWarning raised'
+            assert 'deprecated' in str(depr[0].message).lower()

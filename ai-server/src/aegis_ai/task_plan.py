@@ -53,6 +53,31 @@ class PlanStep:
     result: Any = None
     error: str = ""
 
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> PlanStep:
+        risk_str = data.get("risk_category", "READ")
+        try:
+            risk = RiskCategory[risk_str.upper()]
+        except KeyError:
+            risk = RiskCategory.READ
+        status_str = data.get("status", "PENDING")
+        try:
+            status = StepStatus[status_str.upper()]
+        except KeyError:
+            status = StepStatus.PENDING
+        return cls(
+            step_id=data.get("step_id", ""),
+            description=data.get("description", ""),
+            action_type=data.get("action_type", ""),
+            capability_id=data.get("capability_id", ""),
+            params=data.get("params", {}),
+            risk_category=risk,
+            requires_approval=data.get("requires_approval", False),
+            expected_result=data.get("expected_result", ""),
+            depends_on=data.get("depends_on", []),
+            status=status,
+        )
+
 
 @dataclass
 class TaskPlan:
@@ -123,7 +148,6 @@ class TaskPlan:
                 break
 
     def to_dict(self) -> dict[str, Any]:
-        """Convert to dictionary for serialization."""
         return {
             "plan_id": self.plan_id,
             "user_goal": self.user_goal,
@@ -135,8 +159,11 @@ class TaskPlan:
                     "description": s.description,
                     "action_type": s.action_type,
                     "capability_id": s.capability_id,
+                    "params": s.params,
                     "risk_category": s.risk_category.name,
                     "requires_approval": s.requires_approval,
+                    "expected_result": s.expected_result,
+                    "depends_on": s.depends_on,
                     "status": s.status.name,
                 }
                 for s in self.steps
@@ -144,4 +171,27 @@ class TaskPlan:
             "risk_notes": self.risk_notes,
             "approval_needed": self.approval_needed,
             "expected_result": self.expected_result,
+            "needs_browser": self.needs_browser,
+            "needs_device": self.needs_device,
         }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> TaskPlan:
+        plan = cls(
+            plan_id=data.get("plan_id", ""),
+            user_goal=data.get("user_goal", ""),
+            interpreted_request=data.get("interpreted_request", ""),
+            assumptions=data.get("assumptions", []),
+            required_context=data.get("required_context", []),
+            required_capabilities=data.get("required_capabilities", []),
+            risk_notes=data.get("risk_notes", []),
+            approval_needed=data.get("approval_needed", False),
+            stop_conditions=data.get("stop_conditions", []),
+            expected_result=data.get("expected_result", ""),
+            verification_plan=data.get("verification_plan", ""),
+            needs_browser=data.get("needs_browser", False),
+            needs_device=data.get("needs_device", False),
+        )
+        for sd in data.get("steps", []):
+            plan.steps.append(PlanStep.from_dict(sd))
+        return plan
