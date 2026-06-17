@@ -307,16 +307,24 @@ class ApprovalManager:
             logger.debug("Failed to record approval audit", exc_info=True)
 
     def _task_manager_callback(self, event: dict[str, Any]) -> None:
-        """Callback to update TaskManager when approval state changes."""
-        if not self._task_manager:
+        """Callback to update TaskManager and ExecutionEngine when approval state changes."""
+        request = event.get("request")
+        if request is None:
             return
 
-        task_id = event.get("request", {}).task_id if hasattr(event.get("request", {}), "task_id") else None
-        if not task_id:
-            return
-
+        task_id = getattr(request, "task_id", "")
+        step_id = getattr(request, "step_id", "")
+        approval_id = getattr(request, "approval_id", "")
         event_type = event.get("event_type")
+
         if event_type == "approved":
-            self._task_manager.resume_after_approval(task_id)
+            if self._task_manager and task_id:
+                self._task_manager.resume_after_approval(task_id, step_id)
+            if hasattr(self, "_execution_engine") and self._execution_engine and approval_id:
+                try:
+                    self._execution_engine.resume_after_approval(approval_id)
+                except Exception:
+                    logger.exception("ExecutionEngine resume failed for %s", approval_id)
         elif event_type == "rejected":
-            self._task_manager.fail_task(task_id, error="Approval rejected")
+            if self._task_manager and task_id:
+                self._task_manager.fail_task(task_id, error="Approval rejected")

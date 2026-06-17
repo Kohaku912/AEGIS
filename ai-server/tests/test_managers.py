@@ -98,14 +98,14 @@ class TestTaskManager:
     def test_waiting_approval(self, task_manager):
         task = task_manager.create_task(title="Test")
         task_manager.start_task(task["task_id"])
-        result = task_manager.wait_for_approval(task["task_id"], "appr_001")
+        result = task_manager.wait_for_approval(task["task_id"], approval_id="appr_001")
         assert result["status"] == "waiting_approval"
         assert result["related_approval_id"] == "appr_001"
 
     def test_resume_after_approval(self, task_manager):
         task = task_manager.create_task(title="Test")
         task_manager.start_task(task["task_id"])
-        task_manager.wait_for_approval(task["task_id"], "appr_001")
+        task_manager.wait_for_approval(task["task_id"], approval_id="appr_001")
         result = task_manager.resume_after_approval(task["task_id"])
         assert result["status"] == "running"
 
@@ -144,7 +144,7 @@ class TestTaskManager:
     def test_approval_reject_cancels_task(self, task_manager):
         task = task_manager.create_task(title="Test")
         task_manager.start_task(task["task_id"])
-        task_manager.wait_for_approval(task["task_id"], "appr_001")
+        task_manager.wait_for_approval(task["task_id"], approval_id="appr_001")
         result = task_manager.cancel_task(task["task_id"], reason="approval rejected")
         assert result["status"] == "cancelled"
 

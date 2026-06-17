@@ -59,6 +59,7 @@ class AegisRuntime:
     audit_manager: Any = None
     status_manager: Any = None
     task_manager: Any = None
+    execution_engine: Any = None
     notification_manager: Any = None
     memory_manager: Any = None
     sleep_manager: Any = None
@@ -243,6 +244,7 @@ def _build_runtime(config: Config) -> AegisRuntime:
     from aegis_ai.audit.audit_manager import AuditManager
     from aegis_ai.status.status_manager import StatusManager
     from aegis_ai.task.task_manager import TaskManager
+    from aegis_ai.task.execution_engine import TaskExecutionEngine
     from aegis_ai.notification.notification_manager import NotificationManager
     from aegis_ai.memory.memory_manager import MemoryManager
     from aegis_ai.memory.sleep import SleepManager
@@ -273,11 +275,20 @@ def _build_runtime(config: Config) -> AegisRuntime:
     task_manager = TaskManager(event_manager=event_manager, audit_manager=audit_manager, data_dir=data_dir)
     notification_manager = NotificationManager(event_manager=event_manager)
 
-    # Wire TaskManager to InteractionRouter
-    interaction_router._task_manager = task_manager
+    execution_engine = TaskExecutionEngine(
+        task_manager=task_manager,
+        tool_broker=tool_broker,
+        approval_manager=approval_manager,
+        llm_gateway=llm_gateway,
+        prompt_registry=prompt_registry,
+        settings_resolver=settings_resolver,
+    )
 
-    # Wire TaskManager to ApprovalManager
+    interaction_router._task_manager = task_manager
+    interaction_router._execution_engine = execution_engine
+
     approval_manager._task_manager = task_manager
+    approval_manager._execution_engine = execution_engine
     approval_manager.on_state_change(approval_manager._task_manager_callback)
 
     memory_manager = MemoryManager(
@@ -327,6 +338,7 @@ def _build_runtime(config: Config) -> AegisRuntime:
         audit_manager=audit_manager,
         status_manager=status_manager,
         task_manager=task_manager,
+        execution_engine=execution_engine,
         notification_manager=notification_manager,
         memory_manager=memory_manager,
         sleep_manager=sleep_manager,
