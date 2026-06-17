@@ -41,18 +41,19 @@ Response → User
 
 ## Intent Classification
 
-Messages are classified by keywords:
+**All intent classification is LLM-driven** — no keyword matching, no regex patterns.
+The LLM interprets the user's message and routes it to the appropriate agent or action.
+Code NEVER inspects user text for keywords.
 
-| Intent | Keywords | Route |
-|--------|----------|-------|
-| `RESEARCH_REQUEST` | research, search, find, tell me about | Research Agent |
-| `SUPPORT_FEEDBACK` | accept, reject, feedback, thanks | Support Agent |
-| `SETTINGS_REQUEST` | settings, config, enable, disable | Settings |
-| `APPROVAL_DECISION` | approve, reject, allow, deny | Approval UI |
-| `SELF_DEV_REQUEST` | improve, fix, optimize, refactor | SelfDevAgent |
-| `STATUS_CHECK` | status, health | Dashboard |
-| `HELP_REQUEST` | help, what can you do | Help text |
-| `TOOL_REQUEST` | screenshot, click, tap | Approval UI redirect |
+| Possible Route | Description |
+|--------|----------|
+| Research Agent | Deep information gathering |
+| Support Agent | Proactive user assistance |
+| SelfDev Agent | Self-improvement workflows |
+| Settings | Configuration changes |
+| Approval UI | Approval decisions |
+| Dashboard | Status checks |
+| Help | Capability descriptions |
 
 ## Safety
 

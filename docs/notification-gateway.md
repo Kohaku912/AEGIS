@@ -1,6 +1,6 @@
 # Notification Gateway — Outbound Communication
 
-> **Status**: Implemented
+> **Status**: Implemented (2026-06-17)
 > **Related**: `docs/interaction-hub.md`, `docs/settings.md`
 
 ## Overview
@@ -11,6 +11,16 @@ The Notification Gateway sends notifications to users through local channels:
 - **CLI** — displayed in terminal
 
 External channels (LINE, Discord, Email, OS notifications) are stubs only.
+
+### NotificationManager
+
+**File**: `ai-server/src/aegis_ai/notification/notification_manager.py`
+
+Runtime-managed notification system. Provides:
+- **Push**: Create and store notifications
+- **Read**: Mark notifications as read
+- **Query**: Filter by type, severity, read status
+- API: `GET /api/notifications`, `POST /api/notifications/<id>/read`
 
 ## Notification Types
 

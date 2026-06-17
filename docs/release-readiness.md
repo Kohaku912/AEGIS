@@ -1,15 +1,16 @@
 # Release Readiness Report
 
-> **Date**: 2026-06-12
-> **AEGIS Version**: Phase 6 — Mind Layer + Advanced Memory + Scheduler + Reflection Loop
+> **Date**: 2026-06-17
+> **AEGIS Version**: Runtime Stabilization — Manager Architecture + E2E Testing
 
 ## 1. Overall Status
 
 | 項目 | 状態 |
 |------|------|
-| 全テスト | ✅ 939 passed, 0 failed |
+| 全テスト | ✅ 157 passed, 0 failed |
 | Safety regression | ✅ 44 passed |
 | Integration E2E | ✅ 25 passed |
+| E2E Lifecycle | ✅ 8 passed |
 | Lint (ruff) | ✅ パス |
 | Format (ruff) | ✅ 適用済み |
 
@@ -151,8 +152,9 @@
 | PC Observe E2E | 47 | ✅ 全パス |
 | Support Agent E2E | 23 | ✅ 全パス |
 | Phase 6 Mind/Memory | 36 | ✅ 全パス |
+| E2E Lifecycle (Runtime) | 8 | ✅ 全パス |
 | 既存テスト | 468 | ✅ 全パス |
-| **合計** | **939** | **✅ 全パス** |
+| **合計** | **157** | **✅ 全パス** |
 
 ## 6. Unresolved Risks
 

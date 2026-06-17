@@ -1,6 +1,8 @@
-# AEGIS Architecture — AEGIS: Autonomous Multi-Device AI
+# AEGIS Architecture — Autonomous Multi-Device AI
 
-> **Status**: Implemented (2026-06-13)  
+> **Status**: Implemented (2026-06-17)  
+> **Tests**: 157 passed, 0 failed  
+> **Capabilities**: 53 registered  
 > **Target audience**: AI coding agents, contributors, and future AEGIS itself  
 > **Related**: [`AGENTS.md`](../AGENTS.md) — rules and conventions for agents working on this repo
 
@@ -8,15 +10,15 @@
 
 ## 1. Project Purpose
 
-AEGIS is an **autonomous, event-driven, self-improving AI assistant** that spans multiple devices. It is not a single chatbot — It is a distributed system that:
+AEGIS is an **autonomous, event-driven, self-improving AI assistant** that spans multiple devices. It is not a single chatbot — it is a distributed system that:
 
 - **Observes** events across PC, Android, browser, room sensors, and dev tools
-- **Thinks** via a central AI Server with memory, goals, and identity
-- **Acts** through capability servers — with graduated safety gates
-- **Learns** from outcomes and improves its own codebase (self-development)
-- **Desires** driven by intrinsic motivations (D2A-inspired)
+- **Thinks** via a central AI Server with memory, goals, identity, and desires
+- **Acts** through registered capabilities — with graduated safety gates
+- **Learns** from outcomes via a learning pipeline (ActionTrace → Lesson → Workflow → Skill)
+- **Desires** driven by 10 intrinsic motivations (D2A-inspired)
 
-**Key design constraint**: AEGIS must never act dangerously without explicit user approval. Safety is structural (not prompt-based). See [§7 Security Design](#7-security-design).
+**Key design constraint**: AEGIS must never act dangerously without explicit user approval. Safety is structural (PolicyEngine), not prompt-based. See [§7 Security Design](#7-security-design).
 
 ---
 
@@ -28,47 +30,49 @@ AEGIS is an **autonomous, event-driven, self-improving AI assistant** that spans
 flowchart TB
     %% User Interfaces
     U["ユーザー<br/>Voice / Chat / LINE / Web UI"]
-    ApprovalUI["Approval UI<br/>Confirm dangerous ops"]
+    DashUI["Dashboard<br/>Streaming chat + Manager API"]
+    ApprovalUI["Approval UI<br/>Multi-channel (SSE / PC overlay / Android / Room)"]
 
     %% Event Sources
     subgraph EventSources["External Event Sources"]
-        PCEvents["PC Events<br/>screen change / app state / file / logs"]
-        AndroidEvents["Android Events<br/>notifications / screen / app state"]
-        RoomEvents["Room Events<br/>temp / humidity / light / motion / camera"]
-        WebEvents["Web Events<br/>news / GitHub / RSS / SNS"]
-        DevEvents["Dev Events<br/>errors / test failures / CI / issues"]
+        PCEvents["PC Events"]
+        AndroidEvents["Android Events"]
+        RoomEvents["Room Events"]
+        WebEvents["Web Events"]
+        DevEvents["Dev Events"]
     end
 
     %% Core
     subgraph Core["AI Server / AEGIS Core"]
-        EventBus["Event Bus"]
-        TriggerEngine["Trigger Engine"]
-        ContextBuilder["Context Builder"]
-        Mind["Mind Layer\nIdentity / Desire / Emotion / Goals / SocialIntelligence"]
-        Memory["Memory System\nEpisodic / Semantic / Procedural / Reflection"]
-        Observation["Observation System\nMulti-server observation aggregation"]
-        AutonomousLoop["Autonomous Loop\nObserve→Think→Plan→Act→Verify→Reflect"]
+        Runtime["AegisRuntime<br/>(singleton entry point)"]
+        Managers["Managers<br/>Task · Memory · Sleep · Event<br/>Audit · Status · Notification"]
+        EventBus["EventBus"]
+        TriggerEngine["TriggerEngine"]
+        ContextBuilder["ContextBuilder"]
+        Mind["Mind Layer<br/>Identity / Desire / Emotion / Goals"]
+        Memory["Memory System<br/>AdvancedMemory · Episodic · Semantic<br/>Chroma · Persona · Skill · Lesson"]
+        AutonomousLoop["AutonomousLoop<br/>Observe→Think→Plan→Act→Verify→Reflect"]
         Planner["Planner"]
         Curiosity["Curiosity Exploration"]
-        Researcher["Research Agent"]
-        SupportAgent["Support Agent"]
-        SelfDevAgent["Self Development Agent"]
-        ToolBroker["Tool Broker"]
-        Policy["Policy Engine"]
-        Audit["Audit Log"]
+        Agents["Research · Support · SelfDev Agents"]
+        LLMGateway["LLMGateway<br/>PromptRegistry · SettingsResolver"]
+        ToolBroker["ToolBroker"]
+        Policy["PolicyEngine"]
+        AuditLog["AuditManager"]
     end
 
     %% Servers
-    subgraph Servers["Capability Servers (extensible)"]
-        PCServer["PC Server\nObserve / Action / Plugins"]
-        AndroidServer["Android Server\nObserve / Action / Plugins"]
-        BrowserServer["Browser Server\nObserve / Action / Plugins"]
-        RoomServer["Room Server\nObserve / Action / Plugins"]
-        DevServer["Dev Server\nObserve / Action / Plugins"]
+    subgraph Servers["Capability Servers (53 capabilities)"]
+        PCServer["PC Server (Rust, TCP)<br/>40+ capabilities"]
+        AndroidServer["Android Server (Kotlin)<br/>Notification / Screenshot"]
+        BrowserServer["Browser Server (Python + browser-use)"]
+        RoomServer["Room Server (Python)<br/>Sensors / Actuators"]
     end
 
     %% Data Flow
-    U --> ContextBuilder
+    U --> DashUI
+    DashUI -->|chat + tool calling| LLMGateway
+    LLMGateway --> ToolBroker
     EventSources --> EventBus
     EventBus --> TriggerEngine
     TriggerEngine --> ContextBuilder
@@ -76,31 +80,28 @@ flowchart TB
     ContextBuilder --> Memory
     ContextBuilder --> AutonomousLoop
     Memory --> ContextBuilder
-    Servers -->|observations| Observation
-    Observation --> EventBus
-    AutonomousLoop --> Planner
-    Planner --> Curiosity
-    Planner --> Researcher & SupportAgent & SelfDevAgent
-    Researcher & SupportAgent & SelfDevAgent --> ToolBroker
+    Servers -->|observations| EventBus
+    AutonomousLoop --> Planner --> Agents
+    Agents --> ToolBroker
     ToolBroker --> Policy
     Policy -->|safe| Servers
     Policy -->|needs approval| ApprovalUI
     ApprovalUI --> Policy
     Servers -->|results| EventBus
-    AutonomousLoop --> Audit
-    Policy --> Audit
+    Policy --> AuditLog
+    Runtime -.->|owns| Managers
 
-    %% Styles
     classDef core fill:#eef4ff,stroke:#4a6fa5
     classDef mind fill:#fff1f1,stroke:#b85c5c
     classDef memory fill:#f3fff1,stroke:#5c9b5c
     classDef server fill:#f8f8f8,stroke:#777
     classDef risk fill:#fff7dc,stroke:#b58a00
+    classDef runtime fill:#f0e6ff,stroke:#7b4fa0
 
-    class EventBus,TriggerEngine,ContextBuilder,AutonomousLoop,Planner,Curiosity,Researcher,SupportAgent,SelfDevAgent,ToolBroker,Audit core
+    class Runtime,Managers,EventBus,TriggerEngine,ContextBuilder,AutonomousLoop,Planner,Curiosity,Agents,ToolBroker,AuditLog,LLMGateway core
     class Mind mind
-    class Memory,Observation memory
-    class PCServer,AndroidServer,BrowserServer,RoomServer,DevServer server
+    class Memory memory
+    class PCServer,AndroidServer,BrowserServer,RoomServer server
     class Policy,ApprovalUI risk
 ```
 
@@ -108,17 +109,45 @@ flowchart TB
 
 | Principle | Meaning |
 |-----------|---------|
+| **Runtime singleton** | `AegisRuntime` is the sole entry point. All state mutations go through Managers. |
 | **Contract-first** | All server APIs defined in `.proto` files before implementation |
 | **Event-driven** | No polling loops — AEGIS reacts to events, schedules, and user requests |
 | **Graduated safety** | 4 safety levels — read, safe write, approval-required, prohibited |
-| **Self-improving** | Dev Server enables AEGIS to fix and extend its own code in sandboxed workflows |
-| **Extensible** | Servers register capabilities dynamically via Tool Broker; new servers can be added |
+| **Self-improving** | Desire-driven autonomous loop with learning pipeline |
+| **Extensible** | Folder-based JSON capability manifests; new servers can be added |
 | **Offline-first** | All core logic runs locally; cloud LLM is optional/cacheable |
-| **Technology Decision Gate** | AI agents MUST NOT make major technology choices autonomously. See `AGENTS.md` §Technology Decision Gate. When multiple viable options exist for the same feature, present a structured comparison and ask the user. |
+| **LLM-driven** | The LLM interprets all user messages. No keyword matching or regex routing. |
+| **Technology Decision Gate** | AI agents MUST NOT make major technology choices autonomously. |
 
 ### 2.3 Communication
 
-All inter-server communication uses **gRPC** with Protocol Buffers (proto3). The `protos/AEGIS/` directory is the **single source of truth** for all API contracts. No server may communicate via ad-hoc REST or raw sockets without a proto definition.
+All inter-server communication uses **gRPC** with Protocol Buffers (proto3). The `protos/AEGIS/` directory is the **single source of truth** for all API contracts. PC Server uses TCP JSON protocol on port 50052. Browser Server uses HTTP on port 50053.
+
+### 2.4 Runtime Singleton & Manager Architecture
+
+`AegisRuntime` (`ai-server/src/aegis_ai/runtime.py`) is the process-wide singleton and the **sole entry point** for all external code. It owns and wires all managers at startup:
+
+| Manager | File | Purpose |
+|---------|------|---------|
+| **TaskManager** | `task/task_manager.py` | 9-state task lifecycle: pending → running → waiting_approval → ... → completed/failed |
+| **MemoryManager** | `memory/memory_manager.py` | Unified memory entry point. `get_backend("advanced")` etc. |
+| **SleepManager** | `memory/sleep.py` | Memory consolidation during idle periods |
+| **EventManager** | `event/event_manager.py` | Event persistence, cursor queries, dead letter queue |
+| **AuditManager** | `audit/audit_manager.py` | JSONL tail reader (64KB chunks), cursor pagination. No `read_all()` in main path. |
+| **StatusManager** | `status/status_manager.py` | Background health checks (TCP port connectivity), cached snapshots |
+| **NotificationManager** | `notification/notification_manager.py` | Non-approval notification management |
+
+**Architecture Invariants**:
+
+| Rule | Description |
+|------|-------------|
+| **Runtime singleton** | `AegisRuntime` is the sole entry point. External code MUST NOT create services directly. |
+| **Manager pattern** | All state mutations go through Managers. Managers are owned by AegisRuntime. |
+| **MemoryManager** | All memory backends accessed through `runtime.memory_manager.get_backend()`. |
+| **EventManager** | All event publishing through `runtime.event_manager.publish()`. |
+| **StatusManager** | Server status via `runtime.status_manager.get_snapshot()`. No `_check_port()` in routes. |
+| **TaskManager** | AutonomousLoop creates/finishes tasks via TaskManager. |
+| **AuditManager** | JSONL tail reader only. No `read_all()` in main path. |
 
 ---
 
@@ -128,126 +157,153 @@ All inter-server communication uses **gRPC** with Protocol Buffers (proto3). The
 
 | Attribute | Value |
 |-----------|-------|
-| **Language** | Python 3.12+ |
-| **Role** | Central brain |
-| **Key modules** | Event Bus, Trigger Engine, Autonomous Loop, Planner, Agents, Tool Broker, Policy Engine, Memory, Mind, Audit |
+| **Language** | Python 3.14 |
+| **Port** | 50051 (gRPC), 8090 (Dashboard) |
+| **Role** | Central brain — LLM, memory, desires, policy, autonomous execution |
+| **Key modules** | AegisRuntime, 7 Managers, EventBus, TriggerEngine, AutonomousLoop, LLMGateway, ToolBroker, PolicyEngine, CapabilityCatalog |
 
 **Must do**:
-- Aggregate events from all servers via Event Bus
-- Decide when to wake up (Trigger Engine)
+- Aggregate events from all servers via EventBus
+- Decide when to wake up (TriggerEngine)
 - Build context from memory + current events + user state
-- Plan and execute actions via the Autonomous Loop
-- Enforce safety policy before every action
-- Log every decision to Audit Log
-- Expose gRPC API for all servers
+- Plan and execute actions via the AutonomousLoop
+- Enforce safety policy before every action (PolicyEngine)
+- Log every decision to AuditLog (AuditManager)
+- Route LLM requests via LLMGateway → LLMRouter → Providers
 
 **Must NOT**:
 - Execute unapproved dangerous operations
-- Bypass its own Policy Engine
+- Bypass its own PolicyEngine
+- Create memory backends or services directly (use Managers)
+- Use keyword matching for user message interpretation
 
 ### 3.2 PC Server
 
 | Attribute | Value |
 |-----------|-------|
-| **Language** | 未確認 (Python or Node.js) |
-| **Role** | PC control |
+| **Language** | Rust |
+| **Port** | 50052 (TCP JSON) |
+| **OS** | Windows 専用 |
+| **Role** | PC observation and control |
 
-**Capabilities**:
-- **Observe**: Screenshot, OCR, window title, active app, file system watch, log tail, clipboard
-- **Action**: Mouse/keyboard input, app launch/close, window management, overlay display, file read/write
-- **Plugins**: IDE integration, game assistance, file management
+**Capabilities (40+)**:
+- **Observe**: Screenshot, active window, window list, clipboard, OS info, screen size
+- **Action**: Mouse click/move, keyboard type, hotkey, app launch, window management
+- **Overlay**: Custom click-through overlays (WS_EX_TOPMOST + WS_EX_LAYERED + WS_EX_TRANSPARENT)
+- **Shell**: PowerShell / CMD execution via TCP command
+- **File**: Read/write with allowlist/denylist path safety
 
-**Safety**: File deletion and sensitive directory access require approval (Level 2).
+**Safety**: File deletion, shell commands, password entry are DENIED (Level 3). Mouse click, keyboard, file write require approval (Level 2).
 
 ### 3.3 Android Server
 
 | Attribute | Value |
 |-----------|-------|
 | **Language** | Kotlin |
+| **Port** | 50054 (gRPC) |
 | **Role** | Mobile device integration |
 
 **Capabilities**:
 - **Observe**: MediaProjection (screen), notification stream, UI tree, app state
 - **Action**: Accessibility tap/swipe, text input, app launch, overlay
-- **Plugins**: LINE, SNS monitoring, notification triage
-
-**Safety**: SMS/DM sending, contact access require explicit approval (Level 2).
+- **Safety**: SMS/DM sending, contact access require explicit approval (Level 2)
 
 ### 3.4 Browser Server
 
 | Attribute | Value |
 |-----------|-------|
-| **Language** | Python 3.12+ + browser-use |
-| **Role** | Web automation |
+| **Language** | Python + browser-use |
+| **Port** | 50053 (HTTP) |
+| **Role** | Web automation via natural language |
 
 **Capabilities**:
-- **Observe**: DOM snapshot, screenshot, page text extraction, network log
-- **Action**: Navigation, click, form fill, file download
-- **Plugins**: Deep research (multi-page synthesis), SNS draft, GitHub monitoring
+- **Browse**: LLM-driven browser automation via browser-use library
+- **Safety**: SNS posting, message sending, purchases are approval-required (Level 2/3)
 
-**Safety**: SNS posting, message sending, purchases are approval-required (Level 2/3).
+**Notable**: DeepSeek compatibility patch applied. Verification detection for user confirmation.
 
 ### 3.5 Room Server
 
 | Attribute | Value |
 |-----------|-------|
-| **Language** | 未確認 |
+| **Language** | Python |
+| **Port** | 50055 (gRPC) |
 | **Role** | Physical environment control |
 
 **Capabilities**:
 - **Observe**: Temperature, humidity, brightness, motion, camera, device status
-- **Action**: Light control, AC, IR blaster, smart plug
-- **Plugins**: Arduino/ESP32, MQTT bridge, Home Assistant integration
+- **Action**: Light control, AC (16-32°C validated), IR blaster (allowlist), smart plug
+- **Safety**: Emergency stop is Level 1 (auto-allowed). Physical device operation requires approval.
 
-**Safety**: Physical device operation requires approval (Level 2/3 depending on risk).
-
-### 3.6 Dev Server
+### 3.6 Dashboard
 
 | Attribute | Value |
 |-----------|-------|
-| **Language** | 未確認 |
-| **Role** | Sandboxed self-development |
+| **Language** | Python (Flask) |
+| **Port** | 8090 |
+| **Role** | Web UI — chat, monitoring, settings |
 
-**Capabilities**:
-- **Observe**: Repository state, test results, lint output, CI status
-- **Action**: Branch creation, code modification, test execution, PR creation
-- **Plugins**: Python, Rust, TypeScript, Docker sandbox
-
-**Safety**: All code changes must go through the self-dev workflow (see §8). No direct production access. No access to secrets.
+**Features**:
+- Streaming chat with **tool calling** (CapabilityCatalog-driven, max 5 rounds)
+- **ask_user** support (tool pause → user input → continue)
+- 19 Manager API routes (tasks, events, audit, status, notifications, memory, sleep)
+- Settings Web UI with persistence to `config/settings.json`
+- Approval UI with multi-channel fanout
 
 ---
 
 ## 4. Capability Model
 
-Each server exposes capabilities to the AI Server via a **Capability Registry**. This is not a static list — servers register their capabilities at startup and can be extended with plugins.
+Capabilities are defined as **JSON manifests** in a folder structure. This is the **single source of truth** — no hardcoded capability definitions in Python code.
 
-### Capability Structure (proto definition — planned)
+### 4.1 Folder Structure
 
-```protobuf
-message Capability {
-  string id = 1;              // unique identifier, e.g. "pc.screenshot"
-  string server_id = 2;       // which server provides this
-  string name = 3;            // human-readable
-  string description = 4;     // what it does
-  SafetyLevel min_safety = 5; // minimum safety level required
-  repeated Parameter params = 6;
-  repeated string tags = 7;   // for search/discovery
-}
-
-enum SafetyLevel {
-  LEVEL_0_READ = 0;           // read-only, always safe
-  LEVEL_1_SAFE_ACT = 1;       // safe action (e.g. open app, turn on light)
-  LEVEL_2_APPROVAL = 2;       // requires user approval (e.g. send DM, delete file)
-  LEVEL_3_RESTRICTED = 3;     // high-risk, may be prohibited entirely
-}
+```
+capabilities/
+├── builtin/
+│   ├── pc-server/
+│   │   ├── screenshot/
+│   │   │   └── get_screenshot.json
+│   │   └── system/
+│   │       └── get_os_info.json
+│   ├── browser-server/
+│   ├── android-server/
+│   └── room-server/
+└── generated/
+    └── ...
 ```
 
-### How capabilities are used
+### 4.2 Canonical ID Format
 
-1. Each server registers capabilities with the Tool Broker at startup
-2. The Planner/Agents query the Tool Broker for available capabilities
-3. The Policy Engine checks the `min_safety` level before execution
-4. Unknown or unregistered capabilities are blocked by default
+**Format**: `server_id.app_id.action`
+
+| Example Capability ID | Server |
+|----------------------|--------|
+| `pc-server.screenshot.get_screenshot` | PC Server |
+| `browser-server.page.open_page` | Browser Server |
+| `android-server.notification.get_notifications` | Android Server |
+| `room-server.environment.get_environment` | Room Server |
+
+Old ID formats (e.g. `pc.screenshot.get_screenshot`) are resolved via aliases in `CapabilityCatalog`.
+
+### 4.3 Capability Lifecycle
+
+1. `FolderCapabilityRegistry` loads JSON manifests from `capabilities/` at startup
+2. `CapabilityCatalog` converts manifests to `Capability` objects (canonical IDs)
+3. `ToolRegistry` registers all capabilities in memory
+4. `CapabilityIndex` provides lightweight catalog + Chroma vector search
+5. `ToolBroker` uses `CapabilityCatalog.resolve()` + `jsonschema.validate()` before execution
+6. `LLMTaskInterpreter` uses `CapabilityCatalog.list_for_llm()` for capability listing
+
+### 4.4 Safety Level Definitions
+
+| Level | Name | Examples | Default |
+|-------|------|----------|---------|
+| **0** | Read-only | Screenshot, OCR, sensor read, log tail | ALLOW |
+| **1** | Safe action | Open app, move window, turn on light, overlay display | ALLOW |
+| **2** | Approval required | Delete file, send DM, post SNS, mouse click, keyboard type | ASK |
+| **3** | Restricted | Bulk delete, purchase, SSH key access, shell commands | ASK or DENY |
+| — | Unregistered | Any capability not in the registry | DENY |
 
 ---
 
@@ -257,186 +313,215 @@ enum SafetyLevel {
 
 ```
 ai-server/src/
-├── event_bus.py          # Ingests events from all servers
-├── trigger_engine.py     # Decides when to wake the Autonomous Loop
-├── context_builder.py    # Assembles context for LLM/decision
-├── autonomous/
-│   ├── autonomous_loop.py    # Main observe→think→plan→act→verify→reflect loop
-│   ├── planner.py            # Task decomposition, prioritization
-│   └── curiosity_exploration.py  # Novelty-seeking exploration tasks
-├── agents/
-│   ├── research.py       # Deep information gathering
-│   ├── support.py        # Proactive user assistance
-│   └── self_dev.py       # Self-improvement workflows
-├── tool_broker.py        # Capability registry & dispatch
-├── policy_engine.py      # Safety enforcement
-├── memory/
-│   ├── episodic.py       # Conversation & event history
-│   ├── semantic.py       # Knowledge & user facts
-│   ├── procedural.py     # Learned procedures
-│   └── reflection.py     # Self-analysis & improvement notes
-├── mind/
-│   ├── identity.py       # Who AEGIS is
-│   ├── desire.py         # Goals, curiosity, priorities
-│   ├── emotion.py        # Urgency, confidence state
-│   └── goals.py          # Short/long-term goal tracking
-├── observation/
-│   └── observation_service.py  # Multi-server observation aggregation
-├── scheduler.py          # Cron-like scheduled tasks
-└── audit.py              # Immutable decision log
+├── aegis_ai/
+│   ├── runtime.py                    # Process-wide singleton, builds all managers
+│   ├── event_bus.py                  # In-memory event queue + subscription
+│   ├── trigger_engine.py             # Event → trigger evaluation
+│   ├── context_builder.py            # Assembles context for LLM
+│   ├── policy_engine.py              # Deterministic safety enforcement
+│   ├── tool_broker.py                # Capability invocation with validation
+│   ├── tool_registry.py              # In-memory capability registry
+│   ├── capability_catalog.py         # Unified catalog, alias resolution
+│   ├── capability_index.py           # Chroma vector search + keyword search
+│   ├── folder_registry.py            # JSON manifest loader
+│   ├── audit.py                      # AuditLog (legacy)
+│   ├── scheduler.py                  # Cron-like scheduled tasks
+│   ├── approval.py                   # ApprovalStore (legacy)
+│   ├── task/
+│   │   └── task_manager.py           # 9-state task lifecycle
+│   ├── event/
+│   │   └── event_manager.py          # Persistence, cursor queries, dead letter
+│   ├── audit/
+│   │   └── audit_manager.py          # JSONL tail reader (64KB chunks)
+│   ├── status/
+│   │   └── status_manager.py         # Background health checks, cached snapshots
+│   ├── notification/
+│   │   └── notification_manager.py   # Non-approval notifications
+│   ├── approval/
+│   │   ├── approval_manager.py       # Unified approval lifecycle
+│   │   ├── fanout.py                 # Multi-channel delivery (4 channels)
+│   │   └── channels/                 # dashboard_sse, pc_overlay, android, room
+│   ├── memory/
+│   │   ├── memory_manager.py         # Unified entry: get_backend("advanced")
+│   │   ├── sleep.py                  # SleepManager for consolidation
+│   │   ├── advanced.py               # Zep-inspired: entity/fact/temporal
+│   │   ├── episodic.py               # Conversation & event history
+│   │   ├── semantic.py               # Knowledge & facts
+│   │   ├── chroma_semantic.py        # ChromaDB vector search
+│   │   ├── persona.py                # Person tracking
+│   │   ├── action_trace.py           # Autonomous action recording
+│   │   ├── lesson_memory.py          # Extracted lessons
+│   │   ├── workflow_memory.py        # Repeated successful patterns
+│   │   ├── skill_memory.py           # Reusable procedures
+│   │   └── consolidation.py          # MemoryConsolidator
+│   ├── autonomous/
+│   │   ├── autonomous_loop.py        # Desire-driven execution + TaskManager
+│   │   ├── planner.py                # LLM-based task decomposition
+│   │   └── curiosity_exploration.py  # Novelty-seeking exploration
+│   ├── agents/
+│   │   ├── research.py               # Deep information gathering
+│   │   ├── support.py                # Proactive user assistance
+│   │   └── self_dev.py               # Self-improvement workflows
+│   ├── desire/
+│   │   ├── desire_system.py          # 10 desires, decay, frustration tracking
+│   │   └── fulfillment.py            # Per-desire condition→delta rules
+│   ├── llm/
+│   │   ├── gateway.py                # LLMGateway facade (runtime-owned)
+│   │   ├── router.py                 # Task → provider routing
+│   │   ├── factory.py                # DeepSeek/OpenAI/Mock provider factory
+│   │   ├── prompt_registry.py        # YAML prompts (config/prompts.yaml)
+│   │   ├── settings_resolver.py      # YAML profiles (config/llm.yaml)
+│   │   ├── cost_tracker.py           # Token/cost tracking
+│   │   ├── memory_context.py         # Memory context for LLM prompts
+│   │   └── providers/                # openai_provider, mock
+│   ├── mind/
+│   │   ├── identity.py               # AEGIS identity
+│   │   ├── desire.py                 # Mind-level desire state
+│   │   ├── emotion.py                # Emotion appraisal
+│   │   └── goals.py                  # Goal tracking
+│   ├── web/
+│   │   ├── app.py                    # Flask DashboardApp
+│   │   ├── dashboard_routes.py       # Pages + streaming chat
+│   │   ├── manager_routes.py         # 19 Manager API routes
+│   │   ├── chat_tools.py             # call_llm_with_tools() + regex parsing
+│   │   ├── settings_routes.py        # Settings CRUD API
+│   │   └── settings_ui_routes.py     # Settings Web UI
+│   ├── security/                     # Auth, CSRF, rate limit, TLS
+│   ├── observation/                  # Multi-server observation aggregation
+│   └── ...                           # (additional modules)
+├── config/
+│   ├── prompts.yaml                  # Prompt source of truth
+│   └── llm.yaml                      # LLM profile source of truth
+└── tests/                            # 157 tests total
 ```
 
 ### 5.2 Context Builder
 
-**Purpose**: Before any decision, assemble a structured context from:
-- Current events (from Event Bus)
-- Relevant memories (from Memory System)
-- Current Mind state (identity, goals, emotional state)
-- Available capabilities (from Tool Broker)
+**Purpose**: Before any decision, assemble structured context from:
+- Current events (from EventBus)
+- Relevant memories (from Memory System via MemoryManager)
+- Current Mind state (identity, goals, emotional state, desire values)
+- Available capabilities (from CapabilityCatalog)
 - User preferences and recent interactions
 
-**Output**: A `Context` object passed to the Autonomous Loop (and ultimately to the LLM).
+**Output**: A context string passed to the LLM via LLMGateway.
 
 ### 5.3 Autonomous Loop
 
-**Location**: `src/aegis_ai/autonomous/autonomous_loop.py`
+**File**: `ai-server/src/aegis_ai/autonomous/autonomous_loop.py`
 
-The core decision loop. Every cycle follows this sequence:
+The core desire-driven execution loop:
 
 ```
-Observe → Think → Plan → Act → Verify → Reflect
+Desire monitoring → Spontaneous observation → Curiosity exploration
+  → Task generation → ActionTrace recording → Skill/Workflow search
+  → Execution → TaskManager update → Desire evaluation → Self-scheduling
 ```
 
-| Phase | What happens |
-|-------|-------------|
-| **Observe** | Gather events, build context |
-| **Think** | LLM evaluates situation against goals, identity, and constraints |
-| **Plan** | Planner decomposes intent into actionable steps |
-| **Act** | Dispatch actions via Tool Broker → Policy Engine → Capability Server |
-| **Verify** | Check action results against expected outcome |
-| **Reflect** | Write to Reflection Log: what worked, what failed, what to try next |
+| Feature | Description |
+|---------|-------------|
+| Desire monitoring | Checks desire states every tick; triggers when gap ≥ 2.0 |
+| Task generation | LLM generates tasks for low desires |
+| TaskManager integration | Creates task before execution, completes/fails after |
+| Skill/Workflow reuse | Searches SkillMemory before executing from scratch |
+| Action tracing | Full trace via ActionTraceMemory |
+| Self-scheduling | LLM decides next interval (300–7200s), fallback 1 hour |
+| Spontaneous observation | Every 5 minutes via ObservationService |
+| Curiosity exploration | When curiosity desire ≥ 6.0 |
+
+**Constructor**: `llm_provider, desire_system, memory_system, reflection_engine, tool_broker, action_trace, skill_memory, workflow_memory, lesson_memory, observation_system, curiosity_system, policy_engine, task_manager (optional)`
 
 ### 5.4 Planner
 
-**Location**: `src/aegis_ai/autonomous/planner.py`
+**File**: `ai-server/src/aegis_ai/autonomous/planner.py`
 
-Decomposes high-level goals into executable steps:
-- Task dependency resolution
-- Priority ordering (urgency × importance × safety)
-- Scheduling (now / later / conditional)
-- Fallback planning (if step fails, try alternative)
+LLM-based task decomposition:
+- Breaks goals into Subtasks with `capability_ids` and dependencies
+- "Don't do" decisions for unsafe or impossible goals
+- Dependency resolution and ordering
+- Post-execution verification
+- Failure replanning (up to 3 replans)
 
-### 5.5 Research Agent
+### 5.5 Agents
 
-Autonomous deep-dive information gathering:
-- Multi-source search (web, internal knowledge, memory)
-- Cross-reference and fact-check
-- Citation tracking
-- Summary generation
+| Agent | Purpose |
+|-------|---------|
+| **Research Agent** | Deep-dive information gathering via Browser Server |
+| **Support Agent** | Proactive user assistance (does NOT bypass PolicyEngine) |
+| **Self Development Agent** | Analyzes Reflection → proposes improvements → delegates to Dev Server |
 
-Uses Browser Server capabilities for web access.
+### 5.6 Tool Broker
 
-### 5.6 Support Agent
+Central capability dispatch with validation gate:
 
-Proactive user assistance:
-- Anticipate needs based on schedule, habits, context
-- Suggest actions before user asks
-- Remind of deadlines and pending tasks
-- Detect anomalies (unusual patterns, missed events)
+1. `CapabilityCatalog.resolve(capability_id)` — canonical ID resolution
+2. `jsonschema.validate(arguments, manifest.input_schema)` — argument validation
+3. `ServerExecutor.execute()` — manifest-driven routing to server clients
+4. `PolicyEngine.check()` — safety enforcement
 
-### 5.7 Self Development Agent
+Non-existent capability IDs → NOT_FOUND. Invalid arguments → DENY.
 
-Manages AEGIS's own improvement (see §8 for full workflow):
-- Analyzes Reflection Log for improvement opportunities
-- Formulates code change proposals
-- Delegates to Dev Server for implementation
-- Reviews results and closes the feedback loop
+### 5.7 Policy Engine
 
-### 5.8 Tool Broker
-
-Central capability registry and dispatch:
-- Servers register capabilities at startup
-- Agents query for available tools
-- Routes action requests to appropriate server
-- Tracks capability health and latency
-
-### 5.9 Policy Engine
-
-**CRITICAL MODULE** — enforces safety before every action.
+**CRITICAL MODULE** — deterministic safety rules engine (not LLM-based).
 
 Checks every action request against:
 1. Capability safety level (0–3)
-2. User-configured permissions
-3. Current approval state
+2. User-configured permissions (SettingsPermissionGuard)
+3. Current approval state (ApprovalStore)
 4. Action-specific rules (e.g., "never delete *.pem files")
 
-Output: `ALLOW`, `ASK_APPROVAL`, or `DENY`.
+Output: `ALLOW`, `ASK_APPROVAL`, or `DENY`. **Fail-closed**: if unreachable, all actions denied.
 
-### 5.10 Memory System
+### 5.8 LLM Gateway & Prompt Management
 
-| Memory Type | Stores | Retention |
-|-------------|--------|-----------|
-| **Episodic** | Conversations, events, action history | Configurable (default: 90 days) |
-| **Semantic** | Facts, knowledge, user info, design docs | Permanent (versioned) |
-| **Procedural** | Successful procedures, failure patterns, tool usage tips | Permanent (reinforced by success) |
-| **Reflection** | Self-analysis, improvement ideas, things to try next | Permanent (linked to episodes) |
+| Component | File | Description |
+|-----------|------|-------------|
+| **LLMGateway** | `llm/gateway.py` | Facade over LLMRouter. Runtime-owned. Backward-compatible methods + optional `profile` kwarg. |
+| **LLMRouter** | `llm/router.py` | Task routing based on task_type, privacy, cost budget |
+| **PromptRegistry** | `llm/prompt_registry.py` | YAML-backed (`config/prompts.yaml`). Hot-reload (mtime-gated), fail-closed validation. |
+| **LLMSettingsResolver** | `llm/settings_resolver.py` | YAML-backed (`config/llm.yaml`). Profile resolution with bounds validation. |
+| **Text-based tool calling** | `web/chat_tools.py` | DeepSeek compatibility: regex parsing of `<tool_call>` instead of OpenAI `tools` parameter. |
 
-Memory is stored locally (未確認: specific database — likely SQLite for small data + vector DB for embeddings).
+### 5.9 Memory System
 
-### 5.11 Mind Layer
+| Memory Type | File | Purpose |
+|-------------|------|---------|
+| **AdvancedMemory** | `memory/advanced.py` | Zep-inspired: entity tracking, fact extraction, temporal awareness |
+| **EpisodicMemory** | `memory/episodic.py` | Conversation & event history (JSONL) |
+| **SemanticMemory** | `memory/semantic.py` | Knowledge & user facts |
+| **ChromaSemanticMemory** | `memory/chroma_semantic.py` | ChromaDB vector search (fallback to keyword on failure) |
+| **PersonaMemory** | `memory/persona.py` | Person tracking with conversations |
+| **ActionTraceMemory** | `memory/action_trace.py` | Autonomous action recording (max 500 traces) |
+| **LessonMemory** | `memory/lesson_memory.py` | Extracted lessons from traces |
+| **WorkflowMemory** | `memory/workflow_memory.py` | Repeated successful patterns |
+| **SkillMemory** | `memory/skill_memory.py` | Reusable procedures (highest-level learning) |
+| **SleepConsolidation** | `memory/sleep_consolidation.py` | Experience → knowledge promotion |
 
-A structured model of AEGIS's "personality" — NOT sentient, but a persistent state that guides decision-making:
+**Learning pipeline**: `ActionTrace → Lesson → Workflow → Skill`
+
+All backends accessed through `MemoryManager.get_backend("name")`. Available: `advanced`, `episodic`, `semantic`, `skill`, `lesson`, `workflow`, `experiential`, `person`, `store`.
+
+### 5.10 Mind Layer
 
 | Component | Purpose |
 |-----------|---------|
 | **Identity** | What AEGIS is: assistant, researcher, developer, companion |
-| **Desire** | Priorities: help user > learn > stay safe > be curious |
-| **Emotion** | State indicators: urgency level, confidence, fatigue proxy |
+| **Desire** | 10 intrinsic motivations (0-10 scale), frustration tracking |
+| **Emotion** | Urgency level, confidence, fatigue proxy |
 | **Goals** | Active short-term and long-term goals with progress tracking |
-| **SocialIntelligence** | Relationship awareness, social context, interaction style adaptation |
+| **SocialIntelligence** | Relationship awareness, interaction style adaptation |
 
-The Mind Layer is **not** a source of autonomous action — it biases the Planner and LLM, but all actions still go through the Policy Engine.
+The Mind Layer biases the LLM but all actions still go through PolicyEngine.
 
-### 5.12 Learning Pipeline
+### 5.11 Curiosity Exploration
 
-AEGIS improves through a structured learning pipeline that converts experience into reusable skills:
+**File**: `autonomous/curiosity_exploration.py`
 
-```
-ActionTrace → Lesson → Workflow → Skill
-```
-
-| Stage | Description | Storage |
-|-------|-------------|---------|
-| **ActionTrace** | Raw record of actions taken, parameters, results, and context | Episodic memory |
-| **Lesson** | Distilled insight from one or more traces (what worked, what failed) | Reflection memory |
-| **Workflow** | Proven sequence of steps for a recurring task pattern | Procedural memory |
-| **Skill** | Generalized, reusable capability derived from successful workflows | Procedural memory (skill library) |
-
-The pipeline is driven by the Self Development Agent and the Reflection system. Successful patterns are reinforced; failures are logged to avoid repetition.
-
-### 5.13 Observation System
-
-**Purpose**: Aggregate and normalize observations from all capability servers into a unified stream.
-
-**Location**: `src/aegis_ai/observation/observation_service.py`
-
-The Observation Service:
-- Receives raw observations from PC, Android, Browser, Room, and Dev servers
-- Normalizes into a common observation schema
-- Filters noise and deduplicates
-- Feeds processed observations into the Event Bus and Context Builder
-
-### 5.14 Curiosity Exploration
-
-**Purpose**: Novelty-seeking behavior that drives AEGIS to explore new information, tools, and patterns beyond immediate user needs.
-
-**Location**: `src/aegis_ai/autonomous/curiosity_exploration.py`
-
-Curiosity Exploration:
-- Generates exploration tasks when the curiosity desire is high
-- Samples from unexplored capabilities, unknown domains, and novel web sources
-- Results feed back into memory and the learning pipeline
-- Balanced against safety constraints — exploration never bypasses Policy Engine
+When curiosity desire ≥ 6.0, AEGIS autonomously explores:
+- **Sources**: Questions, failures, unknowns, improvements, LLM suggestions
+- **Scoring**: importance×0.3 + novelty×0.25 + usefulness×0.2 + interest×0.2 − risk×0.1
+- **Safety**: All exploration read-only. Side effects require PolicyEngine approval.
 
 ---
 
@@ -446,19 +531,18 @@ Curiosity Exploration:
 
 ```mermaid
 sequenceDiagram
-    participant Ext as External Source
     participant Svr as Capability Server
-    participant EB as Event Bus
-    participant TE as Trigger Engine
-    participant CB as Context Builder
-    participant AL as Autonomous Loop
-    participant TB as Tool Broker
-    participant PE as Policy Engine
-    participant AU as Audit Log
+    participant EM as EventManager
+    participant TE as TriggerEngine
+    participant CB as ContextBuilder
+    participant AL as AutonomousLoop
+    participant TB as ToolBroker
+    participant PE as PolicyEngine
+    participant AM as AuditManager
 
-    Ext->>Svr: State change / notification
-    Svr->>EB: Push event (gRPC)
-    EB->>TE: New event notification
+    Svr->>EM: Push event (gRPC)
+    EM->>EM: Persist + deduplicate
+    EM->>TE: New event notification
     TE->>TE: Evaluate trigger conditions
     alt Trigger fires
         TE->>CB: Request context build
@@ -469,14 +553,14 @@ sequenceDiagram
         TB->>PE: Check safety
         alt Safe
             PE->>Svr: Execute
-            Svr->>EB: Result event
+            Svr->>EM: Result event
         else Needs approval
             PE-->>AL: Approval required
-            AL-->>AL: Wait for user
+            AL-->>AL: Wait for user (via ApprovalFanout)
         else Denied
             PE-->>AL: Blocked
         end
-        AL->>AU: Log decision
+        AL->>AM: Log decision
     else No trigger
         TE->>TE: Ignore / batch
     end
@@ -486,33 +570,20 @@ sequenceDiagram
 
 | Trigger | Source | Example |
 |---------|--------|---------|
-| **PC screen change** | PC Server | Active window changed → AEGIS checks if help needed |
-| **Android notification** | Android Server | SMS received → AEGIS reads and summarizes |
-| **Room sensor update** | Room Server | Motion detected at unusual time → AEGIS alerts user |
-| **Web/RSS/GitHub update** | Browser Server | New GitHub issue on AEGIS repo → AEGIS investigates |
-| **Test failure / log error** | Dev Server | CI failed → AEGIS diagnoses and proposes fix |
-| **Scheduled** | Scheduler (internal) | Every morning → AEGIS prepares daily briefing |
-| **User request** | UI / chat | Direct command → AEGIS executes immediately |
-| **Reflection trigger** | Autonomous Loop | After N actions → AEGIS reviews and writes reflection |
+| **PC screen change** | PC Server | Active window changed → checks if help needed |
+| **Android notification** | Android Server | SMS received → reads and summarizes |
+| **Room sensor update** | Room Server | Motion at unusual time → alerts user |
+| **Web/GitHub update** | Browser Server | New issue on repo → investigates |
+| **Scheduled** | Scheduler | Every morning → daily briefing |
+| **User request** | Dashboard chat | Direct command → executes immediately |
+| **Desire-driven** | Autonomous Loop | Frustration ≥ 2.0 → generates and executes tasks |
 
 ### 6.3 Event Bus Design
 
-- **Push-based**: Servers push events to AI Server via gRPC streaming
-- **In-memory queue**: Events buffered in asyncio queue (未確認: may need Redis for persistence)
-- **Deduplication**: Events have unique IDs; duplicate events within a window are merged
+- **Push-based**: Servers push events to AI Server via gRPC/TCP
+- **EventManager**: Persistent event storage with cursor-based pagination and dead letter queue
+- **Deduplication**: Events have unique IDs; duplicates within a window are merged
 - **Priority**: Events tagged with priority (urgent / normal / background)
-- **Batching**: Low-priority events may be batched to reduce LLM wake-ups
-
-### 6.4 Trigger Engine Logic
-
-The Trigger Engine decides whether an event (or batch of events) justifies waking the Autonomous Loop. Rules:
-
-1. **Always wake**: User request, test failure, security-relevant event
-2. **Wake if above threshold**: Multiple related events, anomaly detected, goal-relevant event
-3. **Defer**: Low-priority events, routine sensor readings (batch and process periodically)
-4. **Ignore**: Known noise, duplicate events, events from paused servers
-
-Trigger rules are configurable and will themselves be improvable by the Self Development Agent (with approval).
 
 ---
 
@@ -522,12 +593,12 @@ Trigger rules are configurable and will themselves be improvable by the Self Dev
 
 ```mermaid
 graph TD
-    A[Action Request] --> B{Policy Engine}
-    B -->|Level 0| C[READ-ONLY<br/>Always allowed<br/>e.g. screenshot, sensor read]
-    B -->|Level 1| D[SAFE ACTION<br/>Allowed without approval<br/>e.g. open app, turn on light]
-    B -->|Level 2| E[APPROVAL REQUIRED<br/>Must confirm with user<br/>e.g. delete file, send DM]
-    B -->|Level 3| F[RESTRICTED<br/>May be prohibited entirely<br/>e.g. rm -rf, SNS post, purchase]
-    B -->|Unknown| G[BLOCKED<br/>Unregistered capability = deny]
+    A[Action Request] --> B{PolicyEngine}
+    B -->|Level 0| C[READ-ONLY<br/>Always allowed]
+    B -->|Level 1| D[SAFE ACTION<br/>Auto-allowed]
+    B -->|Level 2| E[APPROVAL REQUIRED<br/>Must confirm with user]
+    B -->|Level 3| F[RESTRICTED<br/>May be prohibited]
+    B -->|Unknown| G[BLOCKED<br/>Unregistered = deny]
 
     style C fill:#d4edda
     style D fill:#cce5ff
@@ -536,41 +607,38 @@ graph TD
     style G fill:#e2e3e5
 ```
 
-### 7.2 Safety Level Definitions
+### 7.2 Structural Safety (not prompt-based)
 
-| Level | Name | Scope | Examples | Default |
-|-------|------|-------|----------|---------|
-| **0** | Read-only | Observe, no side effects | Screenshot, OCR, DOM read, sensor read, log tail | ALLOW |
-| **1** | Safe action | Non-destructive, reversible | Open app, move window, turn on light, navigate browser, overlay display | ALLOW |
-| **2** | Approval required | Potentially harmful or private | Delete file, send DM, post SNS, access contacts, install package, email send | ASK |
-| **3** | Restricted | High-risk or irreversible | Bulk delete, purchase, SSH key access, production deploy, system config change | ASK or DENY |
-| — | Unregistered | Unknown capability | Any capability not in the registry | DENY |
+The PolicyEngine is:
+- A **deterministic rules engine** — no LLM dependency for safety decisions
+- **Fail-closed**: if unreachable, all actions denied
+- **Audited**: every decision logged via AuditManager
 
-### 7.3 Structural Safety (not prompt-based)
+### 7.3 Approval System
 
-The Policy Engine is **not** an LLM prompt. It is:
-- A **deterministic rules engine** that checks capability safety level, user permissions, and action-specific rules
-- Implemented as a Python module with no LLM dependency for the safety decision
-- **Fail-closed**: if the Policy Engine is unreachable, all actions are denied
-- **Audited**: every decision (allow/deny/ask) is logged
+When an action requires approval (Level 2/3):
 
-### 7.4 Approval UI
+```
+PolicyEngine → ApprovalManager → ApprovalFanout
+                                    ├── DashboardChannel (SSE)
+                                    ├── PCOverlayChannel (click-through overlay)
+                                    ├── AndroidChannel (notification)
+                                    └── RoomChannel (display + TTS)
+```
 
-When an action requires approval (Level 2/3), the Approval UI:
-1. Presents: what action, which server, what parameters, why it was requested
-2. Offers: Allow once / Allow for session / Deny / Deny and remember
-3. Times out: if no response within configurable window → deny
-4. Logs: all approval decisions to Audit Log
+| Feature | Description |
+|---------|-------------|
+| Multi-channel | Approval pushed to all 4 channels simultaneously |
+| Timeout | No response within window → auto-deny |
+| Session approval | Allow once / Allow for session / Deny / Deny and remember |
+| Audit | All decisions logged to AuditManager |
 
-The Approval UI is a separate component (not part of the Policy Engine) to ensure clean separation of concerns.
-
-### 7.5 Data Protection
+### 7.4 Data Protection
 
 - User data stays on local network by default
 - External API calls (LLM, web search) must be explicitly configured
-- Secrets via Docker secrets / environment variables — **never** in source code or proto files
-- `.gitignore` covers `.env`, `secrets/`, `*.pem`, `credentials.json`
-- Proto files must never contain default values that are sensitive (e.g. API keys)
+- Secrets via environment variables — **never** in source code or proto files
+- TLS available for gRPC (`security/tls_config.py`)
 
 ---
 
@@ -578,197 +646,66 @@ The Approval UI is a separate component (not part of the Policy Engine) to ensur
 
 AEGIS can improve its own codebase — but only through a strictly gated workflow.
 
-### 8.1 Workflow Diagram
-
-```mermaid
-sequenceDiagram
-    participant SDA as Self Dev Agent
-    participant DS as Dev Server
-    participant Git as Git (GitHub)
-    participant CI as CI/CD
-    participant User as User
-
-    SDA->>SDA: Analyze Reflection Log
-    SDA->>SDA: Formulate improvement proposal
-    SDA->>User: Present proposal (what, why, risk)
-    User->>SDA: Approve investigation
-
-    SDA->>DS: Create feature branch
-    DS->>Git: git checkout -b AEGIS/improve-xxx
-    SDA->>DS: Generate patch
-    DS->>DS: Apply patch in sandbox
-    DS->>DS: Run tests
-
-    alt Tests pass
-        DS->>DS: Run lint
-        DS->>Git: git commit & push
-        DS->>Git: Create PR
-        Git->>CI: Trigger CI
-        CI->>Git: CI result
-        SDA->>User: Present PR for review
-        alt User approves
-            User->>Git: Merge PR
-            Git->>DS: main updated
-            SDA->>SDA: Write success to Reflection
-        else User rejects
-            User->>Git: Close PR
-            SDA->>SDA: Write failure to Reflection
-        end
-    else Tests fail
-        DS->>SDA: Report failure
-        SDA->>SDA: Revise or abandon
-        SDA->>SDA: Write failure to Reflection
-    end
-```
-
-### 8.2 Workflow Steps (gated)
+### 8.1 Workflow Steps
 
 | Step | Who | Gate |
 |------|-----|------|
-| **1. Analyze** | Self Dev Agent | Read-only (safe) |
-| **2. Propose** | Self Dev Agent | User must approve investigation |
+| **1. Analyze** | SelfDevAgent | Read-only (safe) |
+| **2. Propose** | SelfDevAgent | User must approve investigation |
 | **3. Branch** | Dev Server | Create branch in sandbox |
 | **4. Patch** | Dev Server | Generate and apply code changes |
-| **5. Test** | Dev Server | Run full test suite in sandbox |
-| **6. Lint** | Dev Server | Run linter/formatter |
+| **5. Test** | Dev Server | Run full test suite |
+| **6. Lint** | Dev Server | Run ruff (Python) / cargo clippy (Rust) |
 | **7. Push + PR** | Dev Server | Push branch, create Pull Request |
-| **8. CI** | CI/CD | Automated CI runs on PR |
-| **9. Review** | User | User reviews diff, tests, CI status |
-| **10. Merge** | User | Only user can merge to main |
-| **11. Rollback** | User | If merge causes issues, user can revert |
+| **8. Review** | User | User reviews diff, tests, CI status |
+| **9. Merge** | User | **Only user can merge to main** |
 
-### 8.3 Self-Development Constraints
+### 8.2 Constraints
 
 - **No direct push to main** — all changes go through PR
-- **No merge without CI passing** — CI must be green
 - **No merge without user approval** — user is the only merge authority
-- **No access to secrets** — Dev Server sandbox has no access to `.env`, SSH keys, or production credentials
-- **Scope limited** — Self Dev Agent can only modify files within the AEGIS repo; cannot install system packages or modify Docker daemon
-- **All attempts logged** — successful and failed self-dev attempts are in Audit Log
-
-### 8.4 Rollback
-
-If a self-developed change causes issues:
-1. User reverts the merge via GitHub (standard `git revert`)
-2. Self Dev Agent logs the failure to Reflection
-3. Future proposals for similar changes are deprioritized
+- **No access to secrets** — Dev Server sandbox has no access to `.env` or SSH keys
+- **Scope limited** — only files within the AEGIS repo
+- **All attempts logged** — via AuditManager
 
 ---
 
-## 9. MVP Implementation Order
+## 9. Implementation Status (2026-06-17)
 
-### Phase 1: Foundation (current → milestone)
+### Systems
 
-| # | Task | Server(s) | Deliverable |
-|---|------|-----------|-------------|
-| 1.1 | Complete proto definitions for all servers | `protos/` | All `.proto` files |
-| 1.2 | Set up Docker Compose skeleton | Root | `docker-compose.yml` with all 6 servers (placeholder containers) |
-| 1.3 | AI Server: project scaffold | `ai-server/` | `pyproject.toml`, `pytest`, `ruff`, gRPC server stub |
-| 1.4 | AI Server: Event Bus + Trigger Engine | `ai-server/` | Events can be pushed and trigger evaluation |
-| 1.5 | AI Server: Policy Engine | `ai-server/` | Safety level enforcement (Level 0–3) |
-| 1.6 | AI Server: Audit Log | `ai-server/` | Immutable decision log (append-only file or SQLite) |
+| System | Status | Notes |
+|--------|--------|-------|
+| **Runtime singleton** | ✅ Complete | AegisRuntime + 7 Managers |
+| **Capability Management** | ✅ Complete | Folder-based JSON manifests, 53 capabilities |
+| **Desire System** | ✅ Complete | D2A-inspired, 10 desires, fulfillment.py rules |
+| **Autonomous Loop** | ✅ Complete | Desire-driven, TaskManager integration |
+| **Dashboard** | ✅ Complete | Streaming chat + tool calling, 19 Manager API routes |
+| **PC Server** | ✅ Complete | Rust, TCP, 40+ capabilities, custom overlay |
+| **Browser Server** | ✅ Complete | browser-use, DeepSeek compatibility patch |
+| **LLM Integration** | ✅ Complete | LLMGateway + PromptRegistry + text-based tool calling |
+| **Approval System** | ✅ Complete | ApprovalManager + Fanout + 4 channels |
+| **Memory System** | ✅ Complete | AdvancedMemory + Chroma + learning pipeline |
+| **E2E Testing** | ✅ Complete | 157 tests passing |
 
-### Phase 2: First Capability Server
+### Deferred Items
 
-| # | Task | Server(s) | Deliverable |
-|---|------|-----------|-------------|
-| 2.1 | Browser Server: scaffold | `browser-server/` | `package.json`, Playwright, gRPC client |
-| 2.2 | Browser Server: Observe capabilities | `browser-server/` | Screenshot, DOM read, page text extraction |
-| 2.3 | Browser Server: Action capabilities | `browser-server/` | Navigation, click, form fill (Level 1) |
-| 2.4 | Tool Broker: Capability Registry | `ai-server/` | Dynamic registration and query of capabilities |
-| 2.5 | AI Server: Context Builder + Memory (basic) | `ai-server/` | Context assembly with episodic memory |
-
-### Phase 3: Autonomous Loop
-
-| # | Task | Server(s) | Deliverable |
-|---|------|-----------|-------------|
-| 3.1 | AI Server: Autonomous Loop (basic) | `ai-server/` | Observe → Think → Plan → Act cycle |
-| 3.2 | AI Server: Planner | `ai-server/` | Task decomposition |
-| 3.3 | AI Server: Research Agent | `ai-server/` | Multi-source research via Browser Server |
-| 3.4 | AI Server: Approval UI | `ai-server/` | User-facing approval for Level 2/3 actions |
-| 3.5 | Integration test: "Research a topic" | All active | E2E: user asks question → AEGIS researches → returns summary |
-
-### Phase 4: Additional Servers
-
-| # | Task | Server(s) | Deliverable |
-|---|------|-----------|-------------|
-| 4.1 | PC Server: scaffold + Observe | `pc-server/` | Screenshot, window detection |
-| 4.2 | Android Server: scaffold + notifications | `android-server/` | Notification sync |
-| 4.3 | Room Server: scaffold + sensor read | `room-server/` | Temperature/humidity/motion (MQTT bridge) |
-| 4.4 | Support Agent | `ai-server/` | Proactive suggestions based on context |
-
-### Phase 5: Self-Improvement
-
-| # | Task | Server(s) | Deliverable |
-|---|------|-----------|-------------|
-| 5.1 | Dev Server: scaffold + sandbox | `dev-server/` | Isolated Docker container for code ops |
-| 5.2 | Dev Server: branch/patch/test/PR | `dev-server/` | Full self-dev workflow |
-| 5.3 | Self Dev Agent | `ai-server/` | Analyze Reflection → propose → delegate |
-| 5.4 | Reflection memory | `ai-server/` | Structured self-analysis after actions |
-| 5.5 | Self-dev E2E | All active | AEGIS proposes and creates a real PR (with user merge) |
-
-### Phase 6: Mind + Advanced Memory
-
-| # | Task | Server(s) | Deliverable |
-|---|------|-----------|-------------|
-| 6.1 | Mind Layer (identity, goals) | `ai-server/` | Persistent personality model |
-| 6.2 | Procedural memory | `ai-server/` | Learned procedures from successful actions |
-| 6.3 | Semantic memory (RAG) | `ai-server/` | Vector-based knowledge retrieval |
-| 6.4 | Emotion/urgency model | `ai-server/` | Confidence and urgency state tracking |
+- EventManager server clients (replace `event_bus.publish()` in 5+ files)
+- Approval encapsulation (encapsulate approval_store/queue inside ApprovalManager)
+- 10k-entry audit performance test
 
 ---
 
-## 10. Out of Scope (Not Implementing Now)
+## 10. Out of Scope
 
-These are explicitly deferred to avoid scope creep. They may be reconsidered in future ADRs.
-
-| Item | Reason for deferral |
-|------|---------------------|
-| **Cloud deployment / SaaS** | AEGIS runs locally first |
-| **Multi-user support** | Single user (owner) for MVP; multi-user adds significant security complexity |
-| **Voice I/O** | Text-first MVP; voice is a UX layer on top |
-| **Real-time video processing** | Camera still frames only for MVP |
-| **Financial transactions** | Too high-risk for initial phases |
-| **Third-party app store / plugin marketplace** | Capabilities are manually configured initially |
-| **Federation (multiple AEGIS instances collaborating)** | Single-instance first |
-| **Mobile app for Room Server control** | Web UI first |
-| **End-to-end encryption of all inter-server traffic** | Local network trust for MVP; TLS added later |
-| **LLM fine-tuning / custom model training** | Use off-the-shelf LLM APIs first |
-| **Gamification / avatar / visual character** | Function over form for MVP |
-
----
-
-## 11. Existing vs Planned — Gap Analysis
-
-### What exists now (2026-06-11)
-
-| File | Content | Status |
-|------|---------|--------|
-| `AGENTS.md` | Agent guidance | ✅ Created |
-| `README.md` | Project overview | ✅ Created |
-| `.gitignore` | Language/secret exclusions | ✅ Created |
-| `protos/AEGIS/common.proto` | `Status` message only | ✅ Skeleton |
-| `protos/AEGIS/ai_server.proto` | Empty service definition | ⚠️ Placeholder |
-| `Mermaid.md` | Architecture diagram (Mermaid) | ✅ Reference |
-| Directory structure | All 6 servers + docs/ + protos/ | ✅ Skeleton |
-
-### What is missing (needs creation per Phase 1)
-
-| File | Phase |
-|------|-------|
-| `protos/AEGIS/pc_server.proto` | 1.1 |
-| `protos/AEGIS/android_server.proto` | 1.1 |
-| `protos/AEGIS/room_server.proto` | 1.1 |
-| `protos/AEGIS/browser_server.proto` | 1.1 |
-| `protos/AEGIS/dev_server.proto` | 1.1 |
-| `docker-compose.yml` | 1.2 |
-| `ai-server/pyproject.toml` | 1.3 |
-| `ai-server/src/*` (all modules in §5) | 1.3–1.6 |
-| `browser-server/package.json` | 2.1 |
-
-### No contradictions with existing code
-
-There is no existing implementation code — only skeleton files. The architecture described here is the **first** detailed design, so there are no migration issues or conflicts. All existing skeleton files (`common.proto`, `ai_server.proto`) are consistent with this design.
+| Item | Reason |
+|------|--------|
+| **Cloud deployment / SaaS** | Local-first architecture |
+| **Multi-user support** | Single user (owner) for MVP |
+| **Real-time video processing** | Camera still frames only |
+| **Financial transactions** | Too high-risk |
+| **Federation** | Single-instance first |
+| **LLM fine-tuning** | Use off-the-shelf LLM APIs |
 
 ---
 
@@ -776,21 +713,40 @@ There is no existing implementation code — only skeleton files. The architectu
 
 | Term | Definition |
 |------|------------|
-| **AEGIS** | The AI assistant — the persona that users interact with |
-| **AEGIS** | The codebase / platform name |
-| **Capability** | A specific function a server can perform (observe or act) |
-| **Tool Broker** | Registry of all available capabilities |
-| **Autonomous Loop** | The observe→think→plan→act→verify→reflect cycle |
-| **Policy Engine** | Deterministic safety rules engine (not LLM) |
-| **Mind Layer** | Structured personality model (not sentient AI) |
-| **Self Development** | AEGIS improving its own codebase via Dev Server |
+| **AEGIS** | The AI assistant persona and the codebase/platform name |
+| **AegisRuntime** | Process-wide singleton, sole entry point for all external code |
+| **Capability** | A specific function a server can perform (JSON manifest in `capabilities/`) |
+| **ToolBroker** | Capability invocation with PolicyEngine validation |
+| **CapabilityCatalog** | Unified catalog — ID resolution, alias mapping, LLM listing |
+| **AutonomousLoop** | Desire-driven observe→think→plan→act→verify→reflect cycle |
+| **PolicyEngine** | Deterministic safety rules engine (not LLM) |
+| **LLMGateway** | Facade over LLMRouter — runtime-owned, profile-based resolution |
+| **Learning Pipeline** | ActionTrace → Lesson → Workflow → Skill |
 
-## Appendix B: Related Documents
+## Appendix B: Server Ports
+
+| Server | Port | Protocol |
+|--------|------|----------|
+| AI Server (gRPC) | 50051 | gRPC |
+| AI Server (Dashboard) | 8090 | HTTP |
+| PC Server | 50052 | TCP JSON |
+| Browser Server | 50053 | HTTP |
+| Android Server | 50054 | gRPC |
+| Room Server | 50055 | gRPC |
+| Dev Server | 50056 | gRPC |
+
+## Appendix C: Related Documents
 
 | Document | Purpose |
 |----------|---------|
 | [`AGENTS.md`](../AGENTS.md) | Rules for AI coding agents working on this repo |
 | [`README.md`](../README.md) | Human-readable project overview |
-| [`Mermaid.md`](../Mermaid.md) | Standalone architecture diagram (Mermaid source) |
 | [`protos/AEGIS/`](../protos/AEGIS/) | gRPC API definitions (single source of truth) |
-| `docs/adr/` | Architecture Decision Records (to be created) |
+| [`docs/memory.md`](memory.md) | Memory system design and components |
+| [`docs/desire-system.md`](desire-system.md) | Desire system design and fulfillment |
+| [`docs/dashboard.md`](dashboard.md) | Dashboard features and API routes |
+| [`docs/approval-ui.md`](approval-ui.md) | Approval system multi-channel design |
+| [`docs/llm-router.md`](llm-router.md) | LLM routing, Gateway, PromptRegistry |
+| [`docs/self-development.md`](self-development.md) | Self-development workflow |
+| [`docs/testing.md`](testing.md) | Test categories and commands |
+| [`docs/roadmap.md`](roadmap.md) | Project roadmap and milestones |

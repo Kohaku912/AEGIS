@@ -1,28 +1,14 @@
 # Testing Guide
 
-> **Status**: Active (2026-06-14)
+> **Status**: Active (2026-06-17)
 > **Related**: `AGENTS.md` §Testing Policy
+> **Total Tests**: 157 passed, 0 failed
 
 ## Quick Reference
 
 ```bash
 # AI Server — all tests
-cd ai-server && pytest
-
-# AI Server — Android E2E (CI-safe, mock provider)
-cd ai-server && pytest tests/test_android_observe_e2e.py -v
-
-# AI Server — Android local (real ADB device)
-cd ai-server && pytest -m android_local -v
-
-# AI Server — PC E2E (CI-safe, mock provider)
-cd ai-server && pytest tests/test_pc_observe_e2e.py -v
-
-# AI Server — PC local (real screenshot, real window)
-cd ai-server && pytest -m pc_local -v
-
-# AI Server — Room E2E (CI-safe, mock provider)
-cd ai-server && pytest tests/test_room_observe_e2e.py -v
+cd ai-server && uv run python -m pytest ../tests/ -v --tb=short
 
 # AI Server — lint
 cd ai-server && ruff check .
@@ -30,8 +16,8 @@ cd ai-server && ruff check .
 # AI Server — format
 cd ai-server && ruff format .
 
-# Android Server — Kotlin unit tests
-cd android-server && ./gradlew test
+# PC Server — Rust unit tests
+cd pc-server && cargo test && cargo clippy
 ```
 
 ## Test Categories
@@ -54,31 +40,21 @@ Test individual modules in isolation. No external dependencies.
 Test full stack wiring with mock providers.
 
 - `test_android_observe_e2e.py` — Android Server → EventBus → TriggerEngine → ContextBuilder
-  - Capability registration
-  - Notification redaction (OTP, cards, emails, phones, passwords)
-  - Allowlist / denylist filtering
-  - Sensitive app detection (redacted-only storage)
-  - EventBus push and deduplication
-  - TriggerEngine cooldown and rule matching
-  - ContextBuilder integration
-  - PolicyEngine read-only allow
-  - AuditLog recording
-  - Graceful failure (device down, not registered)
-  - Retry/backoff
 - `test_pc_observe_e2e.py` — PC Server → EventBus → TriggerEngine → ContextBuilder
 - `test_room_observe_e2e.py` — Room Server → EventBus → TriggerEngine → ContextBuilder
-  - Health check, capability registration
-  - Mock sensor read (temperature, humidity, brightness, motion)
-  - Environment aggregation, threshold detection
-  - Dedupe, cooldown, EventBus push
-  - Provider unavailable graceful failure
-  - PolicyEngine read-only allow
-  - AuditLog, retry/backoff
 - `test_research_e2e.py` — Research Agent full pipeline
 - `test_research_approval_e2e.py` — Level 2/3 operations blocked in research
 - `test_autonomous_loop_e2e.py` — AutonomousLoop desire-driven scheduling, Planner task generation, CuriosityDrivenExploration
 - `test_learning_pipeline_e2e.py` — ActionTrace → Lesson → Workflow → Skill pipeline
 - `test_sleep_consolidation_e2e.py` — SleepConsolidation memory maintenance
+
+### E2E Lifecycle Tests (Runtime Stabilization)
+
+- `test_e2e_lifecycle.py` — 8 tests covering:
+  - Full approval lifecycle: create → start → wait_approval → approve → resume → complete
+  - Concurrent approval tasks
+  - All manager integrations (TaskManager, MemoryManager, EventManager, AuditManager, StatusManager, NotificationManager, SleepManager)
+  - Uses `SimpleNamespace`-based mock runtime with real Manager instances
 
 ### Local-Only Tests (require real device)
 
@@ -86,16 +62,7 @@ Skipped in CI. Run manually with marker flags.
 
 - `test_android_local.py` — ADB provider with real Android device
   - Requires: ADB installed, device connected, USB debugging enabled
-  - Run: `pytest -m android_local -v`
 - `test_pc_observe_e2e.py` (marked `pc_local`) — Real screenshot, real active window
-  - Run: `pytest -m pc_local -v`
-
-### Kotlin Unit Tests
-
-```bash
-cd android-server
-./gradlew test
-```
 
 ## CI Configuration
 
