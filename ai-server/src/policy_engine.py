@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import re
 import threading
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum, auto
@@ -398,8 +399,7 @@ class PolicyEngine:
 
         for pattern in self._explicit_approval:
             if pattern.match(cap_id):
-                # Check if already approved — if so, allow
-                if self._approval_store.is_approved(cap_id):
+                if self._approval_store is not None and self._approval_store.is_approved(cap_id):
                     return PolicyResult(
                         decision=PolicyDecision.ALLOW,
                         reason=f"Valid approval exists for '{cap_id}'.",
@@ -429,10 +429,9 @@ class PolicyEngine:
         return self._finalize(result, capability, params)
 
     def _finalize(self, result: PolicyResult, capability: Capability, params: dict[str, Any]) -> PolicyResult:
-        """Post-process: create approval requests or upgrade to ALLOW if approved."""
+        """Post-process: upgrade to ALLOW if valid approval exists (deprecated path)."""
         if result.decision == PolicyDecision.ASK_APPROVAL:
-            # Check if there's already a valid approval
-            if self._approval_store.is_approved(capability.id):
+            if self._approval_store is not None and self._approval_store.is_approved(capability.id):
                 return PolicyResult(
                     decision=PolicyDecision.ALLOW,
                     reason=f"Valid approval exists for '{capability.id}'. Allowed.",
@@ -440,34 +439,31 @@ class PolicyEngine:
                     risk_level=capability.risk_level,
                     audit_required=True,
                 )
-            if result.approval_request is None:
-                return self._create_approval_result(capability, params)
+        return result
         return result
 
     def _create_approval_result(
         self, capability: Capability, params: dict[str, Any], reason_override: str | None = None
     ) -> PolicyResult:
-        payload_str = str(params)
-        if len(payload_str) > 200:
-            payload_str = payload_str[:197] + "..."
-        req = self._approval_store.create_request(
-            capability_id=capability.id,
-            tool_name=capability.name,
-            requested_action=f"Execute '{capability.name}' ({capability.id})",
-            human_readable_summary=(
-                f"AEGIS wants to: {capability.description}\n"
-                f"Risk level: {capability.risk_level.name}\n"
-                f"Side effects: {', '.join(capability.side_effects) if capability.side_effects else 'None'}"
-            ),
-            risk_explanation=(
-                f"Classified as {capability.risk_level.name}. "
-                f"{'Side effects: ' + ', '.join(capability.side_effects) if capability.side_effects else ''}"
-            ),
-            payload_preview=payload_str,
-            risk_level=capability.risk_level.value,
-        )
+        """Create an ASK_APPROVAL PolicyResult.
+
+        NOTE: Does NOT create an ApprovalRequest. That responsibility
+        has moved to ToolBroker/ApprovalManager. This method only
+        returns the policy decision with expiry metadata.
+        """
+        # Calculate expiry based on risk level (matches approval_types._EXPIRY_BY_RISK)
+        expiry_by_risk = {
+            RiskLevel.READ_ONLY: 3_600_000,      # 1 hour
+            RiskLevel.SAFE_ACTION: 3_600_000,     # 1 hour
+            RiskLevel.APPROVAL_REQUIRED: 1_800_000,  # 30 min
+            RiskLevel.HIGH_RISK: 600_000,         # 10 min
+        }
+        now_ms = int(time.time() * 1000)
+        expiry_ms = expiry_by_risk.get(capability.risk_level, 1_800_000)
+        expires_at_ms = now_ms + expiry_ms
+
         reason = reason_override or (
-            f"Risk level {capability.risk_level.name} — approval required. Approval ID: {req.approval_id}"
+            f"Risk level {capability.risk_level.name} — approval required."
         )
         return PolicyResult(
             decision=PolicyDecision.ASK_APPROVAL,
@@ -475,9 +471,9 @@ class PolicyEngine:
             capability_id=capability.id,
             risk_level=capability.risk_level,
             required_approval_type=ApprovalType.ONE_TIME,
-            expires_at_ms=req.expires_at_ms,
+            expires_at_ms=expires_at_ms,
             audit_required=True,
-            approval_request=req,
+            approval_request=None,
         )
 
     # ── Configuration API ───────────────────────────────────

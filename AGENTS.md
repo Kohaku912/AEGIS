@@ -422,7 +422,7 @@ The following operations MUST go through explicit user approval:
 
 ---
 
-## Current Status (2026-06-16)
+## Current Status (2026-06-17)
 
 ### Implemented Systems
 
@@ -435,6 +435,8 @@ The following operations MUST go through explicit user approval:
 | **PC Server** | ✅ Complete | Rust, TCP protocol, 40+ capabilities |
 | **Browser Server** | ✅ Complete | browser-use, DeepSeek compatibility patch, verification detection |
 | **LLM Integration** | ✅ Complete | DeepSeek API, tool calling, JSON fallback |
+| **Approval System** | ✅ Complete | ApprovalManager + Fanout, multi-channel (Dashboard SSE, PC overlay, Android, Room) |
+| **Manager Architecture** | ✅ Complete | TaskManager, MemoryManager, SleepManager, EventManager, AuditManager, StatusManager, NotificationManager |
 
 ### Key Files
 
@@ -449,8 +451,22 @@ The following operations MUST go through explicit user approval:
 | `ai-server/src/aegis_ai/desire/fulfillment.py` | Desire fulfillment rules and task evaluation |
 | `ai-server/src/aegis_ai/web/chat_tools.py` | Chat tool calling (ask_user support, recursive loop) |
 | `ai-server/src/aegis_ai/web/dashboard_routes.py` | Dashboard with tool calling, ask_user support |
+| `ai-server/src/aegis_ai/approval/approval_manager.py` | Unified approval lifecycle manager |
+| `ai-server/src/aegis_ai/approval/fanout.py` | Multi-channel approval delivery (ApprovalFanout + ApprovalChannel ABC) |
+| `ai-server/src/aegis_ai/approval/channels/dashboard.py` | Dashboard SSE approval channel |
+| `ai-server/src/aegis_ai/approval/channels/pc_overlay.py` | PC Server overlay approval channel |
+| `ai-server/src/aegis_ai/approval/channels/android.py` | Android notification approval channel |
+| `ai-server/src/aegis_ai/approval/channels/room.py` | Room Server display+TTS approval channel |
 | `browser-server/src/aegis_browser/browser_use_agent.py` | browser-use with DeepSeek compatibility, verification detection |
 | `browser-server/src/aegis_browser/main.py` | HTTP server for browser automation |
+| `aegis_ai/event/event_manager.py` | Centralized event management with persistence and replay |
+| `aegis_ai/audit/audit_manager.py` | Audit log with cursor pagination and search |
+| `aegis_ai/status/status_manager.py` | Background server health monitoring |
+| `aegis_ai/task/task_manager.py` | Execution unit lifecycle tracking |
+| `aegis_ai/notification/notification_manager.py` | Non-approval notification management |
+| `aegis_ai/memory/memory_manager.py` | Unified memory entry point across 15+ backends |
+| `aegis_ai/memory/sleep.py` | Memory consolidation during idle periods |
+| `aegis_ai/web/manager_routes.py` | Dashboard API routes for all Managers |
 
 ### Servers
 

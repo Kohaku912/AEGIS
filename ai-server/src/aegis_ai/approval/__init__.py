@@ -1,5 +1,6 @@
 """Approval Queue — user approval flow for dangerous operations."""
 
+from aegis_ai.approval.approval_manager import ApprovalManager
 from aegis_ai.approval.approval_queue import ApprovalQueue
 from aegis_ai.approval.approval_types import (
     ApprovalDecision,
@@ -17,6 +18,7 @@ from approval import ApprovalRequest, ApprovalStatus, ApprovalStore, ApprovalTyp
 
 __all__ = [
     "ApprovalDecision",
+    "ApprovalManager",
     "ApprovalQueue",
     "ApprovalRequest",
     "ApprovalStatus",

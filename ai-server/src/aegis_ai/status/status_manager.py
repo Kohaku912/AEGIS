@@ -1,0 +1,217 @@
+"""Status Manager — centralized server health monitoring.
+
+Replaces direct _check_port() calls in dashboard routes.
+Background health checks with cached snapshots for non-blocking reads.
+"""
+
+from __future__ import annotations
+
+import logging
+import socket
+import threading
+import time
+from enum import Enum
+from typing import Any
+
+logger = logging.getLogger("aegis_ai.status.status_manager")
+
+
+class ServerStatus(Enum):
+    UNKNOWN = "unknown"
+    ONLINE = "online"
+    DEGRADED = "degraded"
+    OFFLINE = "offline"
+    DISABLED = "disabled"
+
+
+_DEFAULT_SERVERS = {
+    "ai-server": ("localhost", 8090),
+    "pc-server": ("localhost", 50052),
+    "browser-server": ("localhost", 50053),
+    "android-server": ("localhost", 50054),
+    "room-server": ("localhost", 50055),
+    "dashboard": ("localhost", 8090),
+}
+
+
+class StatusManager:
+    """Centralized server status monitoring with background checks.
+
+    Provides cached snapshots for non-blocking dashboard reads.
+    Publishes status.change events when server state changes.
+
+    Parameters
+    ----------
+    event_manager:
+        Optional EventManager for publishing status.change events.
+    check_interval:
+        Background check interval in seconds (default: 60).
+    timeout:
+        Per-server check timeout in seconds (default: 3).
+    """
+
+    def __init__(
+        self,
+        event_manager: Any = None,
+        check_interval: float = 60.0,
+        timeout: float = 3.0,
+    ) -> None:
+        self._event_manager = event_manager
+        self._check_interval = check_interval
+        self._timeout = timeout
+
+        self._servers: dict[str, tuple[str, int]] = dict(_DEFAULT_SERVERS)
+        self._status: dict[str, dict[str, Any]] = {}
+        self._previous_status: dict[str, str] = {}
+        self._lock = threading.Lock()
+        self._check_thread: threading.Thread | None = None
+        self._running = False
+
+        for server_id, (host, port) in self._servers.items():
+            self._status[server_id] = {
+                "server_id": server_id,
+                "status": ServerStatus.UNKNOWN.value,
+                "host": host,
+                "port": port,
+                "last_check_ms": 0,
+                "last_change_ms": 0,
+                "error": None,
+            }
+
+    # ── Public API ────────────────────────────────────────────
+
+    def get_snapshot(self) -> dict[str, dict[str, Any]]:
+        """Return cached status snapshot for all servers. Non-blocking."""
+        with self._lock:
+            return dict(self._status)
+
+    def get_server_status(self, server_id: str) -> dict[str, Any] | None:
+        """Return cached status for a single server. Non-blocking."""
+        with self._lock:
+            return self._status.get(server_id)
+
+    def mark_online(self, server_id: str) -> None:
+        """Manually mark a server as online."""
+        self._update_status(server_id, ServerStatus.ONLINE)
+
+    def mark_offline(self, server_id: str, error: str = "") -> None:
+        """Manually mark a server as offline."""
+        self._update_status(server_id, ServerStatus.OFFLINE, error=error)
+
+    def mark_degraded(self, server_id: str, error: str = "") -> None:
+        """Manually mark a server as degraded."""
+        self._update_status(server_id, ServerStatus.DEGRADED, error=error)
+
+    def update_heartbeat(self, server_id: str) -> None:
+        """Update heartbeat timestamp for a server."""
+        with self._lock:
+            if server_id in self._status:
+                self._status[server_id]["last_check_ms"] = int(time.time() * 1000)
+                if self._status[server_id]["status"] == ServerStatus.UNKNOWN.value:
+                    self._status[server_id]["status"] = ServerStatus.ONLINE.value
+
+    def register_server(self, server_id: str, host: str, port: int) -> None:
+        """Register a server for health checking."""
+        with self._lock:
+            self._servers[server_id] = (host, port)
+            self._status[server_id] = {
+                "server_id": server_id,
+                "status": ServerStatus.UNKNOWN.value,
+                "host": host,
+                "port": port,
+                "last_check_ms": 0,
+                "last_change_ms": 0,
+                "error": None,
+            }
+
+    # ── Background checks ─────────────────────────────────────
+
+    def start_background_checks(self) -> None:
+        """Start background health check thread."""
+        if self._running:
+            return
+        self._running = True
+        self._check_thread = threading.Thread(
+            target=self._background_loop, daemon=True, name="status-check"
+        )
+        self._check_thread.start()
+        logger.info("StatusManager background checks started (interval=%ss)", self._check_interval)
+
+    def stop_background_checks(self) -> None:
+        """Stop background health check thread."""
+        self._running = False
+        if self._check_thread is not None:
+            self._check_thread.join(timeout=5)
+            self._check_thread = None
+
+    def check_now(self) -> dict[str, dict[str, Any]]:
+        """Run health checks immediately and return snapshot."""
+        self._run_checks()
+        return self.get_snapshot()
+
+    # ── Internal ──────────────────────────────────────────────
+
+    def _background_loop(self) -> None:
+        while self._running:
+            try:
+                self._run_checks()
+            except Exception:
+                logger.debug("Status check failed", exc_info=True)
+            time.sleep(self._check_interval)
+
+    def _run_checks(self) -> None:
+        with self._lock:
+            servers = dict(self._servers)
+
+        for server_id, (host, port) in servers.items():
+            is_up = self._check_port(host, port)
+            old_status = self._status.get(server_id, {}).get("status", ServerStatus.UNKNOWN.value)
+            new_status = ServerStatus.ONLINE.value if is_up else ServerStatus.OFFLINE.value
+
+            with self._lock:
+                self._status[server_id]["last_check_ms"] = int(time.time() * 1000)
+                if self._status[server_id]["status"] != new_status:
+                    self._status[server_id]["status"] = new_status
+                    self._status[server_id]["last_change_ms"] = int(time.time() * 1000)
+                    self._status[server_id]["error"] = None if is_up else f"Port {port} unreachable"
+                    self._publish_change(server_id, old_status, new_status)
+
+    def _check_port(self, host: str, port: int) -> bool:
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            s.settimeout(self._timeout)
+            s.connect((host, port))
+            s.close()
+            return True
+        except Exception:
+            return False
+
+    def _update_status(self, server_id: str, status: ServerStatus, error: str = "") -> None:
+        with self._lock:
+            if server_id not in self._status:
+                return
+            old = self._status[server_id]["status"]
+            self._status[server_id]["status"] = status.value
+            self._status[server_id]["last_change_ms"] = int(time.time() * 1000)
+            self._status[server_id]["error"] = error or None
+            if old != status.value:
+                self._publish_change(server_id, old, status.value)
+
+    def _publish_change(self, server_id: str, old_status: str, new_status: str) -> None:
+        if self._event_manager is None:
+            return
+        try:
+            from aegis_schema.models import Event, EventPriority
+            event = Event(
+                event_type="status.changed",
+                source="status_manager",
+                priority=EventPriority.NORMAL,
+                payload={
+                    "server_id": server_id,
+                    "old_status": old_status,
+                    "new_status": new_status,
+                },
+            )
+            self._event_manager.publish(event)
+        except Exception:
+            logger.debug("Failed to publish status.change event", exc_info=True)
