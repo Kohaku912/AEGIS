@@ -72,9 +72,10 @@
             <tr>
                 <th>Time</th>
                 <th>Desire</th>
-                <th>Action</th>
+                <th>What Was Done</th>
                 <th>Result</th>
                 <th>Status</th>
+                <th>Repetition Check</th>
             </tr>
         </thead>
         <tbody>
@@ -82,7 +83,13 @@
             <tr>
                 <td>{{ ex.time_str }}</td>
                 <td><span class="badge badge-accent">{{ ex.desire }}</span></td>
-                <td title="{{ ex.action }}">{{ ex.action[:60] }}{% if ex.action|length > 60 %}...{% endif %}</td>
+                <td style="max-width:200px;font-size:12px;">
+                    {% if ex.what_was_done %}
+                        {{ ex.what_was_done[:100] }}
+                    {% else %}
+                        <span style="color:var(--text-muted);">{{ ex.action[:60] }}</span>
+                    {% endif %}
+                </td>
                 <td style="max-width:280px;">
                     <details>
                         <summary style="cursor:pointer;">{{ ex.result[:80] }}{% if ex.result|length > 80 %}...{% endif %}</summary>
@@ -94,6 +101,26 @@
                         <span class="badge badge-green">OK</span>
                     {% else %}
                         <span class="badge badge-red">Failed</span>
+                    {% endif %}
+                </td>
+                <td style="font-size:11px;max-width:200px;">
+                    {% if ex.repetition_check and ex.repetition_check.decision %}
+                        {% if ex.repetition_check.decision == "skip" %}
+                            <span class="badge badge-yellow">Skipped</span>
+                            <div style="color:var(--text-dim);margin-top:4px;">{{ ex.repetition_check.reason[:80] }}</div>
+                        {% elif ex.repetition_check.decision == "execute" %}
+                            <span class="badge badge-green">Execute</span>
+                            {% if ex.repetition_check.why_not_duplicate %}
+                            <div style="color:var(--text-dim);margin-top:4px;">{{ ex.repetition_check.why_not_duplicate[:80] }}</div>
+                            {% endif %}
+                        {% elif ex.repetition_check.decision == "replace" %}
+                            <span class="badge badge-blue">Replaced</span>
+                            <div style="color:var(--text-dim);margin-top:4px;">{{ ex.repetition_check.reason[:80] }}</div>
+                        {% endif %}
+                    {% elif ex.why_this_is_not_repeating %}
+                        <span style="color:var(--text-dim);">{{ ex.why_this_is_not_repeating[:80] }}</span>
+                    {% else %}
+                        <span style="color:var(--text-muted);">-</span>
                     {% endif %}
                 </td>
             </tr>

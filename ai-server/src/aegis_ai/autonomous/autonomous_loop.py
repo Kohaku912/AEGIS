@@ -321,6 +321,99 @@ class AutonomousLoop:
         except Exception as e:
             logger.warning("LLM desire evaluation error: %s", e)
 
+    def _check_repetition(self, tasks: list[dict[str, Any]], action_history: str) -> list[dict[str, Any]]:
+        """Ask LLM to self-review tasks for semantic repetition before execution."""
+        if not self._llm or not tasks:
+            return tasks
+
+        task_descriptions = []
+        for i, t in enumerate(tasks):
+            task_descriptions.append(
+                f"Task {i+1}: {t.get('action', '')} (capability: {t.get('capability_id', '')})\n"
+                f"  Purpose: {t.get('desire', '')} desire\n"
+                f"  Args: {json.dumps(t.get('arguments', {}), ensure_ascii=False)[:100]}"
+            )
+
+        prompt = f"""You are reviewing autonomous tasks BEFORE execution to prevent repetition.
+
+=== Recent Action History ===
+{action_history}
+
+=== Tasks Proposed for Execution ===
+{chr(10).join(task_descriptions)}
+
+For each task, determine:
+1. Is this semantically similar to a recent action? (same purpose/target, even if different tool)
+2. If similar, has enough changed to justify re-execution?
+3. Should this task be executed, skipped, or replaced?
+
+Respond with JSON:
+{{
+  "reviews": [
+    {{
+      "task_index": 1,
+      "decision": "execute" | "skip" | "replace",
+      "reason": "...",
+      "similar_recent_action": "description of similar recent action, or empty",
+      "why_not_duplicate": "why this is justified despite similarity, or why skipped"
+    }}
+  ]
+}}"""
+
+        try:
+            result = self._llm.generate(
+                prompt=prompt,
+                system_prompt="You are AEGIS's repetition checker. Review tasks for semantic duplication. Output only JSON.",
+                max_tokens=800,
+                json_mode=True,
+            )
+            if not result.success:
+                logger.warning("Repetition check failed, proceeding with all tasks")
+                return tasks
+
+            data = extract_json_object(result.content)
+            reviews = data.get("reviews", [])
+
+            approved_tasks = []
+            for review in reviews:
+                idx = review.get("task_index", 1) - 1
+                decision = review.get("decision", "execute")
+                reason = review.get("reason", "")
+                similar = review.get("similar_recent_action", "")
+                why_not = review.get("why_not_duplicate", "")
+
+                if idx < 0 or idx >= len(tasks):
+                    continue
+
+                task = tasks[idx]
+                task["repetition_check"] = {
+                    "decision": decision,
+                    "reason": reason,
+                    "similar_recent_action": similar,
+                    "why_not_duplicate": why_not,
+                }
+                task["why_this_is_not_repeating"] = why_not
+
+                if decision == "execute":
+                    approved_tasks.append(task)
+                elif decision == "skip":
+                    logger.info("Skipping task %s (repetition): %s", task.get("capability_id"), reason)
+                    self._log_audit_event(
+                        action="autonomous_repetition_skip",
+                        capability_id=task.get("capability_id", ""),
+                        decision="SKIP",
+                        reason=reason,
+                        detail={"similar_recent": similar, "desire": task.get("desire", "")},
+                    )
+                elif decision == "replace":
+                    task["replaced_original"] = True
+                    approved_tasks.append(task)
+
+            return approved_tasks if approved_tasks else tasks
+        except Exception as e:
+            logger.warning("Repetition check error: %s", e)
+            return tasks
+
     def _execute_cycle(self) -> None:
         """Execute autonomous tasks — only runs when scheduled or triggered."""
         logger.info("Starting autonomous execution cycle")
@@ -353,6 +446,10 @@ class AutonomousLoop:
                 desire_before[name] = desire.value
 
         tasks = self._generate_tasks(low_desires)
+
+        action_history = self._build_action_history_summary(max_entries=20)
+        tasks = self._check_repetition(tasks, action_history)
+
         results = self._execute_tasks(tasks)
 
         follow_up_results = self._self_regressive_loop(tasks, results, max_iterations=3)
@@ -620,6 +717,9 @@ class AutonomousLoop:
             if obs.get("description")
         )
         retrieval_query = "; ".join(part for part in query_parts if part)
+
+        action_history = self._build_action_history_summary(max_entries=20)
+
         if self._capability_retriever is not None:
             selection = self._capability_retriever.select_for_request(
                 retrieval_query,
@@ -640,10 +740,26 @@ class AutonomousLoop:
 
 {chr(10).join(desire_context)}
 
+=== Recent Action History (IMPORTANT — avoid repetition) ===
+{action_history}
+
+=== Rules for selecting actions ===
+1. DO NOT repeat actions that are semantically similar to recent actions above.
+   - Judge by PURPOSE and TARGET, not by tool name.
+   - Example: If you checked disk space 1 hour ago, do NOT check it again with another command.
+   - Example: If you confirmed AGORA has no new posts 30 min ago, do NOT read AGORA again unless time has passed.
+
+2. If the same desire was addressed recently with no state change, choose a DIFFERENT approach or desire.
+
+3. "No action" is a valid choice. If all desires were recently addressed and nothing new happened, respond with:
+   {{"no_action": true, "reason": "最近の行動と意味的に重複するため待機します"}}
+
+4. New information (errors, user requests, state changes) justifies re-checking the same target.
+
 Select up to {self._max_tasks} capabilities to address the low desires.
 For each, provide all required arguments.
-Do not invent capabilities.
-Prefer actions that avoid repeating recent failed approaches when memory shows they were ineffective."""
+Do not invent capabilities."""
+
         prompt, memory_meta = self._build_shared_llm_prompt(
             query=retrieval_query,
             base_prompt=prompt,
@@ -656,6 +772,10 @@ Prefer actions that avoid repeating recent failed approaches when memory shows t
             system_prompt=(
                 "You are AEGIS's autonomous task generator. "
                 "Select capabilities to fulfill low desires. "
+                "CRITICAL: Read the Recent Action History carefully. "
+                "Do NOT select actions that repeat what was recently done, "
+                "even with different tools. Judge repetition by PURPOSE, not by tool name. "
+                "If no new action is needed, respond with {\"no_action\": true}. "
                 "Call the appropriate functions with all required arguments."
             ),
             max_tokens=1000,
@@ -667,6 +787,22 @@ Prefer actions that avoid repeating recent failed approaches when memory shows t
             return []
 
         if not result.tool_calls:
+            if result.content:
+                try:
+                    no_action_data = extract_json_object(result.content)
+                    if no_action_data.get("no_action"):
+                        reason = no_action_data.get("reason", "LLM chose not to act")
+                        logger.info("LLM chose no_action: %s", reason)
+                        self._log_audit_event(
+                            action="autonomous_no_action",
+                            capability_id="none",
+                            decision="SKIP",
+                            reason=reason,
+                            detail={"source": "task_generation", "llm_reason": reason},
+                        )
+                        return []
+                except Exception:
+                    pass
             logger.warning("LLM returned no tool calls")
             return []
 
@@ -709,6 +845,7 @@ Prefer actions that avoid repeating recent failed approaches when memory shows t
                 "expected_impact": max(0.1, 0.5 - min(penalty, 0.4)),
                 "memory_penalty": penalty,
                 "memory_penalty_reason": penalty_reason,
+                "why_this_is_not_repeating": "",
             })
 
         if not valid_tasks:
@@ -1158,6 +1295,97 @@ Rules:
         except Exception:
             return []
 
+    def _build_action_history_summary(self, max_entries: int = 20) -> str:
+        """Build a human-readable summary of recent autonomous actions for LLM context."""
+        history = self._load_recent_history(max_entries=max_entries)
+        if not history:
+            return "No recent autonomous actions."
+
+        now_ms = int(time.time() * 1000)
+        lines = []
+        for entry in history:
+            ts = entry.get("timestamp_ms", 0)
+            age_min = max(0, (now_ms - ts) // 60_000)
+            age_str = f"{age_min}分前" if age_min < 60 else f"{age_min // 60}時間前"
+
+            for i, task in enumerate(entry.get("tasks", [])):
+                result = entry.get("results", [])[i] if i < len(entry.get("results", [])) else {}
+                desire = task.get("desire", "")
+                action_goal = task.get("action_goal", task.get("action", ""))
+                what_was_done = task.get("what_was_done", task.get("capability_id", ""))
+                result_summary = result.get("result_summary", result.get("result", ""))
+                success = result.get("success", False)
+                changed_state = task.get("changed_state", "状態変化なし")
+                not_repeat_unless = task.get("not_repeat_unless", "")
+
+                status = "成功" if success else "失敗"
+                line = (
+                    f"- [{age_str}] {desire}目的: {action_goal}\n"
+                    f"  実行内容: {what_was_done}\n"
+                    f"  結果: {status} — {result_summary[:150]}\n"
+                    f"  状態変化: {changed_state}"
+                )
+                if not_repeat_unless:
+                    line += f"\n  再実行条件: {not_repeat_unless}"
+                lines.append(line)
+
+        if not lines:
+            return "No recent autonomous actions."
+
+        return "Recent autonomous actions (newest first):\n" + "\n".join(lines[-20:])
+
+    def _summarize_action(self, task: dict[str, Any], result: dict[str, Any]) -> str:
+        """Generate a natural language description of what was done."""
+        cap_id = task.get("capability_id", "")
+        action = task.get("action", "")
+
+        action_descriptions = {
+            "pc-server.system.get_os_info": "OS情報を確認した",
+            "pc-server.system.get_screen_size": "画面サイズを確認した",
+            "pc-server.screenshot.get_screenshot": "スクリーンショットを取得し画面内容を確認した",
+            "pc-server.window.get_active_window": "アクティブウィンドウを確認した",
+            "ai-server.memory.search": "メモリを検索した",
+            "ai-server.memory.save": "メモリに保存した",
+            "ai-server.agora.read_posts": "AGORAの投稿を確認した",
+            "browser-server.page.browse": f"ブラウザで操作した: {task.get('arguments', {}).get('task', '')[:80]}",
+        }
+
+        if cap_id in action_descriptions:
+            return action_descriptions[cap_id]
+
+        args = task.get("arguments", {})
+        if "shell" in cap_id and "command" in args:
+            return f"シェルコマンドを実行した: {str(args['command'])[:80]}"
+        return action or cap_id or "不明な操作"
+
+    def _summarize_state_change(self, task: dict[str, Any], result: dict[str, Any]) -> str:
+        """Summarize what state change occurred."""
+        if not result.get("success"):
+            return "失敗のため状態変化なし"
+        cap_id = task.get("capability_id", "")
+        if "screenshot" in cap_id:
+            return "スクリーンショットを取得し、画面状態を把握した"
+        if "memory" in cap_id and "save" in cap_id:
+            return "メモリに新しい情報を保存した"
+        if "agora" in cap_id:
+            return "AGORAの状態を確認した"
+        return "操作を実行し結果を確認した"
+
+    def _determine_repeat_condition(self, task: dict[str, Any], result: dict[str, Any]) -> str:
+        """Determine under what condition this action should be repeated."""
+        if not result.get("success"):
+            return "問題が解決していない場合は再試行可能"
+        cap_id = task.get("capability_id", "")
+        if "screenshot" in cap_id:
+            return "ユーザーの指示があるか、画面に変化があった場合のみ再実行"
+        if "system.get_os_info" in cap_id or "system.get_screen_size" in cap_id:
+            return "システム設定を変更した後のみ再確認"
+        if "agora" in cap_id:
+            return "新しい投稿がある可能性がある場合（時間経過後）"
+        if "memory.search" in cap_id:
+            return "新しい情報が必要な場合"
+        return "新しい情報や状態変化がある場合のみ再実行"
+
     def _record_experiences(self, tasks: list[dict[str, Any]], results: list[dict[str, Any]]) -> None:
         for i, task in enumerate(tasks):
             result = results[i] if i < len(results) else {}
@@ -1315,17 +1543,29 @@ Respond with JSON:
         logger.info("Next autonomous run scheduled in %d seconds", interval_seconds)
 
     def _log_execution(self, tasks: list[dict[str, Any]], results: list[dict[str, Any]]) -> None:
-        """Log execution for history."""
+        """Log execution for history with semantic summaries."""
+        semantic_tasks = []
+        for i, task in enumerate(tasks):
+            result = results[i] if i < len(results) else {}
+            semantic_task = {
+                **task,
+                "action_goal": task.get("action", ""),
+                "what_was_done": self._summarize_action(task, result),
+                "result_summary": result.get("result", "")[:200],
+                "changed_state": self._summarize_state_change(task, result),
+                "not_repeat_unless": self._determine_repeat_condition(task, result),
+            }
+            semantic_tasks.append(semantic_task)
+
         entry = {
             "timestamp_ms": int(time.time() * 1000),
-            "tasks": tasks,
+            "tasks": semantic_tasks,
             "results": results,
             "next_run_ms": self._next_run_ms,
         }
         with self._lock:
             self._execution_log.append(entry)
 
-        # Save to file
         log_path = self._data_dir / "execution_log.jsonl"
         with open(log_path, "a", encoding="utf-8") as f:
             f.write(json.dumps(entry, ensure_ascii=False) + "\n")

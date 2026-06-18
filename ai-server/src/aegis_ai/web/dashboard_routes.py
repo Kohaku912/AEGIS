@@ -1640,6 +1640,11 @@ class DashboardApp:
                                         "action": task.get("action", ""),
                                         "result": str(result.get("result", "")),
                                         "success": result.get("success", False),
+                                        "what_was_done": task.get("what_was_done", ""),
+                                        "changed_state": task.get("changed_state", ""),
+                                        "not_repeat_unless": task.get("not_repeat_unless", ""),
+                                        "why_this_is_not_repeating": task.get("why_this_is_not_repeating", ""),
+                                        "repetition_check": task.get("repetition_check", {}),
                                     })
                 executions.reverse()
             except Exception:
