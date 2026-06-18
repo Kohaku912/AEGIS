@@ -238,45 +238,125 @@ def _stringify_tool_output(output: dict[str, Any]) -> str:
     return "Done"
 
 
-def _get_vision_llm(llm: Any) -> Any:
-    if llm and hasattr(llm, "generate_with_image"):
-        if not hasattr(llm, "_supports_vision"):
-            return llm
-        if getattr(llm, "_supports_vision")():
-            return llm
+def _get_vision_llm(llm: Any, *, runtime: Any = None) -> Any:
+    """Resolve a vision LLM from llm.yaml ``vision_observation`` profile.
+
+    Resolution: settings_resolver → create_multimodal_llm_provider fallback → passed-in llm.
+    Raises ``RuntimeError`` when no vision provider can be created.
+    """
+    settings_resolver = getattr(runtime, "settings_resolver", None) if runtime else None
+
+    if settings_resolver is not None:
+        try:
+            from aegis_ai.llm.factory import create_multimodal_llm_provider
+
+            provider = create_multimodal_llm_provider(settings_resolver=settings_resolver)
+            if provider is not None and hasattr(provider, "generate_with_image"):
+                logger.info(
+                    "Vision LLM resolved from settings_resolver: model=%s base_url=%s api_key_env=%s",
+                    getattr(provider, "_model", "unknown"),
+                    getattr(provider, "_base_url", "unknown"),
+                    "LLM_VISION_API_KEY",
+                )
+                return provider
+        except Exception as exc:
+            logger.warning(
+                "Failed to create vision LLM from settings_resolver: %s",
+                exc,
+                exc_info=True,
+            )
+
     try:
         from aegis_ai.llm.factory import create_multimodal_llm_provider
 
-        return create_multimodal_llm_provider()
-    except Exception:
+        provider = create_multimodal_llm_provider()
+        if provider is not None and hasattr(provider, "generate_with_image"):
+            logger.warning(
+                "Vision LLM created via fallback (no settings_resolver). "
+                "This may bypass llm.yaml vision_observation profile."
+            )
+            return provider
+    except Exception as exc:
+        logger.warning("Failed to create vision LLM via fallback: %s", exc, exc_info=True)
+
+    if llm and hasattr(llm, "generate_with_image"):
+        logger.warning("Using passed-in LLM as vision provider (may not be vision_observation profile)")
         return llm
 
+    raise RuntimeError(
+        "No vision-capable LLM provider available. "
+        "Ensure llm.yaml has a 'vision_observation' profile with a valid api_key_env and base_url, "
+        "and that LLM_VISION_API_KEY is set in the environment."
+    )
 
-def _summarize_observation_with_llm(llm: Any, tool_result: dict[str, Any]) -> str:
+
+def _summarize_observation_with_llm(
+    llm: Any,
+    tool_result: dict[str, Any],
+    *,
+    runtime: Any = None,
+) -> str:
+    """Summarize a screenshot observation using the vision_observation profile.
+
+    Raises ``RuntimeError`` when vision summarization fails so the caller
+    can surface a clear error instead of returning a misleading fixed string.
+    """
     output = tool_result.get("output", {})
     if not isinstance(output, dict):
         return tool_result.get("result", "Done")
 
     image_base64 = output.get("image_base64")
-    vision_llm = _get_vision_llm(llm)
-    if image_base64 and hasattr(vision_llm, "generate_with_image"):
-        try:
-            result = vision_llm.generate_with_image(
-                prompt=(
-                    "Summarize this screenshot as an actionable observation for the next tool decision. "
-                    "Describe the visible page, app state, forms, dialogs, or errors in under 120 words."
-                ),
-                image_base64=image_base64,
-                system_prompt="You convert screenshots into concise tool-planning observations.",
-                max_tokens=200,
-                detail="low",
-            )
-            if result.success and result.content:
-                return result.content.strip()
-        except Exception:
-            logger.debug("Vision summarization failed", exc_info=True)
+    if not image_base64:
+        return tool_result.get("result", "Done")
 
-    return tool_result.get("result", "Done")
+    try:
+        vision_llm = _get_vision_llm(llm, runtime=runtime)
+    except RuntimeError:
+        raise
+    except Exception as exc:
+        raise RuntimeError(f"Failed to resolve vision LLM: {exc}") from exc
+
+    try:
+        logger.info(
+            "Calling vision LLM for screenshot summarization: "
+            "provider=%s model=%s base_url=%s",
+            type(vision_llm).__name__,
+            getattr(vision_llm, "_model", "unknown"),
+            getattr(vision_llm, "_base_url", "unknown"),
+        )
+        result = vision_llm.generate_with_image(
+            prompt=(
+                "このスクリーンショットの内容を日本語で簡潔に要約してください。"
+                "画面上に見えるアプリ、ページ、フォーム、ダイアログ、エラーなどを120語以内で説明してください。"
+            ),
+            image_base64=image_base64,
+            system_prompt="あなたはスクリーンショットを簡潔な要約に変換するアシスタントです。",
+            max_tokens=200,
+            detail="low",
+        )
+        if result.success and result.content:
+            return result.content.strip()
+
+        error_detail = result.error or "empty response"
+        raise RuntimeError(
+            f"Vision LLM returned failure: profile=vision_observation, "
+            f"model={getattr(vision_llm, '_model', 'unknown')}, "
+            f"base_url={getattr(vision_llm, '_base_url', 'unknown')}, "
+            f"api_key_env=LLM_VISION_API_KEY, "
+            f"provider={type(vision_llm).__name__}, "
+            f"reason={error_detail}"
+        )
+    except RuntimeError:
+        raise
+    except Exception as exc:
+        raise RuntimeError(
+            f"Vision LLM call failed: profile=vision_observation, "
+            f"model={getattr(vision_llm, '_model', 'unknown')}, "
+            f"base_url={getattr(vision_llm, '_base_url', 'unknown')}, "
+            f"api_key_env=LLM_VISION_API_KEY, "
+            f"provider={type(vision_llm).__name__}, "
+            f"reason={exc}"
+        ) from exc
 
 
 def _parse_tool_call(content: str, valid_tool_names: set[str] | None = None) -> dict | None:
@@ -588,12 +668,25 @@ def call_llm_with_tools(
                 },
             }
 
-        result_summary = _summarize_observation_with_llm(llm, tool_result)[:500]
+        vision_error = ""
+        result_summary = ""
+        try:
+            result_summary = _summarize_observation_with_llm(
+                llm, tool_result, runtime=runtime,
+            )[:500]
+        except RuntimeError as exc:
+            vision_error = str(exc)
+            logger.error("Vision summarization failed: %s", vision_error)
+            result_summary = tool_result.get("result", "")
         conversation_history.append({
             "role": "tool",
             "name": func_name,
             "result": f"Success: {tool_result.get('success', False)}\n{result_summary}",
         })
+        if vision_error:
+            conversation_history[-1]["result"] += (
+                f"\n[VISION_ERROR] スクリーンショット画像の要約に失敗しました: {vision_error}"
+            )
         error_info = ""
         if not tool_result.get("success") and tool_result.get("error"):
             error_info = f"\nError: {tool_result['error'][:200]}"
@@ -628,13 +721,61 @@ def call_llm_with_tools(
             "tool_results": all_tool_results,
         }
 
-    final_text = ""
-    for tr in all_tool_results:
-        if tr.get("result"):
-            final_text += f"{tr['function']}: {tr['result'][:200]}\n"
+    vision_errors = [
+        tr for tr in all_tool_results
+        if "[VISION_ERROR]" in tr.get("result", "")
+    ]
+    if vision_errors:
+        error_detail = vision_errors[0]["result"]
+        vision_part = error_detail.split("[VISION_ERROR]")[-1].strip() if "[VISION_ERROR]" in error_detail else error_detail
+        return {
+            "response": (
+                f"スクリーンショットの取得は成功しましたが、画像要約LLMの呼び出しに失敗しました。\n\n"
+                f"エラー詳細: {vision_part}"
+            ),
+            "tool_calls": all_tool_calls,
+            "tool_results": all_tool_results,
+            "vision_error": vision_part,
+        }
 
+    summary_lines = [
+        f"ユーザーの元のリクエスト: {user_message}",
+        "",
+        "ツール実行結果:",
+    ]
+    for tr in all_tool_results:
+        summary_lines.append(f"- {tr.get('function', '')}: {tr.get('result', '')[:300]}")
+    summary_lines.append("")
+    summary_lines.append(
+        "上記のツール実行結果を踏まえて、ユーザーへの最終回答を自然な日本語で生成してください。"
+        "ツール実行の技術的な詳細ではなく、ユーザーが知りたい情報を伝えてください。"
+        "ツールは呼ばず、最終回答のみを生成してください。"
+    )
+    summary_round_prompt = "\n".join(summary_lines)
+
+    summary_result, summary_tc = _generate_tool_step(
+        llm=llm,
+        prompt=summary_round_prompt,
+        system_prompt="あなたはAEGISアシスタントです。ツール実行結果を元に、ユーザーに分かりやすい自然な日本語で回答してください。ツール呼び出しせず、最終回答のみを生成してください。",
+        tools=tools,
+        valid_tool_names=valid_tool_names,
+        context_meta=context_meta,
+    )
+    if summary_result.success and summary_result.content and summary_tc is None:
+        return {
+            "response": summary_result.content.strip(),
+            "tool_calls": all_tool_calls,
+            "tool_results": all_tool_results,
+        }
+    if summary_result.success and summary_result.content:
+        logger.warning("Summary round LLM attempted tool call instead of generating final response")
+
+    tool_names = [tr.get("function", "unknown") for tr in all_tool_results]
     return {
-        "response": final_text.strip() if final_text else "Tool execution completed.",
+        "response": (
+            f"ツール実行は完了しましたが、最終応答の生成に失敗しました。"
+            f"実行されたツール: {', '.join(tool_names)}"
+        ),
         "tool_calls": all_tool_calls,
         "tool_results": all_tool_results,
     }
