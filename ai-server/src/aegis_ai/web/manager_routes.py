@@ -50,7 +50,7 @@ def list_tasks():
         tasks = rt.task_manager.list_tasks(status=status, source=source, limit=limit)
         return jsonify({"tasks": tasks})
     except Exception as e:
-        return jsonify({"error": str(e)})
+        return jsonify({"error": str(e)}), 500
 
 
 @manager_bp.route("/api/tasks/<task_id>")
@@ -62,7 +62,7 @@ def get_task(task_id):
             return jsonify({"error": "Not found"}), 404
         return jsonify(task)
     except Exception as e:
-        return jsonify({"error": str(e)})
+        return jsonify({"error": str(e)}), 500
 
 
 @manager_bp.route("/api/tasks/running")
@@ -71,7 +71,7 @@ def tasks_running():
         rt = _get_runtime()
         return jsonify({"tasks": rt.task_manager.list_running()})
     except Exception as e:
-        return jsonify({"error": str(e)})
+        return jsonify({"error": str(e)}), 500
 
 
 @manager_bp.route("/api/tasks/waiting-approval")
@@ -80,7 +80,7 @@ def tasks_waiting():
         rt = _get_runtime()
         return jsonify({"tasks": rt.task_manager.list_waiting_approval()})
     except Exception as e:
-        return jsonify({"error": str(e)})
+        return jsonify({"error": str(e)}), 500
 
 
 # ── Event Routes ──────────────────────────────────────────────
@@ -94,7 +94,7 @@ def list_events():
         result = rt.event_manager.list_recent(limit=limit, cursor=cursor)
         return jsonify(result)
     except Exception as e:
-        return jsonify({"error": str(e)})
+        return jsonify({"error": str(e)}), 500
 
 
 @manager_bp.route("/api/events/<event_id>")
@@ -106,7 +106,7 @@ def get_event(event_id):
             return jsonify({"error": "Not found"}), 404
         return jsonify(event)
     except Exception as e:
-        return jsonify({"error": str(e)})
+        return jsonify({"error": str(e)}), 500
 
 
 # ── Audit Routes ──────────────────────────────────────────────
@@ -124,7 +124,7 @@ def list_audit():
         )
         return jsonify(result)
     except Exception as e:
-        return jsonify({"error": str(e)})
+        return jsonify({"error": str(e)}), 500
 
 
 @manager_bp.route("/api/audit/<audit_id>")
@@ -136,7 +136,7 @@ def get_audit_detail(audit_id):
             return jsonify({"error": "Not found"}), 404
         return jsonify(entry)
     except Exception as e:
-        return jsonify({"error": str(e)})
+        return jsonify({"error": str(e)}), 500
 
 
 @manager_bp.route("/api/audit/summary")
@@ -146,7 +146,7 @@ def audit_summary():
         hours = int(request.args.get("hours", 24))
         return jsonify(rt.audit_manager.summarize(period_hours=hours))
     except Exception as e:
-        return jsonify({"error": str(e)})
+        return jsonify({"error": str(e)}), 500
 
 
 # ── Status Routes ─────────────────────────────────────────────
@@ -157,7 +157,7 @@ def get_status():
         rt = _get_runtime()
         return jsonify(rt.status_manager.get_snapshot())
     except Exception as e:
-        return jsonify({"error": str(e)})
+        return jsonify({"error": str(e)}), 500
 
 
 @manager_bp.route("/api/status/<server_id>")
@@ -169,7 +169,7 @@ def get_server_status(server_id):
             return jsonify({"error": "Not found"}), 404
         return jsonify(status)
     except Exception as e:
-        return jsonify({"error": str(e)})
+        return jsonify({"error": str(e)}), 500
 
 
 @manager_bp.route("/api/status/check-now", methods=["POST"])
@@ -179,7 +179,7 @@ def check_now():
         snapshot = rt.status_manager.check_now()
         return jsonify(snapshot)
     except Exception as e:
-        return jsonify({"error": str(e)})
+        return jsonify({"error": str(e)}), 500
 
 
 # ── Notification Routes ───────────────────────────────────────
@@ -196,7 +196,7 @@ def list_notifications():
             notifs = rt.notification_manager.list_recent(limit=limit)
         return jsonify({"notifications": notifs})
     except Exception as e:
-        return jsonify({"error": str(e)})
+        return jsonify({"error": str(e)}), 500
 
 
 @manager_bp.route("/api/notifications/<notif_id>/read", methods=["POST"])
@@ -208,7 +208,7 @@ def mark_notification_read(notif_id):
             return jsonify({"error": "Not found"}), 404
         return jsonify(notif)
     except Exception as e:
-        return jsonify({"error": str(e)})
+        return jsonify({"error": str(e)}), 500
 
 
 @manager_bp.route("/api/notifications/<notif_id>/dismiss", methods=["POST"])
@@ -220,7 +220,7 @@ def dismiss_notification(notif_id):
             return jsonify({"error": "Not found"}), 404
         return jsonify(notif)
     except Exception as e:
-        return jsonify({"error": str(e)})
+        return jsonify({"error": str(e)}), 500
 
 
 # ── Memory Routes ─────────────────────────────────────────────
@@ -234,7 +234,7 @@ def search_memory():
         results = rt.memory_manager.search_memory(query, limit=limit)
         return jsonify({"results": results})
     except Exception as e:
-        return jsonify({"error": str(e)})
+        return jsonify({"error": str(e)}), 500
 
 
 @manager_bp.route("/api/memory/stats")
@@ -243,7 +243,7 @@ def memory_stats():
         rt = _get_runtime()
         return jsonify(rt.memory_manager.get_stats())
     except Exception as e:
-        return jsonify({"error": str(e)})
+        return jsonify({"error": str(e)}), 500
 
 
 @manager_bp.route("/api/memory/sleep/status")
@@ -252,7 +252,7 @@ def sleep_status():
         rt = _get_runtime()
         return jsonify(rt.sleep_manager.get_status())
     except Exception as e:
-        return jsonify({"error": str(e)})
+        return jsonify({"error": str(e)}), 500
 
 
 @manager_bp.route("/api/memory/sleep", methods=["POST"])
@@ -262,4 +262,4 @@ def trigger_sleep():
         success = rt.sleep_manager.start_sleep(reason="manual")
         return jsonify({"started": success})
     except Exception as e:
-        return jsonify({"error": str(e)})
+        return jsonify({"error": str(e)}), 500

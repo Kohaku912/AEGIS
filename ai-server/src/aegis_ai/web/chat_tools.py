@@ -19,6 +19,47 @@ logger = logging.getLogger("aegis_ai.web.chat_tools")
 _DATA_DIR = str(Path(__file__).resolve().parent.parent.parent.parent / "data")
 
 
+def _emit_event(
+    runtime: Any,
+    event_type: str,
+    *,
+    status: str = "completed",
+    profile: str = "",
+    model: str = "",
+    tool_id: str = "",
+    duration_ms: int = 0,
+    result_preview: str = "",
+    error: str = "",
+    reason: str = "",
+) -> None:
+    """Emit a structured event for LLM/tool/vision operations."""
+    if runtime is None:
+        return
+    try:
+        audit_log = getattr(runtime, "audit_log", None) or getattr(runtime, "audit_manager", None)
+        if audit_log and hasattr(audit_log, "log_decision"):
+            audit_log.log_decision(
+                event_type,
+                tool_id or "llm",
+                "EXECUTED" if status in ("completed", "started") else "FAILED",
+                reason=reason or event_type,
+                actor="chat_tools",
+                detail={
+                    "status": status,
+                    "profile": profile,
+                    "model": model,
+                    "tool_id": tool_id,
+                    "duration_ms": duration_ms,
+                    "result_preview": result_preview[:200] if result_preview else "",
+                    "error": error[:200] if error else "",
+                },
+            )
+        else:
+            logger.info("Event: %s status=%s tool=%s profile=%s", event_type, status, tool_id, profile)
+    except Exception:
+        logger.debug("Failed to emit event: %s", event_type, exc_info=True)
+
+
 def get_catalog():
     from aegis_ai.runtime import get_runtime
 
@@ -241,8 +282,7 @@ def _stringify_tool_output(output: dict[str, Any]) -> str:
 def _get_vision_llm(llm: Any, *, runtime: Any = None) -> Any:
     """Resolve a vision LLM from llm.yaml ``vision_observation`` profile.
 
-    Resolution: settings_resolver → create_multimodal_llm_provider fallback → passed-in llm.
-    Raises ``RuntimeError`` when no vision provider can be created.
+    Resolution: settings_resolver only. Raises ``RuntimeError`` when no vision provider can be created.
     """
     settings_resolver = getattr(runtime, "settings_resolver", None) if runtime else None
 
@@ -253,35 +293,18 @@ def _get_vision_llm(llm: Any, *, runtime: Any = None) -> Any:
             provider = create_multimodal_llm_provider(settings_resolver=settings_resolver)
             if provider is not None and hasattr(provider, "generate_with_image"):
                 logger.info(
-                    "Vision LLM resolved from settings_resolver: model=%s base_url=%s api_key_env=%s",
+                    "Vision LLM resolved from settings_resolver: profile=vision_observation, model=%s base_url=%s api_key_env=%s",
                     getattr(provider, "_model", "unknown"),
                     getattr(provider, "_base_url", "unknown"),
                     "LLM_VISION_API_KEY",
                 )
                 return provider
         except Exception as exc:
-            logger.warning(
+            logger.error(
                 "Failed to create vision LLM from settings_resolver: %s",
                 exc,
                 exc_info=True,
             )
-
-    try:
-        from aegis_ai.llm.factory import create_multimodal_llm_provider
-
-        provider = create_multimodal_llm_provider()
-        if provider is not None and hasattr(provider, "generate_with_image"):
-            logger.warning(
-                "Vision LLM created via fallback (no settings_resolver). "
-                "This may bypass llm.yaml vision_observation profile."
-            )
-            return provider
-    except Exception as exc:
-        logger.warning("Failed to create vision LLM via fallback: %s", exc, exc_info=True)
-
-    if llm and hasattr(llm, "generate_with_image"):
-        logger.warning("Using passed-in LLM as vision provider (may not be vision_observation profile)")
-        return llm
 
     raise RuntimeError(
         "No vision-capable LLM provider available. "
@@ -309,11 +332,17 @@ def _summarize_observation_with_llm(
     if not image_base64:
         return tool_result.get("result", "Done")
 
+    _emit_event(runtime, "vision.summarization.started", status="started",
+                profile="vision_observation", reason="????????????????")
     try:
         vision_llm = _get_vision_llm(llm, runtime=runtime)
     except RuntimeError:
+        _emit_event(runtime, "vision.summarization.failed", status="failed",
+                    profile="vision_observation", error="Vision LLM provider not available")
         raise
     except Exception as exc:
+        _emit_event(runtime, "vision.summarization.failed", status="failed",
+                    profile="vision_observation", error=str(exc))
         raise RuntimeError(f"Failed to resolve vision LLM: {exc}") from exc
 
     try:
@@ -335,9 +364,15 @@ def _summarize_observation_with_llm(
             detail="low",
         )
         if result.success and result.content:
+            _emit_event(runtime, "vision.summarization.completed", status="completed",
+                        profile="vision_observation",
+                        model=getattr(vision_llm, "_model", "unknown"),
+                        result_preview=result.content[:200] if result.content else "")
             return result.content.strip()
 
         error_detail = result.error or "empty response"
+        _emit_event(runtime, "vision.summarization.failed", status="failed",
+                    profile="vision_observation", error=str(error_detail))
         raise RuntimeError(
             f"Vision LLM returned failure: profile=vision_observation, "
             f"model={getattr(vision_llm, '_model', 'unknown')}, "
@@ -349,6 +384,8 @@ def _summarize_observation_with_llm(
     except RuntimeError:
         raise
     except Exception as exc:
+        _emit_event(runtime, "vision.summarization.failed", status="failed",
+                    profile="vision_observation", error=str(exc))
         raise RuntimeError(
             f"Vision LLM call failed: profile=vision_observation, "
             f"model={getattr(vision_llm, '_model', 'unknown')}, "
@@ -633,7 +670,14 @@ def call_llm_with_tools(
             "arguments": json.dumps(args, ensure_ascii=False),
         })
 
+        _emit_event(runtime, "tool.execution.started", status="started",
+                    tool_id=func_name, reason=f"?????: {func_name}")
         tool_result = _execute_tool_call(catalog, func_name, args, runtime=runtime)
+        _emit_event(runtime, "tool.execution.completed" if tool_result.get("success") else "tool.execution.failed",
+                    status="completed" if tool_result.get("success") else "failed",
+                    tool_id=catalog.tool_name_to_cap_id(func_name) if catalog else func_name,
+                    result_preview=str(tool_result.get("result", ""))[:200],
+                    error=str(tool_result.get("error", ""))[:200] if not tool_result.get("success") else "")
         described_cap_id = ""
         if func_name == "capability__describe" and tool_result.get("success"):
             output = tool_result.get("output", {})

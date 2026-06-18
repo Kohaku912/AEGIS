@@ -271,6 +271,20 @@
         .badge-blue { background: var(--blue-dim); color: var(--blue); }
         .badge-gray { background: var(--surface2); color: var(--text-muted); }
         .badge-accent { background: var(--accent-dim); color: var(--accent); }
+        .error-card {
+            background: var(--red-dim);
+            border: 1px solid rgba(239,68,68,0.3);
+            border-radius: 10px;
+            padding: 16px;
+            margin-bottom: 16px;
+            color: var(--red);
+            font-size: 13px;
+        }
+        .error-card .error-title { font-weight: 700; margin-bottom: 6px; font-size: 14px; }
+        .error-card pre {
+            background: var(--bg); margin-top: 8px; font-size: 11px;
+            color: var(--text-dim); border: 1px solid var(--border);
+        }
 
         .status-dot {
             width: 7px; height: 7px; border-radius: 50%; display: inline-block; margin-right: 6px;
@@ -536,7 +550,7 @@
     </div>
     <nav class="sidebar-nav">
         <div class="nav-section">Overview</div>
-        <a class="nav-item {% if request.path == '/dashboard' %}active{% endif %}" href="/dashboard">
+                <a class="nav-item {% if request.path in ('/dashboard', '/dashboard/', '/') %}active{% endif %}" href="/dashboard">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
             Home
         </a>
