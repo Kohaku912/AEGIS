@@ -6,9 +6,10 @@ from pathlib import Path
 from types import SimpleNamespace
 
 
-def test_get_runtime_returns_shared_singleton(monkeypatch) -> None:
+def test_get_runtime_returns_shared_singleton(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("LLM_API_KEY", "")
     monkeypatch.setenv("LLM_BASE_URL", "")
+    monkeypatch.setenv("AEGIS_DATA_DIR", str(tmp_path / "data"))
 
     from aegis_ai.runtime import get_runtime, reset_runtime_for_tests
 

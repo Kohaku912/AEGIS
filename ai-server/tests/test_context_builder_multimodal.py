@@ -22,6 +22,7 @@ class _FakeMultimodalLLM:
         temperature: float = 0.7,
         detail: str = "low",
         context_meta: dict[str, object] | None = None,
+        profile: str | None = None,
     ) -> SimpleNamespace:
         self.image_calls.append(
             {
@@ -43,6 +44,7 @@ class _FakeMultimodalLLM:
         detail: str = "low",
         context_meta: dict[str, object] | None = None,
         media_kind: str = "image",
+        profile: str | None = None,
     ) -> SimpleNamespace:
         self.media_calls.append(
             {
