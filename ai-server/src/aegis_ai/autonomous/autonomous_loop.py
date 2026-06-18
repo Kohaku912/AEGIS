@@ -289,37 +289,16 @@ class AutonomousLoop:
         return False
 
     def _llm_evaluate_desires(self, low_desires: list[dict[str, Any]]) -> None:
-        """Call LLM to evaluate low desire states and log the analysis."""
-        if not self._llm:
-            return
-        desire_context = "\n".join(
-            f"- {d['name']}: value={d['value']:.1f}, expected={d['expected']:.1f}, gap={d['gap']:.1f}"
-            for d in low_desires
+        """Log low desire states without LLM call."""
+        summary = ", ".join(f"{d['name']}={d['value']:.1f}" for d in low_desires[:3])
+        logger.info("Desire evaluation (no LLM): %d low — %s", len(low_desires), summary)
+        self._log_audit_event(
+            action="desire_evaluation",
+            capability_id="none",
+            decision="SKIP",
+            reason=f"Desires already identified as low: {summary}. No LLM evaluation needed.",
+            detail={"low_desires": [d["name"] for d in low_desires]},
         )
-        prompt = (
-            "Evaluate these desire states and identify which need attention:\n"
-            f"{desire_context}\n"
-            'Respond with JSON: {"needs_action": true/false, "concerns": '
-            '[{"desire": "name", "gap": 2.0, "reason": "..."}], "summary": "..."}'
-        )
-        try:
-            prompt, memory_meta = self._build_shared_llm_prompt(
-                query=", ".join(d["name"] for d in low_desires),
-                base_prompt=prompt,
-                profile="decision",
-            )
-            result = self._llm.generate(
-                prompt=prompt,
-                system_prompt="You are AEGIS's desire evaluation system. Analyze desire states concisely. Output only JSON.",
-                max_tokens=300,
-                context_meta=memory_meta,
-            )
-            if result.success:
-                logger.info("LLM desire evaluation: %s", result.content[:300])
-            else:
-                logger.warning("LLM desire evaluation failed: %s", getattr(result, "error", "unknown"))
-        except Exception as e:
-            logger.warning("LLM desire evaluation error: %s", e)
 
     def _check_repetition(self, tasks: list[dict[str, Any]], action_history: str) -> list[dict[str, Any]]:
         """Ask LLM to self-review tasks for semantic repetition before execution."""
@@ -446,33 +425,36 @@ Respond with JSON:
                 desire_before[name] = desire.value
 
         tasks = self._generate_tasks(low_desires)
-
-        action_history = self._build_action_history_summary(max_entries=20)
-        tasks = self._check_repetition(tasks, action_history)
-
         results = self._execute_tasks(tasks)
 
-        follow_up_results = self._self_regressive_loop(tasks, results, max_iterations=3)
-        results.extend(follow_up_results)
+        needs_follow_up = any(
+            not r.get("success") or "mention" in str(r.get("result", "")).lower()
+            for r in results
+        )
+        if needs_follow_up:
+            follow_up_results = self._self_regressive_loop(tasks, results, max_iterations=2)
+            results.extend(follow_up_results)
+        else:
+            logger.info("Skipping follow-up: all tasks succeeded or no actionable results")
 
         if self._reflection is not None:
-            for i, task in enumerate(tasks):
-                task_result = results[i] if i < len(results) else {}
-                source_desire = task.get("desire", "")
+            failed_tasks = [(i, t, results[i]) for i, t in enumerate(tasks)
+                           if i < len(results) and not results[i].get("success")]
+            for i, task, task_result in failed_tasks[:2]:
                 try:
                     reflection = self._reflection.reflect(
                         task_id=f"auto_{int(time.time() * 1000)}_{i}",
                         task_description=task.get("action", ""),
                         tool_results=[{
-                            "status": "success" if task_result.get("success") else "failed",
+                            "status": "failed",
                             "capability_id": "autonomous_task",
-                            "error": task_result.get("result", "") if not task_result.get("success") else "",
+                            "error": task_result.get("result", "")[:200],
                         }],
-                        source_desire=source_desire,
+                        source_desire=task.get("desire", ""),
                         frustration=task.get("expected_impact", 0.0),
                         desire_before=desire_before,
                     )
-                    logger.info("Reflection: %s — %s", reflection.outcome, reflection.summary[:100])
+                    logger.info("Reflection (failed only): %s — %s", reflection.outcome, reflection.summary[:100])
                 except Exception as e:
                     logger.warning("Reflection failed: %s", e)
 
@@ -718,7 +700,7 @@ Respond with JSON:
         )
         retrieval_query = "; ".join(part for part in query_parts if part)
 
-        action_history = self._build_action_history_summary(max_entries=20)
+        action_history = self._build_action_history_summary(max_entries=10)
 
         if self._capability_retriever is not None:
             selection = self._capability_retriever.select_for_request(
@@ -778,7 +760,7 @@ Do not invent capabilities."""
                 "If no new action is needed, respond with {\"no_action\": true}. "
                 "Call the appropriate functions with all required arguments."
             ),
-            max_tokens=1000,
+            max_tokens=600,
             context_meta=memory_meta,
         )
 
@@ -1032,6 +1014,14 @@ Do not invent capabilities."""
     ) -> list[dict[str, Any]]:
         if not self._llm or not self._broker:
             return []
+        if not initial_tasks or not initial_results:
+            return []
+        all_success = all(r.get("success") for r in initial_results)
+        if all_success:
+            has_mentions = any("mention" in str(r.get("result", "")).lower() for r in initial_results)
+            if not has_mentions:
+                logger.info("Skipping follow-up: all tasks succeeded, no actionable results")
+                return []
 
         all_follow_ups: list[dict[str, Any]] = []
         current_tasks = initial_tasks
@@ -1056,6 +1046,28 @@ Do not invent capabilities."""
         previous_results: list[dict[str, Any]],
     ) -> list[dict[str, Any]]:
         if not self._llm:
+            return []
+        if not previous_tasks or not previous_results:
+            return []
+
+        known_failure_patterns = [
+            "no executor", "unreachable", "connection refused",
+            "timed out", "not found", "not available",
+        ]
+        has_actionable = False
+        for result in previous_results:
+            if not result.get("success"):
+                err = str(result.get("result", "")).lower()
+                is_known = any(p in err for p in known_failure_patterns)
+                if not is_known:
+                    has_actionable = True
+                    break
+            result_text = str(result.get("result", "")).lower()
+            if "mention" in result_text or "directed at" in result_text:
+                has_actionable = True
+                break
+        if not has_actionable:
+            logger.info("Skipping follow-up: no actionable results")
             return []
 
         context_parts = []
@@ -1120,19 +1132,14 @@ Rules:
 - For system tasks: if anomalies detected, suggest investigation
 - If no follow-up needed, do not call any function
 - Do not repeat invalid or previously failed tool choices unless memory indicates a new reason they should work now"""
-        prompt, memory_meta = self._build_shared_llm_prompt(
-            query=follow_up_query,
-            base_prompt=prompt,
-            profile="decision",
-        )
 
         try:
             result = self._llm.generate_with_tools(
                 prompt=prompt,
                 tools=tools,
                 system_prompt="You are AEGIS deciding follow-up actions. Only call functions if follow-up is needed.",
-                max_tokens=500,
-                context_meta=memory_meta,
+                max_tokens=400,
+                context_meta=None,
             )
 
             if not result.success or not result.tool_calls:
@@ -1452,89 +1459,45 @@ Rules:
                     logger.warning("Failed to appraise emotion: %s", e)
 
     def _decide_next_interval(self, results: list[dict[str, Any]]) -> int:
-        """Decide when to run next based on results using LLM."""
-        if self._desire:
-            all_healthy = all(
-                d.value >= d.expected_value * 0.9
-                for d in self._desire.get_all_desires().values()
-                if not d.hidden
-            )
-            if all_healthy:
-                success_count = sum(1 for r in results if r.get("success"))
-                if success_count == len(results) and len(results) > 0:
-                    logger.info("All desires healthy, all tasks succeeded — extending interval")
-                    return self._fallback_interval * 2
-                logger.info("All desires healthy — using fallback interval")
-                return self._fallback_interval
-
-        if not self._llm:
+        """Decide when to run next using lightweight program logic (no LLM)."""
+        if not self._desire:
+            logger.info("No desire — using fallback interval %ds", self._fallback_interval)
             return self._fallback_interval
 
-        # Count successful tasks
+        desires = self._desire.get_all_desires()
+        low_count = 0
+        total_gap = 0.0
+        for desire in desires.values():
+            if desire.hidden:
+                continue
+            gap = max(0, desire.expected_value - desire.value)
+            if gap >= self._frustration_threshold:
+                low_count += 1
+            total_gap += gap
+
         success_count = sum(1 for r in results if r.get("success"))
         total_count = len(results)
+        fail_count = total_count - success_count
 
-        # Get current desire states
-        desire_states = []
-        if self._desire:
-            for name, desire in self._desire.get_all_desires().items():
-                desire_states.append(f"- {name}: {desire.value:.1f}/10")
+        if low_count == 0:
+            interval = self._fallback_interval * 2
+            reason = "all desires healthy"
+        elif low_count >= 3:
+            interval = 300
+            reason = f"{low_count} desires critically low"
+        elif fail_count > success_count and total_count > 0:
+            interval = 900
+            reason = f"{fail_count}/{total_count} tasks failed, backing off"
+        elif total_count == 0:
+            interval = self._fallback_interval
+            reason = "no tasks executed"
+        else:
+            interval = max(600, int(self._fallback_interval * (1.0 - total_gap / 30.0)))
+            reason = f"{low_count} low desires, gap managed"
 
-        prompt = f"""Based on the autonomous execution results, decide when AEGIS should run next.
-
-Tasks executed: {total_count}
-Successful: {success_count}
-
-Current desire states:
-{chr(10).join(desire_states)}
-
-Decide the next execution interval in seconds.
-Consider:
-- If many desires are low, run sooner (300-900 seconds)
-- If desires are balanced, run later (1800-3600 seconds)
-- If all desires are high, run much later (3600-7200 seconds)
-
-Respond with JSON:
-{{
-  "interval_seconds": 1800,
-  "reason": "Brief explanation"
-}}"""
-        schedule_query = "; ".join(
-            part
-            for part in [
-                *(result.get("action", "") for result in results),
-                *(result.get("result", "")[:120] for result in results),
-                *desire_states,
-            ]
-            if part
-        )
-        prompt, memory_meta = self._build_shared_llm_prompt(
-            query=schedule_query or "autonomous scheduling",
-            base_prompt=prompt,
-            profile="decision",
-        )
-
-        result = self._llm.generate(
-            prompt=prompt,
-            system_prompt="You are AEGIS's scheduling system. Decide when to run next. Output only JSON.",
-            max_tokens=500,
-            context_meta=memory_meta,
-            json_mode=True,
-        )
-
-        if not result.success:
-            return self._fallback_interval
-
-        try:
-            data = extract_json_object(result.content)
-            interval = data.get("interval_seconds", self._fallback_interval)
-            # Clamp to reasonable range
-            interval = max(300, min(7200, interval))
-            logger.info("Self-scheduled next run in %d seconds: %s", interval, data.get("reason", ""))
-            return interval
-        except Exception as e:
-            logger.warning("Failed to parse scheduling response: %s", e)
-            return self._fallback_interval
+        interval = max(300, min(7200, interval))
+        logger.info("Next autonomous run in %d seconds: %s", interval, reason)
+        return interval
 
     def _schedule_next(self, interval_seconds: int) -> None:
         """Schedule the next execution."""
