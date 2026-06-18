@@ -783,6 +783,10 @@ class DashboardApp:
         self._app.register_blueprint(settings_ui_bp)
         from aegis_ai.web.manager_routes import init_manager_routes
         init_manager_routes(self._app, runtime)
+        if hasattr(runtime, 'prompt_registry') and hasattr(runtime, 'settings_resolver'):
+            from aegis_ai.web.llm_config_routes import init_llm_config, llm_config_bp
+            init_llm_config(runtime.prompt_registry, runtime.settings_resolver)
+            self._app.register_blueprint(llm_config_bp)
         self._setup_routes()
         self._autonomous_loop = runtime.autonomous_loop
 
@@ -955,12 +959,25 @@ class DashboardApp:
             except Exception:
                 pass
 
+            event_count = 0
+            try:
+                ev_result = self._runtime.event_manager.list_recent(limit=1)
+                event_count = len(ev_result.get("events", []))
+            except Exception:
+                pass
+
+            task_count = 0
+            try:
+                task_count = len(self._runtime.task_manager.list_tasks(limit=1000))
+            except Exception:
+                pass
+
             settings_snapshot = self._settings_store.get()
             return render_template("dashboard/home.html",
                 servers=status["servers"],
                 server_summary=status["summary"],
-                event_stats={"total_published": 0},
-                trigger_stats={"tasks_generated": 0},
+                event_stats={"total_published": event_count},
+                trigger_stats={"tasks_generated": task_count},
                 pending_approvals=approval_queue_data,
                 memory_summary=memory_stats,
                 settings={
@@ -1193,41 +1210,57 @@ class DashboardApp:
         @app.route("/dashboard/events")
         def events():
             recent_events = []
+            stats = {"total_published": 0, "total_deduplicated": 0}
             try:
-                for event in self._runtime.event_bus.list_recent_events(100):
+                result = self._runtime.event_manager.list_recent(limit=100)
+                raw_events = result.get("events", [])
+                now_ms = int(time.time() * 1000)
+                for ev in raw_events:
+                    ts = ev.get("timestamp_ms", 0)
                     recent_events.append({
-                        "event_type": event.event_type,
-                        "source": event.source_server_id,
-                        "timestamp": event.timestamp_ms / 1000 if event.timestamp_ms else time.time(),
-                        "data": event.payload_json,
+                        "event_id": ev.get("event_id", ""),
+                        "event_type": ev.get("event_type", ""),
+                        "source_server_type": ev.get("source", ev.get("source_server_type", "")),
+                        "severity": ev.get("severity", "info"),
+                        "priority": ev.get("priority", 0),
+                        "age_seconds": max(0, (now_ms - ts) // 1000) if ts > 0 else 0,
                     })
-            except Exception:
-                pass
+                stats["total_published"] = len(recent_events)
+            except Exception as exc:
+                logger.warning("Events load failed: %s", exc)
             return render_template("dashboard/events.html",
                 events=recent_events,
-                stats={"total_published": len(recent_events)},
+                stats=stats,
             )
 
         @app.route("/dashboard/tasks")
         def tasks():
-            # Show current system tasks
-            current_tasks = []
+            all_tasks = []
+            running_tasks = []
+            waiting_tasks = []
             try:
-                from aegis_schema.models import ServerType
+                all_tasks = self._runtime.task_manager.list_tasks(limit=100)
+                running_tasks = self._runtime.task_manager.list_running()
+                waiting_tasks = self._runtime.task_manager.list_waiting_approval()
+            except Exception as exc:
+                logger.warning("Tasks load failed: %s", exc)
 
-                pc_capabilities = self._runtime.tool_registry.get_capabilities_by_server_type(ServerType.PC)
-                current_tasks.append({
-                    "task_id": "pc_health_monitor",
-                    "name": "PC Server Health Monitor",
-                    "status": "active",
-                    "description": f"PC Server registry contains {len(pc_capabilities)} capabilities",
-                })
-            except Exception:
-                pass
+            status_counts = {}
+            for t in all_tasks:
+                s = t.get("status", "unknown")
+                status_counts[s] = status_counts.get(s, 0) + 1
+
             return render_template("dashboard/tasks.html",
-                pending_tasks=current_tasks,
-                trigger_stats={"tasks_generated": len(current_tasks)},
-                scheduled_tasks=[],
+                pending_tasks=all_tasks,
+                running_tasks=running_tasks,
+                waiting_approval_tasks=waiting_tasks,
+                trigger_stats={
+                    "tasks_generated": len(all_tasks),
+                    "rules_matched": 0,
+                    "suppressed_by_cooldown": 0,
+                    "suppressed_by_no_match": 0,
+                },
+                status_counts=status_counts,
             )
 
         @app.route("/dashboard/support")
@@ -1354,6 +1387,7 @@ class DashboardApp:
                 last_size = 0
                 if os.path.exists(audit_path):
                     last_size = os.path.getsize(audit_path)
+                heartbeat_counter = 0
                 while True:
                     try:
                         if os.path.exists(audit_path):
@@ -1373,11 +1407,15 @@ class DashboardApp:
                                                             "%H:%M:%S", time.localtime(ts / 1000),
                                                         )
                                                     yield f"data: {j.dumps(entry, ensure_ascii=False)}\n\n"
-                                            except Exception:
-                                                pass
+                                            except Exception as parse_err:
+                                                yield f"data: {j.dumps({'type': 'error', 'message': f'Parse error: {parse_err}'})}\n\n"
                                 last_size = size
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        yield f"data: {j.dumps({'type': 'error', 'message': str(e)})}\n\n"
+                    heartbeat_counter += 1
+                    if heartbeat_counter >= 15:
+                        yield ": heartbeat\n\n"
+                        heartbeat_counter = 0
                     import time as _time
                     _time.sleep(2)
 
@@ -1390,6 +1428,7 @@ class DashboardApp:
 
             def generate():
                 last_state = ""
+                heartbeat_counter = 0
                 while True:
                     try:
                         from aegis_ai.desire.desire_system import DesireSystem
@@ -1405,8 +1444,12 @@ class DashboardApp:
                         if state != last_state:
                             yield f"data: {state}\n\n"
                             last_state = state
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        yield f"data: {j.dumps({'type': 'error', 'message': str(e)})}\n\n"
+                    heartbeat_counter += 1
+                    if heartbeat_counter >= 6:
+                        yield ": heartbeat\n\n"
+                        heartbeat_counter = 0
                     import time as _time
                     _time.sleep(5)
 
@@ -1419,6 +1462,7 @@ class DashboardApp:
 
             def generate():
                 last_state = ""
+                heartbeat_counter = 0
                 while True:
                     try:
                         state_data = {"running": False, "execution_count": 0}
@@ -1434,8 +1478,12 @@ class DashboardApp:
                         if state != last_state:
                             yield f"data: {state}\n\n"
                             last_state = state
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        yield f"data: {j.dumps({'type': 'error', 'message': str(e)})}\n\n"
+                    heartbeat_counter += 1
+                    if heartbeat_counter >= 6:
+                        yield ": heartbeat\n\n"
+                        heartbeat_counter = 0
                     import time as _time
                     _time.sleep(5)
 
@@ -1448,16 +1496,24 @@ class DashboardApp:
 
             def generate():
                 last_state = ""
+                heartbeat_counter = 0
                 while True:
                     try:
                         mem = _get_mem_backend("advanced")
-                        stats = mem.get_stats()
-                        state = j.dumps(stats, sort_keys=True)
+                        if mem is None:
+                            state = j.dumps({"status": "unavailable"}, sort_keys=True)
+                        else:
+                            stats = mem.get_stats()
+                            state = j.dumps(stats, sort_keys=True)
                         if state != last_state:
                             yield f"data: {state}\n\n"
                             last_state = state
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        yield f"data: {j.dumps({'type': 'error', 'message': str(e)})}\n\n"
+                    heartbeat_counter += 1
+                    if heartbeat_counter >= 3:
+                        yield ": heartbeat\n\n"
+                        heartbeat_counter = 0
                     import time as _time
                     _time.sleep(10)
 
@@ -1734,21 +1790,54 @@ class DashboardApp:
             except Exception:
                 pass
 
+            event_count = 0
+            try:
+                ev_result = self._runtime.event_manager.list_recent(limit=1)
+                event_count = len(ev_result.get("events", []))
+            except Exception:
+                pass
+
+            task_count = 0
+            try:
+                task_count = len(self._runtime.task_manager.list_tasks(limit=1000))
+            except Exception:
+                pass
+
+            pending_count = 0
+            try:
+                from aegis_ai.approval.approval_queue import ApprovalQueue
+                aq = ApprovalQueue()
+                pending_count = len(aq.list_pending())
+            except Exception:
+                pass
+
             return jsonify({
                 "servers": status["summary"],
-                "events": {"total_published": 0},
-                "triggers": {"tasks_generated": 0},
+                "events": {"total_published": event_count},
+                "triggers": {"tasks_generated": task_count},
                 "memory": memory,
-                "pending_approvals": 0,
+                "pending_approvals": pending_count,
             })
 
         @app.route("/api/dashboard/events")
         def api_events():
-            return jsonify([])
+            try:
+                result = self._runtime.event_manager.list_recent(limit=100)
+                return jsonify(result.get("events", []))
+            except Exception as e:
+                return jsonify({"error": str(e)}), 500
 
         @app.route("/api/dashboard/capabilities")
         def api_capabilities():
-            return jsonify([])
+            try:
+                caps = [{
+                    "id": m.capability_id,
+                    "title": m.title,
+                    "risk_level": m.risk_level,
+                } for m in self._runtime.folder_registry.list_all()]
+                return jsonify(caps)
+            except Exception as e:
+                return jsonify({"error": str(e)}), 500
 
         # ── Health ────────────────────────────────────────────
 
@@ -1903,11 +1992,12 @@ class DashboardApp:
             try:
                 # Create TaskManager task for chat
                 if hasattr(self._runtime, 'task_manager') and self._runtime.task_manager:
-                    task_id = self._runtime.task_manager.create_task(
+                    task = self._runtime.task_manager.create_task(
                         title=f"Chat: {text[:50]}",
+                        goal=text,
                         source="chat",
-                        description=text,
                     )
+                    task_id = task.get("task_id") if isinstance(task, dict) else task
 
                 from aegis_ai.web.chat_tools import call_llm_with_tools
                 llm = self._runtime.llm_gateway
@@ -1927,10 +2017,8 @@ class DashboardApp:
                 if result.get("needs_user_input"):
                     tool_pending = result.get("pending_context", {})
                     if task_id:
-                        self._runtime.task_manager.update_step(
-                            task_id, "waiting_user_input", "waiting",
-                            result={"question": result.get("question", "")}
-                        )
+                        self._runtime.task_manager.add_step(task_id, "waiting_user_input", "waiting for user input")
+                        self._runtime.task_manager.update_step_status(task_id, "waiting_user_input", "running")
                     return jsonify({
                         "needs_user_input": True,
                         "question": result.get("question", ""),
@@ -1948,12 +2036,13 @@ class DashboardApp:
 
                 # Record tool execution in TaskManager
                 if task_id and tool_results:
-                    for tr in tool_results:
-                        self._runtime.task_manager.update_step(
-                            task_id,
-                            tr.get("function", "unknown"),
-                            "completed" if tr.get("success") else "failed",
-                            result={"output": str(tr.get("result", ""))[:200]}
+                    for idx, tr in enumerate(tool_results):
+                        step_id = tr.get("function", f"step_{idx}")
+                        self._runtime.task_manager.add_step(task_id, step_id, step_id)
+                        step_status = "completed" if tr.get("success") else "failed"
+                        self._runtime.task_manager.update_step_status(
+                            task_id, step_id, step_status,
+                            result=str(tr.get("result", ""))[:200],
                         )
 
                 resp = {"response": response_text}
@@ -1967,7 +2056,7 @@ class DashboardApp:
 
                 # Complete TaskManager task
                 if task_id:
-                    self._runtime.task_manager.complete_task(task_id, result={"response": response_text[:200]})
+                    self._runtime.task_manager.complete_task(task_id, result_summary=response_text[:200])
 
                 return jsonify(resp)
 
