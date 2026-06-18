@@ -254,6 +254,12 @@ def test_screenshot_tool_result_is_summarized_for_follow_up_prompt(monkeypatch) 
         },
     )
 
+    monkeypatch.setattr(
+        chat_tools,
+        "_get_vision_llm",
+        lambda llm, *, runtime=None: llm,
+    )
+
     result = chat_tools.call_llm_with_tools(
         llm=llm,
         user_message="画面を見てください。",
