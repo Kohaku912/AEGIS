@@ -102,12 +102,25 @@ class ApprovalManager:
         Returns the request if successfully approved, None if not found
         or already in a terminal state (idempotent).
         """
+        with self._lock:
+            current = self._queue.get(approval_id)
+            if current is not None and current.status in ("approved", "modified", "executing", "executed", "failed"):
+                self._record_ignored_late_rejection(current, channel, user, "late approval after terminal progress")
+                return None
         req = self._queue.approve(approval_id, user_note=f"via {channel}")
         if req is None:
             return None
-        # Record metadata on the request object
         req.approved_by_channel = channel  # type: ignore[attr-defined]
         req.approved_by_user = user  # type: ignore[attr-defined]
+        req.approved_by_surface = channel
+        req.surface_decisions[channel] = {
+            "decision": "approved",
+            "user": user,
+            "reason": "",
+            "timestamp": int(time.time() * 1000),
+        }
+        if hasattr(self._queue, "_save"):
+            self._queue._save()
         self._notify_state_change(req, "approved")
         return req
 
@@ -118,14 +131,63 @@ class ApprovalManager:
         user: str = "user",
         reason: str = "",
     ) -> ApprovalRequest | None:
-        """Reject a pending request."""
+        """Record a surface-level rejection while keeping central state pending."""
+        with self._lock:
+            req = self._queue.get(approval_id)
+            if req is None:
+                return None
+            if req.status != "pending":
+                self._record_ignored_late_rejection(req, channel, user, reason)
+                return None
+            req.surface_decisions[channel] = {
+                "decision": "rejected",
+                "user": user,
+                "reason": reason,
+                "timestamp": int(time.time() * 1000),
+            }
+            if hasattr(self._queue, "_save"):
+                self._queue._save()
+        req.rejected_by_channel = channel  # type: ignore[attr-defined]
+        req.rejected_by_user = user  # type: ignore[attr-defined]
+        self._notify_state_change(req, "surface_rejected")
+        return req
+
+    def global_reject(
+        self,
+        approval_id: str,
+        channel: str = "unknown",
+        user: str = "user",
+        reason: str = "",
+    ) -> ApprovalRequest | None:
+        """Reject the approval globally, closing all surfaces."""
         req = self._queue.reject(approval_id, reason=reason)
         if req is None:
+            current = self._queue.get(approval_id)
+            if current is not None:
+                self._record_ignored_late_rejection(current, channel, user, reason)
             return None
         req.rejected_by_channel = channel  # type: ignore[attr-defined]
         req.rejected_by_user = user  # type: ignore[attr-defined]
+        req.surface_decisions[channel] = {
+            "decision": "global_rejected",
+            "user": user,
+            "reason": reason,
+            "timestamp": int(time.time() * 1000),
+        }
+        if hasattr(self._queue, "_save"):
+            self._queue._save()
         self._notify_state_change(req, "rejected")
         return req
+
+    def record_surface_delivery(self, approval_id: str, results: dict[str, bool]) -> None:
+        """Record which approval surfaces received a request/update."""
+        with self._lock:
+            req = self._queue.get(approval_id)
+            if req is None:
+                return
+            req.surface_delivery.update(results)
+            if hasattr(self._queue, "_save"):
+                self._queue._save()
 
     def modify_and_approve(
         self,
@@ -282,6 +344,7 @@ class ApprovalManager:
         action_map = {
             "created": "approval_created",
             "approved": "approval_approved",
+            "surface_rejected": "approval_surface_rejected",
             "rejected": "approval_rejected",
             "modified": "approval_modified",
             "expired": "approval_expired",
@@ -305,6 +368,37 @@ class ApprovalManager:
             )
         except Exception:
             logger.debug("Failed to record approval audit", exc_info=True)
+
+    def _record_ignored_late_rejection(
+        self,
+        request: ApprovalRequest,
+        channel: str,
+        user: str,
+        reason: str,
+    ) -> None:
+        """Audit a late rejection without rolling back central approval state."""
+        if self._audit is None:
+            return
+        try:
+            from aegis_ai.audit import AuditEntry
+
+            self._audit.append(
+                AuditEntry(
+                    action="ignored_late_rejection",
+                    actor=user,
+                    capability_id=request.capability_id,
+                    decision=request.status,
+                    reason=reason,
+                    detail={
+                        "approval_id": request.approval_id,
+                        "channel": channel,
+                        "user": user,
+                        "status": request.status,
+                    },
+                )
+            )
+        except Exception:
+            logger.debug("Failed to record ignored late rejection", exc_info=True)
 
     def _task_manager_callback(self, event: dict[str, Any]) -> None:
         """Callback to update TaskManager and ExecutionEngine when approval state changes."""

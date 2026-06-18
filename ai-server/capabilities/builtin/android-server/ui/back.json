@@ -1,0 +1,12 @@
+{
+  "title": "Android Back",
+  "description": "Press Android back via AccessibilityService.",
+  "server_id": "android-server",
+  "app_id": "ui",
+  "action": "back",
+  "input_schema": {"type": "object", "properties": {}},
+  "risk": {"level": "safe", "side_effects": ["navigation"], "requires_approval": false},
+  "tags": ["builtin", "android", "ui", "navigation"],
+  "requires_permissions": ["accessibility"],
+  "extra": {"requires_permissions": ["accessibility"]}
+}

@@ -17,8 +17,8 @@ class AndroidApprovalChannel(ApprovalChannel):
     Fire-and-forget: Android Server unreachable does not block approval.
     """
 
-    def __init__(self, server_executor: Any = None) -> None:
-        self._executor = server_executor
+    def __init__(self, android_manager: Any = None) -> None:
+        self._android_manager = android_manager
 
     @property
     def channel_id(self) -> str:
@@ -33,19 +33,16 @@ class AndroidApprovalChannel(ApprovalChannel):
         return self._send_notification(event, is_update=True)
 
     async def health_check(self) -> bool:
-        if self._executor is None:
+        if self._android_manager is None:
             return False
         try:
-            result = self._executor.execute_capability(
-                "android-server.system.health_check", {}
-            )
-            return result is not None
+            return bool(self._android_manager.get_status().get("online"))
         except Exception:
             return False
 
     def _send_notification(self, event: ApprovalEvent, is_update: bool = False) -> bool:
         """Send notification to Android Server."""
-        if self._executor is None:
+        if self._android_manager is None:
             logger.debug("No server executor, skipping Android notification")
             return False
 
@@ -59,16 +56,13 @@ class AndroidApprovalChannel(ApprovalChannel):
                 title = f"承認更新: {event.state}"
                 body = f"ID: {approval_id} — 状態: {event.state}"
 
-            self._executor.execute_capability(
-                "android-server.notification.show_approval",
-                {
-                    "title": title,
-                    "body": body,
-                    "approval_id": approval_id,
-                    "state": event.state,
-                },
+            return self._android_manager.send_approval_to_android(
+                approval_id=approval_id,
+                title=title,
+                body=body,
+                state=event.state,
+                summary=summary,
             )
-            return True
         except Exception:
             logger.exception("Android notification failed for %s", event.approval_id)
             return False

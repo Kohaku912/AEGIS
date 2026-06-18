@@ -1,0 +1,12 @@
+{
+  "title": "Android Home",
+  "description": "Press Android home via AccessibilityService.",
+  "server_id": "android-server",
+  "app_id": "ui",
+  "action": "home",
+  "input_schema": {"type": "object", "properties": {}},
+  "risk": {"level": "safe", "side_effects": ["navigation"], "requires_approval": false},
+  "tags": ["builtin", "android", "ui", "navigation"],
+  "requires_permissions": ["accessibility"],
+  "extra": {"requires_permissions": ["accessibility"]}
+}

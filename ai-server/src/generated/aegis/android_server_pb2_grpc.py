@@ -35,6 +35,11 @@ class AndroidServerStub:
         Args:
             channel: A grpc.Channel.
         """
+        self.Connect = channel.stream_stream(
+                '/aegis.AndroidServer/Connect',
+                request_serializer=aegis_dot_android__server__pb2.AndroidClientMessage.SerializeToString,
+                response_deserializer=aegis_dot_android__server__pb2.AndroidServerCommand.FromString,
+                _registered_method=True)
         self.GetScreenshot = channel.unary_unary(
                 '/aegis.AndroidServer/GetScreenshot',
                 request_serializer=aegis_dot_android__server__pb2.GetAndroidScreenshotRequest.SerializeToString,
@@ -54,6 +59,26 @@ class AndroidServerStub:
                 '/aegis.AndroidServer/GetNotifications',
                 request_serializer=aegis_dot_android__server__pb2.GetNotificationsRequest.SerializeToString,
                 response_deserializer=aegis_dot_android__server__pb2.GetNotificationsResponse.FromString,
+                _registered_method=True)
+        self.GetPermissionStatus = channel.unary_unary(
+                '/aegis.AndroidServer/GetPermissionStatus',
+                request_serializer=aegis_dot_android__server__pb2.GetPermissionStatusRequest.SerializeToString,
+                response_deserializer=aegis_dot_android__server__pb2.GetPermissionStatusResponse.FromString,
+                _registered_method=True)
+        self.GetDeviceStatus = channel.unary_unary(
+                '/aegis.AndroidServer/GetDeviceStatus',
+                request_serializer=aegis_dot_android__server__pb2.AndroidGetDeviceStatusRequest.SerializeToString,
+                response_deserializer=aegis_dot_android__server__pb2.AndroidGetDeviceStatusResponse.FromString,
+                _registered_method=True)
+        self.GetAccessibilityStatus = channel.unary_unary(
+                '/aegis.AndroidServer/GetAccessibilityStatus',
+                request_serializer=aegis_dot_android__server__pb2.GetAccessibilityStatusRequest.SerializeToString,
+                response_deserializer=aegis_dot_android__server__pb2.GetAccessibilityStatusResponse.FromString,
+                _registered_method=True)
+        self.GetLocation = channel.unary_unary(
+                '/aegis.AndroidServer/GetLocation',
+                request_serializer=aegis_dot_android__server__pb2.GetLocationRequest.SerializeToString,
+                response_deserializer=aegis_dot_android__server__pb2.GetLocationResponse.FromString,
                 _registered_method=True)
         self.Tap = channel.unary_unary(
                 '/aegis.AndroidServer/Tap',
@@ -90,6 +115,16 @@ class AndroidServerStub:
                 request_serializer=aegis_dot_android__server__pb2.AndroidShowOverlayRequest.SerializeToString,
                 response_deserializer=aegis_dot_android__server__pb2.AndroidShowOverlayResponse.FromString,
                 _registered_method=True)
+        self.RequestApproval = channel.unary_unary(
+                '/aegis.AndroidServer/RequestApproval',
+                request_serializer=aegis_dot_android__server__pb2.AndroidApprovalRequest.SerializeToString,
+                response_deserializer=aegis_dot_android__server__pb2.AndroidApprovalResponse.FromString,
+                _registered_method=True)
+        self.EmergencyStop = channel.unary_unary(
+                '/aegis.AndroidServer/EmergencyStop',
+                request_serializer=aegis_dot_android__server__pb2.AndroidEmergencyStopRequest.SerializeToString,
+                response_deserializer=aegis_dot_android__server__pb2.AndroidEmergencyStopResponse.FromString,
+                _registered_method=True)
         self.HealthCheck = channel.unary_unary(
                 '/aegis.AndroidServer/HealthCheck',
                 request_serializer=aegis_dot_common__pb2.HealthCheckRequest.SerializeToString,
@@ -99,6 +134,12 @@ class AndroidServerStub:
 
 class AndroidServerServicer:
     """Missing associated documentation comment in .proto file."""
+
+    def Connect(self, request_iterator, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
 
     def GetScreenshot(self, request, context):
         """── Observe ──────────────────────────────────────────────
@@ -120,6 +161,30 @@ class AndroidServerServicer:
         raise NotImplementedError('Method not implemented!')
 
     def GetNotifications(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def GetPermissionStatus(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def GetDeviceStatus(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def GetAccessibilityStatus(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def GetLocation(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -169,6 +234,18 @@ class AndroidServerServicer:
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def RequestApproval(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def EmergencyStop(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
     def HealthCheck(self, request, context):
         """── Health ───────────────────────────────────────────────
         """
@@ -179,6 +256,11 @@ class AndroidServerServicer:
 
 def add_AndroidServerServicer_to_server(servicer, server):
     rpc_method_handlers = {
+            'Connect': grpc.stream_stream_rpc_method_handler(
+                    servicer.Connect,
+                    request_deserializer=aegis_dot_android__server__pb2.AndroidClientMessage.FromString,
+                    response_serializer=aegis_dot_android__server__pb2.AndroidServerCommand.SerializeToString,
+            ),
             'GetScreenshot': grpc.unary_unary_rpc_method_handler(
                     servicer.GetScreenshot,
                     request_deserializer=aegis_dot_android__server__pb2.GetAndroidScreenshotRequest.FromString,
@@ -198,6 +280,26 @@ def add_AndroidServerServicer_to_server(servicer, server):
                     servicer.GetNotifications,
                     request_deserializer=aegis_dot_android__server__pb2.GetNotificationsRequest.FromString,
                     response_serializer=aegis_dot_android__server__pb2.GetNotificationsResponse.SerializeToString,
+            ),
+            'GetPermissionStatus': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetPermissionStatus,
+                    request_deserializer=aegis_dot_android__server__pb2.GetPermissionStatusRequest.FromString,
+                    response_serializer=aegis_dot_android__server__pb2.GetPermissionStatusResponse.SerializeToString,
+            ),
+            'GetDeviceStatus': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetDeviceStatus,
+                    request_deserializer=aegis_dot_android__server__pb2.AndroidGetDeviceStatusRequest.FromString,
+                    response_serializer=aegis_dot_android__server__pb2.AndroidGetDeviceStatusResponse.SerializeToString,
+            ),
+            'GetAccessibilityStatus': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetAccessibilityStatus,
+                    request_deserializer=aegis_dot_android__server__pb2.GetAccessibilityStatusRequest.FromString,
+                    response_serializer=aegis_dot_android__server__pb2.GetAccessibilityStatusResponse.SerializeToString,
+            ),
+            'GetLocation': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetLocation,
+                    request_deserializer=aegis_dot_android__server__pb2.GetLocationRequest.FromString,
+                    response_serializer=aegis_dot_android__server__pb2.GetLocationResponse.SerializeToString,
             ),
             'Tap': grpc.unary_unary_rpc_method_handler(
                     servicer.Tap,
@@ -234,6 +336,16 @@ def add_AndroidServerServicer_to_server(servicer, server):
                     request_deserializer=aegis_dot_android__server__pb2.AndroidShowOverlayRequest.FromString,
                     response_serializer=aegis_dot_android__server__pb2.AndroidShowOverlayResponse.SerializeToString,
             ),
+            'RequestApproval': grpc.unary_unary_rpc_method_handler(
+                    servicer.RequestApproval,
+                    request_deserializer=aegis_dot_android__server__pb2.AndroidApprovalRequest.FromString,
+                    response_serializer=aegis_dot_android__server__pb2.AndroidApprovalResponse.SerializeToString,
+            ),
+            'EmergencyStop': grpc.unary_unary_rpc_method_handler(
+                    servicer.EmergencyStop,
+                    request_deserializer=aegis_dot_android__server__pb2.AndroidEmergencyStopRequest.FromString,
+                    response_serializer=aegis_dot_android__server__pb2.AndroidEmergencyStopResponse.SerializeToString,
+            ),
             'HealthCheck': grpc.unary_unary_rpc_method_handler(
                     servicer.HealthCheck,
                     request_deserializer=aegis_dot_common__pb2.HealthCheckRequest.FromString,
@@ -249,6 +361,33 @@ def add_AndroidServerServicer_to_server(servicer, server):
  # This class is part of an EXPERIMENTAL API.
 class AndroidServer:
     """Missing associated documentation comment in .proto file."""
+
+    @staticmethod
+    def Connect(request_iterator,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.stream_stream(
+            request_iterator,
+            target,
+            '/aegis.AndroidServer/Connect',
+            aegis_dot_android__server__pb2.AndroidClientMessage.SerializeToString,
+            aegis_dot_android__server__pb2.AndroidServerCommand.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
 
     @staticmethod
     def GetScreenshot(request,
@@ -348,6 +487,114 @@ class AndroidServer:
             '/aegis.AndroidServer/GetNotifications',
             aegis_dot_android__server__pb2.GetNotificationsRequest.SerializeToString,
             aegis_dot_android__server__pb2.GetNotificationsResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetPermissionStatus(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/aegis.AndroidServer/GetPermissionStatus',
+            aegis_dot_android__server__pb2.GetPermissionStatusRequest.SerializeToString,
+            aegis_dot_android__server__pb2.GetPermissionStatusResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetDeviceStatus(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/aegis.AndroidServer/GetDeviceStatus',
+            aegis_dot_android__server__pb2.AndroidGetDeviceStatusRequest.SerializeToString,
+            aegis_dot_android__server__pb2.AndroidGetDeviceStatusResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetAccessibilityStatus(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/aegis.AndroidServer/GetAccessibilityStatus',
+            aegis_dot_android__server__pb2.GetAccessibilityStatusRequest.SerializeToString,
+            aegis_dot_android__server__pb2.GetAccessibilityStatusResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetLocation(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/aegis.AndroidServer/GetLocation',
+            aegis_dot_android__server__pb2.GetLocationRequest.SerializeToString,
+            aegis_dot_android__server__pb2.GetLocationResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -537,6 +784,60 @@ class AndroidServer:
             '/aegis.AndroidServer/ShowOverlay',
             aegis_dot_android__server__pb2.AndroidShowOverlayRequest.SerializeToString,
             aegis_dot_android__server__pb2.AndroidShowOverlayResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def RequestApproval(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/aegis.AndroidServer/RequestApproval',
+            aegis_dot_android__server__pb2.AndroidApprovalRequest.SerializeToString,
+            aegis_dot_android__server__pb2.AndroidApprovalResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def EmergencyStop(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/aegis.AndroidServer/EmergencyStop',
+            aegis_dot_android__server__pb2.AndroidEmergencyStopRequest.SerializeToString,
+            aegis_dot_android__server__pb2.AndroidEmergencyStopResponse.FromString,
             options,
             channel_credentials,
             insecure,

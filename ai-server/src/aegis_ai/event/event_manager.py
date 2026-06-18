@@ -32,6 +32,16 @@ _PERSIST_EVENT_TYPES = {
     "notification.sent",
     "tool.executed",
     "llm.request.completed",
+    "android.connected",
+    "android.disconnected",
+    "android.heartbeat",
+    "android.permission.changed",
+    "android.notification.posted",
+    "android.notification_received",
+    "android.foreground_app.changed",
+    "android.current_app_changed",
+    "android.device_state",
+    "android.approval.decided",
 }
 
 

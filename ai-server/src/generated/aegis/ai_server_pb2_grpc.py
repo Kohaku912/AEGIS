@@ -4,6 +4,7 @@ import grpc
 import warnings
 
 from generated.aegis import ai_server_pb2 as aegis_dot_ai__server__pb2
+from generated.aegis import android_server_pb2 as aegis_dot_android__server__pb2
 from generated.aegis import common_pb2 as aegis_dot_common__pb2
 
 GRPC_GENERATED_VERSION = '1.81.0'
@@ -83,6 +84,11 @@ class AIServerStub:
                 '/aegis.AIServer/SubscribeEvents',
                 request_serializer=aegis_dot_ai__server__pb2.SubscribeEventsRequest.SerializeToString,
                 response_deserializer=aegis_dot_common__pb2.Event.FromString,
+                _registered_method=True)
+        self.Connect = channel.stream_stream(
+                '/aegis.AIServer/Connect',
+                request_serializer=aegis_dot_android__server__pb2.AndroidClientMessage.SerializeToString,
+                response_deserializer=aegis_dot_android__server__pb2.AndroidServerCommand.FromString,
                 _registered_method=True)
         self.InvokeTool = channel.unary_unary(
                 '/aegis.AIServer/InvokeTool',
@@ -184,6 +190,12 @@ class AIServerServicer:
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def Connect(self, request_iterator, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
     def InvokeTool(self, request, context):
         """── Tool Invocation ───────────────────────────────────────
         """
@@ -277,6 +289,11 @@ def add_AIServerServicer_to_server(servicer, server):
                     servicer.SubscribeEvents,
                     request_deserializer=aegis_dot_ai__server__pb2.SubscribeEventsRequest.FromString,
                     response_serializer=aegis_dot_common__pb2.Event.SerializeToString,
+            ),
+            'Connect': grpc.stream_stream_rpc_method_handler(
+                    servicer.Connect,
+                    request_deserializer=aegis_dot_android__server__pb2.AndroidClientMessage.FromString,
+                    response_serializer=aegis_dot_android__server__pb2.AndroidServerCommand.SerializeToString,
             ),
             'InvokeTool': grpc.unary_unary_rpc_method_handler(
                     servicer.InvokeTool,
@@ -561,6 +578,33 @@ class AIServer:
             '/aegis.AIServer/SubscribeEvents',
             aegis_dot_ai__server__pb2.SubscribeEventsRequest.SerializeToString,
             aegis_dot_common__pb2.Event.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def Connect(request_iterator,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.stream_stream(
+            request_iterator,
+            target,
+            '/aegis.AIServer/Connect',
+            aegis_dot_android__server__pb2.AndroidClientMessage.SerializeToString,
+            aegis_dot_android__server__pb2.AndroidServerCommand.FromString,
             options,
             channel_credentials,
             insecure,

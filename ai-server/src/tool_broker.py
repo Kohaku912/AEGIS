@@ -73,6 +73,8 @@ def _capability_from_manifest(manifest: Any) -> Capability:
         description=manifest.description,
         server_type=server_type,
         risk_level=risk,
+        requires_approval=getattr(manifest, "requires_approval", False),
+        side_effects=list(getattr(manifest, "side_effects", [])),
         tags=manifest.tags,
     )
 

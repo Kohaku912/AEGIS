@@ -10,17 +10,29 @@ Minimal implementation:
 
 from __future__ import annotations
 
-import logging
 import json
+import logging
 import time
 import uuid
 from concurrent import futures
+from types import SimpleNamespace
 from typing import Any
 
 import grpc
 
 from aegis_ai.config import Config
 from aegis_ai.runtime import AegisRuntime, get_runtime
+from aegis_schema.models import (
+    Capability,
+    Event,
+    EventPriority,
+    RiskLevel,
+    ServerInfo,
+    ServerType,
+)
+from aegis_schema.models import (
+    ServerStatus as SchemaServerStatus,
+)
 
 # Generated proto stubs
 from generated.aegis import ai_server_pb2, ai_server_pb2_grpc, common_pb2
@@ -30,7 +42,6 @@ from generated.aegis.common_pb2 import (
     ServerStatus,
     Status,
 )
-from aegis_schema.models import Capability, Event, EventPriority, RiskLevel, ServerInfo, ServerStatus as SchemaServerStatus, ServerType
 
 logger = logging.getLogger("aegis_ai.grpc_server")
 
@@ -66,6 +77,16 @@ class AegisAIServicer(ai_server_pb2_grpc.AIServerServicer):
     def RegisterServer(self, request, context):
         """Register a server with AEGIS Core."""
         server_info = _server_info_from_proto(request.server_info)
+        if server_info.server_type == ServerType.ANDROID:
+            ok, message = self._runtime.android_manager.register_lan_server(server_info)
+            if not ok:
+                context.set_code(grpc.StatusCode.PERMISSION_DENIED)
+                context.set_details(message)
+                return ai_server_pb2.RegisterServerResponse(
+                    status=Status(code=16, message=message),
+                    server_id=server_info.server_id,
+                )
+            self._runtime.server_executor.register_client("android-server", self._runtime.android_manager)
         self._runtime.tool_registry.register_server(server_info)
         server_id = server_info.server_id
         logger.info("Server registered: %s (type=%s)", server_id, server_info.server_type.name)
@@ -86,6 +107,11 @@ class AegisAIServicer(ai_server_pb2_grpc.AIServerServicer):
     def RegisterCapability(self, request, context):
         """Register a capability with AEGIS Core."""
         cap = _capability_from_proto(request.capability)
+        if cap.server_type == ServerType.ANDROID:
+            return ai_server_pb2.RegisterCapabilityResponse(
+                status=Status(code=1, message="ANDROID_DYNAMIC_CAPABILITY_DISABLED"),
+                capability_id=cap.id,
+            )
         cap_id = cap.id
         self._runtime.tool_registry.register_capability(cap)
         logger.info("Capability registered: %s", cap_id)
@@ -139,13 +165,30 @@ class AegisAIServicer(ai_server_pb2_grpc.AIServerServicer):
     def PushEvent(self, request, context):
         """Push an event to the EventBus."""
         event = _event_from_proto(request.event)
-        accepted = self._runtime.event_bus.publish(event)
+        if event.source_server_type == ServerType.ANDROID or event.source_server_id == "android-server":
+            ok, device_id, message = self._runtime.android_manager.validate_event_auth(event)
+            if not ok:
+                context.set_code(grpc.StatusCode.PERMISSION_DENIED)
+                context.set_details(message)
+                return ai_server_pb2.PushEventResponse(
+                    status=Status(code=16, message=message),
+                    event_id=event.event_id,
+                    deduplicated=False,
+                )
+            attrs = dict(event.attributes)
+            attrs.setdefault("device_id", device_id)
+            event.attributes = attrs
+        accepted = self._runtime.event_manager.publish(event)
         logger.info("Event received: %s from %s", event.event_type, event.source_server_id)
         return ai_server_pb2.PushEventResponse(
             status=Status(code=0, message="ok"),
             event_id=event.event_id,
             deduplicated=not accepted,
         )
+
+    def Connect(self, request_iterator, context):
+        """Accept Android reverse stream connections."""
+        return self._runtime.android_manager.open_stream(request_iterator, context)
 
     def StreamEvents(self, request, context):
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
@@ -207,29 +250,54 @@ class AegisAIServicer(ai_server_pb2_grpc.AIServerServicer):
     # ── Approval ─────────────────────────────────────────────
 
     def RequestApproval(self, request, context):
-        req = self._runtime.approval_store.create_request(
+        tool_request = SimpleNamespace(
+            request_id=f"grpc_{uuid.uuid4().hex[:10]}",
+            task_id="",
+            step_id="",
+            source="grpc",
+            source_desire="",
+            frustration=0.0,
             capability_id=request.capability_id,
             tool_name=request.tool_name,
-            requested_action=request.requested_action,
-            human_readable_summary=request.human_readable_summary,
-            risk_explanation=request.risk_explanation,
-            payload_preview=request.payload_preview,
-            risk_level=request.safety_level,
+            arguments={"payload_preview": request.payload_preview},
+            risk_level=_risk_from_safety(request.safety_level),
         )
+        policy_result = SimpleNamespace(
+            reason=request.risk_explanation or request.human_readable_summary or request.requested_action,
+        )
+        req = self._runtime.approval_manager.create_request(tool_request, policy_result)
         return _approval_to_proto(req)
 
     def ResolveApproval(self, request, context):
         if request.rejected:
-            ok = self._runtime.approval_store.reject(request.approval_id)
+            if request.global_reject:
+                req = self._runtime.approval_manager.global_reject(
+                    request.approval_id,
+                    channel=request.surface_id or "grpc",
+                    user=request.user or "user",
+                    reason=request.reason,
+                )
+            else:
+                req = self._runtime.approval_manager.reject(
+                    request.approval_id,
+                    channel=request.surface_id or "grpc",
+                    user=request.user or "user",
+                    reason=request.reason,
+                )
         else:
-            ok = self._runtime.approval_store.approve(request.approval_id)
+            req = self._runtime.approval_manager.approve(
+                request.approval_id,
+                channel=request.surface_id or "grpc",
+                user=request.user or "user",
+            )
+        ok = req is not None
         return ai_server_pb2.ResolveApprovalResponse(
             status=Status(code=0 if ok else 1, message="ok" if ok else "approval not found"),
             approval_id=request.approval_id,
         )
 
     def ListPendingApprovals(self, request, context):
-        approvals = [_approval_to_proto(req) for req in self._runtime.approval_store.get_pending()]
+        approvals = [_approval_to_proto(req) for req in self._runtime.approval_manager.list_pending()]
         return ai_server_pb2.ListPendingApprovalsResponse(
             status=Status(code=0, message="ok"),
             approvals=approvals,
@@ -402,16 +470,38 @@ def _event_from_proto(event: common_pb2.Event) -> Event:
 
 
 def _approval_to_proto(req: Any) -> common_pb2.ApprovalRequest:
+    status_map = {
+        "pending": common_pb2.APPROVAL_STATUS_PENDING,
+        "approved": common_pb2.APPROVAL_STATUS_APPROVED,
+        "modified": common_pb2.APPROVAL_STATUS_APPROVED,
+        "rejected": common_pb2.APPROVAL_STATUS_REJECTED,
+        "expired": common_pb2.APPROVAL_STATUS_EXPIRED,
+    }
+    status_value = status_map.get(getattr(req, "status", ""), common_pb2.APPROVAL_STATUS_UNSPECIFIED)
+    risk_safety_map = {
+        "read_only": common_pb2.LEVEL_0_READ,
+        "safe_action": common_pb2.LEVEL_1_SAFE_ACT,
+        "approval_required": common_pb2.LEVEL_2_APPROVAL,
+        "high_risk": common_pb2.LEVEL_3_RESTRICTED,
+        "medium": common_pb2.LEVEL_2_APPROVAL,
+        "high": common_pb2.LEVEL_3_RESTRICTED,
+        "low": common_pb2.LEVEL_0_READ,
+        "safe": common_pb2.LEVEL_1_SAFE_ACT,
+    }
+    risk_level = getattr(req, "risk_level", "")
     return common_pb2.ApprovalRequest(
         approval_id=req.approval_id,
         capability_id=req.capability_id,
         tool_name=req.tool_name,
         requested_action=getattr(req, "requested_action", ""),
-        human_readable_summary=getattr(req, "human_readable_summary", ""),
-        risk_explanation=getattr(req, "risk_explanation", ""),
-        payload_preview=getattr(req, "payload_preview", ""),
-        safety_level=getattr(req, "risk_level", 0),
-        status=int(getattr(req, "status", 0).value) if hasattr(getattr(req, "status", None), "value") else 0,
-        created_at_ms=getattr(req, "created_at_ms", 0),
-        expires_at_ms=getattr(req, "expires_at_ms", 0),
+        human_readable_summary=getattr(req, "human_readable_summary", "")
+        or getattr(req, "user_facing_summary", ""),
+        risk_explanation=getattr(req, "risk_explanation", "")
+        or getattr(req, "approval_reason", ""),
+        payload_preview=getattr(req, "payload_preview", "")
+        or getattr(req, "arguments_summary", ""),
+        safety_level=risk_safety_map.get(str(risk_level), common_pb2.LEVEL_2_APPROVAL),
+        status=status_value,
+        created_at_ms=getattr(req, "created_at", getattr(req, "created_at_ms", 0)),
+        expires_at_ms=getattr(req, "expires_at", getattr(req, "expires_at_ms", 0)),
     )

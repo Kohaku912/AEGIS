@@ -1,0 +1,19 @@
+{
+  "title": "Open Android App",
+  "description": "Open an Android application by package name.",
+  "server_id": "android-server",
+  "app_id": "app",
+  "action": "open",
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "package_name": {"type": "string"},
+      "activity_name": {"type": "string", "default": ""}
+    },
+    "required": ["package_name"]
+  },
+  "risk": {"level": "safe", "side_effects": ["opens_app"], "requires_approval": false},
+  "tags": ["builtin", "android", "app"],
+  "requires_permissions": [],
+  "extra": {"requires_permissions": []}
+}

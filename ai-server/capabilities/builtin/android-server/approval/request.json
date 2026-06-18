@@ -1,0 +1,22 @@
+{
+  "title": "Request Android Approval",
+  "description": "Display an approval request on the Android overlay as one approval surface.",
+  "server_id": "android-server",
+  "app_id": "approval",
+  "action": "request",
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "approval_id": {"type": "string"},
+      "title": {"type": "string"},
+      "body": {"type": "string"},
+      "summary_json": {"type": "string"},
+      "expires_at_ms": {"type": "integer"}
+    },
+    "required": ["approval_id", "title", "body"]
+  },
+  "risk": {"level": "safe", "side_effects": ["android_overlay"], "requires_approval": false},
+  "tags": ["builtin", "android", "approval", "overlay"],
+  "requires_permissions": ["overlay"],
+  "extra": {"requires_permissions": ["overlay"]}
+}

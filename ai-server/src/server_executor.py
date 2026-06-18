@@ -12,6 +12,7 @@ import logging
 import re
 import socket
 import string
+from types import SimpleNamespace
 from typing import Any
 
 from aegis_schema.models import Capability
@@ -63,6 +64,19 @@ class ServerExecutor:
 
     def set_catalog(self, catalog: Any) -> None:
         self._catalog = catalog
+
+    def execute_capability(self, capability_id: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Execute a capability by ID for delivery channels and integrations."""
+        params = params or {}
+        if self._catalog is None:
+            return {"error": f"No catalog configured for capability '{capability_id}'."}
+        manifest = self._catalog.resolve(capability_id)
+        if manifest is None:
+            return {
+                "error": f"No executor for capability '{capability_id}'.",
+                "code": "CAPABILITY_NOT_FOUND",
+            }
+        return self.execute(SimpleNamespace(id=manifest.capability_id), params)
 
     def execute(self, capability: Capability, params: dict[str, Any]) -> dict[str, Any]:
         cap_id = capability.id

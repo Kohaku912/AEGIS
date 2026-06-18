@@ -6,7 +6,6 @@ import hashlib
 import json
 import re
 import time
-import uuid
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
@@ -116,6 +115,9 @@ class ApprovalRequest:
     created_at: int = 0
     expires_at: int = 0
     status: str = "pending"
+    surface_delivery: dict[str, bool] = field(default_factory=dict)
+    surface_decisions: dict[str, dict[str, Any]] = field(default_factory=dict)
+    approved_by_surface: str = ""
 
     def is_expired(self, now_ms: int | None = None) -> bool:
         now = now_ms if now_ms is not None else int(time.time() * 1000)
@@ -145,6 +147,9 @@ class ApprovalRequest:
             "created_at": self.created_at,
             "expires_at": self.expires_at,
             "status": self.status,
+            "surface_delivery": self.surface_delivery,
+            "surface_decisions": self.surface_decisions,
+            "approved_by_surface": self.approved_by_surface,
         }
 
 

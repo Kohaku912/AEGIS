@@ -3,11 +3,13 @@ package com.aegis.android.provider
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.app.KeyguardManager
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.os.BatteryManager
 import android.os.Build
 import android.os.PowerManager
+import android.provider.Settings
 import android.util.Log
 
 /**
@@ -20,6 +22,7 @@ class DeviceProvider(private val context: Context) {
     }
 
     data class DeviceInfo(
+        val deviceId: String,
         val model: String,
         val manufacturer: String,
         val androidVersion: String,
@@ -27,6 +30,7 @@ class DeviceProvider(private val context: Context) {
         val batteryLevel: Int,
         val batteryCharging: Boolean,
         val screenOn: Boolean,
+        val locked: Boolean,
         val wifiConnected: Boolean,
     )
 
@@ -41,6 +45,7 @@ class DeviceProvider(private val context: Context) {
     fun getDeviceInfo(): DeviceInfo {
         val battery = getBatteryInfo()
         return DeviceInfo(
+            deviceId = getDeviceId(),
             model = Build.MODEL,
             manufacturer = Build.MANUFACTURER,
             androidVersion = Build.VERSION.RELEASE,
@@ -48,8 +53,14 @@ class DeviceProvider(private val context: Context) {
             batteryLevel = battery.level,
             batteryCharging = battery.isCharging,
             screenOn = isScreenOn(),
+            locked = isLocked(),
             wifiConnected = isWifiConnected(),
         )
+    }
+
+    fun getDeviceId(): String {
+        val androidId = Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID)
+        return "android-${androidId ?: Build.MODEL}"
     }
 
     /**
@@ -82,6 +93,11 @@ class DeviceProvider(private val context: Context) {
     fun isScreenOn(): Boolean {
         val powerManager = context.getSystemService(Context.POWER_SERVICE) as PowerManager
         return powerManager.isInteractive
+    }
+
+    fun isLocked(): Boolean {
+        val keyguardManager = context.getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
+        return keyguardManager.isKeyguardLocked
     }
 
     /**

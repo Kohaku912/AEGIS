@@ -1,0 +1,17 @@
+{
+  "title": "Android Emergency Stop",
+  "description": "Stop active Android automation and clear pending Android commands.",
+  "server_id": "android-server",
+  "app_id": "safety",
+  "action": "emergency_stop",
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "reason": {"type": "string", "default": ""}
+    }
+  },
+  "risk": {"level": "safe", "side_effects": ["stops_android_automation"], "requires_approval": false},
+  "tags": ["builtin", "android", "safety"],
+  "requires_permissions": [],
+  "extra": {"requires_permissions": []}
+}

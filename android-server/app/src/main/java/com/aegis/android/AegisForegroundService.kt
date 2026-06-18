@@ -42,7 +42,7 @@ class AegisForegroundService : Service() {
         createNotificationChannel()
         startForeground(NOTIFICATION_ID, createNotification())
 
-        grpcClient = AegisGrpcClient.getInstance()
+        grpcClient = AegisGrpcClient.getInstance(this)
         deviceProvider = DeviceProvider(this)
 
         // Start periodic device state push

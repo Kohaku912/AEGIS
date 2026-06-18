@@ -202,8 +202,45 @@ def _runtime_server_status(settings: Any = None, runtime: Any = None) -> dict[st
                        "profile_root": browser_snapshot.get("profile_root", ""),
                        "profile_name": browser_snapshot.get("profile_name", "")}))
 
+    android_expected = bool(getattr(server_settings, "android_server_enabled", True))
+    android_status = {}
+    if runtime is not None and getattr(runtime, "android_manager", None) is not None:
+        try:
+            android_status = runtime.android_manager.get_status()
+        except Exception:
+            android_status = {}
+    if android_status:
+        android_online = bool(android_status.get("online"))
+        android_capabilities = android_status.get("capability_availability", {})
+        servers.append(_server_entry(
+            server_id="android-server",
+            server_type="Android",
+            host="localhost",
+            port=50054,
+            expected=android_expected,
+            status="ONLINE" if android_online else "OFFLINE",
+            registered_capabilities=str(len(android_capabilities)),
+            version="-",
+            mode=str(android_status.get("connection_mode", "offline")),
+            status_detail="Android device is connected." if android_online else "Android device is not connected.",
+            recovery_hint="" if android_online else "Pair Android with AEGIS and connect over gRPC.",
+            dependencies={
+                "last_seen": android_status.get("last_seen", 0),
+                "device_model": android_status.get("device_model", ""),
+                "permission_status": android_status.get("permission_status", {}),
+                "capability_availability": android_capabilities,
+                "active_approvals": android_status.get("active_approvals", []),
+                "pairing_configured": android_status.get("pairing_configured", False),
+            },
+        ))
+    else:
+        servers.append(_status_entry("android-server", "Android", 50054, expected=android_expected,
+            registered_capabilities="Configured" if android_expected else "0", mode="grpc",
+            status_detail_ok="Android Server port is reachable.",
+            status_detail_fail="Android Server is enabled but not reachable.",
+            recovery_hint="Pair Android with AEGIS and connect over gRPC."))
+
     optional_specs = [
-        ("android-server", "Android", 50054, bool(getattr(server_settings, "android_server_enabled", True)), "Connect/start the Android companion server."),
         ("room-server", "Room", 50055, bool(getattr(server_settings, "room_server_enabled", True)), "Start Room Server when sensors are configured."),
         ("dev-server", "Dev", int(os.getenv("AEGIS_DEV_SERVER_PORT", "50056")), bool(getattr(server_settings, "dev_server_enabled", True)), "Start Dev Server when self-development tooling is needed."),
     ]

@@ -1,0 +1,17 @@
+{
+  "title": "Android Screenshot",
+  "description": "Capture the Android screen via MediaProjection.",
+  "server_id": "android-server",
+  "app_id": "screen",
+  "action": "get_screenshot",
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "quality": {"type": "integer", "default": 80, "minimum": 1, "maximum": 100}
+    }
+  },
+  "risk": {"level": "medium", "side_effects": ["captures_screen"], "requires_approval": true},
+  "tags": ["builtin", "android", "screen", "screenshot", "privacy"],
+  "requires_permissions": ["media_projection"],
+  "extra": {"requires_permissions": ["media_projection"]}
+}

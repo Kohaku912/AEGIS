@@ -1,0 +1,22 @@
+{
+  "title": "Show Android Overlay",
+  "description": "Show a temporary overlay on the Android device.",
+  "server_id": "android-server",
+  "app_id": "overlay",
+  "action": "show",
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "text": {"type": "string"},
+      "x": {"type": "integer", "default": 0},
+      "y": {"type": "integer", "default": 0},
+      "duration_ms": {"type": "integer", "default": 5000},
+      "color": {"type": "string", "default": ""}
+    },
+    "required": ["text"]
+  },
+  "risk": {"level": "safe", "side_effects": ["android_overlay"], "requires_approval": false},
+  "tags": ["builtin", "android", "overlay"],
+  "requires_permissions": ["overlay"],
+  "extra": {"requires_permissions": ["overlay"]}
+}
