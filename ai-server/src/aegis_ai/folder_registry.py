@@ -149,6 +149,10 @@ class FolderCapabilityRegistry:
         cap_id = f"{ids['server_id']}.{ids['app_id']}.{ids['action']}"
         short = f"{ids['app_id']}.{ids['action']}"
 
+        extra = dict(data.get("extra", {}))
+        if "requires_permissions" in data and "requires_permissions" not in extra:
+            extra["requires_permissions"] = data.get("requires_permissions", [])
+
         self._manifests[cap_id] = CapabilityManifest(
             capability_id=cap_id,
             title=data.get("title", ids["action"].replace("_", " ").title()),
@@ -169,7 +173,7 @@ class FolderCapabilityRegistry:
             short_name=short,
             only_master=data.get("only_master", True),
             tcp_command=data.get("tcp_command", ""),
-            extra=data.get("extra", {}),
+            extra=extra,
             file_path=path,
             loaded_at=int(time.time() * 1000),
         )

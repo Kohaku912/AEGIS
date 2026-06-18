@@ -3,6 +3,7 @@ syntax = "proto3";
 package aegis;
 
 import "aegis/common.proto";
+import "aegis/android_server.proto";
 
 // AI Server — Central brain of AEGIS.
 // All capability servers communicate with the AI Server via these RPCs.
@@ -26,6 +27,7 @@ service AIServer {
   rpc PushEvent(PushEventRequest) returns (PushEventResponse);
   rpc StreamEvents(StreamEventsRequest) returns (stream Event);
   rpc SubscribeEvents(SubscribeEventsRequest) returns (stream Event);
+  rpc Connect(stream AndroidClientMessage) returns (stream AndroidServerCommand);
 
   // ── Tool Invocation ───────────────────────────────────────
   rpc InvokeTool(ToolInvocationRequest) returns (ToolInvocationResult);
@@ -147,6 +149,10 @@ message ResolveApprovalRequest {
   string approval_id = 1;
   ApprovalType approved_type = 2;   // Set if approving
   bool rejected = 3;                // True = reject
+  bool global_reject = 4;           // True = reject for every surface
+  string surface_id = 5;
+  string user = 6;
+  string reason = 7;
 }
 
 message ResolveApprovalResponse {

@@ -63,6 +63,7 @@ class AegisRuntime:
     notification_manager: Any = None
     memory_manager: Any = None
     sleep_manager: Any = None
+    android_manager: Any = None
     _lock: threading.RLock | None = None
 
     def start_autonomous_if_enabled(self) -> None:
@@ -184,9 +185,11 @@ def _build_runtime(config: Config) -> AegisRuntime:
             loop = asyncio.new_event_loop()
             try:
                 if event_dict.get("event_type") == "created":
-                    loop.run_until_complete(approval_fanout.fanout(event))
+                    results = loop.run_until_complete(approval_fanout.fanout(event))
                 else:
-                    loop.run_until_complete(approval_fanout.fanout_update(event))
+                    results = loop.run_until_complete(approval_fanout.fanout_update(event))
+                if req is not None and hasattr(approval_manager, "record_surface_delivery"):
+                    approval_manager.record_surface_delivery(req.approval_id, results)
             finally:
                 loop.close()
         except Exception:
@@ -299,6 +302,23 @@ def _build_runtime(config: Config) -> AegisRuntime:
     status_manager = StatusManager(event_manager=event_manager)
     task_manager = TaskManager(event_manager=event_manager, audit_manager=audit_manager, data_dir=data_dir)
     notification_manager = NotificationManager(event_manager=event_manager)
+    from aegis_ai.integrations.android.manager import AndroidServerManager
+
+    android_manager = AndroidServerManager(
+        data_dir=data_dir,
+        event_manager=event_manager,
+        status_manager=status_manager,
+        approval_manager=approval_manager,
+    )
+    server_executor.register_client("android-server", android_manager)
+
+    from aegis_ai.approval.channels.android import AndroidApprovalChannel
+    from aegis_ai.approval.channels.pc_overlay import PcOverlayApprovalChannel
+    from aegis_ai.approval.channels.room import RoomApprovalChannel
+
+    approval_fanout.register_channel(PcOverlayApprovalChannel(server_executor=server_executor))
+    approval_fanout.register_channel(RoomApprovalChannel(server_executor=server_executor))
+    approval_fanout.register_channel(AndroidApprovalChannel(android_manager=android_manager))
 
     execution_engine = TaskExecutionEngine(
         task_manager=task_manager,
@@ -367,6 +387,7 @@ def _build_runtime(config: Config) -> AegisRuntime:
         notification_manager=notification_manager,
         memory_manager=memory_manager,
         sleep_manager=sleep_manager,
+        android_manager=android_manager,
         _lock=threading.RLock(),
     )
     runtime._dashboard_approval_channel = dashboard_approval_channel

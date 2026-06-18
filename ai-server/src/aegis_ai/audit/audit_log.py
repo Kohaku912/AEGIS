@@ -98,6 +98,7 @@ class AuditLog:
         self._conn: sqlite3.Connection | None = None
         self._init_db()
         self._migrate_jsonl_if_needed()
+        self.close()
 
     def _get_conn(self) -> sqlite3.Connection:
         if self._conn is None:
@@ -211,6 +212,8 @@ class AuditLog:
         with self._lock:
             conn = self._get_conn()
             self._insert_record(conn, record)
+            conn.commit()
+            self.close()
             self._entries.append(entry)
 
     def list_recent(self, n: int = 50) -> list[AuditEntry]:
@@ -219,24 +222,33 @@ class AuditLog:
         return entries[-n:] if n < len(entries) else entries
 
     def read_all(self) -> list[dict[str, Any]]:
-        conn = self._get_conn()
-        conn.row_factory = sqlite3.Row
-        rows = conn.execute('SELECT * FROM audit ORDER BY id DESC LIMIT 10000').fetchall()
-        return [self._row_to_dict(r) for r in rows]
+        try:
+            conn = self._get_conn()
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute('SELECT * FROM audit ORDER BY id DESC LIMIT 10000').fetchall()
+            return [self._row_to_dict(r) for r in rows]
+        finally:
+            self.close()
 
     def read_page(self, page: int = 1, per_page: int = 20) -> dict[str, Any]:
         offset = (page - 1) * per_page
-        conn = self._get_conn()
-        conn.row_factory = sqlite3.Row
-        total = conn.execute('SELECT COUNT(*) FROM audit').fetchone()[0]
-        rows = conn.execute('SELECT * FROM audit ORDER BY id DESC LIMIT ? OFFSET ?', (per_page, offset)).fetchall()
-        entries = [self._row_to_dict(r) for r in rows]
-        total_pages = max(1, (total + per_page - 1) // per_page)
-        return {'entries': entries, 'page': page, 'per_page': per_page, 'total': total, 'total_pages': total_pages}
+        try:
+            conn = self._get_conn()
+            conn.row_factory = sqlite3.Row
+            total = conn.execute('SELECT COUNT(*) FROM audit').fetchone()[0]
+            rows = conn.execute('SELECT * FROM audit ORDER BY id DESC LIMIT ? OFFSET ?', (per_page, offset)).fetchall()
+            entries = [self._row_to_dict(r) for r in rows]
+            total_pages = max(1, (total + per_page - 1) // per_page)
+            return {'entries': entries, 'page': page, 'per_page': per_page, 'total': total, 'total_pages': total_pages}
+        finally:
+            self.close()
 
     def count(self) -> int:
-        conn = self._get_conn()
-        return conn.execute('SELECT COUNT(*) FROM audit').fetchone()[0]
+        try:
+            conn = self._get_conn()
+            return conn.execute('SELECT COUNT(*) FROM audit').fetchone()[0]
+        finally:
+            self.close()
 
     def _row_to_dict(self, row: sqlite3.Row) -> dict[str, Any]:
         d = dict(row)
@@ -259,6 +271,7 @@ class AuditLog:
             conn = self._get_conn()
             conn.execute('DELETE FROM audit')
             conn.commit()
+            self.close()
 
     def log_approval(self, action: str, approval_id: str = '', capability_id: str = '', channel: str = '', user: str = '', request_id: str = '', task_id: str = '', source_desire: str = '', risk_level: str = '', detail: dict[str, Any] | None = None) -> AuditEntry:
         entry = AuditEntry(action=action, capability_id=capability_id, approval_id=approval_id, approval_channel=channel, approval_user=user, request_id=request_id, task_id=task_id, source_desire=source_desire, risk_level=risk_level, detail=detail or {})

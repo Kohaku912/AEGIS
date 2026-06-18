@@ -114,6 +114,13 @@ class TestApprovalManager:
         req = approval_manager.create_request(_make_tool_request(), _make_policy_result())
         result = approval_manager.reject(req.approval_id, channel="pc_overlay", reason="too risky")
         assert result is not None
+        assert result.status == "pending"
+        assert result.surface_decisions["pc_overlay"]["decision"] == "rejected"
+
+    def test_global_reject(self, approval_manager):
+        req = approval_manager.create_request(_make_tool_request(), _make_policy_result())
+        result = approval_manager.global_reject(req.approval_id, channel="pc_overlay", reason="too risky")
+        assert result is not None
         assert result.status == "rejected"
 
     def test_modify_and_approve(self, approval_manager):

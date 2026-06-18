@@ -10,11 +10,17 @@ import "aegis/common.proto";
 option go_package = "github.com/Kohaku912/AEGIS/protos/aegis";
 
 service AndroidServer {
+  rpc Connect(stream AndroidClientMessage) returns (stream AndroidServerCommand);
+
   // ── Observe ──────────────────────────────────────────────
   rpc GetScreenshot(GetAndroidScreenshotRequest) returns (GetAndroidScreenshotResponse);
   rpc GetCurrentApp(GetCurrentAppRequest) returns (GetCurrentAppResponse);
   rpc GetUiTree(GetUiTreeRequest) returns (GetUiTreeResponse);
   rpc GetNotifications(GetNotificationsRequest) returns (GetNotificationsResponse);
+  rpc GetPermissionStatus(GetPermissionStatusRequest) returns (GetPermissionStatusResponse);
+  rpc GetDeviceStatus(AndroidGetDeviceStatusRequest) returns (AndroidGetDeviceStatusResponse);
+  rpc GetAccessibilityStatus(GetAccessibilityStatusRequest) returns (GetAccessibilityStatusResponse);
+  rpc GetLocation(GetLocationRequest) returns (GetLocationResponse);
 
   // ── Input ────────────────────────────────────────────────
   rpc Tap(TapRequest) returns (TapResponse);
@@ -26,9 +32,113 @@ service AndroidServer {
   // ── App Control ──────────────────────────────────────────
   rpc OpenApp(OpenAppRequest) returns (OpenAppResponse);
   rpc ShowOverlay(AndroidShowOverlayRequest) returns (AndroidShowOverlayResponse);
+  rpc RequestApproval(AndroidApprovalRequest) returns (AndroidApprovalResponse);
+  rpc EmergencyStop(AndroidEmergencyStopRequest) returns (AndroidEmergencyStopResponse);
 
   // ── Health ───────────────────────────────────────────────
   rpc HealthCheck(HealthCheckRequest) returns (HealthCheckResponse);
+}
+
+// ============================================================================
+// Stream protocol
+// ============================================================================
+
+message AndroidAuth {
+  string device_id = 1;
+  string pairing_token = 2;
+  string connection_id = 3;
+}
+
+message AndroidRegister {
+  AndroidAuth auth = 1;
+  string device_model = 2;
+  string manufacturer = 3;
+  string android_version = 4;
+  string app_version = 5;
+  repeated string capability_ids = 6;
+  map<string, string> metadata = 7;
+}
+
+message AndroidHeartbeat {
+  AndroidAuth auth = 1;
+  int64 timestamp_ms = 2;
+  int32 battery_level = 3;
+  bool screen_on = 4;
+  bool locked = 5;
+}
+
+message AndroidEventEnvelope {
+  AndroidAuth auth = 1;
+  Event event = 2;
+}
+
+message AndroidCommandResult {
+  AndroidAuth auth = 1;
+  string command_id = 2;
+  string capability_id = 3;
+  Status status = 4;
+  string result_json = 5;
+}
+
+message AndroidApprovalDecision {
+  AndroidAuth auth = 1;
+  string approval_id = 2;
+  bool approved = 3;
+  bool rejected = 4;
+  bool global_reject = 5;
+  string surface_id = 6;
+  string user = 7;
+  string reason = 8;
+}
+
+message AndroidClientMessage {
+  oneof kind {
+    AndroidRegister register = 1;
+    AndroidHeartbeat heartbeat = 2;
+    AndroidEventEnvelope event = 3;
+    AndroidCommandResult command_result = 4;
+    AndroidApprovalDecision approval_decision = 5;
+  }
+}
+
+message AndroidStreamAck {
+  string connection_id = 1;
+  Status status = 2;
+}
+
+message AndroidInvokeCommand {
+  string command_id = 1;
+  string capability_id = 2;
+  string method = 3;
+  string params_json = 4;
+  int64 timeout_ms = 5;
+  string correlation_id = 6;
+}
+
+message AndroidApprovalCommand {
+  string approval_id = 1;
+  string title = 2;
+  string body = 3;
+  string state = 4;
+  string summary_json = 5;
+}
+
+message AndroidServerHeartbeat {
+  int64 timestamp_ms = 1;
+}
+
+message AndroidStopCommand {
+  string reason = 1;
+}
+
+message AndroidServerCommand {
+  oneof kind {
+    AndroidStreamAck ack = 1;
+    AndroidInvokeCommand invoke = 2;
+    AndroidApprovalCommand approval_request = 3;
+    AndroidServerHeartbeat heartbeat = 4;
+    AndroidStopCommand stop = 5;
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -96,6 +206,55 @@ message AndroidNotification {
 message GetNotificationsResponse {
   Status status = 1;
   repeated AndroidNotification notifications = 2;
+}
+
+message GetPermissionStatusRequest {}
+
+message AndroidPermissionState {
+  string name = 1;
+  bool granted = 2;
+  string detail = 3;
+}
+
+message GetPermissionStatusResponse {
+  Status status = 1;
+  repeated AndroidPermissionState permissions = 2;
+  bool screen_locked = 3;
+}
+
+message AndroidGetDeviceStatusRequest {}
+
+message AndroidGetDeviceStatusResponse {
+  Status status = 1;
+  string device_id = 2;
+  string model = 3;
+  string manufacturer = 4;
+  string android_version = 5;
+  int32 battery_level = 6;
+  bool charging = 7;
+  bool screen_on = 8;
+  bool locked = 9;
+}
+
+message GetAccessibilityStatusRequest {}
+
+message GetAccessibilityStatusResponse {
+  Status status = 1;
+  bool enabled = 2;
+  string service_name = 3;
+  string detail = 4;
+}
+
+message GetLocationRequest {
+  string accuracy = 1;
+}
+
+message GetLocationResponse {
+  Status status = 1;
+  double latitude = 2;
+  double longitude = 3;
+  double accuracy_meters = 4;
+  int64 captured_ms = 5;
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -168,4 +327,26 @@ message AndroidShowOverlayRequest {
 
 message AndroidShowOverlayResponse {
   Status status = 1;
+}
+
+message AndroidApprovalRequest {
+  string approval_id = 1;
+  string title = 2;
+  string body = 3;
+  string summary_json = 4;
+  int64 expires_at_ms = 5;
+}
+
+message AndroidApprovalResponse {
+  Status status = 1;
+  string surface_id = 2;
+}
+
+message AndroidEmergencyStopRequest {
+  string reason = 1;
+}
+
+message AndroidEmergencyStopResponse {
+  Status status = 1;
+  bool stopped = 2;
 }

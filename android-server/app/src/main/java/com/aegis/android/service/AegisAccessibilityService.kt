@@ -4,6 +4,7 @@ import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.AccessibilityServiceInfo
 import android.util.Log
 import android.view.accessibility.AccessibilityEvent
+import com.aegis.android.grpc.AegisGrpcClient
 import com.aegis.android.provider.UITreeProvider
 
 /**
@@ -24,6 +25,7 @@ class AegisAccessibilityService : AccessibilityService() {
             private set
         var uiTreeProvider: UITreeProvider? = null
             private set
+        private var lastForegroundPackage: String = ""
     }
 
     override fun onServiceConnected() {
@@ -45,8 +47,11 @@ class AegisAccessibilityService : AccessibilityService() {
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
-        // We don't need to process events in real-time
-        // The UITreeProvider will query the tree on demand
+        val packageName = event?.packageName?.toString() ?: return
+        if (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED && packageName != lastForegroundPackage) {
+            lastForegroundPackage = packageName
+            AegisGrpcClient.current()?.pushForegroundApp(packageName)
+        }
     }
 
     override fun onInterrupt() {

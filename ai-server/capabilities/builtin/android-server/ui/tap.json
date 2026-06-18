@@ -1,0 +1,20 @@
+{
+  "title": "Android Tap",
+  "description": "Tap Android screen coordinates via AccessibilityService.",
+  "server_id": "android-server",
+  "app_id": "ui",
+  "action": "tap",
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "x": {"type": "integer"},
+      "y": {"type": "integer"},
+      "duration_ms": {"type": "integer", "default": 0}
+    },
+    "required": ["x", "y"]
+  },
+  "risk": {"level": "medium", "side_effects": ["touch_input"], "requires_approval": true},
+  "tags": ["builtin", "android", "ui", "input"],
+  "requires_permissions": ["accessibility"],
+  "extra": {"requires_permissions": ["accessibility"]}
+}

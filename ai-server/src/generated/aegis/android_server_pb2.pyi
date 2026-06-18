@@ -7,6 +7,175 @@ from typing import ClassVar as _ClassVar, Optional as _Optional, Union as _Union
 
 DESCRIPTOR: _descriptor.FileDescriptor
 
+class AndroidAuth(_message.Message):
+    __slots__ = ("device_id", "pairing_token", "connection_id")
+    DEVICE_ID_FIELD_NUMBER: _ClassVar[int]
+    PAIRING_TOKEN_FIELD_NUMBER: _ClassVar[int]
+    CONNECTION_ID_FIELD_NUMBER: _ClassVar[int]
+    device_id: str
+    pairing_token: str
+    connection_id: str
+    def __init__(self, device_id: _Optional[str] = ..., pairing_token: _Optional[str] = ..., connection_id: _Optional[str] = ...) -> None: ...
+
+class AndroidRegister(_message.Message):
+    __slots__ = ("auth", "device_model", "manufacturer", "android_version", "app_version", "capability_ids", "metadata")
+    class MetadataEntry(_message.Message):
+        __slots__ = ("key", "value")
+        KEY_FIELD_NUMBER: _ClassVar[int]
+        VALUE_FIELD_NUMBER: _ClassVar[int]
+        key: str
+        value: str
+        def __init__(self, key: _Optional[str] = ..., value: _Optional[str] = ...) -> None: ...
+    AUTH_FIELD_NUMBER: _ClassVar[int]
+    DEVICE_MODEL_FIELD_NUMBER: _ClassVar[int]
+    MANUFACTURER_FIELD_NUMBER: _ClassVar[int]
+    ANDROID_VERSION_FIELD_NUMBER: _ClassVar[int]
+    APP_VERSION_FIELD_NUMBER: _ClassVar[int]
+    CAPABILITY_IDS_FIELD_NUMBER: _ClassVar[int]
+    METADATA_FIELD_NUMBER: _ClassVar[int]
+    auth: AndroidAuth
+    device_model: str
+    manufacturer: str
+    android_version: str
+    app_version: str
+    capability_ids: _containers.RepeatedScalarFieldContainer[str]
+    metadata: _containers.ScalarMap[str, str]
+    def __init__(self, auth: _Optional[_Union[AndroidAuth, _Mapping]] = ..., device_model: _Optional[str] = ..., manufacturer: _Optional[str] = ..., android_version: _Optional[str] = ..., app_version: _Optional[str] = ..., capability_ids: _Optional[_Iterable[str]] = ..., metadata: _Optional[_Mapping[str, str]] = ...) -> None: ...
+
+class AndroidHeartbeat(_message.Message):
+    __slots__ = ("auth", "timestamp_ms", "battery_level", "screen_on", "locked")
+    AUTH_FIELD_NUMBER: _ClassVar[int]
+    TIMESTAMP_MS_FIELD_NUMBER: _ClassVar[int]
+    BATTERY_LEVEL_FIELD_NUMBER: _ClassVar[int]
+    SCREEN_ON_FIELD_NUMBER: _ClassVar[int]
+    LOCKED_FIELD_NUMBER: _ClassVar[int]
+    auth: AndroidAuth
+    timestamp_ms: int
+    battery_level: int
+    screen_on: bool
+    locked: bool
+    def __init__(self, auth: _Optional[_Union[AndroidAuth, _Mapping]] = ..., timestamp_ms: _Optional[int] = ..., battery_level: _Optional[int] = ..., screen_on: _Optional[bool] = ..., locked: _Optional[bool] = ...) -> None: ...
+
+class AndroidEventEnvelope(_message.Message):
+    __slots__ = ("auth", "event")
+    AUTH_FIELD_NUMBER: _ClassVar[int]
+    EVENT_FIELD_NUMBER: _ClassVar[int]
+    auth: AndroidAuth
+    event: _common_pb2.Event
+    def __init__(self, auth: _Optional[_Union[AndroidAuth, _Mapping]] = ..., event: _Optional[_Union[_common_pb2.Event, _Mapping]] = ...) -> None: ...
+
+class AndroidCommandResult(_message.Message):
+    __slots__ = ("auth", "command_id", "capability_id", "status", "result_json")
+    AUTH_FIELD_NUMBER: _ClassVar[int]
+    COMMAND_ID_FIELD_NUMBER: _ClassVar[int]
+    CAPABILITY_ID_FIELD_NUMBER: _ClassVar[int]
+    STATUS_FIELD_NUMBER: _ClassVar[int]
+    RESULT_JSON_FIELD_NUMBER: _ClassVar[int]
+    auth: AndroidAuth
+    command_id: str
+    capability_id: str
+    status: _common_pb2.Status
+    result_json: str
+    def __init__(self, auth: _Optional[_Union[AndroidAuth, _Mapping]] = ..., command_id: _Optional[str] = ..., capability_id: _Optional[str] = ..., status: _Optional[_Union[_common_pb2.Status, _Mapping]] = ..., result_json: _Optional[str] = ...) -> None: ...
+
+class AndroidApprovalDecision(_message.Message):
+    __slots__ = ("auth", "approval_id", "approved", "rejected", "global_reject", "surface_id", "user", "reason")
+    AUTH_FIELD_NUMBER: _ClassVar[int]
+    APPROVAL_ID_FIELD_NUMBER: _ClassVar[int]
+    APPROVED_FIELD_NUMBER: _ClassVar[int]
+    REJECTED_FIELD_NUMBER: _ClassVar[int]
+    GLOBAL_REJECT_FIELD_NUMBER: _ClassVar[int]
+    SURFACE_ID_FIELD_NUMBER: _ClassVar[int]
+    USER_FIELD_NUMBER: _ClassVar[int]
+    REASON_FIELD_NUMBER: _ClassVar[int]
+    auth: AndroidAuth
+    approval_id: str
+    approved: bool
+    rejected: bool
+    global_reject: bool
+    surface_id: str
+    user: str
+    reason: str
+    def __init__(self, auth: _Optional[_Union[AndroidAuth, _Mapping]] = ..., approval_id: _Optional[str] = ..., approved: _Optional[bool] = ..., rejected: _Optional[bool] = ..., global_reject: _Optional[bool] = ..., surface_id: _Optional[str] = ..., user: _Optional[str] = ..., reason: _Optional[str] = ...) -> None: ...
+
+class AndroidClientMessage(_message.Message):
+    __slots__ = ("register", "heartbeat", "event", "command_result", "approval_decision")
+    REGISTER_FIELD_NUMBER: _ClassVar[int]
+    HEARTBEAT_FIELD_NUMBER: _ClassVar[int]
+    EVENT_FIELD_NUMBER: _ClassVar[int]
+    COMMAND_RESULT_FIELD_NUMBER: _ClassVar[int]
+    APPROVAL_DECISION_FIELD_NUMBER: _ClassVar[int]
+    register: AndroidRegister
+    heartbeat: AndroidHeartbeat
+    event: AndroidEventEnvelope
+    command_result: AndroidCommandResult
+    approval_decision: AndroidApprovalDecision
+    def __init__(self, register: _Optional[_Union[AndroidRegister, _Mapping]] = ..., heartbeat: _Optional[_Union[AndroidHeartbeat, _Mapping]] = ..., event: _Optional[_Union[AndroidEventEnvelope, _Mapping]] = ..., command_result: _Optional[_Union[AndroidCommandResult, _Mapping]] = ..., approval_decision: _Optional[_Union[AndroidApprovalDecision, _Mapping]] = ...) -> None: ...
+
+class AndroidStreamAck(_message.Message):
+    __slots__ = ("connection_id", "status")
+    CONNECTION_ID_FIELD_NUMBER: _ClassVar[int]
+    STATUS_FIELD_NUMBER: _ClassVar[int]
+    connection_id: str
+    status: _common_pb2.Status
+    def __init__(self, connection_id: _Optional[str] = ..., status: _Optional[_Union[_common_pb2.Status, _Mapping]] = ...) -> None: ...
+
+class AndroidInvokeCommand(_message.Message):
+    __slots__ = ("command_id", "capability_id", "method", "params_json", "timeout_ms", "correlation_id")
+    COMMAND_ID_FIELD_NUMBER: _ClassVar[int]
+    CAPABILITY_ID_FIELD_NUMBER: _ClassVar[int]
+    METHOD_FIELD_NUMBER: _ClassVar[int]
+    PARAMS_JSON_FIELD_NUMBER: _ClassVar[int]
+    TIMEOUT_MS_FIELD_NUMBER: _ClassVar[int]
+    CORRELATION_ID_FIELD_NUMBER: _ClassVar[int]
+    command_id: str
+    capability_id: str
+    method: str
+    params_json: str
+    timeout_ms: int
+    correlation_id: str
+    def __init__(self, command_id: _Optional[str] = ..., capability_id: _Optional[str] = ..., method: _Optional[str] = ..., params_json: _Optional[str] = ..., timeout_ms: _Optional[int] = ..., correlation_id: _Optional[str] = ...) -> None: ...
+
+class AndroidApprovalCommand(_message.Message):
+    __slots__ = ("approval_id", "title", "body", "state", "summary_json")
+    APPROVAL_ID_FIELD_NUMBER: _ClassVar[int]
+    TITLE_FIELD_NUMBER: _ClassVar[int]
+    BODY_FIELD_NUMBER: _ClassVar[int]
+    STATE_FIELD_NUMBER: _ClassVar[int]
+    SUMMARY_JSON_FIELD_NUMBER: _ClassVar[int]
+    approval_id: str
+    title: str
+    body: str
+    state: str
+    summary_json: str
+    def __init__(self, approval_id: _Optional[str] = ..., title: _Optional[str] = ..., body: _Optional[str] = ..., state: _Optional[str] = ..., summary_json: _Optional[str] = ...) -> None: ...
+
+class AndroidServerHeartbeat(_message.Message):
+    __slots__ = ("timestamp_ms",)
+    TIMESTAMP_MS_FIELD_NUMBER: _ClassVar[int]
+    timestamp_ms: int
+    def __init__(self, timestamp_ms: _Optional[int] = ...) -> None: ...
+
+class AndroidStopCommand(_message.Message):
+    __slots__ = ("reason",)
+    REASON_FIELD_NUMBER: _ClassVar[int]
+    reason: str
+    def __init__(self, reason: _Optional[str] = ...) -> None: ...
+
+class AndroidServerCommand(_message.Message):
+    __slots__ = ("ack", "invoke", "approval_request", "heartbeat", "stop")
+    ACK_FIELD_NUMBER: _ClassVar[int]
+    INVOKE_FIELD_NUMBER: _ClassVar[int]
+    APPROVAL_REQUEST_FIELD_NUMBER: _ClassVar[int]
+    HEARTBEAT_FIELD_NUMBER: _ClassVar[int]
+    STOP_FIELD_NUMBER: _ClassVar[int]
+    ack: AndroidStreamAck
+    invoke: AndroidInvokeCommand
+    approval_request: AndroidApprovalCommand
+    heartbeat: AndroidServerHeartbeat
+    stop: AndroidStopCommand
+    def __init__(self, ack: _Optional[_Union[AndroidStreamAck, _Mapping]] = ..., invoke: _Optional[_Union[AndroidInvokeCommand, _Mapping]] = ..., approval_request: _Optional[_Union[AndroidApprovalCommand, _Mapping]] = ..., heartbeat: _Optional[_Union[AndroidServerHeartbeat, _Mapping]] = ..., stop: _Optional[_Union[AndroidStopCommand, _Mapping]] = ...) -> None: ...
+
 class GetAndroidScreenshotRequest(_message.Message):
     __slots__ = ("quality",)
     QUALITY_FIELD_NUMBER: _ClassVar[int]
@@ -115,6 +284,92 @@ class GetNotificationsResponse(_message.Message):
     notifications: _containers.RepeatedCompositeFieldContainer[AndroidNotification]
     def __init__(self, status: _Optional[_Union[_common_pb2.Status, _Mapping]] = ..., notifications: _Optional[_Iterable[_Union[AndroidNotification, _Mapping]]] = ...) -> None: ...
 
+class GetPermissionStatusRequest(_message.Message):
+    __slots__ = ()
+    def __init__(self) -> None: ...
+
+class AndroidPermissionState(_message.Message):
+    __slots__ = ("name", "granted", "detail")
+    NAME_FIELD_NUMBER: _ClassVar[int]
+    GRANTED_FIELD_NUMBER: _ClassVar[int]
+    DETAIL_FIELD_NUMBER: _ClassVar[int]
+    name: str
+    granted: bool
+    detail: str
+    def __init__(self, name: _Optional[str] = ..., granted: _Optional[bool] = ..., detail: _Optional[str] = ...) -> None: ...
+
+class GetPermissionStatusResponse(_message.Message):
+    __slots__ = ("status", "permissions", "screen_locked")
+    STATUS_FIELD_NUMBER: _ClassVar[int]
+    PERMISSIONS_FIELD_NUMBER: _ClassVar[int]
+    SCREEN_LOCKED_FIELD_NUMBER: _ClassVar[int]
+    status: _common_pb2.Status
+    permissions: _containers.RepeatedCompositeFieldContainer[AndroidPermissionState]
+    screen_locked: bool
+    def __init__(self, status: _Optional[_Union[_common_pb2.Status, _Mapping]] = ..., permissions: _Optional[_Iterable[_Union[AndroidPermissionState, _Mapping]]] = ..., screen_locked: _Optional[bool] = ...) -> None: ...
+
+class AndroidGetDeviceStatusRequest(_message.Message):
+    __slots__ = ()
+    def __init__(self) -> None: ...
+
+class AndroidGetDeviceStatusResponse(_message.Message):
+    __slots__ = ("status", "device_id", "model", "manufacturer", "android_version", "battery_level", "charging", "screen_on", "locked")
+    STATUS_FIELD_NUMBER: _ClassVar[int]
+    DEVICE_ID_FIELD_NUMBER: _ClassVar[int]
+    MODEL_FIELD_NUMBER: _ClassVar[int]
+    MANUFACTURER_FIELD_NUMBER: _ClassVar[int]
+    ANDROID_VERSION_FIELD_NUMBER: _ClassVar[int]
+    BATTERY_LEVEL_FIELD_NUMBER: _ClassVar[int]
+    CHARGING_FIELD_NUMBER: _ClassVar[int]
+    SCREEN_ON_FIELD_NUMBER: _ClassVar[int]
+    LOCKED_FIELD_NUMBER: _ClassVar[int]
+    status: _common_pb2.Status
+    device_id: str
+    model: str
+    manufacturer: str
+    android_version: str
+    battery_level: int
+    charging: bool
+    screen_on: bool
+    locked: bool
+    def __init__(self, status: _Optional[_Union[_common_pb2.Status, _Mapping]] = ..., device_id: _Optional[str] = ..., model: _Optional[str] = ..., manufacturer: _Optional[str] = ..., android_version: _Optional[str] = ..., battery_level: _Optional[int] = ..., charging: _Optional[bool] = ..., screen_on: _Optional[bool] = ..., locked: _Optional[bool] = ...) -> None: ...
+
+class GetAccessibilityStatusRequest(_message.Message):
+    __slots__ = ()
+    def __init__(self) -> None: ...
+
+class GetAccessibilityStatusResponse(_message.Message):
+    __slots__ = ("status", "enabled", "service_name", "detail")
+    STATUS_FIELD_NUMBER: _ClassVar[int]
+    ENABLED_FIELD_NUMBER: _ClassVar[int]
+    SERVICE_NAME_FIELD_NUMBER: _ClassVar[int]
+    DETAIL_FIELD_NUMBER: _ClassVar[int]
+    status: _common_pb2.Status
+    enabled: bool
+    service_name: str
+    detail: str
+    def __init__(self, status: _Optional[_Union[_common_pb2.Status, _Mapping]] = ..., enabled: _Optional[bool] = ..., service_name: _Optional[str] = ..., detail: _Optional[str] = ...) -> None: ...
+
+class GetLocationRequest(_message.Message):
+    __slots__ = ("accuracy",)
+    ACCURACY_FIELD_NUMBER: _ClassVar[int]
+    accuracy: str
+    def __init__(self, accuracy: _Optional[str] = ...) -> None: ...
+
+class GetLocationResponse(_message.Message):
+    __slots__ = ("status", "latitude", "longitude", "accuracy_meters", "captured_ms")
+    STATUS_FIELD_NUMBER: _ClassVar[int]
+    LATITUDE_FIELD_NUMBER: _ClassVar[int]
+    LONGITUDE_FIELD_NUMBER: _ClassVar[int]
+    ACCURACY_METERS_FIELD_NUMBER: _ClassVar[int]
+    CAPTURED_MS_FIELD_NUMBER: _ClassVar[int]
+    status: _common_pb2.Status
+    latitude: float
+    longitude: float
+    accuracy_meters: float
+    captured_ms: int
+    def __init__(self, status: _Optional[_Union[_common_pb2.Status, _Mapping]] = ..., latitude: _Optional[float] = ..., longitude: _Optional[float] = ..., accuracy_meters: _Optional[float] = ..., captured_ms: _Optional[int] = ...) -> None: ...
+
 class TapRequest(_message.Message):
     __slots__ = ("x", "y", "duration_ms")
     X_FIELD_NUMBER: _ClassVar[int]
@@ -218,3 +473,39 @@ class AndroidShowOverlayResponse(_message.Message):
     STATUS_FIELD_NUMBER: _ClassVar[int]
     status: _common_pb2.Status
     def __init__(self, status: _Optional[_Union[_common_pb2.Status, _Mapping]] = ...) -> None: ...
+
+class AndroidApprovalRequest(_message.Message):
+    __slots__ = ("approval_id", "title", "body", "summary_json", "expires_at_ms")
+    APPROVAL_ID_FIELD_NUMBER: _ClassVar[int]
+    TITLE_FIELD_NUMBER: _ClassVar[int]
+    BODY_FIELD_NUMBER: _ClassVar[int]
+    SUMMARY_JSON_FIELD_NUMBER: _ClassVar[int]
+    EXPIRES_AT_MS_FIELD_NUMBER: _ClassVar[int]
+    approval_id: str
+    title: str
+    body: str
+    summary_json: str
+    expires_at_ms: int
+    def __init__(self, approval_id: _Optional[str] = ..., title: _Optional[str] = ..., body: _Optional[str] = ..., summary_json: _Optional[str] = ..., expires_at_ms: _Optional[int] = ...) -> None: ...
+
+class AndroidApprovalResponse(_message.Message):
+    __slots__ = ("status", "surface_id")
+    STATUS_FIELD_NUMBER: _ClassVar[int]
+    SURFACE_ID_FIELD_NUMBER: _ClassVar[int]
+    status: _common_pb2.Status
+    surface_id: str
+    def __init__(self, status: _Optional[_Union[_common_pb2.Status, _Mapping]] = ..., surface_id: _Optional[str] = ...) -> None: ...
+
+class AndroidEmergencyStopRequest(_message.Message):
+    __slots__ = ("reason",)
+    REASON_FIELD_NUMBER: _ClassVar[int]
+    reason: str
+    def __init__(self, reason: _Optional[str] = ...) -> None: ...
+
+class AndroidEmergencyStopResponse(_message.Message):
+    __slots__ = ("status", "stopped")
+    STATUS_FIELD_NUMBER: _ClassVar[int]
+    STOPPED_FIELD_NUMBER: _ClassVar[int]
+    status: _common_pb2.Status
+    stopped: bool
+    def __init__(self, status: _Optional[_Union[_common_pb2.Status, _Mapping]] = ..., stopped: _Optional[bool] = ...) -> None: ...

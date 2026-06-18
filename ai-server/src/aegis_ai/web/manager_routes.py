@@ -172,6 +172,18 @@ def get_server_status(server_id):
         return jsonify({"error": str(e)}), 500
 
 
+@manager_bp.route("/api/android/status")
+def get_android_status():
+    try:
+        rt = _get_runtime()
+        manager = getattr(rt, "android_manager", None)
+        if manager is None:
+            return jsonify({"online": False, "error": "Android manager not initialized"}), 503
+        return jsonify(manager.get_status())
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @manager_bp.route("/api/status/check-now", methods=["POST"])
 def check_now():
     try:

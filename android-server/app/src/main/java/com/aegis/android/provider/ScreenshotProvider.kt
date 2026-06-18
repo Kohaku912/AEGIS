@@ -31,9 +31,9 @@ class ScreenshotProvider(private val context: Context) {
     companion object {
         private const val TAG = "ScreenshotProvider"
         private const val VIRTUAL_DISPLAY_NAME = "AEGIS_Screenshot"
+        private var mediaProjection: MediaProjection? = null
     }
 
-    private var mediaProjection: MediaProjection? = null
     private var virtualDisplay: VirtualDisplay? = null
     private var imageReader: ImageReader? = null
 

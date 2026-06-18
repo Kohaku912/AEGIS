@@ -1,9 +1,17 @@
 {
-  "title": "Notifications",
-  "description": "Get Android notifications.",
+  "title": "Android Notifications",
+  "description": "Get recent Android notifications. Notification content may contain private data.",
   "server_id": "android-server",
   "app_id": "notification",
   "action": "get_notifications",
-  "risk": {"level": "low", "side_effects": [], "requires_approval": false},
-  "tags": ["builtin", "android", "read"]
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "max_count": {"type": "integer", "default": 20}
+    }
+  },
+  "risk": {"level": "medium", "side_effects": ["reads_private_notifications"], "requires_approval": true},
+  "tags": ["builtin", "android", "notification", "privacy"],
+  "requires_permissions": ["notification_listener"],
+  "extra": {"requires_permissions": ["notification_listener"]}
 }

@@ -1,0 +1,12 @@
+{
+  "title": "Android Device Status",
+  "description": "Get Android device model, battery, lock, and screen state.",
+  "server_id": "android-server",
+  "app_id": "device",
+  "action": "get_status",
+  "input_schema": {"type": "object", "properties": {}},
+  "risk": {"level": "low", "side_effects": [], "requires_approval": false},
+  "tags": ["builtin", "android", "device", "status"],
+  "requires_permissions": [],
+  "extra": {"requires_permissions": []}
+}

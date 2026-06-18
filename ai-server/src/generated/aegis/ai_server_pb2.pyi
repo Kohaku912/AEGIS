@@ -1,4 +1,5 @@
 from aegis import common_pb2 as _common_pb2
+from aegis import android_server_pb2 as _android_server_pb2
 from google.protobuf.internal import containers as _containers
 from google.protobuf import descriptor as _descriptor
 from google.protobuf import message as _message
@@ -144,14 +145,22 @@ class RequestApprovalRequest(_message.Message):
     def __init__(self, capability_id: _Optional[str] = ..., tool_name: _Optional[str] = ..., requested_action: _Optional[str] = ..., human_readable_summary: _Optional[str] = ..., risk_explanation: _Optional[str] = ..., payload_preview: _Optional[str] = ..., safety_level: _Optional[_Union[_common_pb2.SafetyLevel, str]] = ..., caller: _Optional[str] = ...) -> None: ...
 
 class ResolveApprovalRequest(_message.Message):
-    __slots__ = ("approval_id", "approved_type", "rejected")
+    __slots__ = ("approval_id", "approved_type", "rejected", "global_reject", "surface_id", "user", "reason")
     APPROVAL_ID_FIELD_NUMBER: _ClassVar[int]
     APPROVED_TYPE_FIELD_NUMBER: _ClassVar[int]
     REJECTED_FIELD_NUMBER: _ClassVar[int]
+    GLOBAL_REJECT_FIELD_NUMBER: _ClassVar[int]
+    SURFACE_ID_FIELD_NUMBER: _ClassVar[int]
+    USER_FIELD_NUMBER: _ClassVar[int]
+    REASON_FIELD_NUMBER: _ClassVar[int]
     approval_id: str
     approved_type: _common_pb2.ApprovalType
     rejected: bool
-    def __init__(self, approval_id: _Optional[str] = ..., approved_type: _Optional[_Union[_common_pb2.ApprovalType, str]] = ..., rejected: _Optional[bool] = ...) -> None: ...
+    global_reject: bool
+    surface_id: str
+    user: str
+    reason: str
+    def __init__(self, approval_id: _Optional[str] = ..., approved_type: _Optional[_Union[_common_pb2.ApprovalType, str]] = ..., rejected: _Optional[bool] = ..., global_reject: _Optional[bool] = ..., surface_id: _Optional[str] = ..., user: _Optional[str] = ..., reason: _Optional[str] = ...) -> None: ...
 
 class ResolveApprovalResponse(_message.Message):
     __slots__ = ("status", "approval_id")

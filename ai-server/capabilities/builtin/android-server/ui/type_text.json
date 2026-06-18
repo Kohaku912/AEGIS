@@ -1,0 +1,18 @@
+{
+  "title": "Android Type Text",
+  "description": "Type text into the current Android focused field via AccessibilityService.",
+  "server_id": "android-server",
+  "app_id": "ui",
+  "action": "type_text",
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "text": {"type": "string"}
+    },
+    "required": ["text"]
+  },
+  "risk": {"level": "medium", "side_effects": ["keyboard_input"], "requires_approval": true},
+  "tags": ["builtin", "android", "ui", "input", "text"],
+  "requires_permissions": ["accessibility"],
+  "extra": {"requires_permissions": ["accessibility"]}
+}

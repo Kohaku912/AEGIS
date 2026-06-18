@@ -8,6 +8,7 @@ import android.graphics.Rect
 import android.os.Build
 import android.util.Log
 import android.view.accessibility.AccessibilityNodeInfo
+import com.aegis.android.service.AegisAccessibilityService
 
 /**
  * UI Tree provider using AccessibilityService.
@@ -40,15 +41,13 @@ class UITreeProvider(private val context: Context) {
     /**
      * Check if AccessibilityService is available.
      */
-    fun isAvailable(): Boolean {
-        return accessibilityService != null
-    }
+    fun isAvailable(): Boolean = getService() != null
 
     /**
      * Get the UI tree from the current screen.
      */
     fun getUITree(): UINode? {
-        val service = accessibilityService ?: run {
+        val service = getService() ?: run {
             Log.w(TAG, "AccessibilityService not available")
             return null
         }
@@ -82,7 +81,7 @@ class UITreeProvider(private val context: Context) {
      * Tap at coordinates.
      */
     fun tapAt(x: Int, y: Int): Boolean {
-        val service = accessibilityService ?: return false
+        val service = getService() ?: return false
         try {
             service.dispatchGesture(
                 android.accessibilityservice.GestureDescription.Builder()
@@ -106,7 +105,7 @@ class UITreeProvider(private val context: Context) {
      * Swipe from (startX, startY) to (endX, endY).
      */
     fun swipe(startX: Int, startY: Int, endX: Int, endY: Int, durationMs: Long = 300): Boolean {
-        val service = accessibilityService ?: return false
+        val service = getService() ?: return false
         try {
             service.dispatchGesture(
                 android.accessibilityservice.GestureDescription.Builder()
@@ -133,7 +132,7 @@ class UITreeProvider(private val context: Context) {
      * Type text into the currently focused field.
      */
     fun typeText(text: String): Boolean {
-        val service = accessibilityService ?: return false
+        val service = getService() ?: return false
         try {
             val focusedNode = service.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
             if (focusedNode != null) {
@@ -153,7 +152,7 @@ class UITreeProvider(private val context: Context) {
      * Press the back button.
      */
     fun pressBack(): Boolean {
-        val service = accessibilityService ?: return false
+        val service = getService() ?: return false
         return service.performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK)
     }
 
@@ -161,8 +160,19 @@ class UITreeProvider(private val context: Context) {
      * Press the home button.
      */
     fun pressHome(): Boolean {
-        val service = accessibilityService ?: return false
+        val service = getService() ?: return false
         return service.performGlobalAction(AccessibilityService.GLOBAL_ACTION_HOME)
+    }
+
+    fun currentPackageName(): String {
+        val root = getService()?.rootInActiveWindow ?: return ""
+        val packageName = root.packageName?.toString() ?: ""
+        root.recycle()
+        return packageName
+    }
+
+    private fun getService(): AccessibilityService? {
+        return accessibilityService ?: AegisAccessibilityService.instance
     }
 
     private fun buildUINode(node: AccessibilityNodeInfo): UINode {

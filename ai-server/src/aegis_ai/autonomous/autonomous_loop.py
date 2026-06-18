@@ -645,7 +645,7 @@ Respond with JSON:
 
         desire_context = []
         for d in low_desires[:self._max_tasks]:
-            desire_context.append(f"- {d['name']}: {d['value']:.1f}/10 (gap: {d['gap']:.1f})")
+            desire_context.append(f"{d['name']}:gap={d['gap']:.1f}")
         pending_observations = list(self._pending_actionable_observations[:5])
         if pending_observations:
             desire_context.append("\nActionable observations:")
@@ -718,29 +718,13 @@ Respond with JSON:
             return []
         valid_tool_names = {tool["function"]["name"] for tool in tools}
 
-        prompt = f"""Your desires are low:
-
-{chr(10).join(desire_context)}
-
-=== Recent Action History (IMPORTANT — avoid repetition) ===
-{action_history}
-
-=== Rules for selecting actions ===
-1. DO NOT repeat actions that are semantically similar to recent actions above.
-   - Judge by PURPOSE and TARGET, not by tool name.
-   - Example: If you checked disk space 1 hour ago, do NOT check it again with another command.
-   - Example: If you confirmed AGORA has no new posts 30 min ago, do NOT read AGORA again unless time has passed.
-
-2. If the same desire was addressed recently with no state change, choose a DIFFERENT approach or desire.
-
-3. "No action" is a valid choice. If all desires were recently addressed and nothing new happened, respond with:
-   {{"no_action": true, "reason": "最近の行動と意味的に重複するため待機します"}}
-
-4. New information (errors, user requests, state changes) justifies re-checking the same target.
-
-Select up to {self._max_tasks} capabilities to address the low desires.
-For each, provide all required arguments.
-Do not invent capabilities."""
+        low_list = ", ".join(desire_context)
+        prompt = f"""Low desires: {low_list}
+        
+        Recent: {action_history}
+        
+        Select up to {self._max_tasks} capabilities. Do NOT repeat recent actions by purpose.
+        If no action needed, {{"no_action":true,"reason":"..."}}"""
 
         prompt, memory_meta = self._build_shared_llm_prompt(
             query=retrieval_query,
@@ -752,13 +736,8 @@ Do not invent capabilities."""
             prompt=prompt,
             tools=tools,
             system_prompt=(
-                "You are AEGIS's autonomous task generator. "
-                "Select capabilities to fulfill low desires. "
-                "CRITICAL: Read the Recent Action History carefully. "
-                "Do NOT select actions that repeat what was recently done, "
-                "even with different tools. Judge repetition by PURPOSE, not by tool name. "
-                "If no new action is needed, respond with {\"no_action\": true}. "
-                "Call the appropriate functions with all required arguments."
+                "Select tools for low desires. Do NOT repeat recent actions. "
+                "If no action needed, respond with {\"no_action\":true}."
             ),
             max_tokens=600,
             context_meta=memory_meta,

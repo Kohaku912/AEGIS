@@ -187,7 +187,13 @@ class CapabilityCatalog:
             "critical": RiskLevel.FORBIDDEN,
             "forbidden": RiskLevel.FORBIDDEN,
         }
-        server_type_map = {"pc-server": ServerType.PC, "browser-server": ServerType.BROWSER, "android-server": ServerType.ANDROID, "room-server": ServerType.ROOM, "ai-server": ServerType.AI}
+        server_type_map = {
+            "pc-server": ServerType.PC,
+            "browser-server": ServerType.BROWSER,
+            "android-server": ServerType.ANDROID,
+            "room-server": ServerType.ROOM,
+            "ai-server": ServerType.AI,
+        }
         caps = []
         with self._lock:
             manifests = self._cap_reg.list_all()
@@ -198,6 +204,8 @@ class CapabilityCatalog:
                 description=m.description,
                 server_type=server_type_map.get(m.server_id, ServerType.AI),
                 risk_level=risk_map.get(m.risk_level, RiskLevel.READ_ONLY),
+                requires_approval=m.requires_approval,
+                side_effects=m.side_effects,
                 tags=m.tags,
             ))
         return caps

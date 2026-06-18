@@ -1,0 +1,12 @@
+{
+  "title": "Android Accessibility Status",
+  "description": "Check whether the Android AccessibilityService is enabled.",
+  "server_id": "android-server",
+  "app_id": "accessibility",
+  "action": "get_status",
+  "input_schema": {"type": "object", "properties": {}},
+  "risk": {"level": "low", "side_effects": [], "requires_approval": false},
+  "tags": ["builtin", "android", "accessibility", "status"],
+  "requires_permissions": [],
+  "extra": {"requires_permissions": []}
+}

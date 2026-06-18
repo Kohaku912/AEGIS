@@ -1,162 +1,136 @@
 package com.aegis.android.grpc
 
+import android.content.Context
+import android.os.Build
 import android.util.Log
-import aegis.AIServerGrpc
 import aegis.AIServerGrpcKt
-import aegis.AiServer
+import aegis.AndroidServerOuterClass
 import aegis.Common
-import aegis.serverInfo
-import aegis.capability
-import aegis.event
+import com.aegis.android.AegisConfig
+import com.aegis.android.AegisConnectionConfig
+import com.aegis.android.overlay.OverlayController
+import com.aegis.android.provider.DeviceProvider
 import io.grpc.ManagedChannel
 import io.grpc.ManagedChannelBuilder
-import io.grpc.StatusRuntimeException
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.receiveAsFlow
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.util.UUID
 import java.util.concurrent.TimeUnit
 
-/**
- * gRPC client for communicating with AEGIS Core (AI Server).
- */
 class AegisGrpcClient private constructor(
-    private val host: String,
-    private val port: Int,
+    private val context: Context,
+    private var config: AegisConnectionConfig,
 ) {
     companion object {
         private const val TAG = "AegisGrpcClient"
-        private const val DEFAULT_HOST = "192.168.50.175"
-        private const val DEFAULT_PORT = 50051
+        private const val HEARTBEAT_INTERVAL_MS = 30_000L
+        private const val APP_VERSION = "0.2.0"
 
         @Volatile
         private var instance: AegisGrpcClient? = null
 
-        fun getInstance(host: String = DEFAULT_HOST, port: Int = DEFAULT_PORT): AegisGrpcClient {
-            return instance ?: synchronized(this) {
-                instance ?: AegisGrpcClient(host, port).also { instance = it }
+        fun getInstance(context: Context): AegisGrpcClient {
+            val appContext = context.applicationContext
+            val loaded = AegisConfig.load(appContext)
+            return synchronized(this) {
+                val current = instance
+                if (current != null && current.config.host == loaded.host && current.config.port == loaded.port &&
+                    current.config.pairingToken == loaded.pairingToken
+                ) {
+                    current
+                } else {
+                    current?.disconnect()
+                    AegisGrpcClient(appContext, loaded).also { instance = it }
+                }
             }
         }
+
+        fun current(): AegisGrpcClient? = instance
+    }
+
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val deviceProvider = DeviceProvider(context)
+    private val overlayController = OverlayController(context)
+    private val dispatcher = AndroidCapabilityDispatcher(context, overlayController) { decision ->
+        sendApprovalDecision(decision)
     }
 
     private var channel: ManagedChannel? = null
     private var stub: AIServerGrpcKt.AIServerCoroutineStub? = null
+    private var outbound: Channel<AndroidServerOuterClass.AndroidClientMessage>? = null
+    private var streamJob: Job? = null
+    private var heartbeatJob: Job? = null
     private var connected = false
+    private var lastHeartbeatMs = 0L
+    private var connectionId = "android_${UUID.randomUUID().toString().replace("-", "").take(10)}"
 
     suspend fun connect(): Boolean = withContext(Dispatchers.IO) {
+        if (config.pairingToken.isBlank()) {
+            Log.w(TAG, "Pairing token is required")
+            connected = false
+            return@withContext false
+        }
+        disconnect()
         try {
             channel = ManagedChannelBuilder
-                .forAddress(host, port)
+                .forAddress(config.host, config.port)
                 .usePlaintext()
                 .keepAliveTime(30, TimeUnit.SECONDS)
                 .build()
-
             stub = AIServerGrpcKt.AIServerCoroutineStub(channel!!)
 
-            val healthRequest = Common.HealthCheckRequest.getDefaultInstance()
-            val healthResponse = stub!!.healthCheck(healthRequest)
-            if (healthResponse.status.code == 0) {
-                connected = true
-                Log.i(TAG, "Connected to AEGIS Core at $host:$port (v${healthResponse.version})")
-                true
-            } else {
+            val healthResponse = stub!!.healthCheck(Common.HealthCheckRequest.getDefaultInstance())
+            if (healthResponse.status.code != 0) {
                 Log.e(TAG, "Health check failed: ${healthResponse.status.message}")
                 connected = false
-                false
+                return@withContext false
             }
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to connect to AEGIS Core", e)
+
+            startReverseStream()
+            connected = true
+            Log.i(TAG, "Reverse stream started for AEGIS Core at ${config.host}:${config.port}")
+            true
+        } catch (exc: Exception) {
+            Log.e(TAG, "Failed to connect to AEGIS Core", exc)
             connected = false
             false
         }
     }
 
     fun disconnect() {
+        connected = false
+        heartbeatJob?.cancel()
+        streamJob?.cancel()
+        outbound?.close()
+        heartbeatJob = null
+        streamJob = null
+        outbound = null
         try {
-            channel?.shutdown()?.awaitTermination(5, TimeUnit.SECONDS)
-        } catch (e: Exception) {
-            Log.e(TAG, "Error disconnecting", e)
+            channel?.shutdown()?.awaitTermination(3, TimeUnit.SECONDS)
+        } catch (exc: Exception) {
+            Log.e(TAG, "Error disconnecting", exc)
         } finally {
             channel = null
             stub = null
-            connected = false
         }
     }
 
-    suspend fun registerCapabilities(): Boolean = withContext(Dispatchers.IO) {
-        if (!connected || stub == null) {
-            Log.w(TAG, "Not connected - cannot register capabilities")
-            return@withContext false
-        }
+    fun isConnected(): Boolean = connected
 
-        try {
-            val serverInfoObj = serverInfo {
-                serverId = "android-server-main"
-                serverType = Common.ServerType.SERVER_TYPE_ANDROID
-                version = "0.1.0"
-                status = Common.ServerStatus.SERVER_STATUS_ONLINE
-                capabilityIds.addAll(listOf(
-                    "android.get_notifications",
-                    "android.get_current_app",
-                    "android.get_device_info",
-                    "android.get_screenshot",
-                    "android.get_ui_tree",
-                    "android.show_overlay",
-                    "android.hide_overlay",
-                    "android.open_app",
-                    "android.press_home",
-                ))
-                host = this@AegisGrpcClient.host
-                port = this@AegisGrpcClient.port
-                startedAtMs = System.currentTimeMillis()
-            }
+    fun lastHeartbeatMs(): Long = lastHeartbeatMs
 
-            val registerRequest = AiServer.RegisterServerRequest.newBuilder()
-                .setServerInfo(serverInfoObj)
-                .build()
+    fun currentConfig(): AegisConnectionConfig = config
 
-            val response = stub!!.registerServer(registerRequest)
-            if (response.status.code != 0) {
-                Log.e(TAG, "Failed to register server: ${response.status.message}")
-                return@withContext false
-            }
-
-            val caps = listOf(
-                buildCapability("android.get_notifications", "Get Notifications",
-                    "Retrieve current status bar notifications.", Common.SafetyLevel.LEVEL_0_READ),
-                buildCapability("android.get_current_app", "Get Current App",
-                    "Return the package name and activity of the foreground app.", Common.SafetyLevel.LEVEL_0_READ),
-                buildCapability("android.get_device_info", "Get Device Info",
-                    "Return device model, Android version, battery level.", Common.SafetyLevel.LEVEL_0_READ),
-                buildCapability("android.get_screenshot", "Get Screenshot",
-                    "Capture screenshot via MediaProjection.", Common.SafetyLevel.LEVEL_0_READ),
-                buildCapability("android.get_ui_tree", "Get UI Tree",
-                    "Get current UI tree via AccessibilityService.", Common.SafetyLevel.LEVEL_0_READ),
-                buildCapability("android.show_overlay", "Show Overlay",
-                    "Show an overlay notification on the device.", Common.SafetyLevel.LEVEL_1_SAFE_ACT),
-                buildCapability("android.hide_overlay", "Hide Overlay",
-                    "Hide the current overlay notification.", Common.SafetyLevel.LEVEL_1_SAFE_ACT),
-                buildCapability("android.open_app", "Open App",
-                    "Open an application by package name.", Common.SafetyLevel.LEVEL_1_SAFE_ACT),
-                buildCapability("android.press_home", "Press Home",
-                    "Press the home button.", Common.SafetyLevel.LEVEL_1_SAFE_ACT),
-            )
-
-            for (cap in caps) {
-                val capRequest = AiServer.RegisterCapabilityRequest.newBuilder()
-                    .setCapability(cap)
-                    .build()
-                stub!!.registerCapability(capRequest)
-            }
-
-            Log.i(TAG, "Registered ${caps.size} capabilities with AEGIS Core")
-            true
-        } catch (e: StatusRuntimeException) {
-            Log.e(TAG, "gRPC error registering capabilities", e)
-            false
-        } catch (e: Exception) {
-            Log.e(TAG, "Error registering capabilities", e)
-            false
-        }
-    }
+    suspend fun registerCapabilities(): Boolean = true
 
     suspend fun pushNotification(
         packageName: String,
@@ -166,94 +140,227 @@ class AegisGrpcClient private constructor(
         postedMs: Long,
         isOngoing: Boolean,
         isClearable: Boolean,
-    ): Boolean = withContext(Dispatchers.IO) {
-        if (!connected || stub == null) {
-            Log.w(TAG, "Not connected - cannot push notification")
-            return@withContext false
-        }
+    ): Boolean {
+        val payload = """{"package_name":${jsonString(packageName)},"app_name":${jsonString(appName)},"title":${jsonString(title)},"text":${jsonString(text)},"posted_ms":$postedMs,"is_ongoing":$isOngoing,"is_clearable":$isClearable}"""
+        return sendEvent(
+            eventType = "android.notification.posted",
+            payloadJson = payload,
+            dedupeKey = "android.notification.posted:$packageName:$postedMs",
+        )
+    }
 
-        try {
-            val payload = """{"app_name":"$appName","title":"$title","text":"$text","package_name":"$packageName"}"""
+    suspend fun pushDeviceState(batteryLevel: Int, screenOn: Boolean): Boolean {
+        sendHeartbeat()
+        val payload = """{"battery_level":$batteryLevel,"screen_on":$screenOn,"locked":${deviceProvider.isLocked()}}"""
+        return sendEvent("android.heartbeat", payload, "android.heartbeat:${config.deviceId}")
+    }
 
-            val eventObj = event {
-                eventId = "evt_${java.util.UUID.randomUUID().toString().take(8)}"
-                eventType = "android.notification_received"
-                sourceServerType = Common.ServerType.SERVER_TYPE_ANDROID
-                sourceServerId = "android-server-main"
-                timestampMs = System.currentTimeMillis()
-                payloadJson = payload
-                severity = Common.EventSeverity.EVENT_SEVERITY_MODERATE
-                priority = Common.EventPriority.EVENT_PRIORITY_NORMAL
-                dedupeKey = "android.notification:$packageName:$title"
-            }
-
-            val request = AiServer.PushEventRequest.newBuilder()
-                .setEvent(eventObj)
-                .build()
-
-            val response = stub!!.pushEvent(request)
-            if (response.status.code != 0) {
-                Log.e(TAG, "Failed to push event: ${response.status.message}")
-                return@withContext false
-            }
-
-            Log.d(TAG, "Pushed notification: pkg=$packageName title=$title")
-            true
-        } catch (e: StatusRuntimeException) {
-            Log.e(TAG, "gRPC error pushing notification", e)
-            false
-        } catch (e: Exception) {
-            Log.e(TAG, "Error pushing notification", e)
-            false
+    fun pushForegroundApp(packageName: String) {
+        scope.launch {
+            val payload = """{"package_name":${jsonString(packageName)}}"""
+            sendEvent(
+                eventType = "android.foreground_app.changed",
+                payloadJson = payload,
+                dedupeKey = "android.foreground_app.changed:${config.deviceId}:$packageName",
+            )
         }
     }
 
-    suspend fun pushDeviceState(
-        batteryLevel: Int,
-        screenOn: Boolean,
-    ): Boolean = withContext(Dispatchers.IO) {
-        if (!connected || stub == null) return@withContext false
-
-        try {
-            val payload = """{"battery_level":$batteryLevel,"screen_on":$screenOn}"""
-
-            val eventObj = event {
-                eventId = "evt_${java.util.UUID.randomUUID().toString().take(8)}"
-                eventType = "android.device_state"
-                sourceServerType = Common.ServerType.SERVER_TYPE_ANDROID
-                sourceServerId = "android-server-main"
-                timestampMs = System.currentTimeMillis()
-                payloadJson = payload
-                severity = Common.EventSeverity.EVENT_SEVERITY_INFO
-                priority = Common.EventPriority.EVENT_PRIORITY_BACKGROUND
-                dedupeKey = "android.device_state:$batteryLevel:$screenOn"
-            }
-
-            val request = AiServer.PushEventRequest.newBuilder()
-                .setEvent(eventObj)
-                .build()
-
-            stub!!.pushEvent(request)
-            Log.d(TAG, "Pushed device state: battery=$batteryLevel screen=$screenOn")
-            true
-        } catch (e: Exception) {
-            Log.e(TAG, "Error pushing device state", e)
-            false
+    fun pushPermissionChanged() {
+        scope.launch {
+            sendEvent(
+                eventType = "android.permission.changed",
+                payloadJson = dispatcher.permissionSnapshotJson().toString(),
+                dedupeKey = "android.permission.changed:${config.deviceId}",
+            )
         }
     }
 
-    fun isConnected(): Boolean = connected
+    private suspend fun startReverseStream() {
+        val localOutbound = Channel<AndroidServerOuterClass.AndroidClientMessage>(Channel.BUFFERED)
+        outbound = localOutbound
+        localOutbound.send(registerMessage())
 
-    private fun buildCapability(
-        id: String, name: String, description: String, safetyLevel: Common.SafetyLevel
-    ): Common.Capability {
-        return capability {
-            this.id = id
-            this.name = name
-            this.description = description
-            this.serverType = Common.ServerType.SERVER_TYPE_ANDROID
-            this.safetyLevel = safetyLevel
-            tags.addAll(listOf("observe", "read_only"))
+        val currentStub = stub ?: error("stub missing")
+        streamJob = scope.launch {
+            try {
+                currentStub.connect(localOutbound.receiveAsFlow()).collect { command ->
+                    handleServerCommand(command)
+                }
+            } catch (exc: Exception) {
+                Log.e(TAG, "Reverse stream closed", exc)
+            } finally {
+                connected = false
+            }
         }
+        heartbeatJob = scope.launch {
+            while (isActive) {
+                delay(HEARTBEAT_INTERVAL_MS)
+                sendHeartbeat()
+            }
+        }
+        sendEvent(
+            eventType = "android.connected",
+            payloadJson = """{"connection_mode":"reverse_stream"}""",
+            dedupeKey = "android.connected:${config.deviceId}:$connectionId",
+        )
+        sendHeartbeat()
+        pushPermissionChanged()
+    }
+
+    private fun handleServerCommand(command: AndroidServerOuterClass.AndroidServerCommand) {
+        when (command.kindCase) {
+            AndroidServerOuterClass.AndroidServerCommand.KindCase.ACK -> {
+                connectionId = command.ack.connectionId.ifBlank { connectionId }
+                Log.i(TAG, "Stream acknowledged: $connectionId")
+            }
+            AndroidServerOuterClass.AndroidServerCommand.KindCase.HEARTBEAT -> {
+                lastHeartbeatMs = command.heartbeat.timestampMs
+            }
+            AndroidServerOuterClass.AndroidServerCommand.KindCase.INVOKE -> {
+                Log.i(TAG, "Invoke command received: ${command.invoke.capabilityId}")
+                scope.launch { handleInvoke(command.invoke) }
+            }
+            AndroidServerOuterClass.AndroidServerCommand.KindCase.APPROVAL_REQUEST -> {
+                Log.i(TAG, "Approval command received: ${command.approvalRequest.approvalId}")
+                handleApprovalCommand(command.approvalRequest)
+            }
+            AndroidServerOuterClass.AndroidServerCommand.KindCase.STOP -> {
+                Log.w(TAG, "Server requested stream stop: ${command.stop.reason}")
+                disconnect()
+            }
+            else -> Unit
+        }
+    }
+
+    private suspend fun handleInvoke(command: AndroidServerOuterClass.AndroidInvokeCommand) {
+        val result = try {
+            dispatcher.dispatch(command)
+        } catch (exc: Exception) {
+            Log.e(TAG, "Command failed: ${command.capabilityId}", exc)
+            AndroidCapabilityDispatcher.DispatchResult(
+                Common.Status.newBuilder().setCode(1).setMessage("ANDROID_COMMAND_FAILED: ${exc.message}").build(),
+                """{"code":"ANDROID_COMMAND_FAILED","error":${jsonString(exc.message ?: "Command failed")}}""",
+            )
+        }
+        val message = AndroidServerOuterClass.AndroidClientMessage.newBuilder()
+            .setCommandResult(
+                AndroidServerOuterClass.AndroidCommandResult.newBuilder()
+                    .setAuth(auth())
+                    .setCommandId(command.commandId)
+                    .setCapabilityId(command.capabilityId)
+                    .setStatus(result.status)
+                    .setResultJson(result.resultJson)
+                    .build(),
+            )
+            .build()
+        outbound?.send(message)
+    }
+
+    private fun handleApprovalCommand(command: AndroidServerOuterClass.AndroidApprovalCommand) {
+        overlayController.showApproval(
+            approvalId = command.approvalId,
+            title = command.title.ifBlank { "AEGIS approval" },
+            body = command.body.ifBlank { command.summaryJson },
+        ) { decision ->
+            sendApprovalDecision(decision)
+        }
+    }
+
+    private fun sendApprovalDecision(decision: OverlayController.ApprovalAction) {
+        scope.launch {
+            val message = AndroidServerOuterClass.AndroidClientMessage.newBuilder()
+                .setApprovalDecision(
+                    AndroidServerOuterClass.AndroidApprovalDecision.newBuilder()
+                        .setAuth(auth())
+                        .setApprovalId(decision.approvalId)
+                        .setApproved(decision.approved)
+                        .setRejected(decision.rejected)
+                        .setGlobalReject(decision.globalReject)
+                        .setSurfaceId("android_overlay")
+                        .setUser(config.deviceId)
+                        .setReason(decision.reason)
+                        .build(),
+                )
+                .build()
+            outbound?.send(message)
+        }
+    }
+
+    private suspend fun sendHeartbeat(): Boolean {
+        val device = deviceProvider.getDeviceInfo()
+        val message = AndroidServerOuterClass.AndroidClientMessage.newBuilder()
+            .setHeartbeat(
+                AndroidServerOuterClass.AndroidHeartbeat.newBuilder()
+                    .setAuth(auth())
+                    .setTimestampMs(System.currentTimeMillis())
+                    .setBatteryLevel(device.batteryLevel)
+                    .setScreenOn(device.screenOn)
+                    .setLocked(device.locked)
+                    .build(),
+            )
+            .build()
+        lastHeartbeatMs = System.currentTimeMillis()
+        return runCatching {
+            outbound?.send(message)
+            true
+        }.getOrDefault(false)
+    }
+
+    private suspend fun sendEvent(eventType: String, payloadJson: String, dedupeKey: String): Boolean {
+        val event = Common.Event.newBuilder()
+            .setEventId("evt_${UUID.randomUUID().toString().replace("-", "").take(12)}")
+            .setEventType(eventType)
+            .setSourceServerType(Common.ServerType.SERVER_TYPE_ANDROID)
+            .setSourceServerId("android-server")
+            .setTimestampMs(System.currentTimeMillis())
+            .setPayloadJson(payloadJson)
+            .setSeverity(Common.EventSeverity.EVENT_SEVERITY_INFO)
+            .setPriority(Common.EventPriority.EVENT_PRIORITY_NORMAL)
+            .setDedupeKey(dedupeKey)
+            .putAttributes("device_id", config.deviceId)
+            .putAttributes("connection_id", connectionId)
+            .build()
+        val message = AndroidServerOuterClass.AndroidClientMessage.newBuilder()
+            .setEvent(AndroidServerOuterClass.AndroidEventEnvelope.newBuilder().setAuth(auth()).setEvent(event).build())
+            .build()
+        return runCatching {
+            outbound?.send(message)
+            true
+        }.getOrDefault(false)
+    }
+
+    private fun registerMessage(): AndroidServerOuterClass.AndroidClientMessage {
+        val device = deviceProvider.getDeviceInfo()
+        return AndroidServerOuterClass.AndroidClientMessage.newBuilder()
+            .setRegister(
+                AndroidServerOuterClass.AndroidRegister.newBuilder()
+                    .setAuth(auth())
+                    .setDeviceModel(device.model)
+                    .setManufacturer(device.manufacturer)
+                    .setAndroidVersion(device.androidVersion)
+                    .setAppVersion(APP_VERSION)
+                    .addAllCapabilityIds(AndroidCapabilityDispatcher.CAPABILITY_IDS)
+                    .putMetadata("sdk_version", Build.VERSION.SDK_INT.toString())
+                    .putMetadata("screen_on", device.screenOn.toString())
+                    .build(),
+            )
+            .build()
+    }
+
+    private fun auth(): AndroidServerOuterClass.AndroidAuth {
+        return AndroidServerOuterClass.AndroidAuth.newBuilder()
+            .setDeviceId(config.deviceId)
+            .setPairingToken(config.pairingToken)
+            .setConnectionId(connectionId)
+            .build()
+    }
+
+    private fun jsonString(value: String): String {
+        return "\"" + value
+            .replace("\\", "\\\\")
+            .replace("\"", "\\\"")
+            .replace("\n", "\\n")
+            .replace("\r", "\\r") + "\""
     }
 }
