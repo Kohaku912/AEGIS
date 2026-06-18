@@ -3,6 +3,8 @@ profiles:
   chat_balanced:
     provider: "openai"
     model: "deepseek-v4-flash"
+    api_key_env: "LLM_API_KEY"
+    base_url: "https://api.deepseek.com"
     max_tokens: 4096
     temperature: 0.7
     reasoning_level: "medium"
@@ -12,7 +14,9 @@ profiles:
   tool_planning:
     provider: "openai"
     model: "deepseek-v4-flash"
-    max_tokens: 2048
+    api_key_env: "LLM_API_KEY"
+    base_url: "https://api.deepseek.com"
+    max_tokens: 4096
     temperature: 0.3
     reasoning_level: "high"
     timeout_seconds: 60
@@ -21,6 +25,8 @@ profiles:
   json_generation:
     provider: "openai"
     model: "deepseek-v4-flash"
+    api_key_env: "LLM_API_KEY"
+    base_url: "https://api.deepseek.com"
     max_tokens: 4096
     temperature: 0.1
     reasoning_level: "medium"
@@ -30,6 +36,8 @@ profiles:
   long_answer:
     provider: "openai"
     model: "deepseek-v4-flash"
+    api_key_env: "LLM_API_KEY"
+    base_url: "https://api.deepseek.com"
     max_tokens: 8192
     temperature: 0.7
     reasoning_level: "medium"
@@ -38,8 +46,10 @@ profiles:
   
   vision_observation:
     provider: "openai"
-    model: "deepseek-v4-flash"
-    max_tokens: 1024
+    model: "qwen3-vl-flash"
+    api_key_env: "LLM_VISION_API_KEY"
+    base_url: "https://ws-nuimlupsvbr9m8x1.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1"
+    max_tokens: 4096
     temperature: 0.5
     reasoning_level: "low"
     timeout_seconds: 30
@@ -48,6 +58,8 @@ profiles:
   self_development:
     provider: "openai"
     model: "deepseek-v4-flash"
+    api_key_env: "LLM_API_KEY"
+    base_url: "https://api.deepseek.com"
     max_tokens: 4096
     temperature: 0.5
     reasoning_level: "high"
@@ -57,6 +69,8 @@ profiles:
   task_analysis:
     provider: "openai"
     model: "deepseek-v4-flash"
+    api_key_env: "LLM_API_KEY"
+    base_url: "https://api.deepseek.com"
     max_tokens: 2048
     temperature: 0.3
     reasoning_level: "medium"
@@ -66,9 +80,7 @@ profiles:
 safety:
   allowed_models:
     - "deepseek-v4-flash"
-    - "deepseek-v3"
-    - "gpt-4o"
-    - "gpt-4o-mini"
+    - "qwen3-vl-flash"
   max_tokens_upper_bound: 128000
   max_temperature: 2.0
   min_temperature: 0.0

@@ -97,6 +97,7 @@ class ContextBuilder:
         world_state_store: Any = None,
         multimodal_llm: Any = None,
         capability_retriever: Any = None,
+        settings_resolver: Any = None,
     ) -> None:
         self._event_bus = event_bus
         self._episodic = episodic_memory
@@ -115,6 +116,7 @@ class ContextBuilder:
         self._capability_retriever = capability_retriever
         self._goals_list: list[str] = []
         self._last_context: Context | None = None
+        self._settings_resolver = settings_resolver
         self._multimodal_llm = multimodal_llm or self._create_default_multimodal_llm()
         self._media_summary_cache: OrderedDict[str, str] = OrderedDict()
 
@@ -122,7 +124,7 @@ class ContextBuilder:
         try:
             from aegis_ai.llm.factory import create_multimodal_llm_provider
 
-            return create_multimodal_llm_provider()
+            return create_multimodal_llm_provider(settings_resolver=self._settings_resolver)
         except Exception:
             return None
 
@@ -539,6 +541,7 @@ class ContextBuilder:
                         temperature=0.2,
                         detail="low",
                         media_kind="video",
+                        profile="vision_observation",
                         context_meta={
                             "media_kind": "video",
                             "media_frames": len(frames),
@@ -555,11 +558,11 @@ class ContextBuilder:
                         max_tokens=240,
                         temperature=0.2,
                         detail="low",
+                        profile="vision_observation",
                         context_meta={
                             "media_kind": "video",
                             "media_frames": len(frames),
                             "media_source": media.source,
-                            "vision_fallback": True,
                         },
                     )
                     if result.success and result.content:
@@ -574,6 +577,7 @@ class ContextBuilder:
                     max_tokens=240,
                     temperature=0.2,
                     detail="low",
+                    profile="vision_observation",
                     context_meta={
                         "media_kind": "image",
                         "media_source": media.source,

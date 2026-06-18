@@ -324,27 +324,15 @@ class OpenAIProvider:
 
         if not self._supports_vision():
             logger.warning(
-                "Model/backend does not support vision payloads; falling back to text-only summary: model=%s",
+                "Model does not support vision payloads: model=%s base_url=%s",
                 self._model,
+                self._base_url,
             )
-            fallback_prompt = (
-                f"{prompt}\n\n"
-                f"The {media_kind} itself could not be sent to this model. "
-                "Summarize the likely state from the available task context and mention that vision was unavailable."
-            )
-            return self.generate(
-                prompt=fallback_prompt,
-                system_prompt=system_prompt,
-                max_tokens=max_tokens,
-                temperature=temperature,
-                context_meta={
-                    **(context_meta or {}),
-                    "vision_fallback": True,
-                    "vision_supported": False,
-                    "vision_detail": detail,
-                    "media_kind": media_kind,
-                    "media_count": len([item for item in image_base64s if item]),
-                },
+            return LLMResponse(
+                success=False,
+                error=f"Model {self._model} does not support vision. Configure a vision-capable model in llm.yaml vision_observation profile.",
+                model_used=self._model,
+                provider_used="openai",
             )
 
         messages = []
@@ -411,25 +399,18 @@ class OpenAIProvider:
             logger.error("OpenAI media API call failed: %s", e)
             error_text = str(e).lower()
             if "image_url" in error_text or "invalid_request_error" in error_text or "messages[1]" in error_text:
-                logger.warning("Retrying as text-only media fallback for model=%s", self._model)
-                return self.generate(
-                    prompt=(
-                        f"{prompt}\n\n"
-                        f"The provided {media_kind} input could not be attached to the model. "
-                        "Provide the best possible actionable observation from the task context alone."
-                    ),
-                    system_prompt=system_prompt,
-                    max_tokens=max_tokens,
-                    temperature=temperature,
-                    context_meta={
-                        **(context_meta or {}),
-                        "vision_fallback": True,
-                        "vision_supported": True,
-                        "vision_detail": detail,
-                        "vision_error": str(e),
-                        "media_kind": media_kind,
-                        "media_count": len([item for item in image_base64s if item]),
-                    },
+                logger.error("Vision API error for model=%s: %s", self._model, e)
+                duration_ms = int((time.monotonic() - start) * 1000)
+                self._audit_log(
+                    action="llm_media_call",
+                    decision="vision_error",
+                    detail={"model": self._model, "error": str(e), "duration_ms": round(duration_ms, 1)},
+                )
+                return LLMResponse(
+                    success=False,
+                    error=f"Vision API error: {e}. Configure a vision-capable model in llm.yaml vision_observation profile.",
+                    model_used=self._model,
+                    provider_used="openai",
                 )
             self._audit_log(
                 action="llm_media_call",

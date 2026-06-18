@@ -39,6 +39,7 @@ class LLMGateway:
         self._settings_resolver = settings_resolver
         self._prompt_registry = prompt_registry
         self._audit = audit_log
+        self._profile_providers: dict[str, Any] = {}
 
     def _resolve(self, profile: str | None) -> LLMSettings:
         """Resolve LLM settings from profile. Falls back to defaults."""
@@ -48,6 +49,38 @@ class LLMGateway:
             except KeyError:
                 logger.warning("Profile '%s' not found, using defaults", profile)
         return LLMSettings()
+
+    def _get_provider_for_profile(self, settings: LLMSettings) -> Any | None:
+        """Get or create a provider for a profile based on api_key_env and base_url."""
+        import os
+        try:
+            from dotenv import load_dotenv
+            from pathlib import Path
+            env_path = Path(__file__).resolve().parents[4] / ".env"
+            if env_path.exists():
+                load_dotenv(env_path, override=False)
+        except ImportError:
+            pass
+        if not settings.api_key_env and not settings.base_url:
+            return None
+        cache_key = f"{settings.api_key_env}:{settings.base_url}:{settings.provider}"
+        if cache_key in self._profile_providers:
+            return self._profile_providers[cache_key]
+        api_key = os.getenv(settings.api_key_env, "") if settings.api_key_env else ""
+        base_url = settings.base_url or ""
+        if not api_key and not base_url:
+            return None
+        from aegis_ai.llm.providers.openai_provider import OpenAIProvider
+        provider = OpenAIProvider(
+            model=settings.model,
+            api_key=api_key or None,
+            base_url=base_url or None,
+            audit_log=self._audit,
+        )
+        self._profile_providers[cache_key] = provider
+        logger.info("Created provider for profile: env=%s base_url=%s model=%s",
+                     settings.api_key_env, base_url, settings.model)
+        return provider
 
     def _get_system_prompt(self, prompt_id: str | None, default: str = "") -> str:
         """Get system prompt from registry or use default."""
@@ -145,16 +178,25 @@ class LLMGateway:
         if temperature is not None:
             settings.temperature = temperature
 
-        request = self._make_request(
-            prompt=prompt,
-            system_prompt=system_prompt,
-            settings=settings,
-            context_meta=context_meta,
-            json_mode=json_mode,
-        )
+        provider = self._get_provider_for_profile(settings)
 
         start = time.monotonic()
-        response = self._router.route(request)
+        if provider is not None:
+            response = provider.generate(
+                prompt=prompt,
+                system_prompt=system_prompt,
+                max_tokens=settings.max_tokens,
+                temperature=settings.temperature,
+            )
+        else:
+            request = self._make_request(
+                prompt=prompt,
+                system_prompt=system_prompt,
+                settings=settings,
+                context_meta=context_meta,
+                json_mode=json_mode,
+            )
+            response = self._router.route(request)
         duration_ms = int((time.monotonic() - start) * 1000)
 
         self._audit_call(
@@ -249,15 +291,27 @@ class LLMGateway:
         if temperature is not None:
             settings.temperature = temperature
 
-        request = self._make_request(
-            prompt=prompt,
-            system_prompt=system_prompt,
-            settings=settings,
-            context_meta=context_meta,
-        )
+        provider = self._get_provider_for_profile(settings)
 
         start = time.monotonic()
-        response = self._router.route_with_image(request, image_base64, detail=detail)
+        if provider is not None and hasattr(provider, "generate_with_image"):
+            response = provider.generate_with_image(
+                prompt=prompt,
+                image_base64=image_base64,
+                system_prompt=system_prompt,
+                max_tokens=settings.max_tokens,
+                temperature=settings.temperature,
+                detail=detail,
+                context_meta=context_meta,
+            )
+        else:
+            request = self._make_request(
+                prompt=prompt,
+                system_prompt=system_prompt,
+                settings=settings,
+                context_meta=context_meta,
+            )
+            response = self._router.route_with_image(request, image_base64, detail=detail)
         duration_ms = int((time.monotonic() - start) * 1000)
 
         self._audit_call(

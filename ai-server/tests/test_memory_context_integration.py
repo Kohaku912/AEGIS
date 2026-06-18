@@ -247,7 +247,7 @@ def test_browser_executor_summary_uses_summary_memory_profile(monkeypatch) -> No
     assert llm.calls[0]["context_meta"] == {"memory_profile": "summary"}
 
 
-def test_openai_provider_falls_back_to_text_only_when_vision_is_unsupported(monkeypatch) -> None:
+def test_openai_provider_returns_error_when_vision_is_unsupported(monkeypatch) -> None:
     provider = OpenAIProvider(
         model="deepseek-chat",
         api_key="test-key",
@@ -255,39 +255,20 @@ def test_openai_provider_falls_back_to_text_only_when_vision_is_unsupported(monk
         audit_log=None,
     )
 
-    captured: dict[str, object] = {}
-
-    def fake_generate(
-        prompt: str,
-        system_prompt: str = "",
-        max_tokens: int = 0,
-        temperature: float = 0.7,
-        context_meta: dict[str, object] | None = None,
-    ) -> object:
-        captured["prompt"] = prompt
-        captured["system_prompt"] = system_prompt
-        captured["context_meta"] = context_meta or {}
-        return SimpleNamespace(success=True, content="text-only fallback")
-
-    monkeypatch.setattr(provider, "generate", fake_generate)
-
     result = provider.generate_with_image(
-        prompt="Summarize this screenshot as an actionable observation for the next tool decision.",
+        prompt="Summarize this screenshot.",
         image_base64="ZmFrZQ==",
-        system_prompt="You convert screenshots into concise tool-planning observations.",
+        system_prompt="You convert screenshots into concise observations.",
         max_tokens=200,
         detail="low",
         context_meta={"memory_profile": "summary"},
     )
 
-    assert result.success is True
-    assert result.content == "text-only fallback"
-    assert "image itself could not be sent" in str(captured["prompt"])
-    assert captured["context_meta"]["vision_fallback"] is True
-    assert captured["context_meta"]["vision_supported"] is False
+    assert result.success is False
+    assert "does not support vision" in result.error
 
 
-def test_openai_provider_uses_text_fallback_for_deepseek_v4_pro(monkeypatch) -> None:
+def test_openai_provider_returns_error_for_deepseek_v4_pro(monkeypatch) -> None:
     provider = OpenAIProvider(
         model="deepseek-v4-pro",
         api_key="test-key",
@@ -295,33 +276,14 @@ def test_openai_provider_uses_text_fallback_for_deepseek_v4_pro(monkeypatch) -> 
         audit_log=None,
     )
 
-    captured: dict[str, object] = {}
-
-    def fake_generate(
-        prompt: str,
-        system_prompt: str = "",
-        max_tokens: int = 0,
-        temperature: float = 0.7,
-        context_meta: dict[str, object] | None = None,
-    ) -> object:
-        captured["prompt"] = prompt
-        captured["system_prompt"] = system_prompt
-        captured["context_meta"] = context_meta or {}
-        return SimpleNamespace(success=True, content="text-only fallback")
-
-    monkeypatch.setattr(provider, "generate", fake_generate)
-
     result = provider.generate_with_image(
-        prompt="Summarize this screenshot as an actionable observation for the next tool decision.",
+        prompt="Summarize this screenshot.",
         image_base64="ZmFrZQ==",
-        system_prompt="You convert screenshots into concise tool-planning observations.",
+        system_prompt="You convert screenshots into concise observations.",
         max_tokens=200,
         detail="low",
-        context_meta={"memory_profile": "summary"},
     )
 
-    assert result.success is True
-    assert result.content == "text-only fallback"
-    assert "image itself could not be sent" in str(captured["prompt"])
-    assert captured["context_meta"]["vision_fallback"] is True
-    assert captured["context_meta"]["vision_supported"] is False
+    assert result.success is False
+    assert "does not support vision" in result.error
+

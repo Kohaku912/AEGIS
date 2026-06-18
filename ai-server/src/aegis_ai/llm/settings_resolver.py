@@ -19,6 +19,8 @@ class LLMSettings:
 
     provider: str = "openai"
     model: str = "deepseek-v4-flash"
+    api_key_env: str = ""
+    base_url: str = ""
     max_tokens: int = 4096
     temperature: float = 0.7
     reasoning_level: str = "medium"
@@ -85,6 +87,8 @@ class LLMSettingsResolver:
         settings = LLMSettings(
             provider=profile.get("provider", "openai"),
             model=profile.get("model", "deepseek-v4-flash"),
+            api_key_env=profile.get("api_key_env", ""),
+            base_url=profile.get("base_url", ""),
             max_tokens=int(profile.get("max_tokens", 4096)),
             temperature=float(profile.get("temperature", 0.7)),
             reasoning_level=profile.get("reasoning_level", "medium"),

@@ -251,6 +251,7 @@ def _build_runtime(config: Config) -> AegisRuntime:
         tool_broker=tool_broker,
         multimodal_llm=llm_gateway,
         capability_retriever=capability_retriever,
+        settings_resolver=settings_resolver,
     )
     session_manager = SessionManager()
     interaction_router = InteractionRouter(
@@ -419,6 +420,7 @@ def _create_autonomous_loop(runtime: AegisRuntime) -> Any:
         policy_engine=runtime.policy_engine,
         audit_log=runtime.audit_log,
         task_manager=runtime.task_manager,
+        settings_resolver=runtime.settings_resolver,
         data_dir=os.path.join(data_dir, "autonomous"),
         desire_threshold=4.0,
         max_tasks_per_cycle=max(1, min(4, settings.autonomous.max_autonomous_runs_per_hour)),

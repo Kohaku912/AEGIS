@@ -83,11 +83,33 @@ def create_multimodal_llm_provider(
     api_key: str | None = None,
     base_url: str | None = None,
     audit_log: Any = None,
+    settings_resolver: Any = None,
 ) -> Any:
-    """Create an LLM provider optimized for image/video understanding."""
-    api_key = api_key or os.getenv("LLM_VISION_API_KEY") or os.getenv("LLM_API_KEY", "")
-    base_url = base_url or os.getenv("LLM_VISION_BASE_URL") or os.getenv("LLM_BASE_URL", "")
-    model_name = model or os.getenv("LLM_VISION_MODEL_NAME", "qwen3-vl-flash")
+    """Create an LLM provider optimized for image/video understanding.
+
+    Resolution order:
+    1. Explicit api_key/model/base_url arguments
+    2. vision_observation profile from llm.yaml (via settings_resolver)
+    3. LLM_VISION_* environment variables
+    4. LLM_* environment variables
+    5. Mock provider
+    """
+    profile_api_key = ""
+    profile_base_url = ""
+    profile_model = ""
+
+    if settings_resolver is not None:
+        try:
+            vs = settings_resolver.resolve(profile_id="vision_observation")
+            profile_api_key = os.getenv(vs.api_key_env, "") if vs.api_key_env else ""
+            profile_base_url = vs.base_url or ""
+            profile_model = vs.model or ""
+        except (KeyError, Exception):
+            pass
+
+    api_key = api_key or profile_api_key or os.getenv("LLM_VISION_API_KEY") or os.getenv("LLM_API_KEY", "")
+    base_url = base_url or profile_base_url or os.getenv("LLM_VISION_BASE_URL") or os.getenv("LLM_BASE_URL", "")
+    model_name = model or profile_model or os.getenv("LLM_VISION_MODEL_NAME", "qwen3-vl-flash")
 
     if provider_name is None:
         if api_key:

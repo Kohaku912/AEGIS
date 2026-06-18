@@ -70,6 +70,7 @@ class AutonomousLoop:
         policy_engine: Any = None,
         audit_log: Any = None,
         task_manager: Any = None,
+        settings_resolver: Any = None,
         data_dir: str = "data/autonomous",
         desire_threshold: float = 4.0,
         max_tasks_per_cycle: int = 3,
@@ -82,6 +83,7 @@ class AutonomousLoop:
         self._reflection = reflection_engine
         self._broker = tool_broker
         self._world = world_state_store
+        self._settings_resolver = settings_resolver
         self._experiential = experiential_memory
         self._affect = affect_system
         self._action_trace = action_trace
@@ -1053,7 +1055,9 @@ Rules:
             try:
                 from aegis_ai.llm.factory import create_multimodal_llm_provider
 
-                vision_llm = create_multimodal_llm_provider()
+                vision_llm = create_multimodal_llm_provider(
+                    settings_resolver=getattr(self, "_settings_resolver", None),
+                )
             except Exception:
                 vision_llm = self._llm
 
@@ -1077,6 +1081,7 @@ Rules:
                 system_prompt="You are AEGIS analyzing your own screenshot. Be concise and observational.",
                 max_tokens=400,
                 detail="low",
+                profile="vision_observation",
             )
             if result.success:
                 return result.content[:200]
