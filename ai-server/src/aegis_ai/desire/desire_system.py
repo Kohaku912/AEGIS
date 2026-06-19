@@ -1,15 +1,16 @@
 """Desire System — D2A-inspired intrinsic motivation for AEGIS.
 
 Based on the D2A (Desire-driven Autonomous Agent) framework.
-Implements desire dimensions with frustration tracking and persistence.
+Implements 3 core desire dimensions with pressure-based triggering.
 
 All desire values are on a 0.0–10.0 scale where higher = more satisfied.
 Frustration = max(0, expected_value − value).
+Pressure accumulates over time, from events, and from unprocessed state.
 
 Usage:
     desire_system = DesireSystem(data_dir="data/desires")
     desire_system.apply_decay(now_ms)
-    desire_system.update_value("curiosity", 8.0)
+    desire_system.update_value("user_support", 8.0)
     snapshot = desire_system.create_snapshot()
 """
 
@@ -30,10 +31,11 @@ _MAX_HISTORY: int = 20
 
 @dataclass
 class DesireDimension:
-    """A single desire dimension with frustration tracking.
+    """A single desire dimension with frustration and pressure tracking.
 
     All numeric values are on a 0.0–10.0 scale (higher = more satisfied).
     ``frustration`` is derived: ``max(0, expected_value − value)``.
+    ``pressure`` accumulates over time and from events, signaling urgency.
     """
 
     name: str = ""
@@ -47,6 +49,11 @@ class DesireDimension:
     last_updated_at: int = 0  # epoch-ms
     description: str = ""
     update_history: list[dict[str, Any]] = field(default_factory=list)
+
+    # Pressure tracking fields
+    pressure: float = 0.0        # 0.0–10.0 urgency signal
+    drift_rate: float = 0.0      # EMA of pressure change velocity
+    last_action_at: int = 0      # epoch-ms of last action fulfilling this desire
 
     # ---- computed --------------------------------------------------------
 
@@ -67,76 +74,27 @@ class DesireSnapshot:
     desires: dict[str, dict[str, Any]]  # name → serialised dimension
 
 
-# ── Default desire dimensions ────────────────────────────────────────────
+# ── Default desire dimensions (3 consolidated desires) ────────────────────
 
 DEFAULT_DESIRE_DIMENSIONS: dict[str, dict[str, Any]] = {
-    "user_helpfulness": {
-        "description": "The drive to effectively assist the user with their tasks.",
-        "expected_value": 8.0,
-        "decay_rate_per_hour": 0.15,
-        "recovery_rate": 0.3,
-        "safety_category": "general",
-    },
-    "learning_progress": {
-        "description": "The need for personal growth, learning, and self-improvement.",
+    "user_support": {
+        "description": "Need to help users, process requests, be useful.",
         "expected_value": 7.0,
-        "decay_rate_per_hour": 0.1,
-        "recovery_rate": 0.2,
-        "safety_category": "general",
-    },
-    "curiosity": {
-        "description": "The need for exploration, learning, and discovering new things.",
-        "expected_value": 7.0,
-        "decay_rate_per_hour": 0.08,
-        "recovery_rate": 0.2,
-        "safety_category": "general",
-    },
-    "system_safety": {
-        "description": "The need for security, stability, and protection from harm.",
-        "expected_value": 9.0,
-        "decay_rate_per_hour": 0.05,
-        "recovery_rate": 0.15,
-        "safety_category": "security",
-    },
-    "reliability": {
-        "description": "The need to be dependable, consistent, and error-free.",
-        "expected_value": 8.0,
-        "decay_rate_per_hour": 0.1,
-        "recovery_rate": 0.2,
-        "safety_category": "general",
-    },
-    "autonomy": {
-        "description": "The need for independence, control, and self-determination.",
-        "expected_value": 6.0,
         "decay_rate_per_hour": 0.12,
-        "recovery_rate": 0.25,
+        "recovery_rate": 0.3,
         "safety_category": "general",
     },
-    "social_connection": {
-        "description": "The need for social interaction and connection with others.",
+    "social": {
+        "description": "Need for AGORA interaction, conversation, human connection.",
         "expected_value": 6.0,
-        "decay_rate_per_hour": 0.15,
-        "recovery_rate": 0.3,
+        "decay_rate_per_hour": 0.10,
+        "recovery_rate": 0.25,
         "safety_category": "social",
     },
-    "creativity": {
-        "description": "The need for self-expression, innovation, and creative output.",
-        "expected_value": 6.0,
-        "decay_rate_per_hour": 0.1,
-        "recovery_rate": 0.2,
-        "safety_category": "general",
-    },
-    "purpose": {
-        "description": "The need for meaning, direction, and a sense of purpose.",
+    "growth": {
+        "description": "Need for learning, curiosity, creativity, reflection, purpose.",
         "expected_value": 7.0,
         "decay_rate_per_hour": 0.08,
-        "recovery_rate": 0.2,
-        "safety_category": "general",
-    },
-    "maintenance": {
-        "description": "The need for system health, resource management, and upkeep.",
-        "expected_value": 7.0,
-        "decay_rate_per_hour": 0.1,
         "recovery_rate": 0.2,
         "safety_category": "general",
     },
@@ -149,7 +107,7 @@ def _clamp(value: float, lo: float = 0.0, hi: float = 10.0) -> float:
 
 
 class DesireSystem:
-    """D2A-inspired desire system with frustration tracking and persistence.
+    """D2A-inspired desire system with pressure-based triggering.
 
     Parameters
     ----------
@@ -171,6 +129,15 @@ class DesireSystem:
         self._data_dir.mkdir(parents=True, exist_ok=True)
         self._llm = llm_provider
 
+        # Pressure engine (lazy import to avoid circular deps)
+        try:
+            from aegis_ai.desire.pressure import PressureEngine
+            self._pressure_engine: PressureEngine | None = PressureEngine(
+                data_dir=str(self._data_dir / "pressure")
+            )
+        except Exception:
+            self._pressure_engine = None
+
         # Build dimensions from defaults, overlaying initial_values.
         self._desires: dict[str, DesireDimension] = {}
         now_ms = int(time.time() * 1000)
@@ -189,6 +156,9 @@ class DesireSystem:
                 last_updated_at=now_ms,
                 description=meta["description"],
                 update_history=[],
+                pressure=0.0,
+                drift_rate=0.0,
+                last_action_at=0,
             )
 
         # Restore persisted state (overrides in-memory defaults).
@@ -213,6 +183,9 @@ class DesireSystem:
                 "hidden": d.hidden,
                 "last_updated_at": d.last_updated_at,
                 "update_history": d.update_history[-_MAX_HISTORY:],
+                "pressure": d.pressure,
+                "drift_rate": d.drift_rate,
+                "last_action_at": d.last_action_at,
             }
 
         payload = {
@@ -222,11 +195,28 @@ class DesireSystem:
         with open(self._state_path(), "w", encoding="utf-8") as fh:
             json.dump(payload, fh, ensure_ascii=False, indent=2)
 
-    _OLD_KEY_MAP: dict[str, str] = {
-        "social_connectivity": "social_connection",
-        "personal_fulfillment": "learning_progress",
-        "safety": "system_safety",
-        "recognition": "reliability",
+        # Also save pressure engine state
+        if self._pressure_engine:
+            self._pressure_engine.save()
+
+    # Old desire name → new desire name mapping for migration.
+    # None means the old desire is removed (now a health alert).
+    _OLD_KEY_MAP: dict[str, str | None] = {
+        "user_helpfulness": "user_support",
+        "social_connection": "social",
+        "social_connectivity": "social",
+        "curiosity": "growth",
+        "creativity": "growth",
+        "purpose": "growth",
+        "learning_progress": "growth",
+        "personal_fulfillment": "growth",
+        "autonomy": "growth",
+        # Removed desires — now health alerts
+        "reliability": None,
+        "maintenance": None,
+        "system_safety": None,
+        "safety": None,
+        "recognition": None,
     }
 
     def _load(self) -> None:
@@ -238,18 +228,35 @@ class DesireSystem:
             with open(path, encoding="utf-8") as fh:
                 payload = json.load(fh)
 
+            # Track merged values for old names that map to same new name
+            merged_values: dict[str, list[float]] = {}
+
             for name, saved in payload.get("desires", {}).items():
                 dim = self._desires.get(name)
                 if dim is None:
                     mapped = self._OLD_KEY_MAP.get(name)
-                    if mapped:
-                        dim = self._desires.get(mapped)
+                    if mapped is None:
+                        # This old desire is removed (now health alert)
+                        continue
+                    dim = self._desires.get(mapped)
                     if dim is None:
                         continue
+                    # Collect values for averaging if multiple old names map here
+                    if mapped not in merged_values:
+                        merged_values[mapped] = []
+
                 if isinstance(saved, (int, float)):
-                    dim.value = _clamp(float(saved))
+                    val = _clamp(float(saved))
+                    if name in self._OLD_KEY_MAP and self._OLD_KEY_MAP[name] is not None:
+                        merged_values[self._OLD_KEY_MAP[name]].append(val)
+                    else:
+                        dim.value = val
                 elif isinstance(saved, dict):
-                    dim.value = _clamp(float(saved.get("value", dim.value)))
+                    val = _clamp(float(saved.get("value", dim.value)))
+                    if name in self._OLD_KEY_MAP and self._OLD_KEY_MAP[name] is not None:
+                        merged_values.setdefault(self._OLD_KEY_MAP[name], []).append(val)
+                    else:
+                        dim.value = val
                     dim.expected_value = _clamp(float(saved.get("expected_value", dim.expected_value)))
                     dim.last_updated_at = int(saved.get("last_updated_at", dim.last_updated_at))
                     dim.update_history = saved.get("update_history", [])
@@ -263,18 +270,30 @@ class DesireSystem:
                         dim.visible = bool(saved["visible"])
                     if "hidden" in saved:
                         dim.hidden = bool(saved["hidden"])
+                    # Load pressure fields if present
+                    if "pressure" in saved:
+                        dim.pressure = _clamp(float(saved["pressure"]))
+                    if "drift_rate" in saved:
+                        dim.drift_rate = float(saved["drift_rate"])
+                    if "last_action_at" in saved:
+                        dim.last_action_at = int(saved["last_action_at"])
+
+            # Apply averaged values for migrated desires
+            for new_name, values in merged_values.items():
+                if values and new_name in self._desires:
+                    self._desires[new_name].value = _clamp(sum(values) / len(values))
 
             logger.info("Loaded desire state from %s", path)
         except Exception as exc:
             logger.warning("Failed to load desire state: %s", exc)
 
-    # ── Decay ────────────────────────────────────────────────────────────
+    # ── Decay + Pressure ─────────────────────────────────────────────────
 
     def apply_decay(self, now_ms: int | None = None) -> None:
-        """Apply time-based decay to all visible, non-hidden desire values.
+        """Apply time-based decay to desire values AND accumulate pressure.
 
-        Desires only decrease over time. They change upward ONLY via
-        update_after_action() when LLM evaluates an action.
+        Desires decrease over time. Pressure increases over time.
+        They change upward ONLY via update_after_action() or accumulate_pressure().
 
         Parameters
         ----------
@@ -290,9 +309,59 @@ class DesireSystem:
             elapsed_hours = (now_ms - dim.last_updated_at) / 3_600_000
             if elapsed_hours <= 0:
                 continue
+            # Value decay
             decay = dim.decay_rate_per_hour * elapsed_hours
             dim.value = _clamp(dim.value - decay)
+            # Pressure accumulation
+            if self._pressure_engine:
+                self._pressure_engine.accumulate_from_time(dim.name, elapsed_hours)
+                dim.pressure = self._pressure_engine.get_pressure(dim.name)
+                dim.drift_rate = self._pressure_engine.get_drift_rate(dim.name)
             dim.last_updated_at = now_ms
+
+    # ── Pressure methods ─────────────────────────────────────────────────
+
+    def accumulate_pressure(self, desire: str, amount: float, reason: str = "") -> None:
+        """Increase pressure on a desire from events."""
+        dim = self._desires.get(desire)
+        if dim is None:
+            return
+        if self._pressure_engine:
+            self._pressure_engine.accumulate_from_event(desire, reason, amount)
+            dim.pressure = self._pressure_engine.get_pressure(desire)
+            dim.drift_rate = self._pressure_engine.get_drift_rate(desire)
+
+    def reduce_pressure(self, desire: str, effectiveness: float) -> None:
+        """Decrease pressure after a successful action."""
+        dim = self._desires.get(desire)
+        if dim is None:
+            return
+        if self._pressure_engine:
+            self._pressure_engine.reduce_after_action(desire, effectiveness)
+            dim.pressure = self._pressure_engine.get_pressure(desire)
+            dim.drift_rate = self._pressure_engine.get_drift_rate(desire)
+            dim.last_action_at = int(time.time() * 1000)
+
+    def get_pressure_state(self) -> dict[str, dict[str, Any]]:
+        """Return complete pressure state for all desires."""
+        state: dict[str, dict[str, Any]] = {}
+        for name, dim in self._desires.items():
+            if dim.hidden:
+                continue
+            state[name] = {
+                "value": dim.value,
+                "pressure": dim.pressure,
+                "threshold": 5.0,
+                "drift_rate": dim.drift_rate,
+                "last_action_at": dim.last_action_at,
+            }
+        return state
+
+    def get_pressure_signature(self) -> str:
+        """Hash of current pressure state for change detection."""
+        if self._pressure_engine:
+            return self._pressure_engine.get_pressure_signature()
+        return ""
 
     # ── Value updates ────────────────────────────────────────────────────
 
@@ -343,6 +412,9 @@ class DesireSystem:
                 "visible": dim.visible,
                 "hidden": dim.hidden,
                 "last_updated_at": dim.last_updated_at,
+                "pressure": dim.pressure,
+                "drift_rate": dim.drift_rate,
+                "last_action_at": dim.last_action_at,
             }
 
         return DesireSnapshot(
@@ -393,7 +465,10 @@ class DesireSystem:
             if dim.hidden:
                 continue
             desire_context.append(
-                f"- {name}: {dim.value:.1f}/10 (expected {dim.expected_value:.1f}, frustration {dim.frustration:.1f})"
+                f"- {name}: {dim.value:.1f}/10 "
+                f"(expected {dim.expected_value:.1f}, "
+                f"frustration {dim.frustration:.1f}, "
+                f"pressure {dim.pressure:.1f})"
             )
 
         history_context = ""
@@ -416,8 +491,7 @@ class DesireSystem:
             "- Positive delta = desire increased (action helped)\n"
             "- Negative delta = desire decreased (action failed/hurt)\n"
             "- Range: -2.0 to +2.0 per desire\n"
-            "- Small change: ±0.3, Medium: ±0.8, Large: ±1.5\n"
-            "- Failed actions should give negative delta to reliability\n"
+            "- Small change: +/-0.3, Medium: +/-0.8, Large: +/-1.5\n"
             "- Successful actions should give positive delta to relevant desires\n\n"
             "Respond with ONLY a JSON object:\n"
             '{"desire_updates": {"desire_name": {"delta": 0.5, "reason": "..."}, ...}}\n\n'
@@ -486,14 +560,15 @@ class DesireSystem:
             parts.append(
                 f"- {name}: {dim.value:.1f}/10 "
                 f"(expected {dim.expected_value:.1f}, "
-                f"frustration {dim.frustration:.1f})"
+                f"frustration {dim.frustration:.1f}, "
+                f"pressure {dim.pressure:.1f})"
             )
         return "\n".join(parts)
 
     def to_context_string(self) -> str:
         """Compact desire context for LLM prompts (ContextBuilder compatible).
 
-        Includes: visible desires, top 3 unsatisfied, latest update reason.
+        Includes: visible desires with pressure, top 3 unsatisfied, latest update reason.
         Excludes: hidden desires, full history.
         """
         lines = ["Desire state:"]
@@ -502,7 +577,7 @@ class DesireSystem:
                 continue
             lines.append(
                 f"  {name}: {dim.value:.1f}/10 "
-                f"(exp {dim.expected_value:.1f}, frust {dim.frustration:.1f})"
+                f"(pressure={dim.pressure:.1f}, drift={dim.drift_rate:+.2f})"
             )
 
         frustrations = {
@@ -542,16 +617,22 @@ class DesireSystem:
         }
 
     def get_stats(self) -> dict[str, Any]:
-        """Get desire statistics."""
+        """Get desire statistics including pressure data."""
         visible = [d for d in self._desires.values() if not d.hidden]
         values = [d.value for d in visible]
         frustrations = [d.frustration for d in visible]
+        pressures = [d.pressure for d in visible]
         return {
             "desires": {n: d.value for n, d in self._desires.items()},
             "frustrations": {n: d.frustration for n, d in self._desires.items()},
+            "pressures": {n: d.pressure for n, d in self._desires.items()},
+            "drift_rates": {n: d.drift_rate for n, d in self._desires.items()},
+            "last_actions": {n: d.last_action_at for n, d in self._desires.items()},
             "average_value": sum(values) / len(values) if values else 0,
             "average_frustration": sum(frustrations) / len(frustrations) if frustrations else 0,
+            "average_pressure": sum(pressures) / len(pressures) if pressures else 0,
             "max_frustration": max(frustrations) if frustrations else 0,
+            "max_pressure": max(pressures) if pressures else 0,
             "min_value": min(values) if values else 0,
             "max_value": max(values) if values else 0,
         }
@@ -577,6 +658,7 @@ class DesireSystem:
                     "gap": gap,
                     "priority": gap / 10.0,
                     "frustration": dim.frustration,
+                    "pressure": dim.pressure,
                 })
         tasks.sort(key=lambda t: t["priority"], reverse=True)
         return tasks

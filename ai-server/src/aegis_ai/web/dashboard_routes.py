@@ -2256,9 +2256,73 @@ class DashboardApp:
             except Exception as e:
                 return jsonify({"error": str(e)})
 
+        @app.route("/api/desires/pressure")
+        def desires_pressure():
+            """Return pressure state for all desires."""
+            try:
+                from aegis_ai.desire.desire_system import DesireSystem
+                ds = DesireSystem(data_dir=os.path.join(_DATA_DIR, "desires"))
+                return jsonify(ds.get_pressure_state())
+            except Exception as e:
+                return jsonify({"error": str(e)})
+
+        @app.route("/api/health/alerts")
+        def health_alerts():
+            """Return active health alerts."""
+            try:
+                from aegis_ai.health.alert_manager import HealthAlertManager
+                ham = HealthAlertManager(data_dir=os.path.join(_DATA_DIR, "health"))
+                return jsonify(ham.to_dict())
+            except Exception as e:
+                return jsonify({"error": str(e)})
+
+        @app.route("/api/health/acknowledge/<alert_id>", methods=["POST"])
+        def health_acknowledge(alert_id):
+            """Acknowledge a health alert."""
+            try:
+                from aegis_ai.health.alert_manager import HealthAlertManager
+                ham = HealthAlertManager(data_dir=os.path.join(_DATA_DIR, "health"))
+                success = ham.acknowledge(alert_id)
+                return jsonify({"success": success})
+            except Exception as e:
+                return jsonify({"error": str(e)})
+
+        @app.route("/api/health/check", methods=["POST"])
+        def health_check():
+            """Trigger a health check."""
+            try:
+                from aegis_ai.health.alert_manager import HealthAlertManager
+                ham = HealthAlertManager(data_dir=os.path.join(_DATA_DIR, "health"))
+                new_alerts = ham.check_system_health()
+                return jsonify({"new_alerts": len(new_alerts), "alerts": [a.to_dict() for a in new_alerts]})
+            except Exception as e:
+                return jsonify({"error": str(e)})
+
+        @app.route("/api/autonomous/skip-reasons")
+        def autonomous_skip_reasons():
+            """Return recent autonomous skip reasons from audit log."""
+            try:
+                import json as _json
+                skip_reasons = []
+                audit_path = os.path.join(_DATA_DIR, "audit.jsonl")
+                if os.path.exists(audit_path):
+                    with open(audit_path, encoding="utf-8") as f:
+                        for line in f:
+                            if "autonomous_preflight" in line or "autonomous_no_action" in line:
+                                entry = _json.loads(line.strip())
+                                skip_reasons.append(entry)
+                return jsonify({"skip_reasons": skip_reasons[-20:]})
+            except Exception as e:
+                return jsonify({"error": str(e)})
+
         @app.route("/dashboard/approvals")
         def dashboard_approvals():
             return render_template("dashboard/approvals.html")
+
+        @app.route("/dashboard/health")
+        def dashboard_health():
+            """Health alerts dashboard page."""
+            return render_template("dashboard/health.html")
 
         @app.route("/api/approvals/pending")
         def approvals_pending():

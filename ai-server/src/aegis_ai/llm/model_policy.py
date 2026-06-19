@@ -36,9 +36,9 @@ DEFAULT_PROFILES: dict[str, ModelProfile] = {
         privacy_level=PrivacyLevel.PUBLIC,
     ),
     "local": ModelProfile(
-        provider="local",
-        model="local-model",
-        max_tokens=4096,
+        provider="openai",
+        model="qwen2.5:7b",
+        max_tokens=2048,
         temperature=0.7,
         cost_per_1k_tokens=0.0,
         privacy_level=PrivacyLevel.LOCAL_ONLY,

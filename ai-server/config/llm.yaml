@@ -77,10 +77,51 @@ profiles:
     timeout_seconds: 30
     max_tool_rounds: 3
 
+  local_chat:
+    provider: "openai"
+    model: "qwen2.5:7b"
+    base_url: "http://localhost:11434/v1"
+    max_tokens: 2048
+    temperature: 0.7
+    reasoning_level: "medium"
+    timeout_seconds: 60
+    max_tool_rounds: 5
+
+  local_tool_planning:
+    provider: "openai"
+    model: "qwen2.5:7b"
+    base_url: "http://localhost:11434/v1"
+    max_tokens: 2048
+    temperature: 0.3
+    reasoning_level: "high"
+    timeout_seconds: 60
+    max_tool_rounds: 10
+
+  local_json_generation:
+    provider: "openai"
+    model: "qwen2.5:7b"
+    base_url: "http://localhost:11434/v1"
+    max_tokens: 2048
+    temperature: 0.1
+    reasoning_level: "medium"
+    timeout_seconds: 60
+    max_tool_rounds: 3
+
+  local_long_answer:
+    provider: "openai"
+    model: "qwen2.5:7b"
+    base_url: "http://localhost:11434/v1"
+    max_tokens: 4096
+    temperature: 0.7
+    reasoning_level: "medium"
+    timeout_seconds: 60
+    max_tool_rounds: 5
+
 safety:
   allowed_models:
     - "deepseek-v4-flash"
     - "qwen3-vl-flash"
+    - "qwen2.5:7b"
   max_tokens_upper_bound: 128000
   max_temperature: 2.0
   min_temperature: 0.0

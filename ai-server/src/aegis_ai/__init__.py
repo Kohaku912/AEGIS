@@ -19,24 +19,30 @@ Package structure:
 - aegis_ai.mind: Identity, Desire, Emotion, Goals
 """
 
-# Re-export core public APIs from existing implementations
-from aegis_ai.approval import (  # noqa: F401
-    ApprovalRequest,
-    ApprovalStatus,
-    ApprovalStore,
-    ApprovalType,
-)
-from aegis_ai.audit import AuditEntry, AuditLog  # noqa: F401
-from aegis_ai.capability_registry import CapabilityRegistry  # noqa: F401
-from aegis_ai.config import Config  # noqa: F401
-from aegis_ai.event_bus import EventBus, EventBusStats  # noqa: F401
-from aegis_ai.grpc_server import serve  # noqa: F401
-from aegis_ai.policy_engine import PolicyDecision, PolicyEngine, PolicyResult  # noqa: F401
-from aegis_ai.tool_broker import InvokeResult, InvokeStatus, ToolBroker  # noqa: F401
-from aegis_ai.tool_registry import ToolRegistry  # noqa: F401
-from aegis_ai.trigger_engine import (  # noqa: F401
-    ActionType,
-    TaskRequest,
-    TriggerEngine,
-    TriggerRule,
-)
+from importlib import import_module
+
+
+def _optional_reexport(module_name: str, names: tuple[str, ...]) -> None:
+    try:
+        module = import_module(module_name)
+    except ModuleNotFoundError:
+        for name in names:
+            globals()[name] = None
+        return
+
+    for name in names:
+        globals()[name] = getattr(module, name)
+
+
+# Re-export core public APIs from existing implementations when their
+# runtime dependencies are available.
+_optional_reexport("aegis_ai.approval", ("ApprovalRequest", "ApprovalStatus", "ApprovalStore", "ApprovalType"))
+_optional_reexport("aegis_ai.audit", ("AuditEntry", "AuditLog"))
+_optional_reexport("aegis_ai.capability_registry", ("CapabilityRegistry",))
+_optional_reexport("aegis_ai.config", ("Config",))
+_optional_reexport("aegis_ai.event_bus", ("EventBus", "EventBusStats"))
+_optional_reexport("aegis_ai.grpc_server", ("serve",))
+_optional_reexport("aegis_ai.policy_engine", ("PolicyDecision", "PolicyEngine", "PolicyResult"))
+_optional_reexport("aegis_ai.tool_broker", ("InvokeResult", "InvokeStatus", "ToolBroker"))
+_optional_reexport("aegis_ai.tool_registry", ("ToolRegistry",))
+_optional_reexport("aegis_ai.trigger_engine", ("ActionType", "TaskRequest", "TriggerEngine", "TriggerRule"))

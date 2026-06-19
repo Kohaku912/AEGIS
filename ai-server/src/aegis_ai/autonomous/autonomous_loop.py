@@ -103,6 +103,7 @@ class AutonomousLoop:
         self._max_tasks = max_tasks_per_cycle
         self._fallback_interval = fallback_interval_seconds
         self._frustration_threshold = frustration_threshold
+        self._pressure_threshold = 5.0  # Pressure-based trigger threshold
 
         self._running = False
         self._thread: threading.Thread | None = None
@@ -112,10 +113,15 @@ class AutonomousLoop:
         self._pending_actionable_observations: list[dict[str, Any]] = []
         self._last_observation_ms: int = 0
         self._observation_interval_ms: int = 60_000  # 1 minute
-        self._desire_check_interval_ms: int = 60_000  # 1 minute — desire check every tick
+        self._desire_check_interval_ms: int = 60_000  # 1 minute
         self._last_desire_check_ms: int = 0
         self._last_desire_signature: str = ""
+        self._last_pressure_signature: str = ""
         self._min_execution_interval_ms: int = 60_000  # Minimum 1 minute between executions
+        self._health_alert_manager: Any = None
+        self._last_health_check_ms: int = 0
+        self._health_check_interval_ms: int = 300_000  # 5 minutes
+        self._last_skip_reason: str = ""
         self._lock = threading.RLock()
 
         # Load state
@@ -145,29 +151,28 @@ class AutonomousLoop:
         with open(state_path, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2)
 
-    def _is_frustration_above_threshold(self) -> bool:
-        """Check if any desire frustration exceeds the threshold."""
+    def _is_pressure_above_threshold(self) -> bool:
+        """Check if any desire pressure exceeds the threshold."""
         if not self._desire:
             return False
         for desire in self._desire.get_all_desires().values():
             if desire.hidden:
                 continue
-            frustration = max(0, desire.expected_value - desire.value)
-            if frustration >= self._frustration_threshold:
+            if desire.pressure >= self._pressure_threshold:
                 return True
         return False
 
     def get_threshold(self) -> float:
-        """Get current frustration threshold."""
+        """Get current pressure threshold."""
         with self._lock:
-            return self._frustration_threshold
+            return self._pressure_threshold
 
     def set_threshold(self, value: float) -> None:
-        """Set frustration threshold (0.0-10.0)."""
+        """Set pressure threshold (0.0-10.0)."""
         with self._lock:
-            self._frustration_threshold = max(0.0, min(10.0, value))
-            current = self._frustration_threshold
-        logger.info("Frustration threshold set to %.1f", current)
+            self._pressure_threshold = max(0.0, min(10.0, value))
+            current = self._pressure_threshold
+        logger.info("Pressure threshold set to %.1f", current)
 
     def start(self) -> None:
         """Start the autonomous loop in background."""
@@ -188,6 +193,10 @@ class AutonomousLoop:
         """Set the curiosity-driven exploration system."""
         self._curiosity = curiosity_system
 
+    def set_health_alert_manager(self, health_alert_manager: Any) -> None:
+        """Set the health alert manager for periodic health checks."""
+        self._health_alert_manager = health_alert_manager
+
     def stop(self) -> None:
         """Stop the autonomous loop."""
         with self._lock:
@@ -207,6 +216,17 @@ class AutonomousLoop:
             try:
                 desire_triggered = self._monitor_desires()
                 now = int(time.time() * 1000)
+
+                # Health check cycle (every 5 minutes)
+                if self._health_alert_manager and now - self._last_health_check_ms >= self._health_check_interval_ms:
+                    try:
+                        new_alerts = self._health_alert_manager.check_system_health()
+                        if new_alerts:
+                            logger.info("Health check: %d new alerts", len(new_alerts))
+                    except Exception as e:
+                        logger.warning("Health check failed: %s", e)
+                    finally:
+                        self._last_health_check_ms = now
 
                 # Spontaneous observation (every 1 minute)
                 if self._observation and now - self._last_observation_ms >= self._observation_interval_ms:
@@ -243,62 +263,68 @@ class AutonomousLoop:
     def _monitor_desires(self) -> bool:
         """Desire monitoring — runs every tick.
 
-        Returns True if any desire frustration exceeds the threshold,
-        triggering immediate execution via LLM.
+        Returns True if any desire pressure exceeds the threshold,
+        triggering execution. No LLM call — pressure-based only.
         """
         if not self._desire:
             return False
         self._desire.apply_decay()
 
-        # Check frustration directly (same logic as _is_frustration_above_threshold)
-        frustrated: list[dict[str, Any]] = []
+        # Check pressure-based trigger
+        pressured: list[dict[str, Any]] = []
         for name, desire in self._desire.get_all_desires().items():
             if desire.hidden:
                 continue
-            frustration = max(0, desire.expected_value - desire.value)
-            if frustration >= self._frustration_threshold:
-                frustrated.append({
+            if desire.pressure >= self._pressure_threshold:
+                pressured.append({
                     "name": name,
                     "value": desire.value,
-                    "expected": desire.expected_value,
-                    "frustration": frustration,
-                    "gap": frustration,
+                    "pressure": desire.pressure,
+                    "drift_rate": desire.drift_rate,
                 })
 
-        if frustrated:
-            frustrated.sort(key=lambda d: d["gap"], reverse=True)
-            top = frustrated[0]
+        if pressured:
+            pressured.sort(key=lambda d: d["pressure"], reverse=True)
+            top = pressured[0]
             logger.info(
-                "Desire check: %d frustrated. Top: %s=%.1f (frustration=%.1f, threshold=%.1f)",
-                len(frustrated), top["name"], top["value"], top["frustration"], self._frustration_threshold,
+                "Pressure check: %d pressured. Top: %s=%.1f (pressure=%.1f, threshold=%.1f)",
+                len(pressured), top["name"], top["value"], top["pressure"], self._pressure_threshold,
             )
-            signature = "|".join(
-                f"{d['name']}:{round(float(d['frustration']), 1)}"
-                for d in frustrated[:3]
-            )
-            now_ms = int(time.time() * 1000)
-            should_evaluate = (
-                signature != self._last_desire_signature
-                or now_ms - self._last_desire_check_ms >= self._desire_check_interval_ms
-            )
-            if should_evaluate:
-                self._llm_evaluate_desires(frustrated)
-                self._last_desire_signature = signature
-                self._last_desire_check_ms = now_ms
             return True
+
+        # Log skip reason (rate-limited to once per minute)
+        now_ms = int(time.time() * 1000)
+        if now_ms - self._last_desire_check_ms >= self._desire_check_interval_ms:
+            self._last_skip_reason = "all_pressure_below_threshold"
+            self._last_desire_check_ms = now_ms
+            logger.debug("All desires below pressure threshold %.1f", self._pressure_threshold)
         return False
 
     def _llm_evaluate_desires(self, low_desires: list[dict[str, Any]]) -> None:
-        """Log low desire states without LLM call."""
-        summary = ", ".join(f"{d['name']}={d['value']:.1f}" for d in low_desires[:3])
-        logger.info("Desire evaluation (no LLM): %d low — %s", len(low_desires), summary)
-        self._log_audit_event(
-            action="desire_evaluation",
-            capability_id="none",
-            decision="SKIP",
-            reason=f"Desires already identified as low: {summary}. No LLM evaluation needed.",
-            detail={"low_desires": [d["name"] for d in low_desires]},
-        )
+        """Log desire states — no LLM call, just audit logging."""
+        summary = ", ".join(f"{d['name']}={d.get('value', 0):.1f}" for d in low_desires[:3])
+        logger.info("Desire evaluation (no LLM): %d — %s", len(low_desires), summary)
+
+    def _preflight_check(self) -> tuple[bool, str]:
+        """Gate before LLM calls. Returns (should_proceed, reason)."""
+        if not self._desire:
+            return False, "no_desire_system"
+
+        self._desire.apply_decay()
+        pressure_state = self._desire.get_pressure_state()
+        max_pressure = max((d["pressure"] for d in pressure_state.values()), default=0.0)
+
+        if max_pressure < self._pressure_threshold:
+            return False, f"all_pressure_below_threshold (max={max_pressure:.1f} < {self._pressure_threshold:.1f})"
+
+        if not self._llm:
+            return False, "provider_unavailable"
+
+        current_signature = self._desire.get_pressure_signature()
+        if current_signature and current_signature == self._last_pressure_signature:
+            return False, "no_state_change"
+
+        return True, "ok"
 
     def _check_repetition(self, tasks: list[dict[str, Any]], action_history: str) -> list[dict[str, Any]]:
         """Ask LLM to self-review tasks for semantic repetition before execution."""
@@ -404,20 +430,36 @@ Respond with JSON:
             self._schedule_next(self._fallback_interval)
             return
 
+        should_proceed, preflight_reason = self._preflight_check()
+        if not should_proceed:
+            logger.info("Preflight blocked: %s", preflight_reason)
+            self._last_skip_reason = preflight_reason
+            self._log_audit_event(
+                action="autonomous_preflight",
+                capability_id="none",
+                decision="SKIP",
+                reason=preflight_reason,
+                detail={"source": "preflight_check"},
+            )
+            self._schedule_next(self._fallback_interval)
+            return
+
         low_desires = self._get_low_desires()
         if not low_desires:
             if self._pending_actionable_observations:
                 low_desires = [{
-                    "name": "maintenance",
+                    "name": "user_support",
                     "value": 0.0,
                     "expected": 1.0,
-                    "frustration": 1.0,
+                    "pressure": 5.0,
                     "gap": 1.0,
                 }]
             else:
                 logger.info("All desires above threshold, scheduling normal interval")
                 self._schedule_next(self._fallback_interval)
                 return
+
+        self._last_pressure_signature = self._desire.get_pressure_signature()
 
         desire_before = {}
         if self._desire:
@@ -468,14 +510,16 @@ Respond with JSON:
     def _get_low_desires(self) -> list[dict[str, Any]]:
         low = []
         for name, desire in self._desire.get_all_desires().items():
-            frustration = max(0, desire.expected_value - desire.value)
-            if frustration >= self._frustration_threshold:
+            if desire.hidden:
+                continue
+            if desire.pressure >= self._pressure_threshold:
                 low.append({
                     "name": name,
                     "value": desire.value,
                     "expected": desire.expected_value,
-                    "frustration": frustration,
-                    "gap": frustration,
+                    "pressure": desire.pressure,
+                    "drift_rate": desire.drift_rate,
+                    "gap": desire.pressure,
                 })
         return sorted(low, key=lambda d: d["gap"], reverse=True)
 
@@ -1285,7 +1329,7 @@ Rules:
         """Build a human-readable summary of recent autonomous actions for LLM context."""
         history = self._load_recent_history(max_entries=max_entries)
         if not history:
-            return "No recent autonomous actions."
+            return "Autonomous execution history: no actions executed yet. First run."
 
         now_ms = int(time.time() * 1000)
         lines = []
@@ -1438,32 +1482,31 @@ Rules:
                     logger.warning("Failed to appraise emotion: %s", e)
 
     def _decide_next_interval(self, results: list[dict[str, Any]]) -> int:
-        """Decide when to run next using lightweight program logic (no LLM)."""
+        """Decide when to run next using pressure-based logic (no LLM)."""
         if not self._desire:
             logger.info("No desire — using fallback interval %ds", self._fallback_interval)
             return self._fallback_interval
 
         desires = self._desire.get_all_desires()
-        low_count = 0
-        total_gap = 0.0
+        high_pressure_count = 0
+        total_pressure = 0.0
         for desire in desires.values():
             if desire.hidden:
                 continue
-            gap = max(0, desire.expected_value - desire.value)
-            if gap >= self._frustration_threshold:
-                low_count += 1
-            total_gap += gap
+            if desire.pressure >= self._pressure_threshold:
+                high_pressure_count += 1
+            total_pressure += desire.pressure
 
         success_count = sum(1 for r in results if r.get("success"))
         total_count = len(results)
         fail_count = total_count - success_count
 
-        if low_count == 0:
-            interval = self._fallback_interval * 2
-            reason = "all desires healthy"
-        elif low_count >= 3:
+        if high_pressure_count == 0:
+            interval = self._fallback_interval
+            reason = "all pressures below threshold"
+        elif high_pressure_count >= 3:
             interval = 300
-            reason = f"{low_count} desires critically low"
+            reason = f"{high_pressure_count} desires critically pressured"
         elif fail_count > success_count and total_count > 0:
             interval = 900
             reason = f"{fail_count}/{total_count} tasks failed, backing off"
@@ -1471,8 +1514,8 @@ Rules:
             interval = self._fallback_interval
             reason = "no tasks executed"
         else:
-            interval = max(600, int(self._fallback_interval * (1.0 - total_gap / 30.0)))
-            reason = f"{low_count} low desires, gap managed"
+            interval = max(600, int(self._fallback_interval * (1.0 - total_pressure / 30.0)))
+            reason = f"{high_pressure_count} pressured desires, managed"
 
         interval = max(300, min(7200, interval))
         logger.info("Next autonomous run in %d seconds: %s", interval, reason)
@@ -1522,7 +1565,8 @@ Rules:
                 "next_run_ms": self._next_run_ms,
                 "seconds_until_next": max(0, (self._next_run_ms - now) / 1000),
                 "execution_count": len(self._execution_log),
-                "frustration_threshold": self._frustration_threshold,
+                "pressure_threshold": self._pressure_threshold,
+                "last_skip_reason": self._last_skip_reason,
             }
 
     def trigger_now(self) -> dict[str, Any]:
