@@ -211,33 +211,7 @@ class MotivationArbiter:
                 created_at=now,
             )
 
-        # ── 2. Safety urgent (system_safety / reliability desire tasks) ─
-        safety_tasks = [
-            t for t in (desire_tasks or [])
-            if t.source_desire in ("system_safety", "reliability")
-            and t.risk_level in (RiskLevel.NONE, RiskLevel.LOW)
-        ]
-        for t in safety_tasks:
-            fp = t.fingerprint
-            if fp in ctx.cooldown_fingerprints:
-                skipped.append({"task_id": t.task_id, "reason": "cooldown"})
-                continue
-            score, reason = _score_task(t, ctx, t.priority + 50.0)
-            if score < 0:
-                skipped.append({"task_id": t.task_id, "reason": reason})
-                continue
-            return MotivationDecision(
-                selected_task=t,
-                decision_type=DecisionType.SAFETY_URGENT,
-                score=score,
-                reason=f"Safety/reliability urgent: {t.source_desire} frustration.",
-                skipped_tasks=skipped,
-                risk_level=t.risk_level,
-                requires_approval=t.requires_user_approval,
-                created_at=now,
-            )
-
-        # ── 3. Scheduled ────────────────────────────────────────────────
+        # ── 2. Scheduled ────────────────────────────────────────────────
         for t in scheduled_tasks or []:
             if t.task_id in ctx.recent_task_ids:
                 skipped.append({"task_id": t.task_id, "reason": "already_executed"})

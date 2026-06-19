@@ -1,0 +1,121 @@
+{% extends "dashboard/base.html" %}
+{% block title %}AEGIS Dashboard — Health Alerts{% endblock %}
+{% block content %}
+<h1>Health Alerts</h1>
+
+<div class="card">
+    <div class="card-header">System Health</div>
+    <p style="font-size:13px;color:var(--text-dim);margin-bottom:12px;">
+        Health alerts monitor disk space, server reachability, executor availability, and LLM provider status.
+        These are separate from desire pressure and do not trigger autonomous execution.
+    </p>
+    <div style="display:flex;gap:8px;margin-bottom:16px;">
+        <button class="btn btn-primary" onclick="triggerHealthCheck()">Run Health Check</button>
+        <button class="btn btn-secondary" onclick="acknowledgeAll()">Acknowledge All</button>
+    </div>
+    <div id="alertStats" style="margin-bottom:12px;font-size:13px;color:var(--text-dim);"></div>
+</div>
+
+<div class="card">
+    <div class="card-header">Active Alerts</div>
+    <div id="activeAlerts">Loading...</div>
+</div>
+
+<div class="card">
+    <div class="card-header">Recent Alerts (All)</div>
+    <div id="allAlerts">Loading...</div>
+</div>
+
+<script>
+async function loadAlerts() {
+    try {
+        const res = await fetch('/api/health/alerts');
+        const data = await res.json();
+
+        // Stats
+        const stats = data.stats || {};
+        const statsEl = document.getElementById('alertStats');
+        statsEl.innerHTML = 'Active: <strong>' + (stats.active || 0) + '</strong> | Total: <strong>' + (stats.total || 0) + '</strong>';
+
+        // Active alerts
+        const activeContainer = document.getElementById('activeAlerts');
+        if (data.active_alerts && data.active_alerts.length > 0) {
+            let html = '<table><tr><th>Type</th><th>Severity</th><th>Message</th><th>Source</th><th>Time</th><th></th></tr>';
+            data.active_alerts.forEach(a => {
+                const sev = a.severity === 'critical' ? 'badge-red' : a.severity === 'warning' ? 'badge-yellow' : 'badge-green';
+                html += '<tr>';
+                html += '<td>' + a.alert_type + '</td>';
+                html += '<td><span class="badge ' + sev + '">' + a.severity + '</span></td>';
+                html += '<td>' + a.message + '</td>';
+                html += '<td style="font-size:12px;">' + (a.source || '') + '</td>';
+                html += '<td style="font-size:12px;">' + new Date(a.created_at).toLocaleString() + '</td>';
+                html += '<td><button class="btn btn-secondary" style="font-size:11px;padding:2px 8px;" onclick="ackAlert(\'' + a.alert_id + '\')">Ack</button></td>';
+                html += '</tr>';
+            });
+            html += '</table>';
+            activeContainer.innerHTML = html;
+        } else {
+            activeContainer.innerHTML = '<p style="color:var(--text-dim);font-size:13px;">No active alerts.</p>';
+        }
+
+        // All alerts
+        const allContainer = document.getElementById('allAlerts');
+        if (data.recent_alerts && data.recent_alerts.length > 0) {
+            let html = '<table><tr><th>Type</th><th>Severity</th><th>Message</th><th>Status</th><th>Time</th></tr>';
+            data.recent_alerts.forEach(a => {
+                const sev = a.severity === 'critical' ? 'badge-red' : a.severity === 'warning' ? 'badge-yellow' : 'badge-green';
+                const status = a.acknowledged ? '<span class="badge badge-green">Acked</span>' : '<span class="badge badge-yellow">Active</span>';
+                html += '<tr>';
+                html += '<td>' + a.alert_type + '</td>';
+                html += '<td><span class="badge ' + sev + '">' + a.severity + '</span></td>';
+                html += '<td>' + a.message + '</td>';
+                html += '<td>' + status + '</td>';
+                html += '<td style="font-size:12px;">' + new Date(a.created_at).toLocaleString() + '</td>';
+                html += '</tr>';
+            });
+            html += '</table>';
+            allContainer.innerHTML = html;
+        } else {
+            allContainer.innerHTML = '<p style="color:var(--text-dim);font-size:13px;">No alerts recorded.</p>';
+        }
+    } catch (e) {
+        document.getElementById('activeAlerts').innerHTML = '<p style="color:#f85149;">Failed to load alerts</p>';
+    }
+}
+
+async function ackAlert(id) {
+    try {
+        await fetch('/api/health/acknowledge/' + id, {method: 'POST'});
+        loadAlerts();
+    } catch (e) {}
+}
+
+async function acknowledgeAll() {
+    try {
+        const res = await fetch('/api/health/alerts');
+        const data = await res.json();
+        if (data.active_alerts) {
+            for (const a of data.active_alerts) {
+                await fetch('/api/health/acknowledge/' + a.alert_id, {method: 'POST'});
+            }
+        }
+        loadAlerts();
+    } catch (e) {}
+}
+
+async function triggerHealthCheck() {
+    try {
+        const res = await fetch('/api/health/check', {method: 'POST'});
+        const data = await res.json();
+        if (data.new_alerts > 0) {
+            alert('Found ' + data.new_alerts + ' new alert(s)');
+        }
+        loadAlerts();
+    } catch (e) {
+        alert('Health check failed');
+    }
+}
+
+loadAlerts();
+</script>
+{% endblock %}

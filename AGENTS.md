@@ -66,14 +66,20 @@ The agent may proceed without asking when:
    - Pattern: Action → Result → LLM → Final Response
 
 4. **Memory is LLM-managed.**
-   - LLM decides what to remember
-   - LLM decides what to search
-   - LLM decides what to delete
-   - No keyword-based memory operations
+    - LLM decides what to remember
+    - LLM decides what to search
+    - LLM decides what to delete
+    - No keyword-based memory operations
+
+- Ollama local LLM mode is configured via llm.yaml profiles with `base_url: "http://localhost:11434/v1"`. Use `local_chat`, `local_tool_planning`, `local_json_generation`, `local_long_answer` profiles for local inference. Vision profiles remain on cloud (DeepSeek/OpenAI) even in local mode.
 
 ---
 
 ## Architecture Overview
+
+## Architecture decisions
+
+- **Ollama local LLM integration (2026-06-19)**: Ollama provides OpenAI-compatible API at `localhost:11434/v1`. Reuses existing `OpenAIProvider` with different `base_url` — no new provider class needed. Factory detects Ollama by checking for `localhost:11434` in base_url. Router's `_find_local_provider()` prefers "ollama" over "mock" when registered. Default model: `qwen2.5:7b`. Local profiles omit `api_key_env` (Ollama doesn't need auth). `external_llm_allowed=false` routes to Ollama instead of mock.
 
 ### Servers
 

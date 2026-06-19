@@ -50,6 +50,18 @@ def create_llm_provider(
     base_url = base_url or os.getenv("LLM_BASE_URL", "")
     model_name = model or os.getenv("LLM_MODEL_NAME", "")
 
+    # Detect Ollama local LLM
+    if base_url and ("localhost:11434" in base_url or "127.0.0.1:11434" in base_url):
+        from aegis_ai.llm.providers.openai_provider import OpenAIProvider
+
+        logger.info("Using Ollama local LLM at %s with model %s", base_url, model_name or "qwen2.5:7b")
+        return OpenAIProvider(
+            model=model_name or "qwen2.5:7b",
+            api_key="ollama",
+            base_url=base_url,
+            audit_log=audit_log,
+        )
+
     # Auto-detect provider
     if provider_name is None:
         if api_key:

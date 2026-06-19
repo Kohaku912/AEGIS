@@ -2,6 +2,10 @@
 
 Each desire has specific conditions that determine how much it was fulfilled.
 Used by the autonomous loop and chat path to evaluate task results.
+
+3 desires: user_support, social, growth.
+Health-related conditions (reliability, maintenance, system_safety) are now
+handled by HealthAlertManager, not desire fulfillment.
 """
 
 from __future__ import annotations
@@ -30,54 +34,20 @@ class TaskResult:
     details: dict[str, Any] = field(default_factory=dict)
 
 
-# Desire fulfillment conditions per desire type
+# Desire fulfillment conditions per desire type (3 consolidated desires)
 DESIRE_FULFILLMENT = {
-    "user_helpfulness": {
+    "user_support": {
         "description": "Fulfilled by completing user requests and being helpful",
         "conditions": {
             "user_request_completed": 0.8,      # User's explicit request actually completed
             "mention_reply_created": 0.5,        # Created reply to mention
             "useful_info_provided": 0.4,         # Provided useful information
             "task_partially_done": 0.3,          # Task partially completed
-            "no_new_posts": 0.0,                 # No new posts to process
             "no_action_needed": 0.0,             # No action was needed
             "tool_error": -0.3,                  # Tool execution failed
         },
     },
-    "reliability": {
-        "description": "Fulfilled by being dependable and error-free",
-        "conditions": {
-            "error_diagnosed_and_fixed": 0.8,    # Identified and fixed failure cause
-            "healthcheck_passed": 0.4,           # System health check passed
-            "useful_memory_saved": 0.2,          # Saved useful procedure to memory
-            "task_succeeded": 0.2,               # Task completed without errors
-            "no_memory_found": 0.0,              # Memory search returned nothing
-            "tool_error": -0.3,                  # Tool execution failed
-            "repeated_failure": -0.5,            # Same failure happened again
-        },
-    },
-    "system_safety": {
-        "description": "Fulfilled by verifying security and preventing harm",
-        "conditions": {
-            "security_check_done": 0.8,          # Actually checked settings/permissions/dangerous ops
-            "safety_info_saved": 0.3,            # Saved security-relevant information
-            "danger_prevented": 0.8,             # Prevented a dangerous action
-            "generic_search_only": 0.0,          # Only did generic web search
-            "no_threats_found": 0.2,             # Verified no threats exist
-            "tool_error": -0.2,                  # Tool error (safety-relevant)
-        },
-    },
-    "curiosity": {
-        "description": "Fulfilled by exploring and learning new things",
-        "conditions": {
-            "new_info_summarized": 0.5,          # Got new info, summarized and saved
-            "interesting_discovery": 0.6,        # Found something genuinely interesting
-            "web_search_results": 0.3,           # Got useful web search results
-            "empty_results": 0.0,                # Search returned nothing useful
-            "tool_error": -0.2,                  # Tool error
-        },
-    },
-    "social_connection": {
+    "social": {
         "description": "Fulfilled by social interactions (posting is primary, reading barely satisfies)",
         "conditions": {
             "posted_to_agora": 1.0,              # Actually posted to AGORA (maximum satisfaction)
@@ -88,49 +58,20 @@ DESIRE_FULFILLMENT = {
             "tool_error": -0.3,                  # Tool error
         },
     },
-    "autonomy": {
-        "description": "Fulfilled by independent action and self-improvement",
+    "growth": {
+        "description": "Fulfilled by learning, exploration, creativity, and reflection",
         "conditions": {
-            "independent_task_done": 0.6,        # Completed task independently
-            "self_improvement": 0.5,             # Made improvement to self
-            "tool_error": -0.2,                  # Tool error
-            "no_action_taken": 0.0,              # Didn't take any action
-        },
-    },
-    "creativity": {
-        "description": "Fulfilled by creative output",
-        "conditions": {
+            "new_info_summarized": 0.5,          # Got new info, summarized and saved
+            "interesting_discovery": 0.6,        # Found something genuinely interesting
+            "web_search_results": 0.3,           # Got useful web search results
             "creative_output": 0.6,              # Produced creative content
-            "interesting_idea": 0.4,             # Generated interesting idea
-            "tool_error": -0.2,                  # Tool error
-            "no_creative_output": 0.0,           # No creative output
-        },
-    },
-    "purpose": {
-        "description": "Fulfilled by meaningful action",
-        "conditions": {
             "meaningful_action": 0.5,            # Took meaningful action
             "goal_progress": 0.4,                # Made progress toward a goal
-            "tool_error": -0.2,                  # Tool error
-            "no_progress": 0.0,                  # No progress made
-        },
-    },
-    "learning_progress": {
-        "description": "Fulfilled by learning and growth",
-        "conditions": {
             "learned_new_skill": 0.6,            # Learned something new
             "knowledge_applied": 0.4,            # Applied existing knowledge
+            "empty_results": 0.0,                # Search returned nothing useful
+            "no_progress": 0.0,                  # No progress made
             "tool_error": -0.2,                  # Tool error
-            "no_learning": 0.0,                  # Nothing learned
-        },
-    },
-    "maintenance": {
-        "description": "Fulfilled by system maintenance",
-        "conditions": {
-            "system_maintained": 0.5,            # Performed maintenance task
-            "health_verified": 0.3,              # Verified system health
-            "tool_error": -0.3,                  # Tool error
-            "no_maintenance": 0.0,               # No maintenance done
         },
     },
 }
@@ -158,14 +99,12 @@ def evaluate_task_result(
     if not tool_success:
         result.task_effect = TaskEffect.FAILED
         result.summary = f"Tool execution failed: {output.get('error', 'unknown')}"
-        # Apply failure deltas to all relevant desires
         if desire_name and desire_name in DESIRE_FULFILLMENT:
             conditions = DESIRE_FULFILLMENT[desire_name]["conditions"]
             result.desire_delta_hint[desire_name] = conditions.get("tool_error", -0.3)
         return result
 
     # Tool succeeded - classify the effect
-    output_str = str(output).lower()
     result_text = str(output.get("result", "")).lower()
 
     # Check for empty/no-effect results
@@ -252,20 +191,15 @@ def _needs_followup(result_text: str, capability_id: str) -> bool:
 
 def _get_no_effect_deltas(desire_name: str) -> dict[str, float]:
     """Get deltas for no-effect results. These should NOT decrease desires."""
-    deltas = {}
+    deltas: dict[str, float] = {}
     if desire_name and desire_name in DESIRE_FULFILLMENT:
-        conditions = DESIRE_FULFILLMENT[desire_name]["conditions"]
-        # Use the 0.0 condition for no-effect
-        for cond_name, delta in conditions.items():
-            if delta == 0.0:
-                deltas[desire_name] = 0.0
-                break
+        deltas[desire_name] = 0.0
     return deltas
 
 
 def _get_useful_deltas(desire_name: str, capability_id: str, output: dict[str, Any]) -> dict[str, float]:
     """Get deltas for useful results based on desire fulfillment conditions."""
-    deltas = {}
+    deltas: dict[str, float] = {}
 
     if not desire_name or desire_name not in DESIRE_FULFILLMENT:
         return deltas
@@ -278,10 +212,11 @@ def _get_useful_deltas(desire_name: str, capability_id: str, output: dict[str, A
         if "posted" in result_text or "post" in capability_id:
             deltas[desire_name] = conditions.get("posted_to_agora", 0.5)
         elif "read" in capability_id:
-            if "no new" in result_text:
-                deltas[desire_name] = conditions.get("no_new_posts", 0.0)
+            if "no new" in result_text or "no posts" in result_text:
+                # AGORA no-new-posts: delta = 0.0 (do NOT increase social pressure)
+                deltas[desire_name] = 0.0
             else:
-                deltas[desire_name] = conditions.get("read_new_posts", 0.3)
+                deltas[desire_name] = conditions.get("read_new_posts", 0.1)
     elif "search" in capability_id:
         if "no results" in result_text:
             deltas[desire_name] = conditions.get("empty_results", 0.0)
@@ -289,14 +224,33 @@ def _get_useful_deltas(desire_name: str, capability_id: str, output: dict[str, A
             deltas[desire_name] = conditions.get("web_search_results", 0.3)
     elif "memory" in capability_id:
         if "no memory" in result_text:
-            deltas[desire_name] = conditions.get("no_memory_found", 0.0)
+            deltas[desire_name] = conditions.get("empty_results", 0.0)
         else:
-            deltas[desire_name] = conditions.get("useful_memory_saved", 0.2)
+            deltas[desire_name] = conditions.get("new_info_summarized", 0.3)
     elif "screenshot" in capability_id:
-        deltas[desire_name] = conditions.get("task_succeeded", 0.2)
-    elif "system" in capability_id or "os_info" in capability_id:
-        deltas[desire_name] = conditions.get("healthcheck_passed", 0.4)
+        deltas[desire_name] = conditions.get("meaningful_action", 0.2)
     else:
-        deltas[desire_name] = conditions.get("task_succeeded", 0.2)
+        deltas[desire_name] = conditions.get("meaningful_action", 0.2)
 
     return deltas
+
+
+def is_health_alert(capability_id: str, result_text: str) -> bool:
+    """Check if this result should be a health alert instead of a desire update.
+
+    Health-related conditions are handled by HealthAlertManager, not desires.
+    """
+    health_indicators = [
+        "disk space",
+        "disk usage",
+        "unreachable",
+        "no executor",
+        "connection refused",
+        "timed out",
+        "provider unavailable",
+    ]
+    text = result_text.lower()
+    for indicator in health_indicators:
+        if indicator in text:
+            return True
+    return False

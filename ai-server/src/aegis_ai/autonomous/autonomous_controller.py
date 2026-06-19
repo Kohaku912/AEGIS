@@ -78,7 +78,7 @@ class AutonomousController:
         evaluator: DesireActionEvaluator | None = None,
         tool_broker: Any = None,
         data_dir: str = "data/autonomous",
-        frustration_threshold: float = 2.0,
+        frustration_threshold: float = 5.0,
         now_ms: int | None = None,
     ) -> None:
         self._desire = desire_system
@@ -116,8 +116,12 @@ class AutonomousController:
         # 2. Snapshot
         before = self._desire.create_snapshot()
 
-        # 3. Threshold check
-        if before.average_frustration < self._threshold and not user_tasks and not scheduled_tasks and not event_tasks:
+        # 3. Pressure threshold check
+        max_pressure = max(
+            (d.get("pressure", 0.0) for d in before.desires.values()),
+            default=0.0,
+        )
+        if max_pressure < self._threshold and not user_tasks and not scheduled_tasks and not event_tasks:
             result = TickResult(
                 tick_id=tick_id,
                 decision=None,
@@ -127,7 +131,7 @@ class AutonomousController:
                 after_snapshot=before,
                 executed=False,
                 dry_run=dry_run,
-                reason=f"Average frustration {before.average_frustration:.2f} < threshold {self._threshold}",
+                reason=f"Max pressure {max_pressure:.2f} < threshold {self._threshold}",
             )
             self._record_audit(result)
             return result
@@ -190,11 +194,15 @@ class AutonomousController:
         return result
 
     def should_trigger_intrinsic_task(self, now_ms: int | None = None) -> bool:
-        """Check if frustration exceeds threshold."""
+        """Check if any desire pressure exceeds threshold."""
         now = now_ms or self._now or int(time.time() * 1000)
         self._desire.apply_decay(now_ms=now)
         snap = self._desire.create_snapshot()
-        return snap.average_frustration >= self._threshold
+        max_pressure = max(
+            (d.get("pressure", 0.0) for d in snap.desires.values()),
+            default=0.0,
+        )
+        return max_pressure >= self._threshold
 
     def build_task_request_from_intrinsic_task(
         self,
@@ -270,30 +278,13 @@ class AutonomousController:
                 min(10.0, self._desire.get_desire(source_desire).value + 0.5),
                 reason=f"Task verified: {task.title}",
             )
-            if "reliability" not in source_desire:
-                self._desire.update_value(
-                    "reliability",
-                    min(10.0, self._desire.get_desire("reliability").value + 0.2),
-                    reason="Task verification passed",
-                )
         elif verification_status in ("failed", "error"):
             self._desire.update_value(
                 source_desire,
                 max(0.0, self._desire.get_desire(source_desire).value - 0.3),
                 reason=f"Task failed verification: {reason}",
             )
-            self._desire.update_value(
-                "reliability",
-                max(0.0, self._desire.get_desire("reliability").value - 0.2),
-                reason="Task verification failed",
-            )
             self._recent_failures.append(task.task_id)
-        elif verification_status in ("unverified", "requires_observation"):
-            self._desire.update_value(
-                "reliability",
-                max(0.0, self._desire.get_desire("reliability").value - 0.1),
-                reason="Task outcome unverified",
-            )
 
         self._desire.save()
 
@@ -333,8 +324,6 @@ class AutonomousController:
             return ActionType.NOTIFY
         if "web_search" in caps:
             return ActionType.RESEARCH
-        if task.source_desire in ("system_safety", "reliability"):
-            return ActionType.SELF_DEV
         return ActionType.SELF_DEV
 
     def _record_audit(self, result: TickResult) -> None:

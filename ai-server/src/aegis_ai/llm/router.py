@@ -306,7 +306,13 @@ class LLMRouter:
         with self._lock:
             names = list(self._providers)
         for name in names:
-            if name in ("mock", "local"):
+            if name == "ollama":
+                return name
+        for name in names:
+            if name == "local":
+                return name
+        for name in names:
+            if name == "mock":
                 return name
         return ""
 
