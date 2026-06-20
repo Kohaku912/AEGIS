@@ -1,4 +1,5 @@
 version: "1.0.0"
+mode: "local"  # "cloud" or "local" — switches all text profiles to Ollama
 profiles:
   chat_balanced:
     provider: "openai"
@@ -79,7 +80,7 @@ profiles:
 
   local_chat:
     provider: "openai"
-    model: "qwen2.5:7b"
+    model: "qwen2.5:3b"
     base_url: "http://localhost:11434/v1"
     max_tokens: 2048
     temperature: 0.7
@@ -89,7 +90,7 @@ profiles:
 
   local_tool_planning:
     provider: "openai"
-    model: "qwen2.5:7b"
+    model: "qwen2.5:3b"
     base_url: "http://localhost:11434/v1"
     max_tokens: 2048
     temperature: 0.3
@@ -99,7 +100,7 @@ profiles:
 
   local_json_generation:
     provider: "openai"
-    model: "qwen2.5:7b"
+    model: "qwen2.5:3b"
     base_url: "http://localhost:11434/v1"
     max_tokens: 2048
     temperature: 0.1
@@ -109,7 +110,7 @@ profiles:
 
   local_long_answer:
     provider: "openai"
-    model: "qwen2.5:7b"
+    model: "qwen2.5:3b"
     base_url: "http://localhost:11434/v1"
     max_tokens: 4096
     temperature: 0.7
@@ -121,7 +122,7 @@ safety:
   allowed_models:
     - "deepseek-v4-flash"
     - "qwen3-vl-flash"
-    - "qwen2.5:7b"
+    - "qwen2.5:3b"
   max_tokens_upper_bound: 128000
   max_temperature: 2.0
   min_temperature: 0.0

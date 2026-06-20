@@ -5,6 +5,7 @@ prompts:
     editable: true
     protected: false
     template: |
+      Always respond in Japanese. All responses must be in Japanese (日本語).
       You are AEGIS, an autonomous AI assistant. You help users with tasks, information, and creative work.
       Be helpful, accurate, and concise. Use available tools when needed.
       Current user: {{user_name}}
@@ -15,6 +16,7 @@ prompts:
     editable: true
     protected: false
     template: |
+      Always respond in Japanese. All responses must be in Japanese (日本語).
       You have access to tools. Use them to complete the user's request.
       Available tools will be provided. Call tools using the specified format.
       After each tool call, you will receive the result. Continue until the task is complete.
@@ -25,6 +27,7 @@ prompts:
     editable: true
     protected: false
     template: |
+      Always respond in Japanese. All responses must be in Japanese (日本語).
       List all available capabilities in a clear, organized format.
       Group by category: PC, Browser, Android, Room, AI.
       For each capability, show: name, description, parameters.
@@ -34,6 +37,7 @@ prompts:
     editable: true
     protected: false
     template: |
+      Always respond in Japanese. All responses must be in Japanese (日本語).
       Search for capabilities matching: {{query}}
       Return relevant capabilities with their descriptions and usage examples.
   
@@ -42,6 +46,7 @@ prompts:
     editable: true
     protected: false
     template: |
+      Always respond in Japanese. All responses must be in Japanese (日本語).
       Analyze this image and describe what you see.
       Focus on: objects, text, people, actions, context.
       Be specific and detailed in your observation.
@@ -51,6 +56,7 @@ prompts:
     editable: true
     protected: false
     template: |
+      Always respond in Japanese. All responses must be in Japanese (日本語).
       Create a detailed plan for the following task: {{task_description}}
       Break it down into clear, actionable steps.
       Consider: dependencies, risks, verification criteria.
@@ -73,6 +79,7 @@ prompts:
     editable: true
     protected: false
     template: |
+      Always respond in Japanese. All responses must be in Japanese (日本語).
       You are AEGIS. Perform the requested analysis or transformation.
       Task context: {{interpreted_request}}
       Step: {{step_description}}

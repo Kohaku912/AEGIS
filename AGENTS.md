@@ -71,7 +71,7 @@ The agent may proceed without asking when:
     - LLM decides what to delete
     - No keyword-based memory operations
 
-- Ollama local LLM mode is configured via llm.yaml profiles with `base_url: "http://localhost:11434/v1"`. Use `local_chat`, `local_tool_planning`, `local_json_generation`, `local_long_answer` profiles for local inference. Vision profiles remain on cloud (DeepSeek/OpenAI) even in local mode.
+- Ollama local LLM mode is configured via llm.yaml `mode: "local"` field. When mode is "local", `settings_resolver.py` automatically remaps cloud profile names (chat_balanced, tool_planning, etc.) to local profiles (local_chat, local_tool_planning, etc.). Vision profiles remain on cloud (DeepSeek/OpenAI) even in local mode. Switch to `mode: "cloud"` to revert.
 
 ---
 
@@ -219,20 +219,23 @@ Aliases are built at startup from JSON manifests. Code MUST use canonical format
 
 ## Desire System (D2A-Inspired)
 
-### Desires (0-10 scale)
+### Desires (0-10 scale, pressure-based triggering)
 
 | Desire | Description |
 |--------|-------------|
-| **user_helpfulness** | Need to effectively assist the user |
-| **reliability** | Need to be dependable and error-free |
-| **system_safety** | Need for security and protection |
-| **curiosity** | Need for exploration and learning |
-| **social_connection** | Need for social interaction |
-| **autonomy** | Need for independence and self-determination |
-| **creativity** | Need for creative expression |
-| **purpose** | Need for meaningful action |
-| **learning_progress** | Need for growth and learning |
-| **maintenance** | Need for system health |
+| **user_support** | User assistance, pending requests, helpful actions |
+| **social** | AGORA, conversations, social interactions |
+| **growth** | Learning, curiosity, creativity, reflection, purpose |
+
+**Removed from desires** (now handled as health alerts): `reliability`, `maintenance`, `system_safety`
+
+### Pressure-Based Triggering
+
+- Pressure accumulates over time (10.0/hour), from events, and from unprocessed state
+- Threshold: 5.0 (reaches in ~30 minutes from time alone)
+- After action: pressure reduces based on effectiveness (2.0–4.0 reduction)
+- Observations do NOT bypass pressure check — they accumulate as pending items
+- `_preflight_check()` gates all LLM calls: pressure threshold, provider availability, state change
 
 ### Task Evaluation (3-tier)
 
@@ -246,21 +249,15 @@ Aliases are built at startup from JSON manifests. Code MUST use canonical format
 
 | Desire | Condition | Delta |
 |--------|-----------|-------|
-| **user_helpfulness** | User request completed | +0.8 |
+| **user_support** | User request completed | +0.8 |
 | | Mention reply created | +0.5 |
+| | No new requests | 0.0 |
+| | Tool error | -0.3 |
+| **social** | Posted to AGORA | +1.0 |
+| | Read new posts | +0.1 |
 | | No new posts | 0.0 |
-| | Tool error | -0.3 |
-| **reliability** | Error diagnosed and fixed | +0.8 |
-| | Healthcheck passed | +0.4 |
-| | Tool error | -0.3 |
-| **system_safety** | Security check done | +0.8 |
-| | Safety info saved | +0.3 |
-| **curiosity** | New info summarized | +0.5 |
+| **growth** | New info summarized | +0.5 |
 | | Empty results | 0.0 |
-| **social_connection** | Posted to AGORA | +1.0 |
-| | Read new posts | +0.1 (barely satisfies) |
-| | Reactions received | +0.5 (meaningful) |
-| | No new posts | 0.0 |
 
 ### How It Works
 
@@ -435,8 +432,8 @@ The following operations MUST go through explicit user approval:
 | System | Status | Notes |
 |--------|--------|-------|
 | **Capability Management** | ✅ Complete | Folder-based, JSON manifests, canonical ID format |
-| **Desire System** | ✅ Complete | Delta-based evaluation, fulfillment rules |
-| **Autonomous Loop** | ✅ Complete | Tool calling, frustration-based trigger, TaskManager integrated |
+| **Desire System** | ✅ Complete | Pressure-based 3 desires, fulfillment rules |
+| **Autonomous Loop** | ✅ Complete | Tool calling, pressure-based trigger, TaskManager integrated |
 | **Dashboard** | ✅ Complete | Tool calling chat, user input support, Manager API routes (19 routes) |
 | **PC Server** | ✅ Complete | Rust, TCP protocol, 40+ capabilities |
 | **Browser Server** | ✅ Complete | browser-use, DeepSeek compatibility patch, verification detection |

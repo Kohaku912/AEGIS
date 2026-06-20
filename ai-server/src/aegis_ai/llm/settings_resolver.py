@@ -37,6 +37,7 @@ class LLMSettingsResolver:
         self._lock = threading.Lock()
         self._profiles: dict[str, dict[str, Any]] = {}
         self._safety: dict[str, Any] = {}
+        self._mode: str = "cloud"
         self._mtime: float = 0.0
         self._load()
 
@@ -61,9 +62,10 @@ class LLMSettingsResolver:
             with self._lock:
                 self._profiles = profiles
                 self._safety = safety
+                self._mode = data.get("mode", "cloud")
                 self._mtime = self._path.stat().st_mtime
 
-            logger.info("Loaded %d LLM profiles from %s", len(profiles), self._path)
+            logger.info("Loaded %d LLM profiles from %s (mode=%s)", len(profiles), self._path, self._mode)
             return True
         except FileNotFoundError:
             logger.error("LLM config file not found: %s", self._path)
@@ -72,17 +74,34 @@ class LLMSettingsResolver:
             logger.error("Failed to load LLM config: %s", exc)
             return False
 
+    # Profile name mapping: cloud profile → local profile
+    _LOCAL_PROFILE_MAP: dict[str, str] = {
+        "chat_balanced": "local_chat",
+        "tool_planning": "local_tool_planning",
+        "json_generation": "local_json_generation",
+        "long_answer": "local_long_answer",
+        "self_development": "local_chat",
+        "task_analysis": "local_tool_planning",
+    }
+
     def resolve(self, call_type: str = None, profile_id: str = None) -> LLMSettings:
         """Resolve LLM settings by call_type or profile_id."""
         del call_type
 
         with self._lock:
+            mode = self._mode
             if profile_id:
+                # In local mode, remap cloud profile names to local profiles
+                if mode == "local" and profile_id in self._LOCAL_PROFILE_MAP:
+                    local_name = self._LOCAL_PROFILE_MAP[profile_id]
+                    if local_name in self._profiles:
+                        profile_id = local_name
                 if profile_id not in self._profiles:
                     raise KeyError(f"Profile '{profile_id}' not found")
                 profile = dict(self._profiles[profile_id])
             else:
-                profile = dict(self._profiles.get("chat_balanced", {}))
+                default = "local_chat" if mode == "local" else "chat_balanced"
+                profile = dict(self._profiles.get(default, {}))
 
         settings = LLMSettings(
             provider=profile.get("provider", "openai"),

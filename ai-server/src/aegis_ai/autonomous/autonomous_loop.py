@@ -74,7 +74,7 @@ class AutonomousLoop:
         data_dir: str = "data/autonomous",
         desire_threshold: float = 4.0,
         max_tasks_per_cycle: int = 3,
-        fallback_interval_seconds: int = 3600,
+        fallback_interval_seconds: int = 1800,
         frustration_threshold: float = 2.0,
     ) -> None:
         self._llm = llm_provider
@@ -236,7 +236,6 @@ class AutonomousLoop:
                         if actionable:
                             logger.info("Observation found %d actionable items", len(actionable))
                             self._pending_actionable_observations = [o.to_dict() for o in actionable[:5]]
-                            desire_triggered = True
                     except Exception as e:
                         logger.warning("Observation failed: %s", e)
                     finally:
@@ -1517,7 +1516,7 @@ Rules:
             interval = max(600, int(self._fallback_interval * (1.0 - total_pressure / 30.0)))
             reason = f"{high_pressure_count} pressured desires, managed"
 
-        interval = max(300, min(7200, interval))
+        interval = max(300, min(3600, interval))
         logger.info("Next autonomous run in %d seconds: %s", interval, reason)
         return interval
 
