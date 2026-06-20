@@ -195,6 +195,14 @@ class LLMRouter:
     ) -> LLMResponse:
         """Route an LLM request that allows native tool calling."""
         provider_name = self._select_provider(request.task_type)
+        if self._cost_tracker:
+            if not self._cost_tracker.can_afford(request.max_tokens):
+                return LLMResponse(
+                    success=False,
+                    error="LLM cost budget exceeded",
+                    request_id=request.request_id,
+                )
+
         with self._lock:
             provider = self._providers.get(provider_name)
         if not provider:
@@ -222,6 +230,28 @@ class LLMRouter:
                     temperature=request.temperature,
                     context_meta=request.context_meta,
                 )
+
+            if self._cost_tracker and response.tokens_used > 0:
+                self._cost_tracker.record_usage(
+                    provider=provider_name,
+                    model=response.model_used,
+                    tokens=response.tokens_used,
+                    cost=response.cost_estimate,
+                )
+
+            if self._audit:
+                self._audit.log_decision(
+                    "llm_tool_request", f"llm.{provider_name}", "EXECUTED",
+                    detail={
+                        "task_type": request.task_type.name,
+                        "provider": provider_name,
+                        "model": response.model_used,
+                        "tokens": response.tokens_used,
+                        "caller": request.caller,
+                        "route_type": "tools",
+                    },
+                )
+
             return self._normalize_provider_response(response, provider_name, request.request_id)
         except Exception as e:
             logger.error("LLM tool request failed: %s", e)
@@ -247,6 +277,14 @@ class LLMRouter:
     ) -> LLMResponse:
         """Route an LLM request with image or video frame inputs."""
         provider_name = self._select_provider(request.task_type)
+        if self._cost_tracker:
+            if not self._cost_tracker.can_afford(request.max_tokens):
+                return LLMResponse(
+                    success=False,
+                    error="LLM cost budget exceeded",
+                    request_id=request.request_id,
+                )
+
         with self._lock:
             provider = self._providers.get(provider_name)
         if not provider:
@@ -286,6 +324,28 @@ class LLMRouter:
                     temperature=request.temperature,
                     context_meta=request.context_meta,
                 )
+
+            if self._cost_tracker and response.tokens_used > 0:
+                self._cost_tracker.record_usage(
+                    provider=provider_name,
+                    model=response.model_used,
+                    tokens=response.tokens_used,
+                    cost=response.cost_estimate,
+                )
+
+            if self._audit:
+                self._audit.log_decision(
+                    "llm_tool_request", f"llm.{provider_name}", "EXECUTED",
+                    detail={
+                        "task_type": request.task_type.name,
+                        "provider": provider_name,
+                        "model": response.model_used,
+                        "tokens": response.tokens_used,
+                        "caller": request.caller,
+                        "route_type": "media",
+                    },
+                )
+
             return self._normalize_provider_response(response, provider_name, request.request_id)
         except Exception as e:
             logger.error("LLM media request failed: %s", e)

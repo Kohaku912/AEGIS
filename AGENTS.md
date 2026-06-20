@@ -422,6 +422,8 @@ The following operations MUST go through explicit user approval:
 9. Return raw JSON or system messages to user
 10. Make decisions without LLM involvement
 11. **NEVER parse user messages with keyword matching, regex, or string detection.** The LLM is the interpreter. All user intent must be understood by the LLM, not by pattern matching. This applies to routing, action selection, category detection, and any decision based on user text. The LLM decides what the user wants — code never inspects user text for keywords.
+12. Autonomous loop LLM calls are gated by `AEGIS_MIN_LLM_INTERVAL_MS` (default 1800000ms = 30 minutes). Observations and desire updates continue on every tick, but `_generate_tasks` and other LLM-using functions execute at most once per interval.
+13. All LLM routes (`route`, `route_with_tools`, `route_with_media`) enforce CostTracker budget checks and record usage. No LLM call bypasses cost tracking.
 
 ---
 

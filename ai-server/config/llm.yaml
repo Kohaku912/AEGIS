@@ -1,5 +1,5 @@
 version: "1.0.0"
-mode: "local"  # "cloud" or "local" — switches all text profiles to Ollama
+mode: "cloud"  # "cloud" or "local" — switches all text profiles to Ollama
 profiles:
   chat_balanced:
     provider: "openai"
