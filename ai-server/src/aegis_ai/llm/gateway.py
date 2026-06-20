@@ -42,12 +42,14 @@ class LLMGateway:
         self._profile_providers: dict[str, Any] = {}
 
     def _resolve(self, profile: str | None) -> LLMSettings:
-        """Resolve LLM settings from profile. Falls back to defaults."""
-        if self._settings_resolver is not None and profile:
-            try:
-                return self._settings_resolver.resolve(profile_id=profile)
-            except KeyError:
-                logger.warning("Profile '%s' not found, using defaults", profile)
+        """Resolve LLM settings from profile. Falls back to llm.yaml default."""
+        if self._settings_resolver is not None:
+            if profile:
+                try:
+                    return self._settings_resolver.resolve(profile_id=profile)
+                except KeyError:
+                    logger.warning("Profile '%s' not found, using default", profile)
+            return self._settings_resolver.resolve()
         return LLMSettings()
 
     def _get_provider_for_profile(self, settings: LLMSettings) -> Any | None:
@@ -70,10 +72,12 @@ class LLMGateway:
         base_url = settings.base_url or ""
         if not api_key and not base_url:
             return None
+        if not api_key and base_url and ("localhost:11434" in base_url or "127.0.0.1:11434" in base_url):
+            api_key = "ollama"
         from aegis_ai.llm.providers.openai_provider import OpenAIProvider
         provider = OpenAIProvider(
             model=settings.model,
-            api_key=api_key or None,
+            api_key=api_key or "dummy",
             base_url=base_url or None,
             audit_log=self._audit,
         )
@@ -253,15 +257,26 @@ class LLMGateway:
         if temperature is not None:
             settings.temperature = temperature
 
-        request = self._make_request(
-            prompt=prompt,
-            system_prompt=system_prompt,
-            settings=settings,
-            context_meta=context_meta,
-        )
-
         start = time.monotonic()
-        response = self._router.route_with_tools(request, tools)
+        provider = self._get_provider_for_profile(settings)
+
+        if provider is not None and hasattr(provider, "generate_with_tools"):
+            response = provider.generate_with_tools(
+                prompt=prompt,
+                tools=tools,
+                system_prompt=system_prompt,
+                max_tokens=settings.max_tokens,
+                temperature=settings.temperature,
+                context_meta=context_meta,
+            )
+        else:
+            request = self._make_request(
+                prompt=prompt,
+                system_prompt=system_prompt,
+                settings=settings,
+                context_meta=context_meta,
+            )
+            response = self._router.route_with_tools(request, tools)
         duration_ms = int((time.monotonic() - start) * 1000)
 
         self._audit_call(

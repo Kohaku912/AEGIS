@@ -79,7 +79,7 @@ class PressureEngine:
         """Accumulate pressure from elapsed time."""
         if elapsed_hours <= 0:
             return
-        delta = 0.3 * elapsed_hours
+        delta = 10.0 * elapsed_hours
         self._apply_delta(desire, delta)
 
     def accumulate_from_event(self, desire: str, event_type: str, severity: float) -> None:
