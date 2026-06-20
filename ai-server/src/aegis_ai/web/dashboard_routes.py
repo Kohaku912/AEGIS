@@ -1606,6 +1606,9 @@ class DashboardApp:
                         "name": d.name, "value": d.value,
                         "expected": d.expected_value,
                         "frustration": max(0, d.expected_value - d.value),
+                        "pressure": getattr(d, "pressure", 0.0),
+                        "drift_rate": getattr(d, "drift_rate", 0.0),
+                        "last_action_at": getattr(d, "last_action_at", 0),
                         "last_updated": time.strftime(
                             "%Y-%m-%d %H:%M",
                             time.localtime(d.last_updated_at / 1000),
@@ -1614,9 +1617,10 @@ class DashboardApp:
                     } for d in ds._desires.values()]
             except Exception as exc:
                 logger.warning("Desires page error: %s", exc)
-            desire_data["frustration_threshold"] = 2.0
+            desire_data["frustration_threshold"] = 5.0
             if self._autonomous_loop:
-                desire_data["frustration_threshold"] = self._autonomous_loop.get_threshold()
+                status = self._autonomous_loop.get_status()
+                desire_data["frustration_threshold"] = status.get("pressure_threshold", 5.0)
             return render_template("dashboard/desires.html", desires=desire_data)
 
         @app.route("/dashboard/autonomous")

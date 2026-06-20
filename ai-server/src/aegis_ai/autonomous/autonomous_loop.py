@@ -118,6 +118,8 @@ class AutonomousLoop:
         self._last_desire_signature: str = ""
         self._last_pressure_signature: str = ""
         self._min_execution_interval_ms: int = 60_000  # Minimum 1 minute between executions
+        self._min_llm_interval_ms: int = int(os.environ.get("AEGIS_MIN_LLM_INTERVAL_MS", 1800_000))
+        self._last_llm_call_ms: int = 0
         self._health_alert_manager: Any = None
         self._last_health_check_ms: int = 0
         self._health_check_interval_ms: int = 300_000  # 5 minutes
@@ -460,6 +462,21 @@ Respond with JSON:
 
         self._last_pressure_signature = self._desire.get_pressure_signature()
 
+        now_llm = int(time.time() * 1000)
+        if now_llm - self._last_llm_call_ms < self._min_llm_interval_ms:
+            remaining = (self._min_llm_interval_ms - (now_llm - self._last_llm_call_ms)) // 1000
+            logger.info("LLM interval gate: %ds remaining until next LLM call", remaining)
+            self._last_skip_reason = f"llm_interval_gate ({remaining}s remaining)"
+            self._log_audit_event(
+                action="autonomous_llm_gate",
+                capability_id="none",
+                decision="SKIP",
+                reason=self._last_skip_reason,
+                detail={"source": "llm_interval_gate"},
+            )
+            self._schedule_next(max(60, remaining))
+            return
+
         desire_before = {}
         if self._desire:
             for name, desire in self._desire.get_all_desires().items():
@@ -504,6 +521,7 @@ Respond with JSON:
         next_interval = self._decide_next_interval(results)
         self._schedule_next(next_interval)
         self._log_execution(tasks, results)
+        self._last_llm_call_ms = int(time.time() * 1000)
         self._save()
 
     def _get_low_desires(self) -> list[dict[str, Any]]:
@@ -685,6 +703,8 @@ Respond with JSON:
         if not self._llm:
             logger.error("No LLM provider — cannot generate tasks")
             return []
+
+        self._last_llm_call_ms = int(time.time() * 1000)
 
         desire_context = []
         for d in low_desires[:self._max_tasks]:
@@ -1565,6 +1585,7 @@ Rules:
                 "seconds_until_next": max(0, (self._next_run_ms - now) / 1000),
                 "execution_count": len(self._execution_log),
                 "pressure_threshold": self._pressure_threshold,
+                "min_llm_interval_ms": self._min_llm_interval_ms,
                 "last_skip_reason": self._last_skip_reason,
             }
 
