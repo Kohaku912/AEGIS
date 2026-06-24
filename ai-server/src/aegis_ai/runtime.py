@@ -449,6 +449,7 @@ def _create_autonomous_loop(runtime: AegisRuntime) -> Any:
         policy_engine=runtime.policy_engine,
         audit_log=runtime.audit_log,
         task_manager=runtime.task_manager,
+        status_manager=runtime.status_manager,
         settings_resolver=runtime.settings_resolver,
         data_dir=os.path.join(data_dir, "autonomous"),
         desire_threshold=4.0,

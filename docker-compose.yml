@@ -17,6 +17,7 @@ services:
       OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.deepseek.com}
       DEEPSEEK_API_KEY: ${LLM_API_KEY:-${DEEPSEEK_API_KEY:-${OPENAI_API_KEY:-}}}
       DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL:-https://api.deepseek.com}
+      AEGIS_MIN_LLM_INTERVAL_MS: ${AEGIS_MIN_LLM_INTERVAL_MS:-1800000}
       AGORA_TOKEN: ${AGORA_TOKEN:-}
       AGORA_BASE_URL: ${AGORA_BASE_URL:-https://agora.kakunin.me}
       AGORA_MASTER_USER: ${AGORA_MASTER_USER:-}
