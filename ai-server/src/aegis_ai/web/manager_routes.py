@@ -155,7 +155,9 @@ def audit_summary():
 def get_status():
     try:
         rt = _get_runtime()
-        return jsonify(rt.status_manager.get_snapshot())
+        snapshot = rt.status_manager.get_snapshot()
+        _overlay_android_status(rt, snapshot)
+        return jsonify(snapshot)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -167,9 +169,33 @@ def get_server_status(server_id):
         status = rt.status_manager.get_server_status(server_id)
         if status is None:
             return jsonify({"error": "Not found"}), 404
+        status = dict(status)
+        if server_id == "android-server":
+            wrapped = {"android-server": status}
+            _overlay_android_status(rt, wrapped)
+            status = wrapped["android-server"]
         return jsonify(status)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+def _overlay_android_status(rt, snapshot: dict) -> None:
+    manager = getattr(rt, "android_manager", None)
+    if manager is None or "android-server" not in snapshot:
+        return
+    try:
+        android_status = manager.get_status()
+    except Exception:
+        return
+    if not android_status.get("online"):
+        return
+    item = dict(snapshot["android-server"])
+    item["status"] = "online"
+    item["error"] = None
+    item["host"] = item.get("host") or "reverse-stream"
+    item["connection_mode"] = android_status.get("connection_mode", "reverse_stream")
+    item["last_check_ms"] = android_status.get("last_seen") or item.get("last_check_ms", 0)
+    snapshot["android-server"] = item
 
 
 @manager_bp.route("/api/android/status")
@@ -189,6 +215,7 @@ def check_now():
     try:
         rt = _get_runtime()
         snapshot = rt.status_manager.check_now()
+        _overlay_android_status(rt, snapshot)
         return jsonify(snapshot)
     except Exception as e:
         return jsonify({"error": str(e)}), 500

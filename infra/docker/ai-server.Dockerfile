@@ -1,6 +1,3 @@
-# AI Server — Python gRPC server (AEGIS Core)
-# Phase 1.2: Placeholder with gRPC HealthCheck
-
 FROM python:3.12-slim
 
 LABEL org.aegis.service="ai-server"
@@ -8,27 +5,29 @@ LABEL org.aegis.version="0.1.0"
 
 WORKDIR /app
 
-# Install system dependencies
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONPATH=/app/src \
+    AEGIS_GRPC_HOST=0.0.0.0 \
+    AEGIS_GRPC_PORT=50051
+
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
+    git \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy Python project files
-COPY ai-server/pyproject.toml ai-server/README.md* ./
-COPY ai-server/src/ ./src/
+COPY ai-server/pyproject.toml ./pyproject.toml
+COPY ai-server/src ./src
+COPY ai-server/config ./config
+COPY ai-server/capabilities ./capabilities
+COPY ai-server/apps ./apps
+COPY protos /protos
 
-# Install Python dependencies
-RUN pip install --no-cache-dir -e ".[dev]"
+RUN pip install --no-cache-dir -e ".[dev]" flask pyyaml requests
+RUN mkdir -p /app/data /app/evaluation/reports
 
-# Copy proto stubs (generated code)
-COPY protos/ /protos/
+EXPOSE 50051 8090 8091
 
-# Expose gRPC port
-EXPOSE 50051
+HEALTHCHECK --interval=15s --timeout=5s --retries=5 --start-period=20s \
+    CMD python -c "import grpc; from generated.aegis import ai_server_pb2_grpc, common_pb2; ch=grpc.insecure_channel('localhost:50051'); r=ai_server_pb2_grpc.AIServerStub(ch).HealthCheck(common_pb2.HealthCheckRequest(server_id='docker-health'), timeout=3); raise SystemExit(0 if r.status.code == 0 else 1)"
 
-# Health check uses gRPC
-HEALTHCHECK --interval=15s --timeout=5s --retries=3 --start-period=10s \
-    CMD python -c "from generated.aegis import ai_server_pb2_grpc, common_pb2; import grpc; ch=grpc.insecure_channel('localhost:50051'); stub=ai_server_pb2_grpc.AIServerStub(ch); r=stub.HealthCheck(common_pb2.HealthCheckRequest(server_id='docker-hc')); assert r.status.code==0" || exit 1
-
-# Start the gRPC server
-CMD ["python", "-m", "aegis_ai.main"]
+CMD ["python", "-m", "aegis_ai.docker_entrypoint"]

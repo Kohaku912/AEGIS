@@ -1,5 +1,5 @@
-from aegis import common_pb2 as _common_pb2
-from aegis import android_server_pb2 as _android_server_pb2
+from generated.aegis import common_pb2 as _common_pb2
+from generated.aegis import android_server_pb2 as _android_server_pb2
 from google.protobuf.internal import containers as _containers
 from google.protobuf import descriptor as _descriptor
 from google.protobuf import message as _message
@@ -183,6 +183,93 @@ class ListPendingApprovalsResponse(_message.Message):
     status: _common_pb2.Status
     approvals: _containers.RepeatedCompositeFieldContainer[_common_pb2.ApprovalRequest]
     def __init__(self, status: _Optional[_Union[_common_pb2.Status, _Mapping]] = ..., approvals: _Optional[_Iterable[_Union[_common_pb2.ApprovalRequest, _Mapping]]] = ...) -> None: ...
+
+class ChatRequest(_message.Message):
+    __slots__ = ("conversation_id", "text", "device_id", "context")
+    class ContextEntry(_message.Message):
+        __slots__ = ("key", "value")
+        KEY_FIELD_NUMBER: _ClassVar[int]
+        VALUE_FIELD_NUMBER: _ClassVar[int]
+        key: str
+        value: str
+        def __init__(self, key: _Optional[str] = ..., value: _Optional[str] = ...) -> None: ...
+    CONVERSATION_ID_FIELD_NUMBER: _ClassVar[int]
+    TEXT_FIELD_NUMBER: _ClassVar[int]
+    DEVICE_ID_FIELD_NUMBER: _ClassVar[int]
+    CONTEXT_FIELD_NUMBER: _ClassVar[int]
+    conversation_id: str
+    text: str
+    device_id: str
+    context: _containers.ScalarMap[str, str]
+    def __init__(self, conversation_id: _Optional[str] = ..., text: _Optional[str] = ..., device_id: _Optional[str] = ..., context: _Optional[_Mapping[str, str]] = ...) -> None: ...
+
+class ChatResponse(_message.Message):
+    __slots__ = ("status", "conversation_id", "response", "approval_needed", "approval_id", "tool_results_json")
+    STATUS_FIELD_NUMBER: _ClassVar[int]
+    CONVERSATION_ID_FIELD_NUMBER: _ClassVar[int]
+    RESPONSE_FIELD_NUMBER: _ClassVar[int]
+    APPROVAL_NEEDED_FIELD_NUMBER: _ClassVar[int]
+    APPROVAL_ID_FIELD_NUMBER: _ClassVar[int]
+    TOOL_RESULTS_JSON_FIELD_NUMBER: _ClassVar[int]
+    status: _common_pb2.Status
+    conversation_id: str
+    response: str
+    approval_needed: bool
+    approval_id: str
+    tool_results_json: str
+    def __init__(self, status: _Optional[_Union[_common_pb2.Status, _Mapping]] = ..., conversation_id: _Optional[str] = ..., response: _Optional[str] = ..., approval_needed: _Optional[bool] = ..., approval_id: _Optional[str] = ..., tool_results_json: _Optional[str] = ...) -> None: ...
+
+class MobileDashboardStateRequest(_message.Message):
+    __slots__ = ("device_id", "history_limit")
+    DEVICE_ID_FIELD_NUMBER: _ClassVar[int]
+    HISTORY_LIMIT_FIELD_NUMBER: _ClassVar[int]
+    device_id: str
+    history_limit: int
+    def __init__(self, device_id: _Optional[str] = ..., history_limit: _Optional[int] = ...) -> None: ...
+
+class MobileServerStatus(_message.Message):
+    __slots__ = ("server_id", "label", "status", "mode", "detail")
+    SERVER_ID_FIELD_NUMBER: _ClassVar[int]
+    LABEL_FIELD_NUMBER: _ClassVar[int]
+    STATUS_FIELD_NUMBER: _ClassVar[int]
+    MODE_FIELD_NUMBER: _ClassVar[int]
+    DETAIL_FIELD_NUMBER: _ClassVar[int]
+    server_id: str
+    label: str
+    status: str
+    mode: str
+    detail: str
+    def __init__(self, server_id: _Optional[str] = ..., label: _Optional[str] = ..., status: _Optional[str] = ..., mode: _Optional[str] = ..., detail: _Optional[str] = ...) -> None: ...
+
+class ChatHistoryMessage(_message.Message):
+    __slots__ = ("message_id", "role", "text", "timestamp_ms", "image", "conversation_id", "source")
+    MESSAGE_ID_FIELD_NUMBER: _ClassVar[int]
+    ROLE_FIELD_NUMBER: _ClassVar[int]
+    TEXT_FIELD_NUMBER: _ClassVar[int]
+    TIMESTAMP_MS_FIELD_NUMBER: _ClassVar[int]
+    IMAGE_FIELD_NUMBER: _ClassVar[int]
+    CONVERSATION_ID_FIELD_NUMBER: _ClassVar[int]
+    SOURCE_FIELD_NUMBER: _ClassVar[int]
+    message_id: str
+    role: str
+    text: str
+    timestamp_ms: int
+    image: str
+    conversation_id: str
+    source: str
+    def __init__(self, message_id: _Optional[str] = ..., role: _Optional[str] = ..., text: _Optional[str] = ..., timestamp_ms: _Optional[int] = ..., image: _Optional[str] = ..., conversation_id: _Optional[str] = ..., source: _Optional[str] = ...) -> None: ...
+
+class MobileDashboardStateResponse(_message.Message):
+    __slots__ = ("status", "server_statuses", "chat_history", "warnings")
+    STATUS_FIELD_NUMBER: _ClassVar[int]
+    SERVER_STATUSES_FIELD_NUMBER: _ClassVar[int]
+    CHAT_HISTORY_FIELD_NUMBER: _ClassVar[int]
+    WARNINGS_FIELD_NUMBER: _ClassVar[int]
+    status: _common_pb2.Status
+    server_statuses: _containers.RepeatedCompositeFieldContainer[MobileServerStatus]
+    chat_history: _containers.RepeatedCompositeFieldContainer[ChatHistoryMessage]
+    warnings: _containers.RepeatedScalarFieldContainer[str]
+    def __init__(self, status: _Optional[_Union[_common_pb2.Status, _Mapping]] = ..., server_statuses: _Optional[_Iterable[_Union[MobileServerStatus, _Mapping]]] = ..., chat_history: _Optional[_Iterable[_Union[ChatHistoryMessage, _Mapping]]] = ..., warnings: _Optional[_Iterable[str]] = ...) -> None: ...
 
 class QueryAuditLogRequest(_message.Message):
     __slots__ = ("since_ms", "until_ms", "action", "capability_id", "max_records")

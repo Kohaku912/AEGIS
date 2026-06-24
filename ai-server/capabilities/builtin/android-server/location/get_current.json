@@ -7,11 +7,31 @@
   "input_schema": {
     "type": "object",
     "properties": {
-      "accuracy": {"type": "string", "default": "balanced"}
+      "accuracy": {
+        "type": "string",
+        "default": "balanced"
+      }
     }
   },
-  "risk": {"level": "medium", "side_effects": ["reads_location"], "requires_approval": true},
-  "tags": ["builtin", "android", "location", "privacy"],
-  "requires_permissions": ["location"],
-  "extra": {"requires_permissions": ["location"]}
+  "risk": {
+    "level": "safe",
+    "side_effects": [
+      "reads_location"
+    ],
+    "requires_approval": false
+  },
+  "tags": [
+    "builtin",
+    "android",
+    "location",
+    "privacy"
+  ],
+  "requires_permissions": [
+    "location"
+  ],
+  "extra": {
+    "requires_permissions": [
+      "location"
+    ]
+  }
 }

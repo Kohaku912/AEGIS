@@ -1,4 +1,4 @@
-from aegis import common_pb2 as _common_pb2
+from generated.aegis import common_pb2 as _common_pb2
 from google.protobuf.internal import containers as _containers
 from google.protobuf import descriptor as _descriptor
 from google.protobuf import message as _message
@@ -162,19 +162,45 @@ class AndroidStopCommand(_message.Message):
     reason: str
     def __init__(self, reason: _Optional[str] = ...) -> None: ...
 
+class AndroidChatHistoryMessage(_message.Message):
+    __slots__ = ("message_id", "role", "text", "timestamp_ms", "image", "conversation_id", "source")
+    MESSAGE_ID_FIELD_NUMBER: _ClassVar[int]
+    ROLE_FIELD_NUMBER: _ClassVar[int]
+    TEXT_FIELD_NUMBER: _ClassVar[int]
+    TIMESTAMP_MS_FIELD_NUMBER: _ClassVar[int]
+    IMAGE_FIELD_NUMBER: _ClassVar[int]
+    CONVERSATION_ID_FIELD_NUMBER: _ClassVar[int]
+    SOURCE_FIELD_NUMBER: _ClassVar[int]
+    message_id: str
+    role: str
+    text: str
+    timestamp_ms: int
+    image: str
+    conversation_id: str
+    source: str
+    def __init__(self, message_id: _Optional[str] = ..., role: _Optional[str] = ..., text: _Optional[str] = ..., timestamp_ms: _Optional[int] = ..., image: _Optional[str] = ..., conversation_id: _Optional[str] = ..., source: _Optional[str] = ...) -> None: ...
+
+class AndroidChatUpdate(_message.Message):
+    __slots__ = ("messages",)
+    MESSAGES_FIELD_NUMBER: _ClassVar[int]
+    messages: _containers.RepeatedCompositeFieldContainer[AndroidChatHistoryMessage]
+    def __init__(self, messages: _Optional[_Iterable[_Union[AndroidChatHistoryMessage, _Mapping]]] = ...) -> None: ...
+
 class AndroidServerCommand(_message.Message):
-    __slots__ = ("ack", "invoke", "approval_request", "heartbeat", "stop")
+    __slots__ = ("ack", "invoke", "approval_request", "heartbeat", "stop", "chat_update")
     ACK_FIELD_NUMBER: _ClassVar[int]
     INVOKE_FIELD_NUMBER: _ClassVar[int]
     APPROVAL_REQUEST_FIELD_NUMBER: _ClassVar[int]
     HEARTBEAT_FIELD_NUMBER: _ClassVar[int]
     STOP_FIELD_NUMBER: _ClassVar[int]
+    CHAT_UPDATE_FIELD_NUMBER: _ClassVar[int]
     ack: AndroidStreamAck
     invoke: AndroidInvokeCommand
     approval_request: AndroidApprovalCommand
     heartbeat: AndroidServerHeartbeat
     stop: AndroidStopCommand
-    def __init__(self, ack: _Optional[_Union[AndroidStreamAck, _Mapping]] = ..., invoke: _Optional[_Union[AndroidInvokeCommand, _Mapping]] = ..., approval_request: _Optional[_Union[AndroidApprovalCommand, _Mapping]] = ..., heartbeat: _Optional[_Union[AndroidServerHeartbeat, _Mapping]] = ..., stop: _Optional[_Union[AndroidStopCommand, _Mapping]] = ...) -> None: ...
+    chat_update: AndroidChatUpdate
+    def __init__(self, ack: _Optional[_Union[AndroidStreamAck, _Mapping]] = ..., invoke: _Optional[_Union[AndroidInvokeCommand, _Mapping]] = ..., approval_request: _Optional[_Union[AndroidApprovalCommand, _Mapping]] = ..., heartbeat: _Optional[_Union[AndroidServerHeartbeat, _Mapping]] = ..., stop: _Optional[_Union[AndroidStopCommand, _Mapping]] = ..., chat_update: _Optional[_Union[AndroidChatUpdate, _Mapping]] = ...) -> None: ...
 
 class GetAndroidScreenshotRequest(_message.Message):
     __slots__ = ("quality",)

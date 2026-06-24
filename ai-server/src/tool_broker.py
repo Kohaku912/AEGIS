@@ -28,6 +28,7 @@ from typing import Any
 
 from jsonschema import ValidationError, validate
 
+from aegis_ai.capability_catalog import risk_level_from_label
 from aegis_schema.models import Capability, RiskLevel, ServerType
 from policy_engine import PolicyDecision, PolicyEngine, PolicyResult, create_default_policy_engine
 from server_executor import ServerExecutor
@@ -42,14 +43,7 @@ def _capability_from_manifest(manifest: Any) -> Capability:
     Uses canonical ID format: server_id.app_id.action
     e.g., pc-server.screenshot.get_screenshot
     """
-    risk_map = {
-        "low": RiskLevel.READ_ONLY,
-        "safe": RiskLevel.SAFE_ACTION,
-        "medium": RiskLevel.APPROVAL_REQUIRED,
-        "high": RiskLevel.HIGH_RISK,
-        "critical": RiskLevel.FORBIDDEN,
-    }
-    risk = risk_map.get(getattr(manifest, "risk_level", "low"), RiskLevel.READ_ONLY)
+    risk = risk_level_from_label(getattr(manifest, "risk_level", "low"))
 
     server_id = getattr(manifest, "server_id", "ai-server")
     server_type_map = {
@@ -70,7 +64,7 @@ def _capability_from_manifest(manifest: Any) -> Capability:
     return Capability(
         id=cap_id,
         name=manifest.title,
-        description=manifest.description,
+        description=manifest.description or manifest.title or cap_id,
         server_type=server_type,
         risk_level=risk,
         requires_approval=getattr(manifest, "requires_approval", False),
@@ -132,6 +126,9 @@ class ToolExecutionRequest:
     source_desire: str = ""
     frustration: float = 0.0
     timeout_seconds: float = 30.0
+    origin_channel: str = ""
+    conversation_id: str = ""
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -703,14 +700,9 @@ class ToolBroker:
                 approval_id=approval_id,
             )
 
-        if policy_result.decision == PolicyDecision.ASK_APPROVAL:
-            return ToolExecutionResult(
-                status=InvokeStatus.APPROVAL_NEEDED,
-                error="Still requires approval after re-evaluation.",
-                policy_decision="ASK_APPROVAL",
-                policy_result=policy_result,
-                approval_id=approval_id,
-            )
+        # The approval_id being executed is already approved/modified.
+        # Re-evaluation is kept for DENY gates, but ASK_APPROVAL should not
+        # create a second approval loop for the same reviewed request.
 
         request = ToolExecutionRequest(
             request_id=appr.request_id,

@@ -7,11 +7,32 @@
   "input_schema": {
     "type": "object",
     "properties": {
-      "include_invisible": {"type": "boolean", "default": false}
+      "include_invisible": {
+        "type": "boolean",
+        "default": false
+      }
     }
   },
-  "risk": {"level": "medium", "side_effects": ["reads_screen_text"], "requires_approval": true},
-  "tags": ["builtin", "android", "screen", "accessibility", "privacy"],
-  "requires_permissions": ["accessibility"],
-  "extra": {"requires_permissions": ["accessibility"]}
+  "risk": {
+    "level": "safe",
+    "side_effects": [
+      "reads_screen_text"
+    ],
+    "requires_approval": false
+  },
+  "tags": [
+    "builtin",
+    "android",
+    "screen",
+    "accessibility",
+    "privacy"
+  ],
+  "requires_permissions": [
+    "accessibility"
+  ],
+  "extra": {
+    "requires_permissions": [
+      "accessibility"
+    ]
+  }
 }

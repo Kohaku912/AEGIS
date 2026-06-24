@@ -1,0 +1,13 @@
+{
+  "title": "Repository Status",
+  "description": "Get git branch, commit, clean state, and modified files from the Dev Server workspace.",
+  "server_id": "dev-server",
+  "app_id": "repo",
+  "action": "status",
+  "input_schema": {
+    "type": "object",
+    "properties": {}
+  },
+  "risk": {"level": "low", "side_effects": [], "requires_approval": false},
+  "tags": ["builtin", "dev", "git", "read"]
+}

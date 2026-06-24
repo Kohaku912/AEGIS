@@ -405,6 +405,8 @@ class ApprovalManager:
         request = event.get("request")
         if request is None:
             return
+        if getattr(request, "origin_channel", "") == "dashboard_chat":
+            return
 
         task_id = getattr(request, "task_id", "")
         step_id = getattr(request, "step_id", "")

@@ -4,6 +4,7 @@ import android.content.Context
 import android.os.Build
 import android.util.Log
 import aegis.AIServerGrpcKt
+import aegis.AiServer
 import aegis.AndroidServerOuterClass
 import aegis.Common
 import com.aegis.android.AegisConfig
@@ -12,6 +13,7 @@ import com.aegis.android.overlay.OverlayController
 import com.aegis.android.provider.DeviceProvider
 import io.grpc.ManagedChannel
 import io.grpc.ManagedChannelBuilder
+import io.grpc.Status
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -20,11 +22,66 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.receiveAsFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.UUID
 import java.util.concurrent.TimeUnit
+
+data class AegisConnectionState(
+    val connected: Boolean = false,
+    val connecting: Boolean = false,
+    val lastHeartbeatMs: Long = 0L,
+    val lastError: String = "",
+    val nextRetryMs: Long = 0L,
+    val host: String = "",
+    val port: Int = 0,
+    val coreVersion: String = "",
+    val chatRpcAvailable: Boolean = false,
+)
+
+data class ChatReply(
+    val ok: Boolean,
+    val conversationId: String,
+    val response: String,
+    val approvalNeeded: Boolean = false,
+    val approvalId: String = "",
+    val error: String = "",
+)
+
+data class ApprovalItem(
+    val approvalId: String,
+    val capabilityId: String,
+    val summary: String,
+    val risk: String,
+)
+
+data class ToolReply(
+    val ok: Boolean,
+    val output: String = "",
+    val error: String = "",
+)
+
+data class MobileServerStatus(
+    val serverId: String,
+    val label: String,
+    val status: String,
+    val mode: String = "",
+    val detail: String = "",
+)
+
+data class MobileChatMessage(
+    val messageId: String,
+    val role: String,
+    val text: String,
+    val timestampMs: Long,
+    val image: String = "",
+    val conversationId: String = "",
+    val source: String = "",
+)
 
 class AegisGrpcClient private constructor(
     private val context: Context,
@@ -69,16 +126,27 @@ class AegisGrpcClient private constructor(
     private var outbound: Channel<AndroidServerOuterClass.AndroidClientMessage>? = null
     private var streamJob: Job? = null
     private var heartbeatJob: Job? = null
+    private var dashboardRefreshJob: Job? = null
     private var connected = false
     private var lastHeartbeatMs = 0L
     private var connectionId = "android_${UUID.randomUUID().toString().replace("-", "").take(10)}"
+    private val _state = MutableStateFlow(
+        AegisConnectionState(host = config.host, port = config.port)
+    )
+    val state: StateFlow<AegisConnectionState> = _state.asStateFlow()
+    private val _serverStatuses = MutableStateFlow<List<MobileServerStatus>>(emptyList())
+    val serverStatuses: StateFlow<List<MobileServerStatus>> = _serverStatuses.asStateFlow()
+    private val _chatMessages = MutableStateFlow<List<MobileChatMessage>>(emptyList())
+    val chatMessages: StateFlow<List<MobileChatMessage>> = _chatMessages.asStateFlow()
 
     suspend fun connect(): Boolean = withContext(Dispatchers.IO) {
         if (config.pairingToken.isBlank()) {
             Log.w(TAG, "Pairing token is required")
             connected = false
+            updateState(connected = false, connecting = false, lastError = "Pairing token is required")
             return@withContext false
         }
+        updateState(connecting = true, lastError = "")
         disconnect()
         try {
             channel = ManagedChannelBuilder
@@ -92,27 +160,44 @@ class AegisGrpcClient private constructor(
             if (healthResponse.status.code != 0) {
                 Log.e(TAG, "Health check failed: ${healthResponse.status.message}")
                 connected = false
+                updateState(connected = false, connecting = false, lastError = healthResponse.status.message)
                 return@withContext false
             }
 
+            val coreVersion = healthResponse.version
+            val chatRpcAvailable = supportsSendChat(coreVersion)
             startReverseStream()
             connected = true
+            updateState(
+                connected = true,
+                connecting = false,
+                lastError = "",
+                nextRetryMs = 0L,
+                coreVersion = coreVersion,
+                chatRpcAvailable = chatRpcAvailable,
+            )
+            refreshMobileDashboardState()
+            startMobileDashboardRefresh()
             Log.i(TAG, "Reverse stream started for AEGIS Core at ${config.host}:${config.port}")
             true
         } catch (exc: Exception) {
             Log.e(TAG, "Failed to connect to AEGIS Core", exc)
             connected = false
+            updateState(connected = false, connecting = false, lastError = exc.message ?: "Connection failed")
             false
         }
     }
 
     fun disconnect() {
         connected = false
+        updateState(connected = false, connecting = false)
         heartbeatJob?.cancel()
         streamJob?.cancel()
+        dashboardRefreshJob?.cancel()
         outbound?.close()
         heartbeatJob = null
         streamJob = null
+        dashboardRefreshJob = null
         outbound = null
         try {
             channel?.shutdown()?.awaitTermination(3, TimeUnit.SECONDS)
@@ -129,6 +214,10 @@ class AegisGrpcClient private constructor(
     fun lastHeartbeatMs(): Long = lastHeartbeatMs
 
     fun currentConfig(): AegisConnectionConfig = config
+
+    fun setNextRetry(timestampMs: Long) {
+        updateState(nextRetryMs = timestampMs)
+    }
 
     suspend fun registerCapabilities(): Boolean = true
 
@@ -176,6 +265,166 @@ class AegisGrpcClient private constructor(
         }
     }
 
+    suspend fun sendChat(text: String, conversationId: String = ""): ChatReply = withContext(Dispatchers.IO) {
+        val currentStub = stub ?: return@withContext ChatReply(
+            ok = false,
+            conversationId = conversationId,
+            response = "",
+            error = "AEGIS Core is not connected",
+        )
+        try {
+            val response = currentStub.sendChat(
+                AiServer.ChatRequest.newBuilder()
+                    .setConversationId(conversationId)
+                    .setText(text)
+                    .setDeviceId(config.deviceId)
+                    .putContext("surface", "android_app")
+                    .build()
+            )
+            ChatReply(
+                ok = response.status.code == 0,
+                conversationId = response.conversationId,
+                response = response.response,
+                approvalNeeded = response.approvalNeeded,
+                approvalId = response.approvalId,
+                error = if (response.status.code == 0) "" else response.status.message,
+            ).also {
+                if (it.ok) refreshMobileDashboardState()
+            }
+        } catch (exc: Exception) {
+            Log.e(TAG, "Chat request failed", exc)
+            val errorMessage = chatErrorMessage(exc)
+            updateState(
+                lastError = errorMessage,
+                chatRpcAvailable = if (isMethodNotFound(exc)) false else _state.value.chatRpcAvailable,
+            )
+            ChatReply(
+                ok = false,
+                conversationId = conversationId,
+                response = "",
+                error = errorMessage,
+            )
+        }
+    }
+
+    suspend fun refreshMobileDashboardState(historyLimit: Int = 80): Boolean = withContext(Dispatchers.IO) {
+        val currentStub = stub ?: return@withContext false
+        try {
+            val response = currentStub.getMobileDashboardState(
+                AiServer.MobileDashboardStateRequest.newBuilder()
+                    .setDeviceId(config.deviceId)
+                    .setHistoryLimit(historyLimit)
+                    .build()
+            )
+            if (response.status.code != 0) {
+                updateState(lastError = response.status.message)
+                return@withContext false
+            }
+            _serverStatuses.value = response.serverStatusesList.map {
+                MobileServerStatus(
+                    serverId = it.serverId,
+                    label = it.label,
+                    status = it.status,
+                    mode = it.mode,
+                    detail = it.detail,
+                )
+            }
+            mergeChatMessages(
+                response.chatHistoryList.map {
+                    MobileChatMessage(
+                        messageId = it.messageId,
+                        role = it.role,
+                        text = it.text,
+                        timestampMs = it.timestampMs,
+                        image = it.image,
+                        conversationId = it.conversationId,
+                        source = it.source,
+                    )
+                }
+            )
+            true
+        } catch (exc: Exception) {
+            Log.e(TAG, "Mobile dashboard state refresh failed", exc)
+            val message = if (isMethodNotFound(exc)) {
+                "AEGIS Core gRPC is older than this Android app. Restart AEGIS Core with the latest code, then reconnect. (GetMobileDashboardState method not found)"
+            } else {
+                exc.message ?: "Mobile dashboard state refresh failed"
+            }
+            updateState(
+                lastError = message,
+                chatRpcAvailable = if (isMethodNotFound(exc)) false else _state.value.chatRpcAvailable,
+            )
+            false
+        }
+    }
+
+    suspend fun listPendingApprovals(): List<ApprovalItem> = withContext(Dispatchers.IO) {
+        val currentStub = stub ?: return@withContext emptyList()
+        try {
+            val response = currentStub.listPendingApprovals(
+                AiServer.ListPendingApprovalsRequest.newBuilder()
+                    .setServerId("android-server")
+                    .build()
+            )
+            response.approvalsList.map {
+                ApprovalItem(
+                    approvalId = it.approvalId,
+                    capabilityId = it.capabilityId,
+                    summary = it.humanReadableSummary.ifBlank { it.requestedAction },
+                    risk = it.riskExplanation,
+                )
+            }
+        } catch (exc: Exception) {
+            Log.e(TAG, "List approvals failed", exc)
+            updateState(lastError = exc.message ?: "List approvals failed")
+            emptyList()
+        }
+    }
+
+    suspend fun resolveApproval(approvalId: String, approved: Boolean): Boolean = withContext(Dispatchers.IO) {
+        val currentStub = stub ?: return@withContext false
+        try {
+            val request = AiServer.ResolveApprovalRequest.newBuilder()
+                .setApprovalId(approvalId)
+                .setSurfaceId("android_app")
+                .setUser(config.deviceId)
+            if (approved) {
+                request.setApprovedType(Common.ApprovalType.APPROVAL_TYPE_ONE_TIME)
+            } else {
+                request.setRejected(true)
+            }
+            val response = currentStub.resolveApproval(request.build())
+            response.status.code == 0
+        } catch (exc: Exception) {
+            Log.e(TAG, "Resolve approval failed", exc)
+            updateState(lastError = exc.message ?: "Resolve approval failed")
+            false
+        }
+    }
+
+    suspend fun invokeTool(capabilityId: String, paramsJson: String = "{}"): ToolReply = withContext(Dispatchers.IO) {
+        val currentStub = stub ?: return@withContext ToolReply(false, error = "AEGIS Core is not connected")
+        try {
+            val response = currentStub.invokeTool(
+                Common.ToolInvocationRequest.newBuilder()
+                    .setCapabilityId(capabilityId)
+                    .setInvocationId("android_${UUID.randomUUID().toString().replace("-", "").take(10)}")
+                    .setCaller("android_app")
+                    .setParamsJson(paramsJson)
+                    .build()
+            )
+            ToolReply(
+                ok = response.status.code == 0,
+                output = response.outputJson,
+                error = response.error.ifBlank { response.status.message },
+            )
+        } catch (exc: Exception) {
+            Log.e(TAG, "Invoke tool failed", exc)
+            updateState(lastError = exc.message ?: "Invoke tool failed")
+            ToolReply(false, error = exc.message ?: "Invoke tool failed")
+        }
+    }
+
     private suspend fun startReverseStream() {
         val localOutbound = Channel<AndroidServerOuterClass.AndroidClientMessage>(Channel.BUFFERED)
         outbound = localOutbound
@@ -189,8 +438,10 @@ class AegisGrpcClient private constructor(
                 }
             } catch (exc: Exception) {
                 Log.e(TAG, "Reverse stream closed", exc)
+                updateState(lastError = exc.message ?: "Reverse stream closed")
             } finally {
                 connected = false
+                updateState(connected = false, connecting = false)
             }
         }
         heartbeatJob = scope.launch {
@@ -228,6 +479,21 @@ class AegisGrpcClient private constructor(
             AndroidServerOuterClass.AndroidServerCommand.KindCase.STOP -> {
                 Log.w(TAG, "Server requested stream stop: ${command.stop.reason}")
                 disconnect()
+            }
+            AndroidServerOuterClass.AndroidServerCommand.KindCase.CHAT_UPDATE -> {
+                mergeChatMessages(
+                    command.chatUpdate.messagesList.map {
+                        MobileChatMessage(
+                            messageId = it.messageId,
+                            role = it.role,
+                            text = it.text,
+                            timestampMs = it.timestampMs,
+                            image = it.image,
+                            conversationId = it.conversationId,
+                            source = it.source,
+                        )
+                    }
+                )
             }
             else -> Unit
         }
@@ -301,10 +567,14 @@ class AegisGrpcClient private constructor(
             )
             .build()
         lastHeartbeatMs = System.currentTimeMillis()
+        updateState(lastHeartbeatMs = lastHeartbeatMs)
         return runCatching {
             outbound?.send(message)
             true
-        }.getOrDefault(false)
+        }.getOrElse {
+            updateState(connected = false, lastError = it.message ?: "Heartbeat failed")
+            false
+        }
     }
 
     private suspend fun sendEvent(eventType: String, payloadJson: String, dedupeKey: String): Boolean {
@@ -327,7 +597,10 @@ class AegisGrpcClient private constructor(
         return runCatching {
             outbound?.send(message)
             true
-        }.getOrDefault(false)
+        }.getOrElse {
+            updateState(connected = false, lastError = it.message ?: "Event send failed")
+            false
+        }
     }
 
     private fun registerMessage(): AndroidServerOuterClass.AndroidClientMessage {
@@ -362,5 +635,83 @@ class AegisGrpcClient private constructor(
             .replace("\"", "\\\"")
             .replace("\n", "\\n")
             .replace("\r", "\\r") + "\""
+    }
+
+    private fun supportsSendChat(version: String): Boolean {
+        val normalized = version.lowercase()
+        return normalized.contains("sendchat") || normalized.contains("chat-v1")
+    }
+
+    private fun isMethodNotFound(exc: Throwable): Boolean {
+        val status = Status.fromThrowable(exc)
+        val rawMessage = listOfNotNull(exc.message, status.description).joinToString(" ").lowercase()
+        return status.code == Status.Code.UNIMPLEMENTED ||
+            ("method" in rawMessage && "not found" in rawMessage) ||
+            ("sendchat" in rawMessage && ("not found" in rawMessage || "unimplemented" in rawMessage))
+    }
+
+    private fun chatErrorMessage(exc: Throwable): String {
+        if (isMethodNotFound(exc)) {
+            return "AEGIS Core gRPC is older than this Android app. Restart AEGIS Core with the latest code, then reconnect. (SendChat method not found)"
+        }
+        val status = Status.fromThrowable(exc)
+        return exc.message ?: status.description ?: "Chat request failed"
+    }
+
+    private fun startMobileDashboardRefresh() {
+        dashboardRefreshJob?.cancel()
+        dashboardRefreshJob = scope.launch {
+            while (isActive) {
+                delay(15_000L)
+                if (connected) {
+                    refreshMobileDashboardState()
+                }
+            }
+        }
+    }
+
+    private fun mergeChatMessages(incoming: List<MobileChatMessage>) {
+        if (incoming.isEmpty()) return
+        val merged = (_chatMessages.value + incoming)
+            .distinctBy { message ->
+                message.messageId.ifBlank { "${message.timestampMs}:${message.role}:${message.text}" }
+            }
+            .sortedWith(
+                compareBy<MobileChatMessage> { it.timestampMs }
+                    .thenBy { roleOrder(it.role) }
+                    .thenBy { it.messageId }
+            )
+            .takeLast(120)
+        _chatMessages.value = merged
+    }
+
+    private fun roleOrder(role: String): Int {
+        return when (role.lowercase()) {
+            "user" -> 0
+            "assistant" -> 1
+            else -> 2
+        }
+    }
+
+    private fun updateState(
+        connected: Boolean = _state.value.connected,
+        connecting: Boolean = _state.value.connecting,
+        lastHeartbeatMs: Long = _state.value.lastHeartbeatMs,
+        lastError: String = _state.value.lastError,
+        nextRetryMs: Long = _state.value.nextRetryMs,
+        coreVersion: String = _state.value.coreVersion,
+        chatRpcAvailable: Boolean = _state.value.chatRpcAvailable,
+    ) {
+        _state.value = AegisConnectionState(
+            connected = connected,
+            connecting = connecting,
+            lastHeartbeatMs = lastHeartbeatMs,
+            lastError = lastError,
+            nextRetryMs = nextRetryMs,
+            host = config.host,
+            port = config.port,
+            coreVersion = coreVersion,
+            chatRpcAvailable = chatRpcAvailable,
+        )
     }
 }

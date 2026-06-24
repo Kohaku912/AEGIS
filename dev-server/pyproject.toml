@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "aegis-dev-server"
+version = "0.1.0"
+description = "AEGIS Dev Server for sandboxed self-development"
+requires-python = ">=3.12"
+dependencies = [
+    "grpcio>=1.81",
+    "protobuf>=6.33.5",
+    "pytest>=8.0",
+    "ruff>=0.4",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+

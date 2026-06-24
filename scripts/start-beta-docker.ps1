@@ -1,4 +1,4 @@
-# start-beta-docker.ps1 — Start AEGIS Beta Docker environment
+# start-beta-docker.ps1 - Start AEGIS Docker services
 #
 # Usage:
 #   .\scripts\start-beta-docker.ps1
@@ -13,11 +13,10 @@ $ErrorActionPreference = "Stop"
 
 Write-Host ""
 Write-Host "============================================" -ForegroundColor Cyan
-Write-Host "  AEGIS Beta — Docker Environment" -ForegroundColor Cyan
+Write-Host "  AEGIS Docker Environment" -ForegroundColor Cyan
 Write-Host "============================================" -ForegroundColor Cyan
 Write-Host ""
 
-# Check .env
 if (-not (Test-Path "$PSScriptRoot\..\.env")) {
     Write-Host "[WARN] .env not found. Copying from .env.example..." -ForegroundColor Yellow
     Copy-Item "$PSScriptRoot\..\.env.example" "$PSScriptRoot\..\.env"
@@ -25,47 +24,39 @@ if (-not (Test-Path "$PSScriptRoot\..\.env")) {
     exit 1
 }
 
-# Check Docker
 Write-Host "[1/3] Checking Docker..." -ForegroundColor Green
-try {
-    docker version | Out-Null
-    Write-Host "  Docker OK" -ForegroundColor Gray
-} catch {
-    Write-Host "[ERROR] Docker is not running!" -ForegroundColor Red
-    exit 1
-}
+docker version | Out-Null
+Write-Host "  Docker OK" -ForegroundColor Gray
 
-# Build if requested
+Set-Location "$PSScriptRoot\.."
+
 if ($Build) {
     Write-Host "[2/3] Building images..." -ForegroundColor Green
-    Set-Location "$PSScriptRoot\.."
-    docker compose --profile beta build 2>&1 | ForEach-Object { Write-Host "  $_" -ForegroundColor Gray }
+    docker compose build ai-server browser-server room-server dev-server 2>&1 |
+        ForEach-Object { Write-Host "  $_" -ForegroundColor Gray }
 } else {
     Write-Host "[2/3] Skipping build (use -Build to build)" -ForegroundColor Gray
 }
 
-# Start services
-Write-Host "[3/3] Starting Beta services..." -ForegroundColor Green
-Set-Location "$PSScriptRoot\.."
-docker compose --profile beta up -d
+Write-Host "[3/3] Starting services..." -ForegroundColor Green
+docker compose up -d ai-server browser-server room-server dev-server
 
 Write-Host ""
 Write-Host "============================================" -ForegroundColor Cyan
-Write-Host "  AEGIS Beta Started" -ForegroundColor Cyan
+Write-Host "  AEGIS Docker Started" -ForegroundColor Cyan
 Write-Host "============================================" -ForegroundColor Cyan
 Write-Host ""
-Write-Host "  Services:" -ForegroundColor White
-Write-Host "    AI Server:      http://0.0.0.0:8090 (Dashboard)" -ForegroundColor White
-Write-Host "    AI Server:      http://0.0.0.0:8091 (Web Chat)" -ForegroundColor White
-Write-Host "    Browser Server: http://0.0.0.0:50053" -ForegroundColor White
+Write-Host "  AI Dashboard:   http://0.0.0.0:8090" -ForegroundColor White
+Write-Host "  AI Web Chat:    http://0.0.0.0:8091" -ForegroundColor White
+Write-Host "  AI gRPC:        0.0.0.0:50051" -ForegroundColor White
+Write-Host "  Browser Server: http://0.0.0.0:50053" -ForegroundColor White
+Write-Host "  Room Server:    gRPC 0.0.0.0:50055" -ForegroundColor White
+Write-Host "  Dev Server:     gRPC 0.0.0.0:50056" -ForegroundColor White
 Write-Host ""
-Write-Host "  PC Server (external):" -ForegroundColor Yellow
-Write-Host "    Start with: .\scripts\start-pc-server-host.ps1" -ForegroundColor White
-Write-Host ""
-Write-Host "  Test:" -ForegroundColor Yellow
-Write-Host "    .\scripts\test-beta-real.ps1" -ForegroundColor White
+Write-Host "  PC Server remains host-native: host.docker.internal:50052" -ForegroundColor Yellow
 Write-Host ""
 
 if ($Logs) {
-    docker compose --profile beta logs -f
+    docker compose logs -f ai-server browser-server room-server dev-server
 }
+

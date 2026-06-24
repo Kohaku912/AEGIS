@@ -1,0 +1,51 @@
+{
+  "title": "Set Room Light",
+  "description": "Control a room light through the Room Server IR lighting provider.",
+  "server_id": "room-server",
+  "app_id": "light",
+  "action": "set_light",
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "device_id": {
+        "type": "string",
+        "default": "light-main",
+        "description": "Room light device id."
+      },
+      "power_on": {
+        "type": "boolean",
+        "description": "Whether the light should be on."
+      },
+      "brightness": {
+        "type": "integer",
+        "default": -1,
+        "minimum": -1,
+        "maximum": 255,
+        "description": "-1 keeps the current brightness; otherwise 0-255."
+      },
+      "color_temp_k": {
+        "type": "integer",
+        "default": 0,
+        "description": "0 keeps the current color temperature."
+      },
+      "color_rgb": {
+        "type": "string",
+        "default": "",
+        "description": "Optional #RRGGBB color value."
+      },
+      "ir_code": {
+        "type": "string",
+        "default": "",
+        "description": "Optional provider-specific IR code label for later hardware mapping."
+      }
+    },
+    "required": ["power_on"]
+  },
+  "risk": {
+    "level": "approval_required",
+    "side_effects": ["physical_device_control", "lighting_control"],
+    "requires_approval": true
+  },
+  "tags": ["builtin", "room", "light", "ir", "physical_device"]
+}
+

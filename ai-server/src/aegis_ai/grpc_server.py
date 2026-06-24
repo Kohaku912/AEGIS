@@ -69,7 +69,7 @@ class AegisAIServicer(ai_server_pb2_grpc.AIServerServicer):
             status=Status(code=0, message="ok"),
             server_status=ServerStatus.SERVER_STATUS_ONLINE,
             uptime_ms=uptime_ms,
-            version="0.1.0",
+            version="0.1.0+sendchat+history-v1+room-v1",
         )
 
     # ── Server & Capability Registry ──────────────────────────
@@ -245,6 +245,62 @@ class AegisAIServicer(ai_server_pb2_grpc.AIServerServicer):
             error=error,
             duration_ms=int(duration_ms),
             was_approved=request.is_approved,
+        )
+
+    def SendChat(self, request, context):
+        from aegis_ai.web.chat_service import execute_chat_message, tool_results_json
+        from aegis_ai.web.chat_history import ChatHistoryStore, entry_to_mobile_messages
+
+        conversation_id = request.conversation_id or f"android_chat_{int(time.time() * 1000)}"
+        result = execute_chat_message(
+            self._runtime,
+            request.text,
+            origin_channel="android_app",
+            conversation_id=conversation_id,
+            device_id=request.device_id,
+            context=dict(request.context),
+            task_source="android_chat",
+        )
+        ok = not result.get("error")
+        response_text = result.get("response", "")
+        if response_text:
+            entry = ChatHistoryStore().append(
+                request.text,
+                response_text,
+                source="android",
+                conversation_id=result.get("conversation_id", conversation_id),
+            )
+            android_manager = getattr(self._runtime, "android_manager", None)
+            if android_manager is not None and hasattr(android_manager, "broadcast_chat_update"):
+                android_manager.broadcast_chat_update(entry_to_mobile_messages(entry))
+        return ai_server_pb2.ChatResponse(
+            status=Status(code=0 if ok else 1, message="ok" if ok else str(result.get("error", ""))),
+            conversation_id=result.get("conversation_id", conversation_id),
+            response=response_text,
+            approval_needed=bool(result.get("approval_needed", False)),
+            approval_id=result.get("approval_id", ""),
+            tool_results_json=tool_results_json(result),
+        )
+
+    def GetMobileDashboardState(self, request, context):
+        from aegis_ai.web.chat_history import ChatHistoryStore, entries_to_mobile_messages
+        from aegis_ai.web.dashboard_routes import _runtime_server_status
+
+        limit = request.history_limit if request.history_limit > 0 else 50
+        history = ChatHistoryStore().load(limit=limit)
+        status_payload = _runtime_server_status(runtime=self._runtime)
+        server_statuses = [
+            _mobile_server_status_to_proto(item)
+            for item in status_payload.get("servers", [])
+            if item.get("server_id") in {"ai-server", "pc-server", "browser-server", "android-server", "room-server"}
+        ]
+        chat_history = [_chat_history_message_to_proto(item) for item in entries_to_mobile_messages(history)]
+        warnings = _mobile_dashboard_warnings(status_payload)
+        return ai_server_pb2.MobileDashboardStateResponse(
+            status=Status(code=0, message="ok"),
+            server_statuses=server_statuses,
+            chat_history=chat_history,
+            warnings=warnings,
         )
 
     # ── Approval ─────────────────────────────────────────────
@@ -450,6 +506,42 @@ def _server_info_from_proto(info: common_pb2.ServerInfo) -> ServerInfo:
         last_heartbeat_ms=info.last_heartbeat_ms,
         metadata=dict(info.metadata),
     )
+
+
+def _mobile_server_status_to_proto(item: dict[str, Any]):
+    return ai_server_pb2.MobileServerStatus(
+        server_id=str(item.get("server_id", "")),
+        label=str(item.get("server_type", item.get("server_id", ""))),
+        status=str(item.get("status", "UNKNOWN")),
+        mode=str(item.get("mode", "")),
+        detail=str(item.get("degraded_reason") or item.get("status_detail") or ""),
+    )
+
+
+def _chat_history_message_to_proto(item: dict[str, Any]):
+    return ai_server_pb2.ChatHistoryMessage(
+        message_id=str(item.get("message_id", "")),
+        role=str(item.get("role", "")),
+        text=str(item.get("text", "")),
+        timestamp_ms=int(item.get("timestamp_ms", 0) or 0),
+        image=str(item.get("image", "")),
+        conversation_id=str(item.get("conversation_id", "")),
+        source=str(item.get("source", "")),
+    )
+
+
+def _mobile_dashboard_warnings(status_payload: dict[str, Any]) -> list[str]:
+    warnings: list[str] = []
+    for item in status_payload.get("servers", []):
+        if item.get("server_id") != "android-server":
+            continue
+        deps = item.get("dependencies") or {}
+        permissions = deps.get("permission_status") or {}
+        missing = [name for name, granted in permissions.items() if granted is False]
+        if missing:
+            warnings.append("Missing Android permissions: " + ", ".join(sorted(missing)))
+        break
+    return warnings
 
 
 def _event_from_proto(event: common_pb2.Event) -> Event:

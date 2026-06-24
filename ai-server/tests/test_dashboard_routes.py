@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 from types import SimpleNamespace
+from unittest.mock import MagicMock
 
 from aegis_ai.web import dashboard_routes
 from aegis_ai.web import chat_tools
@@ -76,6 +77,30 @@ def test_dashboard_registers_settings_blueprint(monkeypatch, tmp_path) -> None:
 
     assert response.status_code == 200
     assert "autonomous" in response.get_json()
+
+
+def test_dashboard_chat_history_broadcasts_to_android(monkeypatch, tmp_path) -> None:
+    class FakeAndroidManager:
+        def __init__(self) -> None:
+            self.messages = []
+
+        def broadcast_chat_update(self, messages):
+            self.messages.append(messages)
+            return 1
+
+    monkeypatch.setattr(dashboard_routes, "_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setattr(dashboard_routes.DashboardApp, "_start_autonomous_loop", lambda self: None)
+    rt = _runtime(tmp_path)
+    rt.android_manager = FakeAndroidManager()
+    dashboard_app = dashboard_routes.DashboardApp(runtime=rt)
+    dashboard_app._chat_history_path = tmp_path / "data" / "chat_history.jsonl"
+
+    entry = dashboard_app._append_chat_history("hello", "hi")
+
+    assert entry["user"] == "hello"
+    assert rt.android_manager.messages
+    assert rt.android_manager.messages[0][0]["role"] == "user"
+    assert rt.android_manager.messages[0][1]["role"] == "assistant"
 
 
 def test_settings_section_update_persists(monkeypatch, tmp_path) -> None:
@@ -179,6 +204,122 @@ def test_capability_risk_update_allows_127_loopback(monkeypatch, tmp_path) -> No
     assert response.status_code == 200
     assert payload["ok"] is True
     assert updated["risk"]["level"] == "safe"
+
+
+def test_risk_label_normalization_supports_manifest_variants() -> None:
+    from aegis_ai.capability_catalog import normalize_risk_label
+
+    assert normalize_risk_label("low") == "READ_ONLY"
+    assert normalize_risk_label("read_only") == "READ_ONLY"
+    assert normalize_risk_label("safe") == "SAFE_ACTION"
+    assert normalize_risk_label("safe_action") == "SAFE_ACTION"
+    assert normalize_risk_label("medium") == "APPROVAL_REQUIRED"
+    assert normalize_risk_label("approval_required") == "APPROVAL_REQUIRED"
+    assert normalize_risk_label("high") == "HIGH_RISK"
+    assert normalize_risk_label("high_risk") == "HIGH_RISK"
+    assert normalize_risk_label("critical") == "FORBIDDEN"
+    assert normalize_risk_label("forbidden") == "FORBIDDEN"
+
+
+def test_capability_risk_update_resyncs_live_registry(monkeypatch, tmp_path) -> None:
+    from aegis_schema.models import RiskLevel
+    from tool_broker import ExecutionSource, InvokeStatus, ToolExecutionRequest
+
+    rt = _runtime(tmp_path)
+    client = dashboard_routes.DashboardApp(runtime=rt).app.test_client()
+    manifest_path = tmp_path / "data" / "capabilities" / "builtin" / "pc-server" / "test" / "sample.json"
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "server_id": "pc-server",
+                "app_id": "test",
+                "action": "sample",
+                "title": "Sample",
+                "description": "Sample capability",
+                "risk": {"level": "approval_required", "requires_approval": True},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    response = client.post(
+        "/api/capabilities/risk",
+        json={"capability_id": "pc-server.test.sample", "risk_level": "SAFE_ACTION"},
+        headers={"Origin": "http://127.0.0.1:8090"},
+        environ_base={"REMOTE_ADDR": "127.0.0.1"},
+    )
+
+    cap = rt.tool_registry.get_capability("pc-server.test.sample")
+    result = rt.tool_broker.execute(
+        ToolExecutionRequest(
+            capability_id="pc-server.test.sample",
+            arguments={},
+            source=ExecutionSource.USER_EXPLICIT,
+        )
+    )
+
+    assert response.status_code == 200
+    assert cap is not None
+    assert cap.risk_level == RiskLevel.SAFE_ACTION
+    assert result.status != InvokeStatus.APPROVAL_NEEDED
+
+
+def test_capability_risk_update_to_forbidden_unregisters(monkeypatch, tmp_path) -> None:
+    rt = _runtime(tmp_path)
+    client = dashboard_routes.DashboardApp(runtime=rt).app.test_client()
+    manifest_path = tmp_path / "data" / "capabilities" / "builtin" / "pc-server" / "test" / "danger.json"
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "server_id": "pc-server",
+                "app_id": "test",
+                "action": "danger",
+                "title": "Danger",
+                "description": "Danger capability",
+                "risk": {"level": "safe", "requires_approval": False},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    response = client.post(
+        "/api/capabilities/risk",
+        json={"capability_id": "pc-server.test.danger", "risk_level": "FORBIDDEN"},
+        headers={"Origin": "http://127.0.0.1:8090"},
+        environ_base={"REMOTE_ADDR": "127.0.0.1"},
+    )
+
+    assert response.status_code == 200
+    assert rt.tool_registry.get_capability("pc-server.test.danger") is None
+
+
+def test_capability_reload_resyncs_registry_and_reindexes(monkeypatch, tmp_path) -> None:
+    rt = _runtime(tmp_path)
+    rt.capability_index = MagicMock()
+    client = dashboard_routes.DashboardApp(runtime=rt).app.test_client()
+    manifest_path = tmp_path / "data" / "capabilities" / "builtin" / "pc-server" / "test" / "reload_me.json"
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "server_id": "pc-server",
+                "app_id": "test",
+                "action": "reload_me",
+                "title": "Reload Me",
+                "description": "Reload capability",
+                "risk": {"level": "read_only", "requires_approval": False},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    response = client.post("/api/capabilities/reload")
+
+    assert response.status_code == 200
+    assert rt.tool_registry.get_capability("pc-server.test.reload_me") is not None
+    rt.capability_index.reindex.assert_called_once()
 
 
 def test_capability_risk_update_rejects_non_loopback(monkeypatch, tmp_path) -> None:
@@ -386,7 +527,90 @@ def test_chat_respond_uses_shared_decision_memory_profile(monkeypatch, tmp_path)
     assert response.status_code == 200
     assert response.get_json()["response"] == "Continued."
     assert recorded_profiles == ["decision"]
-    assert recorded_context_meta == [{"memory_profile": "decision"}]
+    assert recorded_context_meta[0]["memory_profile"] == "decision"
+    assert recorded_context_meta[0]["origin_channel"] == "dashboard_chat"
+    assert recorded_context_meta[0]["original_message"] == "Continue the setup"
+
+
+def test_dashboard_chat_approval_executes_once_and_emits_followup(monkeypatch, tmp_path) -> None:
+    from aegis_ai.approval.approval_manager import ApprovalManager
+    from aegis_ai.task.task_manager import TaskManager
+    from tool_broker import ToolBroker
+
+    class FakeServerExecutor:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def set_catalog(self, catalog) -> None:
+            self.catalog = catalog
+
+        def execute(self, cap, arguments):
+            self.calls += 1
+            return {"result": "done after approval"}
+
+    monkeypatch.setattr(dashboard_routes, "_DATA_DIR", str(tmp_path / "data"))
+    rt = _runtime(tmp_path)
+    rt.task_manager = TaskManager(data_dir=str(tmp_path / "data"))
+    rt.approval_manager = ApprovalManager(approval_queue=rt.approval_queue, audit_log=rt.audit_log)
+    fake_executor = FakeServerExecutor()
+    rt.tool_broker = ToolBroker(
+        registry=rt.tool_registry,
+        policy_engine=rt.policy_engine,
+        audit_log=rt.audit_log,
+        approval_queue=rt.approval_queue,
+        approval_manager=rt.approval_manager,
+        server_executor=fake_executor,
+        catalog=rt.capability_catalog,
+    )
+    manifest_path = tmp_path / "data" / "capabilities" / "builtin" / "pc-server" / "test" / "needs_approval.json"
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "server_id": "pc-server",
+                "app_id": "test",
+                "action": "needs_approval",
+                "title": "Needs Approval",
+                "description": "Requires approval",
+                "risk": {"level": "approval_required", "requires_approval": True},
+                "input_schema": {"type": "object", "properties": {}},
+            }
+        ),
+        encoding="utf-8",
+    )
+    dashboard_routes._reload_capabilities_runtime(rt)
+    dashboard_app = dashboard_routes.DashboardApp(runtime=rt)
+    dashboard_app._chat_history_path = tmp_path / "data" / "chat_history.jsonl"
+    events = dashboard_app._register_chat_client("test_client")
+
+    task = rt.task_manager.create_task(title="chat", goal="do it", source="chat")
+    task_id = task["task_id"]
+    rt.task_manager.start_task(task_id)
+    tool_result = chat_tools.execute_tool_call(
+        rt.capability_catalog,
+        "pc-server__test__needs_approval",
+        {},
+        runtime=rt,
+        tool_context={
+            "origin_channel": "dashboard_chat",
+            "conversation_id": "conv_test",
+            "chat_task_id": task_id,
+            "original_message": "do it",
+        },
+    )
+
+    approval_id = tool_result["approval_id"]
+    approved = rt.approval_manager.approve(approval_id, channel="dashboard", user="user")
+    event_payload = json.loads(events.get(timeout=1))
+    history = dashboard_app._chat_history_path.read_text(encoding="utf-8")
+
+    assert tool_result["approval_needed"] is True
+    assert approved is not None
+    assert fake_executor.calls == 1
+    assert "done after approval" in history
+    assert event_payload["type"] == "assistant_message"
+    assert "done after approval" in event_payload["content"]
+    assert rt.task_manager.get_task(task_id)["status"] == "completed"
 
 
 def test_memory_page_shows_entries_beyond_old_limits(monkeypatch, tmp_path) -> None:

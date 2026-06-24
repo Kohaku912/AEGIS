@@ -467,13 +467,6 @@ Respond with JSON:
             remaining = (self._min_llm_interval_ms - (now_llm - self._last_llm_call_ms)) // 1000
             logger.info("LLM interval gate: %ds remaining until next LLM call", remaining)
             self._last_skip_reason = f"llm_interval_gate ({remaining}s remaining)"
-            self._log_audit_event(
-                action="autonomous_llm_gate",
-                capability_id="none",
-                decision="SKIP",
-                reason=self._last_skip_reason,
-                detail={"source": "llm_interval_gate"},
-            )
             self._schedule_next(max(60, remaining))
             return
 

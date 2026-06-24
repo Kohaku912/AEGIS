@@ -312,6 +312,14 @@ def _build_runtime(config: Config) -> AegisRuntime:
     )
     server_executor.register_client("android-server", android_manager)
 
+    from aegis_ai.integrations.room import RoomServerGrpcClient
+
+    server_executor.register_client("room-server", RoomServerGrpcClient())
+
+    from aegis_ai.integrations.dev import DevServerGrpcClient
+
+    server_executor.register_client("dev-server", DevServerGrpcClient())
+
     from aegis_ai.approval.channels.android import AndroidApprovalChannel
     from aegis_ai.approval.channels.pc_overlay import PcOverlayApprovalChannel
     from aegis_ai.approval.channels.room import RoomApprovalChannel

@@ -131,6 +131,20 @@ message AndroidStopCommand {
   string reason = 1;
 }
 
+message AndroidChatHistoryMessage {
+  string message_id = 1;
+  string role = 2;
+  string text = 3;
+  int64 timestamp_ms = 4;
+  string image = 5;
+  string conversation_id = 6;
+  string source = 7;
+}
+
+message AndroidChatUpdate {
+  repeated AndroidChatHistoryMessage messages = 1;
+}
+
 message AndroidServerCommand {
   oneof kind {
     AndroidStreamAck ack = 1;
@@ -138,6 +152,7 @@ message AndroidServerCommand {
     AndroidApprovalCommand approval_request = 3;
     AndroidServerHeartbeat heartbeat = 4;
     AndroidStopCommand stop = 5;
+    AndroidChatUpdate chat_update = 6;
   }
 }
 

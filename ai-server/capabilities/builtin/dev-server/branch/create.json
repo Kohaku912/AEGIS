@@ -1,0 +1,21 @@
+{
+  "title": "Create Branch",
+  "description": "Create a git branch in the Dev Server workspace.",
+  "server_id": "dev-server",
+  "app_id": "branch",
+  "action": "create",
+  "input_schema": {
+    "type": "object",
+    "required": ["branch_name"],
+    "properties": {
+      "branch_name": {"type": "string"},
+      "base_branch": {"type": "string", "default": "main"}
+    }
+  },
+  "risk": {
+    "level": "approval_required",
+    "side_effects": ["repo_write", "git_branch"],
+    "requires_approval": true
+  },
+  "tags": ["builtin", "dev", "git", "write"]
+}

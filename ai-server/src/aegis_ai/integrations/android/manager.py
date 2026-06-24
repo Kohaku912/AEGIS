@@ -207,6 +207,16 @@ class AndroidServerManager:
         )
         return not result.get("error")
 
+    def broadcast_chat_update(self, messages: list[dict[str, Any]]) -> int:
+        """Push shared chat messages to all active reverse-stream Android clients."""
+        delivered = 0
+        for session in list(self._sessions.values()):
+            if session.closed:
+                continue
+            session.send_chat_update(messages)
+            delivered += 1
+        return delivered
+
     def get_status(self) -> dict[str, Any]:
         """Return dashboard-friendly Android connection state."""
         session = self._get_active_session()

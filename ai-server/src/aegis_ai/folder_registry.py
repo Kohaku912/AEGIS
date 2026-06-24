@@ -16,6 +16,7 @@ import json
 import logging
 import os
 import subprocess
+import sys
 import threading
 import time
 from dataclasses import dataclass, field
@@ -298,11 +299,12 @@ class ExecutorRegistry:
         env = os.environ.copy()
         env.update(exec_manifest.env)
         timeout = exec_manifest.timeout_ms / 1000.0
+        command = self._normalize_command(exec_manifest.command, work_dir)
 
         try:
             stdin_data = json.dumps(arguments) if exec_manifest.stdin_format == "json" else None
             result = subprocess.run(
-                exec_manifest.command, shell=True, cwd=work_dir,
+                command, shell=True, cwd=work_dir,
                 input=stdin_data, capture_output=True, text=True,
                 encoding="utf-8", errors="replace",
                 timeout=timeout, env=env,
@@ -319,7 +321,7 @@ class ExecutorRegistry:
                             "exit_code": result.returncode,
                             "stderr": result.stderr,
                             "stdout": result.stdout,
-                            "command": exec_manifest.command,
+                            "command": command,
                             "working_dir": work_dir,
                             "executor_file": str(exec_manifest.file_path),
                         },
@@ -344,7 +346,7 @@ class ExecutorRegistry:
                     "code": "EXECUTION_TIMEOUT",
                     "message": f"Timed out after {timeout}s",
                     "details": {
-                        "command": exec_manifest.command,
+                        "command": command,
                         "working_dir": work_dir,
                         "executor_file": str(exec_manifest.file_path),
                         "timeout_ms": exec_manifest.timeout_ms,
@@ -360,13 +362,23 @@ class ExecutorRegistry:
                     "code": "EXECUTION_ERROR",
                     "message": str(e),
                     "details": {
-                        "command": exec_manifest.command,
+                        "command": command,
                         "working_dir": work_dir,
                         "executor_file": str(exec_manifest.file_path),
                     },
                 },
                 meta=self._meta(manifest, dur),
             )
+
+    @staticmethod
+    def _normalize_command(command: str, work_dir: str) -> str:
+        """Make checked-in executor commands portable across host and Docker."""
+        if "executor.py" not in command:
+            return command
+        executor_path = Path(work_dir) / "executor.py"
+        if not executor_path.exists():
+            return command
+        return f'"{sys.executable}" "{executor_path}"'
 
     def _meta(self, m: CapabilityManifest, dur: float) -> dict:
         return {

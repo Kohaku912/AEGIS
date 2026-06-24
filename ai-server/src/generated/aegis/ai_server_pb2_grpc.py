@@ -95,6 +95,16 @@ class AIServerStub:
                 request_serializer=aegis_dot_common__pb2.ToolInvocationRequest.SerializeToString,
                 response_deserializer=aegis_dot_common__pb2.ToolInvocationResult.FromString,
                 _registered_method=True)
+        self.SendChat = channel.unary_unary(
+                '/aegis.AIServer/SendChat',
+                request_serializer=aegis_dot_ai__server__pb2.ChatRequest.SerializeToString,
+                response_deserializer=aegis_dot_ai__server__pb2.ChatResponse.FromString,
+                _registered_method=True)
+        self.GetMobileDashboardState = channel.unary_unary(
+                '/aegis.AIServer/GetMobileDashboardState',
+                request_serializer=aegis_dot_ai__server__pb2.MobileDashboardStateRequest.SerializeToString,
+                response_deserializer=aegis_dot_ai__server__pb2.MobileDashboardStateResponse.FromString,
+                _registered_method=True)
         self.RequestApproval = channel.unary_unary(
                 '/aegis.AIServer/RequestApproval',
                 request_serializer=aegis_dot_ai__server__pb2.RequestApprovalRequest.SerializeToString,
@@ -203,6 +213,18 @@ class AIServerServicer:
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def SendChat(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def GetMobileDashboardState(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
     def RequestApproval(self, request, context):
         """── Approval ──────────────────────────────────────────────
         """
@@ -299,6 +321,16 @@ def add_AIServerServicer_to_server(servicer, server):
                     servicer.InvokeTool,
                     request_deserializer=aegis_dot_common__pb2.ToolInvocationRequest.FromString,
                     response_serializer=aegis_dot_common__pb2.ToolInvocationResult.SerializeToString,
+            ),
+            'SendChat': grpc.unary_unary_rpc_method_handler(
+                    servicer.SendChat,
+                    request_deserializer=aegis_dot_ai__server__pb2.ChatRequest.FromString,
+                    response_serializer=aegis_dot_ai__server__pb2.ChatResponse.SerializeToString,
+            ),
+            'GetMobileDashboardState': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetMobileDashboardState,
+                    request_deserializer=aegis_dot_ai__server__pb2.MobileDashboardStateRequest.FromString,
+                    response_serializer=aegis_dot_ai__server__pb2.MobileDashboardStateResponse.SerializeToString,
             ),
             'RequestApproval': grpc.unary_unary_rpc_method_handler(
                     servicer.RequestApproval,
@@ -632,6 +664,60 @@ class AIServer:
             '/aegis.AIServer/InvokeTool',
             aegis_dot_common__pb2.ToolInvocationRequest.SerializeToString,
             aegis_dot_common__pb2.ToolInvocationResult.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def SendChat(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/aegis.AIServer/SendChat',
+            aegis_dot_ai__server__pb2.ChatRequest.SerializeToString,
+            aegis_dot_ai__server__pb2.ChatResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetMobileDashboardState(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/aegis.AIServer/GetMobileDashboardState',
+            aegis_dot_ai__server__pb2.MobileDashboardStateRequest.SerializeToString,
+            aegis_dot_ai__server__pb2.MobileDashboardStateResponse.FromString,
             options,
             channel_credentials,
             insecure,

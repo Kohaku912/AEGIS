@@ -1,0 +1,20 @@
+{
+  "title": "Room Device Status",
+  "description": "Get status for room devices known by the Room Server.",
+  "server_id": "room-server",
+  "app_id": "device",
+  "action": "get_status",
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "device_ids": {
+        "type": "array",
+        "items": {"type": "string"},
+        "default": [],
+        "description": "Optional device ids to filter. Empty returns all known devices."
+      }
+    }
+  },
+  "risk": {"level": "low", "side_effects": [], "requires_approval": false},
+  "tags": ["builtin", "room", "device", "read"]
+}

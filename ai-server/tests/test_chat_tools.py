@@ -273,6 +273,15 @@ def test_screenshot_tool_result_is_summarized_for_follow_up_prompt(monkeypatch) 
     assert "The browser is open on a signup form with visible input fields." in llm.prompts[1]
 
 
+def test_android_screenshot_image_data_is_normalized_for_vision() -> None:
+    output = chat_tools.normalize_tool_output(
+        {"image_data": "ZmFrZV9wbmc=", "width": 1080, "height": 2400}
+    )
+
+    assert output["image_base64"] == "ZmFrZV9wbmc="
+    assert output["format"] == "png"
+
+
 def _write_chat_cap(root: Path, index: int) -> None:
     app_id = f"dummy{index}"
     path = root / "builtin" / "ai-server" / app_id / "run.json"

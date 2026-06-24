@@ -26,13 +26,56 @@ from aegis_ai.folder_registry import (
 
 logger = logging.getLogger("aegis_ai.capability_catalog")
 
+_RISK_LABEL_TO_NAME = {
+    "low": "READ_ONLY",
+    "read": "READ_ONLY",
+    "read_only": "READ_ONLY",
+    "safe": "SAFE_ACTION",
+    "safe_action": "SAFE_ACTION",
+    "medium": "APPROVAL_REQUIRED",
+    "approval": "APPROVAL_REQUIRED",
+    "approval_required": "APPROVAL_REQUIRED",
+    "high": "HIGH_RISK",
+    "high_risk": "HIGH_RISK",
+    "critical": "FORBIDDEN",
+    "forbidden": "FORBIDDEN",
+}
+
+_RISK_NAME_TO_JSON_LABEL = {
+    "READ_ONLY": "low",
+    "SAFE_ACTION": "safe",
+    "APPROVAL_REQUIRED": "medium",
+    "HIGH_RISK": "high",
+    "FORBIDDEN": "critical",
+}
+
 _PREFIX_MAP = {
     "ai-server": "ai",
     "pc-server": "pc",
     "browser-server": "browser",
     "android-server": "android",
     "room-server": "room",
+    "dev-server": "dev",
 }
+
+
+def normalize_risk_label(label: str, default: str = "READ_ONLY") -> str:
+    """Normalize manifest/dashboard risk labels to RiskLevel enum names."""
+    key = str(label or "").strip().lower()
+    return _RISK_LABEL_TO_NAME.get(key, default)
+
+
+def risk_json_label(risk_name: str) -> str:
+    """Convert a RiskLevel enum name to the manifest JSON label."""
+    normalized = normalize_risk_label(risk_name, default=str(risk_name or "").strip().upper())
+    return _RISK_NAME_TO_JSON_LABEL.get(normalized, "low")
+
+
+def risk_level_from_label(label: str):
+    """Convert a manifest/dashboard risk label to aegis_schema.models.RiskLevel."""
+    from aegis_schema.models import RiskLevel
+
+    return RiskLevel[normalize_risk_label(label)]
 
 
 class CapabilityCatalog:
@@ -179,35 +222,34 @@ class CapabilityCatalog:
     def to_tool_registry_capabilities(self) -> list:
         """Convert all manifests to Capability objects for ToolRegistry registration."""
         from aegis_schema.models import Capability, RiskLevel, ServerType
-        risk_map = {
-            "low": RiskLevel.READ_ONLY,
-            "safe": RiskLevel.SAFE_ACTION,
-            "medium": RiskLevel.APPROVAL_REQUIRED,
-            "high": RiskLevel.HIGH_RISK,
-            "critical": RiskLevel.FORBIDDEN,
-            "forbidden": RiskLevel.FORBIDDEN,
-        }
         server_type_map = {
             "pc-server": ServerType.PC,
             "browser-server": ServerType.BROWSER,
             "android-server": ServerType.ANDROID,
             "room-server": ServerType.ROOM,
+            "dev-server": ServerType.DEV,
             "ai-server": ServerType.AI,
         }
         caps = []
         with self._lock:
             manifests = self._cap_reg.list_all()
         for m in manifests:
-            caps.append(Capability(
-                id=m.capability_id,
-                name=m.title,
-                description=m.description,
-                server_type=server_type_map.get(m.server_id, ServerType.AI),
-                risk_level=risk_map.get(m.risk_level, RiskLevel.READ_ONLY),
-                requires_approval=m.requires_approval,
-                side_effects=m.side_effects,
-                tags=m.tags,
-            ))
+            risk_level = risk_level_from_label(m.risk_level)
+            if risk_level == RiskLevel.FORBIDDEN:
+                continue
+            try:
+                caps.append(Capability(
+                    id=m.capability_id,
+                    name=m.title,
+                    description=m.description or m.title or m.capability_id,
+                    server_type=server_type_map.get(m.server_id, ServerType.AI),
+                    risk_level=risk_level,
+                    requires_approval=m.requires_approval,
+                    side_effects=m.side_effects,
+                    tags=m.tags,
+                ))
+            except ValueError:
+                logger.debug("Skipping non-registerable capability: %s", m.capability_id, exc_info=True)
         return caps
 
     def execute(self, cap_id: str, arguments: dict[str, Any]) -> ExecutionResult:

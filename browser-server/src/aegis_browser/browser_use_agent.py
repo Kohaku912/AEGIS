@@ -332,9 +332,21 @@ class BrowserUseAgent:
                 config = json.load(f)
 
         llm_config = config.get("llm", {})
-        api_key = llm_config.get("api_key") or os.environ.get("OPENAI_API_KEY", "")
-        base_url = llm_config.get("base_url") or os.environ.get("OPENAI_BASE_URL", "https://api.deepseek.com")
-        model = llm_config.get("model", "deepseek-v4-flash")
+        api_key = (
+            os.environ.get("LLM_API_KEY")
+            or os.environ.get("OPENAI_API_KEY")
+            or os.environ.get("DEEPSEEK_API_KEY")
+            or llm_config.get("api_key")
+            or ""
+        )
+        base_url = (
+            os.environ.get("LLM_BASE_URL")
+            or os.environ.get("OPENAI_BASE_URL")
+            or os.environ.get("DEEPSEEK_BASE_URL")
+            or llm_config.get("base_url")
+            or "https://api.deepseek.com"
+        )
+        model = os.environ.get("LLM_MODEL") or llm_config.get("model", "deepseek-v4-flash")
 
         if not api_key:
             return {"text": "Error: No API key configured. Set OPENAI_API_KEY or edit browser-server/config.json", "data": {}}
@@ -385,6 +397,7 @@ class BrowserUseAgent:
         result_text = str(result)
         needs_user_input = False
         user_input_reason = ""
+        completed_without_user_input = self._completed_without_user_input(result, result_text)
 
         verification_patterns = [
             "verify your identity",
@@ -401,11 +414,12 @@ class BrowserUseAgent:
             "verify you are human",
         ]
         result_lower = result_text.lower()
-        for pattern in verification_patterns:
-            if pattern in result_lower:
-                needs_user_input = True
-                user_input_reason = f"Verification required: {pattern}"
-                break
+        if not completed_without_user_input:
+            for pattern in verification_patterns:
+                if pattern in result_lower:
+                    needs_user_input = True
+                    user_input_reason = f"Verification required: {pattern}"
+                    break
 
         return {
             "text": result_text,
@@ -413,6 +427,18 @@ class BrowserUseAgent:
             "needs_user_input": needs_user_input,
             "user_input_reason": user_input_reason,
         }
+
+    @staticmethod
+    def _completed_without_user_input(result: Any, result_text: str = "") -> bool:
+        """Return True when browser-use reports successful completion."""
+        all_results = getattr(result, "all_results", None) or []
+        if all_results:
+            final = all_results[-1]
+            if getattr(final, "success", None) is not True:
+                return False
+            judgement = getattr(final, "judgement", None)
+            return getattr(judgement, "reached_captcha", False) is False
+        return "success=True" in result_text and "reached_captcha=False" in result_text
 
     def stop(self) -> None:
         """Stop current task execution."""

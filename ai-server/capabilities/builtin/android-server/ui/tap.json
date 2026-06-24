@@ -7,14 +7,41 @@
   "input_schema": {
     "type": "object",
     "properties": {
-      "x": {"type": "integer"},
-      "y": {"type": "integer"},
-      "duration_ms": {"type": "integer", "default": 0}
+      "x": {
+        "type": "integer"
+      },
+      "y": {
+        "type": "integer"
+      },
+      "duration_ms": {
+        "type": "integer",
+        "default": 0
+      }
     },
-    "required": ["x", "y"]
+    "required": [
+      "x",
+      "y"
+    ]
   },
-  "risk": {"level": "medium", "side_effects": ["touch_input"], "requires_approval": true},
-  "tags": ["builtin", "android", "ui", "input"],
-  "requires_permissions": ["accessibility"],
-  "extra": {"requires_permissions": ["accessibility"]}
+  "risk": {
+    "level": "safe",
+    "side_effects": [
+      "touch_input"
+    ],
+    "requires_approval": false
+  },
+  "tags": [
+    "builtin",
+    "android",
+    "ui",
+    "input"
+  ],
+  "requires_permissions": [
+    "accessibility"
+  ],
+  "extra": {
+    "requires_permissions": [
+      "accessibility"
+    ]
+  }
 }

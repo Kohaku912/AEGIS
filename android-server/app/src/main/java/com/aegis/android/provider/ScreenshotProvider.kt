@@ -93,6 +93,10 @@ class ScreenshotProvider(private val context: Context) {
             val image = imageReader?.acquireLatestImage()
             if (image == null) {
                 Log.w(TAG, "No image available")
+                virtualDisplay?.release()
+                imageReader?.close()
+                virtualDisplay = null
+                imageReader = null
                 return null
             }
 
@@ -116,6 +120,11 @@ class ScreenshotProvider(private val context: Context) {
 
         } catch (e: Exception) {
             Log.e(TAG, "Screenshot failed", e)
+            virtualDisplay?.release()
+            imageReader?.close()
+            virtualDisplay = null
+            imageReader = null
+            mediaProjection = null
             return null
         }
     }

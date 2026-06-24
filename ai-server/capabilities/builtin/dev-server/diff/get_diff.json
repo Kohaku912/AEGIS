@@ -1,0 +1,16 @@
+{
+  "title": "Repository Diff",
+  "description": "Read git diff information from the Dev Server workspace.",
+  "server_id": "dev-server",
+  "app_id": "diff",
+  "action": "get_diff",
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "from_branch": {"type": "string", "default": "main"},
+      "to_branch": {"type": "string", "default": "HEAD"}
+    }
+  },
+  "risk": {"level": "low", "side_effects": [], "requires_approval": false},
+  "tags": ["builtin", "dev", "git", "diff", "read"]
+}
