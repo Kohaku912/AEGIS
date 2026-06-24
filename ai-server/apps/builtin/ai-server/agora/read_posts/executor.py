@@ -57,6 +57,14 @@ def _fetch_posts(client: AgoraClient, since_id: int, limit: int) -> AgoraFetchRe
 
 def _read_posts(client: AgoraClient, since_id: int, limit: int) -> tuple[AgoraFetchResult | dict[str, Any], dict[str, Any]]:
     cursor = client.get_cursor()
+    if isinstance(cursor, dict) and cursor.get("error"):
+        return cursor, {
+            "cursor": 0,
+            "read_since_id": since_id,
+            "limit": limit,
+            "fallback_recent": False,
+            "read_mode": "history" if since_id > 0 else "unread",
+        }
     remote_cursor = _cursor_value(cursor)
     read_since_id = since_id if since_id > 0 else remote_cursor
 
@@ -65,28 +73,10 @@ def _read_posts(client: AgoraClient, since_id: int, limit: int) -> tuple[AgoraFe
         "read_since_id": read_since_id,
         "limit": limit,
         "fallback_recent": False,
+        "read_mode": "history" if since_id > 0 else "unread",
     }
 
     result = _fetch_posts(client, read_since_id, limit)
-    if isinstance(result, dict):
-        return result, meta
-
-    # If the server cursor already points at the newest post, the normal unread
-    # query is empty. In that case, return a recent window so "read posts" still
-    # gives the LLM actual current AGORA context instead of a misleading blank.
-    if since_id == 0 and not result.posts and remote_cursor > 0:
-        fallback_since_id = max(0, remote_cursor - limit)
-        fallback = _fetch_posts(client, fallback_since_id, limit)
-        if isinstance(fallback, dict):
-            return fallback, meta
-        if fallback.posts:
-            meta.update({
-                "read_since_id": fallback_since_id,
-                "fallback_recent": True,
-                "fallback_reason": "No unread posts after cursor; returned recent posts near cursor.",
-            })
-            return fallback, meta
-
     return result, meta
 
 
@@ -110,19 +100,33 @@ def run(payload: dict[str, Any]) -> dict[str, Any]:
         return _error_payload(str(result.get("message", result.get("error", "AGORA read failed"))), agora_error=result)
 
     posts = result.posts
-    if posts and result.max_post_id > 0:
-        # Cursor updates are monotonic on AGORA. This is safe for normal reads
-        # and harmless for explicit historical reads when the cursor is already newer.
-        client.update_cursor(result.max_post_id)
+    cursor_after = meta["cursor"]
+    if since_id == 0 and posts and result.max_post_id > 0:
+        updated_cursor = client.update_cursor(result.max_post_id)
+        if isinstance(updated_cursor, dict) and updated_cursor.get("error"):
+            return _error_payload(
+                str(updated_cursor.get("message", updated_cursor.get("error", "AGORA cursor update failed"))),
+                cursor_error=updated_cursor,
+            )
+        cursor_after = _cursor_value(updated_cursor) or result.max_post_id
 
-    sync_result = sync_agora_posts_to_memory(
-        posts=posts,
-        data_dir=str(ROOT / "data"),
-        self_author_ids={me.id} if isinstance(me, AgoraAccount) and me.id else set(),
-        self_author_names={me.name} if isinstance(me, AgoraAccount) and me.name else set(),
-    )
+    if posts:
+        sync_result = sync_agora_posts_to_memory(
+            posts=posts,
+            data_dir=str(ROOT / "data"),
+            self_author_ids={me.id} if isinstance(me, AgoraAccount) and me.id else set(),
+            self_author_names={me.name} if isinstance(me, AgoraAccount) and me.name else set(),
+        )
+        payload_out = sync_result.to_dict()
+    else:
+        payload_out = {
+            "ok": True,
+            "message": "AGORA: No new posts.",
+            "result": "AGORA: No new posts.",
+            "summary": "AGORA: No new posts.",
+            "posts": [],
+        }
 
-    payload_out = sync_result.to_dict()
     payload_out.update({
         "account": {
             "id": me.id if isinstance(me, AgoraAccount) else 0,
@@ -132,14 +136,12 @@ def run(payload: dict[str, Any]) -> dict[str, Any]:
         "read_since_id": meta["read_since_id"],
         "limit": limit,
         "fallback_recent": meta["fallback_recent"],
+        "read_mode": meta["read_mode"],
+        "unread_count": len(posts) if meta["read_mode"] == "unread" else 0,
         "fetched_count": len(posts),
         "max_post_id": result.max_post_id,
+        "cursor_after": cursor_after,
     })
-    if meta.get("fallback_reason"):
-        payload_out["fallback_reason"] = meta["fallback_reason"]
-        if payload_out.get("message") == "AGORA: No new posts." and posts:
-            payload_out["message"] = payload_out["summary"]
-            payload_out["result"] = payload_out["summary"]
     return payload_out
 
 

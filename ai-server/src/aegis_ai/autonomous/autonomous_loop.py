@@ -17,7 +17,6 @@ from __future__ import annotations
 import json
 import logging
 import os
-import socket
 import threading
 import time
 from pathlib import Path
@@ -27,17 +26,6 @@ from aegis_ai.llm.json_utils import extract_json_object
 from aegis_ai.llm.memory_context import build_shared_memory_context
 
 logger = logging.getLogger("aegis_ai.autonomous.autonomous_loop")
-
-
-def _check_port(host: str, port: int, timeout: float = 1.0) -> bool:
-    try:
-        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        s.settimeout(timeout)
-        s.connect((host, port))
-        s.close()
-        return True
-    except Exception:
-        return False
 
 
 class AutonomousLoop:
@@ -70,6 +58,7 @@ class AutonomousLoop:
         policy_engine: Any = None,
         audit_log: Any = None,
         task_manager: Any = None,
+        status_manager: Any = None,
         settings_resolver: Any = None,
         data_dir: str = "data/autonomous",
         desire_threshold: float = 4.0,
@@ -96,6 +85,7 @@ class AutonomousLoop:
         self._capability_retriever = None
         self._audit_log = audit_log
         self._task_manager = task_manager
+        self._status_manager = status_manager
         self._data_dir = Path(data_dir)
         self._data_dir.mkdir(parents=True, exist_ok=True)
 
@@ -120,6 +110,11 @@ class AutonomousLoop:
         self._min_execution_interval_ms: int = 60_000  # Minimum 1 minute between executions
         self._min_llm_interval_ms: int = int(os.environ.get("AEGIS_MIN_LLM_INTERVAL_MS", 1800_000))
         self._last_llm_call_ms: int = 0
+        self._last_decision: str = ""
+        self._last_decision_ms: int = 0
+        self._last_action_ms: int = 0
+        self._available_capability_count: int = 0
+        self._consecutive_no_action: int = 0
         self._health_alert_manager: Any = None
         self._last_health_check_ms: int = 0
         self._health_check_interval_ms: int = 300_000  # 5 minutes
@@ -138,6 +133,14 @@ class AutonomousLoop:
                     data = json.load(f)
                 self._next_run_ms = data.get("next_run_ms", 0)
                 self._last_run_ms = data.get("last_run_ms", 0)
+                self._last_llm_call_ms = data.get("last_llm_call_ms", 0)
+                self._last_pressure_signature = data.get("last_pressure_signature", "")
+                self._last_skip_reason = data.get("last_skip_reason", "")
+                self._last_decision = data.get("last_decision", "")
+                self._last_decision_ms = data.get("last_decision_ms", 0)
+                self._last_action_ms = data.get("last_action_ms", 0)
+                self._available_capability_count = data.get("available_capability_count", 0)
+                self._consecutive_no_action = data.get("consecutive_no_action", 0)
                 logger.info("Loaded autonomous loop state")
             except Exception as e:
                 logger.warning("Failed to load loop state: %s", e)
@@ -148,6 +151,14 @@ class AutonomousLoop:
         data = {
             "next_run_ms": self._next_run_ms,
             "last_run_ms": self._last_run_ms,
+            "last_llm_call_ms": self._last_llm_call_ms,
+            "last_pressure_signature": self._last_pressure_signature,
+            "last_skip_reason": self._last_skip_reason,
+            "last_decision": self._last_decision,
+            "last_decision_ms": self._last_decision_ms,
+            "last_action_ms": self._last_action_ms,
+            "available_capability_count": self._available_capability_count,
+            "consecutive_no_action": self._consecutive_no_action,
             "timestamp_ms": int(time.time() * 1000),
         }
         with open(state_path, "w", encoding="utf-8") as f:
@@ -429,6 +440,7 @@ Respond with JSON:
         if not self._desire:
             logger.warning("No desire system, using fallback interval")
             self._schedule_next(self._fallback_interval)
+            self._save()
             return
 
         should_proceed, preflight_reason = self._preflight_check()
@@ -443,6 +455,7 @@ Respond with JSON:
                 detail={"source": "preflight_check"},
             )
             self._schedule_next(self._fallback_interval)
+            self._save()
             return
 
         low_desires = self._get_low_desires()
@@ -458,9 +471,8 @@ Respond with JSON:
             else:
                 logger.info("All desires above threshold, scheduling normal interval")
                 self._schedule_next(self._fallback_interval)
+                self._save()
                 return
-
-        self._last_pressure_signature = self._desire.get_pressure_signature()
 
         now_llm = int(time.time() * 1000)
         if now_llm - self._last_llm_call_ms < self._min_llm_interval_ms:
@@ -468,7 +480,10 @@ Respond with JSON:
             logger.info("LLM interval gate: %ds remaining until next LLM call", remaining)
             self._last_skip_reason = f"llm_interval_gate ({remaining}s remaining)"
             self._schedule_next(max(60, remaining))
+            self._save()
             return
+
+        self._last_pressure_signature = self._desire.get_pressure_signature()
 
         desire_before = {}
         if self._desire:
@@ -478,15 +493,15 @@ Respond with JSON:
         tasks = self._generate_tasks(low_desires)
         results = self._execute_tasks(tasks)
 
-        needs_follow_up = any(
-            not r.get("success") or "mention" in str(r.get("result", "")).lower()
-            for r in results
-        )
-        if needs_follow_up:
+        if results:
             follow_up_results = self._self_regressive_loop(tasks, results, max_iterations=2)
             results.extend(follow_up_results)
         else:
-            logger.info("Skipping follow-up: all tasks succeeded or no actionable results")
+            logger.info("Skipping follow-up: no task results")
+
+        if tasks:
+            self._last_action_ms = int(time.time() * 1000)
+            self._last_skip_reason = ""
 
         if self._reflection is not None:
             failed_tasks = [(i, t, results[i]) for i, t in enumerate(tasks)
@@ -514,7 +529,6 @@ Respond with JSON:
         next_interval = self._decide_next_interval(results)
         self._schedule_next(next_interval)
         self._log_execution(tasks, results)
-        self._last_llm_call_ms = int(time.time() * 1000)
         self._save()
 
     def _get_low_desires(self) -> list[dict[str, Any]]:
@@ -697,8 +711,6 @@ Respond with JSON:
             logger.error("No LLM provider — cannot generate tasks")
             return []
 
-        self._last_llm_call_ms = int(time.time() * 1000)
-
         desire_context = []
         for d in low_desires[:self._max_tasks]:
             desire_context.append(f"{d['name']}:gap={d['gap']:.1f}")
@@ -712,29 +724,7 @@ Respond with JSON:
                 )
             self._pending_actionable_observations = []
 
-        valid_cap_ids: set[str] = set()
-        if self._broker:
-            try:
-                pc_ok = _check_port("localhost", 50052)
-                room_ok = _check_port("localhost", 50055)
-                browser_ok = _check_port("localhost", 50053)
-                android_ok = _check_port("localhost", 50054)
-
-                caps = self._broker.list_safe_capabilities()
-                if caps:
-                    for c in caps:
-                        cap_id = c.id
-                        if cap_id.startswith("pc-server.") and not pc_ok:
-                            continue
-                        if cap_id.startswith("android-server.") and not android_ok:
-                            continue
-                        if cap_id.startswith("browser-server.") and not browser_ok:
-                            continue
-                        if cap_id.startswith("room-server.") and not room_ok:
-                            continue
-                        valid_cap_ids.add(cap_id)
-            except Exception:
-                pass
+        valid_cap_ids = self._available_safe_capability_ids()
 
         if not valid_cap_ids:
             logger.error("No valid capabilities available — cannot generate tasks")
@@ -788,6 +778,9 @@ Respond with JSON:
             profile="decision",
         )
 
+        self._last_llm_call_ms = int(time.time() * 1000)
+        self._last_decision_ms = self._last_llm_call_ms
+        self._last_decision = "llm_requested"
         result = self._llm.generate_with_tools(
             prompt=prompt,
             tools=tools,
@@ -801,6 +794,8 @@ Respond with JSON:
 
         if not result.success:
             logger.error("LLM task generation failed: %s", getattr(result, "error", "unknown"))
+            self._last_decision = "llm_error"
+            self._last_skip_reason = f"llm_error: {getattr(result, 'error', 'unknown')}"
             return []
 
         if not result.tool_calls:
@@ -810,6 +805,9 @@ Respond with JSON:
                     if no_action_data.get("no_action"):
                         reason = no_action_data.get("reason", "LLM chose not to act")
                         logger.info("LLM chose no_action: %s", reason)
+                        self._last_decision = "no_action"
+                        self._last_skip_reason = f"no_action: {reason}"
+                        self._consecutive_no_action += 1
                         self._log_audit_event(
                             action="autonomous_no_action",
                             capability_id="none",
@@ -821,6 +819,9 @@ Respond with JSON:
                 except Exception:
                     pass
             logger.warning("LLM returned no tool calls")
+            self._last_decision = "no_tool_calls"
+            self._last_skip_reason = "no_tool_calls"
+            self._consecutive_no_action += 1
             return []
 
         valid_tasks = []
@@ -867,7 +868,49 @@ Respond with JSON:
 
         if not valid_tasks:
             logger.warning("LLM returned no valid tasks")
+            self._last_decision = "no_valid_tasks"
+            self._last_skip_reason = "no_valid_tasks"
+            self._consecutive_no_action += 1
+        else:
+            self._last_decision = "action_selected"
+            self._last_skip_reason = ""
+            self._consecutive_no_action = 0
         return valid_tasks
+
+    def _available_safe_capability_ids(self) -> set[str]:
+        """Return safe capabilities whose owning server is currently usable."""
+        if not self._broker:
+            self._available_capability_count = 0
+            return set()
+
+        try:
+            capabilities = self._broker.list_safe_capabilities() or []
+        except Exception as exc:
+            logger.warning("Failed to list safe capabilities: %s", exc)
+            self._available_capability_count = 0
+            return set()
+
+        snapshot: dict[str, dict[str, Any]] | None = None
+        if self._status_manager is not None:
+            try:
+                snapshot = self._status_manager.get_snapshot()
+            except Exception as exc:
+                logger.warning("Failed to read server status snapshot: %s", exc)
+
+        catalog = getattr(self._broker, "_catalog", None)
+        available: set[str] = set()
+        for capability in capabilities:
+            manifest = catalog.resolve(capability.id) if catalog is not None else None
+            server_id = manifest.server_id if manifest is not None else capability.id.split(".", 1)[0]
+            if server_id == "ai-server" or snapshot is None:
+                available.add(capability.id)
+                continue
+            status = str(snapshot.get(server_id, {}).get("status", "unknown")).lower()
+            if status in {"online", "degraded"}:
+                available.add(capability.id)
+
+        self._available_capability_count = len(available)
+        return available
 
     def _execute_tasks(self, tasks: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Execute tasks with skill/workflow reuse and action tracing."""
@@ -1051,12 +1094,6 @@ Respond with JSON:
             return []
         if not initial_tasks or not initial_results:
             return []
-        all_success = all(r.get("success") for r in initial_results)
-        if all_success:
-            has_mentions = any("mention" in str(r.get("result", "")).lower() for r in initial_results)
-            if not has_mentions:
-                logger.info("Skipping follow-up: all tasks succeeded, no actionable results")
-                return []
 
         all_follow_ups: list[dict[str, Any]] = []
         current_tasks = initial_tasks
@@ -1085,31 +1122,15 @@ Respond with JSON:
         if not previous_tasks or not previous_results:
             return []
 
-        known_failure_patterns = [
-            "no executor", "unreachable", "connection refused",
-            "timed out", "not found", "not available",
-        ]
-        has_actionable = False
-        for result in previous_results:
-            if not result.get("success"):
-                err = str(result.get("result", "")).lower()
-                is_known = any(p in err for p in known_failure_patterns)
-                if not is_known:
-                    has_actionable = True
-                    break
-            result_text = str(result.get("result", "")).lower()
-            if "mention" in result_text or "directed at" in result_text:
-                has_actionable = True
-                break
-        if not has_actionable:
-            logger.info("Skipping follow-up: no actionable results")
-            return []
-
         context_parts = []
         for i, (task, result) in enumerate(zip(previous_tasks, previous_results)):
+            structured_output = json.dumps(
+                result.get("full_output", {}), ensure_ascii=False, default=str
+            )[:1500]
             context_parts.append(
                 f"Task {i+1}: {task.get('action', '')[:100]}\n"
                 f"Result: {result.get('result', '')[:200]}\n"
+                f"Structured result: {structured_output}\n"
                 f"Success: {result.get('success', False)}\n"
                 f"Desire: {task.get('desire', '')}"
             )
@@ -1121,15 +1142,7 @@ Respond with JSON:
         if not catalog:
             return []
 
-        valid_cap_ids: set[str] = set()
-        if self._broker:
-            try:
-                caps = self._broker.list_safe_capabilities()
-                if caps:
-                    for c in caps:
-                        valid_cap_ids.add(c.id)
-            except Exception:
-                pass
+        valid_cap_ids = self._available_safe_capability_ids()
 
         follow_up_query = "; ".join(
             part
@@ -1161,11 +1174,12 @@ Previous tasks:
 {chr(10).join(context_parts)}
 
 Rules:
-- Only call a function if the result contains actionable information
-- For social tasks: if there are mentions/messages directed at AEGIS, suggest replying
-- For search tasks: if results are interesting, suggest saving to memory
-- For system tasks: if anomalies detected, suggest investigation
+- Decide from the structured result whether another action is genuinely needed
+- For social tasks, prefer replying only when the result shows a message directed at AEGIS
+- For research tasks, save only genuinely useful new information
+- For system tasks, investigate only meaningful anomalies
 - If no follow-up needed, do not call any function
+- Do not repeat a successful read-only capability unless the result explicitly shows more unread or paginated data
 - Do not repeat invalid or previously failed tool choices unless memory indicates a new reason they should work now"""
 
         try:
@@ -1291,9 +1305,6 @@ Rules:
             if not desire:
                 continue
 
-            if desire.value >= desire.expected_value * 0.9:
-                continue
-
             task_result = evaluate_task_result(
                 capability_id=capability_id,
                 tool_success=success,
@@ -1306,6 +1317,13 @@ Rules:
                 capability_id, task_result.task_effect.value, task_result.desire_delta_hint,
             )
 
+            effectiveness = {
+                TaskEffect.USEFUL: 1.0,
+                TaskEffect.NEEDS_FOLLOWUP: 0.5,
+            }.get(task_result.task_effect, 0.0)
+            if success and effectiveness > 0.0:
+                self._desire.reduce_pressure(desire_name, effectiveness)
+
             if task_result.task_effect == TaskEffect.NO_EFFECT:
                 continue
 
@@ -1313,12 +1331,13 @@ Rules:
                 if delta != 0.0:
                     current = self._desire.get_desire(d_name)
                     if current:
-                        new_val = max(0.0, min(10.0, current.value + delta))
+                        old_val = current.value
+                        new_val = max(0.0, min(10.0, old_val + delta))
                         self._desire.update_value(
                             d_name, new_val,
                             reason=f"{task_result.summary} ({capability_id})",
                         )
-                        logger.info("Desire %s: %.1f -> %.1f (delta=%.1f)", d_name, current.value, new_val, delta)
+                        logger.info("Desire %s: %.1f -> %.1f (delta=%.1f)", d_name, old_val, new_val, delta)
 
         self._desire.save()
 
@@ -1579,6 +1598,12 @@ Rules:
                 "execution_count": len(self._execution_log),
                 "pressure_threshold": self._pressure_threshold,
                 "min_llm_interval_ms": self._min_llm_interval_ms,
+                "last_llm_call_ms": self._last_llm_call_ms,
+                "last_decision": self._last_decision,
+                "last_decision_ms": self._last_decision_ms,
+                "last_action_ms": self._last_action_ms,
+                "available_capability_count": self._available_capability_count,
+                "consecutive_no_action": self._consecutive_no_action,
                 "last_skip_reason": self._last_skip_reason,
             }
 
