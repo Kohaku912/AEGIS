@@ -7,6 +7,7 @@ Background health checks with cached snapshots for non-blocking reads.
 from __future__ import annotations
 
 import logging
+import os
 import socket
 import threading
 import time
@@ -24,15 +25,24 @@ class ServerStatus(Enum):
     DISABLED = "disabled"
 
 
-_DEFAULT_SERVERS = {
-    "ai-server": ("localhost", 50051),
-    "pc-server": ("localhost", 50052),
-    "browser-server": ("localhost", 50053),
-    "android-server": ("localhost", 50054),
-    "room-server": ("localhost", 50055),
-    "dev-server": ("localhost", 50056),
-    "dashboard": ("localhost", 8090),
-}
+def _env_host(name: str, default: str = "localhost") -> str:
+    return os.getenv(name, default)
+
+
+def _env_port(name: str, default: int) -> int:
+    return int(os.getenv(name, str(default)))
+
+
+def _default_servers() -> dict[str, tuple[str, int]]:
+    return {
+        "ai-server": (_env_host("AI_SERVER_HOST"), _env_port("AEGIS_GRPC_PORT", 50051)),
+        "pc-server": (_env_host("PC_SERVER_HOST"), _env_port("PC_SERVER_PORT", 50052)),
+        "browser-server": (_env_host("BROWSER_SERVER_HOST"), _env_port("BROWSER_SERVER_PORT", 50053)),
+        "android-server": (_env_host("ANDROID_SERVER_HOST"), _env_port("ANDROID_SERVER_PORT", 50054)),
+        "room-server": (_env_host("ROOM_SERVER_HOST"), _env_port("ROOM_SERVER_PORT", 50055)),
+        "dev-server": (_env_host("DEV_SERVER_HOST"), _env_port("DEV_SERVER_PORT", 50056)),
+        "dashboard": (_env_host("DASHBOARD_HOST"), _env_port("DASHBOARD_PORT", 8090)),
+    }
 
 
 class StatusManager:
@@ -61,7 +71,7 @@ class StatusManager:
         self._check_interval = check_interval
         self._timeout = timeout
 
-        self._servers: dict[str, tuple[str, int]] = dict(_DEFAULT_SERVERS)
+        self._servers: dict[str, tuple[str, int]] = _default_servers()
         self._status: dict[str, dict[str, Any]] = {}
         self._previous_status: dict[str, str] = {}
         self._lock = threading.Lock()

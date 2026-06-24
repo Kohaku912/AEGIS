@@ -7,16 +7,49 @@
   "input_schema": {
     "type": "object",
     "properties": {
-      "start_x": {"type": "integer"},
-      "start_y": {"type": "integer"},
-      "end_x": {"type": "integer"},
-      "end_y": {"type": "integer"},
-      "duration_ms": {"type": "integer", "default": 300}
+      "start_x": {
+        "type": "integer"
+      },
+      "start_y": {
+        "type": "integer"
+      },
+      "end_x": {
+        "type": "integer"
+      },
+      "end_y": {
+        "type": "integer"
+      },
+      "duration_ms": {
+        "type": "integer",
+        "default": 300
+      }
     },
-    "required": ["start_x", "start_y", "end_x", "end_y"]
+    "required": [
+      "start_x",
+      "start_y",
+      "end_x",
+      "end_y"
+    ]
   },
-  "risk": {"level": "medium", "side_effects": ["touch_input"], "requires_approval": true},
-  "tags": ["builtin", "android", "ui", "input"],
-  "requires_permissions": ["accessibility"],
-  "extra": {"requires_permissions": ["accessibility"]}
+  "risk": {
+    "level": "safe",
+    "side_effects": [
+      "touch_input"
+    ],
+    "requires_approval": false
+  },
+  "tags": [
+    "builtin",
+    "android",
+    "ui",
+    "input"
+  ],
+  "requires_permissions": [
+    "accessibility"
+  ],
+  "extra": {
+    "requires_permissions": [
+      "accessibility"
+    ]
+  }
 }

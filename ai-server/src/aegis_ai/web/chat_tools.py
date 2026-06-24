@@ -103,7 +103,13 @@ def get_capability_selection(
     )
 
 
-def execute_tool_call(catalog, function_name: str, arguments: dict[str, Any], runtime: Any = None) -> dict[str, Any]:
+def execute_tool_call(
+    catalog,
+    function_name: str,
+    arguments: dict[str, Any],
+    runtime: Any = None,
+    tool_context: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     if function_name in {"capability__search", "capability__describe"}:
         return _execute_meta_tool(function_name, arguments, runtime=runtime, catalog=catalog)
 
@@ -119,27 +125,51 @@ def execute_tool_call(catalog, function_name: str, arguments: dict[str, Any], ru
         }
 
     try:
-        from tool_broker import ToolExecutionRequest, ExecutionSource
+        from tool_broker import ToolExecutionRequest, ExecutionSource, InvokeStatus
 
         if runtime is None:
             from aegis_ai.runtime import get_runtime
 
             runtime = get_runtime()
         broker = runtime.tool_broker
+        tool_context = dict(tool_context or {})
+        task_id = str(tool_context.get("chat_task_id", "") or "")
+        step_id = function_name
+        origin_channel = str(tool_context.get("origin_channel", "") or "")
+        conversation_id = str(tool_context.get("conversation_id", "") or "")
+
+        task_manager = getattr(runtime, "task_manager", None)
+        if task_manager is not None and task_id:
+            try:
+                task_manager.add_step(task_id, step_id, function_name, cap_id)
+                task_manager.update_step_status(task_id, step_id, "running")
+                task_manager.set_current_step(task_id, step_id)
+            except Exception:
+                logger.debug("Failed to mark chat tool step running", exc_info=True)
 
         request = ToolExecutionRequest(
+            task_id=task_id,
+            step_id=step_id if task_id else "",
             capability_id=cap_id,
             arguments=arguments,
             source=ExecutionSource.USER_EXPLICIT,
             reason=f"Chat tool call: {cap_id}",
+            origin_channel=origin_channel,
+            conversation_id=conversation_id,
+            metadata=tool_context,
         )
         result = broker.execute(request)
 
         if result.success:
-            output = result.output or {}
+            output = normalize_tool_output(result.output or {})
             output_success = output.get("success", True)
             if not output_success:
                 error_msg = output.get("stderr", "") or output.get("error", "") or output.get("message", "") or "Command failed"
+                if task_manager is not None and task_id:
+                    try:
+                        task_manager.update_step_status(task_id, step_id, "failed", error=error_msg)
+                    except Exception:
+                        logger.debug("Failed to mark chat tool step failed", exc_info=True)
                 return {
                     "success": False,
                     "result": f"Failed: {error_msg}",
@@ -148,6 +178,11 @@ def execute_tool_call(catalog, function_name: str, arguments: dict[str, Any], ru
                     "needs_user_input": False,
                     "needs_user_input_for": [],
                 }
+            if task_manager is not None and task_id:
+                try:
+                    task_manager.update_step_status(task_id, step_id, "completed", result=result.output)
+                except Exception:
+                    logger.debug("Failed to mark chat tool step completed", exc_info=True)
             result_text = _stringify_tool_output(output)
             return {
                 "success": True,
@@ -158,6 +193,30 @@ def execute_tool_call(catalog, function_name: str, arguments: dict[str, Any], ru
                 "needs_user_input_for": output.get("needs_user_input_for", []),
             }
 
+        if result.status == InvokeStatus.APPROVAL_NEEDED:
+            if task_manager is not None and task_id:
+                try:
+                    task_manager.wait_for_approval(task_id, step_id, result.approval_id)
+                    task_manager.set_waiting_approval(task_id, step_id, result.approval_id)
+                except Exception:
+                    logger.debug("Failed to mark chat tool approval wait", exc_info=True)
+            approval_msg = f"承認が必要です。Approvals で承認してください。approval_id={result.approval_id}"
+            return {
+                "success": False,
+                "result": approval_msg,
+                "output": result.output or {},
+                "error": result.error or "Approval required",
+                "needs_user_input": False,
+                "needs_user_input_for": [],
+                "approval_needed": True,
+                "approval_id": result.approval_id,
+            }
+
+        if task_manager is not None and task_id:
+            try:
+                task_manager.update_step_status(task_id, step_id, "failed", error=result.error)
+            except Exception:
+                logger.debug("Failed to mark chat tool step failed", exc_info=True)
         output = result.output or {}
         error_msg = result.error or ""
         if not error_msg and isinstance(output, dict):
@@ -240,6 +299,7 @@ def _execute_tool_call(
     function_name: str,
     arguments: dict[str, Any],
     runtime: Any = None,
+    tool_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Call the tool execution hook while preserving older test fakes."""
 
@@ -247,12 +307,17 @@ def _execute_tool_call(
         parameters = inspect.signature(execute_tool_call).parameters
     except (TypeError, ValueError):
         parameters = {}
+    kwargs: dict[str, Any] = {}
     if "runtime" in parameters:
-        return execute_tool_call(catalog, function_name, arguments, runtime=runtime)
-    return execute_tool_call(catalog, function_name, arguments)
+        kwargs["runtime"] = runtime
+    if "tool_context" in parameters:
+        kwargs["tool_context"] = tool_context
+    return execute_tool_call(catalog, function_name, arguments, **kwargs)
 
 
 def _stringify_tool_output(output: dict[str, Any]) -> str:
+    if "root" in output and isinstance(output.get("root"), dict):
+        return _summarize_ui_tree(output["root"])
     if "result" in output and output["result"] not in (None, ""):
         return str(output["result"])
     if "content" in output and output["content"] not in (None, ""):
@@ -277,6 +342,52 @@ def _stringify_tool_output(output: dict[str, Any]) -> str:
         except TypeError:
             return str(compact_output)
     return "Done"
+
+
+def _summarize_ui_tree(root: dict[str, Any]) -> str:
+    visible_text: list[str] = []
+    clickable: list[str] = []
+
+    def walk(node: dict[str, Any]) -> None:
+        label = str(node.get("text") or node.get("content_desc") or "").strip()
+        if label and label not in visible_text:
+            visible_text.append(label)
+        if node.get("is_clickable") and label and label not in clickable:
+            clickable.append(label)
+        for child in node.get("children") or []:
+            if isinstance(child, dict):
+                walk(child)
+
+    walk(root)
+    width = root.get("width", "?")
+    height = root.get("height", "?")
+    text_preview = visible_text[:80]
+    clickable_preview = clickable[:40]
+    return json.dumps(
+        {
+            "summary": "Android UI tree captured",
+            "screen_size": f"{width}x{height}",
+            "visible_text": text_preview,
+            "clickable_text": clickable_preview,
+            "visible_text_count": len(visible_text),
+        },
+        ensure_ascii=False,
+    )
+
+
+def normalize_tool_output(output: dict[str, Any]) -> dict[str, Any]:
+    """Normalize server-specific result fields for chat/vision handling."""
+    normalized = dict(output or {})
+    image_data = normalized.get("image_data")
+    if image_data and not normalized.get("image_base64"):
+        if isinstance(image_data, bytes):
+            import base64
+
+            normalized["image_base64"] = base64.b64encode(image_data).decode("ascii")
+        else:
+            normalized["image_base64"] = str(image_data)
+        normalized.setdefault("format", "png")
+    return normalized
 
 
 def _get_vision_llm(llm: Any, *, runtime: Any = None) -> Any:
@@ -511,7 +622,9 @@ def _build_tool_loop_prompt(
         "- Use capability__describe to fetch full schema before calling a capability that only appears in the lightweight catalog.\n"
         "- For normal text file saves, prefer pc-server__file__write instead of shell commands.\n"
         "- Use shell tools only when a dedicated capability cannot perform the task.\n"
-        "- If no tool is needed, respond normally.\n"
+        "- Treat the Original user request as the current task. Previous history is context only; do not let it replace the current request.\n"
+        "- Do NOT call tools for greetings, simple conversation, or questions you can answer from the current context.\n"
+        "- If no tool is needed, respond normally and follow the user's requested language/length.\n"
         "- NEVER mix tool calls with text responses.\n"
         "- Keep working toward the original user request until it is complete.\n"
         "- When the user asks for their input, preferences, or choices, ALWAYS use ask_user tool.\n"
@@ -562,6 +675,143 @@ def _generate_tool_step(
     return result, _parse_tool_call(result.content or "", valid_tool_names=valid_tool_names)
 
 
+def _llm_wants_tools(
+    llm: Any,
+    user_message: str,
+    *,
+    system_prompt: str,
+    context_meta: dict[str, Any] | None = None,
+) -> tuple[bool | None, dict[str, Any] | None]:
+    """Ask the LLM whether the current request needs external capabilities.
+
+    Some providers or test doubles may return a tool call instead of the
+    requested JSON decision. Preserve that tool call so the first real tool
+    round can execute it instead of consuming it as a discarded classifier
+    response.
+    """
+
+    decision_prompt = (
+        "Decide whether the CURRENT user request requires external tool/capability execution.\n"
+        "Return ONLY compact JSON with this shape: "
+        '{"use_tools": true|false, "reason": "short reason"}\n\n'
+        "Use tools only when the request requires observing or changing external state, "
+        "such as device state, screen contents, files, browsing, server status, approvals, or physical devices.\n"
+        "Do not use tools for greetings, simple conversation, translation, or requests that can be answered directly.\n\n"
+        f"CURRENT user request:\n{user_message}"
+    )
+    try:
+        result = llm.generate(
+            prompt=decision_prompt,
+            system_prompt=(
+                system_prompt
+                + "\n\nFor this decision, ignore previous conversation except where the current request explicitly refers to it."
+            ),
+            max_tokens=120,
+            context_meta=context_meta,
+        )
+    except Exception:
+        logger.debug("Tool-use decision failed", exc_info=True)
+        return None, None
+    if not getattr(result, "success", False):
+        return None, None
+    content = (getattr(result, "content", "") or "").strip()
+    parsed_tool_call = _parse_tool_call(content)
+    if parsed_tool_call is not None:
+        return True, parsed_tool_call
+    match = re.search(r"\{.*\}", content, flags=re.S)
+    if not match:
+        return None, None
+    try:
+        data = json.loads(match.group(0))
+    except Exception:
+        return None, None
+    value = data.get("use_tools")
+    return (value if isinstance(value, bool) else None), None
+
+
+def _generate_direct_response(
+    llm: Any,
+    user_message: str,
+    *,
+    system_prompt: str,
+    context_meta: dict[str, Any] | None = None,
+    max_tokens: int = 1000,
+) -> str:
+    """Generate a non-tool response, retrying once if the provider returns empty content."""
+
+    result = llm.generate(
+        prompt=user_message,
+        system_prompt=system_prompt,
+        max_tokens=max_tokens,
+        context_meta=context_meta,
+    )
+    if result.success and (result.content or "").strip():
+        return result.content.strip()
+    if not result.success:
+        return f"LLM error: {result.error}"
+
+    retry = llm.generate(
+        prompt=(
+            "Answer the CURRENT user request directly. Do not call tools. "
+            "Return a concise natural response in the language requested by the user.\n\n"
+            f"CURRENT user request:\n{user_message}"
+        ),
+        system_prompt="You are AEGIS. Provide only the final assistant message.",
+        max_tokens=max_tokens,
+        context_meta=context_meta,
+    )
+    if retry.success and (retry.content or "").strip():
+        return retry.content.strip()
+    if not retry.success:
+        return f"LLM error: {retry.error}"
+    return "応答生成が空で返りました。もう一度送信してください。"
+
+
+def _llm_response_satisfies_without_tools(
+    llm: Any,
+    user_message: str,
+    response: str,
+    *,
+    context_meta: dict[str, Any] | None = None,
+) -> bool | None:
+    """Ask the LLM whether a no-tool response actually completes the request."""
+
+    prompt = (
+        "Judge whether the assistant response fully satisfies the CURRENT user request without external tools.\n"
+        "Return ONLY compact JSON: "
+        '{"satisfies": true|false, "reason": "short reason"}\n\n'
+        "Return false if the response merely says it will do something, asks the user to wait, "
+        "or claims it will check/inspect/execute without providing the result.\n"
+        "If the user asked to observe external state, return true only when the response contains "
+        "the actual observed state or a clear completed error/permission result.\n"
+        "When uncertain, return false.\n\n"
+        f"CURRENT user request:\n{user_message}\n\n"
+        f"Assistant response:\n{response}"
+    )
+    try:
+        result = llm.generate(
+            prompt=prompt,
+            system_prompt="You are a strict evaluator of task completion.",
+            max_tokens=120,
+            context_meta=context_meta,
+        )
+    except Exception:
+        logger.debug("No-tool response satisfaction check failed", exc_info=True)
+        return None
+    if not getattr(result, "success", False):
+        return None
+    content = (getattr(result, "content", "") or "").strip()
+    match = re.search(r"\{.*\}", content, flags=re.S)
+    if not match:
+        return None
+    try:
+        data = json.loads(match.group(0))
+    except Exception:
+        return None
+    value = data.get("satisfies")
+    return value if isinstance(value, bool) else None
+
+
 def call_llm_with_tools(
     llm,
     user_message: str,
@@ -595,17 +845,45 @@ def call_llm_with_tools(
         runtime=runtime,
     )
     if not tools:
-        result = llm.generate(
-            prompt=user_message,
+        response = _generate_direct_response(
+            llm,
+            user_message,
             system_prompt=system_prompt,
-            max_tokens=1000,
             context_meta=context_meta,
         )
         return {
-            "response": result.content if result.success else f"LLM error: {result.error}",
+            "response": response,
             "tool_calls": [],
             "tool_results": [],
         }
+
+    wants_tools, pending_tool_call = _llm_wants_tools(
+        llm,
+        user_message,
+        system_prompt=system_prompt,
+        context_meta=context_meta,
+    )
+    decision_returned_tool_call = pending_tool_call is not None
+    if wants_tools is False:
+        response = _generate_direct_response(
+            llm,
+            user_message,
+            system_prompt=system_prompt,
+            context_meta=context_meta,
+        )
+        satisfies = _llm_response_satisfies_without_tools(
+            llm,
+            user_message,
+            response,
+            context_meta=context_meta,
+        )
+        if satisfies is not False:
+            return {
+                "response": response,
+                "tool_calls": [],
+                "tool_results": [],
+            }
+        wants_tools = True
 
     valid_tool_names: set[str] = {t['function']['name'] for t in tools}
     valid_tool_names.add("ask_user")
@@ -613,6 +891,7 @@ def call_llm_with_tools(
     all_tool_calls = []
     all_tool_results = []
     conversation_history = []
+    executed_call_signatures: set[str] = set()
     final_response = ""
     for round_num in range(max_tool_rounds):
         tool_list = "\n".join(f"- {t['function']['name']}: {t['function']['description']}" for t in tools)
@@ -622,14 +901,19 @@ def call_llm_with_tools(
             lightweight_catalog=lightweight_catalog,
             conversation_history=conversation_history,
         )
-        result, tc = _generate_tool_step(
-            llm=llm,
-            prompt=current_prompt,
-            system_prompt=system_prompt,
-            tools=tools,
-            valid_tool_names=valid_tool_names,
-            context_meta=context_meta,
-        )
+        if round_num == 0 and pending_tool_call is not None:
+            tc = pending_tool_call if pending_tool_call.get("name") in valid_tool_names else None
+            result = type("_ToolDecisionResult", (), {"success": True, "content": ""})()
+            pending_tool_call = None
+        else:
+            result, tc = _generate_tool_step(
+                llm=llm,
+                prompt=current_prompt,
+                system_prompt=system_prompt,
+                tools=tools,
+                valid_tool_names=valid_tool_names,
+                context_meta=context_meta,
+            )
         if not result.success:
             if round_num == 0:
                 return {"response": f"LLM error: {result.error}", "tool_calls": [], "tool_results": []}
@@ -638,10 +922,54 @@ def call_llm_with_tools(
         content = result.content or ""
 
         if tc is None:
+            should_force_tool = round_num == 0 and not content.strip()
+            if not content.strip() and all_tool_results and round_num < max_tool_rounds - 1:
+                should_force_tool = True
+            if content.strip() and (round_num == 0 or not decision_returned_tool_call):
+                satisfies = _llm_response_satisfies_without_tools(
+                    llm,
+                    user_message,
+                    content.strip(),
+                    context_meta=context_meta,
+                )
+                if (
+                    (satisfies is False or (satisfies is None and all_tool_results))
+                    and round_num < max_tool_rounds - 1
+                ):
+                    should_force_tool = True
+
+            if should_force_tool:
+                retry_prompt = (
+                    current_prompt
+                    + "\n\nThe previous assistant response did not complete the CURRENT request. "
+                    "External tools are required to produce the requested result. "
+                    "Choose the best available full-schema tool now. Respond with only one <tool_call> JSON block."
+                )
+                result, tc = _generate_tool_step(
+                    llm=llm,
+                    prompt=retry_prompt,
+                    system_prompt=system_prompt,
+                    tools=tools,
+                    valid_tool_names=valid_tool_names,
+                    context_meta=context_meta,
+                )
+                content = result.content or "" if getattr(result, "success", False) else ""
+                if not getattr(result, "success", False):
+                    return {"response": f"LLM error: {result.error}", "tool_calls": [], "tool_results": []}
+                if tc is not None:
+                    pass
+                elif not content.strip():
+                    return {
+                        "response": "ツールが必要な依頼として解釈しましたが、実行するツールを選択できませんでした。もう一度、対象を少し具体的に指定してください。",
+                        "tool_calls": [],
+                        "tool_results": [],
+                    }
             if round_num == 0:
-                return {"response": content, "tool_calls": [], "tool_results": []}
-            final_response = content
-            break
+                if tc is None:
+                    return {"response": content, "tool_calls": [], "tool_results": []}
+            if tc is None:
+                final_response = content
+                break
 
         func_name = tc.get("name", "")
         args = tc.get("arguments", {})
@@ -662,6 +990,12 @@ def call_llm_with_tools(
                 "options": args.get("options", []),
             }
 
+        call_signature = json.dumps({"name": func_name, "arguments": args}, sort_keys=True, ensure_ascii=False)
+        if call_signature in executed_call_signatures:
+            logger.info("Stopping repeated chat tool call: %s", func_name)
+            break
+        executed_call_signatures.add(call_signature)
+
         tool_call_info = {"function": func_name, "arguments": args}
         all_tool_calls.append(tool_call_info)
         conversation_history.append({
@@ -672,7 +1006,7 @@ def call_llm_with_tools(
 
         _emit_event(runtime, "tool.execution.started", status="started",
                     tool_id=func_name, reason=f"?????: {func_name}")
-        tool_result = _execute_tool_call(catalog, func_name, args, runtime=runtime)
+        tool_result = _execute_tool_call(catalog, func_name, args, runtime=runtime, tool_context=context_meta)
         _emit_event(runtime, "tool.execution.completed" if tool_result.get("success") else "tool.execution.failed",
                     status="completed" if tool_result.get("success") else "failed",
                     tool_id=catalog.tool_name_to_cap_id(func_name) if catalog else func_name,
@@ -694,6 +1028,16 @@ def call_llm_with_tools(
             "cap_id": catalog.tool_name_to_cap_id(func_name),
             **tool_result,
         })
+
+        if tool_result.get("approval_needed"):
+            approval_id = tool_result.get("approval_id", "")
+            return {
+                "response": f"承認が必要です。Approvals で承認してください。approval_id={approval_id}",
+                "tool_calls": all_tool_calls,
+                "tool_results": all_tool_results,
+                "approval_needed": True,
+                "approval_id": approval_id,
+            }
 
         if tool_result.get("needs_user_input"):
             reasons = tool_result.get("needs_user_input_for", [])
@@ -790,6 +1134,10 @@ def call_llm_with_tools(
     for tr in all_tool_results:
         summary_lines.append(f"- {tr.get('function', '')}: {tr.get('result', '')[:300]}")
     summary_lines.append("")
+    summary_lines.append(
+        "Important: use the current tool success/error status as authoritative. "
+        "Visible text from a UI tree may include old chat messages; do not treat old visible chat text as the current permission state."
+    )
     summary_lines.append(
         "上記のツール実行結果を踏まえて、ユーザーへの最終回答を自然な日本語で生成してください。"
         "ツール実行の技術的な詳細ではなく、ユーザーが知りたい情報を伝えてください。"

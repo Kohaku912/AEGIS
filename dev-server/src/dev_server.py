@@ -27,6 +27,16 @@ import grpc
 logger = logging.getLogger("aegis_ai.dev_server")
 
 
+def _proto_status(status: str | dict, message: str = ""):
+    from generated.aegis import common_pb2
+
+    if isinstance(status, dict):
+        message = status.get("message", message)
+        status = status.get("status", "ok")
+    code = 0 if status == "ok" else 1
+    return common_pb2.Status(code=code, message=message or str(status))
+
+
 # ── Deny patterns ────────────────────────────────────────────
 
 DENIED_COMMANDS = frozenset({
@@ -316,6 +326,146 @@ class DevServerService:
         return stdout.strip() if code == 0 else ""
 
 
+class DevServerGrpcServicer:
+    """Proto adapter around DevServerService."""
+
+    def __init__(self, service: DevServerService) -> None:
+        self._service = service
+
+    def HealthCheck(self, request, context):
+        from generated.aegis import common_pb2
+
+        result = self._service.HealthCheck(request, context)
+        return common_pb2.HealthCheckResponse(
+            status=_proto_status(result),
+            server_status=common_pb2.SERVER_STATUS_ONLINE,
+            uptime_ms=0,
+            version="0.1.0+docker-grpc",
+        )
+
+    def GetRepoStatus(self, request, context):
+        from generated.aegis import dev_server_pb2
+
+        result = self._service.GetRepoStatus(request, context)
+        return dev_server_pb2.GetRepoStatusResponse(
+            status=_proto_status(result),
+            branch=result.get("branch", ""),
+            commit_hash=result.get("commit_hash", ""),
+            is_clean=bool(result.get("is_clean", False)),
+            modified_files=list(result.get("modified_files", [])),
+            ahead_commits=int(result.get("ahead_commits", 0)),
+            behind_commits=int(result.get("behind_commits", 0)),
+        )
+
+    def GetTestResults(self, request, context):
+        from generated.aegis import dev_server_pb2
+
+        result = self._service.GetTestResults(request, context)
+        item = result.get("result", {})
+        return dev_server_pb2.GetTestResultsResponse(
+            status=_proto_status(result),
+            results=[self._test_result(item)],
+        )
+
+    def GetDiff(self, request, context):
+        from generated.aegis import dev_server_pb2
+
+        result = self._service.GetDiff(request, context)
+        files = [
+            dev_server_pb2.FileDiff(
+                path=item.get("path", ""),
+                status=item.get("status", ""),
+                diff=item.get("diff", ""),
+                additions=int(item.get("additions", 0)),
+                deletions=int(item.get("deletions", 0)),
+            )
+            for item in result.get("files", [])
+        ]
+        return dev_server_pb2.GetDiffResponse(status=_proto_status(result), files=files)
+
+    def CreateBranch(self, request, context):
+        from generated.aegis import dev_server_pb2
+
+        result = self._service.CreateBranch(request, context)
+        return dev_server_pb2.CreateBranchResponse(
+            status=_proto_status(result),
+            branch_name=result.get("branch_name", ""),
+        )
+
+    def ApplyPatch(self, request, context):
+        from generated.aegis import dev_server_pb2
+
+        result = self._service.ApplyPatch(request, context)
+        return dev_server_pb2.ApplyPatchResponse(
+            status=_proto_status(result),
+            applied=bool(result.get("applied", False)),
+            error_detail=result.get("error_detail", ""),
+        )
+
+    def RunTests(self, request, context):
+        from generated.aegis import dev_server_pb2
+
+        result = self._service.RunTests(request, context)
+        return dev_server_pb2.RunTestsResponse(
+            status=_proto_status(result),
+            result=self._test_result(result.get("result", {})),
+        )
+
+    def RunLint(self, request, context):
+        from generated.aegis import dev_server_pb2
+
+        result = self._service.RunLint(request, context)
+        return dev_server_pb2.RunLintResponse(
+            status=_proto_status(result),
+            passed=bool(result.get("passed", False)),
+            error_count=int(result.get("error_count", 0)),
+            warning_count=int(result.get("warning_count", 0)),
+            output=result.get("output", ""),
+        )
+
+    def CreateCommit(self, request, context):
+        from generated.aegis import dev_server_pb2
+
+        result = self._service.CreateCommit(request, context)
+        return dev_server_pb2.CreateCommitResponse(
+            status=_proto_status(result),
+            commit_hash=result.get("commit_hash", ""),
+        )
+
+    def CreatePullRequest(self, request, context):
+        from generated.aegis import dev_server_pb2
+
+        result = self._service.CreatePullRequest(request, context)
+        return dev_server_pb2.CreatePullRequestResponse(
+            status=_proto_status(result),
+            pr_url=result.get("pr_url", ""),
+            pr_number=int(result.get("pr_number", 0)),
+        )
+
+    def RevertChanges(self, request, context):
+        from generated.aegis import dev_server_pb2
+
+        result = self._service.RevertChanges(request, context)
+        return dev_server_pb2.RevertChangesResponse(
+            status=_proto_status(result),
+            reverted_files=list(result.get("reverted_files", [])),
+        )
+
+    @staticmethod
+    def _test_result(item: dict):
+        from generated.aegis import dev_server_pb2
+
+        return dev_server_pb2.TestResult(
+            suite=item.get("suite", ""),
+            total=int(item.get("total", 0)),
+            passed=int(item.get("passed", 0)),
+            failed=int(item.get("failed", 0)),
+            errors=int(item.get("errors", 0)),
+            duration_sec=float(item.get("duration_sec", 0.0)),
+            output=item.get("output", ""),
+        )
+
+
 def serve(host: str = "0.0.0.0", port: int = 50056, repo_path: str = ".") -> None:
     """Start the Dev Server gRPC server."""
     try:
@@ -324,7 +474,7 @@ def serve(host: str = "0.0.0.0", port: int = 50056, repo_path: str = ".") -> Non
         server = grpc.server(futures.ThreadPoolExecutor(max_workers=4))
         service = DevServerService(repo_path=repo_path)
 
-        dev_server_pb2_grpc.add_DevServerServicer_to_server(service, server)
+        dev_server_pb2_grpc.add_DevServerServicer_to_server(DevServerGrpcServicer(service), server)
         server.add_insecure_port(f"{host}:{port}")
         server.start()
         logger.info("Dev Server started on %s:%d (repo=%s)", host, port, repo_path)

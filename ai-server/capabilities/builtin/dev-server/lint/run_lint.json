@@ -1,0 +1,20 @@
+{
+  "title": "Run Lint",
+  "description": "Run a linter inside the Dev Server workspace.",
+  "server_id": "dev-server",
+  "app_id": "lint",
+  "action": "run_lint",
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "target": {"type": "string", "default": "ai-server"},
+      "linter": {"type": "string", "default": "ruff"}
+    }
+  },
+  "risk": {
+    "level": "approval_required",
+    "side_effects": ["code_execution", "lint_execution"],
+    "requires_approval": true
+  },
+  "tags": ["builtin", "dev", "lint", "execute"]
+}

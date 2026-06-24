@@ -61,3 +61,12 @@ def test_pc_tcp_invalid_json_is_not_reported_as_unreachable(monkeypatch) -> None
     assert "[EMAIL_REDACTED]" in result["raw_preview"]
     assert "secret123" not in result["raw_preview"]
     assert "07084976713" not in result["raw_preview"]
+
+
+def test_http_endpoint_resolves_browser_server_env(monkeypatch) -> None:
+    monkeypatch.setenv("BROWSER_SERVER_HOST", "browser-server")
+    monkeypatch.setenv("BROWSER_SERVER_PORT", "50053")
+
+    endpoint = ServerExecutor._resolve_http_endpoint("http://localhost:50053/execute")
+
+    assert endpoint == "http://browser-server:50053/execute"

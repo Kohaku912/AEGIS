@@ -1,0 +1,21 @@
+{
+  "title": "Apply Patch",
+  "description": "Write a patch or file content into the Dev Server workspace.",
+  "server_id": "dev-server",
+  "app_id": "patch",
+  "action": "apply",
+  "input_schema": {
+    "type": "object",
+    "required": ["file_path", "patch_content"],
+    "properties": {
+      "file_path": {"type": "string"},
+      "patch_content": {"type": "string"}
+    }
+  },
+  "risk": {
+    "level": "approval_required",
+    "side_effects": ["repo_write", "file_write"],
+    "requires_approval": true
+  },
+  "tags": ["builtin", "dev", "patch", "write"]
+}

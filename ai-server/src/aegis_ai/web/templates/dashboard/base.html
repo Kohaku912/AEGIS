@@ -838,6 +838,20 @@
 
     loadHistory();
 
+    (function(){
+        try {
+            const es = new EventSource('/api/chat/events');
+            es.onmessage = e => {
+                try {
+                    const data = JSON.parse(e.data);
+                    if (data.type === 'assistant_message' && data.content) {
+                        appendMsg(data.content, 'assistant');
+                    }
+                } catch(err) {}
+            };
+        } catch(e) {}
+    })();
+
     // SSE activity strip - only new notifications
     (function(){
         const c = document.getElementById('llmNotify');

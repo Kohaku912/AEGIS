@@ -9,9 +9,11 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 import socket
 import string
+from urllib.parse import urlparse, urlunparse
 from types import SimpleNamespace
 from typing import Any
 
@@ -138,7 +140,7 @@ class ServerExecutor:
 
     def _execute_http(self, executor: dict[str, Any], params: dict[str, Any]) -> dict[str, Any]:
         import urllib.request
-        endpoint = executor.get("endpoint", "")
+        endpoint = self._resolve_http_endpoint(executor.get("endpoint", ""))
         timeout_ms = executor.get("timeout_ms", 30000)
 
         if not endpoint:
@@ -157,6 +159,18 @@ class ServerExecutor:
                 return result
         except Exception as e:
             return {"error": f"HTTP execution error: {e}", "endpoint": endpoint}
+
+    @staticmethod
+    def _resolve_http_endpoint(endpoint: str) -> str:
+        parsed = urlparse(endpoint)
+        host = parsed.hostname or ""
+        port = parsed.port
+        if host in {"localhost", "127.0.0.1"} and port == 50053:
+            new_host = os.getenv("BROWSER_SERVER_HOST", host)
+            new_port = os.getenv("BROWSER_SERVER_PORT", str(port))
+            netloc = f"{new_host}:{new_port}"
+            return urlunparse(parsed._replace(netloc=netloc))
+        return endpoint
 
     def _execute_pc_tcp(
         self, cap_id: str, params: dict[str, Any], manifest: Any = None
@@ -177,7 +191,9 @@ class ServerExecutor:
         try:
             with socket.socket() as s:
                 s.settimeout(10)
-                s.connect(("localhost", 50052))
+                host = os.getenv("PC_SERVER_HOST", "localhost")
+                port = int(os.getenv("PC_SERVER_PORT", "50052"))
+                s.connect((host, port))
                 s.sendall((cmd + "\n").encode())
                 resp = b""
                 while True:

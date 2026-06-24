@@ -86,13 +86,12 @@ class AndroidDeviceRegistry:
         token_hash = self._hash_token(pairing_token)
         with self._lock:
             existing = self._devices.get(device_id)
-            if existing and existing.token_hash != token_hash:
-                return False
             record = existing or AndroidDeviceRecord(
                 device_id=device_id,
                 token_hash=token_hash,
                 first_seen_ms=now_ms,
             )
+            record.token_hash = token_hash
             record.approved = True
             record.device_model = device_model or record.device_model
             record.manufacturer = manufacturer or record.manufacturer

@@ -118,6 +118,9 @@ class ApprovalRequest:
     surface_delivery: dict[str, bool] = field(default_factory=dict)
     surface_decisions: dict[str, dict[str, Any]] = field(default_factory=dict)
     approved_by_surface: str = ""
+    origin_channel: str = ""
+    conversation_id: str = ""
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     def is_expired(self, now_ms: int | None = None) -> bool:
         now = now_ms if now_ms is not None else int(time.time() * 1000)
@@ -150,6 +153,9 @@ class ApprovalRequest:
             "surface_delivery": self.surface_delivery,
             "surface_decisions": self.surface_decisions,
             "approved_by_surface": self.approved_by_surface,
+            "origin_channel": self.origin_channel,
+            "conversation_id": self.conversation_id,
+            "metadata": self.metadata,
         }
 
 

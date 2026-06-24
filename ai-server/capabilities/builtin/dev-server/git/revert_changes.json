@@ -1,0 +1,20 @@
+{
+  "title": "Revert Changes",
+  "description": "Revert workspace changes or a commit in the Dev Server workspace.",
+  "server_id": "dev-server",
+  "app_id": "git",
+  "action": "revert_changes",
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "target": {"type": "string", "default": "all"},
+      "commit_hash": {"type": "string", "default": ""}
+    }
+  },
+  "risk": {
+    "level": "approval_required",
+    "side_effects": ["repo_write", "file_delete", "git_revert"],
+    "requires_approval": true
+  },
+  "tags": ["builtin", "dev", "git", "write"]
+}

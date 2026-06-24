@@ -67,6 +67,9 @@ class ApprovalQueue:
         frustration = getattr(tool_request, "frustration", 0.0)
         task_id = getattr(tool_request, "task_id", "")
         step_id = getattr(tool_request, "step_id", "")
+        origin_channel = getattr(tool_request, "origin_channel", "")
+        conversation_id = getattr(tool_request, "conversation_id", "")
+        metadata = dict(getattr(tool_request, "metadata", {}) or {})
         risk_level = getattr(tool_request, "risk_level", None)
         risk_name = risk_level.name.lower() if hasattr(risk_level, "name") else "medium"
         policy_reason = getattr(policy_result, "reason", "") if policy_result else ""
@@ -98,6 +101,9 @@ class ApprovalQueue:
             created_at=now_ms,
             expires_at=now_ms + expiry_ms,
             status="pending",
+            origin_channel=origin_channel,
+            conversation_id=conversation_id,
+            metadata=metadata,
         )
 
         with self._lock:

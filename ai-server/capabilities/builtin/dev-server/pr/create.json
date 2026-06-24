@@ -1,0 +1,23 @@
+{
+  "title": "Create Pull Request",
+  "description": "Create a pull request from a Dev Server branch.",
+  "server_id": "dev-server",
+  "app_id": "pr",
+  "action": "create",
+  "input_schema": {
+    "type": "object",
+    "required": ["title", "head_branch"],
+    "properties": {
+      "title": {"type": "string"},
+      "description": {"type": "string", "default": ""},
+      "head_branch": {"type": "string"},
+      "base_branch": {"type": "string", "default": "main"}
+    }
+  },
+  "risk": {
+    "level": "approval_required",
+    "side_effects": ["external_service", "repo_write", "pull_request"],
+    "requires_approval": true
+  },
+  "tags": ["builtin", "dev", "git", "pr", "write"]
+}

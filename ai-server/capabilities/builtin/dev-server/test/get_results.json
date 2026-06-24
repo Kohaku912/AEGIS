@@ -1,0 +1,20 @@
+{
+  "title": "Test Result Summary",
+  "description": "Read recent or lightweight test result information from the Dev Server.",
+  "server_id": "dev-server",
+  "app_id": "test",
+  "action": "get_results",
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "target": {"type": "string", "default": "ai-server"},
+      "extra_args": {"type": "string", "default": ""}
+    }
+  },
+  "risk": {
+    "level": "approval_required",
+    "side_effects": ["code_execution", "test_execution"],
+    "requires_approval": true
+  },
+  "tags": ["builtin", "dev", "test", "execute"]
+}

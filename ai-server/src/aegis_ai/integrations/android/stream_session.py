@@ -152,6 +152,26 @@ class AndroidStreamSession:
         )
         self._commands.put(command)
 
+    def send_chat_update(self, messages: list[dict[str, Any]]) -> None:
+        """Push shared chat history updates to Android Home."""
+        command = android_server_pb2.AndroidServerCommand(
+            chat_update=android_server_pb2.AndroidChatUpdate(
+                messages=[
+                    android_server_pb2.AndroidChatHistoryMessage(
+                        message_id=str(item.get("message_id", "")),
+                        role=str(item.get("role", "")),
+                        text=str(item.get("text", "")),
+                        timestamp_ms=int(item.get("timestamp_ms", 0) or 0),
+                        image=str(item.get("image", "")),
+                        conversation_id=str(item.get("conversation_id", "")),
+                        source=str(item.get("source", "")),
+                    )
+                    for item in messages
+                ]
+            )
+        )
+        self._commands.put(command)
+
     def close(self, reason: str = "") -> None:
         if self._closed.is_set():
             return

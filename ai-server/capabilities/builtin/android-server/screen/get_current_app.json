@@ -4,9 +4,27 @@
   "server_id": "android-server",
   "app_id": "screen",
   "action": "get_current_app",
-  "input_schema": {"type": "object", "properties": {}},
-  "risk": {"level": "safe", "side_effects": [], "requires_approval": false},
-  "tags": ["builtin", "android", "screen", "app"],
-  "requires_permissions": ["accessibility"],
-  "extra": {"requires_permissions": ["accessibility"]}
+  "input_schema": {
+    "type": "object",
+    "properties": {}
+  },
+  "risk": {
+    "level": "safe",
+    "side_effects": [],
+    "requires_approval": false
+  },
+  "tags": [
+    "builtin",
+    "android",
+    "screen",
+    "app"
+  ],
+  "requires_permissions": [
+    "accessibility"
+  ],
+  "extra": {
+    "requires_permissions": [
+      "accessibility"
+    ]
+  }
 }

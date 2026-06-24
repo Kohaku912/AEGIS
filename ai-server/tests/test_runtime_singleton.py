@@ -129,6 +129,107 @@ def test_grpc_servicer_uses_runtime_state(monkeypatch) -> None:
     reset_runtime_for_tests()
 
 
+def test_grpc_send_chat_preserves_response_shape(monkeypatch, tmp_path) -> None:
+    from generated.aegis import ai_server_pb2, common_pb2
+    from aegis_ai.grpc_server import AegisAIServicer
+    from aegis_ai.web import chat_service
+
+    class FakeAndroidManager:
+        def __init__(self) -> None:
+            self.messages = []
+
+        def broadcast_chat_update(self, messages):
+            self.messages.append(messages)
+            return 1
+
+    fake_android = FakeAndroidManager()
+    runtime = SimpleNamespace(config=SimpleNamespace(), android_manager=fake_android)
+    servicer = AegisAIServicer(runtime)
+
+    health = servicer.HealthCheck(common_pb2.HealthCheckRequest(), None)
+    assert "sendchat" in health.version.lower()
+
+    def fake_execute_chat_message(runtime, text, *, origin_channel, conversation_id, device_id, context, task_source):
+        assert text == "スマホの画面を確認して"
+        assert origin_channel == "android_app"
+        assert device_id == "device_1"
+        assert context == {"surface": "android_app"}
+        assert task_source == "android_chat"
+        return {
+            "conversation_id": conversation_id,
+            "response": "画面にはホーム画面が表示されています。",
+            "approval_needed": True,
+            "approval_id": "appr_1",
+            "tool_results": [{"function": "android-server__screen__get_screenshot", "success": True}],
+        }
+
+    monkeypatch.setattr(chat_service, "execute_chat_message", fake_execute_chat_message)
+    monkeypatch.chdir(tmp_path)
+
+    response = servicer.SendChat(
+        ai_server_pb2.ChatRequest(
+            conversation_id="conv_1",
+            text="スマホの画面を確認して",
+            device_id="device_1",
+            context={"surface": "android_app"},
+        ),
+        None,
+    )
+
+    assert response.status.code == 0
+    assert response.conversation_id == "conv_1"
+    assert response.response == "画面にはホーム画面が表示されています。"
+    assert response.approval_needed is True
+    assert response.approval_id == "appr_1"
+    assert json.loads(response.tool_results_json)[0]["success"] is True
+    assert fake_android.messages
+    assert "画面にはホーム画面" in (tmp_path / "data" / "chat_history.jsonl").read_text(encoding="utf-8")
+
+
+def test_grpc_mobile_dashboard_state_reads_shared_history(monkeypatch, tmp_path) -> None:
+    from generated.aegis import ai_server_pb2
+    from aegis_ai.grpc_server import AegisAIServicer
+    from aegis_ai.web.chat_history import ChatHistoryStore
+
+    monkeypatch.chdir(tmp_path)
+    ChatHistoryStore().append("hello", "hi", source="dashboard", conversation_id="conv_1")
+
+    runtime = SimpleNamespace(
+        config=SimpleNamespace(),
+        status_manager=SimpleNamespace(
+            get_snapshot=lambda: {
+                "ai-server": {"status": "online"},
+                "pc-server": {"status": "offline", "error": "down"},
+                "browser-server": {"status": "online"},
+                "android-server": {"status": "online"},
+                "room-server": {"status": "unknown"},
+                "dashboard": {"status": "online"},
+            }
+        ),
+        android_manager=SimpleNamespace(
+            get_status=lambda: {
+                "online": True,
+                "connection_mode": "reverse_stream",
+                "capability_availability": {},
+                "permission_status": {"screenshot": False},
+                "active_approvals": [],
+                "pairing_configured": True,
+            }
+        ),
+    )
+    servicer = AegisAIServicer(runtime)
+
+    response = servicer.GetMobileDashboardState(
+        ai_server_pb2.MobileDashboardStateRequest(device_id="device_1", history_limit=10),
+        None,
+    )
+
+    assert response.status.code == 0
+    assert {item.server_id for item in response.server_statuses} >= {"ai-server", "pc-server", "android-server"}
+    assert [item.text for item in response.chat_history] == ["hello", "hi"]
+    assert any("screenshot" in warning for warning in response.warnings)
+
+
 def test_shared_components_thread_safety_smoke(tmp_path) -> None:
     from approval import ApprovalStore
     from event_bus import EventBus

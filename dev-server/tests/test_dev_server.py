@@ -9,7 +9,8 @@ from pathlib import Path
 
 import pytest
 
-from dev_server import DevServerService
+from generated.aegis import common_pb2, dev_server_pb2
+from dev_server import DevServerGrpcServicer, DevServerService
 
 
 @pytest.fixture()
@@ -40,6 +41,12 @@ class TestHealthCheck:
         result = service.HealthCheck(None, None)
         assert result["status"] == "ok"
 
+    def test_grpc_health(self, service):
+        grpc_service = DevServerGrpcServicer(service)
+        result = grpc_service.HealthCheck(common_pb2.HealthCheckRequest(server_id="dev-server"), None)
+        assert result.status.code == 0
+        assert result.server_status == common_pb2.SERVER_STATUS_ONLINE
+
 
 class TestGetRepoStatus:
     def test_repo_status(self, service):
@@ -66,6 +73,13 @@ class TestRunTests:
         req = type("Req", (), {"target": "", "extra_args": "echo ok", "timeout_seconds": 10})()
         result = service.RunTests(req, None)
         assert result["status"] == "ok"
+
+    def test_grpc_run_tests_response(self, service):
+        grpc_service = DevServerGrpcServicer(service)
+        req = dev_server_pb2.RunTestsRequest(target="", extra_args="echo ok", timeout_seconds=10)
+        result = grpc_service.RunTests(req, None)
+        assert result.status.code == 0
+        assert result.result.suite
 
 
 class TestRunLint:

@@ -1,0 +1,13 @@
+{
+  "title": "Dev Server Health Check",
+  "description": "Check whether the Dev Server gRPC service is online.",
+  "server_id": "dev-server",
+  "app_id": "system",
+  "action": "health_check",
+  "input_schema": {
+    "type": "object",
+    "properties": {}
+  },
+  "risk": {"level": "low", "side_effects": [], "requires_approval": false},
+  "tags": ["builtin", "dev", "health", "read"]
+}

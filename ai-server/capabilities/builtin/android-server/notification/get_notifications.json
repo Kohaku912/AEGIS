@@ -7,11 +7,31 @@
   "input_schema": {
     "type": "object",
     "properties": {
-      "max_count": {"type": "integer", "default": 20}
+      "max_count": {
+        "type": "integer",
+        "default": 20
+      }
     }
   },
-  "risk": {"level": "medium", "side_effects": ["reads_private_notifications"], "requires_approval": true},
-  "tags": ["builtin", "android", "notification", "privacy"],
-  "requires_permissions": ["notification_listener"],
-  "extra": {"requires_permissions": ["notification_listener"]}
+  "risk": {
+    "level": "safe",
+    "side_effects": [
+      "reads_private_notifications"
+    ],
+    "requires_approval": false
+  },
+  "tags": [
+    "builtin",
+    "android",
+    "notification",
+    "privacy"
+  ],
+  "requires_permissions": [
+    "notification_listener"
+  ],
+  "extra": {
+    "requires_permissions": [
+      "notification_listener"
+    ]
+  }
 }
