@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -55,6 +56,38 @@ def _fetch_posts(client: AgoraClient, since_id: int, limit: int) -> AgoraFetchRe
     return result
 
 
+def _fetch_all_posts(client: AgoraClient, since_id: int, max_posts: int) -> AgoraFetchResult | dict[str, Any]:
+    all_posts = []
+    current_since_id = since_id
+    page_size = min(max_posts, 50)
+
+    while len(all_posts) < max_posts:
+        remaining = max_posts - len(all_posts)
+        fetch_limit = min(page_size, remaining)
+
+        result = client.list_posts(since_id=current_since_id, limit=fetch_limit)
+        if isinstance(result, dict) and result.get("error"):
+            return result
+
+        posts = result.posts
+        if not posts:
+            break
+
+        all_posts.extend(posts)
+        current_since_id = max(p.id for p in posts)
+
+        if len(posts) < fetch_limit:
+            break
+
+    max_id = max((p.id for p in all_posts), default=0)
+    return AgoraFetchResult(
+        posts=all_posts,
+        max_post_id=max_id,
+        has_new_posts=len(all_posts) > 0,
+        fetched_at=int(time.time() * 1000),
+    )
+
+
 def _read_posts(client: AgoraClient, since_id: int, limit: int) -> tuple[AgoraFetchResult | dict[str, Any], dict[str, Any]]:
     cursor = client.get_cursor()
     if isinstance(cursor, dict) and cursor.get("error"):
@@ -76,7 +109,7 @@ def _read_posts(client: AgoraClient, since_id: int, limit: int) -> tuple[AgoraFe
         "read_mode": "history" if since_id > 0 else "unread",
     }
 
-    result = _fetch_posts(client, read_since_id, limit)
+    result = _fetch_all_posts(client, read_since_id, limit)
     return result, meta
 
 

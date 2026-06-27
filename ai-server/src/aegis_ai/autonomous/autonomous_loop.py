@@ -766,11 +766,12 @@ Respond with JSON:
 
         low_list = ", ".join(desire_context)
         prompt = f"""Low desires: {low_list}
-        
-        Recent: {action_history}
-        
-        Select up to {self._max_tasks} capabilities. Do NOT repeat recent actions by purpose.
-        If no action needed, {{"no_action":true,"reason":"..."}}"""
+
+Recent: {action_history}
+
+Select up to {self._max_tasks} capabilities to address the low desires.
+Do NOT repeat recent actions by purpose.
+If no action is needed, do not call any tools."""
 
         prompt, memory_meta = self._build_shared_llm_prompt(
             query=retrieval_query,
@@ -785,8 +786,10 @@ Respond with JSON:
             prompt=prompt,
             tools=tools,
             system_prompt=(
-                "Select tools for low desires. Do NOT repeat recent actions. "
-                "If no action needed, respond with {\"no_action\":true}."
+                "You are AEGIS autonomous agent. You MUST use the provided tools to execute actions. "
+                "Call tools directly using the function calling mechanism. "
+                "Do NOT respond with text when a tool call is appropriate. "
+                "If no action is needed, simply respond with a brief explanation without calling any tools."
             ),
             max_tokens=600,
             context_meta=memory_meta,
@@ -799,29 +802,20 @@ Respond with JSON:
             return []
 
         if not result.tool_calls:
+            reason = "LLM chose not to act"
             if result.content:
-                try:
-                    no_action_data = extract_json_object(result.content)
-                    if no_action_data.get("no_action"):
-                        reason = no_action_data.get("reason", "LLM chose not to act")
-                        logger.info("LLM chose no_action: %s", reason)
-                        self._last_decision = "no_action"
-                        self._last_skip_reason = f"no_action: {reason}"
-                        self._consecutive_no_action += 1
-                        self._log_audit_event(
-                            action="autonomous_no_action",
-                            capability_id="none",
-                            decision="SKIP",
-                            reason=reason,
-                            detail={"source": "task_generation", "llm_reason": reason},
-                        )
-                        return []
-                except Exception:
-                    pass
-            logger.warning("LLM returned no tool calls")
-            self._last_decision = "no_tool_calls"
-            self._last_skip_reason = "no_tool_calls"
+                reason = result.content[:200]
+            logger.info("LLM no_action: %s", reason)
+            self._last_decision = "no_action"
+            self._last_skip_reason = f"no_action: {reason}"
             self._consecutive_no_action += 1
+            self._log_audit_event(
+                action="autonomous_no_action",
+                capability_id="none",
+                decision="SKIP",
+                reason=reason,
+                detail={"source": "task_generation", "llm_reason": reason},
+            )
             return []
 
         valid_tasks = []
@@ -1174,11 +1168,12 @@ Previous tasks:
 {chr(10).join(context_parts)}
 
 Rules:
+- Use the provided tools to execute any follow-up actions
 - Decide from the structured result whether another action is genuinely needed
 - For social tasks, prefer replying only when the result shows a message directed at AEGIS
 - For research tasks, save only genuinely useful new information
 - For system tasks, investigate only meaningful anomalies
-- If no follow-up needed, do not call any function
+- If no follow-up is needed, do not call any tools
 - Do not repeat a successful read-only capability unless the result explicitly shows more unread or paginated data
 - Do not repeat invalid or previously failed tool choices unless memory indicates a new reason they should work now"""
 
@@ -1186,7 +1181,13 @@ Rules:
             result = self._llm.generate_with_tools(
                 prompt=prompt,
                 tools=tools,
-                system_prompt="You are AEGIS deciding follow-up actions. Only call functions if follow-up is needed.",
+                system_prompt=(
+                    "You are AEGIS deciding follow-up actions. "
+                    "You MUST use the provided tools to execute actions. "
+                    "Call tools directly using the function calling mechanism. "
+                    "Do NOT respond with text when a tool call is appropriate. "
+                    "If no follow-up is needed, simply respond with a brief explanation without calling any tools."
+                ),
                 max_tokens=400,
                 context_meta=None,
             )
