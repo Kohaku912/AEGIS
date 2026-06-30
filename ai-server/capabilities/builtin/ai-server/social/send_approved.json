@@ -1,0 +1,14 @@
+{
+  "title": "Send Approved Social Draft",
+  "description": "Send a previously created webhook or email draft after explicit approval.",
+  "server_id": "ai-server",
+  "app_id": "social",
+  "action": "send_approved",
+  "risk": {"level": "approval_required", "side_effects": ["external_send"], "requires_approval": true},
+  "input_schema": {
+    "type": "object",
+    "properties": {"draft_id": {"type": "string"}},
+    "required": ["draft_id"]
+  },
+  "tags": ["social", "send", "approval", "personal-ai"]
+}

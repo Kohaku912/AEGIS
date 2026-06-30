@@ -1,0 +1,10 @@
+{
+  "title": "List Delegation Policy",
+  "description": "List personal delegation rules for auto-allowed, approval-required, and forbidden actions.",
+  "server_id": "ai-server",
+  "app_id": "delegation_policy",
+  "action": "list",
+  "risk": {"level": "low", "side_effects": [], "requires_approval": false},
+  "input_schema": {"type": "object", "properties": {}},
+  "tags": ["delegation-policy", "personal-ai", "read"]
+}

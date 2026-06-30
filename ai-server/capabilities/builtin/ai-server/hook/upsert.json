@@ -1,0 +1,25 @@
+{
+  "title": "Create Or Update Hook",
+  "description": "Create or update a schedule, interval, or event hook. Hook observations must use read-only capabilities.",
+  "server_id": "ai-server",
+  "app_id": "hook",
+  "action": "upsert",
+  "risk": {"level": "approval_required", "side_effects": ["autonomous_trigger_config"], "requires_approval": true},
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "hook_id": {"type": "string"},
+      "name": {"type": "string"},
+      "kind": {"type": "string", "enum": ["interval", "schedule", "event"]},
+      "capability_id": {"type": "string"},
+      "arguments": {"type": "object"},
+      "condition": {"type": "object"},
+      "interval_seconds": {"type": "integer"},
+      "schedule_at_ms": {"type": "integer"},
+      "event_type": {"type": "string"},
+      "enabled": {"type": "boolean"}
+    },
+    "required": ["name", "kind", "capability_id", "condition"]
+  },
+  "tags": ["hook", "personal-ai", "write", "approval"]
+}

@@ -1,0 +1,10 @@
+{
+  "title": "Disable Repair Manager",
+  "description": "Enable or disable automatic safe repair retries.",
+  "server_id": "ai-server",
+  "app_id": "repair",
+  "action": "disable",
+  "risk": {"level": "approval_required", "side_effects": ["repair_policy_update"], "requires_approval": true},
+  "input_schema": {"type": "object", "properties": {"disabled": {"type": "boolean", "default": true}}},
+  "tags": ["repair", "personal-ai", "write", "approval"]
+}

@@ -1,0 +1,10 @@
+{
+  "title": "List Social Drafts",
+  "description": "List unsent and sent SocialProxy drafts.",
+  "server_id": "ai-server",
+  "app_id": "social",
+  "action": "list_drafts",
+  "risk": {"level": "low", "side_effects": [], "requires_approval": false},
+  "input_schema": {"type": "object", "properties": {}},
+  "tags": ["social", "draft", "personal-ai", "read"]
+}

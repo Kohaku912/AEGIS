@@ -64,6 +64,14 @@ class AegisRuntime:
     memory_manager: Any = None
     sleep_manager: Any = None
     android_manager: Any = None
+    user_model_store: Any = None
+    hook_engine: Any = None
+    commitment_manager: Any = None
+    situation_model: Any = None
+    delegation_policy: Any = None
+    social_proxy: Any = None
+    interruption_controller: Any = None
+    repair_manager: Any = None
     _lock: threading.RLock | None = None
 
     def start_autonomous_if_enabled(self) -> None:
@@ -86,6 +94,12 @@ class AegisRuntime:
                 loop.stop()
             except Exception:
                 logger.debug("Failed to stop autonomous loop", exc_info=True)
+        hook_engine = self.hook_engine
+        if hook_engine is not None:
+            try:
+                hook_engine.stop()
+            except Exception:
+                logger.debug("Failed to stop hook engine", exc_info=True)
 
     @property
     def _legacy_audit_log(self) -> Any:
@@ -249,12 +263,17 @@ def _build_runtime(config: Config) -> AegisRuntime:
         audit_log=audit_log,
     )
 
+    from aegis_ai.user_model import UserModelStore
+
+    user_model_store = UserModelStore(data_dir=os.path.join(data_dir, "user_model"))
+
     context_builder = ContextBuilder(
         event_bus=event_bus,
         tool_broker=tool_broker,
         multimodal_llm=llm_gateway,
         capability_retriever=capability_retriever,
         settings_resolver=settings_resolver,
+        user_model_store=user_model_store,
     )
     session_manager = SessionManager()
     interaction_router = InteractionRouter(
@@ -302,6 +321,46 @@ def _build_runtime(config: Config) -> AegisRuntime:
     status_manager = StatusManager(event_manager=event_manager)
     task_manager = TaskManager(event_manager=event_manager, audit_manager=audit_manager, data_dir=data_dir)
     notification_manager = NotificationManager(event_manager=event_manager)
+
+    from aegis_ai.personal_ai import (
+        CommitmentManager,
+        DelegationPolicyStore,
+        HookEngine,
+        InterruptionController,
+        SituationModel,
+        SocialProxy,
+    )
+
+    personal_dir = os.path.join(data_dir, "personal_ai")
+    runtime_ref: dict[str, Any] = {}
+    situation_model = SituationModel(data_dir=personal_dir, event_manager=event_manager)
+    delegation_policy = DelegationPolicyStore(
+        data_dir=personal_dir,
+        audit_manager=audit_manager,
+        user_model_store=user_model_store,
+    )
+    tool_broker.set_delegation_policy(delegation_policy)
+    hook_engine = HookEngine(
+        data_dir=personal_dir,
+        tool_broker=tool_broker,
+        capability_catalog=capability_catalog,
+        event_manager=event_manager,
+        audit_manager=audit_manager,
+        autonomous_loop_getter=lambda: getattr(runtime_ref.get("runtime"), "autonomous_loop", None),
+    )
+    commitment_manager = CommitmentManager(data_dir=personal_dir, audit_manager=audit_manager, hook_engine=hook_engine)
+    interruption_controller = InterruptionController(
+        data_dir=personal_dir,
+        situation_model=situation_model,
+        user_model_store=user_model_store,
+        commitment_manager=commitment_manager,
+        audit_manager=audit_manager,
+    )
+    notification_manager.set_interruption_controller(interruption_controller)
+    social_proxy = SocialProxy(data_dir=personal_dir, event_manager=event_manager, audit_manager=audit_manager)
+    context_builder._situation_model = situation_model
+    context_builder._delegation_policy = delegation_policy
+    context_builder._commitment_manager = commitment_manager
     from aegis_ai.integrations.android.manager import AndroidServerManager
 
     android_manager = AndroidServerManager(
@@ -324,7 +383,19 @@ def _build_runtime(config: Config) -> AegisRuntime:
 
     server_executor.register_client(
         "ai-server",
-        AegisCoreCapabilityClient(data_dir=data_dir, server_executor=server_executor),
+        AegisCoreCapabilityClient(
+            data_dir=data_dir,
+            server_executor=server_executor,
+            personal_managers={
+                "user_model_store": user_model_store,
+                "hook_engine": hook_engine,
+                "commitment_manager": commitment_manager,
+                "delegation_policy": delegation_policy,
+                "situation_model": situation_model,
+                "interruption_controller": interruption_controller,
+                "social_proxy": social_proxy,
+            },
+        ),
     )
 
     from aegis_ai.approval.channels.android import AndroidApprovalChannel
@@ -363,6 +434,18 @@ def _build_runtime(config: Config) -> AegisRuntime:
         llm_gateway=llm_gateway,
         event_manager=event_manager,
     )
+    from aegis_ai.personal_ai import RepairManager
+
+    repair_manager = RepairManager(
+        data_dir=personal_dir,
+        tool_broker=tool_broker,
+        audit_manager=audit_manager,
+        memory_manager=memory_manager,
+    )
+    core_client = server_executor._clients.get("ai-server")
+    if core_client is not None and hasattr(core_client, "_personal"):
+        core_client._personal["repair_manager"] = repair_manager
+    tool_broker.set_repair_manager(repair_manager)
     sleep_manager = SleepManager(
         memory_manager=memory_manager,
         event_manager=event_manager,
@@ -403,11 +486,21 @@ def _build_runtime(config: Config) -> AegisRuntime:
         memory_manager=memory_manager,
         sleep_manager=sleep_manager,
         android_manager=android_manager,
+        user_model_store=user_model_store,
+        hook_engine=hook_engine,
+        commitment_manager=commitment_manager,
+        situation_model=situation_model,
+        delegation_policy=delegation_policy,
+        social_proxy=social_proxy,
+        interruption_controller=interruption_controller,
+        repair_manager=repair_manager,
         _lock=threading.RLock(),
     )
+    runtime_ref["runtime"] = runtime
     runtime._dashboard_approval_channel = dashboard_approval_channel
     runtime._approval_fanout = approval_fanout
     status_manager.start_background_checks()
+    hook_engine.start()
     return runtime
 
 

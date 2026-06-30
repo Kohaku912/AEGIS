@@ -41,11 +41,17 @@ class NotificationManager:
         self,
         notification_router: Any = None,
         event_manager: Any = None,
+        interruption_controller: Any = None,
     ) -> None:
         self._router = notification_router
         self._event_manager = event_manager
+        self._interruption_controller = interruption_controller
         self._notifications: dict[str, dict[str, Any]] = {}
         self._lock = threading.Lock()
+
+    def set_interruption_controller(self, interruption_controller: Any) -> None:
+        """Attach the InterruptionController after runtime construction."""
+        self._interruption_controller = interruption_controller
 
     def create_notification(
         self,
@@ -86,6 +92,16 @@ class NotificationManager:
             notif = self._notifications.get(notification_id)
             if notif is None:
                 return None
+
+        if self._interruption_controller is not None:
+            try:
+                decision = self._interruption_controller.before_send(notif)
+                notif["interruption_decision"] = decision
+                if decision.get("decision") in {"batch_later", "suppress", "emergency_stop"}:
+                    notif["delivery_status"]["interruption"] = decision
+                    return notif
+            except Exception:
+                logger.debug("InterruptionController check failed", exc_info=True)
 
         if self._router is not None:
             try:

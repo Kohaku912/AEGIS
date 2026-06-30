@@ -93,6 +93,9 @@ class ContextBuilder:
         goal_manager: Any = None,
         scheduler: Any = None,
         user_model_store: Any = None,
+        situation_model: Any = None,
+        delegation_policy: Any = None,
+        commitment_manager: Any = None,
         memory_store: Any = None,
         world_state_store: Any = None,
         multimodal_llm: Any = None,
@@ -111,6 +114,9 @@ class ContextBuilder:
         self._goals = goal_manager
         self._scheduler = scheduler
         self._user_model_store = user_model_store
+        self._situation_model = situation_model
+        self._delegation_policy = delegation_policy
+        self._commitment_manager = commitment_manager
         self._memory_store = memory_store
         self._world_state_store = world_state_store
         self._capability_retriever = capability_retriever
@@ -216,8 +222,36 @@ class ContextBuilder:
             due_tasks = self._scheduler.get_due_tasks()
             ctx.pending_tasks = [f"{t.name}: {t.description}" for t in due_tasks[:5]]
 
+        policy_lines: list[str] = []
+        situation_snapshot: dict[str, Any] = {}
+        if self._situation_model:
+            try:
+                situation_snapshot = self._situation_model.get_state()
+                policy_lines.append(self._situation_model.to_context_string())
+            except Exception:
+                situation_snapshot = {}
         if self._user_model_store:
-            ctx.dialogue_policy = self._user_model_store.to_context_string()
+            try:
+                if hasattr(self._user_model_store, "relevant_context"):
+                    policy_lines.extend(self._user_model_store.relevant_context(triggering_query, situation_snapshot))
+                else:
+                    policy_lines.append(self._user_model_store.to_context_string())
+            except Exception:
+                policy_lines.append(self._user_model_store.to_context_string())
+        if self._delegation_policy and hasattr(self._delegation_policy, "to_context_string"):
+            try:
+                policy_lines.append(self._delegation_policy.to_context_string())
+            except Exception:
+                pass
+        if self._commitment_manager:
+            try:
+                due = self._commitment_manager.due_commitments()
+                if due:
+                    policy_lines.append("Due commitments: " + ", ".join(str(c.get("title", "")) for c in due[:3]))
+            except Exception:
+                pass
+        if policy_lines:
+            ctx.dialogue_policy = "\n".join(str(line) for line in policy_lines if line)
 
         if self._memory_store:
             ctx.failure_lessons = [

@@ -1,0 +1,21 @@
+{
+  "title": "Create Or Update Commitment",
+  "description": "Create or update a user commitment, follow-up, pending task, or later check.",
+  "server_id": "ai-server",
+  "app_id": "commitment",
+  "action": "upsert",
+  "risk": {"level": "safe", "side_effects": ["commitment_write"], "requires_approval": false},
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "commitment_id": {"type": "string"},
+      "title": {"type": "string"},
+      "description": {"type": "string"},
+      "due_at_ms": {"type": "integer"},
+      "priority": {"type": "string"},
+      "next_action": {"type": "string"}
+    },
+    "required": ["title"]
+  },
+  "tags": ["commitment", "personal-ai", "write"]
+}

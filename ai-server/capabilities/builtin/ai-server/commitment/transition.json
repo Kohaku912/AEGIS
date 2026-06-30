@@ -1,0 +1,19 @@
+{
+  "title": "Transition Commitment",
+  "description": "Mark a commitment completed, failed, postponed, or cancelled.",
+  "server_id": "ai-server",
+  "app_id": "commitment",
+  "action": "transition",
+  "risk": {"level": "safe", "side_effects": ["commitment_write"], "requires_approval": false},
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "commitment_id": {"type": "string"},
+      "status": {"type": "string"},
+      "reason": {"type": "string"},
+      "postpone_until_ms": {"type": "integer"}
+    },
+    "required": ["commitment_id", "status"]
+  },
+  "tags": ["commitment", "personal-ai", "write"]
+}

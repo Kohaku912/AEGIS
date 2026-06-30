@@ -322,6 +322,8 @@ class ToolBroker:
         server_executor: ServerExecutor | None = None,
         folder_registry: Any = None,
         catalog: Any = None,
+        delegation_policy: Any = None,
+        repair_manager: Any = None,
     ) -> None:
         self._registry = registry
         self._policy = policy_engine or create_default_policy_engine()
@@ -332,6 +334,8 @@ class ToolBroker:
         self._server_executor = server_executor
         self._folder_registry = folder_registry
         self._catalog = catalog
+        self._delegation_policy = delegation_policy
+        self._repair_manager = repair_manager
 
         if self._catalog is not None and self._server_executor is not None:
             self._server_executor.set_catalog(self._catalog)
@@ -345,6 +349,14 @@ class ToolBroker:
         # Pending approval requests
         self._pending_approvals: dict[str, ToolExecutionRequest] = {}
         self._lock = threading.RLock()
+
+    def set_delegation_policy(self, delegation_policy: Any) -> None:
+        """Attach user-specific delegation policy after runtime construction."""
+        self._delegation_policy = delegation_policy
+
+    def set_repair_manager(self, repair_manager: Any) -> None:
+        """Attach repair manager after runtime construction."""
+        self._repair_manager = repair_manager
 
     # ── Public API — the ONLY way to invoke tools ──────────────
 
@@ -448,7 +460,34 @@ class ToolBroker:
                 policy_result=policy_result,
             )
             self._record_audit(request, result)
+            self._record_failure_for_repair(request, result)
             return result
+
+        if self._delegation_policy is not None and policy_result.decision == PolicyDecision.ALLOW:
+            delegation = self._delegation_policy.evaluate(
+                cap.id,
+                request.arguments,
+                side_effects=list(getattr(cap, "side_effects", []) or []),
+            )
+            if delegation.decision == "forbidden":
+                result = ToolExecutionResult(
+                    request_id=request.request_id,
+                    status=InvokeStatus.DENIED,
+                    error=delegation.reason,
+                    started_at=request.created_at,
+                    finished_at=int(time.time() * 1000),
+                    policy_decision="DELEGATION_DENY",
+                    policy_result=policy_result,
+                )
+                self._record_audit(request, result)
+                self._record_failure_for_repair(request, result)
+                return result
+            if delegation.decision == "approval_required":
+                policy_result = self._policy._create_approval_result(
+                    cap,
+                    request.arguments,
+                    reason_override=delegation.reason or "Delegation policy requires approval.",
+                )
 
         if policy_result.decision == PolicyDecision.ASK_APPROVAL:
             request.requires_approval = True
@@ -496,6 +535,8 @@ class ToolBroker:
             result.verification_status = verification.status
 
         self._record_audit(request, result)
+        if not result.success:
+            self._record_failure_for_repair(request, result)
         return result
 
     def invoke_tool(
@@ -878,6 +919,20 @@ class ToolBroker:
             "Tool execution: cap=%s status=%s source=%s duration=%.1fms",
             request.capability_id, result.status.value, request.source.value, result.duration_ms,
         )
+
+    def _record_failure_for_repair(self, request: ToolExecutionRequest, result: ToolExecutionResult) -> None:
+        if self._repair_manager is None or result.success:
+            return
+        try:
+            self._repair_manager.record_failure(
+                capability_id=request.capability_id,
+                error=result.error,
+                status=result.status.value,
+                request=request,
+                result=result,
+            )
+        except Exception:
+            logger.debug("RepairManager failure recording failed", exc_info=True)
 
     @staticmethod
     def _default_executor(cap: Capability, params: dict[str, Any]) -> dict[str, Any]:

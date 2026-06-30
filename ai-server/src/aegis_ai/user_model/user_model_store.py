@@ -60,6 +60,19 @@ class UserModelStore:
             self._model.allowed_proactive_categories = list(patch["allowed_proactive_categories"])
         if "disallowed_proactive_categories" in patch:
             self._model.disallowed_proactive_categories = list(patch["disallowed_proactive_categories"])
+        for key in (
+            "preferences",
+            "work_patterns",
+            "permission_scopes",
+            "notification_conditions",
+            "writing_style",
+        ):
+            if key in patch and isinstance(patch[key], dict):
+                setattr(self._model, key, dict(patch[key]))
+        if "common_apps" in patch:
+            self._model.common_apps = list(patch["common_apps"])
+        if "long_term_goals" in patch:
+            self._model.long_term_goals = list(patch["long_term_goals"])
         if "trust_score" in patch:
             self._model.trust_score = max(0.0, min(1.0, float(patch["trust_score"])))
         if "annoyance_score" in patch:
@@ -113,9 +126,40 @@ class UserModelStore:
             f"Notifications: {m.notification_preference.value}",
             f"Focus mode: {'on' if m.focus_mode else 'off'}",
         ]
+        if m.common_apps:
+            lines.append(f"Common apps: {', '.join(m.common_apps[:5])}")
+        if m.long_term_goals:
+            goals = [str(g.get("title") or g.get("goal") or g) for g in m.long_term_goals[:3]]
+            lines.append(f"Long-term goals: {', '.join(goals)}")
         if m.quiet_hours.enabled:
             lines.append(f"Quiet hours: {m.quiet_hours.start_hour}:00-{m.quiet_hours.end_hour}:00")
         return "\n".join(lines)
+
+    def relevant_context(self, query: str = "", situation: dict[str, Any] | None = None, limit: int = 8) -> list[str]:
+        """Return a compact list of relevant user-model facts."""
+        q = (query or "").lower()
+        situation = situation or {}
+        m = self._model
+        facts = [
+            f"language={m.preferred_language}",
+            f"tone={m.preferred_tone}",
+            f"detail_level={m.detail_level.value}",
+            f"autonomy={m.autonomy_level.value}",
+            f"notification_preference={m.notification_preference.value}",
+        ]
+        if situation.get("state"):
+            facts.append(f"situation={situation.get('state')}, interruptibility={situation.get('interruptibility')}")
+        for key, value in list(m.preferences.items())[:6]:
+            if not q or key.lower() in q or str(value).lower() in q:
+                facts.append(f"preference.{key}={value}")
+        for app in m.common_apps[:6]:
+            if not q or app.lower() in q:
+                facts.append(f"common_app={app}")
+        for goal in m.long_term_goals[:6]:
+            title = str(goal.get("title") or goal.get("goal") or goal)
+            if not q or title.lower() in q:
+                facts.append(f"long_term_goal={title}")
+        return facts[:limit]
 
     def _state_path(self) -> Path:
         return self._data_dir / "user_model.json"
@@ -129,6 +173,13 @@ class UserModelStore:
         data["updated_at"] = self._model.updated_at
         data["allowed_proactive_categories"] = self._model.allowed_proactive_categories
         data["disallowed_proactive_categories"] = self._model.disallowed_proactive_categories
+        data["preferences"] = self._model.preferences
+        data["work_patterns"] = self._model.work_patterns
+        data["permission_scopes"] = self._model.permission_scopes
+        data["common_apps"] = self._model.common_apps
+        data["notification_conditions"] = self._model.notification_conditions
+        data["writing_style"] = self._model.writing_style
+        data["long_term_goals"] = self._model.long_term_goals
         try:
             with open(self._state_path(), "w", encoding="utf-8") as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
@@ -167,6 +218,13 @@ class UserModelStore:
             self._model.disallowed_proactive_categories = data.get(
                 "disallowed_proactive_categories", [],
             )
+            self._model.preferences = data.get("preferences", {})
+            self._model.work_patterns = data.get("work_patterns", {})
+            self._model.permission_scopes = data.get("permission_scopes", {})
+            self._model.common_apps = data.get("common_apps", [])
+            self._model.notification_conditions = data.get("notification_conditions", {})
+            self._model.writing_style = data.get("writing_style", {})
+            self._model.long_term_goals = data.get("long_term_goals", [])
             self._model.created_at = data.get("created_at", 0)
             self._model.updated_at = data.get("updated_at", 0)
             logger.info("Loaded user model")

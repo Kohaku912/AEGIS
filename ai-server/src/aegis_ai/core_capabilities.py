@@ -16,12 +16,13 @@ class AegisCoreCapabilityClient:
     READ_MAX_BYTES = 10 * 1024 * 1024
     ALLOWED_IMAGE_MIMES = {"image/png", "image/jpeg", "image/webp", "image/gif"}
 
-    def __init__(self, *, data_dir: str, server_executor: Any) -> None:
+    def __init__(self, *, data_dir: str, server_executor: Any, personal_managers: dict[str, Any] | None = None) -> None:
         self._data_dir = Path(data_dir).resolve()
         configured = os.getenv("AEGIS_WORKSPACE_DIR", "").strip()
         self._workspace = Path(configured).expanduser().resolve() if configured else self._data_dir / "aegis_workspace"
         self._workspace.mkdir(parents=True, exist_ok=True)
         self._server_executor = server_executor
+        self._personal = personal_managers or {}
 
     @property
     def workspace_dir(self) -> Path:
@@ -37,6 +38,22 @@ class AegisCoreCapabilityClient:
             return self._read_file(params)
         if capability_id == "ai-server.workspace.list_files":
             return self._list_files(params)
+        if capability_id.startswith("ai-server.user_model."):
+            return self._user_model(capability_id, params)
+        if capability_id.startswith("ai-server.hook."):
+            return self._hooks(capability_id, params)
+        if capability_id.startswith("ai-server.commitment."):
+            return self._commitments(capability_id, params)
+        if capability_id.startswith("ai-server.delegation_policy."):
+            return self._delegation_policy(capability_id, params)
+        if capability_id.startswith("ai-server.situation."):
+            return self._situation(capability_id, params)
+        if capability_id.startswith("ai-server.interruption."):
+            return self._interruption(capability_id, params)
+        if capability_id.startswith("ai-server.repair."):
+            return self._repair(capability_id, params)
+        if capability_id.startswith("ai-server.social."):
+            return self._social(capability_id, params)
         return {"ok": False, "error": f"Unsupported AI capability: {capability_id}", "code": "UNSUPPORTED_CAPABILITY"}
 
     def _resolve_workspace_path(self, raw_path: str, *, must_exist: bool = False) -> Path:
@@ -218,3 +235,108 @@ class AegisCoreCapabilityClient:
                 }
             )
         return {"ok": True, "relative_dir": str(root.relative_to(self._workspace)), "files": files, "truncated": len(files) >= max_entries}
+
+    def _user_model(self, capability_id: str, params: dict[str, Any]) -> dict[str, Any]:
+        store = self._personal.get("user_model_store")
+        if store is None:
+            return {"ok": False, "error": "UserModelStore unavailable"}
+        if capability_id.endswith(".get"):
+            return {"ok": True, "model": store.get().to_dict(), "context": store.relevant_context(params.get("query", ""))}
+        if capability_id.endswith(".update"):
+            store.update(dict(params.get("patch") or params), reason=str(params.get("reason") or "capability update"))
+            return {"ok": True, "model": store.get().to_dict()}
+        return {"ok": False, "error": "Unsupported user model capability"}
+
+    def _hooks(self, capability_id: str, params: dict[str, Any]) -> dict[str, Any]:
+        manager = self._personal.get("hook_engine")
+        if manager is None:
+            return {"ok": False, "error": "HookEngine unavailable"}
+        if capability_id.endswith(".list"):
+            return {"ok": True, "hooks": manager.list_hooks()}
+        if capability_id.endswith(".upsert"):
+            return {"ok": True, "hook": manager.upsert_hook(params)}
+        if capability_id.endswith(".delete"):
+            return {"ok": manager.delete_hook(str(params.get("hook_id") or ""))}
+        return {"ok": False, "error": "Unsupported hook capability"}
+
+    def _commitments(self, capability_id: str, params: dict[str, Any]) -> dict[str, Any]:
+        manager = self._personal.get("commitment_manager")
+        if manager is None:
+            return {"ok": False, "error": "CommitmentManager unavailable"}
+        if capability_id.endswith(".list"):
+            return {"ok": True, "commitments": manager.list_commitments(status=params.get("status"))}
+        if capability_id.endswith(".upsert"):
+            return {"ok": True, "commitment": manager.upsert_commitment(params)}
+        if capability_id.endswith(".transition"):
+            item = manager.transition(
+                str(params.get("commitment_id") or ""),
+                str(params.get("status") or "completed"),
+                reason=str(params.get("reason") or ""),
+                postpone_until_ms=int(params.get("postpone_until_ms") or 0),
+            )
+            return {"ok": item is not None, "commitment": item}
+        return {"ok": False, "error": "Unsupported commitment capability"}
+
+    def _delegation_policy(self, capability_id: str, params: dict[str, Any]) -> dict[str, Any]:
+        manager = self._personal.get("delegation_policy")
+        if manager is None:
+            return {"ok": False, "error": "DelegationPolicy unavailable"}
+        if capability_id.endswith(".list"):
+            return {"ok": True, **manager.get_summary()}
+        if capability_id.endswith(".upsert"):
+            return {"ok": True, "rule": manager.upsert_rule(params)}
+        if capability_id.endswith(".delete"):
+            return {"ok": manager.delete_rule(str(params.get("rule_id") or ""))}
+        return {"ok": False, "error": "Unsupported delegation capability"}
+
+    def _situation(self, capability_id: str, params: dict[str, Any]) -> dict[str, Any]:
+        manager = self._personal.get("situation_model")
+        if manager is None:
+            return {"ok": False, "error": "SituationModel unavailable"}
+        if capability_id.endswith(".get"):
+            return {"ok": True, "situation": manager.get_state()}
+        if capability_id.endswith(".update"):
+            return {"ok": True, "situation": manager.update_from_observation(str(params.get("source") or "manual"), dict(params.get("payload") or {}))}
+        return {"ok": False, "error": "Unsupported situation capability"}
+
+    def _interruption(self, capability_id: str, params: dict[str, Any]) -> dict[str, Any]:
+        manager = self._personal.get("interruption_controller")
+        if manager is None:
+            return {"ok": False, "error": "InterruptionController unavailable"}
+        if capability_id.endswith(".status"):
+            return {"ok": True, **manager.get_status()}
+        if capability_id.endswith(".flush"):
+            return {"ok": True, "items": manager.flush_batch()}
+        if capability_id.endswith(".emergency_stop"):
+            return {"ok": True, **manager.set_emergency_stop(bool(params.get("active", True)))}
+        return {"ok": False, "error": "Unsupported interruption capability"}
+
+    def _repair(self, capability_id: str, params: dict[str, Any]) -> dict[str, Any]:
+        manager = self._personal.get("repair_manager")
+        if manager is None:
+            return {"ok": False, "error": "RepairManager unavailable"}
+        if capability_id.endswith(".list"):
+            return {"ok": True, "history": manager.list_history(limit=int(params.get("limit") or 50))}
+        if capability_id.endswith(".status"):
+            return {"ok": True, **manager.get_status()}
+        if capability_id.endswith(".disable"):
+            return {"ok": True, **manager.set_disabled(bool(params.get("disabled", True)))}
+        return {"ok": False, "error": "Unsupported repair capability"}
+
+    def _social(self, capability_id: str, params: dict[str, Any]) -> dict[str, Any]:
+        manager = self._personal.get("social_proxy")
+        if manager is None:
+            return {"ok": False, "error": "SocialProxy unavailable"}
+        if capability_id.endswith(".create_draft"):
+            return {"ok": True, "draft": manager.create_draft(
+                channel=str(params.get("channel") or ""),
+                to=str(params.get("to") or ""),
+                subject=str(params.get("subject") or ""),
+                body=str(params.get("body") or ""),
+                payload=dict(params.get("payload") or {}),
+            )}
+        if capability_id.endswith(".list_drafts"):
+            return {"ok": True, "drafts": manager.list_drafts()}
+        if capability_id.endswith(".send_approved"):
+            return manager.send_approved(str(params.get("draft_id") or ""))
+        return {"ok": False, "error": "Unsupported social capability"}

@@ -1,0 +1,10 @@
+{
+  "title": "List Hooks",
+  "description": "List configured personal AI hooks.",
+  "server_id": "ai-server",
+  "app_id": "hook",
+  "action": "list",
+  "risk": {"level": "low", "side_effects": [], "requires_approval": false},
+  "input_schema": {"type": "object", "properties": {}},
+  "tags": ["hook", "personal-ai", "read"]
+}

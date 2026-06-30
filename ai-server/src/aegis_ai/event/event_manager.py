@@ -42,6 +42,11 @@ _PERSIST_EVENT_TYPES = {
     "android.current_app_changed",
     "android.device_state",
     "android.approval.decided",
+    "self_call",
+    "social.webhook.received",
+    "social.email.received",
+    "hook.matched",
+    "commitment.due",
 }
 
 

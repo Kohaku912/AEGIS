@@ -302,3 +302,181 @@ def trigger_sleep():
         return jsonify({"started": success})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+# Personal AI Routes
+
+@manager_bp.route("/api/user-model", methods=["GET", "POST"])
+def user_model():
+    try:
+        rt = _get_runtime()
+        if request.method == "POST":
+            payload = request.get_json(silent=True) or {}
+            rt.user_model_store.update(payload.get("patch") or payload, reason=payload.get("reason", "dashboard"))
+        return jsonify({"model": rt.user_model_store.get().to_dict()})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@manager_bp.route("/api/hooks", methods=["GET", "POST"])
+def hooks():
+    try:
+        rt = _get_runtime()
+        if request.method == "POST":
+            return jsonify({"hook": rt.hook_engine.upsert_hook(request.get_json(silent=True) or {})})
+        return jsonify({"hooks": rt.hook_engine.list_hooks()})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@manager_bp.route("/api/hooks/<hook_id>", methods=["GET", "DELETE", "POST"])
+def hook_detail(hook_id):
+    try:
+        rt = _get_runtime()
+        if request.method == "DELETE":
+            return jsonify({"deleted": rt.hook_engine.delete_hook(hook_id)})
+        if request.method == "POST":
+            payload = request.get_json(silent=True) or {}
+            payload["hook_id"] = hook_id
+            return jsonify({"hook": rt.hook_engine.upsert_hook(payload)})
+        hook = rt.hook_engine.get_hook(hook_id)
+        if hook is None:
+            return jsonify({"error": "Not found"}), 404
+        return jsonify(hook)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@manager_bp.route("/api/hooks/run-due", methods=["POST"])
+def hooks_run_due():
+    try:
+        rt = _get_runtime()
+        return jsonify({"results": rt.hook_engine.run_due_once()})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@manager_bp.route("/api/commitments", methods=["GET", "POST"])
+def commitments():
+    try:
+        rt = _get_runtime()
+        if request.method == "POST":
+            return jsonify({"commitment": rt.commitment_manager.upsert_commitment(request.get_json(silent=True) or {})})
+        return jsonify({"commitments": rt.commitment_manager.list_commitments(status=request.args.get("status"))})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@manager_bp.route("/api/commitments/<commitment_id>/transition", methods=["POST"])
+def commitment_transition(commitment_id):
+    try:
+        rt = _get_runtime()
+        payload = request.get_json(silent=True) or {}
+        item = rt.commitment_manager.transition(
+            commitment_id,
+            payload.get("status", "completed"),
+            reason=payload.get("reason", ""),
+            postpone_until_ms=int(payload.get("postpone_until_ms") or 0),
+        )
+        if item is None:
+            return jsonify({"error": "Not found"}), 404
+        return jsonify({"commitment": item})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@manager_bp.route("/api/delegation-policy", methods=["GET", "POST"])
+def delegation_policy():
+    try:
+        rt = _get_runtime()
+        if request.method == "POST":
+            return jsonify({"rule": rt.delegation_policy.upsert_rule(request.get_json(silent=True) or {})})
+        return jsonify(rt.delegation_policy.get_summary())
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@manager_bp.route("/api/delegation-policy/<rule_id>", methods=["DELETE"])
+def delegation_policy_delete(rule_id):
+    try:
+        rt = _get_runtime()
+        return jsonify({"deleted": rt.delegation_policy.delete_rule(rule_id)})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@manager_bp.route("/api/situation", methods=["GET", "POST"])
+def situation():
+    try:
+        rt = _get_runtime()
+        if request.method == "POST":
+            payload = request.get_json(silent=True) or {}
+            return jsonify(rt.situation_model.update_from_observation(payload.get("source", "dashboard"), payload.get("payload", {})))
+        return jsonify(rt.situation_model.get_state())
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@manager_bp.route("/api/interruption", methods=["GET"])
+def interruption():
+    try:
+        rt = _get_runtime()
+        return jsonify(rt.interruption_controller.get_status())
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@manager_bp.route("/api/interruption/flush", methods=["POST"])
+def interruption_flush():
+    try:
+        rt = _get_runtime()
+        return jsonify({"items": rt.interruption_controller.flush_batch()})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@manager_bp.route("/api/interruption/emergency-stop", methods=["POST"])
+def interruption_emergency_stop():
+    try:
+        rt = _get_runtime()
+        payload = request.get_json(silent=True) or {}
+        return jsonify(rt.interruption_controller.set_emergency_stop(bool(payload.get("active", True))))
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@manager_bp.route("/api/repair", methods=["GET"])
+def repair():
+    try:
+        rt = _get_runtime()
+        return jsonify(rt.repair_manager.get_status())
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@manager_bp.route("/api/repair/disable", methods=["POST"])
+def repair_disable():
+    try:
+        rt = _get_runtime()
+        payload = request.get_json(silent=True) or {}
+        return jsonify(rt.repair_manager.set_disabled(bool(payload.get("disabled", True))))
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@manager_bp.route("/api/social/drafts", methods=["GET", "POST"])
+def social_drafts():
+    try:
+        rt = _get_runtime()
+        if request.method == "POST":
+            payload = request.get_json(silent=True) or {}
+            return jsonify({"draft": rt.social_proxy.create_draft(
+                channel=payload.get("channel", ""),
+                to=payload.get("to", ""),
+                subject=payload.get("subject", ""),
+                body=payload.get("body", ""),
+                payload=payload.get("payload", {}),
+            )})
+        return jsonify({"drafts": rt.social_proxy.list_drafts()})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
