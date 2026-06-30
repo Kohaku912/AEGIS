@@ -8,6 +8,7 @@ use std::net::{TcpListener, TcpStream};
 use std::thread;
 
 use crate::action;
+use crate::discord_rpc;
 use crate::observe;
 use crate::observe_ext;
 use crate::overlay_approval;
@@ -115,6 +116,51 @@ fn handle_command(cmd: &str) -> String {
         }
 
         // ── Overlay (Level 1) ──────────────────────────────
+        "discord_status" => json_response(&discord_rpc::handle_status()),
+        "discord_get_guilds" => {
+            json_response(&discord_rpc::handle_json_command("get_guilds", params))
+        }
+        "discord_get_guild" => {
+            json_response(&discord_rpc::handle_json_command("get_guild", params))
+        }
+        "discord_get_channels" => {
+            json_response(&discord_rpc::handle_json_command("get_channels", params))
+        }
+        "discord_get_selected_voice_channel" => json_response(&discord_rpc::handle_json_command(
+            "get_selected_voice_channel",
+            params,
+        )),
+        "discord_get_voice_settings" => json_response(&discord_rpc::handle_json_command(
+            "get_voice_settings",
+            params,
+        )),
+        "discord_join_voice_channel" => json_response(&discord_rpc::handle_json_command(
+            "join_voice_channel",
+            params,
+        )),
+        "discord_join_voice_by_name" => json_response(&discord_rpc::handle_json_command(
+            "join_voice_by_name",
+            params,
+        )),
+        "discord_leave_voice_channel" => json_response(&discord_rpc::handle_json_command(
+            "leave_voice_channel",
+            params,
+        )),
+        "discord_select_text_channel" => json_response(&discord_rpc::handle_json_command(
+            "select_text_channel",
+            params,
+        )),
+        "discord_set_voice_settings" => json_response(&discord_rpc::handle_json_command(
+            "set_voice_settings",
+            params,
+        )),
+        "discord_set_activity" => {
+            json_response(&discord_rpc::handle_json_command("set_activity", params))
+        }
+        "discord_unsupported_send_message" => json_response(&discord_rpc::handle_json_command(
+            "unsupported_send_message",
+            params,
+        )),
         "show_overlay" => {
             let text = if params.is_empty() {
                 "AEGIS Overlay"
@@ -317,6 +363,24 @@ fn handle_command(cmd: &str) -> String {
         }
 
         // ── Shell Execution (Level 2: Approval required) ──
+        "show_rich_overlay" => {
+            let mut request: overlay_approval::RichDisplayRequest =
+                match serde_json::from_str(params.trim()) {
+                    Ok(value) => value,
+                    Err(e) => return json_error(format!("Invalid rich overlay JSON: {e}")),
+                };
+            if request.title.trim().is_empty() {
+                request.title = "AEGIS".to_string();
+            }
+            if request.duration_seconds == 0 {
+                request.duration_seconds = 8;
+            }
+            if request.style.trim().is_empty() {
+                request.style = "info".to_string();
+            }
+            let result = overlay_approval::show_rich_display_overlay(request);
+            serde_json::to_string(&result).unwrap_or_else(|_| "{\"error\":\"json\"}".into())
+        }
         "execute_shell" => {
             let parts: Vec<&str> = params.splitn(2, '|').collect();
             let cmd = parts.first().unwrap_or(&"");

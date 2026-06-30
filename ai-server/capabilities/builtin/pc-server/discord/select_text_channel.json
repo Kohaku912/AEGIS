@@ -1,0 +1,24 @@
+{
+  "title": "Discord Select Text Channel",
+  "description": "Select a Discord text channel in the desktop client by channel id. Does not send a message. Requires approval because it changes the external app state.",
+  "server_id": "pc-server",
+  "app_id": "discord",
+  "action": "select_text_channel",
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "channel_id": {
+        "type": "string",
+        "description": "Discord text channel id"
+      }
+    },
+    "required": ["channel_id"]
+  },
+  "risk": {
+    "level": "medium",
+    "requires_approval": true,
+    "side_effects": ["external_service_operation", "discord_ui_selection"]
+  },
+  "tags": ["discord", "text_channel", "approval_required"],
+  "tcp_command_json": "discord_select_text_channel"
+}

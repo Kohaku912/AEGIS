@@ -1,0 +1,23 @@
+{
+  "title": "Discord Guild Detail",
+  "description": "Get details for one Discord server/guild, including channels when the Discord RPC session exposes them.",
+  "server_id": "pc-server",
+  "app_id": "discord",
+  "action": "get_guild",
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "guild_id": {
+        "type": "string",
+        "description": "Discord guild/server id"
+      }
+    },
+    "required": ["guild_id"]
+  },
+  "risk": {
+    "level": "low",
+    "requires_approval": false
+  },
+  "tags": ["discord", "guild", "channel", "read_only"],
+  "tcp_command_json": "discord_get_guild"
+}

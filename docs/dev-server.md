@@ -95,6 +95,13 @@ The Dev Server auto-detects the project language by indicator files:
 - **Test failure → revert** — changes are reverted if tests fail
 - **Lint failure → revert** — changes are reverted if lint fails
 - **All attempts audited** — every step logged to AuditLog
+
+## Current Dev Server Runtime
+
+- Dev Server runs as a Docker Compose gRPC service on `50056`.
+- The repository is mounted write-capable at `/workspace` by design.
+- Docker socket is not mounted and must remain unavailable.
+- Safe read/status operations may be automatic; writes and code execution remain subject to policy and approval gates.
 - **Reflection written** — success/failure recorded in ReflectionLog
 
 ## File Safety

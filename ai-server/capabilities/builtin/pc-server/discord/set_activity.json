@@ -1,0 +1,24 @@
+{
+  "title": "Discord Set Activity",
+  "description": "Set Discord rich presence/activity through Discord RPC when permitted by the desktop client. Requires approval because it changes public presence.",
+  "server_id": "pc-server",
+  "app_id": "discord",
+  "action": "set_activity",
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "activity": {
+        "type": "object",
+        "description": "Discord RPC activity payload"
+      }
+    },
+    "required": ["activity"]
+  },
+  "risk": {
+    "level": "medium",
+    "requires_approval": true,
+    "side_effects": ["external_service_operation", "discord_presence_change"]
+  },
+  "tags": ["discord", "activity", "presence", "approval_required"],
+  "tcp_command_json": "discord_set_activity"
+}

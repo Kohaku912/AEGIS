@@ -59,6 +59,8 @@ def mask_approval_request(request: Any) -> dict[str, Any]:
             "approval_reason": getattr(request, "approval_reason", ""),
             "user_facing_summary": getattr(request, "user_facing_summary", ""),
             "arguments_summary": getattr(request, "arguments_summary", ""),
+            "expected_outcome": getattr(request, "expected_outcome", ""),
+            "possible_side_effects": getattr(request, "possible_side_effects", ""),
             "status": getattr(request, "status", ""),
             "created_at": getattr(request, "created_at", 0),
             "expires_at": getattr(request, "expires_at", 0),
@@ -68,13 +70,59 @@ def mask_approval_request(request: Any) -> dict[str, Any]:
     safe_keys = {
         "approval_id", "capability_id", "tool_name", "risk_level",
         "approval_reason", "user_facing_summary", "arguments_summary",
+        "expected_outcome", "possible_side_effects",
         "status", "created_at", "expires_at", "source", "source_desire",
+        "origin_channel", "conversation_id",
     }
     masked = {}
     for k, v in data.items():
         if k in safe_keys:
             masked[k] = _mask_value(k, v)
     return masked
+
+
+def build_approval_display_payload(request: Any) -> dict[str, Any]:
+    """Build a safe, user-facing approval payload for UI surfaces."""
+    summary = mask_approval_request(request)
+    capability = str(summary.get("capability_id") or "unknown")
+    tool_name = str(summary.get("tool_name") or capability)
+    reason = str(summary.get("approval_reason") or "").strip()
+    user_summary = str(summary.get("user_facing_summary") or "").strip()
+    args_summary = str(summary.get("arguments_summary") or "").strip()
+    risk = str(summary.get("risk_level") or "unknown")
+    expected = str(summary.get("expected_outcome") or "").strip()
+    side_effects = str(summary.get("possible_side_effects") or "").strip()
+
+    if not expected:
+        expected = "承認後、この操作を一度だけ実行します。"
+    if not side_effects and risk not in {"low", "read_only", "safe", "safe_action"}:
+        side_effects = "外部サービス、端末、またはデバイスの状態が変更される可能性があります。"
+
+    title = f"承認が必要: {tool_name}"
+    body_lines: list[str] = []
+    if reason:
+        body_lines.append(f"理由: {reason}")
+    if user_summary:
+        body_lines.append(user_summary)
+    elif args_summary:
+        body_lines.append(f"内容: {args_summary}")
+    if expected:
+        body_lines.append(f"結果: {expected}")
+    if side_effects:
+        body_lines.append(f"注意: {side_effects}")
+    body_lines.append(f"リスク: {risk}")
+    body_lines.append(f"ID: {summary.get('approval_id', '')}")
+
+    payload = dict(summary)
+    payload.update(
+        {
+            "title": title,
+            "body": "\n".join(line for line in body_lines if line),
+            "expected_outcome": expected,
+            "possible_side_effects": side_effects,
+        }
+    )
+    return payload
 
 
 # ── Approval Event ────────────────────────────────────────────
@@ -103,7 +151,7 @@ class ApprovalEvent:
         return cls(
             approval_id=getattr(request, "approval_id", ""),
             event_type=event_type,
-            request_summary=mask_approval_request(request),
+            request_summary=build_approval_display_payload(request),
             state=getattr(request, "status", ""),
             timestamp=int(time.time() * 1000),
             channel=channel,

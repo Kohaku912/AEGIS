@@ -433,6 +433,16 @@ Respond with JSON:
 
     def _execute_cycle(self) -> None:
         """Execute autonomous tasks — only runs when scheduled or triggered."""
+        if not getattr(self, "_audit_group_active", False):
+            from aegis_ai.audit.context import audit_group
+
+            group_id = f"autonomous_{int(time.time() * 1000)}"
+            with audit_group(group_id, group_type="autonomous", group_title="Autonomous execution cycle"):
+                self._audit_group_active = True
+                try:
+                    return self._execute_cycle()
+                finally:
+                    self._audit_group_active = False
         logger.info("Starting autonomous execution cycle")
         with self._lock:
             self._last_run_ms = int(time.time() * 1000)

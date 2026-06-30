@@ -1,0 +1,24 @@
+{
+  "title": "Discord Join Voice Channel",
+  "description": "Join a Discord voice channel by channel id through Discord RPC. Requires user approval because it changes external account presence and joins a call.",
+  "server_id": "pc-server",
+  "app_id": "discord",
+  "action": "join_voice_channel",
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "channel_id": {
+        "type": "string",
+        "description": "Discord voice channel id"
+      }
+    },
+    "required": ["channel_id"]
+  },
+  "risk": {
+    "level": "medium",
+    "requires_approval": true,
+    "side_effects": ["external_service_operation", "discord_voice_call_join", "presence_change"]
+  },
+  "tags": ["discord", "voice", "call", "approval_required"],
+  "tcp_command_json": "discord_join_voice_channel"
+}

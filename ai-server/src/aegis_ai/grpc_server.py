@@ -585,7 +585,9 @@ def _approval_to_proto(req: Any) -> common_pb2.ApprovalRequest:
         approval_id=req.approval_id,
         capability_id=req.capability_id,
         tool_name=req.tool_name,
-        requested_action=getattr(req, "requested_action", ""),
+        requested_action=getattr(req, "requested_action", "")
+        or getattr(req, "tool_name", "")
+        or getattr(req, "capability_id", ""),
         human_readable_summary=getattr(req, "human_readable_summary", "")
         or getattr(req, "user_facing_summary", ""),
         risk_explanation=getattr(req, "risk_explanation", "")

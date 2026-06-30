@@ -66,5 +66,5 @@ browser-use uses Playwright internally for browser control. This is acceptable â
 
 ## References
 - [browser-use GitHub](https://github.com/browser-use/browser-use)
-- [AGENTS.md Â§Technology Decision Gate](../AGENTS.md)
-- [docs/browser-safety.md](../docs/browser-safety.md)
+- [AGENTS.md Technology Decision Gate](../../AGENTS.md)
+- [Browser Safety](../browser-safety.md)

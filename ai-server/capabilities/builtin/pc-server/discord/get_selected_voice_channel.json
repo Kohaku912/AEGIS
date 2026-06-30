@@ -1,0 +1,17 @@
+{
+  "title": "Discord Selected Voice Channel",
+  "description": "Read the currently selected Discord voice channel in the desktop client.",
+  "server_id": "pc-server",
+  "app_id": "discord",
+  "action": "get_selected_voice_channel",
+  "input_schema": {
+    "type": "object",
+    "properties": {}
+  },
+  "risk": {
+    "level": "low",
+    "requires_approval": false
+  },
+  "tags": ["discord", "voice", "channel", "read_only"],
+  "tcp_command_json": "discord_get_selected_voice_channel"
+}

@@ -1,0 +1,24 @@
+{
+  "title": "Write AEGIS Workspace File",
+  "description": "Save text or base64 content into the private AEGIS workspace at data/aegis_workspace.",
+  "server_id": "ai-server",
+  "app_id": "workspace",
+  "action": "write_file",
+  "risk": {
+    "level": "safe",
+    "side_effects": ["workspace_file_write"],
+    "requires_approval": false
+  },
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "relative_path": {"type": "string", "description": "Path relative to the AEGIS workspace."},
+      "content": {"type": "string", "description": "UTF-8 text content to write."},
+      "content_base64": {"type": "string", "description": "Optional base64 bytes to write instead of content."},
+      "overwrite": {"type": "boolean", "default": true},
+      "append": {"type": "boolean", "default": false}
+    },
+    "required": ["relative_path"]
+  },
+  "tags": ["workspace", "file", "write", "safe"]
+}

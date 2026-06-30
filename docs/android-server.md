@@ -123,3 +123,12 @@ cd android-server && ./gradlew test
 Default connection: `10.0.2.2:50051` (Android emulator → host machine)
 
 For real device, update the host in `AegisGrpcClient.kt` or use the app's settings.
+
+## Current Android App Runtime
+
+- The Android app uses a Compose dashboard with `State`, `Home`, and `Action` tabs; Home is the default tab.
+- Home keeps only minimal status dots, missing-permission warnings, and shared chat.
+- Chat is gRPC-only and shares Dashboard history through `data/chat_history.jsonl` plus reverse-stream `chat_update` pushes.
+- Foreground service reconnects to AEGIS Core with backoff after stream disconnects, heartbeat failures, or send failures.
+- Notification chat actions use the same Core chat path and must preserve approval/audit metadata.
+- `UNIMPLEMENTED` or method-not-found chat errors mean the running AI Core is stale and must be rebuilt/restarted with the current proto/server code.

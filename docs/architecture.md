@@ -750,3 +750,12 @@ AEGIS can improve its own codebase — but only through a strictly gated workflo
 | [`docs/self-development.md`](self-development.md) | Self-development workflow |
 | [`docs/testing.md`](testing.md) | Test categories and commands |
 | [`docs/roadmap.md`](roadmap.md) | Project roadmap and milestones |
+
+## Current Implementation Notes
+
+- AI, Browser, Room, and Dev servers are Docker Compose services; PC Server remains host-native.
+- Dashboard Audit Log stores raw entries but displays grouped operations by default.
+- Audit grouping flows through `contextvars` and is persisted as `audit_group_id`, `audit_group_type`, and `audit_group_title`.
+- Chat and Android mobile chat share the same chat history store and use the same tool execution path.
+- Autonomous loop uses StatusManager state for capability availability and keeps a 30 minute minimum LLM interval by default.
+- AGORA read-posts capability is strict unread mode for normal reads; explicit positive `since_id` is history mode.

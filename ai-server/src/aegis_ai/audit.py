@@ -19,6 +19,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from aegis_ai.audit.context import get_audit_group
+
 
 @dataclass
 class AuditEntry:
@@ -51,6 +53,9 @@ class AuditEntry:
     task_id: str = ""
     source_desire: str = ""
     risk_level: str = ""
+    audit_group_id: str = ""
+    audit_group_type: str = ""
+    audit_group_title: str = ""
 
 
 class AuditLog:
@@ -69,6 +74,7 @@ class AuditLog:
 
     def append(self, entry: AuditEntry) -> None:
         """Append an entry to the audit log. Thread-safe."""
+        self._apply_group_context(entry)
         if not entry.entry_id:
             entry.entry_id = f"audit_{int(time.time() * 1000)}_{os.urandom(4).hex()}"
         if not entry.timestamp_ms:
@@ -120,11 +126,41 @@ class AuditLog:
             record["source_desire"] = entry.source_desire
         if entry.risk_level:
             record["risk_level"] = entry.risk_level
+        if entry.audit_group_id:
+            record["audit_group_id"] = entry.audit_group_id
+        if entry.audit_group_type:
+            record["audit_group_type"] = entry.audit_group_type
+        if entry.audit_group_title:
+            record["audit_group_title"] = entry.audit_group_title
 
         with self._lock:
             with open(self._path, "a", encoding="utf-8") as f:
                 f.write(json.dumps(record, ensure_ascii=False) + "\n")
             self._entries.append(entry)
+
+    def _apply_group_context(self, entry: AuditEntry) -> None:
+        ctx = get_audit_group()
+        if ctx is not None:
+            if not entry.audit_group_id:
+                entry.audit_group_id = ctx.group_id
+            if not entry.audit_group_type:
+                entry.audit_group_type = ctx.group_type
+            if not entry.audit_group_title:
+                entry.audit_group_title = ctx.group_title
+        if not entry.audit_group_id:
+            detail = entry.detail if isinstance(entry.detail, dict) else {}
+            fallback_id = (
+                entry.task_id
+                or str(detail.get("task_id") or "")
+                or entry.request_id
+                or str(detail.get("request_id") or "")
+                or entry.approval_id
+                or str(detail.get("approval_id") or "")
+            )
+            if fallback_id:
+                entry.audit_group_id = fallback_id
+                entry.audit_group_type = "task" if entry.task_id or detail.get("task_id") else "approval"
+                entry.audit_group_title = entry.audit_group_title or fallback_id
 
     # ── Read ────────────────────────────────────────────────
 
@@ -157,6 +193,9 @@ class AuditLog:
         reason: str = "",
         actor: str = "aegis",
         detail: dict[str, Any] | None = None,
+        audit_group_id: str = "",
+        audit_group_type: str = "",
+        audit_group_title: str = "",
     ) -> AuditEntry:
         """Convenience method: log a policy/tool decision and return the entry."""
         entry = AuditEntry(
@@ -166,6 +205,9 @@ class AuditLog:
             reason=reason,
             actor=actor,
             detail=detail or {},
+            audit_group_id=audit_group_id,
+            audit_group_type=audit_group_type,
+            audit_group_title=audit_group_title,
         )
         self.append(entry)
         return entry
@@ -187,6 +229,9 @@ class AuditLog:
         source_desire: str = "",
         risk_level: str = "",
         detail: dict[str, Any] | None = None,
+        audit_group_id: str = "",
+        audit_group_type: str = "",
+        audit_group_title: str = "",
     ) -> AuditEntry:
         """Convenience method: log an approval lifecycle event."""
         entry = AuditEntry(
@@ -200,6 +245,9 @@ class AuditLog:
             source_desire=source_desire,
             risk_level=risk_level,
             detail=detail or {},
+            audit_group_id=audit_group_id,
+            audit_group_type=audit_group_type,
+            audit_group_title=audit_group_title,
         )
         self.append(entry)
         return entry

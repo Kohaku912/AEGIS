@@ -165,6 +165,13 @@ Execution history is appended to `data/autonomous/execution_log.jsonl`.
 ## Safety
 
 - All autonomous tasks go through PolicyEngine
+
+## Current Scheduling Notes
+
+- The autonomous loop keeps a 30 minute minimum LLM interval by default.
+- New observations accumulate pressure but do not force an immediate LLM call.
+- Each autonomous execution cycle is audited as one grouped operation with raw events preserved inside the group.
+- Follow-up decisions are made by the LLM from structured tool results; no keyword-based follow-up routing is used.
 - ToolBroker enforces capability-based execution limits
 - Tasks are constructive and desire-aligned by design
 - Manual trigger available via API for testing

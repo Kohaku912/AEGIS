@@ -1,0 +1,21 @@
+{
+  "title": "Discord Set Voice Settings",
+  "description": "Change Discord voice settings such as mute or deaf state through Discord RPC. Requires approval.",
+  "server_id": "pc-server",
+  "app_id": "discord",
+  "action": "set_voice_settings",
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "mute": {"type": "boolean"},
+      "deaf": {"type": "boolean"}
+    }
+  },
+  "risk": {
+    "level": "medium",
+    "requires_approval": true,
+    "side_effects": ["external_service_operation", "discord_voice_settings_change"]
+  },
+  "tags": ["discord", "voice", "settings", "approval_required"],
+  "tcp_command_json": "discord_set_voice_settings"
+}

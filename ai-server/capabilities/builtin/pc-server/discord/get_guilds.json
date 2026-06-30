@@ -1,0 +1,17 @@
+{
+  "title": "Discord Guilds",
+  "description": "List Discord servers/guilds visible to the authenticated local Discord RPC session.",
+  "server_id": "pc-server",
+  "app_id": "discord",
+  "action": "get_guilds",
+  "input_schema": {
+    "type": "object",
+    "properties": {}
+  },
+  "risk": {
+    "level": "low",
+    "requires_approval": false
+  },
+  "tags": ["discord", "guild", "server", "read_only"],
+  "tcp_command_json": "discord_get_guilds"
+}

@@ -1,0 +1,21 @@
+{
+  "title": "List AEGIS Workspace Files",
+  "description": "List files inside the private AEGIS workspace.",
+  "server_id": "ai-server",
+  "app_id": "workspace",
+  "action": "list_files",
+  "risk": {
+    "level": "low",
+    "side_effects": [],
+    "requires_approval": false
+  },
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "relative_dir": {"type": "string", "default": "."},
+      "recursive": {"type": "boolean", "default": false},
+      "max_entries": {"type": "integer", "default": 100}
+    }
+  },
+  "tags": ["workspace", "file", "list"]
+}

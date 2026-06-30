@@ -114,6 +114,44 @@ class AuditManager:
             "next_cursor": None,
         }
 
+    def list_groups(
+        self,
+        page: int = 1,
+        per_page: int = 20,
+        group_type: str | None = None,
+        errors_only: bool = False,
+    ) -> dict[str, Any]:
+        """List logical audit groups, newest first."""
+        entries = self._log.read_all()
+        groups = self._build_groups(entries)
+        if group_type:
+            groups = [g for g in groups if g.get("group_type") == group_type]
+        if errors_only:
+            groups = [g for g in groups if g.get("error_count", 0) > 0]
+
+        groups.sort(key=lambda g: g.get("end_ms", 0), reverse=True)
+        total = len(groups)
+        page = max(1, int(page or 1))
+        per_page = max(1, int(per_page or 20))
+        total_pages = max(1, (total + per_page - 1) // per_page)
+        start = (page - 1) * per_page
+        return {
+            "groups": groups[start:start + per_page],
+            "page": page,
+            "per_page": per_page,
+            "total": total,
+            "total_pages": total_pages,
+        }
+
+    def get_group(self, group_id: str) -> dict[str, Any] | None:
+        """Return one logical audit group with its raw entries."""
+        if not group_id:
+            return None
+        for group in self._build_groups(self._log.read_all()):
+            if group.get("group_id") == group_id:
+                return group
+        return None
+
     def get_detail(self, entry_id: str) -> dict[str, Any] | None:
         """Get full detail for a single audit entry."""
         import sqlite3
@@ -306,3 +344,146 @@ class AuditManager:
             "task_id": entry.get("task_id", ""),
             "risk_level": entry.get("risk_level", ""),
         }
+
+    def _build_groups(self, entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        buckets: dict[str, list[dict[str, Any]]] = {}
+        for entry in entries:
+            gid = self._entry_group_id(entry)
+            buckets.setdefault(gid, []).append(self._decorate_for_group(entry))
+
+        groups: list[dict[str, Any]] = []
+        for group_id, group_entries in buckets.items():
+            group_entries.sort(key=lambda e: e.get("timestamp_ms", 0))
+            first = group_entries[0]
+            start_ms = group_entries[0].get("timestamp_ms", 0)
+            end_ms = group_entries[-1].get("timestamp_ms", 0)
+            error_count = sum(1 for e in group_entries if self._is_error(e))
+            approval_count = sum(1 for e in group_entries if str(e.get("action", "")).startswith("approval_"))
+            tool_count = sum(1 for e in group_entries if self._is_tool_event(e))
+            status = self._group_status(group_entries, error_count)
+            groups.append({
+                "group_id": group_id,
+                "group_type": self._entry_group_type(first),
+                "title": self._entry_group_title(first, group_id),
+                "start_ms": start_ms,
+                "end_ms": end_ms,
+                "start_time_str": self._format_ts(start_ms),
+                "end_time_str": self._format_ts(end_ms),
+                "status": status,
+                "entry_count": len(group_entries),
+                "tool_count": tool_count,
+                "approval_count": approval_count,
+                "error_count": error_count,
+                "summary": self._group_summary(group_entries),
+                "entries": group_entries,
+            })
+        return groups
+
+    def _decorate_for_group(self, entry: dict[str, Any]) -> dict[str, Any]:
+        item = dict(entry)
+        detail = item.get("detail", {}) if isinstance(item.get("detail"), dict) else {}
+        item["time_str"] = self._format_ts(item.get("timestamp_ms", 0))
+        item["detail_summary"] = self._detail_summary(detail)
+        try:
+            item["detail_pretty"] = json.dumps(detail, indent=2, ensure_ascii=False) if detail else "{}"
+        except Exception:
+            item["detail_pretty"] = "{}"
+        item["audit_group_id"] = self._entry_group_id(item)
+        item["audit_group_type"] = self._entry_group_type(item)
+        item["audit_group_title"] = self._entry_group_title(item, item["audit_group_id"])
+        return item
+
+    def _entry_group_id(self, entry: dict[str, Any]) -> str:
+        detail = entry.get("detail", {}) if isinstance(entry.get("detail"), dict) else {}
+        return str(
+            entry.get("audit_group_id")
+            or entry.get("task_id")
+            or detail.get("task_id")
+            or entry.get("request_id")
+            or detail.get("request_id")
+            or entry.get("approval_id")
+            or detail.get("approval_id")
+            or entry.get("entry_id")
+            or f"audit_{entry.get('timestamp_ms', 0)}"
+        )
+
+    def _entry_group_type(self, entry: dict[str, Any]) -> str:
+        explicit = str(entry.get("audit_group_type") or "")
+        if explicit:
+            return explicit
+        action = str(entry.get("action") or "")
+        actor = str(entry.get("actor") or "")
+        detail = entry.get("detail", {}) if isinstance(entry.get("detail"), dict) else {}
+        if detail.get("origin_channel") or actor == "chat_tools":
+            return "chat"
+        if actor == "autonomous" or action.startswith("autonomous_"):
+            return "autonomous"
+        if action.startswith("approval_") or entry.get("approval_id") or detail.get("approval_id"):
+            return "approval"
+        if entry.get("task_id") or detail.get("task_id") or action.startswith("task_"):
+            return "task"
+        return "system"
+
+    def _entry_group_title(self, entry: dict[str, Any], group_id: str) -> str:
+        explicit = str(entry.get("audit_group_title") or "")
+        if explicit:
+            return explicit
+        detail = entry.get("detail", {}) if isinstance(entry.get("detail"), dict) else {}
+        for key in ("title", "original_message", "goal", "reason"):
+            value = str(detail.get(key) or "")
+            if value:
+                return value[:120]
+        action = str(entry.get("action") or "Audit group")
+        return f"{action}: {group_id}"[:140]
+
+    def _detail_summary(self, detail: Any) -> str:
+        if isinstance(detail, dict):
+            parts = []
+            for key, value in list(detail.items())[:3]:
+                parts.append(f"{key}={str(value)[:60]}")
+            return ", ".join(parts)
+        return str(detail)[:100]
+
+    def _group_summary(self, entries: list[dict[str, Any]]) -> str:
+        for entry in reversed(entries):
+            reason = str(entry.get("reason") or "")
+            if reason:
+                return reason[:220]
+            summary = str(entry.get("detail_summary") or "")
+            if summary:
+                return summary[:220]
+        return f"{len(entries)} audit event(s)"
+
+    def _group_status(self, entries: list[dict[str, Any]], error_count: int) -> str:
+        actions = {str(e.get("action") or "") for e in entries}
+        if error_count and len(entries) > error_count:
+            return "mixed"
+        if error_count:
+            return "failed"
+        if {"approval_created", "approval_enqueued"} & actions and not ({"approval_approved", "approval_rejected", "approval_executed", "approval_failed"} & actions):
+            return "waiting_approval"
+        return "success"
+
+    def _is_tool_event(self, entry: dict[str, Any]) -> bool:
+        action = str(entry.get("action") or "")
+        return action in {"tool_execution", "tool_invoked"} or action.startswith("tool.")
+
+    def _is_error(self, entry: dict[str, Any]) -> bool:
+        action = str(entry.get("action") or "")
+        decision = str(entry.get("decision") or "").lower()
+        detail = entry.get("detail", {}) if isinstance(entry.get("detail"), dict) else {}
+        execution_status = str(detail.get("execution_status") or detail.get("status") or "").lower()
+        return bool(
+            action.endswith("_failed")
+            or decision in {"error", "failed", "deny", "denied"}
+            or detail.get("error")
+            or (execution_status and execution_status not in {"success", "completed", "started"})
+        )
+
+    def _format_ts(self, timestamp_ms: int) -> str:
+        if not timestamp_ms:
+            return "-"
+        try:
+            return time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(timestamp_ms / 1000))
+        except Exception:
+            return "-"

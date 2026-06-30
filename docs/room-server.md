@@ -101,6 +101,14 @@ Returns deterministic fake data. No real hardware.
 Simulates all actuator operations. Returns deterministic fake results.
 All calls are logged to `call_log` for audit verification.
 
+## Current Room Server Runtime
+
+- Room Server runs as a Python gRPC service on `50055`.
+- Docker default provider is mock lighting control.
+- `AEGIS_ROOM_LIGHT_PROVIDER=gpio` and `AEGIS_ROOM_IR_PIN=<pin>` enable the Orange Pi GPIO/IR skeleton path.
+- `room-server.light.set_light` is a physical-device capability and remains approval-required.
+- Mock light state updates only after approval when invoked through AI Server.
+
 ### Real Providers (optional — user confirmation required)
 
 | Provider | Status | Notes |

@@ -112,6 +112,16 @@ Get-NetFirewallRule -DisplayName "AEGIS*"
 
 # Test connectivity
 Test-NetConnection -ComputerName host.docker.internal -Port 50052
+
+## Current Real Device Flow
+
+- Build Docker services first: `docker compose build ai-server browser-server room-server dev-server`.
+- Start services: `docker compose up -d ai-server browser-server room-server dev-server`.
+- Build Android: `cd android-server && .\gradlew.bat assembleDebug`.
+- Install Android: `adb install -r app\build\outputs\apk\debug\app-debug.apk`.
+- Start Android with host, port, pairing token, and `auto_connect=true`.
+- Verify Home chat syncs with Dashboard chat history and approval requests appear in Action.
+- If MediaProjection or Accessibility is missing, a natural permission-needed response is acceptable until the user grants it on-device.
 ```
 
 ### Port conflicts

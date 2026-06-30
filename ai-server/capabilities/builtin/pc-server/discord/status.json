@@ -1,0 +1,17 @@
+{
+  "title": "Discord RPC Status",
+  "description": "Check whether Discord desktop IPC is available and whether local OAuth configuration is loaded. Does not reveal token values.",
+  "server_id": "pc-server",
+  "app_id": "discord",
+  "action": "status",
+  "input_schema": {
+    "type": "object",
+    "properties": {}
+  },
+  "risk": {
+    "level": "low",
+    "requires_approval": false
+  },
+  "tags": ["discord", "rpc", "status", "read_only"],
+  "tcp_command_json": "discord_status"
+}

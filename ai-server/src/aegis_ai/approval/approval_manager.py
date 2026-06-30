@@ -355,6 +355,7 @@ class ApprovalManager:
         }
         action = action_map.get(event_type, f"approval_{event_type}")
         try:
+            metadata = getattr(request, "metadata", {}) or {}
             self._audit.log_approval(
                 action=action,
                 approval_id=request.approval_id,
@@ -365,6 +366,9 @@ class ApprovalManager:
                 task_id=request.task_id,
                 source_desire=request.source_desire,
                 risk_level=request.risk_level,
+                audit_group_id=str(metadata.get("audit_group_id") or ""),
+                audit_group_type=str(metadata.get("audit_group_type") or ""),
+                audit_group_title=str(metadata.get("audit_group_title") or ""),
             )
         except Exception:
             logger.debug("Failed to record approval audit", exc_info=True)

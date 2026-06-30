@@ -3,6 +3,12 @@ from server_executor import ServerExecutor
 
 class _Manifest:
     tcp_command = "read_file {path}|{max_bytes}"
+    tcp_command_json = ""
+
+
+class _JsonManifest:
+    tcp_command = ""
+    tcp_command_json = "discord_join_voice_by_name"
 
 
 def test_format_tcp_command_allows_missing_optional_args() -> None:
@@ -21,6 +27,56 @@ def test_format_tcp_command_keeps_present_args_and_normalizes_bool() -> None:
     )
 
     assert cmd == r"list_files C:\Users|false"
+
+
+def test_format_tcp_json_command_preserves_japanese_text() -> None:
+    cmd = ServerExecutor._format_tcp_json_command(
+        "discord_join_voice_by_name",
+        {"guild_name": "memo", "channel_name": "通話"},
+    )
+
+    assert cmd == 'discord_join_voice_by_name {"guild_name":"memo","channel_name":"通話"}'
+
+
+def test_pc_tcp_uses_tcp_command_json(monkeypatch) -> None:
+    sent = {}
+
+    class FakeSocket:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def settimeout(self, timeout):
+            self.timeout = timeout
+
+        def connect(self, address):
+            self.address = address
+
+        def sendall(self, data):
+            sent["data"] = data
+
+        def recv(self, size):
+            return b'{"status":"ok"}\n'
+
+    monkeypatch.setattr("server_executor.socket.socket", lambda: FakeSocket())
+
+    result = ServerExecutor()._execute_pc_tcp(
+        "pc-server.discord.join_voice_by_name",
+        {"guild_name": "memo", "channel_name": "通話"},
+        _JsonManifest(),
+    )
+
+    assert result == {"status": "ok"}
+    assert sent["data"].decode("utf-8") == (
+        'discord_join_voice_by_name {"guild_name":"memo","channel_name":"通話"}\n'
+    )
+
+
+def test_pc_tcp_timeout_is_longer_for_discord() -> None:
+    assert ServerExecutor._pc_tcp_timeout_seconds("pc-server.discord.get_guilds") == 60
+    assert ServerExecutor._pc_tcp_timeout_seconds("pc-server.file.read") == 10
 
 
 def test_pc_tcp_invalid_json_is_not_reported_as_unreachable(monkeypatch) -> None:

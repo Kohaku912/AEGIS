@@ -1,0 +1,21 @@
+{
+  "title": "Read AEGIS Workspace File",
+  "description": "Read a file from the private AEGIS workspace.",
+  "server_id": "ai-server",
+  "app_id": "workspace",
+  "action": "read_file",
+  "risk": {
+    "level": "low",
+    "side_effects": [],
+    "requires_approval": false
+  },
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "relative_path": {"type": "string", "description": "Path relative to the AEGIS workspace."},
+      "max_bytes": {"type": "integer", "default": 10485760}
+    },
+    "required": ["relative_path"]
+  },
+  "tags": ["workspace", "file", "read"]
+}

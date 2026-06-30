@@ -98,6 +98,11 @@ class ApprovalQueue:
             user_facing_summary=_generate_user_facing_summary(
                 cap_id, tool_name, arguments, policy_reason, source_desire, frustration,
             ),
+            expected_outcome="承認後、この操作を一度だけ実行します。",
+            possible_side_effects=(
+                "外部サービス、端末、またはデバイスの状態が変更される可能性があります。"
+                if risk_name not in {"low", "read_only", "safe", "safe_action"} else ""
+            ),
             created_at=now_ms,
             expires_at=now_ms + expiry_ms,
             status="pending",
@@ -291,6 +296,9 @@ class ApprovalQueue:
                 capability_id=req.capability_id,
                 decision=req.status,
                 reason=reason or req.approval_reason,
+                audit_group_id=str(req.metadata.get("audit_group_id") or ""),
+                audit_group_type=str(req.metadata.get("audit_group_type") or ""),
+                audit_group_title=str(req.metadata.get("audit_group_title") or ""),
                 detail={
                     "approval_id": req.approval_id,
                     "request_id": req.request_id,
