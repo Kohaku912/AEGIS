@@ -13,6 +13,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from aegis_ai.audit.context import get_audit_group
+
 logger = logging.getLogger('aegis_ai.audit.audit_log')
 
 
@@ -44,6 +46,9 @@ class AuditEntry:
     task_id: str = ''
     source_desire: str = ''
     risk_level: str = ''
+    audit_group_id: str = ''
+    audit_group_type: str = ''
+    audit_group_title: str = ''
 
 
 _CREATE_TABLE = '''
@@ -74,7 +79,10 @@ CREATE TABLE IF NOT EXISTS audit (
     request_id TEXT NOT NULL DEFAULT '',
     task_id TEXT NOT NULL DEFAULT '',
     source_desire TEXT NOT NULL DEFAULT '',
-    risk_level TEXT NOT NULL DEFAULT ''
+    risk_level TEXT NOT NULL DEFAULT '',
+    audit_group_id TEXT NOT NULL DEFAULT '',
+    audit_group_type TEXT NOT NULL DEFAULT '',
+    audit_group_title TEXT NOT NULL DEFAULT ''
 )
 '''
 
@@ -84,6 +92,7 @@ _CREATE_INDEXES = [
     'CREATE INDEX IF NOT EXISTS idx_audit_task ON audit(task_id)',
     'CREATE INDEX IF NOT EXISTS idx_audit_approval ON audit(approval_id)',
     'CREATE INDEX IF NOT EXISTS idx_audit_entry_id ON audit(entry_id)',
+    'CREATE INDEX IF NOT EXISTS idx_audit_group ON audit(audit_group_id)',
 ]
 
 
@@ -116,9 +125,21 @@ class AuditLog:
     def _init_db(self) -> None:
         conn = self._get_conn()
         conn.execute(_CREATE_TABLE)
+        self._ensure_group_columns(conn)
         for idx in _CREATE_INDEXES:
             conn.execute(idx)
         conn.commit()
+
+    def _ensure_group_columns(self, conn: sqlite3.Connection) -> None:
+        existing = {row[1] for row in conn.execute('PRAGMA table_info(audit)').fetchall()}
+        columns = {
+            'audit_group_id': "TEXT NOT NULL DEFAULT ''",
+            'audit_group_type': "TEXT NOT NULL DEFAULT ''",
+            'audit_group_title': "TEXT NOT NULL DEFAULT ''",
+        }
+        for name, definition in columns.items():
+            if name not in existing:
+                conn.execute(f'ALTER TABLE audit ADD COLUMN {name} {definition}')
 
     def _migrate_jsonl_if_needed(self) -> None:
         if not self._path.exists():
@@ -155,8 +176,9 @@ class AuditLog:
                  detail_json, profile_id, prompt_id, prompt_version, prompt_hash,
                  model, max_tokens, temperature, reasoning_level, provider,
                  tokens_used, duration_ms, approval_id, approval_channel,
-                 approval_user, request_id, task_id, source_desire, risk_level)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
+                 approval_user, request_id, task_id, source_desire, risk_level,
+                 audit_group_id, audit_group_type, audit_group_title)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
                 (
                     record.get('entry_id', ''),
                     record.get('timestamp_ms', 0),
@@ -184,12 +206,16 @@ class AuditLog:
                     record.get('task_id', ''),
                     record.get('source_desire', ''),
                     record.get('risk_level', ''),
+                    record.get('audit_group_id', ''),
+                    record.get('audit_group_type', ''),
+                    record.get('audit_group_title', ''),
                 )
             )
         except sqlite3.IntegrityError:
             pass
 
     def append(self, entry: AuditEntry) -> None:
+        self._apply_group_context(entry)
         if not entry.entry_id:
             entry.entry_id = f'audit_{int(time.time() * 1000)}_{os.urandom(4).hex()}'
         if not entry.timestamp_ms:
@@ -208,6 +234,9 @@ class AuditLog:
             'approval_channel': entry.approval_channel, 'approval_user': entry.approval_user,
             'request_id': entry.request_id, 'task_id': entry.task_id,
             'source_desire': entry.source_desire, 'risk_level': entry.risk_level,
+            'audit_group_id': entry.audit_group_id,
+            'audit_group_type': entry.audit_group_type,
+            'audit_group_title': entry.audit_group_title,
         }
         with self._lock:
             conn = self._get_conn()
@@ -215,6 +244,30 @@ class AuditLog:
             conn.commit()
             self.close()
             self._entries.append(entry)
+
+    def _apply_group_context(self, entry: AuditEntry) -> None:
+        ctx = get_audit_group()
+        if ctx is not None:
+            if not entry.audit_group_id:
+                entry.audit_group_id = ctx.group_id
+            if not entry.audit_group_type:
+                entry.audit_group_type = ctx.group_type
+            if not entry.audit_group_title:
+                entry.audit_group_title = ctx.group_title
+        if not entry.audit_group_id:
+            detail = entry.detail if isinstance(entry.detail, dict) else {}
+            fallback_id = (
+                entry.task_id
+                or str(detail.get('task_id') or '')
+                or entry.request_id
+                or str(detail.get('request_id') or '')
+                or entry.approval_id
+                or str(detail.get('approval_id') or '')
+            )
+            if fallback_id:
+                entry.audit_group_id = fallback_id
+                entry.audit_group_type = 'task' if entry.task_id or detail.get('task_id') else 'approval'
+                entry.audit_group_title = entry.audit_group_title or fallback_id
 
     def list_recent(self, n: int = 50) -> list[AuditEntry]:
         with self._lock:
@@ -260,8 +313,8 @@ class AuditLog:
         d.pop('id', None)
         return d
 
-    def log_decision(self, action: str, capability_id: str, decision: str, reason: str = '', actor: str = 'aegis', detail: dict[str, Any] | None = None) -> AuditEntry:
-        entry = AuditEntry(action=action, capability_id=capability_id, decision=decision, reason=reason, actor=actor, detail=detail or {})
+    def log_decision(self, action: str, capability_id: str, decision: str, reason: str = '', actor: str = 'aegis', detail: dict[str, Any] | None = None, audit_group_id: str = '', audit_group_type: str = '', audit_group_title: str = '') -> AuditEntry:
+        entry = AuditEntry(action=action, capability_id=capability_id, decision=decision, reason=reason, actor=actor, detail=detail or {}, audit_group_id=audit_group_id, audit_group_type=audit_group_type, audit_group_title=audit_group_title)
         self.append(entry)
         return entry
 
@@ -273,7 +326,7 @@ class AuditLog:
             conn.commit()
             self.close()
 
-    def log_approval(self, action: str, approval_id: str = '', capability_id: str = '', channel: str = '', user: str = '', request_id: str = '', task_id: str = '', source_desire: str = '', risk_level: str = '', detail: dict[str, Any] | None = None) -> AuditEntry:
-        entry = AuditEntry(action=action, capability_id=capability_id, approval_id=approval_id, approval_channel=channel, approval_user=user, request_id=request_id, task_id=task_id, source_desire=source_desire, risk_level=risk_level, detail=detail or {})
+    def log_approval(self, action: str, approval_id: str = '', capability_id: str = '', channel: str = '', user: str = '', request_id: str = '', task_id: str = '', source_desire: str = '', risk_level: str = '', detail: dict[str, Any] | None = None, audit_group_id: str = '', audit_group_type: str = '', audit_group_title: str = '') -> AuditEntry:
+        entry = AuditEntry(action=action, capability_id=capability_id, approval_id=approval_id, approval_channel=channel, approval_user=user, request_id=request_id, task_id=task_id, source_desire=source_desire, risk_level=risk_level, detail=detail or {}, audit_group_id=audit_group_id, audit_group_type=audit_group_type, audit_group_title=audit_group_title)
         self.append(entry)
         return entry

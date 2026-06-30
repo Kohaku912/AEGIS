@@ -152,3 +152,11 @@ Registered via `init_manager_routes(app, runtime)` in `DashboardApp.__init__()`.
 5. **No keyword matching**: All decisions by LLM
 6. **Manager routes**: All 19 routes use runtime.*_manager for data access
 7. **StatusManager for server status**: No `_check_port()` in routes — use `runtime.status_manager.get_snapshot()`
+
+## Current Audit And Chat Behavior
+
+- `/dashboard/audit` defaults to grouped operations. One chat turn, autonomous cycle, task, or approval continuation appears as one group card.
+- Raw audit entries are still retained and visible from the same page for debugging.
+- Audit grouping uses `audit_group_id`, `audit_group_type`, and `audit_group_title`; old entries fall back to `task_id`, `request_id`, `approval_id`, or `entry_id`.
+- Dashboard chat, Web Chat, and Android Home chat share `data/chat_history.jsonl`.
+- Approval requests created by chat preserve audit/chat metadata so approved actions execute once and post a follow-up message back to chat.

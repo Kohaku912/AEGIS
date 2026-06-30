@@ -33,6 +33,7 @@
 //! - overlay approval (Y/N key)
 
 mod action;
+mod discord_rpc;
 mod health;
 mod observe;
 mod observe_ext;
@@ -117,6 +118,7 @@ fn main() {
     );
     println!("          show_overlay, hide_overlay, launch_app, focus_window");
     println!("          mouse_move, mouse_click, keyboard_type, press_hotkey (approval required)");
+    println!("          discord_status, discord_get_guilds, discord_join_voice_by_name");
     println!("          capabilities, quit");
     println!();
     println!("PC Server ready.");
@@ -157,4 +159,7 @@ fn print_help() {
     println!("  pc.mouse_click        Click at coordinates");
     println!("  pc.keyboard_type      Type text");
     println!("  pc.press_hotkey       Press keyboard shortcut");
+    println!("  pc.discord_status     Check Discord RPC readiness");
+    println!("  pc.discord_join_voice_by_name");
+    println!("                        Join Discord voice by server/channel name (approval)");
 }

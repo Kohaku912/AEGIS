@@ -1,4 +1,4 @@
-"""Android Approval Channel — delivers approvals as Android notifications."""
+"""Android approval notification channel."""
 
 from __future__ import annotations
 
@@ -11,11 +11,7 @@ logger = logging.getLogger("aegis_ai.approval.channels.android")
 
 
 class AndroidApprovalChannel(ApprovalChannel):
-    """Delivers approval events to Android Server as notifications.
-
-    Uses ServerExecutor to send notification commands to Android Server.
-    Fire-and-forget: Android Server unreachable does not block approval.
-    """
+    """Deliver approval events to Android devices."""
 
     def __init__(self, android_manager: Any = None) -> None:
         self._android_manager = android_manager
@@ -25,11 +21,9 @@ class AndroidApprovalChannel(ApprovalChannel):
         return "android"
 
     async def deliver(self, event: ApprovalEvent) -> bool:
-        """Send approval notification to Android device."""
         return self._send_notification(event)
 
     async def update(self, event: ApprovalEvent) -> bool:
-        """Update notification state on Android device."""
         return self._send_notification(event, is_update=True)
 
     async def health_check(self) -> bool:
@@ -41,20 +35,26 @@ class AndroidApprovalChannel(ApprovalChannel):
             return False
 
     def _send_notification(self, event: ApprovalEvent, is_update: bool = False) -> bool:
-        """Send notification to Android Server."""
         if self._android_manager is None:
-            logger.debug("No server executor, skipping Android notification")
+            logger.debug("No Android manager, skipping Android approval notification")
             return False
 
         try:
             summary = event.request_summary
-            title = f"承認が必要: {summary.get('tool_name', summary.get('capability_id', 'unknown'))}"
-            body = summary.get("user_facing_summary", "操作の承認が必要です")
             approval_id = event.approval_id
-
+            title = str(
+                summary.get("title")
+                or f"承認が必要: {summary.get('tool_name', summary.get('capability_id', 'unknown'))}"
+            )
+            body = str(
+                summary.get("body")
+                or summary.get("user_facing_summary")
+                or summary.get("approval_reason")
+                or "操作の承認が必要です"
+            )
             if is_update:
                 title = f"承認更新: {event.state}"
-                body = f"ID: {approval_id} — 状態: {event.state}"
+                body = f"状態: {event.state}\nID: {approval_id}\n{body}"
 
             return self._android_manager.send_approval_to_android(
                 approval_id=approval_id,

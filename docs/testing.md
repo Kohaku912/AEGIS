@@ -127,4 +127,23 @@ def _setup_full_stack():
     client = AndroidServerClient(bus, registry, provider)
     bus.subscribe(engine.on_event)
     return bus, engine, registry, policy, broker, builder, audit, client
+
+## Current Test Commands
+
+Use a workspace basetemp on Windows to avoid temp permission problems:
+
+```powershell
+cd ai-server
+.\.venv\Scripts\python.exe -m pytest --basetemp .tmp-pytest -p no:cacheprovider
+```
+
+Focused checks for audit/chat/autonomous changes:
+
+```powershell
+cd ai-server
+.\.venv\Scripts\python.exe -m pytest --basetemp .tmp-pytest-audit -p no:cacheprovider tests\test_dashboard_routes.py tests\test_chat_tools.py tests\test_approval_redesign.py tests\test_autonomous_loop_behavior.py
+.\.venv\Scripts\python.exe -m pytest --basetemp .tmp-pytest-audit -p no:cacheprovider tests\test_runtime_singleton.py tests\test_e2e_lifecycle.py
+```
+
+Generated pytest directories such as `.pytest-tmp/` and `.tmp-pytest-*` are not source files and should not be committed.
 ```

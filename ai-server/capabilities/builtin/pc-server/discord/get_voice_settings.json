@@ -1,0 +1,17 @@
+{
+  "title": "Discord Voice Settings",
+  "description": "Read local Discord voice settings through Discord RPC.",
+  "server_id": "pc-server",
+  "app_id": "discord",
+  "action": "get_voice_settings",
+  "input_schema": {
+    "type": "object",
+    "properties": {}
+  },
+  "risk": {
+    "level": "low",
+    "requires_approval": false
+  },
+  "tags": ["discord", "voice", "settings", "read_only"],
+  "tcp_command_json": "discord_get_voice_settings"
+}

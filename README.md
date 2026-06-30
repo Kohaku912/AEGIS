@@ -19,22 +19,20 @@ AEGIS consists of 6 gRPC-connected servers:
 git clone https://github.com/Kohaku912/AEGIS.git
 cd AEGIS
 
-# 2. Python environment
+# 2. Configure secrets locally
+cp .env.example .env
+# Set LLM_API_KEY / AGORA_TOKEN / AEGIS_ANDROID_PAIRING_TOKEN in .env
+
+# 3. Start Docker services
+docker compose build ai-server browser-server room-server dev-server
+docker compose up -d ai-server browser-server room-server dev-server
+
+# 4. Start host-native PC server separately when PC control is needed
+# PC Server listens on 50052; containers reach it via host.docker.internal.
+
+# 5. Run targeted tests with a local basetemp
 cd ai-server
-python -m venv .venv
-source .venv/bin/activate  # Linux/Mac
-# .venv\Scripts\activate   # Windows
-pip install -e ".[dev]"
-
-# 3. Set environment variables
-export OPENAI_API_KEY="your-deepseek-api-key"
-export OPENAI_BASE_URL="https://api.deepseek.com"
-
-# 4. Run tests
-pytest -q  # 1328 tests
-
-# 5. Start services
-python start_aegis.py  # Starts AI Server + Dashboard + Web Chat + CLI
+.\.venv\Scripts\python.exe -m pytest --basetemp .tmp-pytest -p no:cacheprovider
 ```
 
 ## Status
@@ -44,11 +42,13 @@ python start_aegis.py  # Starts AI Server + Dashboard + Web Chat + CLI
 | Phase | Beta (real LLM, real devices) |
 | Lint | ruff clean |
 | Safety | PolicyEngine structural, 4 levels |
-| Capabilities | 53 registered (folder-based JSON manifests) |
+| Capabilities | Folder-based JSON manifests, canonical `server_id.app_id.action` IDs |
 | LLM | DeepSeek API (OpenAI compatible) |
-| Dashboard | HTTP server on port 8090 |
+| Dashboard | HTTP server on port 8090, grouped audit log, shared chat history |
 | PC Server | Rust TCP on port 50052 |
-| Browser Server | Python HTTP on port 50053 |
+| Browser Server | Python service on port 50053 |
+| Room Server | Python gRPC on port 50055, mock light provider by default |
+| Dev Server | Python gRPC on port 50056, write-capable repo mount in Docker |
 
 ## Documentation
 
@@ -67,6 +67,7 @@ python start_aegis.py  # Starts AI Server + Dashboard + Web Chat + CLI
 
 | Document | Description |
 |----------|-------------|
+| [Docker Services](docs/docker-services.md) | Canonical Docker Compose startup |
 | [Beta Runbook](docs/beta-runbook.md) | Setup, startup, daily use |
 | [Daily Use](docs/daily-use.md) | Everyday workflow |
 | [Troubleshooting](docs/troubleshooting.md) | Common issues |
@@ -103,7 +104,17 @@ python start_aegis.py  # Starts AI Server + Dashboard + Web Chat + CLI
 | [Notification Gateway](docs/notification-gateway.md) | Notification routing |
 | [External Integrations](docs/external-integrations.md) | LINE/Discord/Email stubs |
 | [Voice I/O](docs/voice-io.md) | Voice gate + stubs |
-| [Evaluation](docs/evaluation.md) | Benchmark harness |
+| [Testing](docs/testing.md) | Unit, integration, real-device checks |
+
+## Current Runtime Notes
+
+- AI, Browser, Room, and Dev servers are Docker Compose services.
+- PC Server remains host-native for Windows automation.
+- Android is the installed app and connects to AI gRPC on port `50051`.
+- Dashboard, Web Chat, and Android Home chat share `data/chat_history.jsonl`.
+- Audit Log is grouped by chat turn, autonomous cycle, task, or approval while raw events remain available.
+- Autonomous LLM calls are gated by `AEGIS_MIN_LLM_INTERVAL_MS` and default to 30 minutes.
+- AGORA normal reads are unread-only; explicit positive `since_id` is history lookup and does not advance the shared cursor.
 
 ## Safety Model
 

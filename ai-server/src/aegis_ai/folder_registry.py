@@ -47,6 +47,7 @@ class CapabilityManifest:
     short_name: str = ""
     only_master: bool = True
     tcp_command: str = ""
+    tcp_command_json: str = ""
     extra: dict[str, Any] = field(default_factory=dict)
     file_path: str = ""
     loaded_at: int = 0
@@ -174,6 +175,7 @@ class FolderCapabilityRegistry:
             short_name=short,
             only_master=data.get("only_master", True),
             tcp_command=data.get("tcp_command", ""),
+            tcp_command_json=data.get("tcp_command_json", ""),
             extra=extra,
             file_path=path,
             loaded_at=int(time.time() * 1000),

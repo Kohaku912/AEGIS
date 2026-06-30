@@ -28,6 +28,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.json.JSONObject
 import java.util.UUID
 import java.util.concurrent.TimeUnit
 
@@ -367,10 +368,15 @@ class AegisGrpcClient private constructor(
                     .build()
             )
             response.approvalsList.map {
+                val summary = listOf(
+                    it.humanReadableSummary,
+                    it.riskExplanation.takeIf { reason -> reason.isNotBlank() }?.let { reason -> "Reason: $reason" } ?: "",
+                    it.payloadPreview.takeIf { preview -> preview.isNotBlank() }?.let { preview -> "Details: $preview" } ?: "",
+                ).filter { part -> part.isNotBlank() }.joinToString("\n")
                 ApprovalItem(
                     approvalId = it.approvalId,
                     capabilityId = it.capabilityId,
-                    summary = it.humanReadableSummary.ifBlank { it.requestedAction },
+                    summary = summary.ifBlank { it.requestedAction.ifBlank { it.approvalId } },
                     risk = it.riskExplanation,
                 )
             }
@@ -527,10 +533,25 @@ class AegisGrpcClient private constructor(
         overlayController.showApproval(
             approvalId = command.approvalId,
             title = command.title.ifBlank { "AEGIS approval" },
-            body = command.body.ifBlank { command.summaryJson },
+            body = command.body.ifBlank { approvalBodyFromSummaryJson(command.summaryJson) },
         ) { decision ->
             sendApprovalDecision(decision)
         }
+    }
+
+    private fun approvalBodyFromSummaryJson(summaryJson: String): String {
+        if (summaryJson.isBlank()) return "Approval is required."
+        return runCatching {
+            val obj = JSONObject(summaryJson)
+            listOf(
+                obj.optString("body"),
+                obj.optString("user_facing_summary"),
+                obj.optString("approval_reason").takeIf { it.isNotBlank() }?.let { "Reason: $it" } ?: "",
+                obj.optString("arguments_summary").takeIf { it.isNotBlank() }?.let { "Details: $it" } ?: "",
+                obj.optString("risk_level").takeIf { it.isNotBlank() }?.let { "Risk: $it" } ?: "",
+                obj.optString("approval_id").takeIf { it.isNotBlank() }?.let { "ID: $it" } ?: "",
+            ).filter { it.isNotBlank() }.joinToString("\n").ifBlank { summaryJson }
+        }.getOrDefault(summaryJson)
     }
 
     private fun sendApprovalDecision(decision: OverlayController.ApprovalAction) {

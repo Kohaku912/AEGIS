@@ -1,0 +1,33 @@
+{
+  "title": "Broadcast Overlay Notification",
+  "description": "Show a temporary notification overlay on all selected local devices. Can include text and an image saved in the AEGIS workspace.",
+  "server_id": "ai-server",
+  "app_id": "notification",
+  "action": "broadcast_overlay",
+  "risk": {
+    "level": "safe",
+    "side_effects": ["pc_overlay", "android_overlay"],
+    "requires_approval": false
+  },
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "message": {"type": "string", "description": "Notification body text to display."},
+      "title": {"type": "string", "description": "Notification title.", "default": "AEGIS"},
+      "image_path": {"type": "string", "description": "Optional image path inside the AEGIS workspace."},
+      "targets": {
+        "type": "array",
+        "items": {"type": "string", "enum": ["pc", "android"]},
+        "default": ["pc", "android"]
+      },
+      "duration_ms": {"type": "integer", "default": 8000},
+      "color": {"type": "string", "default": ""}
+    },
+    "required": ["message"]
+  },
+  "tags": ["notification", "overlay", "pc", "android", "workspace"],
+  "examples": [
+    {"message": "全デバイスにテスト通知を出して", "arguments": {"message": "テスト通知"}},
+    {"message": "保存した画像も一緒に全デバイスへ表示して", "arguments": {"message": "画像を確認してください", "image_path": "images/sample.png"}}
+  ]
+}

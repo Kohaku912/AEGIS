@@ -260,7 +260,7 @@ class TestApprovalFanout:
         assert len(good.delivered) == 1
 
     def test_mask_approval_request(self):
-        from aegis_ai.approval.fanout import mask_approval_request
+        from aegis_ai.approval.fanout import build_approval_display_payload, mask_approval_request
         req = MagicMock()
         req.to_dict.return_value = {
             "approval_id": "appr_001",
@@ -270,6 +270,8 @@ class TestApprovalFanout:
             "approval_reason": "test",
             "user_facing_summary": "take screenshot",
             "arguments_summary": "{'delay': 0}",
+            "expected_outcome": "capture screen",
+            "possible_side_effects": "screen contents are observed",
             "status": "pending",
             "created_at": 1000,
             "expires_at": 2000,
@@ -278,6 +280,113 @@ class TestApprovalFanout:
         masked = mask_approval_request(req)
         assert "secret_field" not in masked
         assert masked["approval_id"] == "appr_001"
+        assert masked["approval_reason"] == "test"
+        assert masked["user_facing_summary"] == "take screenshot"
+        assert masked["expected_outcome"] == "capture screen"
+        payload = build_approval_display_payload(req)
+        assert "test" in payload["body"]
+        assert "take screenshot" in payload["body"]
+
+    def test_pc_overlay_channel_uses_action_and_reason(self):
+        from aegis_ai.approval.channels.pc_overlay import PcOverlayApprovalChannel
+        from aegis_ai.approval.fanout import ApprovalEvent
+
+        executor = MagicMock()
+        channel = PcOverlayApprovalChannel(server_executor=executor)
+        event = ApprovalEvent(
+            approval_id="appr_001",
+            event_type="created",
+            request_summary={
+                "title": "Approval required: Discord voice",
+                "body": "Reason: joining voice changes Discord state",
+                "approval_reason": "joining voice changes Discord state",
+                "risk_level": "medium",
+            },
+            state="pending",
+        )
+
+        assert _run_async(channel.deliver(event)) is True
+        executor.execute_capability.assert_called_once()
+        capability_id, args = executor.execute_capability.call_args.args
+        assert capability_id == "pc-server.approval.overlay"
+        assert "action" in args
+        assert "command" not in args
+        assert "joining voice changes Discord state" in args["action"]
+
+    def test_android_channel_sends_body_with_reason(self):
+        from aegis_ai.approval.channels.android import AndroidApprovalChannel
+        from aegis_ai.approval.fanout import ApprovalEvent
+
+        manager = MagicMock()
+        manager.send_approval_to_android.return_value = True
+        channel = AndroidApprovalChannel(android_manager=manager)
+        event = ApprovalEvent(
+            approval_id="appr_002",
+            event_type="created",
+            request_summary={
+                "title": "Approval required: Android tap",
+                "body": "Reason: tapping changes the phone UI",
+                "approval_reason": "tapping changes the phone UI",
+            },
+            state="pending",
+        )
+
+        assert _run_async(channel.deliver(event)) is True
+        kwargs = manager.send_approval_to_android.call_args.kwargs
+        assert kwargs["approval_id"] == "appr_002"
+        assert "tapping changes the phone UI" in kwargs["body"]
+
+    def test_chat_approval_continuation_uses_llm_followup(self, tmp_path):
+        from types import SimpleNamespace
+        from tool_broker import InvokeStatus, ToolExecutionResult
+        from aegis_ai.web.dashboard_routes import DashboardApp
+
+        class FakeLlm:
+            def __init__(self):
+                self.prompts = []
+
+            def generate(self, **kwargs):
+                self.prompts.append(kwargs["prompt"])
+                return SimpleNamespace(success=True, content="Discordの通話へ参加しました。", error="")
+
+        result = ToolExecutionResult(
+            request_id="req_1",
+            status=InvokeStatus.SUCCESS,
+            output={"success": True, "message": "joined voice"},
+        )
+        runtime = SimpleNamespace(
+            llm_gateway=FakeLlm(),
+            tool_broker=SimpleNamespace(execute_approved=MagicMock(return_value=result)),
+            task_manager=MagicMock(),
+            android_manager=None,
+        )
+        routes = DashboardApp.__new__(DashboardApp)
+        routes._runtime = runtime
+        routes._chat_history_path = tmp_path / "chat_history.jsonl"
+        routes._chat_event_clients = {}
+        routes._chat_event_lock = threading.Lock()
+        request = SimpleNamespace(
+            approval_id="appr_003",
+            capability_id="pc-server.discord.join_voice_by_name",
+            tool_name="Discord voice join",
+            approval_reason="Discord voice state changes",
+            task_id="task_1",
+            step_id="step_1",
+            conversation_id="conv_1",
+            metadata={
+                "original_user_message": "memoサーバーの通話に入って",
+                "audit_group_id": "task_1",
+                "audit_group_type": "chat",
+                "audit_group_title": "Chat: memo",
+            },
+        )
+
+        assert routes._continue_chat_approval_with_audit(request, "appr_003") is True
+        runtime.tool_broker.execute_approved.assert_called_once_with("appr_003")
+        saved = routes._chat_history_path.read_text(encoding="utf-8")
+        assert "Discordの通話へ参加しました。" in saved
+        assert "Approved action completed" not in saved
+        assert "joined voice" in runtime.llm_gateway.prompts[0]
 
 
 # ── Task 3: PolicyEngine Decoupling ──────────────────────────

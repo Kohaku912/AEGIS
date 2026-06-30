@@ -126,10 +126,20 @@ class AndroidCapabilityDispatcher(
     }
 
     private fun showOverlay(params: JSONObject): DispatchResult {
-        val shown = overlayController.showText(
-            text = params.optString("text", params.optString("body", "AEGIS")),
-            durationMs = params.optLong("duration_ms", 5000L),
-        )
+        val imageBase64 = params.optString("image_base64")
+        val shown = if (imageBase64.isNotBlank()) {
+            overlayController.showRichText(
+                title = params.optString("title", "AEGIS"),
+                text = params.optString("text", params.optString("body", "AEGIS")),
+                durationMs = params.optLong("duration_ms", 5000L),
+                imageBase64 = imageBase64,
+            )
+        } else {
+            overlayController.showText(
+                text = params.optString("text", params.optString("body", "AEGIS")),
+                durationMs = params.optLong("duration_ms", 5000L),
+            )
+        }
         return ok(JSONObject().put("shown", shown).put("surface_id", if (shown) "android_overlay" else "android_notification"))
     }
 

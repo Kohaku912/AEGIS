@@ -6,16 +6,20 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.PixelFormat
 import android.net.Uri
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
+import android.util.Base64
 import android.view.Gravity
 import android.view.View
 import android.view.WindowManager
 import android.widget.Button
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import com.aegis.android.MainActivity
@@ -53,6 +57,15 @@ class OverlayController(private val context: Context) {
         return runOnMain { showTextOnMain(text, durationMs) }
     }
 
+    fun showRichText(
+        title: String,
+        text: String,
+        durationMs: Long = 5000L,
+        imageBase64: String = "",
+    ): Boolean {
+        return runOnMain { showRichTextOnMain(title, text, durationMs, imageBase64) }
+    }
+
     private fun showTextOnMain(text: String, durationMs: Long = 5000L): Boolean {
         if (!canDrawOverlays()) {
             showNotification("AEGIS", text, OVERLAY_NOTIFICATION_ID)
@@ -69,6 +82,49 @@ class OverlayController(private val context: Context) {
         overlayView = view
         windowManager.addView(view, params(Gravity.TOP or Gravity.CENTER_HORIZONTAL))
         view.postDelayed({ hideOverlay() }, durationMs.coerceAtLeast(1000L))
+        return true
+    }
+
+    private fun showRichTextOnMain(
+        title: String,
+        text: String,
+        durationMs: Long = 5000L,
+        imageBase64: String = "",
+    ): Boolean {
+        val bitmap = decodeImage(imageBase64)
+        if (!canDrawOverlays()) {
+            showNotification(title.ifBlank { "AEGIS" }, text, OVERLAY_NOTIFICATION_ID, bitmap)
+            return false
+        }
+        hideOverlay()
+        val root = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(32, 24, 32, 24)
+            setBackgroundColor(0xee202124.toInt())
+        }
+        root.addView(TextView(context).apply {
+            this.text = title.ifBlank { "AEGIS" }
+            textSize = 18f
+            setTextColor(0xffffffff.toInt())
+        })
+        root.addView(TextView(context).apply {
+            this.text = text
+            textSize = 15f
+            setPadding(0, 10, 0, 12)
+            setTextColor(0xffe8eaed.toInt())
+        })
+        if (bitmap != null) {
+            root.addView(ImageView(context).apply {
+                setImageBitmap(bitmap)
+                adjustViewBounds = true
+                maxWidth = 720
+                maxHeight = 520
+                scaleType = ImageView.ScaleType.FIT_CENTER
+            })
+        }
+        overlayView = root
+        windowManager.addView(root, params(Gravity.TOP or Gravity.CENTER_HORIZONTAL))
+        root.postDelayed({ hideOverlay() }, durationMs.coerceAtLeast(1000L))
         return true
     }
 
@@ -180,7 +236,7 @@ class OverlayController(private val context: Context) {
         }
     }
 
-    private fun showNotification(title: String, body: String, id: Int) {
+    private fun showNotification(title: String, body: String, id: Int, bitmap: Bitmap? = null) {
         val manager = context.getSystemService(NotificationManager::class.java)
         val channel = NotificationChannel(CHANNEL_ID, "AEGIS Overlay", NotificationManager.IMPORTANCE_HIGH)
         manager.createNotificationChannel(channel)
@@ -191,14 +247,24 @@ class OverlayController(private val context: Context) {
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
-        val notification = Notification.Builder(context, CHANNEL_ID)
+        val builder = Notification.Builder(context, CHANNEL_ID)
             .setContentTitle(title)
             .setContentText(body)
             .setSmallIcon(android.R.drawable.ic_dialog_info)
             .setContentIntent(pendingIntent)
             .setAutoCancel(true)
-            .build()
-        manager.notify(id, notification)
+        if (bitmap != null) {
+            builder.setStyle(Notification.BigPictureStyle().bigPicture(bitmap).setSummaryText(body))
+        }
+        manager.notify(id, builder.build())
+    }
+
+    private fun decodeImage(imageBase64: String): Bitmap? {
+        if (imageBase64.isBlank()) return null
+        return runCatching {
+            val bytes = Base64.decode(imageBase64, Base64.DEFAULT)
+            BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+        }.getOrNull()
     }
 
     private fun runOnMain(block: () -> Boolean): Boolean {

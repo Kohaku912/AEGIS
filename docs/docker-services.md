@@ -69,3 +69,20 @@ Expected endpoints:
 - Room gRPC: `localhost:50055`
 - Dev gRPC: `localhost:50056`
 
+## Current Canonical Topology
+
+- Docker Compose owns `ai-server`, `browser-server`, `room-server`, and `dev-server`.
+- The AI container reaches peer services by Compose DNS: `browser-server`, `room-server`, and `dev-server`.
+- PC Server remains host-native and is reached from containers through `host.docker.internal:50052`.
+- Android is not a container. Install the APK on the device and connect it to exposed AI gRPC `50051`.
+- `AEGIS_MIN_LLM_INTERVAL_MS` defaults to `1800000` to keep autonomous LLM actions at a 30 minute cadence.
+- `AGORA_TOKEN`, LLM keys, and Android pairing tokens must come from `.env`; never bake them into images.
+
+## Current Canonical Topology
+
+- Docker Compose owns `ai-server`, `browser-server`, `room-server`, and `dev-server`.
+- The AI container reaches peer services by Compose DNS: `browser-server`, `room-server`, and `dev-server`.
+- PC Server remains host-native and is reached from containers through `host.docker.internal:50052`.
+- Android is not a container. Install the APK on the device and connect it to exposed AI gRPC `50051`.
+- `AEGIS_MIN_LLM_INTERVAL_MS` defaults to `1800000` to keep autonomous LLM actions at a 30 minute cadence.
+- `AGORA_TOKEN`, LLM keys, and Android pairing tokens must come from `.env`; never bake them into images.

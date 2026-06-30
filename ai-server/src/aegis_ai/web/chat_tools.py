@@ -821,6 +821,37 @@ def call_llm_with_tools(
     context_meta: dict[str, Any] | None = None,
     runtime: Any = None,
 ) -> dict[str, Any]:
+    context_meta = dict(context_meta or {})
+    context_meta.setdefault("original_user_message", user_message)
+    audit_group_id = str(
+        context_meta.get("audit_group_id")
+        or context_meta.get("chat_task_id")
+        or context_meta.get("task_id")
+        or ""
+    )
+    if audit_group_id and not context_meta.get("_audit_group_active"):
+        from aegis_ai.audit.context import audit_group
+
+        context_meta["audit_group_id"] = audit_group_id
+        context_meta["audit_group_type"] = str(context_meta.get("audit_group_type") or "chat")
+        context_meta["audit_group_title"] = str(
+            context_meta.get("audit_group_title") or f"Chat: {user_message[:80]}"
+        )
+        context_meta["_audit_group_active"] = True
+        with audit_group(
+            audit_group_id,
+            group_type=context_meta["audit_group_type"],
+            group_title=context_meta["audit_group_title"],
+        ):
+            return call_llm_with_tools(
+                llm,
+                user_message,
+                system_prompt,
+                catalog=catalog,
+                max_tool_rounds=max_tool_rounds,
+                context_meta=context_meta,
+                runtime=runtime,
+            )
     if runtime is None:
         try:
             from aegis_ai.runtime import get_runtime

@@ -176,21 +176,26 @@ class ServerExecutor:
         self, cap_id: str, params: dict[str, Any], manifest: Any = None
     ) -> dict[str, Any]:
         tcp_fmt = ""
+        tcp_json_command = ""
         if manifest is not None:
             tcp_fmt = getattr(manifest, "tcp_command", "")
+            tcp_json_command = getattr(manifest, "tcp_command_json", "")
         if not tcp_fmt and self._catalog is not None:
             m = self._catalog.resolve(cap_id)
             if m:
                 tcp_fmt = getattr(m, "tcp_command", "")
+                tcp_json_command = getattr(m, "tcp_command_json", "")
 
-        if not tcp_fmt:
+        if tcp_json_command:
+            cmd = self._format_tcp_json_command(tcp_json_command, params)
+        elif tcp_fmt:
+            cmd = self._format_tcp_command(tcp_fmt, params)
+        else:
             return {"error": f"Unknown PC capability: {cap_id}"}
-
-        cmd = self._format_tcp_command(tcp_fmt, params)
 
         try:
             with socket.socket() as s:
-                s.settimeout(10)
+                s.settimeout(self._pc_tcp_timeout_seconds(cap_id))
                 host = os.getenv("PC_SERVER_HOST", "localhost")
                 port = int(os.getenv("PC_SERVER_PORT", "50052"))
                 s.connect((host, port))
@@ -235,3 +240,14 @@ class ServerExecutor:
         except Exception:
             logger.debug("Failed to format TCP command: fmt=%s params=%s", fmt, params, exc_info=True)
             return fmt
+
+    @staticmethod
+    def _format_tcp_json_command(command: str, params: dict[str, Any]) -> str:
+        payload = json.dumps(params or {}, ensure_ascii=False, separators=(",", ":"))
+        return f"{command} {payload}"
+
+    @staticmethod
+    def _pc_tcp_timeout_seconds(cap_id: str) -> int:
+        if cap_id.startswith("pc-server.discord.") or cap_id.startswith("pc.discord_"):
+            return 60
+        return 10

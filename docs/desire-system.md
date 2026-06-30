@@ -237,5 +237,14 @@ During task execution (`_execute_tasks`):
 5. **Desire-driven**: Desires drive autonomous behavior
 6. **Frustration tracking**: Gap between expected and actual drives task generation
 7. **Curiosity exploration**: High curiosity triggers autonomous learning
+
+## Current Autonomous Fulfillment Rules
+
+- LLM-backed autonomous decisions are gated by `AEGIS_MIN_LLM_INTERVAL_MS`, default `1800000` ms.
+- Observations and pressure updates continue between LLM calls, but they do not bypass the gate.
+- A `USEFUL` tool result reduces desire pressure by the normal amount and updates `last_action_at`.
+- `NEEDS_FOLLOWUP` reduces pressure by half.
+- `NO_EFFECT`, failed, or blocked results do not reduce pressure.
+- Browser, Room, Dev, PC, and Android capability availability is based on StatusManager server status, not localhost port checks.
 8. **Learning pipeline**: ActionTrace → Skill for cumulative self-improvement
 9. **Excluded physiological**: No hunger, thirst, sleepiness

@@ -67,5 +67,7 @@ protos/**/*_grpc.pb.go
 ai-server/data/*
 
 .pytest*
+**/.pytest-tmp/
+**/.tmp-pytest-*/
 .omo/*
 .mimocode/*

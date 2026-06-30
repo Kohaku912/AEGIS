@@ -428,8 +428,67 @@ def test_dashboard_audit_shows_llm_tool_timeline(monkeypatch, tmp_path) -> None:
 
     assert response.status_code == 200
     assert "LLM / Tool Timeline" in body
+    assert "Grouped Operations" in body
     assert "LLM selected 1 tool(s): pc-server__file__search" in body
     assert "Tool failed: Access denied" in body
+
+
+def test_audit_context_and_manager_group_entries(monkeypatch, tmp_path) -> None:
+    from aegis_ai.audit import AuditEntry
+    from aegis_ai.audit.context import audit_group
+
+    rt = _runtime(tmp_path)
+    with audit_group("chat_task_1", group_type="chat", group_title="Chat: inspect phone"):
+        rt.audit_log.log_decision(
+            action="llm_call",
+            capability_id="llm",
+            decision="success",
+            reason="chat response",
+            actor="chat_tools",
+        )
+        rt.audit_log.log_decision(
+            action="tool_execution",
+            capability_id="android-server.screen.get_screenshot",
+            decision="ALLOW",
+            reason="screen inspected",
+            actor="chat_tools",
+        )
+
+    rt.audit_manager.append(AuditEntry(
+        action="task_completed",
+        actor="task_manager",
+        detail={"task_id": "legacy_task_1", "title": "Legacy task"},
+    ))
+
+    groups = rt.audit_manager.list_groups(page=1, per_page=10)["groups"]
+    by_id = {group["group_id"]: group for group in groups}
+
+    assert by_id["chat_task_1"]["group_type"] == "chat"
+    assert by_id["chat_task_1"]["entry_count"] == 2
+    assert by_id["chat_task_1"]["tool_count"] == 1
+    assert by_id["legacy_task_1"]["group_type"] == "task"
+
+
+def test_dashboard_audit_renders_grouped_cards(monkeypatch, tmp_path) -> None:
+    from aegis_ai.audit.context import audit_group
+
+    dashboard_app = dashboard_routes.DashboardApp(runtime=_runtime(tmp_path))
+    with audit_group("autonomous_1", group_type="autonomous", group_title="Autonomous execution cycle"):
+        dashboard_app._runtime.audit_log.log_decision(
+            action="autonomous_preflight",
+            capability_id="none",
+            decision="SKIP",
+            reason="llm_interval_gate",
+            actor="autonomous",
+        )
+
+    response = dashboard_app.app.test_client().get("/dashboard/audit")
+    body = response.data.decode("utf-8")
+
+    assert response.status_code == 200
+    assert "Grouped Operations" in body
+    assert "Autonomous execution cycle" in body
+    assert "autonomous_1" in body
 
 
 def test_dashboard_errors_shows_audit_and_log_errors(monkeypatch, tmp_path) -> None:

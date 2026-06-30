@@ -320,6 +320,13 @@ def _build_runtime(config: Config) -> AegisRuntime:
 
     server_executor.register_client("dev-server", DevServerGrpcClient())
 
+    from aegis_ai.core_capabilities import AegisCoreCapabilityClient
+
+    server_executor.register_client(
+        "ai-server",
+        AegisCoreCapabilityClient(data_dir=data_dir, server_executor=server_executor),
+    )
+
     from aegis_ai.approval.channels.android import AndroidApprovalChannel
     from aegis_ai.approval.channels.pc_overlay import PcOverlayApprovalChannel
     from aegis_ai.approval.channels.room import RoomApprovalChannel
