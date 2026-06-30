@@ -1,0 +1,10 @@
+{
+  "title": "Get Interruption Status",
+  "description": "Read notification suppression, batching, and emergency-stop status.",
+  "server_id": "ai-server",
+  "app_id": "interruption",
+  "action": "status",
+  "risk": {"level": "low", "side_effects": [], "requires_approval": false},
+  "input_schema": {"type": "object", "properties": {}},
+  "tags": ["interruption", "notification", "personal-ai", "read"]
+}

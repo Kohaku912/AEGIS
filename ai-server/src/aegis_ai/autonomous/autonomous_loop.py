@@ -1623,3 +1623,15 @@ Rules:
         logger.info("Manual trigger requested")
         self._execute_cycle()
         return self.get_status()
+
+    def trigger(self, reason: str = "", context: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Trigger an autonomous cycle from HookEngine or another manager."""
+        self._pending_actionable_observations.append({
+            "source": "self_call",
+            "reason": reason,
+            "context": context or {},
+            "created_at_ms": int(time.time() * 1000),
+        })
+        logger.info("Self-call trigger requested: %s", reason)
+        self._execute_cycle()
+        return self.get_status()

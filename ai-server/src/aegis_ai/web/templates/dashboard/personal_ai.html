@@ -1,0 +1,108 @@
+{% extends "dashboard/base.html" %}
+{% block title %}AEGIS - Personal AI{% endblock %}
+{% block topbar_title %}Personal AI{% endblock %}
+{% block content %}
+<h1>Personal AI</h1>
+
+<div class="stat-grid">
+    <div class="stat-card">
+        <div class="label">Situation</div>
+        <div class="val accent">{{ situation.state or "unknown" }}</div>
+    </div>
+    <div class="stat-card">
+        <div class="label">Interruptibility</div>
+        <div class="val">{{ situation.interruptibility or "unknown" }}</div>
+    </div>
+    <div class="stat-card">
+        <div class="label">Hooks</div>
+        <div class="val">{{ hooks|length }}</div>
+    </div>
+    <div class="stat-card">
+        <div class="label">Open Commitments</div>
+        <div class="val">{{ commitments|selectattr("status", "equalto", "open")|list|length }}</div>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header">User Model</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;">
+        <div><div class="label">Language</div><div>{{ user_model.preferred_language }}</div></div>
+        <div><div class="label">Tone</div><div>{{ user_model.preferred_tone }}</div></div>
+        <div><div class="label">Autonomy</div><div>{{ user_model.autonomy_level }}</div></div>
+        <div><div class="label">Notifications</div><div>{{ user_model.notification_preference }}</div></div>
+    </div>
+    {% if user_model.long_term_goals %}
+    <p style="margin-top:12px;color:var(--text-dim);">Goals: {{ user_model.long_term_goals }}</p>
+    {% endif %}
+</div>
+
+<div class="card">
+    <div class="card-header">Hooks</div>
+    {% if hooks %}
+    <table>
+        <thead><tr><th>Name</th><th>Kind</th><th>Capability</th><th>Enabled</th><th>Last Error</th></tr></thead>
+        <tbody>
+        {% for h in hooks %}
+        <tr>
+            <td>{{ h.name }}</td>
+            <td>{{ h.kind }}</td>
+            <td style="font-family:monospace;font-size:12px;">{{ h.capability_id }}</td>
+            <td>{{ h.enabled }}</td>
+            <td style="color:var(--red);">{{ h.last_error }}</td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p style="color:var(--text-muted);">No hooks configured.</p>
+    {% endif %}
+</div>
+
+<div class="card">
+    <div class="card-header">Commitments</div>
+    {% if commitments %}
+    <table>
+        <thead><tr><th>Title</th><th>Status</th><th>Priority</th><th>Next Action</th></tr></thead>
+        <tbody>
+        {% for c in commitments %}
+        <tr><td>{{ c.title }}</td><td>{{ c.status }}</td><td>{{ c.priority }}</td><td>{{ c.next_action }}</td></tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p style="color:var(--text-muted);">No commitments.</p>
+    {% endif %}
+</div>
+
+<div class="card">
+    <div class="card-header">Delegation Policy</div>
+    <table>
+        <thead><tr><th>Pattern</th><th>Category</th><th>Decision</th><th>Description</th></tr></thead>
+        <tbody>
+        {% for r in delegation.rules or [] %}
+        <tr><td>{{ r.capability_pattern }}</td><td>{{ r.operation_category }}</td><td>{{ r.decision }}</td><td>{{ r.description }}</td></tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<div class="card">
+    <div class="card-header">Notifications / Repair / Social</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px;">
+        <div>
+            <div class="label">Interruption</div>
+            <p>Emergency stop: {{ interruption.emergency_stop }}</p>
+            <p>Batched: {{ interruption.batched_count }}</p>
+        </div>
+        <div>
+            <div class="label">Repair</div>
+            <p>Disabled: {{ repair.disabled }}</p>
+            <p>Recent failures: {{ repair.recent|length if repair.recent else 0 }}</p>
+        </div>
+        <div>
+            <div class="label">Social Drafts</div>
+            <p>{{ drafts|length }} drafts</p>
+        </div>
+    </div>
+</div>
+{% endblock %}

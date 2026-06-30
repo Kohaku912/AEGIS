@@ -1,0 +1,10 @@
+{
+  "title": "List Repair History",
+  "description": "List recent failure classifications and repair attempts.",
+  "server_id": "ai-server",
+  "app_id": "repair",
+  "action": "list",
+  "risk": {"level": "low", "side_effects": [], "requires_approval": false},
+  "input_schema": {"type": "object", "properties": {"limit": {"type": "integer", "default": 50}}},
+  "tags": ["repair", "personal-ai", "read"]
+}

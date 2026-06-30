@@ -1,0 +1,21 @@
+{
+  "title": "Create Or Update Delegation Rule",
+  "description": "Create or update a personal delegation policy rule.",
+  "server_id": "ai-server",
+  "app_id": "delegation_policy",
+  "action": "upsert",
+  "risk": {"level": "approval_required", "side_effects": ["personal_policy_update"], "requires_approval": true},
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "rule_id": {"type": "string"},
+      "capability_pattern": {"type": "string"},
+      "decision": {"type": "string", "enum": ["auto_allowed", "approval_required", "forbidden"]},
+      "operation_category": {"type": "string"},
+      "description": {"type": "string"},
+      "enabled": {"type": "boolean"}
+    },
+    "required": ["capability_pattern", "decision"]
+  },
+  "tags": ["delegation-policy", "personal-ai", "write", "approval"]
+}

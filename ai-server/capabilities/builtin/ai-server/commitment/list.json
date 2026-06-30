@@ -1,0 +1,10 @@
+{
+  "title": "List Commitments",
+  "description": "List promises, pending tasks, follow-ups, and deferred checks.",
+  "server_id": "ai-server",
+  "app_id": "commitment",
+  "action": "list",
+  "risk": {"level": "low", "side_effects": [], "requires_approval": false},
+  "input_schema": {"type": "object", "properties": {"status": {"type": "string", "default": ""}}},
+  "tags": ["commitment", "personal-ai", "read"]
+}

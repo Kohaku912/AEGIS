@@ -1,0 +1,17 @@
+{
+  "title": "Update User Model",
+  "description": "Update structured user-model preferences. Use only for explicit user-confirmed preference changes.",
+  "server_id": "ai-server",
+  "app_id": "user_model",
+  "action": "update",
+  "risk": {"level": "approval_required", "side_effects": ["personal_policy_update"], "requires_approval": true},
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "patch": {"type": "object", "description": "UserModel fields to update."},
+      "reason": {"type": "string", "default": ""}
+    },
+    "required": ["patch"]
+  },
+  "tags": ["user-model", "personal-ai", "write"]
+}

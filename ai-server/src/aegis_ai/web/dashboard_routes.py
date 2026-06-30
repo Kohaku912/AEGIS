@@ -2118,6 +2118,32 @@ class DashboardApp:
                 lessons=lessons_list, consolidation=consolidation_data,
             )
 
+        @app.route("/dashboard/personal-ai")
+        def personal_ai():
+            rt = self._runtime
+            data = {
+                "user_model": {},
+                "hooks": [],
+                "commitments": [],
+                "delegation": {},
+                "situation": {},
+                "interruption": {},
+                "repair": {},
+                "drafts": [],
+            }
+            try:
+                data["user_model"] = rt.user_model_store.get().to_dict()
+                data["hooks"] = rt.hook_engine.list_hooks()
+                data["commitments"] = rt.commitment_manager.list_commitments()
+                data["delegation"] = rt.delegation_policy.get_summary()
+                data["situation"] = rt.situation_model.get_state()
+                data["interruption"] = rt.interruption_controller.get_status()
+                data["repair"] = rt.repair_manager.get_status()
+                data["drafts"] = rt.social_proxy.list_drafts()
+            except Exception:
+                logger.debug("Failed to build personal AI dashboard", exc_info=True)
+            return render_template("dashboard/personal_ai.html", **data)
+
         @app.route("/api/desires/update", methods=["POST"])
         def api_desires_update():
             from flask import request

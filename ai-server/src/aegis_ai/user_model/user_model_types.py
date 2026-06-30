@@ -54,6 +54,13 @@ class UserModel:
         "approval_required", "task_failed", "safety_warning", "recovery_needs_user",
     ])
     disallowed_proactive_categories: list[str] = field(default_factory=list)
+    preferences: dict[str, Any] = field(default_factory=dict)
+    work_patterns: dict[str, Any] = field(default_factory=dict)
+    permission_scopes: dict[str, Any] = field(default_factory=dict)
+    common_apps: list[str] = field(default_factory=list)
+    notification_conditions: dict[str, Any] = field(default_factory=dict)
+    writing_style: dict[str, Any] = field(default_factory=dict)
+    long_term_goals: list[dict[str, Any]] = field(default_factory=list)
     preferred_report_format: str = "text"
     last_interaction_at: int = 0
     last_user_feedback: str = ""
@@ -97,6 +104,13 @@ class UserModel:
             "focus_mode": self.focus_mode,
             "allowed_proactive_categories": self.allowed_proactive_categories,
             "disallowed_proactive_categories": self.disallowed_proactive_categories,
+            "preferences": self.preferences,
+            "work_patterns": self.work_patterns,
+            "permission_scopes": self.permission_scopes,
+            "common_apps": self.common_apps,
+            "notification_conditions": self.notification_conditions,
+            "writing_style": self.writing_style,
+            "long_term_goals": self.long_term_goals,
             "preferred_report_format": self.preferred_report_format,
             "trust_score": self.trust_score,
             "annoyance_score": self.annoyance_score,
