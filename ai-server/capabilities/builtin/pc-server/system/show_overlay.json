@@ -4,6 +4,7 @@
   "server_id": "pc-server",
   "app_id": "system",
   "action": "show_overlay",
+  "operation_category": "notification",
   "risk": {"level": "safe", "side_effects": ["ui_change"], "requires_approval": false},
   "tags": ["builtin", "pc", "action", "overlay"],
   "tcp_command": "show_overlay {text}"

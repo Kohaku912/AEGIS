@@ -5,6 +5,7 @@
   "server_id": "pc-server",
   "app_id": "clipboard",
   "action": "image",
+  "operation_category": "general",
   "risk": {"level": "read_only"},
   "input": {"type": "object", "properties": {}},
   "tags": ["clipboard", "image", "observe"],

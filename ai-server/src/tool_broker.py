@@ -755,6 +755,7 @@ class ToolBroker:
             reason=f"Approved: {appr.approval_reason}",
             source_desire=appr.source_desire,
             frustration=appr.frustration,
+            metadata={"approval_id": approval_id, "approved_execution": True},
         )
 
         result = self._invoke_internal(cap, request)
@@ -838,7 +839,11 @@ class ToolBroker:
         """
         started_at = int(time.time() * 1000)
         try:
-            output = self._server_executor.execute(cap, request.arguments)
+            arguments = dict(request.arguments)
+            if request.metadata.get("approved_execution"):
+                arguments["_aegis_approved_execution"] = True
+                arguments["_aegis_approval_id"] = request.metadata.get("approval_id", "")
+            output = self._server_executor.execute(cap, arguments)
             finished_at = int(time.time() * 1000)
             if isinstance(output, dict) and output.get("error"):
                 error_msg = output["error"]

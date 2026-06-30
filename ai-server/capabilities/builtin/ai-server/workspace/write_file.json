@@ -4,6 +4,7 @@
   "server_id": "ai-server",
   "app_id": "workspace",
   "action": "write_file",
+  "operation_category": "workspace_file",
   "risk": {
     "level": "safe",
     "side_effects": ["workspace_file_write"],

@@ -4,6 +4,7 @@
   "server_id": "ai-server",
   "app_id": "repair",
   "action": "list",
+  "operation_category": "repair_management",
   "risk": {"level": "low", "side_effects": [], "requires_approval": false},
   "input_schema": {"type": "object", "properties": {"limit": {"type": "integer", "default": 50}}},
   "tags": ["repair", "personal-ai", "read"]

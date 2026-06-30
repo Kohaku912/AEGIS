@@ -4,6 +4,7 @@
   "server_id": "ai-server",
   "app_id": "agora",
   "action": "post",
+  "operation_category": "external_send",
   "risk": {"level": "low", "side_effects": ["social_post"], "requires_approval": false},
   "tags": ["builtin", "agora", "write", "social"],
   "only_master": false,

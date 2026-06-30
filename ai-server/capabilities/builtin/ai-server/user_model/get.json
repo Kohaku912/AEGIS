@@ -4,6 +4,7 @@
   "server_id": "ai-server",
   "app_id": "user_model",
   "action": "get",
+  "operation_category": "read_only",
   "risk": {"level": "low", "side_effects": [], "requires_approval": false},
   "input_schema": {"type": "object", "properties": {"query": {"type": "string", "default": ""}}},
   "tags": ["user-model", "personal-ai", "read"]

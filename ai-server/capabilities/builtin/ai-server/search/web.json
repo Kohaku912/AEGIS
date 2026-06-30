@@ -4,6 +4,7 @@
   "server_id": "ai-server",
   "app_id": "search",
   "action": "web",
+  "operation_category": "read_only",
   "risk": {"level": "low", "side_effects": [], "requires_approval": false},
   "tags": ["builtin", "search", "read"],
   "only_master": false,

@@ -4,6 +4,7 @@
   "server_id": "ai-server",
   "app_id": "commitment",
   "action": "transition",
+  "operation_category": "commitment_management",
   "risk": {"level": "safe", "side_effects": ["commitment_write"], "requires_approval": false},
   "input_schema": {
     "type": "object",

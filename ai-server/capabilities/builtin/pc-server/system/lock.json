@@ -5,6 +5,7 @@
   "server_id": "pc-server",
   "app_id": "system",
   "action": "lock",
+  "operation_category": "general",
   "risk": {"level": "safe_action"},
   "input": {"type": "object", "properties": {}},
   "tags": ["system", "lock"],

@@ -4,6 +4,7 @@
   "server_id": "android-server",
   "app_id": "ui",
   "action": "type_text",
+  "operation_category": "general",
   "input_schema": {
     "type": "object",
     "properties": {

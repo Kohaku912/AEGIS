@@ -4,6 +4,7 @@
   "server_id": "dev-server",
   "app_id": "test",
   "action": "run_tests",
+  "operation_category": "dev_operation",
   "input_schema": {
     "type": "object",
     "properties": {

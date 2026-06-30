@@ -4,6 +4,7 @@
   "server_id": "dev-server",
   "app_id": "branch",
   "action": "create",
+  "operation_category": "dev_operation",
   "input_schema": {
     "type": "object",
     "required": ["branch_name"],

@@ -5,6 +5,7 @@
   "server_id": "pc-server",
   "app_id": "file",
   "action": "write",
+  "operation_category": "general",
   "risk": {"level": "safe"},
   "input": {
     "type": "object",

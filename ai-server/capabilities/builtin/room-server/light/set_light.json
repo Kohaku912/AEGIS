@@ -4,6 +4,7 @@
   "server_id": "room-server",
   "app_id": "light",
   "action": "set_light",
+  "operation_category": "physical_device",
   "input_schema": {
     "type": "object",
     "properties": {

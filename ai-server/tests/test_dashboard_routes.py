@@ -24,6 +24,16 @@ def _runtime(tmp_path):
     from aegis_ai.event.event_manager import EventManager
     from aegis_ai.audit.audit_manager import AuditManager
     from aegis_ai.memory.memory_manager import MemoryManager
+    from aegis_ai.user_model import UserModelStore
+    from aegis_ai.personal_ai import (
+        CommitmentManager,
+        DelegationPolicyStore,
+        HookEngine,
+        InterruptionController,
+        RepairManager,
+        SituationModel,
+        SocialProxy,
+    )
 
     data_dir = tmp_path / "data"
     catalog = CapabilityCatalog(
@@ -40,6 +50,15 @@ def _runtime(tmp_path):
     audit_manager = AuditManager(audit_log=audit_log, data_dir=str(data_dir))
     status_manager = StatusManager(event_manager=event_manager)
     memory_manager = MemoryManager(event_manager=event_manager)
+    user_model_store = UserModelStore(data_dir=str(data_dir / "user_model"))
+    personal_dir = str(data_dir / "personal_ai")
+    situation_model = SituationModel(data_dir=personal_dir, event_manager=event_manager)
+    delegation_policy = DelegationPolicyStore(data_dir=personal_dir, audit_manager=audit_manager, user_model_store=user_model_store)
+    hook_engine = HookEngine(data_dir=personal_dir, tool_broker=broker, capability_catalog=catalog, event_manager=event_manager)
+    commitment_manager = CommitmentManager(data_dir=personal_dir, audit_manager=audit_manager, hook_engine=hook_engine)
+    interruption_controller = InterruptionController(data_dir=personal_dir, situation_model=situation_model, user_model_store=user_model_store, commitment_manager=commitment_manager, audit_manager=audit_manager)
+    repair_manager = RepairManager(data_dir=personal_dir, tool_broker=broker, audit_manager=audit_manager, memory_manager=memory_manager)
+    social_proxy = SocialProxy(data_dir=personal_dir, event_manager=event_manager, audit_manager=audit_manager)
     return SimpleNamespace(
         settings_store=SettingsStore(
             path=str(tmp_path / "config" / "settings.json"),
@@ -61,6 +80,14 @@ def _runtime(tmp_path):
         event_manager=event_manager,
         audit_manager=audit_manager,
         memory_manager=memory_manager,
+        user_model_store=user_model_store,
+        hook_engine=hook_engine,
+        commitment_manager=commitment_manager,
+        situation_model=situation_model,
+        delegation_policy=delegation_policy,
+        social_proxy=social_proxy,
+        interruption_controller=interruption_controller,
+        repair_manager=repair_manager,
     )
 
 
@@ -77,6 +104,16 @@ def test_dashboard_registers_settings_blueprint(monkeypatch, tmp_path) -> None:
 
     assert response.status_code == 200
     assert "autonomous" in response.get_json()
+
+
+def test_dashboard_personal_ai_page_renders(monkeypatch, tmp_path) -> None:
+    client = _app(monkeypatch, tmp_path).test_client()
+
+    response = client.get("/dashboard/personal-ai")
+
+    assert response.status_code == 200
+    assert b"Personal AI" in response.data
+    assert b"Pending Approvals" in response.data
 
 
 def test_dashboard_chat_history_broadcasts_to_android(monkeypatch, tmp_path) -> None:
@@ -182,10 +219,11 @@ def test_capability_risk_update_allows_127_loopback(monkeypatch, tmp_path) -> No
         json.dumps(
             {
                 "id": "pc-server.test.sample",
-                "server_id": "pc-server",
-                "app_id": "test",
-                "action": "sample",
-                "title": "Sample",
+                    "server_id": "pc-server",
+                    "app_id": "test",
+                    "action": "sample",
+                    "operation_category": "test_operation",
+                    "title": "Sample",
                 "risk": {"level": "low", "requires_approval": False},
             }
         ),
@@ -232,10 +270,11 @@ def test_capability_risk_update_resyncs_live_registry(monkeypatch, tmp_path) -> 
     manifest_path.write_text(
         json.dumps(
             {
-                "server_id": "pc-server",
-                "app_id": "test",
-                "action": "sample",
-                "title": "Sample",
+                    "server_id": "pc-server",
+                    "app_id": "test",
+                    "action": "sample",
+                    "operation_category": "test_operation",
+                    "title": "Sample",
                 "description": "Sample capability",
                 "risk": {"level": "approval_required", "requires_approval": True},
             }
@@ -273,10 +312,11 @@ def test_capability_risk_update_to_forbidden_unregisters(monkeypatch, tmp_path) 
     manifest_path.write_text(
         json.dumps(
             {
-                "server_id": "pc-server",
-                "app_id": "test",
-                "action": "danger",
-                "title": "Danger",
+                    "server_id": "pc-server",
+                    "app_id": "test",
+                    "action": "danger",
+                    "operation_category": "test_operation",
+                    "title": "Danger",
                 "description": "Danger capability",
                 "risk": {"level": "safe", "requires_approval": False},
             }
@@ -304,10 +344,11 @@ def test_capability_reload_resyncs_registry_and_reindexes(monkeypatch, tmp_path)
     manifest_path.write_text(
         json.dumps(
             {
-                "server_id": "pc-server",
-                "app_id": "test",
-                "action": "reload_me",
-                "title": "Reload Me",
+                    "server_id": "pc-server",
+                    "app_id": "test",
+                    "action": "reload_me",
+                    "operation_category": "test_operation",
+                    "title": "Reload Me",
                 "description": "Reload capability",
                 "risk": {"level": "read_only", "requires_approval": False},
             }
@@ -626,10 +667,11 @@ def test_dashboard_chat_approval_executes_once_and_emits_followup(monkeypatch, t
     manifest_path.write_text(
         json.dumps(
             {
-                "server_id": "pc-server",
-                "app_id": "test",
-                "action": "needs_approval",
-                "title": "Needs Approval",
+                    "server_id": "pc-server",
+                    "app_id": "test",
+                    "action": "needs_approval",
+                    "operation_category": "test_operation",
+                    "title": "Needs Approval",
                 "description": "Requires approval",
                 "risk": {"level": "approval_required", "requires_approval": True},
                 "input_schema": {"type": "object", "properties": {}},

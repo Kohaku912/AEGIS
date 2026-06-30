@@ -32,8 +32,13 @@ class Hook:
     max_runs_per_hour: int = 12
     dedupe_key: str = ""
     backoff_seconds: int = 0
+    max_backoff_seconds: int = 3600
+    current_backoff_seconds: int = 0
+    consecutive_failures: int = 0
     timeout_seconds: float = 30.0
     enabled: bool = True
+    stopped_reason: str = ""
+    last_dedupe_value: str = ""
     last_run_ms: int = 0
     last_match_ms: int = 0
     next_run_ms: int = 0
@@ -62,8 +67,13 @@ class Hook:
             max_runs_per_hour=int(data.get("max_runs_per_hour") or 12),
             dedupe_key=str(data.get("dedupe_key") or ""),
             backoff_seconds=int(data.get("backoff_seconds") or 0),
+            max_backoff_seconds=int(data.get("max_backoff_seconds") or 3600),
+            current_backoff_seconds=int(data.get("current_backoff_seconds") or 0),
+            consecutive_failures=int(data.get("consecutive_failures") or 0),
             timeout_seconds=float(data.get("timeout_seconds") or 30.0),
             enabled=bool(data.get("enabled", True)),
+            stopped_reason=str(data.get("stopped_reason") or ""),
+            last_dedupe_value=str(data.get("last_dedupe_value") or ""),
             last_run_ms=int(data.get("last_run_ms") or 0),
             last_match_ms=int(data.get("last_match_ms") or 0),
             next_run_ms=int(data.get("next_run_ms") or 0),
@@ -137,7 +147,7 @@ class HookEngine:
         for key in (
             "name", "kind", "capability_id", "arguments", "condition", "interval_seconds",
             "schedule_at_ms", "event_type", "cooldown_seconds", "max_runs_per_hour",
-            "dedupe_key", "backoff_seconds", "timeout_seconds", "enabled",
+            "dedupe_key", "backoff_seconds", "max_backoff_seconds", "timeout_seconds", "enabled",
         ):
             if key in patch:
                 value = patch[key]
@@ -145,7 +155,7 @@ class HookEngine:
                     value = dict(value or {})
                 elif key == "enabled":
                     value = bool(value)
-                elif key in {"interval_seconds", "schedule_at_ms", "cooldown_seconds", "max_runs_per_hour", "backoff_seconds"}:
+                elif key in {"interval_seconds", "schedule_at_ms", "cooldown_seconds", "max_runs_per_hour", "backoff_seconds", "max_backoff_seconds"}:
                     value = int(value or 0)
                 elif key == "timeout_seconds":
                     value = float(value or 30.0)
@@ -166,6 +176,17 @@ class HookEngine:
             self._audit("hook_deleted", {"hook_id": hook_id})
         return changed
 
+    def stop_hook(self, hook_id: str, reason: str = "stopped") -> dict[str, Any] | None:
+        hook = self._hooks.get(hook_id)
+        if hook is None:
+            return None
+        hook.enabled = False
+        hook.stopped_reason = reason
+        hook.updated_at = now_ms()
+        self._save()
+        self._audit("hook_stopped", {"hook_id": hook_id, "reason": reason})
+        return hook.to_dict()
+
     def run_due_once(self) -> list[dict[str, Any]]:
         results = []
         now = now_ms()
@@ -181,12 +202,18 @@ class HookEngine:
 
     def on_event(self, event: Event) -> None:
         event_type = getattr(event, "event_type", "")
+        payload: Any = getattr(event, "payload", {}) or {}
+        if not payload and getattr(event, "payload_json", ""):
+            try:
+                payload = json.loads(event.payload_json)
+            except Exception:
+                payload = {}
         for hook in list(self._hooks.values()):
             if not hook.enabled or hook.kind != "event":
                 continue
             if hook.event_type and hook.event_type != event_type:
                 continue
-            self._run_hook(hook, trigger_payload={"event_type": event_type, "event": getattr(event, "payload", {})})
+            self._run_hook(hook, trigger_payload={"event_type": event_type, "event": payload})
 
     def _loop(self) -> None:
         while not self._stop.wait(self._poll_interval_seconds):
@@ -229,14 +256,35 @@ class HookEngine:
             else:
                 error = result.error or result.status.value
         matched = False if error else self._condition_matches(hook, result_payload)
+        dedupe_skipped = False
         if matched:
-            hook.last_match_ms = now
-            self._emit_self_call(hook, result_payload, trigger_payload or {})
-        hook.next_run_ms = now + max(1, hook.interval_seconds + hook.backoff_seconds) * 1000
+            if self._dedupe_allows(hook, result_payload):
+                hook.last_match_ms = now
+                self._emit_self_call(hook, result_payload, trigger_payload or {})
+            else:
+                matched = False
+                dedupe_skipped = True
+        if error:
+            hook.consecutive_failures += 1
+            base = max(1, hook.backoff_seconds or hook.interval_seconds)
+            previous = hook.current_backoff_seconds or base
+            hook.current_backoff_seconds = min(max(1, hook.max_backoff_seconds), max(base, previous * 2))
+        else:
+            hook.consecutive_failures = 0
+            hook.current_backoff_seconds = 0
+        hook.next_run_ms = now + max(1, hook.interval_seconds + hook.current_backoff_seconds) * 1000
         hook.last_result = result_payload
         hook.last_error = error
         self._save()
-        entry = {"hook_id": hook.hook_id, "matched": matched, "error": error, "result": result_payload, "timestamp": now}
+        entry = {
+            "hook_id": hook.hook_id,
+            "matched": matched,
+            "dedupe_skipped": dedupe_skipped,
+            "error": error,
+            "backoff_seconds": hook.current_backoff_seconds,
+            "result": result_payload,
+            "timestamp": now,
+        }
         append_jsonl(self._history_path, entry)
         self._audit("hook_run", entry)
         return {"ok": not bool(error), **entry}
@@ -281,6 +329,21 @@ class HookEngine:
         except Exception:
             return False
         return False
+
+    def _dedupe_allows(self, hook: Hook, result_payload: dict[str, Any]) -> bool:
+        if not hook.dedupe_key:
+            return True
+        raw_value = self._get_path(result_payload, hook.dedupe_key)
+        if raw_value is None:
+            raw_value = result_payload
+        try:
+            value = json.dumps(raw_value, ensure_ascii=False, sort_keys=True)
+        except Exception:
+            value = str(raw_value)
+        if value == hook.last_dedupe_value:
+            return False
+        hook.last_dedupe_value = value
+        return True
 
     @staticmethod
     def _get_path(value: Any, path: str) -> Any:

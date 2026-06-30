@@ -5,6 +5,7 @@
   "server_id": "pc-server",
   "app_id": "approval",
   "action": "overlay",
+  "operation_category": "notification",
   "risk": {
     "level": "safe",
     "requires_approval": false

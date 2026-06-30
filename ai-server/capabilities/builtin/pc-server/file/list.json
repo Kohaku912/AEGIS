@@ -5,6 +5,7 @@
   "server_id": "pc-server",
   "app_id": "file",
   "action": "list",
+  "operation_category": "read_only",
   "risk": {"level": "read_only"},
   "input": {
     "type": "object",

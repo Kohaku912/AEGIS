@@ -4,6 +4,7 @@
   "server_id": "pc-server",
   "app_id": "overlay",
   "action": "show_display",
+  "operation_category": "notification",
   "risk": {"level": "low", "side_effects": [], "requires_approval": false},
   "tags": ["overlay", "display", "observe"],
   "only_master": false,

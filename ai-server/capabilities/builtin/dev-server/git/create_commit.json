@@ -4,6 +4,7 @@
   "server_id": "dev-server",
   "app_id": "git",
   "action": "create_commit",
+  "operation_category": "dev_operation",
   "input_schema": {
     "type": "object",
     "required": ["message"],

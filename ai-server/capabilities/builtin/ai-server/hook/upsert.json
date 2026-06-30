@@ -4,6 +4,7 @@
   "server_id": "ai-server",
   "app_id": "hook",
   "action": "upsert",
+  "operation_category": "hook_management",
   "risk": {"level": "approval_required", "side_effects": ["autonomous_trigger_config"], "requires_approval": true},
   "input_schema": {
     "type": "object",

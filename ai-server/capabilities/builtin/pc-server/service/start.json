@@ -5,6 +5,7 @@
   "server_id": "pc-server",
   "app_id": "service",
   "action": "start",
+  "operation_category": "general",
   "risk": {"level": "approval_required"},
   "input": {
     "type": "object",

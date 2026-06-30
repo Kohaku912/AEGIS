@@ -64,7 +64,15 @@ class SocialProxy:
     def list_drafts(self) -> list[dict[str, Any]]:
         return sorted(self._drafts.values(), key=lambda d: d.get("created_at", 0), reverse=True)
 
-    def send_approved(self, draft_id: str) -> dict[str, Any]:
+    def send_approved(self, draft_id: str, *, approved: bool = False, approval_id: str = "") -> dict[str, Any]:
+        if not approved or not approval_id:
+            result = {
+                "ok": False,
+                "error": "Social sends require an approved ToolBroker execution.",
+                "code": "APPROVAL_REQUIRED",
+            }
+            self._audit("social_send_blocked_without_approval", {"draft_id": draft_id, "result": result})
+            return result
         draft = self._drafts.get(draft_id)
         if draft is None:
             return {"ok": False, "error": "Draft not found.", "code": "NOT_FOUND"}
@@ -80,7 +88,7 @@ class SocialProxy:
         draft["last_result"] = result
         self._save()
         append_jsonl(self._history, {"draft": draft, "result": result, "timestamp": now_ms()})
-        self._audit("social_send_approved", {"draft_id": draft_id, "channel": channel, "result": result})
+        self._audit("social_send_approved", {"draft_id": draft_id, "approval_id": approval_id, "channel": channel, "result": result})
         return result
 
     def _send_webhook(self, draft: dict[str, Any]) -> dict[str, Any]:

@@ -4,6 +4,7 @@
   "server_id": "ai-server",
   "app_id": "notification",
   "action": "broadcast_overlay",
+  "operation_category": "notification",
   "risk": {
     "level": "safe",
     "side_effects": ["pc_overlay", "android_overlay"],

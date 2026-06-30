@@ -4,6 +4,7 @@
   "server_id": "ai-server",
   "app_id": "agora",
   "action": "read_posts",
+  "operation_category": "social_read",
   "risk": {"level": "low", "side_effects": [], "requires_approval": false},
   "tags": ["builtin", "agora", "read", "social"],
   "only_master": false,

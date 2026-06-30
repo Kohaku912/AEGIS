@@ -34,6 +34,7 @@ class CapabilityManifest:
     server_id: str = ""
     app_id: str = ""
     action: str = ""
+    operation_category: str = ""
     origin: str = ""
     version: str = "1.0.0"
     input_schema: dict[str, Any] = field(default_factory=dict)
@@ -106,6 +107,8 @@ def _validate(data: dict, ids: dict) -> str:
         val = data.get(key, "")
         if val and val != ids.get(key):
             return f"JSON {key}='{val}' != path '{ids[key]}'"
+    if not str(data.get("operation_category", "")).strip():
+        return "Missing required field 'operation_category'"
     return ""
 
 
@@ -162,6 +165,7 @@ class FolderCapabilityRegistry:
             server_id=ids["server_id"],
             app_id=ids["app_id"],
             action=ids["action"],
+            operation_category=str(data.get("operation_category", "")),
             origin=origin,
             version=data.get("version", "1.0.0"),
             input_schema=data.get("input_schema", data.get("input", {})),

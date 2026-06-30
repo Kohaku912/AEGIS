@@ -4,6 +4,7 @@
   "server_id": "pc-server",
   "app_id": "discord",
   "action": "get_channels",
+  "operation_category": "social_read",
   "input_schema": {
     "type": "object",
     "properties": {

@@ -356,6 +356,19 @@ def hooks_run_due():
         return jsonify({"error": str(e)}), 500
 
 
+@manager_bp.route("/api/hooks/<hook_id>/stop", methods=["POST"])
+def hook_stop(hook_id):
+    try:
+        rt = _get_runtime()
+        payload = request.get_json(silent=True) or {}
+        hook = rt.hook_engine.stop_hook(hook_id, reason=payload.get("reason", "dashboard"))
+        if hook is None:
+            return jsonify({"error": "Not found"}), 404
+        return jsonify({"hook": hook})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @manager_bp.route("/api/commitments", methods=["GET", "POST"])
 def commitments():
     try:

@@ -4,6 +4,7 @@
   "server_id": "android-server",
   "app_id": "ui",
   "action": "back",
+  "operation_category": "general",
   "input_schema": {"type": "object", "properties": {}},
   "risk": {"level": "safe", "side_effects": ["navigation"], "requires_approval": false},
   "tags": ["builtin", "android", "ui", "navigation"],

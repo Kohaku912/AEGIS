@@ -21,6 +21,10 @@
         <div class="label">Open Commitments</div>
         <div class="val">{{ commitments|selectattr("status", "equalto", "open")|list|length }}</div>
     </div>
+    <div class="stat-card">
+        <div class="label">Pending Approvals</div>
+        <div class="val">{{ pending_approvals|length }}</div>
+    </div>
 </div>
 
 <div class="card">
@@ -40,7 +44,7 @@
     <div class="card-header">Hooks</div>
     {% if hooks %}
     <table>
-        <thead><tr><th>Name</th><th>Kind</th><th>Capability</th><th>Enabled</th><th>Last Error</th></tr></thead>
+        <thead><tr><th>Name</th><th>Kind</th><th>Capability</th><th>Enabled</th><th>Backoff</th><th>Last Error</th><th></th></tr></thead>
         <tbody>
         {% for h in hooks %}
         <tr>
@@ -48,7 +52,15 @@
             <td>{{ h.kind }}</td>
             <td style="font-family:monospace;font-size:12px;">{{ h.capability_id }}</td>
             <td>{{ h.enabled }}</td>
+            <td>{{ h.current_backoff_seconds or 0 }}s</td>
             <td style="color:var(--red);">{{ h.last_error }}</td>
+            <td>
+                {% if h.enabled %}
+                <button class="btn btn-sm" onclick="stopHook('{{ h.hook_id }}')">Stop</button>
+                {% else %}
+                <span style="color:var(--text-muted);font-size:12px;">{{ h.stopped_reason }}</span>
+                {% endif %}
+            </td>
         </tr>
         {% endfor %}
         </tbody>
@@ -93,6 +105,9 @@
             <div class="label">Interruption</div>
             <p>Emergency stop: {{ interruption.emergency_stop }}</p>
             <p>Batched: {{ interruption.batched_count }}</p>
+            {% if interruption.batched %}
+            <p style="color:var(--text-muted);">Latest batched: {{ interruption.batched[-1].decision.reason }}</p>
+            {% endif %}
         </div>
         <div>
             <div class="label">Repair</div>
@@ -105,4 +120,36 @@
         </div>
     </div>
 </div>
+
+<div class="card">
+    <div class="card-header">Pending Approvals</div>
+    {% if pending_approvals %}
+    <table>
+        <thead><tr><th>Capability</th><th>Reason</th><th>Risk</th><th>Created</th></tr></thead>
+        <tbody>
+        {% for a in pending_approvals %}
+        <tr>
+            <td style="font-family:monospace;font-size:12px;">{{ a.capability_id }}</td>
+            <td>{{ a.approval_reason or a.user_facing_summary }}</td>
+            <td>{{ a.risk_level }}</td>
+            <td>{{ a.created_at }}</td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p style="color:var(--text-muted);">No pending approvals.</p>
+    {% endif %}
+</div>
+
+<script>
+async function stopHook(hookId) {
+    await fetch(`/api/hooks/${hookId}/stop`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({reason: 'dashboard'})
+    });
+    window.location.reload();
+}
+</script>
 {% endblock %}

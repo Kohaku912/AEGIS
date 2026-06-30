@@ -4,6 +4,7 @@
   "server_id": "pc-server",
   "app_id": "system",
   "action": "get_os_info",
+  "operation_category": "read_only",
   "risk": {"level": "low", "side_effects": [], "requires_approval": false},
   "tags": ["builtin", "pc", "read", "system"],
   "tcp_command": "os_info"

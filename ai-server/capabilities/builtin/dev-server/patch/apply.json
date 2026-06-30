@@ -4,6 +4,7 @@
   "server_id": "dev-server",
   "app_id": "patch",
   "action": "apply",
+  "operation_category": "workspace_file",
   "input_schema": {
     "type": "object",
     "required": ["file_path", "patch_content"],

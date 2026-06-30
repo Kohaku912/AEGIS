@@ -4,6 +4,7 @@
   "server_id": "dev-server",
   "app_id": "git",
   "action": "revert_changes",
+  "operation_category": "delete",
   "input_schema": {
     "type": "object",
     "properties": {

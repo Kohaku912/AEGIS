@@ -4,6 +4,7 @@
   "server_id": "ai-server",
   "app_id": "memory",
   "action": "search",
+  "operation_category": "memory",
   "risk": {"level": "low", "side_effects": [], "requires_approval": false},
   "tags": ["builtin", "memory", "read"],
   "only_master": false,

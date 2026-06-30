@@ -136,6 +136,7 @@ class CapabilityCatalog:
                 "short_name": m.short_name,
                 "title": m.title,
                 "description": m.description,
+                "operation_category": m.operation_category,
                 "tags": list(m.tags),
                 "aliases": list(m.aliases),
                 "examples": list(m.examples),
@@ -191,6 +192,7 @@ class CapabilityCatalog:
             summaries.append({
                 "id": m.capability_id,
                 "title": m.title,
+                "operation_category": m.operation_category,
                 "tags": list(m.tags),
                 "risk": m.risk_level,
                 "short_desc": m.description[:220],
@@ -207,6 +209,7 @@ class CapabilityCatalog:
             "short_name": manifest.short_name,
             "title": manifest.title,
             "description": manifest.description,
+            "operation_category": manifest.operation_category,
             "tags": list(manifest.tags),
             "aliases": list(manifest.aliases),
             "examples": list(manifest.examples),

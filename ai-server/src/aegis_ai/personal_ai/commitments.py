@@ -112,11 +112,12 @@ class CommitmentManager:
             "name": f"Commitment due: {item.title}",
             "kind": "schedule",
             "schedule_at_ms": item.due_at_ms,
-            "capability_id": "ai-server.workspace.list_files",
-            "arguments": {"relative_dir": ".", "max_entries": 1},
+            "capability_id": "ai-server.commitment.wakeup",
+            "arguments": {"commitment_id": item.commitment_id},
             "condition": {"path": "ok", "op": "eq", "value": True},
             "cooldown_seconds": 3600,
             "max_runs_per_hour": 1,
+            "dedupe_key": "commitment.commitment_id",
             "enabled": True,
         })
         item.related_hook_id = hook.get("hook_id", hook_id)

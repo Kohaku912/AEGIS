@@ -4,6 +4,7 @@
   "server_id": "ai-server",
   "app_id": "situation",
   "action": "get",
+  "operation_category": "situation_read",
   "risk": {"level": "low", "side_effects": [], "requires_approval": false},
   "input_schema": {"type": "object", "properties": {}},
   "tags": ["situation", "personal-ai", "read"]

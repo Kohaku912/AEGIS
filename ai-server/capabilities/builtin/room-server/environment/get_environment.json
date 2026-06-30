@@ -4,6 +4,7 @@
   "server_id": "room-server",
   "app_id": "environment",
   "action": "get_environment",
+  "operation_category": "read_only",
   "risk": {"level": "low", "side_effects": [], "requires_approval": false},
   "tags": ["builtin", "room", "read"]
 }

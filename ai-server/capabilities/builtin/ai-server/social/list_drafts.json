@@ -4,6 +4,7 @@
   "server_id": "ai-server",
   "app_id": "social",
   "action": "list_drafts",
+  "operation_category": "social_read",
   "risk": {"level": "low", "side_effects": [], "requires_approval": false},
   "input_schema": {"type": "object", "properties": {}},
   "tags": ["social", "draft", "personal-ai", "read"]

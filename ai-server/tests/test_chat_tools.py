@@ -293,6 +293,7 @@ def _write_chat_cap(root: Path, index: int) -> None:
             "server_id": "ai-server",
             "app_id": app_id,
             "action": "run",
+            "operation_category": "test_operation",
             "risk": {"level": "low", "requires_approval": False},
             "input_schema": {"type": "object", "properties": {"value": {"type": "string"}}},
         }),
