@@ -5,6 +5,7 @@
   "server_id": "pc-server",
   "app_id": "system",
   "action": "installed_software",
+  "operation_category": "general",
   "risk": {"level": "read_only"},
   "input": {"type": "object", "properties": {}},
   "tags": ["software", "system", "observe"],

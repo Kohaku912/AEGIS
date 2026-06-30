@@ -4,6 +4,7 @@
   "server_id": "pc-server",
   "app_id": "window",
   "action": "list_windows",
+  "operation_category": "read_only",
   "risk": {"level": "low", "side_effects": [], "requires_approval": false},
   "tags": ["builtin", "pc", "read", "window"],
   "tcp_command": "windows"

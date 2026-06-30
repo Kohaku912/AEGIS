@@ -4,6 +4,7 @@
   "server_id": "pc-server",
   "app_id": "discord",
   "action": "set_voice_settings",
+  "operation_category": "external_send",
   "input_schema": {
     "type": "object",
     "properties": {

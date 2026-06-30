@@ -5,6 +5,7 @@
   "server_id": "pc-server",
   "app_id": "system",
   "action": "empty_recycle_bin",
+  "operation_category": "general",
   "risk": {"level": "approval_required"},
   "input": {"type": "object", "properties": {}},
   "tags": ["system", "cleanup", "approval_required"],

@@ -4,6 +4,7 @@
   "server_id": "ai-server",
   "app_id": "user_model",
   "action": "update",
+  "operation_category": "personal_policy",
   "risk": {"level": "approval_required", "side_effects": ["personal_policy_update"], "requires_approval": true},
   "input_schema": {
     "type": "object",

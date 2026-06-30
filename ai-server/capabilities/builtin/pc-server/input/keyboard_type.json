@@ -4,6 +4,7 @@
   "server_id": "pc-server",
   "app_id": "input",
   "action": "keyboard_type",
+  "operation_category": "general",
   "input_schema": {
     "type": "object",
     "properties": {

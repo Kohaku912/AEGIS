@@ -35,6 +35,8 @@ class SituationModel:
         return dict(self._state)
 
     def update_from_observation(self, source: str, payload: dict[str, Any]) -> dict[str, Any]:
+        if any(k in payload for k in ("device_type", "activity", "foreground_app", "screen_state", "presence", "focus_mode")):
+            return self.update_from_structured_observation(source, payload)
         state = "working"
         interruptibility = "interruptible"
         confidence = 0.45
@@ -54,6 +56,44 @@ class SituationModel:
             "interruptibility": interruptibility,
             "confidence": confidence,
             "evidence": evidence,
+            "updated_at": now_ms(),
+        }
+        self._save()
+        return self.get_state()
+
+    def update_from_structured_observation(self, source: str, observation: dict[str, Any]) -> dict[str, Any]:
+        """Update situation from normalized observation fields."""
+        activity = str(observation.get("activity") or "").lower()
+        app = str(observation.get("foreground_app") or observation.get("app") or "").lower()
+        screen = str(observation.get("screen_state") or "").lower()
+        presence = str(observation.get("presence") or "").lower()
+        focus = bool(observation.get("focus_mode", False))
+        error_state = bool(observation.get("error") or observation.get("degraded"))
+
+        state = "working"
+        interruptibility = "interruptible"
+        confidence = 0.55
+        if error_state or activity == "error_handling":
+            state, interruptibility, confidence = "error_handling", "interruptible", 0.75
+        elif activity in {"sleeping", "sleep"} or screen in {"off", "locked", "screen_off"}:
+            state, interruptibility, confidence = "sleeping", "suppress", 0.8
+        elif activity in {"away", "out"} or presence in {"away", "out"}:
+            state, interruptibility, confidence = "away", "batch_later", 0.75
+        elif focus or activity in {"focused", "meeting", "presentation"}:
+            state, interruptibility, confidence = "focused", "important_only", 0.8
+        elif activity == "gaming" or any(term in app for term in ("steam", "game", "discord")):
+            state, interruptibility, confidence = "game", "important_only", 0.7
+        elif activity:
+            state, confidence = activity, 0.65
+
+        evidence = list(self._state.get("evidence", []))[-19:]
+        evidence.append({"source": source, "observation": observation, "timestamp": now_ms()})
+        self._state = {
+            "state": state,
+            "interruptibility": interruptibility,
+            "confidence": confidence,
+            "evidence": evidence,
+            "structured_observation": observation,
             "updated_at": now_ms(),
         }
         self._save()

@@ -4,6 +4,7 @@
   "server_id": "ai-server",
   "app_id": "social",
   "action": "create_draft",
+  "operation_category": "draft_create",
   "risk": {"level": "safe", "side_effects": ["draft_write"], "requires_approval": false},
   "input_schema": {
     "type": "object",

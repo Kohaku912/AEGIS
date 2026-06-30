@@ -4,6 +4,7 @@
   "server_id": "pc-server",
   "app_id": "discord",
   "action": "status",
+  "operation_category": "external_send",
   "input_schema": {
     "type": "object",
     "properties": {}

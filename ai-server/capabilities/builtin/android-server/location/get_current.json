@@ -4,6 +4,7 @@
   "server_id": "android-server",
   "app_id": "location",
   "action": "get_current",
+  "operation_category": "read_only",
   "input_schema": {
     "type": "object",
     "properties": {

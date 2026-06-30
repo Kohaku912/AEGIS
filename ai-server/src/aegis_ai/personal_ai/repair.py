@@ -4,8 +4,10 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
+import time
+import uuid
 
-from tool_broker import InvokeStatus
+from tool_broker import ExecutionSource, InvokeStatus, ToolExecutionRequest
 
 from aegis_ai.personal_ai.storage import JsonStateFile, append_jsonl, now_ms
 
@@ -26,6 +28,7 @@ class RepairManager:
         self._audit_manager = audit_manager
         self._memory_manager = memory_manager
         self._status = self._state.load()
+        self._rollback_strategies: dict[str, dict[str, Any]] = dict(self._status.get("rollback_strategies", {}))
 
     def classify_failure(self, *, error: str = "", status: str = "", capability_id: str = "") -> str:
         text = f"{error} {status} {capability_id}".lower()
@@ -74,7 +77,11 @@ class RepairManager:
         if not self._is_safe_retry(request, result):
             entry["final_result"] = "not_retryable"
             return entry
+        strategy = self.plan_strategy(request, result)
         for attempt in range(1, max_attempts + 1):
+            delay = min(8, 2 ** (attempt - 1))
+            if delay > 0:
+                time.sleep(min(delay, 0.05))
             retry = self._tool_broker.execute(request) if self._tool_broker is not None else None
             attempt_entry = {
                 "attempt": attempt,
@@ -90,8 +97,75 @@ class RepairManager:
         append_jsonl(self._history, entry)
         self._audit("repair_attempted", entry)
         if entry["final_result"] != "recovered":
+            rollback = self.rollback(request, result, reason=f"Retry failed: {strategy.get('category')}")
+            if rollback.get("attempted"):
+                entry["rollback"] = rollback
             self._record_lesson(entry)
         return entry
+
+    def execute_with_repair(self, request: Any, *, max_attempts: int = 2) -> dict[str, Any]:
+        """Execute via ToolBroker and apply retry/rollback strategy on failure."""
+        if self._tool_broker is None:
+            return {"ok": False, "error": "ToolBroker unavailable."}
+        result = self._tool_broker.execute(request)
+        if getattr(result, "success", False):
+            return {"ok": True, "result": getattr(result, "output", {})}
+        repair = self.maybe_retry(request, result, max_attempts=max_attempts)
+        return {"ok": repair.get("final_result") == "recovered", "repair": repair}
+
+    def plan_strategy(self, request: Any, result: Any) -> dict[str, Any]:
+        category = self.classify_failure(
+            error=getattr(result, "error", ""),
+            status=getattr(getattr(result, "status", None), "value", ""),
+            capability_id=getattr(request, "capability_id", ""),
+        )
+        retryable = self._is_safe_retry(request, result)
+        metadata = dict(getattr(request, "metadata", {}) or {})
+        rollback_capability = metadata.get("rollback_capability_id") or self._rollback_strategies.get(getattr(request, "capability_id", ""), {}).get("capability_id", "")
+        return {
+            "category": category,
+            "retryable": retryable,
+            "rollback_capability_id": rollback_capability,
+            "requires_approval_for_rollback": bool(rollback_capability),
+        }
+
+    def register_rollback_strategy(self, capability_id: str, rollback_capability_id: str, rollback_arguments: dict[str, Any] | None = None) -> dict[str, Any]:
+        self._rollback_strategies[capability_id] = {
+            "capability_id": rollback_capability_id,
+            "arguments": rollback_arguments or {},
+            "updated_at": now_ms(),
+        }
+        self._status["rollback_strategies"] = self._rollback_strategies
+        self._state.save(self._status)
+        return self._rollback_strategies[capability_id]
+
+    def rollback(self, request: Any, result: Any = None, *, reason: str = "") -> dict[str, Any]:
+        metadata = dict(getattr(request, "metadata", {}) or {})
+        strategy = self._rollback_strategies.get(getattr(request, "capability_id", ""), {})
+        rollback_capability = metadata.get("rollback_capability_id") or strategy.get("capability_id", "")
+        if not rollback_capability:
+            return {"attempted": False, "reason": "No rollback strategy configured."}
+        rollback_args = dict(strategy.get("arguments") or {})
+        rollback_args.update(dict(metadata.get("rollback_arguments") or {}))
+        rollback_request = ToolExecutionRequest(
+            request_id=f"repair_rb_{uuid.uuid4().hex[:10]}",
+            capability_id=rollback_capability,
+            arguments=rollback_args,
+            source=ExecutionSource.SYSTEM,
+            reason=f"Repair rollback: {reason}",
+            metadata={"repair_for_request_id": getattr(request, "request_id", "")},
+        )
+        rollback_result = self._tool_broker.execute(rollback_request) if self._tool_broker is not None else None
+        out = {
+            "attempted": True,
+            "capability_id": rollback_capability,
+            "status": getattr(getattr(rollback_result, "status", None), "value", ""),
+            "approval_id": getattr(rollback_result, "approval_id", ""),
+            "success": bool(getattr(rollback_result, "success", False)),
+            "error": getattr(rollback_result, "error", ""),
+        }
+        self._audit("repair_rollback_requested", out)
+        return out
 
     def list_history(self, limit: int = 50) -> list[dict[str, Any]]:
         if not self._history.exists():

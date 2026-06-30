@@ -4,6 +4,7 @@
   "server_id": "pc-server",
   "app_id": "input",
   "action": "mouse_click",
+  "operation_category": "general",
   "input_schema": {
     "type": "object",
     "properties": {

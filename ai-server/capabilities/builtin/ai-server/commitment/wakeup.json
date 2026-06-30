@@ -1,0 +1,16 @@
+{
+  "title": "Commitment Wakeup",
+  "description": "Read due commitment state for HookEngine wakeup. This capability has no side effects and is used by commitment deadline hooks.",
+  "server_id": "ai-server",
+  "app_id": "commitment",
+  "action": "wakeup",
+  "operation_category": "commitment_wakeup",
+  "risk": {"level": "low", "side_effects": [], "requires_approval": false},
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "commitment_id": {"type": "string"}
+    }
+  },
+  "tags": ["commitment", "hook", "wakeup", "personal-ai", "read"]
+}

@@ -4,6 +4,7 @@
   "server_id": "dev-server",
   "app_id": "diff",
   "action": "get_diff",
+  "operation_category": "read_only",
   "input_schema": {
     "type": "object",
     "properties": {

@@ -4,6 +4,7 @@
   "server_id": "browser-server",
   "app_id": "page",
   "action": "browse",
+  "operation_category": "external_send",
   "risk": {"level": "safe", "side_effects": ["sends HTTP request", "executes page JavaScript"], "requires_approval": false},
   "tags": ["browser", "web", "ai", "automation"],
   "aliases": ["ブラウザで開いて", "Webページを開く", "サイトを見て", "ページを操作"],

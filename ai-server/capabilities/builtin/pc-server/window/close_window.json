@@ -4,6 +4,7 @@
   "server_id": "pc-server",
   "app_id": "window",
   "action": "close_window",
+  "operation_category": "general",
   "input_schema": {
     "type": "object",
     "properties": {

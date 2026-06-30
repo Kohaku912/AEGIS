@@ -4,6 +4,7 @@
   "server_id": "android-server",
   "app_id": "permissions",
   "action": "get_status",
+  "operation_category": "read_only",
   "input_schema": {"type": "object", "properties": {}},
   "risk": {"level": "low", "side_effects": [], "requires_approval": false},
   "tags": ["builtin", "android", "permissions", "status"],

@@ -275,6 +275,17 @@ class AegisCoreCapabilityClient:
                 postpone_until_ms=int(params.get("postpone_until_ms") or 0),
             )
             return {"ok": item is not None, "commitment": item}
+        if capability_id.endswith(".wakeup"):
+            commitment_id = str(params.get("commitment_id") or "")
+            item = manager.get_commitment(commitment_id) if commitment_id else None
+            due = manager.due_commitments()
+            return {
+                "ok": True,
+                "commitment": item,
+                "due": due,
+                "due_count": len(due),
+                "wakeup": bool(item or due),
+            }
         return {"ok": False, "error": "Unsupported commitment capability"}
 
     def _delegation_policy(self, capability_id: str, params: dict[str, Any]) -> dict[str, Any]:
@@ -338,5 +349,9 @@ class AegisCoreCapabilityClient:
         if capability_id.endswith(".list_drafts"):
             return {"ok": True, "drafts": manager.list_drafts()}
         if capability_id.endswith(".send_approved"):
-            return manager.send_approved(str(params.get("draft_id") or ""))
+            return manager.send_approved(
+                str(params.get("draft_id") or ""),
+                approved=bool(params.get("_aegis_approved_execution")),
+                approval_id=str(params.get("_aegis_approval_id") or ""),
+            )
         return {"ok": False, "error": "Unsupported social capability"}

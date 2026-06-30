@@ -4,6 +4,7 @@
   "server_id": "ai-server",
   "app_id": "workspace",
   "action": "read_file",
+  "operation_category": "workspace_file",
   "risk": {
     "level": "low",
     "side_effects": [],

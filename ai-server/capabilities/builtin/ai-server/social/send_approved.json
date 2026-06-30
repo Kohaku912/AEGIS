@@ -4,6 +4,7 @@
   "server_id": "ai-server",
   "app_id": "social",
   "action": "send_approved",
+  "operation_category": "external_send",
   "risk": {"level": "approval_required", "side_effects": ["external_send"], "requires_approval": true},
   "input_schema": {
     "type": "object",

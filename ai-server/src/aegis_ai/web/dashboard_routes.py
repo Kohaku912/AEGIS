@@ -2130,6 +2130,7 @@ class DashboardApp:
                 "interruption": {},
                 "repair": {},
                 "drafts": [],
+                "pending_approvals": [],
             }
             try:
                 data["user_model"] = rt.user_model_store.get().to_dict()
@@ -2140,6 +2141,7 @@ class DashboardApp:
                 data["interruption"] = rt.interruption_controller.get_status()
                 data["repair"] = rt.repair_manager.get_status()
                 data["drafts"] = rt.social_proxy.list_drafts()
+                data["pending_approvals"] = [r.to_dict() for r in rt.approval_manager.list_pending()]
             except Exception:
                 logger.debug("Failed to build personal AI dashboard", exc_info=True)
             return render_template("dashboard/personal_ai.html", **data)

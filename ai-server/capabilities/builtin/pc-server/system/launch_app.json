@@ -4,6 +4,7 @@
   "server_id": "pc-server",
   "app_id": "system",
   "action": "launch_app",
+  "operation_category": "general",
   "input_schema": {
     "type": "object",
     "properties": {

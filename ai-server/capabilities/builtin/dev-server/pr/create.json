@@ -4,6 +4,7 @@
   "server_id": "dev-server",
   "app_id": "pr",
   "action": "create",
+  "operation_category": "general",
   "input_schema": {
     "type": "object",
     "required": ["title", "head_branch"],

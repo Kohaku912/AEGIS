@@ -4,6 +4,7 @@
   "server_id": "ai-server",
   "app_id": "delegation_policy",
   "action": "list",
+  "operation_category": "personal_policy",
   "risk": {"level": "low", "side_effects": [], "requires_approval": false},
   "input_schema": {"type": "object", "properties": {}},
   "tags": ["delegation-policy", "personal-ai", "read"]

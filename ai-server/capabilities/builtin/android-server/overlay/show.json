@@ -4,6 +4,7 @@
   "server_id": "android-server",
   "app_id": "overlay",
   "action": "show",
+  "operation_category": "notification",
   "input_schema": {
     "type": "object",
     "properties": {

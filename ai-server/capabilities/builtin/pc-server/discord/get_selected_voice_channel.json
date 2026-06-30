@@ -4,6 +4,7 @@
   "server_id": "pc-server",
   "app_id": "discord",
   "action": "get_selected_voice_channel",
+  "operation_category": "social_read",
   "input_schema": {
     "type": "object",
     "properties": {}

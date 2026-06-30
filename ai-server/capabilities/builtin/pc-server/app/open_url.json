@@ -5,6 +5,7 @@
   "server_id": "pc-server",
   "app_id": "app",
   "action": "open_url",
+  "operation_category": "general",
   "risk": {
     "level": "medium",
     "requires_approval": true
