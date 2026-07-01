@@ -232,3 +232,20 @@ def test_successful_result_is_sent_to_llm_followup_decision(tmp_path) -> None:
 
     assert loop._self_regressive_loop(tasks, results, max_iterations=1) == []
     assert followup_calls == [(tasks, results)]
+
+
+def test_execution_log_stores_image_artifact_instead_of_base64(tmp_path) -> None:
+    loop = AutonomousLoop(data_dir=str(tmp_path / "autonomous"))
+    image_base64 = (
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADElEQVR42mP8z8BQDwAFgwJ/luzG8QAAAABJRU5ErkJggg=="
+    )
+
+    loop._log_execution(
+        [{"desire": "growth", "action": "look", "capability_id": "pc-server.screenshot.get_screenshot"}],
+        [{"success": True, "result": "ok", "full_output": {"image_base64": image_base64, "image_mime": "image/png"}}],
+    )
+
+    log_text = (tmp_path / "autonomous" / "execution_log.jsonl").read_text(encoding="utf-8")
+    assert image_base64 not in log_text
+    assert "image_artifact" in log_text
+    assert any((tmp_path / "autonomous" / "artifacts").iterdir())

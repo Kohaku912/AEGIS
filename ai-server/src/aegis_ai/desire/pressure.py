@@ -11,6 +11,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import os
 import time
 from pathlib import Path
 
@@ -19,6 +20,7 @@ logger = logging.getLogger("aegis_ai.desire.pressure")
 _ALPHA: float = 0.3
 _MIN_PRESSURE: float = 0.0
 _MAX_PRESSURE: float = 10.0
+_TIME_PRESSURE_PER_HOUR: float = float(os.environ.get("AEGIS_PRESSURE_PER_HOUR", "20.0"))
 
 _DEFAULT_PRESSURES: dict[str, float] = {
     "user_support": 0.0,
@@ -79,7 +81,7 @@ class PressureEngine:
         """Accumulate pressure from elapsed time."""
         if elapsed_hours <= 0:
             return
-        delta = 10.0 * elapsed_hours
+        delta = _TIME_PRESSURE_PER_HOUR * elapsed_hours
         self._apply_delta(desire, delta)
 
     def accumulate_from_event(self, desire: str, event_type: str, severity: float) -> None:
@@ -101,7 +103,7 @@ class PressureEngine:
     def reduce_after_action(self, desire: str, effectiveness: float) -> None:
         """Reduce pressure after a successful action."""
         effectiveness = _clamp(effectiveness)
-        reduction = 2.0 + (2.0 * effectiveness)
+        reduction = 5.0 + (5.0 * min(effectiveness, 1.0))
         self._apply_delta(desire, -reduction)
 
     def get_pressure(self, desire: str) -> float:

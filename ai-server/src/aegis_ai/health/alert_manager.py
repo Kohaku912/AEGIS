@@ -26,11 +26,12 @@ from typing import Any
 logger = logging.getLogger("aegis_ai.health.alert_manager")
 
 # Servers to check for reachability
-_SERVERS: list[tuple[str, str, int]] = [
-    ("pc-server", "localhost", 50052),
-    ("browser-server", "localhost", 50053),
-    ("android-server", "localhost", 50054),
-    ("room-server", "localhost", 50055),
+_SERVER_DEFAULTS: list[tuple[str, str, str, int]] = [
+    ("pc-server", "PC_SERVER_HOST", "PC_SERVER_PORT", 50052),
+    ("browser-server", "BROWSER_SERVER_HOST", "BROWSER_SERVER_PORT", 50053),
+    ("android-server", "ANDROID_SERVER_HOST", "ANDROID_SERVER_PORT", 50054),
+    ("room-server", "ROOM_SERVER_HOST", "ROOM_SERVER_PORT", 50055),
+    ("dev-server", "DEV_SERVER_HOST", "DEV_SERVER_PORT", 50056),
 ]
 
 # Deduplication window: same type+source within this window is suppressed
@@ -99,12 +100,14 @@ class HealthAlertManager:
         data_dir: str = "data/health",
         tool_broker: Any = None,
         llm_provider: Any = None,
+        status_manager: Any = None,
         data_path: str = "data",
     ) -> None:
         self._data_dir = Path(data_dir)
         self._data_dir.mkdir(parents=True, exist_ok=True)
         self._broker = tool_broker
         self._llm = llm_provider
+        self._status_manager = status_manager
         self._data_path = Path(data_path)
         self._active_alerts: list[HealthAlert] = []
         self._all_alerts: list[HealthAlert] = []
@@ -120,34 +123,56 @@ class HealthAlertManager:
         if disk:
             new_alerts.append(disk)
 
-        for server_id, host, port in _SERVERS:
+        passed_keys: set[tuple[str, str, str]] = set()
+        for server_id, host, port in self._configured_servers():
             srv = self.check_server_reachable(server_id, host, port)
             if srv:
                 new_alerts.append(srv)
+            else:
+                passed_keys.add(("server_unreachable", "capability", server_id))
 
         executor = self.check_executor_available()
         if executor:
             new_alerts.append(executor)
+        else:
+            passed_keys.add(("no_executor", "executor", ""))
 
         llm = self.check_llm_provider()
         if llm:
             new_alerts.append(llm)
+        else:
+            passed_keys.add(("llm_unavailable", "llm", ""))
 
         data_size = self.check_data_dir_size()
         if data_size:
             new_alerts.append(data_size)
+        else:
+            passed_keys.add(("data_dir_large", "system", ""))
+
+        resolved = self._acknowledge_resolved(passed_keys)
 
         # Deduplicate and persist
         unique: list[HealthAlert] = []
+        updated = 0
         for alert in new_alerts:
-            if not self._deduplicate(alert):
+            if self._deduplicate(alert):
+                continue
+            if self._update_existing_active(alert):
+                updated += 1
+                continue
+            else:
                 self._active_alerts.append(alert)
                 self._all_alerts.append(alert)
                 unique.append(alert)
 
-        if unique:
+        if unique or resolved or updated:
             self._save()
-            logger.info("Health check: %d new alerts", len(unique))
+            logger.info(
+                "Health check: %d new alerts, %d updated, %d resolved",
+                len(unique),
+                updated,
+                resolved,
+            )
 
         return unique
 
@@ -180,6 +205,23 @@ class HealthAlertManager:
         self, server_id: str, host: str, port: int
     ) -> HealthAlert | None:
         """Check if a server is reachable via TCP."""
+        if self._status_manager is not None:
+            try:
+                snapshot = self._status_manager.get_snapshot()
+                item = snapshot.get(server_id, {}) if isinstance(snapshot, dict) else {}
+                status = str(item.get("status") or "").lower()
+                if status in {"online", "degraded"}:
+                    return None
+                if status in {"offline", "disabled", "unconfigured"}:
+                    return self._create_alert(
+                        alert_type="server_unreachable",
+                        severity="warning",
+                        message=f"{server_id} status is {status}",
+                        source="capability",
+                        details={"server_id": server_id, "host": host, "port": port, "status": status},
+                    )
+            except Exception:
+                logger.debug("StatusManager health lookup failed", exc_info=True)
         if not self._check_port(host, port):
             return self._create_alert(
                 alert_type="server_unreachable",
@@ -189,6 +231,32 @@ class HealthAlertManager:
                 details={"server_id": server_id, "host": host, "port": port},
             )
         return None
+
+    def _configured_servers(self) -> list[tuple[str, str, int]]:
+        servers: list[tuple[str, str, int]] = []
+        for server_id, host_env, port_env, default_port in _SERVER_DEFAULTS:
+            default_host = "localhost"
+            if server_id == "pc-server":
+                default_host = "localhost"
+            host = os.environ.get(host_env, default_host)
+            port = int(os.environ.get(port_env, str(default_port)))
+            servers.append((server_id, host, port))
+        return servers
+
+    def _acknowledge_resolved(self, passed_keys: set[tuple[str, str, str]]) -> int:
+        count = 0
+        for alert in self._all_alerts:
+            if alert.acknowledged:
+                continue
+            server_id = str(alert.details.get("server_id") or "")
+            key = (alert.alert_type, alert.source, server_id)
+            generic_key = (alert.alert_type, alert.source, "")
+            if key in passed_keys or generic_key in passed_keys:
+                alert.acknowledged = True
+                count += 1
+        if count:
+            self._active_alerts = [a for a in self._all_alerts if not a.acknowledged]
+        return count
 
     def check_executor_available(self) -> HealthAlert | None:
         """Check if tool broker has any valid capabilities."""
@@ -344,6 +412,24 @@ class HealthAlertManager:
                 return True
         return False
 
+    def _update_existing_active(self, alert: HealthAlert) -> bool:
+        """Refresh an unresolved alert for the same target instead of adding noise."""
+        alert_target = str(alert.details.get("server_id") or "")
+        for existing in self._active_alerts:
+            if existing.acknowledged:
+                continue
+            existing_target = str(existing.details.get("server_id") or "")
+            if (
+                existing.alert_type == alert.alert_type
+                and existing.source == alert.source
+                and existing_target == alert_target
+            ):
+                existing.message = alert.message
+                existing.severity = alert.severity
+                existing.details = alert.details
+                return True
+        return False
+
     def _check_port(self, host: str, port: int, timeout: float = 1.0) -> bool:
         """TCP port connectivity check."""
         try:
@@ -383,7 +469,26 @@ class HealthAlertManager:
                         data = json.loads(line)
                         alerts.append(HealthAlert.from_dict(data))
             self._all_alerts = alerts[-_MAX_ALERTS:]
+            collapsed = self._collapse_duplicate_active_alerts()
             self._active_alerts = [a for a in self._all_alerts if not a.acknowledged]
+            if collapsed:
+                self._save()
             logger.info("Loaded %d health alerts from %s", len(alerts), path)
         except Exception as exc:
             logger.warning("Failed to load health alerts: %s", exc)
+
+    def _collapse_duplicate_active_alerts(self) -> int:
+        """Keep only the newest unresolved alert for the same type/source/target."""
+        seen: set[tuple[str, str, str]] = set()
+        collapsed = 0
+        for alert in reversed(self._all_alerts):
+            if alert.acknowledged:
+                continue
+            target = str(alert.details.get("server_id") or "")
+            key = (alert.alert_type, alert.source, target)
+            if key in seen:
+                alert.acknowledged = True
+                collapsed += 1
+            else:
+                seen.add(key)
+        return collapsed

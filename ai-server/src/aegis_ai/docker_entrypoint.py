@@ -48,6 +48,22 @@ def _start_web_chat(runtime) -> None:
     )
 
 
+def _refresh_status_after_start(runtime) -> None:
+    """Refresh cached status after sockets have had time to bind."""
+    for _ in range(5):
+        if _STOP.wait(1):
+            return
+        try:
+            snapshot = runtime.status_manager.check_now()
+            if (
+                snapshot.get("ai-server", {}).get("status") == "online"
+                and snapshot.get("dashboard", {}).get("status") == "online"
+            ):
+                return
+        except Exception:
+            logger.debug("Startup status refresh failed", exc_info=True)
+
+
 def main() -> None:
     signal.signal(signal.SIGTERM, _handle_stop)
     signal.signal(signal.SIGINT, _handle_stop)
@@ -63,6 +79,13 @@ def main() -> None:
     for thread in threads:
         thread.start()
 
+    threading.Thread(
+        target=_refresh_status_after_start,
+        args=(runtime,),
+        daemon=True,
+        name="aegis-startup-status-refresh",
+    ).start()
+
     logger.info("AEGIS Core Docker services started")
     while not _STOP.is_set():
         time.sleep(1)
@@ -72,4 +95,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

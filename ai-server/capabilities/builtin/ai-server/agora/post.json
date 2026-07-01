@@ -5,7 +5,7 @@
   "app_id": "agora",
   "action": "post",
   "operation_category": "external_send",
-  "risk": {"level": "low", "side_effects": ["social_post"], "requires_approval": false},
+  "risk": {"level": "approval_required", "side_effects": ["social_post"], "requires_approval": true},
   "tags": ["builtin", "agora", "write", "social"],
   "only_master": false,
   "input_schema": {

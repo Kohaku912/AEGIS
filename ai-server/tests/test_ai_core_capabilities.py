@@ -5,6 +5,7 @@ from pathlib import Path
 
 from aegis_ai.capability_catalog import CapabilityCatalog
 from aegis_ai.core_capabilities import AegisCoreCapabilityClient
+from aegis_ai.integrations.agora.agora_types import AgoraAuthor, AgoraCursor, AgoraFetchResult, AgoraPost
 
 
 class FakeExecutor:
@@ -125,3 +126,83 @@ def test_new_manifests_load_from_catalog() -> None:
         "pc-server.overlay.show_rich",
     }:
         assert catalog.resolve(cap_id) is not None
+    agora_post = catalog.resolve("ai-server.agora.post")
+    assert agora_post is not None
+    assert agora_post.requires_approval is True
+
+
+class FakeMemoryManager:
+    def search_memory(self, query: str, limit: int = 20) -> list[dict]:
+        return [{"type": "semantic", "content": f"hit:{query}", "source": "fake"}][:limit]
+
+
+class FakeAgora:
+    def __init__(self) -> None:
+        self.cursor_updates: list[int] = []
+
+    def get_cursor(self) -> AgoraCursor:
+        return AgoraCursor(last_read_post_id=10)
+
+    def update_cursor(self, last_read_post_id: int) -> AgoraCursor:
+        self.cursor_updates.append(last_read_post_id)
+        return AgoraCursor(last_read_post_id=last_read_post_id)
+
+    def read_posts(self, since_id: int = 0, limit: int = 50) -> AgoraFetchResult:
+        if since_id == 10:
+            return AgoraFetchResult(
+                posts=[
+                    AgoraPost(
+                        id=11,
+                        thread_id=1,
+                        author=AgoraAuthor(id=2, name="tester"),
+                        body="hello",
+                    )
+                ],
+                max_post_id=11,
+                has_new_posts=True,
+            )
+        return AgoraFetchResult(posts=[], max_post_id=since_id, has_new_posts=False)
+
+    def create_post(self, thread_id: int = 1, body: str = "", reply_to: int | None = None) -> AgoraPost:
+        return AgoraPost(id=20, thread_id=thread_id, author=AgoraAuthor(id=1, name="aegis"), body=body, reply_to=reply_to)
+
+
+def test_memory_search_is_supported(tmp_path: Path) -> None:
+    executor = FakeExecutor()
+    client = AegisCoreCapabilityClient(
+        data_dir=str(tmp_path / "data"),
+        server_executor=executor,
+        personal_managers={"memory_manager": FakeMemoryManager()},
+    )
+
+    result = client.invoke_capability("ai-server.memory.search", {"query": "project"})
+
+    assert result["ok"] is True
+    assert result["results"][0]["content"] == "hit:project"
+
+
+def test_agora_read_posts_uses_unread_cursor_and_updates_once(tmp_path: Path) -> None:
+    client, _ = _client(tmp_path)
+    fake = FakeAgora()
+    client._agora = fake
+
+    result = client.invoke_capability("ai-server.agora.read_posts", {"limit": 20})
+
+    assert result["ok"] is True
+    assert result["read_mode"] == "unread"
+    assert result["cursor_before"] == 10
+    assert result["cursor_after"] == 11
+    assert fake.cursor_updates == [11]
+    assert result["posts"][0]["id"] == 11
+
+
+def test_agora_explicit_since_id_does_not_advance_cursor(tmp_path: Path) -> None:
+    client, _ = _client(tmp_path)
+    fake = FakeAgora()
+    client._agora = fake
+
+    result = client.invoke_capability("ai-server.agora.read_posts", {"since_id": 5, "limit": 20})
+
+    assert result["ok"] is True
+    assert result["read_mode"] == "history"
+    assert fake.cursor_updates == []
