@@ -92,12 +92,9 @@ class AuditManager:
         for e in entries:
             e["time_str"] = ""
             detail = e.get("detail", {})
+            action = str(e.get("action") or "")
             if isinstance(detail, dict):
-                parts = []
-                for key, value in list(detail.items())[:3]:
-                    v = str(value)[:60]
-                    parts.append(f"{key}={v}")
-                e["detail_summary"] = ", ".join(parts)
+                e["detail_summary"] = self._detail_summary(detail, action)
             else:
                 e["detail_summary"] = str(detail)[:100]
             import json as _j
@@ -382,8 +379,9 @@ class AuditManager:
     def _decorate_for_group(self, entry: dict[str, Any]) -> dict[str, Any]:
         item = dict(entry)
         detail = item.get("detail", {}) if isinstance(item.get("detail"), dict) else {}
+        action = str(item.get("action") or "")
         item["time_str"] = self._format_ts(item.get("timestamp_ms", 0))
-        item["detail_summary"] = self._detail_summary(detail)
+        item["detail_summary"] = self._detail_summary(detail, action)
         try:
             item["detail_pretty"] = json.dumps(detail, indent=2, ensure_ascii=False) if detail else "{}"
         except Exception:
@@ -436,17 +434,87 @@ class AuditManager:
         action = str(entry.get("action") or "Audit group")
         return f"{action}: {group_id}"[:140]
 
-    def _detail_summary(self, detail: Any) -> str:
-        if isinstance(detail, dict):
-            parts = []
-            # Prioritize showing error field if it exists
-            if detail.get("error"):
-                parts.append(f"error={str(detail['error'])[:100]}")
+    def _detail_summary(self, detail: Any, action: str = "") -> str:
+        if not isinstance(detail, dict):
+            return str(detail)[:100]
+
+        parts = []
+
+        # Error field always takes priority
+        if detail.get("error"):
+            parts.append(f"error={str(detail['error'])[:120]}")
+
+        # Action-specific summaries
+        if action in ("llm_call", "llm_tool_call", "llm_vision_call"):
+            model = detail.get("model", "")
+            tokens = detail.get("tokens", 0)
+            duration = detail.get("duration_ms", 0)
+            response = str(detail.get("response_preview", ""))
+            prompt = str(detail.get("prompt_preview", ""))
+            
+            # Show response first as main content
+            if response:
+                parts.append(f"response={response[:150]}")
+            if model:
+                parts.append(f"model={model}")
+            if tokens:
+                parts.append(f"tokens={tokens}")
+            if duration:
+                parts.append(f"duration={duration}ms")
+            if prompt:
+                parts.append(f"prompt={prompt[:80]}")
+            # Show tool calls if present
+            tool_calls = detail.get("tool_calls")
+            if tool_calls:
+                names = [tc.get("function", "") for tc in tool_calls if isinstance(tc, dict)]
+                if names:
+                    parts.append(f"tools={', '.join(names[:5])}")
+
+        elif action in ("tool_execution", "tool_invoked") or action.startswith("tool."):
+            cap_id = detail.get("capability_id", "")
+            status = detail.get("execution_status", "")
+            if cap_id:
+                parts.append(f"capability={cap_id}")
+            if status:
+                parts.append(f"status={status}")
+            result = str(detail.get("result_preview", ""))
+            if result:
+                parts.append(f"result={result[:80]}")
+
+        elif action.startswith("task_"):
+            task_id = detail.get("task_id", "")
+            title = detail.get("title", "")
+            status = detail.get("status", "")
+            if title:
+                parts.append(f"title={title[:80]}")
+            elif task_id:
+                parts.append(f"task={task_id}")
+            if status:
+                parts.append(f"status={status}")
+
+        elif action.startswith("approval_"):
+            approval_id = detail.get("approval_id", "")
+            risk = detail.get("risk_level", "")
+            if approval_id:
+                parts.append(f"approval={approval_id}")
+            if risk:
+                parts.append(f"risk={risk}")
+
+        elif action.startswith("autonomous_"):
+            source = detail.get("source", "")
+            reason = str(detail.get("llm_reason", ""))
+            if source:
+                parts.append(f"source={source}")
+            if reason:
+                parts.append(f"reason={reason[:100]}")
+
+        else:
+            # Generic fallback: show first 3 non-error fields
             for key, value in list(detail.items())[:3]:
-                if key != "error":  # Skip error if already added
+                if key != "error":
                     parts.append(f"{key}={str(value)[:60]}")
-            return ", ".join(parts[:4])  # Show up to 4 parts
-        return str(detail)[:100]
+
+        return ", ".join(parts[:5])
 
     def _group_summary(self, entries: list[dict[str, Any]]) -> str:
         for entry in reversed(entries):

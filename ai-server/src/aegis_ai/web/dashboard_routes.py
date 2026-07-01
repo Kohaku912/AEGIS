@@ -626,15 +626,27 @@ def _build_audit_timeline(entries: list[dict[str, Any]]) -> list[dict[str, Any]]
             item["status_label"] = execution_status.upper() if execution_status else "UNKNOWN"
             item["status_tone"] = "green" if execution_status == "success" else "red"
         elif action == "llm_call":
-            response_preview = detail.get("response_preview", "")
-            item["stage"] = "LLM Response"
-            item["summary"] = _truncate_text(response_preview or "LLM returned a response.", 220)
-            item["preview"] = _truncate_text(detail.get("prompt_preview", ""), 220)
+            prompt_preview = str(detail.get("prompt_preview", ""))
+            response_preview = str(detail.get("response_preview", ""))
+            profile = str(detail.get("profile", ""))
+            
+            # Build summary with response as main content
+            summary_parts = []
+            if response_preview:
+                summary_parts.append(_truncate_text(response_preview, 300))
+            if profile:
+                summary_parts.append(f"[{profile}]")
+            
+            item["stage"] = "LLM Call"
+            item["summary"] = " ".join(summary_parts) if summary_parts else "LLM returned a response."
+            item["preview"] = _truncate_text(prompt_preview, 220) if prompt_preview else ""
             item["meta"] = [
                 f"model: {detail.get('model', '-')}",
                 f"tokens: {detail.get('tokens', '-')}",
                 f"duration: {detail.get('duration_ms', '-')}",
             ]
+            if detail.get("json_mode"):
+                item["meta"].append("json_mode: true")
             item["status_label"] = str(entry.get("decision", "success")).upper()
             item["status_tone"] = "green" if str(entry.get("decision", "")).lower() == "success" else "red"
         else:
