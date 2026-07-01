@@ -122,12 +122,15 @@ class AutonomousLoop:
         self._last_desire_signature: str = ""
         self._last_pressure_signature: str = ""
         self._min_execution_interval_ms: int = 60_000  # Minimum 1 minute between executions
-        self._min_llm_interval_ms: int = int(os.environ.get("AEGIS_MIN_LLM_INTERVAL_MS", 1800_000))
+        self._min_llm_interval_ms: int = int(os.environ.get("AEGIS_MIN_LLM_INTERVAL_MS", 60_000))
         self._last_llm_call_ms: int = 0
         self._last_decision: str = ""
         self._last_decision_ms: int = 0
         self._last_action_ms: int = 0
         self._available_capability_count: int = 0
+        self._selected_tool_count: int = 0
+        self._last_no_action_reason: str = ""
+        self._last_candidate_capability_ids: list[str] = []
         self._consecutive_no_action: int = 0
         self._health_alert_manager: Any = None
         self._last_health_check_ms: int = 0
@@ -154,6 +157,9 @@ class AutonomousLoop:
                 self._last_decision_ms = data.get("last_decision_ms", 0)
                 self._last_action_ms = data.get("last_action_ms", 0)
                 self._available_capability_count = data.get("available_capability_count", 0)
+                self._selected_tool_count = data.get("selected_tool_count", 0)
+                self._last_no_action_reason = data.get("last_no_action_reason", "")
+                self._last_candidate_capability_ids = data.get("last_candidate_capability_ids", [])
                 self._consecutive_no_action = data.get("consecutive_no_action", 0)
                 logger.info("Loaded autonomous loop state")
             except Exception as e:
@@ -172,6 +178,9 @@ class AutonomousLoop:
             "last_decision_ms": self._last_decision_ms,
             "last_action_ms": self._last_action_ms,
             "available_capability_count": self._available_capability_count,
+            "selected_tool_count": self._selected_tool_count,
+            "last_no_action_reason": self._last_no_action_reason,
+            "last_candidate_capability_ids": self._last_candidate_capability_ids[-30:],
             "consecutive_no_action": self._consecutive_no_action,
             "timestamp_ms": int(time.time() * 1000),
         }
@@ -346,10 +355,6 @@ class AutonomousLoop:
         if not self._llm:
             return False, "provider_unavailable"
 
-        current_signature = self._desire.get_pressure_signature()
-        if current_signature and current_signature == self._last_pressure_signature:
-            return False, "no_state_change"
-
         return True, "ok"
 
     def _check_repetition(self, tasks: list[dict[str, Any]], action_history: str) -> list[dict[str, Any]]:
@@ -478,7 +483,10 @@ Respond with JSON:
                 reason=preflight_reason,
                 detail={"source": "preflight_check"},
             )
-            self._schedule_next(self._fallback_interval)
+            next_interval = self._fallback_interval
+            if not preflight_reason.startswith("all_pressure_below_threshold"):
+                next_interval = 60
+            self._schedule_next(next_interval)
             self._save()
             return
 
@@ -503,7 +511,7 @@ Respond with JSON:
             remaining = (self._min_llm_interval_ms - (now_llm - self._last_llm_call_ms)) // 1000
             logger.info("LLM interval gate: %ds remaining until next LLM call", remaining)
             self._last_skip_reason = f"llm_interval_gate ({remaining}s remaining)"
-            self._schedule_next(max(60, remaining))
+            self._schedule_next(max(1, min(60, remaining)))
             self._save()
             return
 
@@ -730,6 +738,131 @@ Respond with JSON:
 
         return cap_id, arguments, manifest
 
+    def _desire_action_guides(self, low_desires: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        guide_map = {
+            "user_support": {
+                "goal": "Find unfinished user requests, pending commitments, approval waits, or useful local context.",
+                "preferred_capabilities": [
+                    "ai-server.commitment.list",
+                    "ai-server.memory.search",
+                    "ai-server.situation.get",
+                    "pc-server.screenshot.get_screenshot",
+                ],
+            },
+            "social": {
+                "goal": "Check unread social context and decide whether a draft or approved social action is needed.",
+                "preferred_capabilities": [
+                    "ai-server.agora.read_posts",
+                    "ai-server.social.list_drafts",
+                    "ai-server.memory.search",
+                ],
+            },
+            "growth": {
+                "goal": "Learn from recent state, failures, project context, or stored workspace information.",
+                "preferred_capabilities": [
+                    "ai-server.memory.search",
+                    "ai-server.workspace.list_files",
+                    "dev-server.repo.status",
+                    "browser-server.page.browse",
+                ],
+            },
+        }
+        guides: list[dict[str, Any]] = []
+        for desire in low_desires:
+            name = str(desire.get("name", ""))
+            meta = guide_map.get(name)
+            if not meta:
+                continue
+            guides.append({
+                "desire": name,
+                "pressure": desire.get("pressure", 0.0),
+                "goal": meta["goal"],
+                "preferred_capabilities": list(meta["preferred_capabilities"]),
+            })
+        return guides
+
+    def _intrinsic_task_hints(self, valid_cap_ids: set[str]) -> list[dict[str, Any]]:
+        if not self._desire:
+            return []
+        try:
+            from aegis_ai.desire.intrinsic_task_generator import IntrinsicTaskGenerator
+
+            generator = IntrinsicTaskGenerator(
+                pressure_threshold=self._pressure_threshold,
+                available_capabilities=valid_cap_ids,
+            )
+            hints = []
+            for task in generator.generate(self._desire.create_snapshot())[:8]:
+                hints.append({
+                    "desire": task.source_desire,
+                    "title": task.title,
+                    "description": task.description,
+                    "required_capabilities": [
+                        cap_id for cap_id in task.required_capabilities if cap_id in valid_cap_ids
+                    ],
+                    "expected_desire_effects": task.expected_desire_effects,
+                })
+            return hints
+        except Exception:
+            logger.debug("Failed to build intrinsic task hints", exc_info=True)
+            return []
+
+    def _representative_capability_ids(
+        self,
+        low_desires: list[dict[str, Any]],
+        valid_cap_ids: set[str],
+        intrinsic_hints: list[dict[str, Any]],
+    ) -> set[str]:
+        representatives: set[str] = set()
+        for guide in self._desire_action_guides(low_desires):
+            for cap_id in guide.get("preferred_capabilities", []):
+                if cap_id in valid_cap_ids:
+                    representatives.add(cap_id)
+        for hint in intrinsic_hints:
+            for cap_id in hint.get("required_capabilities", []):
+                if cap_id in valid_cap_ids:
+                    representatives.add(cap_id)
+        return representatives
+
+    def _merge_tool_sets(self, catalog: Any, tools: list[dict[str, Any]], cap_ids: set[str]) -> list[dict[str, Any]]:
+        if not cap_ids:
+            return tools
+        merged = list(tools)
+        seen = {tool.get("function", {}).get("name") for tool in merged}
+        for tool in catalog.list_for_tools(cap_ids):
+            name = tool.get("function", {}).get("name")
+            if name and name not in seen:
+                merged.append(tool)
+                seen.add(name)
+        return merged
+
+    def _call_task_generation_llm(
+        self,
+        *,
+        prompt: str,
+        tools: list[dict[str, Any]],
+        memory_meta: dict[str, Any],
+        retry: bool = False,
+    ) -> Any:
+        system_prompt = (
+            "You are AEGIS autonomous agent. Desire pressure is above threshold, so you must choose "
+            "at least one safe/read-only tool when any useful action is available. "
+            "Use the provided function calling mechanism. Do not answer with plain text instead of acting. "
+            "Do not use side-effectful actions unless the existing approval system requires approval."
+        )
+        if retry:
+            system_prompt += (
+                " Your previous response did not call a tool. This is a retry: select one concrete "
+                "tool now, preferring the lowest-risk read-only action that can reduce the pressured desire."
+            )
+        return self._llm.generate_with_tools(
+            prompt=prompt,
+            tools=tools,
+            system_prompt=system_prompt,
+            max_tokens=600,
+            context_meta=memory_meta,
+        )
+
     def _generate_tasks(self, low_desires: list[dict[str, Any]]) -> list[dict[str, Any]]:
         if not self._llm:
             logger.error("No LLM provider — cannot generate tasks")
@@ -762,7 +895,21 @@ Respond with JSON:
             logger.error("No capability catalog available — cannot generate tasks")
             return []
 
-        query_parts = [d["name"] for d in low_desires[:self._max_tasks]]
+        desire_guides = self._desire_action_guides(low_desires[:self._max_tasks])
+        intrinsic_hints = self._intrinsic_task_hints(valid_cap_ids)
+        representative_ids = self._representative_capability_ids(
+            low_desires[:self._max_tasks],
+            valid_cap_ids,
+            intrinsic_hints,
+        )
+
+        query_parts = []
+        for guide in desire_guides:
+            query_parts.append(f"{guide['desire']}: {guide['goal']}")
+            query_parts.extend(guide.get("preferred_capabilities", []))
+        for hint in intrinsic_hints:
+            query_parts.append(f"{hint['title']}: {hint['description']}")
+            query_parts.extend(hint.get("required_capabilities", []))
         query_parts.extend(
             obs.get("description", "")
             for obs in pending_observations
@@ -781,8 +928,13 @@ Respond with JSON:
                 allowed_ids=valid_cap_ids,
             )
             tools = selection.retrieved_schema_tools
+            candidate_ids = list(getattr(selection, "all_candidate_ids", []))
         else:
             tools = catalog.list_for_tools(valid_cap_ids)
+            candidate_ids = list(valid_cap_ids)
+        tools = self._merge_tool_sets(catalog, tools, representative_ids)
+        candidate_ids = list(dict.fromkeys([*representative_ids, *candidate_ids]))
+        self._last_candidate_capability_ids = candidate_ids[:50]
         if not tools:
             logger.error("No tools generated from catalog")
             return []
@@ -795,7 +947,16 @@ Recent: {action_history}
 
 Select up to {self._max_tasks} capabilities to address the low desires.
 Do NOT repeat recent actions by purpose.
-If no action is needed, do not call any tools."""
+Pressure is above threshold, so choose at least one safe/read-only action if any listed tool can help.
+
+Desire action guides:
+{json.dumps(desire_guides, ensure_ascii=False)}
+
+Intrinsic task candidates:
+{json.dumps(intrinsic_hints, ensure_ascii=False)}
+
+Candidate capability ids:
+{json.dumps(candidate_ids[:50], ensure_ascii=False)}"""
 
         prompt, memory_meta = self._build_shared_llm_prompt(
             query=retrieval_query,
@@ -806,21 +967,41 @@ If no action is needed, do not call any tools."""
         self._last_llm_call_ms = int(time.time() * 1000)
         self._last_decision_ms = self._last_llm_call_ms
         self._last_decision = "llm_requested"
-        result = self._llm.generate_with_tools(
+        result = self._call_task_generation_llm(
             prompt=prompt,
             tools=tools,
-            system_prompt=(
-                "You are AEGIS autonomous agent. You MUST use the provided tools to execute actions. "
-                "Call tools directly using the function calling mechanism. "
-                "Do NOT respond with text when a tool call is appropriate. "
-                "If no action is needed, simply respond with a brief explanation without calling any tools."
-            ),
-            max_tokens=600,
-            context_meta=memory_meta,
+            memory_meta=memory_meta,
         )
 
         if not result.success:
             logger.error("LLM task generation failed: %s", getattr(result, "error", "unknown"))
+            self._last_decision = "llm_error"
+            self._last_skip_reason = f"llm_error: {getattr(result, 'error', 'unknown')}"
+            return []
+
+        if not result.tool_calls:
+            reason = result.content[:200] if result.content else "LLM returned no tool calls"
+            self._log_audit_event(
+                action="autonomous_llm_retry",
+                capability_id="none",
+                decision="RETRY",
+                reason=reason,
+                detail={
+                    "source": "task_generation",
+                    "candidate_capability_ids": candidate_ids[:50],
+                    "desire_guides": desire_guides,
+                    "intrinsic_hints": intrinsic_hints,
+                },
+            )
+            result = self._call_task_generation_llm(
+                prompt=prompt,
+                tools=tools,
+                memory_meta=memory_meta,
+                retry=True,
+            )
+
+        if not result.success:
+            logger.error("LLM task generation retry failed: %s", getattr(result, "error", "unknown"))
             self._last_decision = "llm_error"
             self._last_skip_reason = f"llm_error: {getattr(result, 'error', 'unknown')}"
             return []
@@ -832,13 +1013,28 @@ If no action is needed, do not call any tools."""
             logger.info("LLM no_action: %s", reason)
             self._last_decision = "no_action"
             self._last_skip_reason = f"no_action: {reason}"
+            self._last_no_action_reason = reason
+            self._selected_tool_count = 0
             self._consecutive_no_action += 1
             self._log_audit_event(
                 action="autonomous_no_action",
                 capability_id="none",
-                decision="SKIP",
+                decision="FAIL",
                 reason=reason,
-                detail={"source": "task_generation", "llm_reason": reason},
+                detail={
+                    "source": "task_generation",
+                    "llm_reason": reason,
+                    "candidate_capability_ids": candidate_ids[:50],
+                },
+            )
+            self._record_failure_lesson(
+                title="Autonomous LLM returned no action",
+                content=(
+                    "Desire pressure was above threshold, but the LLM returned no executable tool "
+                    f"after retry. Reason: {reason}"
+                ),
+                related_desire=low_desires[0]["name"] if low_desires else "",
+                failure_type="llm_no_action",
             )
             return []
 
@@ -888,11 +1084,27 @@ If no action is needed, do not call any tools."""
             logger.warning("LLM returned no valid tasks")
             self._last_decision = "no_valid_tasks"
             self._last_skip_reason = "no_valid_tasks"
+            self._last_no_action_reason = "LLM returned tool calls that could not be normalized into executable tasks"
+            self._selected_tool_count = 0
             self._consecutive_no_action += 1
         else:
             self._last_decision = "action_selected"
             self._last_skip_reason = ""
+            self._last_no_action_reason = ""
+            self._selected_tool_count = len(valid_tasks)
             self._consecutive_no_action = 0
+            self._log_audit_event(
+                action="autonomous_action_selected",
+                capability_id=",".join(task["capability_id"] for task in valid_tasks),
+                decision="ALLOW",
+                reason="LLM selected autonomous actions for pressured desires",
+                detail={
+                    "selected_capability_ids": [task["capability_id"] for task in valid_tasks],
+                    "candidate_capability_ids": candidate_ids[:50],
+                    "desire_guides": desire_guides,
+                    "intrinsic_hints": intrinsic_hints,
+                },
+            )
         return valid_tasks
 
     def _available_safe_capability_ids(self) -> set[str]:
@@ -1330,16 +1542,47 @@ Rules:
             if not desire:
                 continue
 
+            capability_metadata: dict[str, Any] = {}
+            catalog = getattr(self._broker, "_catalog", None) if self._broker is not None else None
+            if catalog is not None:
+                try:
+                    manifest = catalog.resolve(capability_id)
+                    if manifest is not None:
+                        capability_metadata = {
+                            "operation_category": getattr(manifest, "operation_category", ""),
+                            "risk_level": getattr(manifest, "risk_level", ""),
+                            "side_effects": getattr(manifest, "side_effects", []),
+                            "title": getattr(manifest, "title", ""),
+                            "server_id": getattr(manifest, "server_id", ""),
+                        }
+                except Exception:
+                    logger.debug("Failed to resolve manifest for fulfillment evaluation", exc_info=True)
+
             task_result = evaluate_task_result(
                 capability_id=capability_id,
                 tool_success=success,
                 output=output,
                 desire_name=desire_name,
+                llm_provider=self._llm,
+                capability_metadata=capability_metadata,
             )
 
             logger.info(
                 "Task evaluation: cap=%s effect=%s deltas=%s",
                 capability_id, task_result.task_effect.value, task_result.desire_delta_hint,
+            )
+            self._log_audit_event(
+                action="autonomous_fulfillment_evaluated",
+                capability_id=capability_id,
+                decision=task_result.task_effect.value.upper(),
+                reason=task_result.summary,
+                detail={
+                    "desire": desire_name,
+                    "tool_success": success,
+                    "desire_delta_hint": task_result.desire_delta_hint,
+                    "details": task_result.details,
+                    "capability_metadata": capability_metadata,
+                },
             )
 
             effectiveness = {
@@ -1561,19 +1804,19 @@ Rules:
             interval = self._fallback_interval
             reason = "all pressures below threshold"
         elif high_pressure_count >= 3:
-            interval = 300
+            interval = 60
             reason = f"{high_pressure_count} desires critically pressured"
         elif fail_count > success_count and total_count > 0:
             interval = 900
             reason = f"{fail_count}/{total_count} tasks failed, backing off"
         elif total_count == 0:
-            interval = self._fallback_interval
-            reason = "no tasks executed"
+            interval = 60
+            reason = "no tasks executed while pressure remains high"
         else:
-            interval = max(600, int(self._fallback_interval * (1.0 - total_pressure / 30.0)))
+            interval = max(60, int(self._fallback_interval * (1.0 - total_pressure / 30.0)))
             reason = f"{high_pressure_count} pressured desires, managed"
 
-        interval = max(300, min(3600, interval))
+        interval = max(60, min(3600, interval))
         logger.info("Next autonomous run in %d seconds: %s", interval, reason)
         return interval
 
@@ -1694,6 +1937,10 @@ Rules:
             "tasks": self._sanitize_for_execution_log(semantic_tasks, key="tasks"),
             "results": self._sanitize_for_execution_log(results, key="results"),
             "next_run_ms": self._next_run_ms,
+            "candidate_capability_ids": self._last_candidate_capability_ids[-50:],
+            "selected_tool_count": self._selected_tool_count,
+            "last_decision": self._last_decision,
+            "last_no_action_reason": self._last_no_action_reason,
         }
         with self._lock:
             self._execution_log.append(entry)
@@ -1705,6 +1952,7 @@ Rules:
     def get_status(self) -> dict[str, Any]:
         """Get autonomous loop status."""
         now = int(time.time() * 1000)
+        next_llm_allowed_ms = self._last_llm_call_ms + self._min_llm_interval_ms if self._last_llm_call_ms else 0
         with self._lock:
             return {
                 "running": self._running,
@@ -1714,11 +1962,17 @@ Rules:
                 "execution_count": len(self._execution_log),
                 "pressure_threshold": self._pressure_threshold,
                 "min_llm_interval_ms": self._min_llm_interval_ms,
+                "llm_interval_ms": self._min_llm_interval_ms,
                 "last_llm_call_ms": self._last_llm_call_ms,
+                "next_llm_allowed_ms": next_llm_allowed_ms,
+                "seconds_until_next_llm": max(0, (next_llm_allowed_ms - now) / 1000) if next_llm_allowed_ms else 0,
                 "last_decision": self._last_decision,
                 "last_decision_ms": self._last_decision_ms,
                 "last_action_ms": self._last_action_ms,
                 "available_capability_count": self._available_capability_count,
+                "selected_tool_count": self._selected_tool_count,
+                "last_no_action_reason": self._last_no_action_reason,
+                "candidate_capability_ids": self._last_candidate_capability_ids[-50:],
                 "consecutive_no_action": self._consecutive_no_action,
                 "last_skip_reason": self._last_skip_reason,
             }

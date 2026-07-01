@@ -84,5 +84,5 @@ store.update(settings, changed_by='user', reason='Enable support')
 - Keep PC Server host-native for Windows automation on `50052`.
 - Android reconnects to AI gRPC `50051`; verify pairing token and device permissions from the Android State tab.
 - Audit review starts at `/dashboard/audit`, which groups events by chat turn, autonomous cycle, task, or approval.
-- Autonomous LLM calls are intentionally gated by `AEGIS_MIN_LLM_INTERVAL_MS=1800000` unless explicitly changed for testing.
+- Autonomous LLM calls are gated by `AEGIS_MIN_LLM_INTERVAL_MS=60000` by default. Desire observation continues every minute, but LLM calls still require pressure above threshold and provider/budget availability.
 - AGORA normal reads are unread-only. If no unread posts exist, no memory sync occurs and old posts are not reread.

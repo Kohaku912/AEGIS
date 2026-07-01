@@ -1965,7 +1965,19 @@ class DashboardApp:
         @app.route("/dashboard/autonomous")
         def autonomous_page():
             import json as json_lib
-            status_data = {"running": False, "execution_count": 0, "last_run_str": "-", "next_run_str": "-", "frustration_threshold": 2.0}
+            status_data = {
+                "running": False,
+                "execution_count": 0,
+                "last_run_str": "-",
+                "next_run_str": "-",
+                "next_llm_str": "-",
+                "frustration_threshold": 2.0,
+                "llm_interval_ms": 0,
+                "available_capability_count": 0,
+                "selected_tool_count": 0,
+                "last_decision": "",
+                "last_no_action_reason": "",
+            }
             desire_list = []
             executions = []
             observation_data = {"last_str": "-"}
@@ -1976,13 +1988,21 @@ class DashboardApp:
                     st = self._autonomous_loop.get_status()
                     status_data["running"] = st.get("running", False)
                     status_data["execution_count"] = st.get("execution_count", 0)
-                    status_data["frustration_threshold"] = st.get("frustration_threshold", 2.0)
+                    status_data["frustration_threshold"] = st.get("pressure_threshold", 2.0)
+                    status_data["llm_interval_ms"] = st.get("llm_interval_ms", st.get("min_llm_interval_ms", 0))
+                    status_data["available_capability_count"] = st.get("available_capability_count", 0)
+                    status_data["selected_tool_count"] = st.get("selected_tool_count", 0)
+                    status_data["last_decision"] = st.get("last_decision", "")
+                    status_data["last_no_action_reason"] = st.get("last_no_action_reason", "")
                     last_ms = st.get("last_run_ms", 0)
                     next_ms = st.get("next_run_ms", 0)
+                    next_llm_ms = st.get("next_llm_allowed_ms", 0)
                     if last_ms > 0:
                         status_data["last_run_str"] = time.strftime("%H:%M:%S", time.localtime(last_ms / 1000))
                     if next_ms > 0:
                         status_data["next_run_str"] = time.strftime("%H:%M:%S", time.localtime(next_ms / 1000))
+                    if next_llm_ms > 0:
+                        status_data["next_llm_str"] = time.strftime("%H:%M:%S", time.localtime(next_llm_ms / 1000))
             except Exception:
                 pass
 

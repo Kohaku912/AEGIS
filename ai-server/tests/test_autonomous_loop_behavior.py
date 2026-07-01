@@ -8,14 +8,43 @@ from aegis_ai.desire.fulfillment import TaskEffect, TaskResult
 
 
 class _Catalog:
+    def __init__(self, capability_ids: list[str] | None = None) -> None:
+        self._capability_ids = capability_ids or []
+
     def resolve(self, capability_id: str):
-        return SimpleNamespace(server_id=capability_id.split(".", 1)[0])
+        return SimpleNamespace(
+            server_id=capability_id.split(".", 1)[0],
+            input_schema={"type": "object", "properties": {}, "required": []},
+            operation_category="read",
+            risk_level="read_only",
+            side_effects=[],
+            title=capability_id,
+        )
+
+    def list_for_tools(self, cap_ids: set[str] | list[str]):
+        return [
+            {
+                "type": "function",
+                "function": {
+                    "name": capability_id.replace(".", "__").replace("-", "_"),
+                    "description": capability_id,
+                    "parameters": {"type": "object", "properties": {}},
+                },
+            }
+            for capability_id in cap_ids
+        ]
+
+    def tool_name_to_cap_id(self, tool_name: str) -> str:
+        for capability_id in self._capability_ids:
+            if capability_id.replace(".", "__").replace("-", "_") == tool_name:
+                return capability_id
+        return tool_name.replace("__", ".").replace("_server", "-server")
 
 
 class _Broker:
     def __init__(self, capability_ids: list[str]) -> None:
         self._capabilities = [SimpleNamespace(id=capability_id) for capability_id in capability_ids]
-        self._catalog = _Catalog()
+        self._catalog = _Catalog(capability_ids)
 
     def list_safe_capabilities(self):
         return self._capabilities
@@ -109,7 +138,7 @@ def test_available_capabilities_use_status_manager_not_localhost(tmp_path) -> No
     assert loop.get_status()["available_capability_count"] == 4
 
 
-def test_llm_interval_gate_waits_full_thirty_minutes(tmp_path) -> None:
+def test_llm_interval_gate_waits_one_minute(tmp_path) -> None:
     desire = _PressureDesire()
     loop = AutonomousLoop(
         llm_provider=object(),
@@ -134,6 +163,113 @@ def test_llm_interval_gate_waits_full_thirty_minutes(tmp_path) -> None:
     loop._last_pressure_signature = ""
     loop._execute_cycle()
     assert generated == [True]
+
+
+def test_same_pressure_signature_does_not_block_high_pressure_llm(tmp_path) -> None:
+    desire = _PressureDesire()
+    loop = AutonomousLoop(
+        llm_provider=object(),
+        desire_system=desire,
+        data_dir=str(tmp_path / "autonomous"),
+    )
+    loop._last_pressure_signature = desire.get_pressure_signature()
+
+    should_proceed, reason = loop._preflight_check()
+
+    assert should_proceed is True
+    assert reason == "ok"
+
+
+class _NoActionThenToolLLM:
+    def __init__(self, tool_name: str) -> None:
+        self.tool_name = tool_name
+        self.calls = 0
+
+    def generate_with_tools(self, **kwargs):
+        self.calls += 1
+        if self.calls == 1:
+            return SimpleNamespace(success=True, content="I am unsure what to do.", tool_calls=[])
+        return SimpleNamespace(
+            success=True,
+            content="",
+            tool_calls=[{"function": self.tool_name, "arguments": {}}],
+        )
+
+
+class _NoActionLLM:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def generate_with_tools(self, **kwargs):
+        self.calls += 1
+        return SimpleNamespace(success=True, content="No action.", tool_calls=[])
+
+
+def test_high_pressure_no_action_is_reprompted_once(tmp_path) -> None:
+    capability_ids = ["ai-server.memory.search"]
+    broker = _Broker(capability_ids)
+    tool_name = capability_ids[0].replace(".", "__").replace("-", "_")
+    llm = _NoActionThenToolLLM(tool_name)
+    loop = AutonomousLoop(
+        llm_provider=llm,
+        desire_system=_PressureDesire(),
+        tool_broker=broker,
+        data_dir=str(tmp_path / "autonomous"),
+    )
+    loop._log_audit_event = lambda **kwargs: None
+
+    tasks = loop._generate_tasks([{"name": "user_support", "gap": 5.0}])
+
+    assert llm.calls == 2
+    assert tasks
+    assert tasks[0]["capability_id"] == "ai-server.memory.search"
+    assert loop.get_status()["selected_tool_count"] == 1
+
+
+def test_repeated_no_action_does_not_select_or_clear_pressure(tmp_path) -> None:
+    llm = _NoActionLLM()
+    loop = AutonomousLoop(
+        llm_provider=llm,
+        desire_system=_PressureDesire(),
+        tool_broker=_Broker(["ai-server.memory.search"]),
+        data_dir=str(tmp_path / "autonomous"),
+    )
+    loop._log_audit_event = lambda **kwargs: None
+    loop._record_failure_lesson = lambda **kwargs: None
+
+    tasks = loop._generate_tasks([{"name": "user_support", "gap": 5.0}])
+
+    assert tasks == []
+    assert llm.calls == 2
+    status = loop.get_status()
+    assert status["selected_tool_count"] == 0
+    assert status["last_decision"] == "no_action"
+    assert status["last_no_action_reason"]
+
+
+def test_representative_capability_is_included_when_retriever_misses(tmp_path) -> None:
+    capability_ids = ["ai-server.memory.search", "room-server.environment.get_environment"]
+    broker = _Broker(capability_ids)
+    tool_name = "ai_server__memory__search"
+    llm = _NoActionThenToolLLM(tool_name)
+
+    class _Retriever:
+        def select_for_request(self, *args, **kwargs):
+            return SimpleNamespace(retrieved_schema_tools=[], all_candidate_ids=[])
+
+    loop = AutonomousLoop(
+        llm_provider=llm,
+        desire_system=_PressureDesire(),
+        tool_broker=broker,
+        data_dir=str(tmp_path / "autonomous"),
+    )
+    loop._capability_retriever = _Retriever()
+    loop._log_audit_event = lambda **kwargs: None
+
+    tasks = loop._generate_tasks([{"name": "user_support", "gap": 5.0}])
+
+    assert tasks[0]["capability_id"] == "ai-server.memory.search"
+    assert "ai-server.memory.search" in loop.get_status()["candidate_capability_ids"]
 
 
 def test_useful_result_reduces_pressure(monkeypatch, tmp_path) -> None:

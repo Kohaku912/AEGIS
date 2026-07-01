@@ -27,7 +27,33 @@
         <div class="label">Frustration Threshold</div>
         <div class="val accent">{{ status.frustration_threshold }}</div>
     </div>
+    <div class="stat-card">
+        <div class="label">Next LLM</div>
+        <div class="val">{{ status.next_llm_str }}</div>
+    </div>
+    <div class="stat-card">
+        <div class="label">LLM Interval</div>
+        <div class="val accent">{{ (status.llm_interval_ms / 1000)|round|int }}s</div>
+    </div>
+    <div class="stat-card">
+        <div class="label">Available Tools</div>
+        <div class="val">{{ status.available_capability_count }}</div>
+    </div>
+    <div class="stat-card">
+        <div class="label">Selected Tools</div>
+        <div class="val">{{ status.selected_tool_count }}</div>
+    </div>
 </div>
+
+{% if status.last_decision or status.last_no_action_reason %}
+<div class="card">
+    <div class="card-header">LLM Decision</div>
+    <p style="color:var(--text-muted);margin:0 0 8px 0;">{{ status.last_decision or "-" }}</p>
+    {% if status.last_no_action_reason %}
+    <div style="font-size:13px;color:var(--text-dim);white-space:pre-wrap;word-break:break-word;">{{ status.last_no_action_reason }}</div>
+    {% endif %}
+</div>
+{% endif %}
 
 <div class="card">
     <div class="card-header">Desire States</div>

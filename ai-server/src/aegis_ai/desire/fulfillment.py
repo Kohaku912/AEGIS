@@ -1,32 +1,39 @@
-"""Desire Fulfillment Rules — defines how actions fulfill desires.
+"""Desire fulfillment evaluation.
 
-Each desire has specific conditions that determine how much it was fulfilled.
-Used by the autonomous loop and chat path to evaluate task results.
-
-3 desires: user_support, social, growth.
-Health-related conditions (reliability, maintenance, system_safety) are now
-handled by HealthAlertManager, not desire fulfillment.
+The autonomous loop uses this module after a capability runs.  The preferred
+path is an LLM evaluator that receives the structured tool result and returns a
+small JSON classification.  If the LLM is unavailable, fallback logic only uses
+structured fields such as success flags and counts; it does not scan natural
+language result text.
 """
 
 from __future__ import annotations
 
+import json
+import logging
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
+from aegis_ai.llm.json_utils import extract_json_object
+
+logger = logging.getLogger("aegis_ai.desire.fulfillment")
+
 
 class TaskEffect(str, Enum):
     """Classification of task effect on desires."""
-    USEFUL = "useful"           # Action produced useful result
-    NO_EFFECT = "no_effect"     # Action succeeded but no meaningful effect
-    FAILED = "failed"           # Action failed (tool error)
-    BLOCKED = "blocked"         # Action blocked by policy
-    NEEDS_FOLLOWUP = "needs_followup"  # Action succeeded but needs follow-up
+
+    USEFUL = "useful"
+    NO_EFFECT = "no_effect"
+    FAILED = "failed"
+    BLOCKED = "blocked"
+    NEEDS_FOLLOWUP = "needs_followup"
 
 
 @dataclass
 class TaskResult:
     """Structured task result for desire evaluation."""
+
     tool_success: bool = False
     task_effect: TaskEffect = TaskEffect.NO_EFFECT
     desire_delta_hint: dict[str, float] = field(default_factory=dict)
@@ -34,44 +41,43 @@ class TaskResult:
     details: dict[str, Any] = field(default_factory=dict)
 
 
-# Desire fulfillment conditions per desire type (3 consolidated desires)
 DESIRE_FULFILLMENT = {
     "user_support": {
-        "description": "Fulfilled by completing user requests and being helpful",
+        "description": "Completing user requests and being helpful",
         "conditions": {
-            "user_request_completed": 0.8,      # User's explicit request actually completed
-            "mention_reply_created": 0.5,        # Created reply to mention
-            "useful_info_provided": 0.4,         # Provided useful information
-            "task_partially_done": 0.3,          # Task partially completed
-            "no_action_needed": 0.0,             # No action was needed
-            "tool_error": -0.3,                  # Tool execution failed
+            "user_request_completed": 0.8,
+            "mention_reply_created": 0.5,
+            "useful_info_provided": 0.4,
+            "task_partially_done": 0.3,
+            "no_action_needed": 0.0,
+            "tool_error": -0.3,
         },
     },
     "social": {
-        "description": "Fulfilled by social interactions (posting is primary, reading barely satisfies)",
+        "description": "Social interactions, with posting/replying stronger than passive reading",
         "conditions": {
-            "posted_to_agora": 1.0,              # Actually posted to AGORA (maximum satisfaction)
-            "replied_to_mention": 0.9,           # Replied to someone who mentioned AEGIS
-            "read_new_posts": 0.1,               # Read new posts (passive, barely satisfies)
-            "reactions_received": 0.5,           # Got reactions on posts (meaningful but less than posting)
-            "no_new_posts": 0.0,                 # No new posts
-            "tool_error": -0.3,                  # Tool error
+            "posted_to_agora": 1.0,
+            "replied_to_mention": 0.9,
+            "read_new_posts": 0.1,
+            "reactions_received": 0.5,
+            "no_new_posts": 0.0,
+            "tool_error": -0.3,
         },
     },
     "growth": {
-        "description": "Fulfilled by learning, exploration, creativity, and reflection",
+        "description": "Learning, exploration, creativity, and reflection",
         "conditions": {
-            "new_info_summarized": 0.5,          # Got new info, summarized and saved
-            "interesting_discovery": 0.6,        # Found something genuinely interesting
-            "web_search_results": 0.3,           # Got useful web search results
-            "creative_output": 0.6,              # Produced creative content
-            "meaningful_action": 0.5,            # Took meaningful action
-            "goal_progress": 0.4,                # Made progress toward a goal
-            "learned_new_skill": 0.6,            # Learned something new
-            "knowledge_applied": 0.4,            # Applied existing knowledge
-            "empty_results": 0.0,                # Search returned nothing useful
-            "no_progress": 0.0,                  # No progress made
-            "tool_error": -0.2,                  # Tool error
+            "new_info_summarized": 0.5,
+            "interesting_discovery": 0.6,
+            "web_search_results": 0.3,
+            "creative_output": 0.6,
+            "meaningful_action": 0.5,
+            "goal_progress": 0.4,
+            "learned_new_skill": 0.6,
+            "knowledge_applied": 0.4,
+            "empty_results": 0.0,
+            "no_progress": 0.0,
+            "tool_error": -0.2,
         },
     },
 }
@@ -82,175 +88,299 @@ def evaluate_task_result(
     tool_success: bool,
     output: dict[str, Any],
     desire_name: str = "",
+    *,
+    llm_provider: Any = None,
+    capability_metadata: dict[str, Any] | None = None,
 ) -> TaskResult:
-    """Evaluate a task result and determine its effect on desires.
+    """Evaluate the effect of a tool execution on a desire.
 
-    Args:
-        capability_id: The capability that was executed
-        tool_success: Whether the tool execution succeeded
-        output: The tool output
-        desire_name: The desire this task was targeting
-
-    Returns:
-        TaskResult with tool_success, task_effect, and desire_delta_hint
+    LLM evaluation is used when available.  Fallback classification deliberately
+    ignores natural-language result strings and relies only on structured fields.
     """
-    result = TaskResult(tool_success=tool_success)
 
     if not tool_success:
-        result.task_effect = TaskEffect.FAILED
-        result.summary = f"Tool execution failed: {output.get('error', 'unknown')}"
-        if desire_name and desire_name in DESIRE_FULFILLMENT:
-            conditions = DESIRE_FULFILLMENT[desire_name]["conditions"]
-            result.desire_delta_hint[desire_name] = conditions.get("tool_error", -0.3)
-        return result
+        return _failed_result(output, desire_name)
 
-    # Tool succeeded - classify the effect
-    result_text = str(output.get("result", "")).lower()
+    metadata = capability_metadata or {}
+    if llm_provider is not None and hasattr(llm_provider, "generate"):
+        try:
+            llm_result = _evaluate_with_llm(
+                llm_provider=llm_provider,
+                capability_id=capability_id,
+                desire_name=desire_name,
+                output=output,
+                capability_metadata=metadata,
+            )
+            if llm_result is not None:
+                return llm_result
+        except Exception as exc:
+            logger.warning("LLM desire fulfillment evaluation failed: %s", exc)
 
-    # Check for empty/no-effect results
-    if _is_no_effect(result_text, capability_id):
-        result.task_effect = TaskEffect.NO_EFFECT
-        result.summary = "Action succeeded but had no meaningful effect"
-        result.desire_delta_hint = _get_no_effect_deltas(desire_name)
-        return result
+    return _fallback_evaluate_structured(
+        capability_id=capability_id,
+        output=output,
+        desire_name=desire_name,
+        capability_metadata=metadata,
+    )
 
-    # Check for useful results
-    if _is_useful(result_text, capability_id, output):
-        result.task_effect = TaskEffect.USEFUL
-        result.summary = "Action produced useful result"
-        result.desire_delta_hint = _get_useful_deltas(desire_name, capability_id, output)
-        return result
 
-    # Check if needs follow-up
-    if _needs_followup(result_text, capability_id):
-        result.task_effect = TaskEffect.NEEDS_FOLLOWUP
-        result.summary = "Action succeeded but needs follow-up"
-        result.desire_delta_hint = _get_useful_deltas(desire_name, capability_id, output)
-        return result
-
-    # Default: useful but minor
-    result.task_effect = TaskEffect.USEFUL
-    result.summary = "Action completed"
-    result.desire_delta_hint = _get_useful_deltas(desire_name, capability_id, output)
+def _failed_result(output: dict[str, Any], desire_name: str) -> TaskResult:
+    result = TaskResult(tool_success=False, task_effect=TaskEffect.FAILED)
+    result.summary = "Tool execution failed"
+    error = output.get("error") or output.get("message") or output.get("status")
+    result.details = {"error": str(error)[:500] if error is not None else "unknown"}
+    if desire_name and desire_name in DESIRE_FULFILLMENT:
+        conditions = DESIRE_FULFILLMENT[desire_name]["conditions"]
+        result.desire_delta_hint[desire_name] = conditions.get("tool_error", -0.3)
     return result
 
 
-def _is_no_effect(result_text: str, capability_id: str) -> bool:
-    """Check if the result indicates no meaningful effect."""
-    no_effect_indicators = [
-        "no new posts",
-        "no posts",
-        "no results",
-        "no memory found",
-        "no mentions",
-        "empty",
-        "nothing found",
-        "no data",
-    ]
-    for indicator in no_effect_indicators:
-        if indicator in result_text:
-            return True
-    return False
+def _evaluate_with_llm(
+    *,
+    llm_provider: Any,
+    capability_id: str,
+    desire_name: str,
+    output: dict[str, Any],
+    capability_metadata: dict[str, Any],
+) -> TaskResult | None:
+    prompt = {
+        "instruction": (
+            "Classify whether this capability result fulfilled the target desire. "
+            "Return JSON only with keys task_effect, summary, and desire_delta_hint. "
+            "task_effect must be one of useful, no_effect, failed, blocked, needs_followup. "
+            "Do not infer from stock phrases alone; judge the structured result and capability metadata."
+        ),
+        "target_desire": desire_name,
+        "capability_id": capability_id,
+        "capability_metadata": _compact_value(capability_metadata),
+        "tool_result": _compact_value(output),
+        "allowed_desires": list(DESIRE_FULFILLMENT),
+    }
+    prompt_text = json.dumps(prompt, ensure_ascii=False)
+    try:
+        response = llm_provider.generate(
+            prompt=prompt_text,
+            system_prompt="You are AEGIS desire fulfillment evaluator. Return compact JSON only.",
+            max_tokens=300,
+            temperature=0.0,
+            json_mode=True,
+            profile="decision",
+            context_meta={"caller": "desire_fulfillment"},
+        )
+    except TypeError:
+        response = llm_provider.generate(
+            prompt=prompt_text,
+            system_prompt="You are AEGIS desire fulfillment evaluator. Return compact JSON only.",
+            max_tokens=300,
+            temperature=0.0,
+        )
+    if not getattr(response, "success", False):
+        return None
+    data = extract_json_object(getattr(response, "content", "") or "")
+    effect = _parse_effect(data.get("task_effect"))
+    if effect is None:
+        return None
+    summary = str(data.get("summary") or f"LLM classified result as {effect.value}")[:500]
+    deltas = _sanitize_deltas(data.get("desire_delta_hint"), desire_name)
+    if not deltas:
+        deltas = _default_deltas_for_effect(effect, desire_name, capability_id, output, capability_metadata)
+    return TaskResult(
+        tool_success=True,
+        task_effect=effect,
+        desire_delta_hint=deltas,
+        summary=summary,
+        details={"evaluator": "llm", "raw_effect": data.get("task_effect")},
+    )
 
 
-def _is_useful(result_text: str, capability_id: str, output: dict[str, Any]) -> bool:
-    """Check if the result is useful."""
-    useful_indicators = [
-        "found",
-        "results",
-        "posted",
-        "replied",
-        "saved",
-        "captured",
-        "executed successfully",
-        "completed",
-    ]
-    for indicator in useful_indicators:
-        if indicator in result_text:
-            return True
-    # Check for non-empty results
-    if output.get("result") and len(str(output.get("result", ""))) > 50:
-        return True
-    return False
+def _fallback_evaluate_structured(
+    *,
+    capability_id: str,
+    output: dict[str, Any],
+    desire_name: str,
+    capability_metadata: dict[str, Any],
+) -> TaskResult:
+    structured = _primary_structured_output(output)
+    if _structured_failure(structured):
+        result = _failed_result(output, desire_name)
+        result.tool_success = True
+        result.details["fallback_reason"] = "structured_failure_flag"
+        return result
 
-
-def _needs_followup(result_text: str, capability_id: str) -> bool:
-    """Check if the result needs follow-up."""
-    followup_indicators = [
-        "mentions",
-        "directed at",
-        "reply",
-        "question",
-        "request",
-    ]
-    for indicator in followup_indicators:
-        if indicator in result_text:
-            return True
-    return False
-
-
-def _get_no_effect_deltas(desire_name: str) -> dict[str, float]:
-    """Get deltas for no-effect results. These should NOT decrease desires."""
-    deltas: dict[str, float] = {}
-    if desire_name and desire_name in DESIRE_FULFILLMENT:
-        deltas[desire_name] = 0.0
-    return deltas
-
-
-def _get_useful_deltas(desire_name: str, capability_id: str, output: dict[str, Any]) -> dict[str, float]:
-    """Get deltas for useful results based on desire fulfillment conditions."""
-    deltas: dict[str, float] = {}
-
-    if not desire_name or desire_name not in DESIRE_FULFILLMENT:
-        return deltas
-
-    conditions = DESIRE_FULFILLMENT[desire_name]["conditions"]
-    result_text = str(output.get("result", "")).lower()
-
-    # Match conditions based on capability and result
-    if "agora" in capability_id:
-        if "posted" in result_text or "post" in capability_id:
-            deltas[desire_name] = conditions.get("posted_to_agora", 0.5)
-        elif "read" in capability_id:
-            if "no new" in result_text or "no posts" in result_text:
-                # AGORA no-new-posts: delta = 0.0 (do NOT increase social pressure)
-                deltas[desire_name] = 0.0
-            else:
-                deltas[desire_name] = conditions.get("read_new_posts", 0.1)
-    elif "search" in capability_id:
-        if "no results" in result_text:
-            deltas[desire_name] = conditions.get("empty_results", 0.0)
-        else:
-            deltas[desire_name] = conditions.get("web_search_results", 0.3)
-    elif "memory" in capability_id:
-        if "no memory" in result_text:
-            deltas[desire_name] = conditions.get("empty_results", 0.0)
-        else:
-            deltas[desire_name] = conditions.get("new_info_summarized", 0.3)
-    elif "screenshot" in capability_id:
-        deltas[desire_name] = conditions.get("meaningful_action", 0.2)
+    if _structured_needs_followup(structured):
+        effect = TaskEffect.NEEDS_FOLLOWUP
+        summary = "Action succeeded and structured output indicates follow-up is needed"
+    elif _structured_empty(structured):
+        effect = TaskEffect.NO_EFFECT
+        summary = "Action succeeded but structured output contains no new items"
     else:
-        deltas[desire_name] = conditions.get("meaningful_action", 0.2)
+        effect = TaskEffect.USEFUL
+        summary = "Action produced a structured result"
 
+    return TaskResult(
+        tool_success=True,
+        task_effect=effect,
+        desire_delta_hint=_default_deltas_for_effect(effect, desire_name, capability_id, structured, capability_metadata),
+        summary=summary,
+        details={"evaluator": "structured_fallback"},
+    )
+
+
+def _parse_effect(value: Any) -> TaskEffect | None:
+    if value is None:
+        return None
+    try:
+        return TaskEffect(str(value).strip().lower())
+    except ValueError:
+        return None
+
+
+def _sanitize_deltas(value: Any, desire_name: str) -> dict[str, float]:
+    if not isinstance(value, dict):
+        return {}
+    deltas: dict[str, float] = {}
+    for key, raw in value.items():
+        if key not in DESIRE_FULFILLMENT:
+            continue
+        if desire_name and key != desire_name:
+            continue
+        try:
+            deltas[key] = max(-1.0, min(1.0, float(raw)))
+        except (TypeError, ValueError):
+            continue
     return deltas
+
+
+def _default_deltas_for_effect(
+    effect: TaskEffect,
+    desire_name: str,
+    capability_id: str,
+    output: dict[str, Any],
+    capability_metadata: dict[str, Any],
+) -> dict[str, float]:
+    if not desire_name or desire_name not in DESIRE_FULFILLMENT:
+        return {}
+    if effect == TaskEffect.NO_EFFECT:
+        return {desire_name: 0.0}
+    if effect == TaskEffect.FAILED:
+        return {desire_name: DESIRE_FULFILLMENT[desire_name]["conditions"].get("tool_error", -0.2)}
+    if effect == TaskEffect.BLOCKED:
+        return {desire_name: 0.0}
+
+    base = _base_delta_for_capability(desire_name, capability_id, output, capability_metadata)
+    if effect == TaskEffect.NEEDS_FOLLOWUP:
+        base *= 0.5
+    return {desire_name: base}
+
+
+def _base_delta_for_capability(
+    desire_name: str,
+    capability_id: str,
+    output: dict[str, Any],
+    capability_metadata: dict[str, Any],
+) -> float:
+    conditions = DESIRE_FULFILLMENT[desire_name]["conditions"]
+    operation_category = str(capability_metadata.get("operation_category") or "")
+    side_effects = capability_metadata.get("side_effects") or []
+    if not isinstance(side_effects, list):
+        side_effects = [str(side_effects)]
+
+    if desire_name == "social":
+        if "post" in operation_category or capability_id.endswith(".post") or output.get("posted") is True:
+            return conditions.get("posted_to_agora", 1.0)
+        if _structured_count(output) > 0:
+            return conditions.get("read_new_posts", 0.1)
+        return conditions.get("no_new_posts", 0.0)
+    if desire_name == "growth":
+        if "browse" in operation_category or "research" in operation_category:
+            return conditions.get("web_search_results", 0.3)
+        if "workspace" in capability_id or "memory" in capability_id:
+            return conditions.get("new_info_summarized", 0.5)
+        return conditions.get("meaningful_action", 0.5)
+    if desire_name == "user_support":
+        if any(effect in {"draft_creation", "notification", "support"} for effect in side_effects):
+            return conditions.get("useful_info_provided", 0.4)
+        return conditions.get("task_partially_done", 0.3)
+    return 0.2
+
+
+def _primary_structured_output(output: dict[str, Any]) -> dict[str, Any]:
+    nested = output.get("result")
+    if isinstance(nested, dict):
+        merged = dict(output)
+        merged.update(nested)
+        return merged
+    return output
+
+
+def _structured_failure(output: dict[str, Any]) -> bool:
+    for key in ("ok", "success", "completed"):
+        if key in output and output.get(key) is False:
+            return True
+    status = output.get("status")
+    return isinstance(status, str) and status.lower() in {"error", "failed", "blocked", "denied"}
+
+
+def _structured_needs_followup(output: dict[str, Any]) -> bool:
+    if output.get("needs_followup") is True or output.get("requires_followup") is True:
+        return True
+    followups = output.get("followups") or output.get("next_actions")
+    return isinstance(followups, list) and len(followups) > 0
+
+
+def _structured_empty(output: dict[str, Any]) -> bool:
+    count_keys = ("unread_count", "count", "total", "total_count", "new_count", "match_count")
+    for key in count_keys:
+        if key in output:
+            try:
+                return int(output.get(key) or 0) == 0
+            except (TypeError, ValueError):
+                pass
+    list_keys = ("items", "posts", "results", "matches", "files", "notifications", "events")
+    for key in list_keys:
+        if key in output and isinstance(output.get(key), list):
+            return len(output[key]) == 0
+    return False
+
+
+def _structured_count(output: dict[str, Any]) -> int:
+    for key in ("unread_count", "count", "total", "total_count", "new_count", "match_count"):
+        if key in output:
+            try:
+                return int(output.get(key) or 0)
+            except (TypeError, ValueError):
+                return 0
+    for key in ("items", "posts", "results", "matches", "files", "notifications", "events"):
+        if key in output and isinstance(output.get(key), list):
+            return len(output[key])
+    return 1
+
+
+def _compact_value(value: Any, depth: int = 0) -> Any:
+    if depth > 4:
+        return "<max_depth>"
+    if isinstance(value, dict):
+        compact: dict[str, Any] = {}
+        for key, item in list(value.items())[:40]:
+            if str(key) in {"image_base64", "image_data"}:
+                compact[str(key)] = f"<image:{len(str(item))} chars>"
+            else:
+                compact[str(key)] = _compact_value(item, depth + 1)
+        if len(value) > 40:
+            compact["_truncated_keys"] = len(value) - 40
+        return compact
+    if isinstance(value, list):
+        return [_compact_value(item, depth + 1) for item in value[:20]]
+    if isinstance(value, str) and len(value) > 1000:
+        return value[:1000] + f"... <truncated {len(value) - 1000} chars>"
+    return value
 
 
 def is_health_alert(capability_id: str, result_text: str) -> bool:
-    """Check if this result should be a health alert instead of a desire update.
+    """Legacy compatibility hook.
 
-    Health-related conditions are handled by HealthAlertManager, not desires.
+    Desire fulfillment no longer classifies health alerts from natural-language
+    text. HealthAlertManager owns health classification.
     """
-    health_indicators = [
-        "disk space",
-        "disk usage",
-        "unreachable",
-        "no executor",
-        "connection refused",
-        "timed out",
-        "provider unavailable",
-    ]
-    text = result_text.lower()
-    for indicator in health_indicators:
-        if indicator in text:
-            return True
+
     return False
