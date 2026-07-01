@@ -14,9 +14,12 @@ Usage:
 
 from __future__ import annotations
 
+import base64
+import io
 import json
 import logging
 import os
+import re
 import threading
 import time
 from pathlib import Path
@@ -26,6 +29,15 @@ from aegis_ai.llm.json_utils import extract_json_object
 from aegis_ai.llm.memory_context import build_shared_memory_context
 
 logger = logging.getLogger("aegis_ai.autonomous.autonomous_loop")
+
+_LOG_TEXT_LIMIT = 2000
+_LOG_LIST_LIMIT = 20
+_LOG_DICT_LIMIT = 80
+_SENSITIVE_KEY_RE = re.compile(r"(token|secret|password|cookie|api[_-]?key|authorization|credential)", re.I)
+_SECRET_TEXT_RE = re.compile(
+    r"(?i)(bearer\s+)[A-Za-z0-9._~+/=-]{16,}|(sk-[A-Za-z0-9_-]{20,})|"
+    r"((?:token|secret|password|api[_-]?key)\s*[:=]\s*)\S+"
+)
 
 
 class AutonomousLoop:
@@ -88,6 +100,8 @@ class AutonomousLoop:
         self._status_manager = status_manager
         self._data_dir = Path(data_dir)
         self._data_dir.mkdir(parents=True, exist_ok=True)
+        self._artifact_dir = self._data_dir / "artifacts"
+        self._artifact_dir.mkdir(parents=True, exist_ok=True)
 
         self._desire_threshold = desire_threshold
         self._max_tasks = max_tasks_per_cycle
@@ -1569,6 +1583,97 @@ Rules:
             self._next_run_ms = int(time.time() * 1000) + (interval_seconds * 1000)
         logger.info("Next autonomous run scheduled in %d seconds", interval_seconds)
 
+    def _store_image_artifact(self, image_base64: str, *, mime: str = "", hint: str = "image") -> dict[str, Any]:
+        raw = base64.b64decode(image_base64, validate=False)
+        timestamp = int(time.time() * 1000)
+        safe_hint = re.sub(r"[^A-Za-z0-9_.-]+", "_", hint)[:40] or "image"
+        ext = ".png"
+        if mime == "image/jpeg":
+            ext = ".jpg"
+        elif mime == "image/webp":
+            ext = ".webp"
+        elif mime == "image/gif":
+            ext = ".gif"
+        elif raw.startswith(b"BM"):
+            ext = ".bmp"
+
+        try:
+            from PIL import Image  # type: ignore
+
+            with Image.open(io.BytesIO(raw)) as img:
+                if img.mode in {"RGBA", "LA"} or "transparency" in img.info:
+                    out_path = self._artifact_dir / f"{timestamp}_{safe_hint}.png"
+                    img.save(out_path, format="PNG", optimize=True)
+                    out_mime = "image/png"
+                else:
+                    out_path = self._artifact_dir / f"{timestamp}_{safe_hint}.jpg"
+                    img.convert("RGB").save(out_path, format="JPEG", quality=72, optimize=True)
+                    out_mime = "image/jpeg"
+                return {
+                    "artifact_path": str(out_path),
+                    "mime": out_mime,
+                    "size_bytes": out_path.stat().st_size,
+                    "original_size_bytes": len(raw),
+                }
+        except Exception:
+            pass
+
+        out_path = self._artifact_dir / f"{timestamp}_{safe_hint}{ext}"
+        out_path.write_bytes(raw)
+        return {
+            "artifact_path": str(out_path),
+            "mime": mime or "application/octet-stream",
+            "size_bytes": out_path.stat().st_size,
+            "original_size_bytes": len(raw),
+        }
+
+    def _sanitize_for_execution_log(self, value: Any, *, key: str = "", depth: int = 0) -> Any:
+        if depth > 8:
+            return "<max_depth>"
+        if _SENSITIVE_KEY_RE.search(key):
+            return "***MASKED***"
+        if key in {"image_base64", "image_data"} and isinstance(value, str) and value:
+            try:
+                return self._store_image_artifact(value, hint=key)
+            except Exception as exc:
+                return {"artifact_error": str(exc), "original_length": len(value)}
+        if isinstance(value, dict):
+            mime = str(value.get("image_mime") or value.get("mime") or "")
+            if isinstance(value.get("image_base64"), str):
+                try:
+                    compact = {
+                        str(k): self._sanitize_for_execution_log(v, key=str(k), depth=depth + 1)
+                        for k, v in value.items()
+                        if k != "image_base64"
+                    }
+                    compact["image_artifact"] = self._store_image_artifact(
+                        str(value["image_base64"]),
+                        mime=mime,
+                        hint=key or "image",
+                    )
+                    return compact
+                except Exception:
+                    pass
+            items = list(value.items())[:_LOG_DICT_LIMIT]
+            compact = {
+                str(k): self._sanitize_for_execution_log(v, key=str(k), depth=depth + 1)
+                for k, v in items
+            }
+            if len(value) > _LOG_DICT_LIMIT:
+                compact["_truncated_keys"] = len(value) - _LOG_DICT_LIMIT
+            return compact
+        if isinstance(value, list):
+            compact_list = [self._sanitize_for_execution_log(v, depth=depth + 1) for v in value[:_LOG_LIST_LIMIT]]
+            if len(value) > _LOG_LIST_LIMIT:
+                compact_list.append({"_truncated_items": len(value) - _LOG_LIST_LIMIT})
+            return compact_list
+        if isinstance(value, str):
+            masked = _SECRET_TEXT_RE.sub(lambda m: (m.group(1) or m.group(3) or "") + "***MASKED***", value)
+            if len(masked) > _LOG_TEXT_LIMIT:
+                return masked[:_LOG_TEXT_LIMIT] + f"... <truncated {len(masked) - _LOG_TEXT_LIMIT} chars>"
+            return masked
+        return value
+
     def _log_execution(self, tasks: list[dict[str, Any]], results: list[dict[str, Any]]) -> None:
         """Log execution for history with semantic summaries."""
         semantic_tasks = []
@@ -1586,8 +1691,8 @@ Rules:
 
         entry = {
             "timestamp_ms": int(time.time() * 1000),
-            "tasks": semantic_tasks,
-            "results": results,
+            "tasks": self._sanitize_for_execution_log(semantic_tasks, key="tasks"),
+            "results": self._sanitize_for_execution_log(results, key="results"),
             "next_run_ms": self._next_run_ms,
         }
         with self._lock:

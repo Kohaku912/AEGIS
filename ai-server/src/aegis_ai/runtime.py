@@ -394,6 +394,7 @@ def _build_runtime(config: Config) -> AegisRuntime:
                 "situation_model": situation_model,
                 "interruption_controller": interruption_controller,
                 "social_proxy": social_proxy,
+                "llm_provider": llm_gateway,
             },
         ),
     )
@@ -444,6 +445,7 @@ def _build_runtime(config: Config) -> AegisRuntime:
     )
     core_client = server_executor._clients.get("ai-server")
     if core_client is not None and hasattr(core_client, "_personal"):
+        core_client._personal["memory_manager"] = memory_manager
         core_client._personal["repair_manager"] = repair_manager
     tool_broker.set_repair_manager(repair_manager)
     sleep_manager = SleepManager(
@@ -582,6 +584,17 @@ def _create_autonomous_loop(runtime: AegisRuntime) -> Any:
             action_trace=action_trace,
             person_memory=person_mem,
             data_dir=os.path.join(data_dir, "autonomous"),
+        )
+    )
+    from aegis_ai.health.alert_manager import HealthAlertManager
+
+    loop.set_health_alert_manager(
+        HealthAlertManager(
+            data_dir=os.path.join(data_dir, "health"),
+            tool_broker=runtime.tool_broker,
+            llm_provider=runtime.llm_gateway,
+            status_manager=runtime.status_manager,
+            data_path=data_dir,
         )
     )
 

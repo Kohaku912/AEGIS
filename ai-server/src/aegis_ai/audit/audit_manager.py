@@ -439,9 +439,13 @@ class AuditManager:
     def _detail_summary(self, detail: Any) -> str:
         if isinstance(detail, dict):
             parts = []
+            # Prioritize showing error field if it exists
+            if detail.get("error"):
+                parts.append(f"error={str(detail['error'])[:100]}")
             for key, value in list(detail.items())[:3]:
-                parts.append(f"{key}={str(value)[:60]}")
-            return ", ".join(parts)
+                if key != "error":  # Skip error if already added
+                    parts.append(f"{key}={str(value)[:60]}")
+            return ", ".join(parts[:4])  # Show up to 4 parts
         return str(detail)[:100]
 
     def _group_summary(self, entries: list[dict[str, Any]]) -> str:

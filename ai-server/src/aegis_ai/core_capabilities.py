@@ -8,6 +8,10 @@ import os
 from pathlib import Path
 from typing import Any
 
+from aegis_ai.integrations.agora.agora_service import AgoraService
+from aegis_ai.integrations.agora.agora_types import AgoraFetchResult, AgoraPost
+from aegis_ai.memory.memory_ingest import save_memory_payload, sync_agora_posts_to_memory
+
 
 class AegisCoreCapabilityClient:
     """Executes AI-local capabilities without leaving the AI server process."""
@@ -23,6 +27,7 @@ class AegisCoreCapabilityClient:
         self._workspace.mkdir(parents=True, exist_ok=True)
         self._server_executor = server_executor
         self._personal = personal_managers or {}
+        self._agora = AgoraService()
 
     @property
     def workspace_dir(self) -> Path:
@@ -38,6 +43,10 @@ class AegisCoreCapabilityClient:
             return self._read_file(params)
         if capability_id == "ai-server.workspace.list_files":
             return self._list_files(params)
+        if capability_id.startswith("ai-server.memory."):
+            return self._memory(capability_id, params)
+        if capability_id.startswith("ai-server.agora."):
+            return self._agora_capability(capability_id, params)
         if capability_id.startswith("ai-server.user_model."):
             return self._user_model(capability_id, params)
         if capability_id.startswith("ai-server.hook."):
@@ -55,6 +64,120 @@ class AegisCoreCapabilityClient:
         if capability_id.startswith("ai-server.social."):
             return self._social(capability_id, params)
         return {"ok": False, "error": f"Unsupported AI capability: {capability_id}", "code": "UNSUPPORTED_CAPABILITY"}
+
+    @staticmethod
+    def _dataclass_to_dict(value: Any) -> Any:
+        if isinstance(value, list):
+            return [AegisCoreCapabilityClient._dataclass_to_dict(item) for item in value]
+        if isinstance(value, dict):
+            return {k: AegisCoreCapabilityClient._dataclass_to_dict(v) for k, v in value.items()}
+        if hasattr(value, "to_dict"):
+            return value.to_dict()
+        if hasattr(value, "__dict__"):
+            return {
+                key: AegisCoreCapabilityClient._dataclass_to_dict(item)
+                for key, item in value.__dict__.items()
+            }
+        return value
+
+    def _memory(self, capability_id: str, params: dict[str, Any]) -> dict[str, Any]:
+        manager = self._personal.get("memory_manager")
+        if capability_id.endswith(".save"):
+            result = save_memory_payload(
+                params,
+                data_dir=str(self._data_dir),
+                llm_provider=self._personal.get("llm_provider"),
+            )
+            return result.to_dict()
+        if capability_id.endswith(".search"):
+            query = str(params.get("query") or "").strip()
+            if not query:
+                return {"ok": False, "error": "query is required", "code": "INVALID_ARGUMENT"}
+            limit = min(max(int(params.get("limit") or 10), 1), 50)
+            if manager is not None and hasattr(manager, "search_memory"):
+                hits = manager.search_memory(query, limit=limit)
+            else:
+                from aegis_ai.memory.advanced import AdvancedMemory
+
+                advanced = AdvancedMemory(data_dir=str(self._data_dir / "memory"))
+                hits = [
+                    {"type": "fact", "content": getattr(item, "content", str(item)), "source": "advanced"}
+                    for item in advanced.search_facts(query)[:limit]
+                ]
+            return {
+                "ok": True,
+                "query": query,
+                "results": hits,
+                "result": "No memory found." if not hits else f"Found {len(hits)} memory item(s).",
+            }
+        return {"ok": False, "error": "Unsupported memory capability", "code": "UNSUPPORTED_CAPABILITY"}
+
+    def _agora_capability(self, capability_id: str, params: dict[str, Any]) -> dict[str, Any]:
+        if capability_id.endswith(".read_posts"):
+            requested_since_id = int(params.get("since_id") or 0)
+            since_id = requested_since_id
+            limit = min(max(int(params.get("limit") or 20), 1), 200)
+            cursor_before = 0
+            if since_id <= 0:
+                cursor = self._agora.get_cursor()
+                if isinstance(cursor, dict):
+                    return {"ok": False, **cursor}
+                cursor_before = int(getattr(cursor, "last_read_post_id", 0) or 0)
+                since_id = cursor_before
+            result = self._agora.read_posts(since_id=since_id, limit=limit)
+            if isinstance(result, dict):
+                return {"ok": False, **result}
+            posts = result.posts if isinstance(result, AgoraFetchResult) else []
+            if posts:
+                sync = sync_agora_posts_to_memory(
+                    posts=posts,
+                    data_dir=str(self._data_dir),
+                    llm_provider=self._personal.get("llm_provider"),
+                )
+                payload = sync.to_dict()
+                if requested_since_id <= 0 and result.max_post_id > cursor_before:
+                    self._agora.update_cursor(result.max_post_id)
+            else:
+                payload = {
+                    "ok": True,
+                    "message": "AGORA: No new posts.",
+                    "result": "AGORA: No new posts.",
+                    "summary": "AGORA: No new posts.",
+                    "posts": [],
+                    "mentions": [],
+                    "saved_people": [],
+                    "social_observations": 0,
+                    "social_episodes": 0,
+                    "advanced_conversations": 0,
+                }
+            payload.update(
+                {
+                    "ok": True,
+                    "has_new_posts": bool(posts),
+                    "max_post_id": result.max_post_id,
+                    "unread_count": len(posts),
+                    "cursor_before": cursor_before,
+                    "cursor_after": result.max_post_id if requested_since_id <= 0 and posts else cursor_before,
+                    "read_mode": "history" if requested_since_id > 0 else "unread",
+                    "fallback_recent": False,
+                }
+            )
+            return payload
+        if capability_id.endswith(".post"):
+            body = str(params.get("body") or params.get("message") or "").strip()
+            if not body:
+                return {"ok": False, "error": "body is required", "code": "INVALID_ARGUMENT"}
+            result = self._agora.create_post(
+                thread_id=int(params.get("thread_id") or 1),
+                body=body,
+                reply_to=int(params["reply_to"]) if params.get("reply_to") not in (None, "") else None,
+            )
+            if isinstance(result, dict):
+                return {"ok": False, **result}
+            if isinstance(result, AgoraPost):
+                return {"ok": True, "post": self._dataclass_to_dict(result), "result": f"Posted to AGORA as #{result.id}."}
+            return {"ok": True, "result": str(result)}
+        return {"ok": False, "error": "Unsupported AGORA capability", "code": "UNSUPPORTED_CAPABILITY"}
 
     def _resolve_workspace_path(self, raw_path: str, *, must_exist: bool = False) -> Path:
         if not raw_path or not str(raw_path).strip():

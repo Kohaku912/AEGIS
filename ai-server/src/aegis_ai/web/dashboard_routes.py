@@ -2691,7 +2691,14 @@ class DashboardApp:
             """Return active health alerts."""
             try:
                 from aegis_ai.health.alert_manager import HealthAlertManager
-                ham = HealthAlertManager(data_dir=os.path.join(_DATA_DIR, "health"))
+                ham = HealthAlertManager(
+                    data_dir=os.path.join(_DATA_DIR, "health"),
+                    tool_broker=getattr(self._runtime, "tool_broker", None),
+                    llm_provider=getattr(self._runtime, "llm_gateway", None),
+                    status_manager=getattr(self._runtime, "status_manager", None),
+                    data_path=_DATA_DIR,
+                )
+                ham.check_system_health()
                 return jsonify(ham.to_dict())
             except Exception as e:
                 return jsonify({"error": str(e)})
@@ -2712,7 +2719,13 @@ class DashboardApp:
             """Trigger a health check."""
             try:
                 from aegis_ai.health.alert_manager import HealthAlertManager
-                ham = HealthAlertManager(data_dir=os.path.join(_DATA_DIR, "health"))
+                ham = HealthAlertManager(
+                    data_dir=os.path.join(_DATA_DIR, "health"),
+                    tool_broker=getattr(self._runtime, "tool_broker", None),
+                    llm_provider=getattr(self._runtime, "llm_gateway", None),
+                    status_manager=getattr(self._runtime, "status_manager", None),
+                    data_path=_DATA_DIR,
+                )
                 new_alerts = ham.check_system_health()
                 return jsonify({"new_alerts": len(new_alerts), "alerts": [a.to_dict() for a in new_alerts]})
             except Exception as e:

@@ -79,13 +79,18 @@
                         <thead><tr><th>Time</th><th>Action</th><th>Capability</th><th>Decision</th><th>Actor</th><th>Detail</th></tr></thead>
                         <tbody>
                         {% for e in group.entries %}
-                        <tr>
+                        <tr style="{% if e.action.endswith('_failed') or e.decision in ['error', 'failed', 'deny', 'denied'] or (e.detail and e.detail.get('error')) %}background:var(--red-dim);{% endif %}">
                             <td style="font-size:11px;white-space:nowrap;color:var(--text-muted);">{{ e.time_str }}</td>
                             <td style="font-family:monospace;font-size:12px;">{{ e.action }}</td>
                             <td style="font-size:12px;">{{ e.capability_id }}</td>
-                            <td style="font-size:12px;">{{ e.decision }}</td>
+                            <td style="font-size:12px;{% if e.decision in ['error', 'failed', 'deny', 'denied'] %}color:var(--red);font-weight:600;{% endif %}">{{ e.decision }}</td>
                             <td style="font-size:12px;">{{ e.actor }}</td>
-                            <td style="font-size:11px;color:var(--text-muted);max-width:320px;">{{ e.detail_summary }}</td>
+                            <td style="font-size:11px;color:var(--text-muted);max-width:320px;">
+                                {{ e.detail_summary }}
+                                {% if e.detail and e.detail.get('error') %}
+                                <div style="color:var(--red);font-size:10px;margin-top:4px;">Error: {{ e.detail.get('error')|truncate(100) }}</div>
+                                {% endif %}
+                            </td>
                         </tr>
                         {% endfor %}
                         </tbody>
