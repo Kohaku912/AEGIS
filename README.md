@@ -113,7 +113,7 @@ cd ai-server
 - Android is the installed app and connects to AI gRPC on port `50051`.
 - Dashboard, Web Chat, and Android Home chat share `data/chat_history.jsonl`.
 - Audit Log is grouped by chat turn, autonomous cycle, task, or approval while raw events remain available.
-- Autonomous LLM calls are gated by `AEGIS_MIN_LLM_INTERVAL_MS` and default to 30 minutes.
+- Autonomous LLM calls are gated by `AEGIS_MIN_LLM_INTERVAL_MS` and default to 60 seconds when desire pressure is above threshold.
 - AGORA normal reads are unread-only; explicit positive `since_id` is history lookup and does not advance the shared cursor.
 
 ## Safety Model
