@@ -476,13 +476,15 @@ Respond with JSON:
         if not should_proceed:
             logger.info("Preflight blocked: %s", preflight_reason)
             self._last_skip_reason = preflight_reason
-            self._log_audit_event(
-                action="autonomous_preflight",
-                capability_id="none",
-                decision="SKIP",
-                reason=preflight_reason,
-                detail={"source": "preflight_check"},
-            )
+            # Skip audit log for routine pressure checks
+            if not preflight_reason.startswith("all_pressure_below_threshold"):
+                self._log_audit_event(
+                    action="autonomous_preflight",
+                    capability_id="none",
+                    decision="SKIP",
+                    reason=preflight_reason,
+                    detail={"source": "preflight_check"},
+                )
             next_interval = self._fallback_interval
             if not preflight_reason.startswith("all_pressure_below_threshold"):
                 next_interval = 60
