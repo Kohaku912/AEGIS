@@ -93,6 +93,7 @@ class ContextBuilder:
         goal_manager: Any = None,
         scheduler: Any = None,
         user_model_store: Any = None,
+        user_state_manager: Any = None,
         situation_model: Any = None,
         delegation_policy: Any = None,
         commitment_manager: Any = None,
@@ -114,6 +115,7 @@ class ContextBuilder:
         self._goals = goal_manager
         self._scheduler = scheduler
         self._user_model_store = user_model_store
+        self._user_state_manager = user_state_manager
         self._situation_model = situation_model
         self._delegation_policy = delegation_policy
         self._commitment_manager = commitment_manager
@@ -230,6 +232,11 @@ class ContextBuilder:
                 policy_lines.append(self._situation_model.to_context_string())
             except Exception:
                 situation_snapshot = {}
+        if self._user_state_manager:
+            try:
+                policy_lines.append(self._user_state_manager.to_context_string())
+            except Exception:
+                pass
         if self._user_model_store:
             try:
                 if hasattr(self._user_model_store, "relevant_context"):

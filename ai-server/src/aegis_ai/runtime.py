@@ -64,6 +64,7 @@ class AegisRuntime:
     memory_manager: Any = None
     sleep_manager: Any = None
     android_manager: Any = None
+    user_state_manager: Any = None
     user_model_store: Any = None
     hook_engine: Any = None
     commitment_manager: Any = None
@@ -100,6 +101,12 @@ class AegisRuntime:
                 hook_engine.stop()
             except Exception:
                 logger.debug("Failed to stop hook engine", exc_info=True)
+        user_state_manager = self.user_state_manager
+        if user_state_manager is not None and hasattr(user_state_manager, "stop"):
+            try:
+                user_state_manager.stop()
+            except Exception:
+                logger.debug("Failed to stop user state manager", exc_info=True)
 
     @property
     def _legacy_audit_log(self) -> Any:
@@ -333,7 +340,14 @@ def _build_runtime(config: Config) -> AegisRuntime:
 
     personal_dir = os.path.join(data_dir, "personal_ai")
     runtime_ref: dict[str, Any] = {}
-    situation_model = SituationModel(data_dir=personal_dir, event_manager=event_manager)
+    from aegis_ai.user_state import UserStateManager
+
+    user_state_manager = UserStateManager(
+        data_dir=os.path.join(data_dir, "user_state"),
+        event_manager=event_manager,
+        settings_store=settings_store,
+    )
+    situation_model = SituationModel(data_dir=personal_dir, event_manager=event_manager, user_state_manager=user_state_manager)
     delegation_policy = DelegationPolicyStore(
         data_dir=personal_dir,
         audit_manager=audit_manager,
@@ -347,6 +361,7 @@ def _build_runtime(config: Config) -> AegisRuntime:
         event_manager=event_manager,
         audit_manager=audit_manager,
         autonomous_loop_getter=lambda: getattr(runtime_ref.get("runtime"), "autonomous_loop", None),
+        user_state_manager=user_state_manager,
     )
     commitment_manager = CommitmentManager(data_dir=personal_dir, audit_manager=audit_manager, hook_engine=hook_engine)
     interruption_controller = InterruptionController(
@@ -359,6 +374,7 @@ def _build_runtime(config: Config) -> AegisRuntime:
     notification_manager.set_interruption_controller(interruption_controller)
     social_proxy = SocialProxy(data_dir=personal_dir, event_manager=event_manager, audit_manager=audit_manager)
     context_builder._situation_model = situation_model
+    context_builder._user_state_manager = user_state_manager
     context_builder._delegation_policy = delegation_policy
     context_builder._commitment_manager = commitment_manager
     from aegis_ai.integrations.android.manager import AndroidServerManager
@@ -392,6 +408,7 @@ def _build_runtime(config: Config) -> AegisRuntime:
                 "commitment_manager": commitment_manager,
                 "delegation_policy": delegation_policy,
                 "situation_model": situation_model,
+                "user_state_manager": user_state_manager,
                 "interruption_controller": interruption_controller,
                 "social_proxy": social_proxy,
                 "llm_provider": llm_gateway,
@@ -457,6 +474,16 @@ def _build_runtime(config: Config) -> AegisRuntime:
     if core_client is not None and hasattr(core_client, "_personal"):
         core_client._personal["sleep_manager"] = sleep_manager
 
+    try:
+        pc_poll_interval = int(os.getenv("AEGIS_USER_STATE_PC_POLL_INTERVAL_SECONDS", "2"))
+        user_state_manager.start_pc_poller(
+            server_executor,
+            status_manager=status_manager,
+            interval_seconds=pc_poll_interval,
+        )
+    except Exception:
+        logger.debug("Failed to start user-state PC poller", exc_info=True)
+
     runtime = AegisRuntime(
         config=config,
         data_dir=data_dir,
@@ -490,6 +517,7 @@ def _build_runtime(config: Config) -> AegisRuntime:
         memory_manager=memory_manager,
         sleep_manager=sleep_manager,
         android_manager=android_manager,
+        user_state_manager=user_state_manager,
         user_model_store=user_model_store,
         hook_engine=hook_engine,
         commitment_manager=commitment_manager,

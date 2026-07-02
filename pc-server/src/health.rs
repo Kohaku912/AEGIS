@@ -96,6 +96,11 @@ fn handle_command(cmd: &str) -> String {
             serde_json::to_string(&result.unwrap())
                 .unwrap_or_else(|_| "{\"error\":\"json\"}".into())
         }
+        "user_activity_snapshot" => {
+            let result = observe::get_user_activity_snapshot();
+            serde_json::to_string(&result.unwrap())
+                .unwrap_or_else(|_| "{\"error\":\"json\"}".into())
+        }
         "windows" => {
             let result = observe::list_windows();
             serde_json::to_string(&result.unwrap())

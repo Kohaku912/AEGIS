@@ -17,7 +17,10 @@ import sqlite3
 import threading
 import time
 import uuid
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
+
+_JST = timezone(timedelta(hours=9))
 from typing import Any
 
 from aegis_ai.audit import AuditEntry, AuditLog
@@ -570,6 +573,7 @@ class AuditManager:
         if not timestamp_ms:
             return "-"
         try:
-            return time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(timestamp_ms / 1000))
+            dt = datetime.fromtimestamp(timestamp_ms / 1000, tz=_JST)
+            return dt.strftime("%Y-%m-%d %H:%M:%S")
         except Exception:
             return "-"

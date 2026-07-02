@@ -8,6 +8,8 @@
 
 use base64::Engine;
 use serde::{Deserialize, Serialize};
+#[cfg(target_os = "windows")]
+use std::sync::Mutex;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ScreenshotResult {
@@ -45,6 +47,24 @@ pub struct ScreenSize {
     pub width: u32,
     pub height: u32,
 }
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct UserActivitySnapshot {
+    pub timestamp_ms: u64,
+    pub active_window_title: String,
+    pub process_name: String,
+    pub pid: u32,
+    pub browser_domain: String,
+    pub browser_url_hash: String,
+    pub keyboard_count: u32,
+    pub mouse_count: u32,
+    pub idle_ms: u64,
+    pub locked: bool,
+    pub fullscreen: bool,
+}
+
+#[cfg(target_os = "windows")]
+static INPUT_COUNTER_LOCK: Mutex<()> = Mutex::new(());
 
 // ═══════════════════════════════════════════════════════════
 // Screenshot — screenshots crate
@@ -118,6 +138,89 @@ pub fn get_active_window() -> Result<WindowInfo, String> {
         is_minimized: false,
         is_visible: true,
     })
+}
+
+pub fn get_user_activity_snapshot() -> Result<UserActivitySnapshot, String> {
+    let active = get_active_window()?;
+    let screen = get_screen_size();
+    let fullscreen = active.x <= 0
+        && active.y <= 0
+        && active.width >= screen.width.saturating_sub(8)
+        && active.height >= screen.height.saturating_sub(8);
+    let (keyboard_count, mouse_count) = get_input_transition_counts();
+    Ok(UserActivitySnapshot {
+        timestamp_ms: now_ms(),
+        active_window_title: active.title,
+        process_name: active.process_name,
+        pid: active.pid,
+        browser_domain: String::new(),
+        browser_url_hash: String::new(),
+        keyboard_count,
+        mouse_count,
+        idle_ms: get_idle_ms(),
+        locked: false,
+        fullscreen,
+    })
+}
+
+#[cfg(target_os = "windows")]
+fn get_input_transition_counts() -> (u32, u32) {
+    use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
+        GetAsyncKeyState, VK_LBUTTON, VK_MBUTTON, VK_RBUTTON, VK_XBUTTON1, VK_XBUTTON2,
+    };
+
+    let _guard = INPUT_COUNTER_LOCK.lock().ok();
+    let mouse_keys = [
+        VK_LBUTTON as i32,
+        VK_RBUTTON as i32,
+        VK_MBUTTON as i32,
+        VK_XBUTTON1 as i32,
+        VK_XBUTTON2 as i32,
+    ];
+    let mut keyboard_count = 0u32;
+    let mut mouse_count = 0u32;
+
+    unsafe {
+        for vk in 1..=254 {
+            let state = GetAsyncKeyState(vk);
+            if state & 0x0001 == 0 {
+                continue;
+            }
+            if mouse_keys.contains(&vk) {
+                mouse_count = mouse_count.saturating_add(1);
+            } else {
+                keyboard_count = keyboard_count.saturating_add(1);
+            }
+        }
+    }
+    (keyboard_count, mouse_count)
+}
+
+#[cfg(not(target_os = "windows"))]
+fn get_input_transition_counts() -> (u32, u32) {
+    (0, 0)
+}
+
+#[cfg(target_os = "windows")]
+fn get_idle_ms() -> u64 {
+    use windows_sys::Win32::System::SystemInformation::GetTickCount64;
+    use windows_sys::Win32::UI::Input::KeyboardAndMouse::{GetLastInputInfo, LASTINPUTINFO};
+
+    unsafe {
+        let mut info = LASTINPUTINFO {
+            cbSize: std::mem::size_of::<LASTINPUTINFO>() as u32,
+            dwTime: 0,
+        };
+        if GetLastInputInfo(&mut info) == 0 {
+            return 0;
+        }
+        GetTickCount64().saturating_sub(info.dwTime as u64)
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn get_idle_ms() -> u64 {
+    0
 }
 
 // ═══════════════════════════════════════════════════════════

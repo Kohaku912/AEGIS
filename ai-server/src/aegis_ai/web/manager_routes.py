@@ -430,6 +430,65 @@ def situation():
         return jsonify({"error": str(e)}), 500
 
 
+@manager_bp.route("/api/user-state/current")
+def user_state_current():
+    try:
+        rt = _get_runtime()
+        return jsonify(rt.user_state_manager.get_current_user_state())
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@manager_bp.route("/api/user-state/events")
+def user_state_events():
+    try:
+        rt = _get_runtime()
+        limit = max(1, min(20, int(request.args.get("limit", 20))))
+        source = request.args.get("source") or None
+        return jsonify({"events": rt.user_state_manager.get_recent_events(limit=limit, source=source)})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@manager_bp.route("/api/user-state/days")
+def user_state_days():
+    try:
+        rt = _get_runtime()
+        return jsonify(rt.user_state_manager.list_days())
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@manager_bp.route("/api/user-state/archive/run", methods=["POST"])
+def user_state_archive_run():
+    try:
+        rt = _get_runtime()
+        return jsonify(rt.user_state_manager.archive_due_logs())
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@manager_bp.route("/api/user-state/poll-pc", methods=["POST"])
+def user_state_poll_pc():
+    try:
+        rt = _get_runtime()
+        return jsonify(rt.user_state_manager.poll_pc_once(rt.server_executor))
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@manager_bp.route("/api/user-state/ingest", methods=["POST"])
+def user_state_ingest():
+    try:
+        rt = _get_runtime()
+        payload = request.get_json(silent=True) or {}
+        source = str(payload.get("source") or "dashboard")
+        event_payload = payload.get("payload") if isinstance(payload.get("payload"), dict) else payload
+        return jsonify({"event": rt.user_state_manager.ingest_event(source, event_payload)})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @manager_bp.route("/api/interruption", methods=["GET"])
 def interruption():
     try:
