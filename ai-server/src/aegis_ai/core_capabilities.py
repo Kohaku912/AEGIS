@@ -82,6 +82,31 @@ class AegisCoreCapabilityClient:
 
     def _memory(self, capability_id: str, params: dict[str, Any]) -> dict[str, Any]:
         manager = self._personal.get("memory_manager")
+        if capability_id.endswith(".sleep"):
+            sleep_manager = self._personal.get("sleep_manager")
+            if sleep_manager is None:
+                return {"ok": False, "error": "SleepManager unavailable", "code": "BACKEND_UNAVAILABLE"}
+            reason = str(params.get("reason") or "manual").strip() or "manual"
+            try:
+                started = bool(sleep_manager.start_sleep(reason=reason))
+                status = sleep_manager.get_status() if hasattr(sleep_manager, "get_status") else {}
+                if not started:
+                    return {
+                        "ok": True,
+                        "started": False,
+                        "state": status.get("state", "running"),
+                        "status": status,
+                        "result": "Memory sleep is already running.",
+                    }
+                return {
+                    "ok": True,
+                    "started": True,
+                    "state": status.get("state", "running"),
+                    "status": status,
+                    "result": "Memory sleep consolidation has started.",
+                }
+            except Exception as exc:
+                return {"ok": False, "error": str(exc), "code": "SLEEP_START_FAILED"}
         if capability_id.endswith(".save"):
             result = save_memory_payload(
                 params,

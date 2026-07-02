@@ -42,6 +42,52 @@
     {% endif %}
 </div>
 
+<div class="card">
+    <div class="card-header">AEGIS Control Surface</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;">
+        {% set modules = [
+            ("System State", "/dashboard/servers", "Servers, Docker/host health, Android/PC/Room connectivity", "Servers"),
+            ("Capability Control", "/dashboard/capabilities", "Risk edits, live registry, capability test execution", "Capabilities"),
+            ("Approvals", "/dashboard/approvals", "Pending approvals, reason review, approve/reject", "Approvals"),
+            ("Tasks", "/dashboard/tasks", "Task lifecycle, waiting steps, execution state", "Tasks"),
+            ("Events", "/dashboard/events", "Event bus, hooks, self-call traces, dead letters", "Events"),
+            ("Audit", "/dashboard/audit", "Grouped chat/autonomous/task evidence and raw entries", "Audit"),
+            ("Errors", "/dashboard/errors", "Runtime errors, log tail, recent failures", "Errors"),
+            ("Health", "/dashboard/health", "System health alerts and repair signals", "Health"),
+            ("Memory", "/dashboard/memory", "Memory search, stats, consolidation state", "Memory"),
+            ("Desires", "/dashboard/desires", "Pressure, desire values, autonomous trigger context", "Desires"),
+            ("Autonomous", "/dashboard/autonomous", "LLM cadence, selected tools, autonomous execution log", "Autonomous"),
+            ("Learning", "/dashboard/learning", "Skills, lessons, action traces, sleep consolidation", "Learning"),
+            ("Prompt Analysis", "/dashboard/prompt-analysis", "Prompt usage, unused context, token reduction candidates", "Prompts"),
+            ("Personal AI", "/dashboard/personal-ai", "Hooks, commitments, delegation, situation, interruption, repair", "Personal AI"),
+            ("AGORA", "/dashboard/agora", "Unread-only AGORA state, cursor, mentions", "AGORA"),
+            ("LLM Config", "/dashboard/llm-config", "Model profiles, local/cloud routing, tool/vision settings", "LLM"),
+            ("Settings", "/settings", "Persistent runtime settings and privacy controls", "Settings"),
+            ("Web Chat", "/chat", "Standalone chat surface with shared history", "Chat")
+        ] %}
+        {% for title, href, desc, badge in modules %}
+        <a href="{{ href }}" style="display:block;text-decoration:none;color:inherit;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:14px;">
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px;">
+                <span style="font-weight:700;font-size:14px;">{{ title }}</span>
+                <span class="badge badge-gray">{{ badge }}</span>
+            </div>
+            <div style="font-size:12px;color:var(--text-muted);line-height:1.45;">{{ desc }}</div>
+        </a>
+        {% endfor %}
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header">Quick Operations</div>
+    <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;">
+        <button class="btn btn-primary" onclick="triggerMemorySleep()">Start Memory Sleep</button>
+        <a class="btn btn-ghost" href="/dashboard/personal-ai">Review Hooks / Commitments</a>
+        <a class="btn btn-ghost" href="/dashboard/approvals">Review Approvals</a>
+        <a class="btn btn-ghost" href="/dashboard/capabilities">Manage Capability Risk</a>
+        <span id="sleepResult" style="font-size:12px;color:var(--text-muted);"></span>
+    </div>
+</div>
+
 <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px;">
 
     <!-- Servers -->
@@ -213,4 +259,17 @@
     {% endif %}
 
 </div>
+<script>
+async function triggerMemorySleep() {
+    const out = document.getElementById('sleepResult');
+    out.textContent = 'Starting...';
+    try {
+        const res = await fetch('/api/memory/sleep', {method: 'POST'});
+        const data = await res.json();
+        out.textContent = data.status || data.state || (data.ok ? 'started' : JSON.stringify(data));
+    } catch (err) {
+        out.textContent = String(err);
+    }
+}
+</script>
 {% endblock %}

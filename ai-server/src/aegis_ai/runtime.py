@@ -454,6 +454,8 @@ def _build_runtime(config: Config) -> AegisRuntime:
         audit_manager=audit_manager,
         llm_gateway=llm_gateway,
     )
+    if core_client is not None and hasattr(core_client, "_personal"):
+        core_client._personal["sleep_manager"] = sleep_manager
 
     runtime = AegisRuntime(
         config=config,

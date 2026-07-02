@@ -362,11 +362,10 @@ OR if the goal should not be executed:
         if "error" in subtask.output:
             return "has_error"
 
-        if subtask.capability_id.startswith("agora."):
-            if "post_id" in subtask.output:
-                return "verified"
-            if "posts" in subtask.output or "mentions" in subtask.output:
-                return "verified"
+        if "post_id" in subtask.output:
+            return "verified"
+        if "posts" in subtask.output or "mentions" in subtask.output:
+            return "verified"
 
         return "passed"
 

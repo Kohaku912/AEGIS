@@ -1,0 +1,130 @@
+{% extends "dashboard/base.html" %}
+{% block title %}AEGIS - Prompt Analysis{% endblock %}
+{% block topbar_title %}Prompt Analysis{% endblock %}
+{% block content %}
+<h1>Prompt Usage Analysis</h1>
+
+<div class="stat-grid">
+    <div class="stat-card">
+        <div class="label">Prompts Analyzed</div>
+        <div class="val">{{ report.prompts_analyzed|default(0) }}</div>
+    </div>
+    <div class="stat-card">
+        <div class="label">Estimated Prompt Tokens</div>
+        <div class="val">{{ report.estimated_prompt_tokens|default(0) }}</div>
+    </div>
+    <div class="stat-card">
+        <div class="label">Candidate Savings</div>
+        <div class="val accent">{{ report.candidate_savings_tokens|default(0) }}</div>
+    </div>
+    <div class="stat-card">
+        <div class="label">Status</div>
+        <div class="val">{{ report.analysis_status|default("none") }}</div>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header">Run Analysis</div>
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+        <label style="font-size:12px;color:var(--text-muted);">Hours
+            <input id="analysisHours" type="number" min="1" max="168" value="{{ report.hours|default(24) }}" style="width:80px;margin-left:6px;">
+        </label>
+        <label style="font-size:12px;color:var(--text-muted);">Max prompts
+            <input id="analysisMaxPrompts" type="number" min="1" max="100" value="{{ report.prompts_analyzed|default(20) or 20 }}" style="width:90px;margin-left:6px;">
+        </label>
+        <button class="btn btn-primary" onclick="runPromptAnalysis()">Analyze</button>
+        <span id="analysisResult" style="font-size:12px;color:var(--text-muted);"></span>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header">Potentially Unused Sections</div>
+    {% if report.section_summary %}
+    <div style="overflow-x:auto;">
+        <table>
+            <thead>
+                <tr><th>Section</th><th>Count</th><th>Unused</th><th>Unused Ratio</th><th>Tokens</th><th>Candidate Savings</th><th>Evidence / Suggestion</th></tr>
+            </thead>
+            <tbody>
+            {% for item in report.section_summary %}
+            <tr>
+                <td style="font-weight:600;">{{ item.title }}</td>
+                <td>{{ item.count }}</td>
+                <td>{{ item.unused }}</td>
+                <td>{{ item.unused_ratio }}</td>
+                <td>{{ item.estimated_tokens }}</td>
+                <td>{{ item.candidate_savings_tokens }}</td>
+                <td style="font-size:12px;color:var(--text-muted);max-width:420px;">
+                    {% for example in item.examples %}
+                    <div>{{ example }}</div>
+                    {% endfor %}
+                </td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <div style="padding:20px;color:var(--text-muted);">No prompt usage report yet. Run analysis to generate one.</div>
+    {% endif %}
+</div>
+
+<div class="card">
+    <div class="card-header">Analyzed Records</div>
+    {% if report.records %}
+    <div style="display:flex;flex-direction:column;gap:12px;">
+        {% for record in report.records[:10] %}
+        <details style="border:1px solid var(--border);border-radius:8px;padding:12px;background:var(--surface2);">
+            <summary style="cursor:pointer;font-weight:600;">{{ record.action }} / {{ record.model }} / {{ record.estimated_prompt_tokens }} tokens</summary>
+            <div style="overflow-x:auto;margin-top:10px;">
+                <table>
+                    <thead><tr><th>Section</th><th>Usage</th><th>Confidence</th><th>Tokens</th><th>Evidence</th><th>Suggestion</th></tr></thead>
+                    <tbody>
+                    {% for section in record.sections %}
+                    <tr>
+                        <td>{{ section.title }}</td>
+                        <td><span class="badge {% if section.usage == 'unused' %}badge-red{% elif section.usage == 'used' %}badge-green{% else %}badge-yellow{% endif %}">{{ section.usage }}</span></td>
+                        <td>{{ section.confidence }}</td>
+                        <td>{{ section.estimated_tokens }}</td>
+                        <td style="font-size:12px;color:var(--text-muted);">{{ section.evidence }}</td>
+                        <td style="font-size:12px;color:var(--text-muted);">{{ section.suggestion }}</td>
+                    </tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </details>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div style="padding:20px;color:var(--text-muted);">No analyzed records.</div>
+    {% endif %}
+</div>
+
+<script>
+async function runPromptAnalysis() {
+    const out = document.getElementById('analysisResult');
+    out.textContent = 'Analyzing...';
+    try {
+        const response = await fetch('/api/prompt-analysis/run', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                hours: Number(document.getElementById('analysisHours').value || 24),
+                max_prompts: Number(document.getElementById('analysisMaxPrompts').value || 20)
+            })
+        });
+        const data = await response.json();
+        if (!data.ok) {
+            out.textContent = data.error || 'Analysis failed';
+            return;
+        }
+        out.textContent = `Done: ${data.report.prompts_analyzed} prompts, ${data.report.candidate_savings_tokens} candidate tokens`;
+        setTimeout(() => window.location.reload(), 800);
+    } catch (err) {
+        out.textContent = String(err);
+    }
+}
+</script>
+{% endblock %}
+

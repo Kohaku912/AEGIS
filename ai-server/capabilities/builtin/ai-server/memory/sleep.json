@@ -1,0 +1,22 @@
+{
+  "title": "Memory Sleep (Consolidation)",
+  "description": "Trigger AEGIS memory consolidation sleep. Use this when the user says things like 'sleep', 'go to sleep', 'sleep now', '睡眠して', '寝て', or asks AEGIS to organize memories. This starts SleepManager and lets it consolidate memories, lessons, action traces, and summaries.",
+  "server_id": "ai-server",
+  "app_id": "memory",
+  "action": "sleep",
+  "operation_category": "memory",
+  "risk": {"level": "low", "side_effects": [], "requires_approval": false},
+    "tags": ["builtin", "memory", "consolidation", "sleep"],
+  "examples": [
+    {"user": "睡眠して", "arguments": {"reason": "user requested sleep"}},
+    {"user": "AEGIS、寝て記憶を整理して", "arguments": {"reason": "user requested memory consolidation"}},
+    {"user": "go to sleep and consolidate memories", "arguments": {"reason": "user requested sleep"}}
+  ],
+  "only_master": false,
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "reason": {"type": "string", "description": "Reason for triggering consolidation", "default": "manual"}
+    }
+  }
+}

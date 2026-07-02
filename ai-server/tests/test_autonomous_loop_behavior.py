@@ -284,6 +284,7 @@ def test_useful_result_reduces_pressure(monkeypatch, tmp_path) -> None:
         lambda **kwargs: TaskResult(
             tool_success=True,
             task_effect=TaskEffect.USEFUL,
+            pressure_reduction=0.7,
             desire_delta_hint={"growth": 0.5},
             summary="Useful",
         ),
@@ -296,12 +297,12 @@ def test_useful_result_reduces_pressure(monkeypatch, tmp_path) -> None:
         "full_output": {"result": "Useful result"},
     }])
 
-    assert desire.reductions == [("growth", 1.0)]
+    assert desire.reductions == [("growth", 0.7)]
     assert desire.dimension.value == 2.5
     assert desire.saved is True
 
 
-def test_needs_followup_uses_half_pressure_reduction(monkeypatch, tmp_path) -> None:
+def test_pressure_reduction_comes_from_llm_result(monkeypatch, tmp_path) -> None:
     desire = _PressureDesire()
     loop = AutonomousLoop(
         desire_system=desire,
@@ -312,6 +313,7 @@ def test_needs_followup_uses_half_pressure_reduction(monkeypatch, tmp_path) -> N
         lambda **kwargs: TaskResult(
             tool_success=True,
             task_effect=TaskEffect.NEEDS_FOLLOWUP,
+            pressure_reduction=0.25,
             desire_delta_hint={"growth": 0.2},
             summary="Needs follow-up",
         ),
@@ -324,7 +326,7 @@ def test_needs_followup_uses_half_pressure_reduction(monkeypatch, tmp_path) -> N
         "full_output": {"result": "Partial result"},
     }])
 
-    assert desire.reductions == [("growth", 0.5)]
+    assert desire.reductions == [("growth", 0.25)]
 
 
 def test_no_effect_does_not_reduce_pressure(monkeypatch, tmp_path) -> None:
