@@ -29,6 +29,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
+import java.security.MessageDigest
 import java.util.UUID
 import java.util.concurrent.TimeUnit
 
@@ -231,7 +232,7 @@ class AegisGrpcClient private constructor(
         isOngoing: Boolean,
         isClearable: Boolean,
     ): Boolean {
-        val payload = """{"package_name":${jsonString(packageName)},"app_name":${jsonString(appName)},"title":${jsonString(title)},"text":${jsonString(text)},"posted_ms":$postedMs,"is_ongoing":$isOngoing,"is_clearable":$isClearable}"""
+        val payload = """{"package_name":${jsonString(packageName)},"app_name":${jsonString(appName)},"title_hash":${jsonString(sha256(title))},"text_hash":${jsonString(sha256(text))},"posted_ms":$postedMs,"is_ongoing":$isOngoing,"is_clearable":$isClearable,"metadata_only":true}"""
         return sendEvent(
             eventType = "android.notification.posted",
             payloadJson = payload,
@@ -252,6 +253,16 @@ class AegisGrpcClient private constructor(
                 eventType = "android.foreground_app.changed",
                 payloadJson = payload,
                 dedupeKey = "android.foreground_app.changed:${config.deviceId}:$packageName",
+            )
+        }
+    }
+
+    fun pushUserActivity(payloadJson: String) {
+        scope.launch {
+            sendEvent(
+                eventType = "android.user_activity.changed",
+                payloadJson = payloadJson,
+                dedupeKey = "android.user_activity.changed:${config.deviceId}:${payloadJson.hashCode()}",
             )
         }
     }
@@ -656,6 +667,11 @@ class AegisGrpcClient private constructor(
             .replace("\"", "\\\"")
             .replace("\n", "\\n")
             .replace("\r", "\\r") + "\""
+    }
+
+    private fun sha256(value: String): String {
+        val digest = MessageDigest.getInstance("SHA-256").digest(value.toByteArray(Charsets.UTF_8))
+        return digest.joinToString("") { "%02x".format(it) }
     }
 
     private fun supportsSendChat(version: String): Boolean {

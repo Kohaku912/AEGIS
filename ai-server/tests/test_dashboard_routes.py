@@ -25,6 +25,7 @@ def _runtime(tmp_path):
     from aegis_ai.audit.audit_manager import AuditManager
     from aegis_ai.memory.memory_manager import MemoryManager
     from aegis_ai.user_model import UserModelStore
+    from aegis_ai.user_state import UserStateManager
     from aegis_ai.personal_ai import (
         CommitmentManager,
         DelegationPolicyStore,
@@ -50,9 +51,10 @@ def _runtime(tmp_path):
     audit_manager = AuditManager(audit_log=audit_log, data_dir=str(data_dir))
     status_manager = StatusManager(event_manager=event_manager)
     memory_manager = MemoryManager(event_manager=event_manager)
+    user_state_manager = UserStateManager(data_dir=str(data_dir / "user_state"), event_manager=event_manager)
     user_model_store = UserModelStore(data_dir=str(data_dir / "user_model"))
     personal_dir = str(data_dir / "personal_ai")
-    situation_model = SituationModel(data_dir=personal_dir, event_manager=event_manager)
+    situation_model = SituationModel(data_dir=personal_dir, event_manager=event_manager, user_state_manager=user_state_manager)
     delegation_policy = DelegationPolicyStore(data_dir=personal_dir, audit_manager=audit_manager, user_model_store=user_model_store)
     hook_engine = HookEngine(data_dir=personal_dir, tool_broker=broker, capability_catalog=catalog, event_manager=event_manager)
     commitment_manager = CommitmentManager(data_dir=personal_dir, audit_manager=audit_manager, hook_engine=hook_engine)
@@ -80,6 +82,7 @@ def _runtime(tmp_path):
         event_manager=event_manager,
         audit_manager=audit_manager,
         memory_manager=memory_manager,
+        user_state_manager=user_state_manager,
         user_model_store=user_model_store,
         hook_engine=hook_engine,
         commitment_manager=commitment_manager,
@@ -162,6 +165,35 @@ def test_dashboard_prompt_analysis_page_and_api(monkeypatch, tmp_path) -> None:
     assert payload["report"]["prompts_analyzed"] == 1
     assert (tmp_path / "data" / "reports" / "prompt_usage_latest.json").exists()
     assert (tmp_path / "data" / "reports" / "prompt_usage_latest.html").exists()
+
+
+def test_dashboard_user_state_page_and_api(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(dashboard_routes, "_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setattr(dashboard_routes.DashboardApp, "_start_autonomous_loop", lambda self: None)
+    rt = _runtime(tmp_path)
+    rt.user_state_manager.ingest_event(
+        "pc-server",
+        {
+            "event_type": "pc.user_activity.snapshot",
+            "process_name": "Code.exe",
+            "keyboard_count": 2,
+            "mouse_count": 1,
+            "idle_ms": 1000,
+        },
+    )
+    client = dashboard_routes.DashboardApp(runtime=rt).app.test_client()
+
+    page = client.get("/dashboard/user-state")
+    assert page.status_code == 200
+    assert b"User State" in page.data
+
+    current = client.get("/api/user-state/current")
+    assert current.status_code == 200
+    assert current.get_json()["attention"]["device"] == "pc"
+
+    events = client.get("/api/user-state/events")
+    assert events.status_code == 200
+    assert events.get_json()["events"]
 
 
 def test_dashboard_chat_redirects_to_web_chat(monkeypatch, tmp_path) -> None:

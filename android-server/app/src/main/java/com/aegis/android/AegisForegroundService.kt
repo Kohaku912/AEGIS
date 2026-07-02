@@ -12,6 +12,7 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.RemoteInput
 import com.aegis.android.grpc.AegisGrpcClient
 import com.aegis.android.provider.DeviceProvider
+import com.aegis.android.provider.UserActivityCollector
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -39,6 +40,7 @@ class AegisForegroundService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private lateinit var grpcClient: AegisGrpcClient
     private lateinit var deviceProvider: DeviceProvider
+    private lateinit var userActivityCollector: UserActivityCollector
     private var notificationConversationId = "android_notification_${System.currentTimeMillis()}"
 
     override fun onCreate() {
@@ -51,6 +53,7 @@ class AegisForegroundService : Service() {
 
         grpcClient = AegisGrpcClient.getInstance(this)
         deviceProvider = DeviceProvider(this)
+        userActivityCollector = UserActivityCollector(this)
 
         scope.launch {
             var delayIndex = 0
@@ -92,6 +95,9 @@ class AegisForegroundService : Service() {
                             batteryLevel = device.batteryLevel,
                             screenOn = device.screenOn,
                         )
+                        userActivityCollector.collectIfChanged()?.let { payload ->
+                            grpcClient.pushUserActivity(payload.toString())
+                        }
                     }
                 } catch (e: Exception) {
                     Log.e(TAG, "Error pushing device state", e)

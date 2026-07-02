@@ -47,6 +47,14 @@ class InterruptionController:
             except Exception:
                 pass
         situation = self._situation_model.get_state() if self._situation_model is not None else {}
+        activity = situation.get("activity", {}) if isinstance(situation.get("activity"), dict) else {}
+        attention = situation.get("attention", {}) if isinstance(situation.get("attention"), dict) else {}
+        activity_label = str(activity.get("label") or situation.get("state") or "unknown")
+        attention_label = str(attention.get("label") or "")
+        if activity_label in {"sleeping", "away"}:
+            return {"decision": "batch_later", "reason": f"User activity is {activity_label}."}
+        if activity_label in {"gaming", "watching_video", "focused"} or attention_label.endswith("_active") and activity_label in {"chatting"}:
+            return {"decision": "batch_later", "reason": f"User attention is occupied: {activity_label}."}
         mode = situation.get("interruptibility", "unknown")
         if mode == "suppress":
             return {"decision": "batch_later", "reason": f"Situation is {situation.get('state')}."}

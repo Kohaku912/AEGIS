@@ -593,6 +593,10 @@
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a7 7 0 017 7c0 5-7 13-7 13S5 14 5 9a7 7 0 017-7z"/><circle cx="12" cy="9" r="2"/></svg>
             Hooks / Commitments
         </a>
+        <a class="nav-item {% if '/user-state' in request.path %}active{% endif %}" href="/dashboard/user-state">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v18"/><path d="M3 12h18"/><circle cx="12" cy="12" r="3"/><path d="M5 5l4 4M19 5l-4 4M5 19l4-4M19 19l-4-4"/></svg>
+            User State
+        </a>
 
         <div class="nav-section">Intelligence</div>
         <a class="nav-item {% if '/llm-config' in request.path %}active{% endif %}" href="/dashboard/llm-config">

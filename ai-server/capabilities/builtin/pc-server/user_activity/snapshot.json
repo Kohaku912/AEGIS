@@ -1,0 +1,13 @@
+{
+  "id": "pc-server.user_activity.snapshot",
+  "title": "Get PC user activity snapshot",
+  "description": "Return a low-volume, privacy-preserving PC activity snapshot for user state inference. Does not include raw keystrokes, clipboard contents, messages, or secrets.",
+  "server_id": "pc-server",
+  "app_id": "user_activity",
+  "action": "snapshot",
+  "operation_category": "read_only",
+  "risk": {"level": "low", "side_effects": [], "requires_approval": false},
+  "tags": ["pc", "observe", "activity", "read_only"],
+  "params": {"type": "object", "properties": {}, "additionalProperties": false},
+  "tcp_command": "user_activity_snapshot"
+}

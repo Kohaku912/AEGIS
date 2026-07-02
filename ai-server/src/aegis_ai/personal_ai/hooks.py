@@ -97,6 +97,7 @@ class HookEngine:
         event_manager: Any = None,
         audit_manager: Any = None,
         autonomous_loop_getter: Any = None,
+        user_state_manager: Any = None,
         poll_interval_seconds: int = 10,
     ) -> None:
         self._state = JsonStateFile(Path(data_dir) / "hooks.json", {"hooks": []})
@@ -106,6 +107,7 @@ class HookEngine:
         self._event_manager = event_manager
         self._audit_manager = audit_manager
         self._autonomous_loop_getter = autonomous_loop_getter
+        self._user_state_manager = user_state_manager
         self._poll_interval_seconds = max(1, poll_interval_seconds)
         self._hooks: dict[str, Hook] = {}
         self._last_values: dict[str, Any] = {}
@@ -304,7 +306,13 @@ class HookEngine:
             return False
         op = str(condition.get("op") or "exists")
         path = str(condition.get("path") or "")
-        current = self._get_path(value, path)
+        value_with_context = dict(value or {})
+        if path.startswith("user_state.") and self._user_state_manager is not None:
+            try:
+                value_with_context["user_state"] = self._user_state_manager.get_current_user_state()
+            except Exception:
+                value_with_context["user_state"] = {}
+        current = self._get_path(value_with_context, path)
         expected = condition.get("value")
         key = hook.dedupe_key or f"{hook.hook_id}:{path}"
         if op == "changed":

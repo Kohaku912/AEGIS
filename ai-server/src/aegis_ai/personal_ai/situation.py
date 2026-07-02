@@ -14,9 +14,10 @@ from aegis_ai.personal_ai.storage import JsonStateFile, now_ms
 class SituationModel:
     """Tracks current user/system situation with evidence."""
 
-    def __init__(self, data_dir: str = "data/personal_ai", event_manager: Any = None) -> None:
+    def __init__(self, data_dir: str = "data/personal_ai", event_manager: Any = None, user_state_manager: Any = None) -> None:
         self._state_file = JsonStateFile(Path(data_dir) / "situation.json", {})
         self._event_manager = event_manager
+        self._user_state_manager = user_state_manager
         self._state = {
             "state": "unknown",
             "interruptibility": "unknown",
@@ -32,42 +33,76 @@ class SituationModel:
                 pass
 
     def get_state(self) -> dict[str, Any]:
+        if self._user_state_manager is not None:
+            try:
+                user_state = self._user_state_manager.get_current_user_state()
+                return self._state_from_user_state(user_state)
+            except Exception:
+                pass
         return dict(self._state)
 
     def update_from_observation(self, source: str, payload: dict[str, Any]) -> dict[str, Any]:
-        if any(k in payload for k in ("device_type", "activity", "foreground_app", "screen_state", "presence", "focus_mode")):
+        if self._user_state_manager is not None and source in {"android", "pc", "browser", "room", "webhook"}:
+            self._user_state_manager.ingest_event(source, payload)
+            return self.get_state()
+        if "user_state" in payload and isinstance(payload.get("user_state"), dict):
+            return self.update_from_user_state(payload["user_state"])
+        if any(k in payload for k in ("device_type", "activity", "foreground_app", "screen_state", "presence", "focus_mode", "mode")):
             return self.update_from_structured_observation(source, payload)
-        state = "working"
-        interruptibility = "interruptible"
-        confidence = 0.45
-        text = " ".join(str(v).lower() for v in payload.values())
-        if any(term in text for term in ("game", "steam", "fullscreen")):
-            state, interruptibility, confidence = "game", "important_only", 0.65
-        if any(term in text for term in ("sleep", "doze", "screen_off", "locked")):
-            state, interruptibility, confidence = "sleeping", "suppress", 0.7
-        if any(term in text for term in ("error", "exception", "failed", "degraded")):
-            state, interruptibility, confidence = "error_handling", "interruptible", 0.6
-        if any(term in text for term in ("focus", "presentation", "meeting")):
-            state, interruptibility, confidence = "focused", "important_only", 0.7
         evidence = list(self._state.get("evidence", []))[-19:]
         evidence.append({"source": source, "payload": payload, "timestamp": now_ms()})
         self._state = {
-            "state": state,
-            "interruptibility": interruptibility,
-            "confidence": confidence,
+            "state": "unknown",
+            "interruptibility": "unknown",
+            "confidence": 0.0,
             "evidence": evidence,
             "updated_at": now_ms(),
         }
         self._save()
         return self.get_state()
 
+    def update_from_user_state(self, user_state: dict[str, Any]) -> dict[str, Any]:
+        self._state = self._state_from_user_state(user_state)
+        self._save()
+        return self.get_state()
+
+    def _state_from_user_state(self, user_state: dict[str, Any]) -> dict[str, Any]:
+        activity = user_state.get("activity", {}) if isinstance(user_state.get("activity"), dict) else {}
+        where = user_state.get("where", {}) if isinstance(user_state.get("where"), dict) else {}
+        attention = user_state.get("attention", {}) if isinstance(user_state.get("attention"), dict) else {}
+        label = str(activity.get("label") or "unknown")
+        confidence = float(activity.get("confidence") or attention.get("confidence") or where.get("confidence") or 0.0)
+        interruptibility = "interruptible"
+        if label in {"sleeping"}:
+            interruptibility = "suppress"
+        elif label in {"gaming", "watching_video", "focused"}:
+            interruptibility = "important_only"
+        elif label in {"away"} or str(where.get("label")) == "away":
+            interruptibility = "batch_later"
+        evidence = []
+        evidence.extend(where.get("evidence") or [])
+        evidence.extend(attention.get("evidence") or [])
+        evidence.extend(activity.get("evidence") or [])
+        return {
+            "state": label,
+            "interruptibility": interruptibility,
+            "confidence": round(confidence, 3),
+            "where": where,
+            "attention": attention,
+            "activity": activity,
+            "evidence": evidence[-10:],
+            "user_state": user_state,
+            "updated_at": user_state.get("updated_at_ms") or now_ms(),
+        }
+
     def update_from_structured_observation(self, source: str, observation: dict[str, Any]) -> dict[str, Any]:
         """Update situation from normalized observation fields."""
         activity = str(observation.get("activity") or "").lower()
+        mode = str(observation.get("mode") or "").lower()
         app = str(observation.get("foreground_app") or observation.get("app") or "").lower()
         screen = str(observation.get("screen_state") or "").lower()
         presence = str(observation.get("presence") or "").lower()
-        focus = bool(observation.get("focus_mode", False))
+        focus = bool(observation.get("focus_mode", False)) or mode == "focus"
         error_state = bool(observation.get("error") or observation.get("degraded"))
 
         state = "working"
@@ -114,8 +149,15 @@ class SituationModel:
         self.update_from_observation(getattr(event, "source", event_type), {"event_type": event_type, **payload})
 
     def to_context_string(self) -> str:
-        s = self._state
-        return f"Current situation: {s.get('state')} / interruptibility={s.get('interruptibility')} / confidence={s.get('confidence')}"
+        s = self.get_state()
+        where = s.get("where", {}) if isinstance(s.get("where"), dict) else {}
+        attention = s.get("attention", {}) if isinstance(s.get("attention"), dict) else {}
+        activity = s.get("activity", {}) if isinstance(s.get("activity"), dict) else {}
+        return (
+            f"Current situation: {s.get('state')} / interruptibility={s.get('interruptibility')} / "
+            f"where={where.get('label', 'unknown')} / attention={attention.get('device', 'unknown')} / "
+            f"activity={activity.get('label', s.get('state'))} / confidence={s.get('confidence')}"
+        )
 
     @staticmethod
     def _is_observation_event(event_type: str) -> bool:

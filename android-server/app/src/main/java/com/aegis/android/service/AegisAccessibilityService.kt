@@ -6,6 +6,7 @@ import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import com.aegis.android.grpc.AegisGrpcClient
 import com.aegis.android.provider.UITreeProvider
+import com.aegis.android.provider.UserActivityCollector
 
 /**
  * AccessibilityService for AEGIS Android.
@@ -26,6 +27,8 @@ class AegisAccessibilityService : AccessibilityService() {
         var uiTreeProvider: UITreeProvider? = null
             private set
         private var lastForegroundPackage: String = ""
+
+        fun lastForegroundPackage(): String = lastForegroundPackage
     }
 
     override fun onServiceConnected() {
@@ -48,6 +51,7 @@ class AegisAccessibilityService : AccessibilityService() {
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         val packageName = event?.packageName?.toString() ?: return
+        UserActivityCollector.recordAccessibilityEvent(event)
         if (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED && packageName != lastForegroundPackage) {
             lastForegroundPackage = packageName
             AegisGrpcClient.current()?.pushForegroundApp(packageName)

@@ -24,8 +24,11 @@ import re
 import threading
 import time
 from contextlib import nullcontext
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Any
+
+_JST = timezone(timedelta(hours=9))
 
 _DATA_DIR = str(Path(__file__).resolve().parent.parent.parent.parent / "data")
 
@@ -465,7 +468,8 @@ def _build_chat_system_prompt(user_message: str) -> tuple[str, dict[str, Any], s
 def _format_timestamp_ms(timestamp_ms: int, fmt: str = "%m-%d %H:%M:%S") -> str:
     if timestamp_ms <= 0:
         return "-"
-    return time.strftime(fmt, time.localtime(timestamp_ms / 1000))
+    dt = datetime.fromtimestamp(timestamp_ms / 1000, tz=_JST)
+    return dt.strftime(fmt)
 
 
 def _truncate_text(value: Any, limit: int = 160) -> str:
@@ -1796,9 +1800,8 @@ class DashboardApp:
                                                 if entry.get("action", "").startswith("llm_") or entry.get("action", "").startswith("tool_"):
                                                     ts = entry.get("timestamp_ms", 0)
                                                     if ts > 0:
-                                                        entry["time_str"] = time.strftime(
-                                                            "%H:%M:%S", time.localtime(ts / 1000),
-                                                        )
+                                                        dt = datetime.fromtimestamp(ts / 1000, tz=_JST)
+                                                        entry["time_str"] = dt.strftime("%H:%M:%S")
                                                     yield f"data: {j.dumps(entry, ensure_ascii=False)}\n\n"
                                             except Exception as parse_err:
                                                 yield f"data: {j.dumps({'type': 'error', 'message': f'Parse error: {parse_err}'})}\n\n"
@@ -1965,10 +1968,9 @@ class DashboardApp:
                         "pressure": getattr(d, "pressure", 0.0),
                         "drift_rate": getattr(d, "drift_rate", 0.0),
                         "last_action_at": getattr(d, "last_action_at", 0),
-                        "last_updated": time.strftime(
-                            "%Y-%m-%d %H:%M",
-                            time.localtime(d.last_updated_at / 1000),
-                        ) if d.last_updated_at > 0 else "never",
+                        "last_updated": datetime.fromtimestamp(
+                            d.last_updated_at / 1000, tz=_JST
+                        ).strftime("%Y-%m-%d %H:%M") if d.last_updated_at > 0 else "never",
                         "decay_rate": d.decay_rate_per_hour,
                     } for d in ds._desires.values()]
             except Exception as exc:
@@ -2015,11 +2017,11 @@ class DashboardApp:
                     next_ms = st.get("next_run_ms", 0)
                     next_llm_ms = st.get("next_llm_allowed_ms", 0)
                     if last_ms > 0:
-                        status_data["last_run_str"] = time.strftime("%H:%M:%S", time.localtime(last_ms / 1000))
+                        status_data["last_run_str"] = datetime.fromtimestamp(last_ms / 1000, tz=_JST).strftime("%H:%M:%S")
                     if next_ms > 0:
-                        status_data["next_run_str"] = time.strftime("%H:%M:%S", time.localtime(next_ms / 1000))
+                        status_data["next_run_str"] = datetime.fromtimestamp(next_ms / 1000, tz=_JST).strftime("%H:%M:%S")
                     if next_llm_ms > 0:
-                        status_data["next_llm_str"] = time.strftime("%H:%M:%S", time.localtime(next_llm_ms / 1000))
+                        status_data["next_llm_str"] = datetime.fromtimestamp(next_llm_ms / 1000, tz=_JST).strftime("%H:%M:%S")
             except Exception:
                 pass
 
@@ -2052,7 +2054,7 @@ class DashboardApp:
                                             {},
                                         )
                                     executions.append({
-                                        "time_str": time.strftime("%H:%M:%S", time.localtime(ts / 1000)) if ts > 0 else "-",
+                                        "time_str": datetime.fromtimestamp(ts / 1000, tz=_JST).strftime("%H:%M:%S") if ts > 0 else "-",
                                         "desire": task.get("desire", ""),
                                         "action": task.get("action", ""),
                                         "result": str(result.get("result", "")),
@@ -2100,7 +2102,7 @@ class DashboardApp:
                 stats_data["total_traces"] = atm_stats.get("total_traces", 0)
                 for t in atm.get_successful(count=10) + atm.get_failed(count=5):
                     traces_list.append({
-                        "time_str": time.strftime("%H:%M:%S", time.localtime(t.completed_at_ms / 1000)) if t.completed_at_ms > 0 else "-",
+                        "time_str": datetime.fromtimestamp(t.completed_at_ms / 1000, tz=_JST).strftime("%H:%M:%S") if t.completed_at_ms > 0 else "-",
                         "goal": t.goal, "desire": t.desire_name,
                         "step_count": len(t.steps), "success": t.success,
                         "duration_str": f"{t.duration_ms / 1000:.1f}s" if t.duration_ms > 0 else "-",
@@ -2118,7 +2120,7 @@ class DashboardApp:
                         "name": s.name, "success_rate": s.success_rate,
                         "total_uses": s.success_count + s.failure_count,
                         "deprecated": s.deprecated, "is_reliable": s.is_reliable,
-                        "last_used_str": time.strftime("%m-%d %H:%M", time.localtime(s.last_used_at_ms / 1000)) if s.last_used_at_ms > 0 else "never",
+                        "last_used_str": datetime.fromtimestamp(s.last_used_at_ms / 1000, tz=_JST).strftime("%m-%d %H:%M") if s.last_used_at_ms > 0 else "never",
                     })
                 skills_list.sort(key=lambda x: x["success_rate"], reverse=True)
             except Exception:
@@ -2130,7 +2132,7 @@ class DashboardApp:
                 stats_data["total_lessons"] = lm_stats.get("total", 0)
                 for l in lm.get_recent(count=10) if hasattr(lm, "get_recent") else []:
                     lessons_list.append({
-                        "time_str": time.strftime("%m-%d %H:%M", time.localtime(l.created_at_ms / 1000)) if hasattr(l, "created_at_ms") and l.created_at_ms > 0 else "-",
+                        "time_str": datetime.fromtimestamp(l.created_at_ms / 1000, tz=_JST).strftime("%m-%d %H:%M") if hasattr(l, "created_at_ms") and l.created_at_ms > 0 else "-",
                         "content": l.content if hasattr(l, "content") else str(l),
                         "type": l.lesson_type if hasattr(l, "lesson_type") else "-",
                         "source_goal": l.source_goal if hasattr(l, "source_goal") else "-",
@@ -2146,7 +2148,7 @@ class DashboardApp:
                 consolidation_data["interval_hours"] = sleep_status.get("auto_interval_hours", 6)
                 last_ms = sleep_status.get("last_consolidation_ms", 0)
                 if last_ms > 0:
-                    consolidation_data["last_str"] = time.strftime("%m-%d %H:%M", time.localtime(last_ms / 1000))
+                    consolidation_data["last_str"] = datetime.fromtimestamp(last_ms / 1000, tz=_JST).strftime("%m-%d %H:%M")
             except Exception:
                 pass
 
@@ -2217,6 +2219,21 @@ class DashboardApp:
             except Exception:
                 logger.debug("Failed to build personal AI dashboard", exc_info=True)
             return render_template("dashboard/personal_ai.html", **data)
+
+        @app.route("/dashboard/user-state")
+        def user_state_page():
+            rt = self._runtime
+            data = {"state": {}, "events": [], "days": [], "archives": [], "local_key_warning": False}
+            try:
+                data["state"] = rt.user_state_manager.get_current_user_state()
+                data["events"] = rt.user_state_manager.get_recent_events(limit=20)
+                days = rt.user_state_manager.list_days()
+                data["days"] = days.get("days", [])
+                data["archives"] = days.get("archives", [])
+                data["local_key_warning"] = bool(days.get("local_key_warning"))
+            except Exception:
+                logger.debug("Failed to build user state dashboard", exc_info=True)
+            return render_template("dashboard/user_state.html", **data)
 
         @app.route("/api/desires/update", methods=["POST"])
         def api_desires_update():
