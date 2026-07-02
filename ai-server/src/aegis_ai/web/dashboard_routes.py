@@ -29,7 +29,7 @@ from typing import Any
 
 _DATA_DIR = str(Path(__file__).resolve().parent.parent.parent.parent / "data")
 
-from flask import Flask, jsonify, render_template
+from flask import Flask, jsonify, redirect, render_template, request
 from aegis_ai.capability_catalog import normalize_risk_label, risk_json_label, risk_level_from_label
 from aegis_ai.llm.memory_context import build_shared_memory_context
 from aegis_ai.web.chat_history import ChatHistoryStore, entry_to_mobile_messages
@@ -1411,6 +1411,11 @@ class DashboardApp:
                 emotion=emotion_data,
             )
 
+        @app.route("/chat")
+        def web_chat_redirect():
+            host = request.host.split(":", 1)[0] or "localhost"
+            return redirect(f"http://{host}:8091/chat")
+
         @app.route("/dashboard/servers")
         def servers():
             status = self._get_server_status()
@@ -1705,7 +1710,7 @@ class DashboardApp:
                     entry["detail_summary"] = _truncate_text(detail, 100)
                 entry["detail_pretty"] = _pretty_json(detail)
             action_counts: dict[str, int] = {}
-            all_entries = self._runtime.audit_manager._log.read_all()
+            all_entries = self._runtime.audit_manager.read_recent_for_dashboard(max_entries=5000)
             for e in all_entries:
                 action = e.get("action", "unknown")
                 action_counts[action] = action_counts.get(action, 0) + 1
@@ -2149,6 +2154,41 @@ class DashboardApp:
                 stats=stats_data, traces=traces_list, skills=skills_list,
                 lessons=lessons_list, consolidation=consolidation_data,
             )
+
+        @app.route("/dashboard/prompt-analysis")
+        def prompt_analysis():
+            report_path = Path(getattr(self._runtime, "data_dir", _DATA_DIR)) / "reports" / "prompt_usage_latest.json"
+            report = {}
+            if report_path.exists():
+                try:
+                    report = json.loads(report_path.read_text(encoding="utf-8"))
+                except Exception:
+                    logger.debug("Failed to load prompt usage report", exc_info=True)
+            return render_template("dashboard/prompt_analysis.html", report=report)
+
+        @app.route("/api/prompt-analysis/run", methods=["POST"])
+        def api_prompt_analysis_run():
+            from flask import request as flask_req
+            from aegis_ai.analysis.prompt_usage import PromptUsageAnalyzer
+
+            payload = flask_req.get_json(silent=True) or {}
+            hours = int(payload.get("hours") or 24)
+            max_prompts = int(payload.get("max_prompts") or 20)
+            reports_dir = Path(getattr(self._runtime, "data_dir", _DATA_DIR)) / "reports"
+            json_path = reports_dir / "prompt_usage_latest.json"
+            html_path = reports_dir / "prompt_usage_latest.html"
+            analyzer = PromptUsageAnalyzer(
+                audit_manager=self._runtime.audit_manager,
+                llm_provider=getattr(self._runtime, "llm_gateway", None),
+            )
+            report = analyzer.analyze(hours=hours, max_prompts=max_prompts)
+            analyzer.write_report(report, json_path=json_path, html_path=html_path)
+            return jsonify({
+                "ok": True,
+                "report": report,
+                "json_path": str(json_path),
+                "html_path": str(html_path),
+            })
 
         @app.route("/dashboard/personal-ai")
         def personal_ai():

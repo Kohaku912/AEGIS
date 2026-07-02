@@ -116,6 +116,63 @@ def test_dashboard_personal_ai_page_renders(monkeypatch, tmp_path) -> None:
     assert b"Pending Approvals" in response.data
 
 
+def test_dashboard_prompt_analysis_page_and_api(monkeypatch, tmp_path) -> None:
+    class FakePromptAnalysisLLM:
+        def generate(self, **kwargs):
+            payload = json.loads(kwargs["prompt"])
+            sections = [
+                {
+                    "section_id": section["section_id"],
+                    "usage": "unused" if "unused" in section["title"].lower() else "used",
+                    "confidence": 0.8,
+                    "evidence": "dashboard test evidence",
+                    "suggestion": "compress",
+                }
+                for section in payload["sections"]
+            ]
+            return SimpleNamespace(success=True, content=json.dumps({"sections": sections}))
+
+    monkeypatch.setattr(dashboard_routes, "_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setattr(dashboard_routes.DashboardApp, "_start_autonomous_loop", lambda self: None)
+    rt = _runtime(tmp_path)
+    rt.llm_gateway = FakePromptAnalysisLLM()
+    rt.data_dir = str(tmp_path / "data")
+    rt.audit_log.log_decision(
+        action="llm_call",
+        capability_id="",
+        decision="allow",
+        detail={
+            "prompt_preview": "TASK:\nAnswer briefly\nUNUSED CONTEXT:\nVerbose unrelated history",
+            "response_preview": "Answered briefly.",
+            "tokens": 64,
+            "tool_calls": [],
+        },
+    )
+    client = dashboard_routes.DashboardApp(runtime=rt).app.test_client()
+
+    page = client.get("/dashboard/prompt-analysis")
+    assert page.status_code == 200
+    assert b"Prompt Analysis" in page.data
+
+    response = client.post("/api/prompt-analysis/run", json={"hours": 24, "max_prompts": 5})
+    payload = response.get_json()
+
+    assert response.status_code == 200
+    assert payload["ok"] is True
+    assert payload["report"]["prompts_analyzed"] == 1
+    assert (tmp_path / "data" / "reports" / "prompt_usage_latest.json").exists()
+    assert (tmp_path / "data" / "reports" / "prompt_usage_latest.html").exists()
+
+
+def test_dashboard_chat_redirects_to_web_chat(monkeypatch, tmp_path) -> None:
+    client = _app(monkeypatch, tmp_path).test_client()
+
+    response = client.get("/chat", headers={"Host": "localhost:8090"})
+
+    assert response.status_code == 302
+    assert response.headers["Location"] == "http://localhost:8091/chat"
+
+
 def test_dashboard_chat_history_broadcasts_to_android(monkeypatch, tmp_path) -> None:
     class FakeAndroidManager:
         def __init__(self) -> None:

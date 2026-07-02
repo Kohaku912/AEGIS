@@ -1220,8 +1220,8 @@ Candidate capability ids:
                         output = result.output or {}
                         full_output = output
                         result_summary = str(output.get("result", output.get("count", "Done")))
-                        if capability_id == "pc-server.screenshot.get_screenshot" and self._llm:
-                            image_b64 = output.get("image_base64", "")
+                        if self._llm:
+                            image_b64 = output.get("image_base64") or output.get("image_data") or ""
                             if image_b64:
                                 result_summary = self._analyze_screenshot(image_b64, desire_name)
                         success = True
@@ -1544,21 +1544,7 @@ Rules:
             if not desire:
                 continue
 
-            capability_metadata: dict[str, Any] = {}
-            catalog = getattr(self._broker, "_catalog", None) if self._broker is not None else None
-            if catalog is not None:
-                try:
-                    manifest = catalog.resolve(capability_id)
-                    if manifest is not None:
-                        capability_metadata = {
-                            "operation_category": getattr(manifest, "operation_category", ""),
-                            "risk_level": getattr(manifest, "risk_level", ""),
-                            "side_effects": getattr(manifest, "side_effects", []),
-                            "title": getattr(manifest, "title", ""),
-                            "server_id": getattr(manifest, "server_id", ""),
-                        }
-                except Exception:
-                    logger.debug("Failed to resolve manifest for fulfillment evaluation", exc_info=True)
+            capability_metadata = self._resolve_capability_metadata(capability_id)
 
             task_result = evaluate_task_result(
                 capability_id=capability_id,
@@ -1581,18 +1567,17 @@ Rules:
                 detail={
                     "desire": desire_name,
                     "tool_success": success,
+                    "fulfillment_score": task_result.fulfillment_score,
+                    "pressure_reduction": task_result.pressure_reduction,
+                    "confidence": task_result.confidence,
                     "desire_delta_hint": task_result.desire_delta_hint,
                     "details": task_result.details,
                     "capability_metadata": capability_metadata,
                 },
             )
 
-            effectiveness = {
-                TaskEffect.USEFUL: 1.0,
-                TaskEffect.NEEDS_FOLLOWUP: 0.5,
-            }.get(task_result.task_effect, 0.0)
-            if success and effectiveness > 0.0:
-                self._desire.reduce_pressure(desire_name, effectiveness)
+            if success and task_result.pressure_reduction > 0.0:
+                self._desire.reduce_pressure(desire_name, task_result.pressure_reduction)
 
             if task_result.task_effect == TaskEffect.NO_EFFECT:
                 continue
@@ -1610,6 +1595,26 @@ Rules:
                         logger.info("Desire %s: %.1f -> %.1f (delta=%.1f)", d_name, old_val, new_val, delta)
 
         self._desire.save()
+
+    def _resolve_capability_metadata(self, capability_id: str) -> dict[str, Any]:
+        catalog = getattr(self._broker, "_catalog", None) if self._broker is not None else None
+        if catalog is None or not capability_id:
+            return {}
+        try:
+            manifest = catalog.resolve(capability_id)
+            if manifest is None:
+                return {}
+            return {
+                "operation_category": getattr(manifest, "operation_category", ""),
+                "risk_level": getattr(manifest, "risk_level", ""),
+                "side_effects": getattr(manifest, "side_effects", []),
+                "title": getattr(manifest, "title", ""),
+                "description": getattr(manifest, "description", ""),
+                "server_id": getattr(manifest, "server_id", ""),
+            }
+        except Exception:
+            logger.debug("Failed to resolve manifest metadata", exc_info=True)
+            return {}
 
     def _load_recent_history(self, max_entries: int = 5) -> list[dict[str, Any]]:
         log_path = self._data_dir / "execution_log.jsonl"
@@ -1669,53 +1674,50 @@ Rules:
         """Generate a natural language description of what was done."""
         cap_id = task.get("capability_id", "")
         action = task.get("action", "")
-
-        action_descriptions = {
-            "pc-server.system.get_os_info": "OS情報を確認した",
-            "pc-server.system.get_screen_size": "画面サイズを確認した",
-            "pc-server.screenshot.get_screenshot": "スクリーンショットを取得し画面内容を確認した",
-            "pc-server.window.get_active_window": "アクティブウィンドウを確認した",
-            "ai-server.memory.search": "メモリを検索した",
-            "ai-server.memory.save": "メモリに保存した",
-            "ai-server.agora.read_posts": "AGORAの投稿を確認した",
-            "browser-server.page.browse": f"ブラウザで操作した: {task.get('arguments', {}).get('task', '')[:80]}",
-        }
-
-        if cap_id in action_descriptions:
-            return action_descriptions[cap_id]
-
+        metadata = task.get("capability_metadata") or self._resolve_capability_metadata(cap_id)
+        title = str(metadata.get("title") or metadata.get("description") or "").strip()
         args = task.get("arguments", {})
-        if "shell" in cap_id and "command" in args:
-            return f"シェルコマンドを実行した: {str(args['command'])[:80]}"
-        return action or cap_id or "不明な操作"
+        if title:
+            return f"Executed capability: {title[:120]}"
+        if isinstance(args, dict) and args.get("command"):
+            return f"Executed command-like capability: {str(args['command'])[:80]}"
+        return action or cap_id or "Unknown action"
 
     def _summarize_state_change(self, task: dict[str, Any], result: dict[str, Any]) -> str:
         """Summarize what state change occurred."""
         if not result.get("success"):
-            return "失敗のため状態変化なし"
+            return "No state change because the action failed."
         cap_id = task.get("capability_id", "")
-        if "screenshot" in cap_id:
-            return "スクリーンショットを取得し、画面状態を把握した"
-        if "memory" in cap_id and "save" in cap_id:
-            return "メモリに新しい情報を保存した"
-        if "agora" in cap_id:
-            return "AGORAの状態を確認した"
-        return "操作を実行し結果を確認した"
+        metadata = task.get("capability_metadata") or self._resolve_capability_metadata(cap_id)
+        output = result.get("full_output", {})
+        if isinstance(output, dict) and (output.get("image_base64") or output.get("image_data")):
+            return "Captured a visual observation artifact."
+        side_effects = metadata.get("side_effects") or []
+        if not isinstance(side_effects, list):
+            side_effects = [str(side_effects)]
+        operation_category = str(metadata.get("operation_category") or "")
+        if side_effects:
+            return f"Applied side effects: {', '.join(str(item) for item in side_effects[:4])}"
+        if operation_category:
+            return f"Observed or processed state for category: {operation_category}"
+        return "Executed the operation and recorded the result."
 
     def _determine_repeat_condition(self, task: dict[str, Any], result: dict[str, Any]) -> str:
         """Determine under what condition this action should be repeated."""
         if not result.get("success"):
-            return "問題が解決していない場合は再試行可能"
+            return "Retry only if the underlying problem is still relevant."
         cap_id = task.get("capability_id", "")
-        if "screenshot" in cap_id:
-            return "ユーザーの指示があるか、画面に変化があった場合のみ再実行"
-        if "system.get_os_info" in cap_id or "system.get_screen_size" in cap_id:
-            return "システム設定を変更した後のみ再確認"
-        if "agora" in cap_id:
-            return "新しい投稿がある可能性がある場合（時間経過後）"
-        if "memory.search" in cap_id:
-            return "新しい情報が必要な場合"
-        return "新しい情報や状態変化がある場合のみ再実行"
+        metadata = task.get("capability_metadata") or self._resolve_capability_metadata(cap_id)
+        output = result.get("full_output", {})
+        if isinstance(output, dict) and (output.get("image_base64") or output.get("image_data")):
+            return "Repeat only when the observed visual state may have changed."
+        side_effects = metadata.get("side_effects") or []
+        if side_effects:
+            return "Repeat only when the same side effect is still intentionally desired."
+        operation_category = str(metadata.get("operation_category") or "")
+        if operation_category:
+            return f"Repeat when new information is expected for category: {operation_category}"
+        return "Repeat only when new information or state change is expected."
 
     def _record_experiences(self, tasks: list[dict[str, Any]], results: list[dict[str, Any]]) -> None:
         for i, task in enumerate(tasks):

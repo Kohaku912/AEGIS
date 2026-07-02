@@ -118,14 +118,17 @@ def test_broadcast_overlay_rejects_image_outside_workspace(tmp_path: Path) -> No
 
 def test_new_manifests_load_from_catalog() -> None:
     catalog = CapabilityCatalog(capabilities_dir="capabilities", apps_dir="apps")
+    registry_ids = {cap.id for cap in catalog.to_tool_registry_capabilities()}
     for cap_id in {
         "ai-server.notification.broadcast_overlay",
         "ai-server.workspace.write_file",
         "ai-server.workspace.read_file",
         "ai-server.workspace.list_files",
+        "ai-server.memory.sleep",
         "pc-server.overlay.show_rich",
     }:
         assert catalog.resolve(cap_id) is not None
+        assert cap_id in registry_ids
     agora_post = catalog.resolve("ai-server.agora.post")
     assert agora_post is not None
     assert agora_post.requires_approval is True
@@ -134,6 +137,19 @@ def test_new_manifests_load_from_catalog() -> None:
 class FakeMemoryManager:
     def search_memory(self, query: str, limit: int = 20) -> list[dict]:
         return [{"type": "semantic", "content": f"hit:{query}", "source": "fake"}][:limit]
+
+
+class FakeSleepManager:
+    def __init__(self, started: bool = True) -> None:
+        self.started = started
+        self.reasons: list[str] = []
+
+    def start_sleep(self, reason: str = "manual") -> bool:
+        self.reasons.append(reason)
+        return self.started
+
+    def get_status(self) -> dict:
+        return {"state": "running" if self.started else "completed"}
 
 
 class FakeAgora:
@@ -179,6 +195,36 @@ def test_memory_search_is_supported(tmp_path: Path) -> None:
 
     assert result["ok"] is True
     assert result["results"][0]["content"] == "hit:project"
+
+
+def test_memory_sleep_is_supported(tmp_path: Path) -> None:
+    sleep = FakeSleepManager(started=True)
+    client = AegisCoreCapabilityClient(
+        data_dir=str(tmp_path / "data"),
+        server_executor=FakeExecutor(),
+        personal_managers={"sleep_manager": sleep},
+    )
+
+    result = client.invoke_capability("ai-server.memory.sleep", {"reason": "user requested sleep"})
+
+    assert result["ok"] is True
+    assert result["started"] is True
+    assert result["state"] == "running"
+    assert sleep.reasons == ["user requested sleep"]
+
+
+def test_memory_sleep_already_running_is_not_unsupported(tmp_path: Path) -> None:
+    client = AegisCoreCapabilityClient(
+        data_dir=str(tmp_path / "data"),
+        server_executor=FakeExecutor(),
+        personal_managers={"sleep_manager": FakeSleepManager(started=False)},
+    )
+
+    result = client.invoke_capability("ai-server.memory.sleep", {})
+
+    assert result["ok"] is True
+    assert result["started"] is False
+    assert "Unsupported" not in result["result"]
 
 
 def test_agora_read_posts_uses_unread_cursor_and_updates_once(tmp_path: Path) -> None:

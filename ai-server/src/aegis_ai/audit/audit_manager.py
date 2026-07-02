@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import sqlite3
 import threading
 import time
 import uuid
@@ -119,7 +120,7 @@ class AuditManager:
         errors_only: bool = False,
     ) -> dict[str, Any]:
         """List logical audit groups, newest first."""
-        entries = self._log.read_all()
+        entries = self._read_recent_entries(5000)
         groups = self._build_groups(entries)
         if group_type:
             groups = [g for g in groups if g.get("group_type") == group_type]
@@ -144,17 +145,16 @@ class AuditManager:
         """Return one logical audit group with its raw entries."""
         if not group_id:
             return None
-        for group in self._build_groups(self._log.read_all()):
+        for group in self._build_groups(self._read_recent_entries(5000)):
             if group.get("group_id") == group_id:
                 return group
         return None
 
     def get_detail(self, entry_id: str) -> dict[str, Any] | None:
         """Get full detail for a single audit entry."""
-        import sqlite3
-        conn = self._log._get_conn()
-        conn.row_factory = sqlite3.Row
-        row = conn.execute('SELECT * FROM audit WHERE entry_id = ?', (entry_id,)).fetchone()
+        with sqlite3.connect(str(self._log._db_path)) as conn:
+            conn.row_factory = sqlite3.Row
+            row = conn.execute('SELECT * FROM audit WHERE entry_id = ?', (entry_id,)).fetchone()
         if row is None:
             return None
         d = dict(row)
@@ -174,7 +174,7 @@ class AuditManager:
         """Search audit entries."""
         query_lower = query.lower()
         results: list[dict[str, Any]] = []
-        for e in self._log.read_all():
+        for e in self._read_recent_entries(5000):
             text = json.dumps(e, ensure_ascii=False).lower()
             if query_lower in text:
                 results.append(self._to_summary(e))
@@ -185,7 +185,7 @@ class AuditManager:
     def summarize(self, period_hours: int = 24) -> dict[str, Any]:
         """Summarize audit activity for a period."""
         cutoff_ms = int(time.time() * 1000) - (period_hours * 3_600_000)
-        recent = [e for e in self._log.read_all() if e.get("timestamp_ms", 0) >= cutoff_ms]
+        recent = [e for e in self._read_recent_entries(5000) if e.get("timestamp_ms", 0) >= cutoff_ms]
 
         action_counts: dict[str, int] = {}
         error_count = 0
@@ -207,7 +207,11 @@ class AuditManager:
 
         Uses tail reader with large limit to avoid loading entire file.
         """
-        return self._read_tail(max_entries)
+        return self._read_recent_entries(max_entries)
+
+    def read_recent_for_dashboard(self, max_entries: int = 5000) -> list[dict[str, Any]]:
+        """Read recent entries for dashboard summaries."""
+        return self._read_recent_entries(max_entries)
 
     # ── Rotation ──────────────────────────────────────────────
 
@@ -244,8 +248,18 @@ class AuditManager:
         try:
             return self._reverse_read(path, n)
         except Exception:
-            logger.debug("Tail reader failed, falling back to read_all", exc_info=True)
-            return self._log.read_all()
+            logger.debug("Tail reader failed", exc_info=True)
+            return []
+
+    def _read_recent_entries(self, max_entries: int) -> list[dict[str, Any]]:
+        """Read recent audit entries without sharing SQLite connections."""
+        max_entries = max(1, int(max_entries or 1))
+        try:
+            page = self._log.read_page(page=1, per_page=max_entries)
+            return page.get("entries", [])
+        except Exception:
+            logger.debug("SQLite audit page read failed, trying JSONL tail", exc_info=True)
+            return self._read_tail(max_entries)
 
     def _reverse_read(self, path: Path, n: int) -> list[dict[str, Any]]:
         """Read last N lines from file using reverse seek."""
