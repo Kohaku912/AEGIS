@@ -623,15 +623,6 @@
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 3h6a4 4 0 014 4v14a3 3 0 00-3-3H2z"/><path d="M22 3h-6a4 4 0 00-4 4v14a3 3 0 013-3h7z"/></svg>
             Learning
         </a>
-        <a class="nav-item {% if '/support' in request.path %}active{% endif %}" href="/dashboard/support">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
-            Support
-        </a>
-        <a class="nav-item {% if '/agora' in request.path %}active{% endif %}" href="/dashboard/agora">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>
-            AGORA
-        </a>
-
         <div class="nav-section">System</div>
         <a class="nav-item {% if request.path == '/settings' %}active{% endif %}" href="/settings">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v6M12 17v6M4.22 4.22l4.24 4.24M15.54 15.54l4.24 4.24M1 12h6M17 12h6M4.22 19.78l4.24-4.24M15.54 8.46l4.24-4.24"/></svg>
@@ -800,6 +791,30 @@
         t = t.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
         t = t.replace(/\n/g, '<br>');
         return t;
+    }
+
+    function formatJstTime(value) {
+        if (value === null || value === undefined || value === '' || value === '-' || value === 0) return '-';
+        let raw = value;
+        if (typeof raw === 'string' && /^\d+(\.\d+)?$/.test(raw.trim())) raw = Number(raw);
+        let date;
+        if (typeof raw === 'number') date = new Date(raw < 10000000000 ? raw * 1000 : raw);
+        else date = new Date(raw);
+        if (Number.isNaN(date.getTime())) return '-';
+        const parts = new Intl.DateTimeFormat('ja-JP', {
+            timeZone: 'Asia/Tokyo',
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit',
+            hour12: false
+        }).formatToParts(date).reduce((acc, part) => {
+            acc[part.type] = part.value;
+            return acc;
+        }, {});
+        return `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}:${parts.second} JST`;
     }
 
     function renderUserInputNeeded(container, data) {

@@ -472,6 +472,44 @@ def _format_timestamp_ms(timestamp_ms: int, fmt: str = "%m-%d %H:%M:%S") -> str:
     return dt.strftime(fmt)
 
 
+def _coerce_timestamp_ms(value: Any) -> int:
+    if value in {None, "", "-", "never"}:
+        return 0
+    if isinstance(value, datetime):
+        dt = value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+        return int(dt.timestamp() * 1000)
+    if isinstance(value, (int, float)):
+        raw = float(value)
+        if raw <= 0:
+            return 0
+        return int(raw * 1000) if raw < 10_000_000_000 else int(raw)
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return 0
+        try:
+            raw = float(text)
+            return int(raw * 1000) if raw < 10_000_000_000 else int(raw)
+        except ValueError:
+            pass
+        normalized = text.replace("Z", "+00:00")
+        try:
+            dt = datetime.fromisoformat(normalized)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return int(dt.timestamp() * 1000)
+        except ValueError:
+            return 0
+    return 0
+
+
+def _format_jst(value: Any, fmt: str = "%Y-%m-%d %H:%M:%S JST") -> str:
+    timestamp_ms = _coerce_timestamp_ms(value)
+    if timestamp_ms <= 0:
+        return "-"
+    return datetime.fromtimestamp(timestamp_ms / 1000, tz=_JST).strftime(fmt)
+
+
 def _truncate_text(value: Any, limit: int = 160) -> str:
     if value is None:
         return ""
@@ -914,6 +952,8 @@ class DashboardApp:
             runtime = get_runtime()
         self._runtime = runtime
         self._app = Flask(__name__, template_folder="templates")
+        self._app.jinja_env.filters["jst"] = _format_jst
+        self._app.jinja_env.globals["format_jst"] = _format_jst
         self._start_time = time.time()
         self._autonomous_loop = runtime.autonomous_loop
         self._chat_event_clients: dict[str, queue.Queue] = {}
@@ -1657,11 +1697,7 @@ class DashboardApp:
 
         @app.route("/dashboard/support")
         def support():
-            suggestions = [
-                {"title": "PC Server Online", "description": "PC Server is running with 15 capabilities", "priority": "low"},
-                {"title": "Browser Server", "description": "Browser Server available for web automation", "priority": "low"},
-            ]
-            return render_template("dashboard/support.html", suggestions=suggestions)
+            return redirect("/dashboard")
 
         @app.route("/dashboard/memory")
         def memory():
@@ -1917,37 +1953,7 @@ class DashboardApp:
 
         @app.route("/dashboard/agora")
         def agora_page():
-            agora_data = {"configured": False}
-            try:
-                from aegis_ai.integrations.agora.agora_service import AgoraService
-                svc = AgoraService()
-                if svc.is_configured:
-                    agora_data["configured"] = True
-                    me = svc.get_me()
-                    if hasattr(me, "name"):
-                        agora_data["account"] = me.name
-                        agora_data["account_id"] = me.id
-                    cursor = svc.get_cursor()
-                    if hasattr(cursor, "last_read_post_id"):
-                        agora_data["cursor"] = cursor.last_read_post_id
-                    posts = svc.read_posts(limit=200)
-                    if hasattr(posts, "posts"):
-                        agora_data["posts"] = [{
-                            "id": p.id, "author": p.author.name,
-                            "body": p.body[:200], "thread_id": p.thread_id,
-                            "reply_to": p.reply_to, "created_at": p.created_at,
-                        } for p in reversed(posts.posts)]
-                        agora_data["total_posts"] = len(posts.posts)
-                        agora_data["max_post_id"] = posts.max_post_id
-                    mentions = svc.read_mentions(limit=50)
-                    if hasattr(mentions, "posts"):
-                        agora_data["mentions"] = [{
-                            "id": p.id, "author": p.author.name,
-                            "body": p.body[:200], "created_at": p.created_at,
-                        } for p in mentions.posts]
-            except Exception:
-                pass
-            return render_template("dashboard/agora.html", agora=agora_data)
+            return redirect("/dashboard")
 
         @app.route("/dashboard/desires")
         def desires_page():
