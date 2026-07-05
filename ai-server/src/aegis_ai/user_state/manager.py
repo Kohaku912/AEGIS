@@ -34,6 +34,13 @@ FORBIDDEN_KEYS = {
     "message_body",
     "dm_body",
     "input_text",
+    "key",
+    "keys",
+    "key_text",
+    "raw_key",
+    "raw_keys",
+    "vk_code",
+    "vk_codes",
     "layout_tree",
     "ui_tree",
     "raw_layout",
@@ -226,33 +233,47 @@ class AttentionEstimator:
             payload = event.get("payload", {})
             source = str(event.get("source", ""))
             event_type = str(event.get("event_type", ""))
+            age_ms = max(0, now_ms() - _safe_int(event.get("timestamp_ms"), now_ms()))
+            decay = max(0.25, 1.0 - (age_ms / 30_000))
             if source.startswith("pc"):
-                scores["pc"] += 0.1
+                event_score = 0.05
                 keyboard = _safe_int(payload.get("keyboard_count"))
                 mouse = _safe_int(payload.get("mouse_count"))
+                key_events = _safe_int(payload.get("key_event_count"))
                 idle = _safe_int(payload.get("idle_ms"), 999999)
-                if keyboard or mouse:
-                    scores["pc"] += 1.2 + min(0.8, (keyboard + mouse) / 10)
+                fullscreen = payload.get("fullscreen") is True
+                semantic = " ".join(
+                    str(payload.get(key, ""))
+                    for key in ("app_name", "process_name", "active_window_title_summary", "input_target_category", "content_kind")
+                ).lower()
+                if keyboard or mouse or key_events:
+                    event_score += 2.0 + min(1.0, (keyboard + mouse + key_events) / 10)
                 if idle < 5_000:
-                    scores["pc"] += 1.4
+                    event_score += 0.75
                 elif idle < 30_000:
-                    scores["pc"] += 0.5
+                    event_score += 0.45
+                elif idle < 60_000:
+                    event_score += 0.25
+                if fullscreen and _classify_activity(semantic) in {"gaming", "watching_video"}:
+                    event_score += 1.0
                 if payload.get("locked") is True:
-                    scores["pc"] -= 1.0
+                    event_score -= 1.0
+                scores["pc"] = max(scores["pc"], event_score * decay)
                 evidence["pc"].append(_evidence(event, "PC input/window activity"))
             if source.startswith("android"):
-                scores["android"] += 0.05
+                event_score = 0.05
                 if payload.get("locked") is True:
-                    scores["android"] -= 0.6
+                    event_score -= 0.6
                 touch = _safe_int(payload.get("touch_count"))
                 if touch:
-                    scores["android"] += 1.0 + min(0.7, touch / 10)
+                    event_score += 2.1 + min(1.0, touch / 8)
                 elif event_type == "android.user_activity.changed" and payload.get("screen_on") is True:
-                    scores["android"] += 0.25
+                    event_score += 1.25
                 elif event_type == "android.foreground_app.changed":
-                    scores["android"] += 0.1
+                    event_score += 0.7
                 elif event_type == "android.heartbeat" and payload.get("screen_on") is True:
-                    scores["android"] += 0.05
+                    event_score += 0.15
+                scores["android"] = max(scores["android"], event_score * decay)
                 evidence["android"].append(_evidence(event, "Android screen/app/touch activity"))
         device = max(scores, key=scores.get)
         score = scores[device]
@@ -271,12 +292,27 @@ class ActivityEstimator:
         payload = event.get("payload", {})
         semantic = " ".join(
             str(payload.get(key, ""))
-            for key in ("semantic", "semantic_summary", "layout_category", "app_category", "domain", "process_name", "foreground_app", "package_name")
+            for key in (
+                "semantic",
+                "semantic_summary",
+                "layout_category",
+                "app_category",
+                "domain",
+                "process_name",
+                "foreground_app",
+                "package_name",
+                "app_name",
+                "screen_title_summary",
+                "active_window_title_summary",
+                "content_kind",
+                "input_target_category",
+            )
         ).lower()
         if payload.get("locked") is True or payload.get("screen_on") is False:
             return _state("sleeping", 0.65, [_evidence(event, "screen locked/off")])
         category = _classify_activity(semantic)
-        return _state(category, 0.72 if category != "unknown" else 0.45, [_evidence(event, f"classified from {device} semantic metadata")])
+        detail = _activity_detail(payload)
+        return _state(category, 0.72 if category != "unknown" else 0.45, [_evidence(event, f"classified from {device} semantic metadata")], detail)
 
 
 class TemporalSmoother:
@@ -484,11 +520,17 @@ class UserStateManager:
         where = state.get("where", {})
         attention = state.get("attention", {})
         activity = state.get("activity", {})
+        app = activity.get("app_name") or attention.get("app_name") or ""
+        screen = activity.get("screen_title_summary") or activity.get("active_window_title_summary") or ""
+        detail = ""
+        if app or screen:
+            detail = f"; app={app or 'unknown'}; screen={screen or 'unknown'}"
         return (
             "User state: "
             f"where={where.get('label')}({where.get('confidence')}); "
             f"attention={attention.get('device')}/{attention.get('label')}({attention.get('confidence')}); "
             f"activity={activity.get('label')}({activity.get('confidence')})"
+            f"{detail}"
         )
 
     def _compute_state_locked(self) -> dict[str, Any]:
@@ -510,13 +552,18 @@ class UserStateManager:
         current_ms = now_ms()
         keyboard = _safe_int(snapshot.get("keyboard_count"))
         mouse = _safe_int(snapshot.get("mouse_count"))
-        if keyboard > 0 or mouse > 0:
+        key_events = _safe_int(snapshot.get("key_event_count"))
+        active = _safe_int(snapshot.get("idle_ms"), 999999) < 60_000 or bool(snapshot.get("fullscreen"))
+        if keyboard > 0 or mouse > 0 or key_events > 0:
             self._last_pc_signature = self._pc_signature(snapshot)
             self._last_pc_saved_ms = current_ms
             return True
         signature = self._pc_signature(snapshot)
         if signature != self._last_pc_signature:
             self._last_pc_signature = signature
+            self._last_pc_saved_ms = current_ms
+            return True
+        if active and current_ms - self._last_pc_saved_ms >= 10_000:
             self._last_pc_saved_ms = current_ms
             return True
         if current_ms - self._last_pc_saved_ms >= 60_000:
@@ -529,11 +576,13 @@ class UserStateManager:
         idle_bucket = _safe_int(snapshot.get("idle_ms"), 999999) // 10_000
         return (
             snapshot.get("process_name"),
+            snapshot.get("app_name"),
             snapshot.get("active_window_title_hash") or snapshot.get("active_window_title_summary") or snapshot.get("active_window_title"),
             snapshot.get("browser_domain"),
             snapshot.get("browser_url_hash"),
             bool(snapshot.get("locked")),
             bool(snapshot.get("fullscreen")),
+            snapshot.get("input_target_category"),
             idle_bucket,
         )
 
@@ -596,26 +645,34 @@ def _events_since(events: list[dict[str, Any]], window_ms: int) -> list[dict[str
 
 
 def _evidence(event: dict[str, Any], reason: str) -> dict[str, Any]:
-    return {
+    payload = event.get("payload", {}) if isinstance(event.get("payload"), dict) else {}
+    evidence = {
         "reason": reason,
         "source": event.get("source"),
         "event_type": event.get("event_type"),
         "timestamp_ms": event.get("timestamp_ms"),
     }
+    for key in ("app_name", "process_name", "screen_title_summary", "active_window_title_summary", "content_kind", "input_target_category"):
+        if payload.get(key):
+            evidence[key] = payload.get(key)
+    return evidence
 
 
-def _state(label: str, confidence: float, evidence: list[dict[str, Any]]) -> dict[str, Any]:
-    return {"label": label, "confidence": round(max(0.0, min(1.0, confidence)), 3), "evidence": evidence[-5:]}
+def _state(label: str, confidence: float, evidence: list[dict[str, Any]], detail: dict[str, Any] | None = None) -> dict[str, Any]:
+    state = {"label": label, "confidence": round(max(0.0, min(1.0, confidence)), 3), "evidence": evidence[-5:]}
+    if detail:
+        state.update({key: value for key, value in detail.items() if value not in ("", None, [], {})})
+    return state
 
 
 def _classify_activity(text: str) -> str:
-    if any(term in text for term in ("code", "editor", "ide", "vscode", "terminal", "github")):
+    if any(term in text for term in ("code", "editor", "vscode", "visual studio", "terminal", "github", "jetbrains")) or re.search(r"\bide\b", text):
         return "coding"
     if any(term in text for term in ("chat", "discord", "line", "slack", "message")):
         return "chatting"
-    if any(term in text for term in ("game", "steam", "minecraft")):
+    if any(term in text for term in ("game", "steam", "minecraft", "unity", "unreal", "valorant", "apex", "elden", "genshin")):
         return "gaming"
-    if any(term in text for term in ("video", "youtube", "netflix", "fullscreen", "media")):
+    if any(term in text for term in ("video", "youtube", "netflix", "fullscreen", "media", "player", "twitch")):
         return "watching_video"
     if any(term in text for term in ("browser", "chrome", "edge", "firefox", "web")):
         return "browsing"
@@ -624,6 +681,23 @@ def _classify_activity(text: str) -> str:
     if any(term in text for term in ("home", "launcher", "settings")):
         return "browsing"
     return "unknown"
+
+
+def _activity_detail(payload: dict[str, Any]) -> dict[str, Any]:
+    detail: dict[str, Any] = {}
+    for key in (
+        "app_name",
+        "process_name",
+        "screen_title_summary",
+        "active_window_title_summary",
+        "content_kind",
+        "input_target_category",
+    ):
+        if payload.get(key):
+            detail[key] = payload.get(key)
+    if isinstance(payload.get("key_category_counts"), dict):
+        detail["key_category_counts"] = payload.get("key_category_counts")
+    return detail
 
 
 def _safe_url(value: str, key: bytes) -> dict[str, Any]:

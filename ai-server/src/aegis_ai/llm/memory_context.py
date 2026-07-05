@@ -157,6 +157,7 @@ def build_shared_memory_context(
     query: str,
     data_dir: str,
     profile: str = "decision",
+    has_social_actions: bool = True,
 ) -> MemoryContextResult:
     """Build shared memory context for LLM decision or summary calls."""
 
@@ -218,7 +219,7 @@ def build_shared_memory_context(
     except Exception as exc:
         logger.debug("Experiential memory failed: %s", exc)
 
-    if profile == "decision":
+    if profile == "decision" and has_social_actions:
         try:
             from aegis_ai.memory.person_memory import PersonMemory
 

@@ -153,10 +153,16 @@ class SituationModel:
         where = s.get("where", {}) if isinstance(s.get("where"), dict) else {}
         attention = s.get("attention", {}) if isinstance(s.get("attention"), dict) else {}
         activity = s.get("activity", {}) if isinstance(s.get("activity"), dict) else {}
+        app = activity.get("app_name") or activity.get("process_name") or ""
+        screen = activity.get("screen_title_summary") or activity.get("active_window_title_summary") or ""
+        detail = ""
+        if app or screen:
+            detail = f" / app={app or 'unknown'} / screen={screen or 'unknown'}"
         return (
             f"Current situation: {s.get('state')} / interruptibility={s.get('interruptibility')} / "
             f"where={where.get('label', 'unknown')} / attention={attention.get('device', 'unknown')} / "
             f"activity={activity.get('label', s.get('state'))} / confidence={s.get('confidence')}"
+            f"{detail}"
         )
 
     @staticmethod

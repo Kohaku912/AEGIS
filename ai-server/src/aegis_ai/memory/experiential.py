@@ -29,6 +29,25 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+_EXPERIENCE_EVALUATION_INSTRUCTIONS = """You are AEGIS's experience evaluator. Analyze this experience and provide emotional and learning assessments.
+
+Respond with JSON:
+{
+  "emotion_label": "one of: satisfied, frustrated, curious, surprised, bored, anxious, proud, disappointed, neutral",
+  "emotion_valence": 0.0,
+  "emotion_arousal": 0.0,
+  "learning": "What was learned from this experience (one sentence)",
+  "importance": 0.5,
+  "tags": ["tag1", "tag2"]
+}
+
+Guidelines:
+- emotion_valence: -1.0 (very negative) to 1.0 (very positive)
+- emotion_arousal: 0.0 (calm/quiet) to 1.0 (excited/intense)
+- importance: 0.0 (trivial routine) to 1.0 (significant life event)
+- learning: Be specific and actionable
+- tags: 2-4 relevant tags for retrieval"""
+
 from aegis_ai.llm.json_utils import extract_json_object
 
 logger = logging.getLogger("aegis_ai.memory.experiential")
@@ -164,30 +183,13 @@ class ExperientialMemory:
 
     def _evaluate_experience(self, exp: Experience) -> None:
         """Use LLM to evaluate the emotional impact and extract learning."""
-        prompt = f"""You are AEGIS's experience evaluator. Analyze this experience and provide emotional and learning assessments.
+        prompt = f"""{_EXPERIENCE_EVALUATION_INSTRUCTIONS}
 
 Experience:
 - Action: {exp.action}
 - Observation: {exp.observation}
 - Context: {exp.context}
-- Outcome: {"success" if exp.outcome_success else "failure"}
-
-Respond with JSON:
-{{
-  "emotion_label": "one of: satisfied, frustrated, curious, surprised, bored, anxious, proud, disappointed, neutral",
-  "emotion_valence": 0.0,
-  "emotion_arousal": 0.0,
-  "learning": "What was learned from this experience (one sentence)",
-  "importance": 0.5,
-  "tags": ["tag1", "tag2"]
-}}
-
-Guidelines:
-- emotion_valence: -1.0 (very negative) to 1.0 (very positive)
-- emotion_arousal: 0.0 (calm/quiet) to 1.0 (excited/intense)
-- importance: 0.0 (trivial routine) to 1.0 (significant life event)
-- learning: Be specific and actionable
-- tags: 2-4 relevant tags for retrieval"""
+- Outcome: {"success" if exp.outcome_success else "failure"}"""
 
         result = self._llm.generate(
             prompt=prompt,

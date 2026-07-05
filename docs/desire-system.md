@@ -240,7 +240,7 @@ During task execution (`_execute_tasks`):
 
 ## Current Autonomous Fulfillment Rules
 
-- LLM-backed autonomous decisions are gated by `AEGIS_MIN_LLM_INTERVAL_MS`, default `60000` ms. Desire pressure checks continue every minute, and high-pressure cycles should attempt at least one safe/read-only action after the gate opens.
+- LLM-backed autonomous decisions are gated by `AEGIS_MIN_LLM_INTERVAL_MS`, default `1800000` ms (30 minutes). Desire pressure checks continue every minute, and high-pressure cycles should attempt at least one safe/read-only action after the gate opens.
 - Observations and pressure updates continue between LLM calls, but they do not bypass the gate.
 - A `USEFUL` tool result reduces desire pressure by the normal amount and updates `last_action_at`.
 - `NEEDS_FOLLOWUP` reduces pressure by half.
