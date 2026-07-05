@@ -174,7 +174,7 @@ class CapabilityCatalog:
                 "type": "function",
                 "function": {
                     "name": tool_name,
-                    "description": f"{m.title}: {m.description}",
+                    "description": f"{m.title}: {m.description[:80]}",
                     "parameters": parameters,
                 },
             })
@@ -244,7 +244,7 @@ class CapabilityCatalog:
                 caps.append(Capability(
                     id=m.capability_id,
                     name=m.title,
-                    description=m.description or m.title or m.capability_id,
+                    description=(m.description[:80] if m.description else m.title or m.capability_id),
                     server_type=server_type_map.get(m.server_id, ServerType.AI),
                     risk_level=risk_level,
                     requires_approval=m.requires_approval,

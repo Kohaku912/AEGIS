@@ -508,6 +508,13 @@ class PolicyEngine:
             self._risk_overrides[capability_id] = risk_level
             self._save_overrides()
 
+    def clear_risk_override(self, capability_id: str) -> None:
+        """Remove a per-capability risk override so manifest JSON is authoritative."""
+        with self._lock:
+            if capability_id in self._risk_overrides:
+                self._risk_overrides.pop(capability_id, None)
+                self._save_overrides()
+
     def _load_overrides(self) -> None:
         if not self._overrides_path.exists():
             return

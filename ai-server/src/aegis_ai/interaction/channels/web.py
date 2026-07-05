@@ -8,6 +8,7 @@ import uuid
 
 from flask import Flask, jsonify, render_template, request
 
+from aegis_ai.web.auth import install_dashboard_token_auth
 from aegis_ai.interaction.message import Channel, Message
 from aegis_ai.interaction.router import InteractionRouter
 from aegis_ai.interaction.session import SessionManager
@@ -35,6 +36,7 @@ class WebChatApp:
         self._router = router
         self._sessions = session_manager or SessionManager()
         self._app = Flask(__name__, template_folder="templates")
+        install_dashboard_token_auth(self._app, exempt_paths={"/health"})
         self._setup_routes()
 
     @property

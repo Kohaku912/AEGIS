@@ -35,6 +35,7 @@ _DATA_DIR = str(Path(__file__).resolve().parent.parent.parent.parent / "data")
 from flask import Flask, jsonify, redirect, render_template, request
 from aegis_ai.capability_catalog import normalize_risk_label, risk_json_label, risk_level_from_label
 from aegis_ai.llm.memory_context import build_shared_memory_context
+from aegis_ai.web.auth import install_dashboard_token_auth
 from aegis_ai.web.chat_history import ChatHistoryStore, entry_to_mobile_messages
 
 logger = logging.getLogger("aegis_ai.web.dashboard")
@@ -952,6 +953,7 @@ class DashboardApp:
             runtime = get_runtime()
         self._runtime = runtime
         self._app = Flask(__name__, template_folder="templates")
+        install_dashboard_token_auth(self._app, exempt_paths={"/health"})
         self._app.jinja_env.filters["jst"] = _format_jst
         self._app.jinja_env.globals["format_jst"] = _format_jst
         self._start_time = time.time()
@@ -1478,13 +1480,8 @@ class DashboardApp:
             errors = []
 
             try:
-                engine = self._runtime.policy_engine
                 for m in self._runtime.folder_registry.list_all():
-                    effective = engine._risk_overrides.get(m.capability_id, None)
-                    if effective and hasattr(effective, "name"):
-                        risk = effective.name
-                    else:
-                        risk = normalize_risk_label(m.risk_level)
+                    risk = normalize_risk_label(m.risk_level)
                     caps.append({
                         "id": m.capability_id,
                         "short_name": m.short_name,
@@ -1520,13 +1517,6 @@ class DashboardApp:
         @app.route("/api/capabilities/risk", methods=["POST"])
         def api_capabilities_risk():
             from flask import request
-            from urllib.parse import urlparse
-
-            remote_host = request.remote_addr or ""
-            origin = request.headers.get("Origin", "")
-            origin_host = urlparse(origin).hostname if origin else ""
-            if not _is_local_request_host(remote_host) or (origin_host and not _is_local_request_host(origin_host)):
-                return jsonify({"error": "Capability risk changes are limited to localhost dashboard access"}), 403
 
             data = request.get_json(silent=True) or {}
             cap_id = data.get("capability_id", "").strip()
@@ -1556,16 +1546,6 @@ class DashboardApp:
 
                 current_json_risk = str(cap_data.get("risk", {}).get("level", "")).lower()
                 current_risk = normalize_risk_label(current_json_risk, default=current_json_risk.upper())
-                if current_risk == "FORBIDDEN" and risk != "FORBIDDEN":
-                    self._audit_log.log_decision(
-                        "capability_risk_change",
-                        cap_id,
-                        "DENY",
-                        reason="Weakening FORBIDDEN risk requires explicit approval",
-                        actor="dashboard",
-                        detail={"from": current_risk, "to": risk, "reason": reason},
-                    )
-                    return jsonify({"error": "Weakening FORBIDDEN risk requires explicit approval"}), 403
 
                 if "risk" not in cap_data:
                     cap_data["risk"] = {}
@@ -1574,6 +1554,9 @@ class DashboardApp:
 
                 with open(file_path, "w", encoding="utf-8") as f:
                     _json.dump(cap_data, f, indent=2, ensure_ascii=False)
+
+                if hasattr(self._runtime.policy_engine, "clear_risk_override"):
+                    self._runtime.policy_engine.clear_risk_override(cap_id)
 
                 reload_result = _reload_capabilities_runtime(self._runtime)
                 self._audit_log.log_decision(

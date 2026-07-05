@@ -20,7 +20,7 @@ logger = logging.getLogger("aegis_ai.desire.pressure")
 _ALPHA: float = 0.3
 _MIN_PRESSURE: float = 0.0
 _MAX_PRESSURE: float = 10.0
-_TIME_PRESSURE_PER_HOUR: float = float(os.environ.get("AEGIS_PRESSURE_PER_HOUR", "20.0"))
+_TIME_PRESSURE_PER_HOUR: float = float(os.environ.get("AEGIS_PRESSURE_PER_HOUR", "10.0"))
 
 _DEFAULT_PRESSURES: dict[str, float] = {
     "user_support": 0.0,

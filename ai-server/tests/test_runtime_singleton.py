@@ -186,6 +186,53 @@ def test_grpc_send_chat_preserves_response_shape(monkeypatch, tmp_path) -> None:
     assert "画面にはホーム画面" in (tmp_path / "data" / "chat_history.jsonl").read_text(encoding="utf-8")
 
 
+def test_android_direct_chat_requires_pairing_auth_when_configured(monkeypatch, tmp_path) -> None:
+    from generated.aegis import ai_server_pb2, android_server_pb2
+    from aegis_ai.grpc_server import AegisAIServicer
+    from aegis_ai.web import chat_service
+
+    class FakeAndroidManager:
+        def validate_direct_rpc_auth(self, auth, *, fallback_device_id: str = ""):
+            if getattr(auth, "pairing_token", "") == "good_token":
+                return True, getattr(auth, "device_id", "") or fallback_device_id, "ok"
+            return False, getattr(auth, "device_id", "") or fallback_device_id, "ANDROID_AUTH_REQUIRED"
+
+        def broadcast_chat_update(self, messages):
+            return 1
+
+    runtime = SimpleNamespace(config=SimpleNamespace(), android_manager=FakeAndroidManager())
+    servicer = AegisAIServicer(runtime)
+
+    unauthenticated = servicer.SendChat(
+        ai_server_pb2.ChatRequest(text="hello", device_id="device_1"),
+        None,
+    )
+
+    assert unauthenticated.status.code == 16
+    assert unauthenticated.status.message == "ANDROID_AUTH_REQUIRED"
+
+    def fake_execute_chat_message(runtime, text, *, origin_channel, conversation_id, device_id, context, task_source):
+        return {"conversation_id": conversation_id, "response": "ok"}
+
+    monkeypatch.setattr(chat_service, "execute_chat_message", fake_execute_chat_message)
+    monkeypatch.chdir(tmp_path)
+    authenticated = servicer.SendChat(
+        ai_server_pb2.ChatRequest(
+            text="hello",
+            device_id="device_1",
+            auth=android_server_pb2.AndroidAuth(
+                device_id="device_1",
+                pairing_token="good_token",
+                connection_id="conn_1",
+            ),
+        ),
+        None,
+    )
+
+    assert authenticated.status.code == 0
+    assert authenticated.response == "ok"
+
+
 def test_grpc_mobile_dashboard_state_reads_shared_history(monkeypatch, tmp_path) -> None:
     from generated.aegis import ai_server_pb2
     from aegis_ai.grpc_server import AegisAIServicer

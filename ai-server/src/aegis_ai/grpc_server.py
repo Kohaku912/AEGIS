@@ -251,13 +251,23 @@ class AegisAIServicer(ai_server_pb2_grpc.AIServerServicer):
         from aegis_ai.web.chat_service import execute_chat_message, tool_results_json
         from aegis_ai.web.chat_history import ChatHistoryStore, entry_to_mobile_messages
 
+        auth_ok, device_id, auth_message = self._validate_android_direct_rpc_auth(
+            request,
+            context,
+            fallback_device_id=request.device_id,
+        )
         conversation_id = request.conversation_id or f"android_chat_{int(time.time() * 1000)}"
+        if not auth_ok:
+            return ai_server_pb2.ChatResponse(
+                status=Status(code=16, message=auth_message),
+                conversation_id=conversation_id,
+            )
         result = execute_chat_message(
             self._runtime,
             request.text,
             origin_channel="android_app",
             conversation_id=conversation_id,
-            device_id=request.device_id,
+            device_id=device_id or request.device_id,
             context=dict(request.context),
             task_source="android_chat",
         )
@@ -286,6 +296,15 @@ class AegisAIServicer(ai_server_pb2_grpc.AIServerServicer):
         from aegis_ai.web.chat_history import ChatHistoryStore, entries_to_mobile_messages
         from aegis_ai.web.dashboard_routes import _runtime_server_status
 
+        auth_ok, _, auth_message = self._validate_android_direct_rpc_auth(
+            request,
+            context,
+            fallback_device_id=request.device_id,
+        )
+        if not auth_ok:
+            return ai_server_pb2.MobileDashboardStateResponse(
+                status=Status(code=16, message=auth_message),
+            )
         limit = request.history_limit if request.history_limit > 0 else 50
         history = ChatHistoryStore().load(limit=limit)
         status_payload = _runtime_server_status(runtime=self._runtime)
@@ -325,6 +344,16 @@ class AegisAIServicer(ai_server_pb2_grpc.AIServerServicer):
         return _approval_to_proto(req)
 
     def ResolveApproval(self, request, context):
+        auth_ok, _, auth_message = self._validate_android_direct_rpc_auth(
+            request,
+            context,
+            fallback_device_id=request.user,
+        )
+        if not auth_ok:
+            return ai_server_pb2.ResolveApprovalResponse(
+                status=Status(code=16, message=auth_message),
+                approval_id=request.approval_id,
+            )
         if request.rejected:
             if request.global_reject:
                 req = self._runtime.approval_manager.global_reject(
@@ -353,6 +382,12 @@ class AegisAIServicer(ai_server_pb2_grpc.AIServerServicer):
         )
 
     def ListPendingApprovals(self, request, context):
+        auth_ok, _, auth_message = self._validate_android_direct_rpc_auth(request, context)
+        if not auth_ok:
+            return ai_server_pb2.ListPendingApprovalsResponse(
+                status=Status(code=16, message=auth_message),
+                approvals=[],
+            )
         approvals = [_approval_to_proto(req) for req in self._runtime.approval_manager.list_pending()]
         return ai_server_pb2.ListPendingApprovalsResponse(
             status=Status(code=0, message="ok"),
@@ -407,6 +442,26 @@ class AegisAIServicer(ai_server_pb2_grpc.AIServerServicer):
             status=Status(code=0, message="ok"),
             records=records[-max_records:],
         )
+
+    def _validate_android_direct_rpc_auth(
+        self,
+        request: Any,
+        context: grpc.ServicerContext | None,
+        *,
+        fallback_device_id: str = "",
+    ) -> tuple[bool, str, str]:
+        android_manager = getattr(self._runtime, "android_manager", None)
+        if android_manager is None or not hasattr(android_manager, "validate_direct_rpc_auth"):
+            return True, fallback_device_id, "ok"
+        auth = getattr(request, "auth", None)
+        ok, device_id, message = android_manager.validate_direct_rpc_auth(
+            auth,
+            fallback_device_id=fallback_device_id,
+        )
+        if not ok and context is not None:
+            context.set_code(grpc.StatusCode.PERMISSION_DENIED)
+            context.set_details(message)
+        return ok, device_id, message
 
 
 def serve(config: Config | None = None, runtime: AegisRuntime | None = None) -> None:

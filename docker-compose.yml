@@ -18,12 +18,13 @@ services:
       DEEPSEEK_API_KEY: ${LLM_API_KEY:-${DEEPSEEK_API_KEY:-${OPENAI_API_KEY:-}}}
       DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL:-https://api.deepseek.com}
       AEGIS_MIN_LLM_INTERVAL_MS: ${AEGIS_MIN_LLM_INTERVAL_MS:-60000}
-      AEGIS_PRESSURE_PER_HOUR: ${AEGIS_PRESSURE_PER_HOUR:-20.0}
+      AEGIS_PRESSURE_PER_HOUR: ${AEGIS_PRESSURE_PER_HOUR:-10.0}
       AGORA_TOKEN: ${AGORA_TOKEN:-}
       AGORA_BASE_URL: ${AGORA_BASE_URL:-https://agora.kakunin.me}
       AGORA_MASTER_USER: ${AGORA_MASTER_USER:-}
       AEGIS_GRPC_HOST: 0.0.0.0
       AEGIS_GRPC_PORT: 50051
+      AEGIS_DASHBOARD_ACCESS_TOKEN: ${AEGIS_DASHBOARD_ACCESS_TOKEN:-}
       BROWSER_SERVER_HOST: browser-server
       BROWSER_SERVER_PORT: 50053
       ROOM_SERVER_HOST: room-server
@@ -36,6 +37,7 @@ services:
       ANDROID_SERVER_PORT: ${ANDROID_SERVER_PORT:-50054}
       AEGIS_ANDROID_PAIRING_TOKEN: ${AEGIS_ANDROID_PAIRING_TOKEN:-}
     volumes:
+      - ./ai-server/capabilities:/app/capabilities
       - aegis-data:/app/data
       - aegis-reports:/app/evaluation/reports
     extra_hosts:

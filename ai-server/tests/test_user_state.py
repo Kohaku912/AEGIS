@@ -21,6 +21,9 @@ def test_event_ingest_redacts_sensitive_fields(tmp_path) -> None:
             "text": "secret dm body",
             "password": "hunter2",
             "input_text": "123456",
+            "key": "A",
+            "raw_key": "B",
+            "vk_codes": [65, 66],
             "layout_tree": {"raw": "full ui"},
             "url": "https://example.com/private/path?token=abc",
             "wifi_bssid": "AA:BB:CC:DD:EE:FF",
@@ -35,10 +38,38 @@ def test_event_ingest_redacts_sensitive_fields(tmp_path) -> None:
     assert "hunter2" not in raw
     assert "123456" not in raw
     assert "full ui" not in raw
+    assert "\"A\"" not in raw
+    assert "\"B\"" not in raw
+    assert "vk_codes_redacted" in raw
     assert "private/path" not in raw
     assert "AA:BB:CC" not in raw
     assert "url_hash" in raw
     assert "wifi_bssid_hash" in raw
+
+
+def test_event_ingest_preserves_safe_activity_detail_fields(tmp_path) -> None:
+    manager = UserStateManager(data_dir=str(tmp_path / "user_state"))
+
+    manager.ingest_event(
+        "android-server",
+        {
+            "event_type": "android.user_activity.changed",
+            "app_name": "YouTube",
+            "screen_title_summary": "Example video title",
+            "screen_title_hash": "abc123",
+            "content_kind": "video",
+            "input_target_category": "none",
+            "key_category_counts": {"printable": 3, "navigation": 1},
+        },
+    )
+
+    payload = manager.get_recent_events(limit=1)[0]["payload"]
+
+    assert payload["app_name"] == "YouTube"
+    assert payload["screen_title_summary"] == "Example video title"
+    assert payload["content_kind"] == "video"
+    assert payload["input_target_category"] == "none"
+    assert payload["key_category_counts"] == {"printable": 3, "navigation": 1}
 
 
 def test_pc_activity_sets_attention_and_activity(tmp_path) -> None:
@@ -61,6 +92,33 @@ def test_pc_activity_sets_attention_and_activity(tmp_path) -> None:
     assert state["attention"]["device"] == "pc"
     assert state["activity"]["label"] == "coding"
     assert state["where"]["label"] == "home_pc_desk"
+
+
+def test_pc_game_fullscreen_low_idle_stays_pc_attention_and_gaming(tmp_path) -> None:
+    manager = UserStateManager(data_dir=str(tmp_path / "user_state"))
+
+    manager.ingest_event(
+        "pc-server",
+        {
+            "event_type": "pc.user_activity.snapshot",
+            "app_name": "Steam Game",
+            "process_name": "eldenring.exe",
+            "active_window_title": "ELDEN RING",
+            "keyboard_count": 0,
+            "mouse_count": 0,
+            "key_event_count": 0,
+            "idle_ms": 25_000,
+            "fullscreen": True,
+            "locked": False,
+            "input_target_category": "game",
+        },
+    )
+
+    state = manager.get_current_user_state()
+
+    assert state["attention"]["device"] == "pc"
+    assert state["activity"]["label"] == "gaming"
+    assert state["activity"]["app_name"] == "Steam Game"
 
 
 def test_pc_window_title_is_not_stored_raw(tmp_path) -> None:
@@ -92,6 +150,16 @@ def test_pc_poller_skips_unchanged_idle_snapshots_but_keeps_input(tmp_path) -> N
     assert manager._should_save_pc_snapshot({**idle, "mouse_count": 1}) is True
 
 
+def test_pc_poller_keeps_active_fullscreen_snapshots_every_ten_seconds(tmp_path) -> None:
+    manager = UserStateManager(data_dir=str(tmp_path / "user_state"))
+    snapshot = {"process_name": "eldenring.exe", "idle_ms": 20_000, "fullscreen": True}
+
+    assert manager._should_save_pc_snapshot(snapshot) is True
+    assert manager._should_save_pc_snapshot(snapshot) is False
+    manager._last_pc_saved_ms -= 10_001
+    assert manager._should_save_pc_snapshot(snapshot) is True
+
+
 def test_recent_pc_input_beats_android_presence_noise(tmp_path) -> None:
     manager = UserStateManager(data_dir=str(tmp_path / "user_state"))
 
@@ -120,6 +188,41 @@ def test_recent_pc_input_beats_android_presence_noise(tmp_path) -> None:
     assert manager.get_current_user_state()["attention"]["device"] == "pc"
 
 
+def test_android_touch_beats_repeated_passive_pc_idle_snapshots(tmp_path) -> None:
+    manager = UserStateManager(data_dir=str(tmp_path / "user_state"))
+
+    for index in range(5):
+        manager.ingest_event(
+            "pc-server",
+            {
+                "event_type": "pc.user_activity.snapshot",
+                "process_name": "Code.exe",
+                "keyboard_count": 0,
+                "mouse_count": 0,
+                "key_event_count": 0,
+                "idle_ms": 2_000,
+                "locked": False,
+                "timestamp_ms": int(time.time() * 1000) - (5 - index) * 4_000,
+            },
+        )
+    manager.ingest_event(
+        "android-server",
+        {
+            "event_type": "android.user_activity.changed",
+            "screen_on": True,
+            "locked": False,
+            "touch_count": 4,
+            "app_name": "YouTube",
+            "package_name": "com.google.android.youtube",
+            "layout_category": "video",
+        },
+    )
+
+    state = manager.get_current_user_state()
+    assert state["attention"]["device"] == "android"
+    assert state["activity"]["label"] == "watching_video"
+
+
 def test_android_activity_and_home_wifi(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("AEGIS_HOME_WIFI_BSSIDS", "aa:bb:cc:dd:ee:ff")
     manager = UserStateManager(data_dir=str(tmp_path / "user_state"))
@@ -142,6 +245,47 @@ def test_android_activity_and_home_wifi(tmp_path, monkeypatch) -> None:
     assert state["where"]["label"] == "home"
     assert state["attention"]["device"] == "android"
     assert state["activity"]["label"] == "chatting"
+
+
+def test_android_youtube_and_browser_details_drive_activity(tmp_path) -> None:
+    manager = UserStateManager(data_dir=str(tmp_path / "user_state"))
+
+    manager.ingest_event(
+        "android-server",
+        {
+            "event_type": "android.user_activity.changed",
+            "screen_on": True,
+            "locked": False,
+            "touch_count": 2,
+            "package_name": "com.google.android.youtube",
+            "app_name": "YouTube",
+            "layout_category": "video",
+            "content_kind": "video",
+            "screen_title_summary": "A useful video title",
+        },
+    )
+    state = manager.get_current_user_state()
+    assert state["activity"]["label"] == "watching_video"
+    assert state["activity"]["app_name"] == "YouTube"
+    assert state["activity"]["screen_title_summary"] == "A useful video title"
+    assert state["activity"]["evidence"][-1]["screen_title_summary"] == "A useful video title"
+
+    manager = UserStateManager(data_dir=str(tmp_path / "browser_state"))
+    manager.ingest_event(
+        "android-server",
+        {
+            "event_type": "android.user_activity.changed",
+            "screen_on": True,
+            "locked": False,
+            "touch_count": 2,
+            "package_name": "com.android.chrome",
+            "app_name": "Chrome",
+            "layout_category": "browser",
+            "content_kind": "browser",
+            "screen_title_summary": "Example page title",
+        },
+    )
+    assert manager.get_current_user_state()["activity"]["label"] == "browsing"
 
 
 def test_android_away_when_no_home_wifi_and_location_signal(tmp_path, monkeypatch) -> None:

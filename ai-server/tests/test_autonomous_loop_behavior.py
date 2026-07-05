@@ -50,6 +50,21 @@ class _Broker:
         return self._capabilities
 
 
+class _ExecutingBroker(_Broker):
+    def __init__(self, capability_ids: list[str], output: dict | None = None) -> None:
+        super().__init__(capability_ids)
+        self.output = output or {"result": "ordinary successful result from broker"}
+
+    def execute(self, request):
+        from tool_broker import InvokeStatus, ToolExecutionResult
+
+        return ToolExecutionResult(
+            request_id=getattr(request, "request_id", ""),
+            status=InvokeStatus.SUCCESS,
+            output=self.output,
+        )
+
+
 class _StatusManager:
     def __init__(self, statuses: dict[str, str]) -> None:
         self._statuses = statuses
@@ -138,7 +153,8 @@ def test_available_capabilities_use_status_manager_not_localhost(tmp_path) -> No
     assert loop.get_status()["available_capability_count"] == 4
 
 
-def test_llm_interval_gate_waits_one_minute(tmp_path) -> None:
+def test_llm_interval_gate_waits_thirty_minutes_by_default(monkeypatch, tmp_path) -> None:
+    monkeypatch.delenv("AEGIS_MIN_LLM_INTERVAL_MS", raising=False)
     desire = _PressureDesire()
     loop = AutonomousLoop(
         llm_provider=object(),
@@ -146,6 +162,7 @@ def test_llm_interval_gate_waits_one_minute(tmp_path) -> None:
         data_dir=str(tmp_path / "autonomous"),
         fallback_interval_seconds=60,
     )
+    assert loop._min_llm_interval_ms == 1_800_000
     generated: list[bool] = []
     loop._generate_tasks = lambda low: generated.append(True) or []
     loop._execute_tasks = lambda tasks: []
@@ -245,6 +262,32 @@ def test_repeated_no_action_does_not_select_or_clear_pressure(tmp_path) -> None:
     assert status["selected_tool_count"] == 0
     assert status["last_decision"] == "no_action"
     assert status["last_no_action_reason"]
+
+
+def test_execute_tasks_accepts_tool_execution_result_object(tmp_path) -> None:
+    capability_id = "ai-server.memory.search"
+    loop = AutonomousLoop(
+        tool_broker=_ExecutingBroker([capability_id]),
+        data_dir=str(tmp_path / "autonomous"),
+    )
+
+    results = loop._execute_tasks([{
+        "desire": "growth",
+        "action": "Search memory",
+        "capability_id": capability_id,
+        "arguments": {},
+    }])
+
+    assert results == [{
+        "desire": "growth",
+        "action": "Search memory",
+        "capability_id": capability_id,
+        "result": "ordinary successful result from broker",
+        "success": True,
+        "full_output": {"result": "ordinary successful result from broker"},
+        "skill_used": None,
+        "workflow_used": None,
+    }]
 
 
 def test_representative_capability_is_included_when_retriever_misses(tmp_path) -> None:

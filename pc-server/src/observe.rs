@@ -8,6 +8,7 @@
 
 use base64::Engine;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 #[cfg(target_os = "windows")]
 use std::sync::Mutex;
 
@@ -52,12 +53,16 @@ pub struct ScreenSize {
 pub struct UserActivitySnapshot {
     pub timestamp_ms: u64,
     pub active_window_title: String,
+    pub app_name: String,
     pub process_name: String,
     pub pid: u32,
     pub browser_domain: String,
     pub browser_url_hash: String,
     pub keyboard_count: u32,
     pub mouse_count: u32,
+    pub key_event_count: u32,
+    pub key_category_counts: BTreeMap<String, u32>,
+    pub input_target_category: String,
     pub idle_ms: u64,
     pub locked: bool,
     pub fullscreen: bool,
@@ -147,16 +152,23 @@ pub fn get_user_activity_snapshot() -> Result<UserActivitySnapshot, String> {
         && active.y <= 0
         && active.width >= screen.width.saturating_sub(8)
         && active.height >= screen.height.saturating_sub(8);
-    let (keyboard_count, mouse_count) = get_input_transition_counts();
+    let (keyboard_count, mouse_count, key_category_counts) = get_input_transition_counts();
+    let app_name = app_name_from_process(&active.process_name);
+    let input_target_category =
+        input_target_category(&active.process_name, &active.title, fullscreen);
     Ok(UserActivitySnapshot {
         timestamp_ms: now_ms(),
         active_window_title: active.title,
+        app_name,
         process_name: active.process_name,
         pid: active.pid,
         browser_domain: String::new(),
         browser_url_hash: String::new(),
         keyboard_count,
         mouse_count,
+        key_event_count: keyboard_count.saturating_add(mouse_count),
+        key_category_counts,
+        input_target_category,
         idle_ms: get_idle_ms(),
         locked: false,
         fullscreen,
@@ -164,7 +176,7 @@ pub fn get_user_activity_snapshot() -> Result<UserActivitySnapshot, String> {
 }
 
 #[cfg(target_os = "windows")]
-fn get_input_transition_counts() -> (u32, u32) {
+fn get_input_transition_counts() -> (u32, u32, BTreeMap<String, u32>) {
     use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
         GetAsyncKeyState, VK_LBUTTON, VK_MBUTTON, VK_RBUTTON, VK_XBUTTON1, VK_XBUTTON2,
     };
@@ -179,6 +191,7 @@ fn get_input_transition_counts() -> (u32, u32) {
     ];
     let mut keyboard_count = 0u32;
     let mut mouse_count = 0u32;
+    let mut category_counts = empty_key_category_counts();
 
     unsafe {
         for vk in 1..=254 {
@@ -186,6 +199,8 @@ fn get_input_transition_counts() -> (u32, u32) {
             if state & 0x0001 == 0 {
                 continue;
             }
+            let category = key_category(vk);
+            increment_category(&mut category_counts, category);
             if mouse_keys.contains(&vk) {
                 mouse_count = mouse_count.saturating_add(1);
             } else {
@@ -193,12 +208,84 @@ fn get_input_transition_counts() -> (u32, u32) {
             }
         }
     }
-    (keyboard_count, mouse_count)
+    (keyboard_count, mouse_count, category_counts)
 }
 
 #[cfg(not(target_os = "windows"))]
-fn get_input_transition_counts() -> (u32, u32) {
-    (0, 0)
+fn get_input_transition_counts() -> (u32, u32, BTreeMap<String, u32>) {
+    (0, 0, empty_key_category_counts())
+}
+
+fn empty_key_category_counts() -> BTreeMap<String, u32> {
+    [
+        "printable",
+        "navigation",
+        "editing",
+        "function",
+        "modifier",
+        "system",
+        "mouse",
+    ]
+    .into_iter()
+    .map(|key| (key.to_string(), 0))
+    .collect()
+}
+
+fn increment_category(counts: &mut BTreeMap<String, u32>, category: &'static str) {
+    let value = counts.entry(category.to_string()).or_insert(0);
+    *value = value.saturating_add(1);
+}
+
+fn key_category(vk: i32) -> &'static str {
+    match vk {
+        0x01 | 0x02 | 0x04 | 0x05 | 0x06 => "mouse",
+        0x21..=0x28 => "navigation",
+        0x08 | 0x09 | 0x0D | 0x2D | 0x2E => "editing",
+        0x70..=0x87 => "function",
+        0x10..=0x14 | 0x5B..=0x5C => "modifier",
+        0x20 | 0x30..=0x5A | 0x60..=0x6F | 0xBA..=0xDE => "printable",
+        _ => "system",
+    }
+}
+
+fn app_name_from_process(process_name: &str) -> String {
+    let trimmed = process_name.trim();
+    if trimmed.is_empty() {
+        return "Unknown".into();
+    }
+    let without_ext = trimmed
+        .strip_suffix(".exe")
+        .or_else(|| trimmed.strip_suffix(".EXE"))
+        .unwrap_or(trimmed);
+    without_ext.replace(['_', '-'], " ")
+}
+
+fn input_target_category(process_name: &str, title: &str, fullscreen: bool) -> String {
+    let text = format!("{} {}", process_name, title).to_lowercase();
+    if text.contains("code")
+        || text.contains("devenv")
+        || text.contains("jetbrains")
+        || text.contains("terminal")
+    {
+        "coding".into()
+    } else if text.contains("steam")
+        || text.contains("game")
+        || text.contains("minecraft")
+        || text.contains("elden")
+        || fullscreen
+    {
+        "game".into()
+    } else if text.contains("chrome")
+        || text.contains("edge")
+        || text.contains("firefox")
+        || text.contains("browser")
+    {
+        "browser".into()
+    } else if text.contains("discord") || text.contains("line") || text.contains("slack") {
+        "chat".into()
+    } else {
+        "application".into()
+    }
 }
 
 #[cfg(target_os = "windows")]
@@ -304,4 +391,39 @@ fn now_ms() -> u64 {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis() as u64
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn key_category_groups_without_key_identity() {
+        assert_eq!(key_category(0x41), "printable");
+        assert_eq!(key_category(0x25), "navigation");
+        assert_eq!(key_category(0x08), "editing");
+        assert_eq!(key_category(0x70), "function");
+        assert_eq!(key_category(0x10), "modifier");
+        assert_eq!(key_category(0x01), "mouse");
+        assert_eq!(key_category(0x2C), "system");
+    }
+
+    #[test]
+    fn app_and_input_target_are_safe_summaries() {
+        assert_eq!(app_name_from_process("eldenring.exe"), "eldenring");
+        assert_eq!(input_target_category("eldenring.exe", "ELDEN RING", true), "game");
+        assert_eq!(input_target_category("Code.exe", "AEGIS - Visual Studio Code", false), "coding");
+        assert_eq!(input_target_category("chrome.exe", "Example", false), "browser");
+    }
+
+    #[test]
+    fn empty_counts_include_only_categories() {
+        let counts = empty_key_category_counts();
+        let keys: Vec<&str> = counts.keys().map(String::as_str).collect();
+        assert_eq!(
+            keys,
+            vec!["editing", "function", "modifier", "mouse", "navigation", "printable", "system"]
+        );
+        assert!(counts.values().all(|value| *value == 0));
+    }
 }

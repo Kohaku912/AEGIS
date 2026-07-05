@@ -7,7 +7,7 @@ from generated.aegis import ai_server_pb2 as aegis_dot_ai__server__pb2
 from generated.aegis import android_server_pb2 as aegis_dot_android__server__pb2
 from generated.aegis import common_pb2 as aegis_dot_common__pb2
 
-GRPC_GENERATED_VERSION = '1.81.0'
+GRPC_GENERATED_VERSION = '1.81.1'
 GRPC_VERSION = grpc.__version__
 _version_not_supported = False
 

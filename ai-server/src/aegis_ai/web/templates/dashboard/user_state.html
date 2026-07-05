@@ -28,6 +28,16 @@
         <div class="label">Confidence <span id="activityConfidence">{{ state.activity.confidence if state.activity else 0 }}</span></div>
     </div>
     <div class="stat-card">
+        <div class="label">App</div>
+        <div class="val" id="activityApp">{{ (state.activity.app_name or state.activity.process_name) if state.activity else "unknown" }}</div>
+        <div class="label">Current application</div>
+    </div>
+    <div class="stat-card">
+        <div class="label">Screen</div>
+        <div class="val" id="activityScreen" style="font-size:20px;line-height:1.25;">{{ (state.activity.screen_title_summary or state.activity.active_window_title_summary) if state.activity else "unknown" }}</div>
+        <div class="label">Safe title summary</div>
+    </div>
+    <div class="stat-card">
         <div class="label">Last 10m Events</div>
         <div class="val" id="last10mCount">{{ state.window_summary.last_10m.count if state.window_summary else 0 }}</div>
     </div>
@@ -173,6 +183,8 @@ async function refreshUserState() {
         setText('attentionConfidence', state.attention?.confidence ?? 0);
         setText('activityLabel', state.activity?.label || 'unknown');
         setText('activityConfidence', state.activity?.confidence ?? 0);
+        setText('activityApp', state.activity?.app_name || state.activity?.process_name || 'unknown');
+        setText('activityScreen', state.activity?.screen_title_summary || state.activity?.active_window_title_summary || 'unknown');
         setText('last10mCount', state.window_summary?.last_10m?.count ?? 0);
         const evidence = document.getElementById('evidenceGrid');
         if (evidence) {

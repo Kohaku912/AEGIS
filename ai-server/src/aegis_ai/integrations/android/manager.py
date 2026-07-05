@@ -134,6 +134,19 @@ class AndroidServerManager:
             return False, device_id, "ANDROID_DEVICE_UNAUTHORIZED"
         return True, device_id, "ok"
 
+    def validate_direct_rpc_auth(self, auth: Any, *, fallback_device_id: str = "") -> tuple[bool, str, str]:
+        """Validate Android unary RPC auth for chat/dashboard/approval calls."""
+        if not self.device_registry.pairing_configured:
+            return True, fallback_device_id, "ok"
+        device_id = str(getattr(auth, "device_id", "") or fallback_device_id or "")
+        token = str(getattr(auth, "pairing_token", "") or "")
+        if not device_id or not token:
+            return False, device_id, "ANDROID_AUTH_REQUIRED"
+        if not self.device_registry.is_authorized(device_id, token):
+            return False, device_id, "ANDROID_DEVICE_UNAUTHORIZED"
+        self.device_registry.touch(device_id)
+        return True, device_id, "ok"
+
     def open_stream(self, request_iterator: Iterable[Any], context: grpc.ServicerContext) -> Iterable[Any]:
         """Accept an Android reverse stream and yield server commands."""
         try:

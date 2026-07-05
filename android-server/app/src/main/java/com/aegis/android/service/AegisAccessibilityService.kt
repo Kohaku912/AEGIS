@@ -22,6 +22,7 @@ class AegisAccessibilityService : AccessibilityService() {
 
     companion object {
         private const val TAG = "AegisAccessibility"
+        private const val ACTIVITY_PUSH_THROTTLE_MS = 5_000L
         var instance: AegisAccessibilityService? = null
             private set
         var uiTreeProvider: UITreeProvider? = null
@@ -30,6 +31,9 @@ class AegisAccessibilityService : AccessibilityService() {
 
         fun lastForegroundPackage(): String = lastForegroundPackage
     }
+
+    private val userActivityCollector by lazy { UserActivityCollector(this) }
+    private var lastActivityPushMs: Long = 0L
 
     override fun onServiceConnected() {
         super.onServiceConnected()
@@ -52,9 +56,19 @@ class AegisAccessibilityService : AccessibilityService() {
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         val packageName = event?.packageName?.toString() ?: return
         UserActivityCollector.recordAccessibilityEvent(event)
+        val category = screenCategory(packageName)
+        if (category in setOf("video", "browser")) {
+            extractSafeScreenSummary(category)?.let { summary ->
+                UserActivityCollector.recordScreenDetail(packageName, summary, category)
+            }
+        }
         if (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED && packageName != lastForegroundPackage) {
             lastForegroundPackage = packageName
             AegisGrpcClient.current()?.pushForegroundApp(packageName)
+        }
+        if (shouldPushActivity(event)) {
+            lastActivityPushMs = System.currentTimeMillis()
+            AegisGrpcClient.current()?.pushUserActivity(userActivityCollector.collect().toString())
         }
     }
 
@@ -66,6 +80,87 @@ class AegisAccessibilityService : AccessibilityService() {
         super.onDestroy()
         instance = null
         Log.i(TAG, "AccessibilityService destroyed")
+    }
+
+    private fun shouldPushActivity(event: AccessibilityEvent): Boolean {
+        val now = System.currentTimeMillis()
+        if (now - lastActivityPushMs < ACTIVITY_PUSH_THROTTLE_MS) return false
+        return when (event.eventType) {
+            AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED,
+            AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED,
+            AccessibilityEvent.TYPE_VIEW_CLICKED,
+            AccessibilityEvent.TYPE_TOUCH_INTERACTION_END -> true
+            else -> false
+        }
+    }
+
+    private fun screenCategory(packageName: String): String {
+        val pkg = packageName.lowercase()
+        return when {
+            "youtube" in pkg || "video" in pkg -> "video"
+            "browser" in pkg || "chrome" in pkg || "firefox" in pkg || "edge" in pkg -> "browser"
+            else -> "unknown"
+        }
+    }
+
+    private fun extractSafeScreenSummary(category: String): String? {
+        val root = rootInActiveWindow ?: return null
+        val candidates = mutableListOf<String>()
+        collectSafeTextCandidates(root, candidates, max = 180)
+        return candidates
+            .map { it.trim() }
+            .filter { isUsefulScreenSummary(it, category) }
+            .maxByOrNull { scoreScreenSummary(it, category) }
+            ?.take(120)
+    }
+
+    private fun collectSafeTextCandidates(
+        node: android.view.accessibility.AccessibilityNodeInfo,
+        out: MutableList<String>,
+        max: Int,
+    ) {
+        if (out.size >= max) return
+        if (!node.isPassword) {
+            val text = node.text?.toString().orEmpty()
+            val desc = node.contentDescription?.toString().orEmpty()
+            if (text.isNotBlank()) out.add(text)
+            if (desc.isNotBlank()) out.add(desc)
+        }
+        for (i in 0 until node.childCount) {
+            if (out.size >= max) return
+            val child = node.getChild(i) ?: continue
+            try {
+                collectSafeTextCandidates(child, out, max)
+            } finally {
+                child.recycle()
+            }
+        }
+    }
+
+    private fun isUsefulScreenSummary(value: String, category: String): Boolean {
+        if (value.length < 4 || value.length > 120) return false
+        if (Regex("\\b\\d{6,}\\b").containsMatchIn(value)) return false
+        if (Regex("(?i)(password|passcode|otp|verification|token|secret)").containsMatchIn(value)) return false
+        val lower = value.lowercase()
+        if (category == "video" && lower.contains("launcher")) return false
+        val commonControls = setOf(
+            "youtube", "home", "shorts", "subscriptions", "library", "search", "share",
+            "comments", "settings", "more", "back", "pause", "play", "like",
+            "ホーム", "ショート", "登録チャンネル", "マイページ", "検索", "共有", "コメント", "その他", "戻る",
+        )
+        if (commonControls.any { lower == it.lowercase() || lower.contains(it.lowercase()) && value.length < 16 }) {
+            return false
+        }
+        if (category == "video" && Regex("^[\\d\\s:.,万万人件]+$").matches(value)) return false
+        return true
+    }
+
+    private fun scoreScreenSummary(value: String, category: String): Int {
+        var score = value.length.coerceAtMost(80)
+        if (category == "video" && Regex("[。.!?！？]").containsMatchIn(value)) score += 20
+        if (category == "browser" && Regex("[-|｜]").containsMatchIn(value)) score += 10
+        if (Regex("(?i)(comment|share|subscribe|チャンネル登録|高く評価)").containsMatchIn(value)) score -= 30
+        return score
     }
 
     /**

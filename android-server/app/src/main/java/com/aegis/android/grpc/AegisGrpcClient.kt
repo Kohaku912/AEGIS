@@ -248,7 +248,7 @@ class AegisGrpcClient private constructor(
 
     fun pushForegroundApp(packageName: String) {
         scope.launch {
-            val payload = """{"package_name":${jsonString(packageName)}}"""
+            val payload = """{"package_name":${jsonString(packageName)},"app_name":${jsonString(appName(packageName))}}"""
             sendEvent(
                 eventType = "android.foreground_app.changed",
                 payloadJson = payload,
@@ -290,6 +290,7 @@ class AegisGrpcClient private constructor(
                     .setConversationId(conversationId)
                     .setText(text)
                     .setDeviceId(config.deviceId)
+                    .setAuth(auth())
                     .putContext("surface", "android_app")
                     .build()
             )
@@ -326,6 +327,7 @@ class AegisGrpcClient private constructor(
                 AiServer.MobileDashboardStateRequest.newBuilder()
                     .setDeviceId(config.deviceId)
                     .setHistoryLimit(historyLimit)
+                    .setAuth(auth())
                     .build()
             )
             if (response.status.code != 0) {
@@ -376,6 +378,7 @@ class AegisGrpcClient private constructor(
             val response = currentStub.listPendingApprovals(
                 AiServer.ListPendingApprovalsRequest.newBuilder()
                     .setServerId("android-server")
+                    .setAuth(auth())
                     .build()
             )
             response.approvalsList.map {
@@ -405,6 +408,7 @@ class AegisGrpcClient private constructor(
                 .setApprovalId(approvalId)
                 .setSurfaceId("android_app")
                 .setUser(config.deviceId)
+                .setAuth(auth())
             if (approved) {
                 request.setApprovedType(Common.ApprovalType.APPROVAL_TYPE_ONE_TIME)
             } else {
@@ -667,6 +671,23 @@ class AegisGrpcClient private constructor(
             .replace("\"", "\\\"")
             .replace("\n", "\\n")
             .replace("\r", "\\r") + "\""
+    }
+
+    private fun appName(packageName: String): String {
+        if (packageName.isBlank()) return ""
+        return runCatching {
+            val info = context.packageManager.getApplicationInfo(packageName, 0)
+            context.packageManager.getApplicationLabel(info).toString().takeUnless { it.isBlank() || it == packageName }
+                ?: fallbackAppName(packageName)
+        }.getOrElse { fallbackAppName(packageName) }
+    }
+
+    private fun fallbackAppName(packageName: String): String = when (packageName) {
+        "com.google.android.youtube" -> "YouTube"
+        "com.android.chrome" -> "Chrome"
+        "com.google.android.googlequicksearchbox" -> "Google"
+        "com.android.systemui" -> "System UI"
+        else -> packageName
     }
 
     private fun sha256(value: String): String {

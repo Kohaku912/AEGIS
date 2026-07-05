@@ -109,6 +109,22 @@ def test_dashboard_registers_settings_blueprint(monkeypatch, tmp_path) -> None:
     assert "autonomous" in response.get_json()
 
 
+def test_dashboard_token_auth_when_configured(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("AEGIS_DASHBOARD_ACCESS_TOKEN", "test-token")
+    client = _app(monkeypatch, tmp_path).test_client()
+
+    page = client.get("/dashboard")
+    api = client.get("/api/settings")
+    health = client.get("/health")
+    authed = client.get("/api/settings", headers={"X-AEGIS-Dashboard-Token": "test-token"})
+
+    assert page.status_code == 302
+    assert "/login" in page.headers["Location"]
+    assert api.status_code == 401
+    assert health.status_code == 200
+    assert authed.status_code == 200
+
+
 def test_dashboard_personal_ai_page_renders(monkeypatch, tmp_path) -> None:
     client = _app(monkeypatch, tmp_path).test_client()
 
@@ -452,18 +468,35 @@ def test_capability_reload_resyncs_registry_and_reindexes(monkeypatch, tmp_path)
     rt.capability_index.reindex.assert_called_once()
 
 
-def test_capability_risk_update_rejects_non_loopback(monkeypatch, tmp_path) -> None:
+def test_capability_risk_update_allows_non_loopback_and_updates_manifest(monkeypatch, tmp_path) -> None:
     client = _app(monkeypatch, tmp_path).test_client()
+    manifest_path = tmp_path / "data" / "capabilities" / "builtin" / "pc-server" / "test" / "remote.json"
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "server_id": "pc-server",
+                "app_id": "test",
+                "action": "remote",
+                "operation_category": "test_operation",
+                "title": "Remote",
+                "risk": {"level": "low", "requires_approval": False},
+            }
+        ),
+        encoding="utf-8",
+    )
 
     response = client.post(
         "/api/capabilities/risk",
-        json={"capability_id": "pc-server.test.sample", "risk_level": "SAFE_ACTION"},
+        json={"capability_id": "pc-server.test.remote", "risk_level": "SAFE_ACTION"},
         headers={"Origin": "http://evil.example"},
         environ_base={"REMOTE_ADDR": "203.0.113.9"},
     )
+    updated = json.loads(manifest_path.read_text(encoding="utf-8"))
 
-    assert response.status_code == 403
-    assert "localhost" in response.get_json()["error"]
+    assert response.status_code == 200
+    assert response.get_json()["ok"] is True
+    assert updated["risk"]["level"] == "safe"
 
 
 def test_chat_prompt_includes_actual_server_status(monkeypatch, tmp_path) -> None:
@@ -494,17 +527,72 @@ def test_chat_prompt_includes_actual_server_status(monkeypatch, tmp_path) -> Non
     assert memory_meta == {"memory_profile": "decision"}
 
 
-def test_capability_risk_update_rejects_non_localhost_origin(monkeypatch, tmp_path) -> None:
-    client = _app(monkeypatch, tmp_path).test_client()
+def test_capability_risk_update_can_weaken_forbidden_and_clears_override(monkeypatch, tmp_path) -> None:
+    from aegis_schema.models import RiskLevel
+
+    rt = _runtime(tmp_path)
+    client = dashboard_routes.DashboardApp(runtime=rt).app.test_client()
+    manifest_path = tmp_path / "data" / "capabilities" / "builtin" / "pc-server" / "test" / "blocked.json"
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "server_id": "pc-server",
+                "app_id": "test",
+                "action": "blocked",
+                "operation_category": "test_operation",
+                "title": "Blocked",
+                "description": "Previously forbidden capability",
+                "risk": {"level": "critical", "requires_approval": True},
+            }
+        ),
+        encoding="utf-8",
+    )
+    rt.policy_engine.set_risk_override("pc-server.test.blocked", RiskLevel.FORBIDDEN)
 
     response = client.post(
         "/api/capabilities/risk",
-        json={"capability_id": "pc-server.system.get_os_info", "risk_level": "READ_ONLY"},
+        json={"capability_id": "pc-server.test.blocked", "risk_level": "SAFE_ACTION"},
         headers={"Origin": "https://example.com"},
     )
+    updated = json.loads(manifest_path.read_text(encoding="utf-8"))
 
-    assert response.status_code == 403
-    assert "localhost" in response.get_json()["error"]
+    assert response.status_code == 200
+    assert updated["risk"]["level"] == "safe"
+    assert "pc-server.test.blocked" not in rt.policy_engine._risk_overrides
+    cap = rt.tool_registry.get_capability("pc-server.test.blocked")
+    assert cap is not None
+    assert cap.risk_level == RiskLevel.SAFE_ACTION
+
+
+def test_capabilities_page_displays_manifest_risk_not_override(monkeypatch, tmp_path) -> None:
+    from aegis_schema.models import RiskLevel
+
+    rt = _runtime(tmp_path)
+    client = dashboard_routes.DashboardApp(runtime=rt).app.test_client()
+    manifest_path = tmp_path / "data" / "capabilities" / "builtin" / "pc-server" / "test" / "visible.json"
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "server_id": "pc-server",
+                "app_id": "test",
+                "action": "visible",
+                "operation_category": "test_operation",
+                "title": "Visible Risk",
+                "risk": {"level": "safe", "requires_approval": False},
+            }
+        ),
+        encoding="utf-8",
+    )
+    rt.policy_engine.set_risk_override("pc-server.test.visible", RiskLevel.FORBIDDEN)
+    dashboard_routes._reload_capabilities_runtime(rt)
+
+    response = client.get("/dashboard/capabilities")
+
+    assert response.status_code == 200
+    assert b'id="risk-pc-server.test.visible"' in response.data
+    assert b'data-saved-risk="SAFE_ACTION"' in response.data
 
 
 def test_dashboard_audit_shows_llm_tool_timeline(monkeypatch, tmp_path) -> None:

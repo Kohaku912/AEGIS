@@ -38,6 +38,7 @@ _SECRET_TEXT_RE = re.compile(
     r"(?i)(bearer\s+)[A-Za-z0-9._~+/=-]{16,}|(sk-[A-Za-z0-9_-]{20,})|"
     r"((?:token|secret|password|api[_-]?key)\s*[:=]\s*)\S+"
 )
+_TRIVIAL_RESULTS = frozenset({"no new posts", "done", "no memory found", "ok", "no new messages", "no drafts", "no new data"})
 
 
 class AutonomousLoop:
@@ -122,7 +123,7 @@ class AutonomousLoop:
         self._last_desire_signature: str = ""
         self._last_pressure_signature: str = ""
         self._min_execution_interval_ms: int = 60_000  # Minimum 1 minute between executions
-        self._min_llm_interval_ms: int = int(os.environ.get("AEGIS_MIN_LLM_INTERVAL_MS", 60_000))
+        self._min_llm_interval_ms: int = int(os.environ.get("AEGIS_MIN_LLM_INTERVAL_MS", 1_800_000))
         self._last_llm_call_ms: int = 0
         self._last_decision: str = ""
         self._last_decision_ms: int = 0
@@ -137,6 +138,7 @@ class AutonomousLoop:
         self._health_check_interval_ms: int = 300_000  # 5 minutes
         self._last_skip_reason: str = ""
         self._lock = threading.RLock()
+        self._capability_metadata_cache: dict[str, dict[str, Any]] = {}
 
         # Load state
         self._load()
@@ -590,17 +592,25 @@ Respond with JSON:
         query: str,
         base_prompt: str,
         profile: str = "decision",
+        has_social_actions: bool = True,
     ) -> tuple[str, dict[str, Any]]:
         memory_context = build_shared_memory_context(
             query=query,
             data_dir=str(self._memory_root()),
             profile=profile,
+            has_social_actions=has_social_actions,
         )
         if memory_context.text:
             prompt = f"Shared memory context:\n{memory_context.text}\n\n{base_prompt}"
         else:
             prompt = base_prompt
         return prompt, memory_context.audit_detail()
+
+    def _has_social_actions(self, valid_cap_ids: set[str]) -> bool:
+        return any(
+            cap_id.startswith("ai-server.agora.") or cap_id == "ai-server.social.list_drafts"
+            for cap_id in valid_cap_ids
+        )
 
     def _log_audit_event(
         self,
@@ -935,8 +945,8 @@ Respond with JSON:
             tools = catalog.list_for_tools(valid_cap_ids)
             candidate_ids = list(valid_cap_ids)
         tools = self._merge_tool_sets(catalog, tools, representative_ids)
-        candidate_ids = list(dict.fromkeys([*representative_ids, *candidate_ids]))
-        self._last_candidate_capability_ids = candidate_ids[:50]
+        candidate_ids = list(dict.fromkeys([*representative_ids, *candidate_ids]))[:10]
+        self._last_candidate_capability_ids = candidate_ids
         if not tools:
             logger.error("No tools generated from catalog")
             return []
@@ -958,12 +968,13 @@ Intrinsic task candidates:
 {json.dumps(intrinsic_hints, ensure_ascii=False)}
 
 Candidate capability ids:
-{json.dumps(candidate_ids[:50], ensure_ascii=False)}"""
+{json.dumps(candidate_ids, ensure_ascii=False)}"""
 
         prompt, memory_meta = self._build_shared_llm_prompt(
             query=retrieval_query,
             base_prompt=prompt,
             profile="decision",
+            has_social_actions=self._has_social_actions(valid_cap_ids),
         )
 
         self._last_llm_call_ms = int(time.time() * 1000)
@@ -1287,14 +1298,19 @@ Candidate capability ids:
                 except Exception:
                     pass
 
-            results.append({
+            result_record = {
                 "desire": desire_name, "action": action,
                 "capability_id": capability_id,
                 "result": result_summary[:200], "success": success,
                 "full_output": full_output,
                 "skill_used": skill_used.skill_id if skill_used else None,
                 "workflow_used": workflow_used.workflow_id if workflow_used else None,
-            })
+            }
+            results.append(result_record)
+
+            result_text = str(result_record.get("result", "")).lower().strip()
+            if result_text in _TRIVIAL_RESULTS or (len(result_text) < 20 and result_record.get("success", False)):
+                continue
 
             # Execute post_action if defined
             post_action = task.get("post_action")
@@ -1353,6 +1369,15 @@ Candidate capability ids:
             return []
         if not previous_tasks or not previous_results:
             return []
+        # Skip follow-up when all tasks succeeded with trivial results
+        if len(previous_tasks) == len(previous_results):
+            all_trivial = all(
+                r.get("success", False) and
+                (str(r.get("result", "")).lower().strip() in _TRIVIAL_RESULTS or len(str(r.get("result", ""))) < 20)
+                for r in previous_results
+            )
+            if all_trivial:
+                return []
 
         context_parts = []
         for i, (task, result) in enumerate(zip(previous_tasks, previous_results)):
@@ -1597,6 +1622,9 @@ Rules:
         self._desire.save()
 
     def _resolve_capability_metadata(self, capability_id: str) -> dict[str, Any]:
+        if capability_id in self._capability_metadata_cache:
+            return self._capability_metadata_cache[capability_id]
+        
         catalog = getattr(self._broker, "_catalog", None) if self._broker is not None else None
         if catalog is None or not capability_id:
             return {}
@@ -1604,7 +1632,7 @@ Rules:
             manifest = catalog.resolve(capability_id)
             if manifest is None:
                 return {}
-            return {
+            metadata = {
                 "operation_category": getattr(manifest, "operation_category", ""),
                 "risk_level": getattr(manifest, "risk_level", ""),
                 "side_effects": getattr(manifest, "side_effects", []),
@@ -1612,6 +1640,8 @@ Rules:
                 "description": getattr(manifest, "description", ""),
                 "server_id": getattr(manifest, "server_id", ""),
             }
+            self._capability_metadata_cache[capability_id] = metadata
+            return metadata
         except Exception:
             logger.debug("Failed to resolve manifest metadata", exc_info=True)
             return {}
@@ -1730,6 +1760,9 @@ Rules:
             action = task.get("action", "Unknown task")
             capability_id = task.get("capability_id", result.get("capability_id", ""))
             observation = result.get("result", "")
+            result_text = str(result.get("result", "")).lower().strip()
+            if result_text in _TRIVIAL_RESULTS or (len(result_text) < 20 and result.get("success", False)):
+                continue
             full_output = result.get("full_output", {})
             desire_name = task.get("desire", "")
 

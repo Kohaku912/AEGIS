@@ -265,12 +265,42 @@ class AffectSystem:
             )
 
     def to_context_string(self) -> str:
-        """Return full affect state as context string for LLM prompts."""
+        traits = self._personality.traits
+        mood = self._mood
+        active = self._emotion.get_active_emotions()
+
         parts = [
-            self._personality.to_context_string(),
-            self._mood.to_context_string(),
-            self._emotion.to_context_string(),
+            (
+                f"Personality: O={traits.openness:.2f} C={traits.conscientiousness:.2f} "
+                f"E={traits.extraversion:.2f} A={traits.agreeableness:.2f} N={traits.neuroticism:.2f}"
+            ),
+            (
+                f"Mood: {mood.label} (pleasure={mood.pleasure:.2f}, arousal={mood.arousal:.2f}, "
+                f"dominance={mood.dominance:.2f})"
+            ),
         ]
+
+        if active:
+            recent_unique: list[EmotionInstance] = []
+            seen_triggers: set[str] = set()
+            for emotion in sorted(active, key=lambda e: e.created_at_ms, reverse=True):
+                trigger_key = emotion.trigger.strip()
+                if trigger_key in seen_triggers:
+                    continue
+                seen_triggers.add(trigger_key)
+                recent_unique.append(emotion)
+                if len(recent_unique) == 3:
+                    break
+
+            emotion_text = "; ".join(
+                f"{emotion.emotion_type.value} {emotion.current_intensity:.2f}"
+                + (f" [{emotion.trigger[:40]}]" if emotion.trigger else "")
+                for emotion in recent_unique
+            )
+            parts.append(f"Emotions: {emotion_text}")
+        else:
+            parts.append("Emotions: none")
+
         return "\n".join(parts)
 
     def get_state_summary(self) -> dict[str, Any]:
