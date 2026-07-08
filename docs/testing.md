@@ -1,6 +1,6 @@
 # Testing Guide
 
-> **Status**: Active (2026-06-17)
+> **Status**: Active (verified against current code snapshot)
 > **Related**: `AGENTS.md` §Testing Policy
 > **Total Tests**: 157 passed, 0 failed
 

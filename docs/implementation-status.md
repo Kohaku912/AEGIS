@@ -1,6 +1,6 @@
 # AEGIS Implementation Status
 
-> **Last Updated**: 2026-06-17
+> **Last Updated**: verified against current code snapshot
 > **Tests**: 157 passed, 0 failed
 > **Lint**: ruff clean
 
@@ -167,7 +167,7 @@
 2. **Memory System**: Zep-inspired with entity tracking, fact extraction, temporal awareness
 3. **Desire System**: D2A-inspired with 10 intrinsic motivations
 4. **Autonomous Loop**: Desire-driven task execution with TaskManager tracking
-5. **Dashboard**: Streaming chat with tool calling + 19 Manager API routes
+5. **Dashboard**: Streaming chat with tool calling + Manager API routes
 6. **PC Server**: Real Windows API (Rust) for screenshot, windows, overlay, shell
 7. **Browser Server**: browser-use with DeepSeek compatibility patch
 8. **LLM Integration**: LLMGateway + PromptRegistry (YAML) + text-based tool calling

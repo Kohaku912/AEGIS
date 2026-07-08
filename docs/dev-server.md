@@ -1,13 +1,13 @@
 # Dev Server — Design & Usage
 
-> **Status**: Phase 5 — Self-development scaffold
+> **Status**: Code-backed dev server (gRPC, sandboxed repo operations)
 > **Language**: Python (AEGIS Core integration via `dev_server_client.py`)
 > **Sandbox**: Workspace directory isolation (OpenHands/SWE-agent inspired)
 
 ## Overview
 
 The Dev Server provides AEGIS with sandboxed self-development capabilities.
-All operations go through ToolBroker → PolicyEngine → Approval UI (for Level 2+).
+The runtime exposes repo status/diff/test/lint/branch/patch/commit/PR/revert helpers through a gRPC service.
 Main merge is **FORBIDDEN** — user is the only merge authority.
 
 ## Implemented Capabilities

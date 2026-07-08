@@ -1,13 +1,13 @@
 # Operations Dashboard
 
-> **Status**: Implemented (2026-06-17)
+> **Status**: Implemented (verified against current code snapshot)
 > **Related**: `docs/architecture.md`, `docs/settings.md`, `docs/permissions.md`
 
 ## Overview
 
 The Operations Dashboard provides a web-based view of AEGIS's internal state.
 Features streaming chat with tool calling, memory integration, desire context,
-and 19 Manager API routes.
+and Manager API routes.
 
 ## Screens
 
@@ -112,7 +112,7 @@ The chat system supports **recursive multi-step tool calling** (max 5 rounds):
 
 **Response**: `{"status": "cleared"}`
 
-## Manager API Routes (19 routes)
+## Manager API Routes
 
 Registered via `init_manager_routes(app, runtime)` in `DashboardApp.__init__()`.
 
@@ -132,6 +132,11 @@ Registered via `init_manager_routes(app, runtime)` in `DashboardApp.__init__()`.
 | `/api/memory/<backend>/search` | POST | Search memory backend |
 | `/api/sleep/status` | GET | Sleep consolidation status (SleepManager) |
 | `/api/sleep/trigger` | POST | Trigger manual consolidation |
+| `/api/user-state` | GET | User state snapshot |
+| `/api/hooks` | GET | Hook events |
+| `/api/commitments` | GET | Commitment tracking |
+| `/api/delegation` | GET | Delegation tracking |
+| `/api/situation` | GET | Situation overview |
 
 ## Autonomous API
 

@@ -66,16 +66,9 @@ The loop triggers execution when:
 
 | Desire | Low-desire default action |
 |--------|--------------------------|
-| `user_helpfulness` | Read AGORA posts for user requests |
-| `learning_progress` | Read recent AGORA conversations |
-| `curiosity` | Explore new topics via curiosity system |
-| `system_safety` | Capture screenshot to verify state |
-| `reliability` | Get system info for health check |
-| `social_connection` | Check AGORA for new messages |
-| `autonomy` | List windows to understand system state |
-| `creativity` | Read AGORA posts for inspiration |
-| `purpose` | Read AGORA mentions for user needs |
-| `maintenance` | Check clipboard for pending tasks |
+| `user_support` | Assist the user / resolve pending requests |
+| `social` | Check AGORA for new messages |
+| `growth` | Explore, reflect, and learn from new info |
 
 ## Self-Scheduling
 

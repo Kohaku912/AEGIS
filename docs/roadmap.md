@@ -33,7 +33,7 @@
 | SocialIntelligence | ✅ Done |
 | Observation Service | ✅ Done |
 | Settings + Permissions (config/settings.json persistence) | ✅ Done |
-| Dashboard + Observability + 19 Manager API routes | ✅ Done |
+| Dashboard + Observability + Manager API routes | ✅ Done |
 | LLM Router + LLMGateway + CostTracker | ✅ Done |
 | PromptRegistry (YAML-backed) + LLMSettingsResolver (YAML-backed) | ✅ Done |
 | Security (token auth, CSRF, rate limit) | ✅ Done |

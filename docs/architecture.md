@@ -1,6 +1,6 @@
 # AEGIS Architecture — Autonomous Multi-Device AI
 
-> **Status**: Implemented (2026-06-17)  
+> **Status**: Implemented (verified against current code snapshot)  
 > **Tests**: 157 passed, 0 failed  
 > **Capabilities**: 53 registered  
 > **Target audience**: AI coding agents, contributors, and future AEGIS itself  
@@ -121,7 +121,7 @@ flowchart TB
 
 ### 2.3 Communication
 
-All inter-server communication uses **gRPC** with Protocol Buffers (proto3). The `protos/AEGIS/` directory is the **single source of truth** for all API contracts. PC Server uses TCP JSON protocol on port 50052. Browser Server uses HTTP on port 50053.
+All inter-server communication uses **gRPC** with Protocol Buffers (proto3). The `protos/aegis/` directory is the **single source of truth** for the shared service contracts. PC Server uses TCP JSON protocol on port 50052. Browser Server uses HTTP on port 50053. Android is a client companion app that connects outbound to the core AI Server on 50051.
 
 ### 2.4 Runtime Singleton & Manager Architecture
 
@@ -200,8 +200,8 @@ All inter-server communication uses **gRPC** with Protocol Buffers (proto3). The
 | Attribute | Value |
 |-----------|-------|
 | **Language** | Kotlin |
-| **Port** | 50054 (gRPC) |
-| **Role** | Mobile device integration |
+| **Port** | 50054 contract / outbound client |
+| **Role** | Mobile companion app |
 
 **Capabilities**:
 - **Observe**: MediaProjection (screen), notification stream, UI tree, app state
@@ -246,7 +246,7 @@ All inter-server communication uses **gRPC** with Protocol Buffers (proto3). The
 **Features**:
 - Streaming chat with **tool calling** (CapabilityCatalog-driven, max 5 rounds)
 - **ask_user** support (tool pause → user input → continue)
-- 19 Manager API routes (tasks, events, audit, status, notifications, memory, sleep)
+- Manager API routes (tasks, events, audit, status, notifications, memory, sleep)
 - Settings Web UI with persistence to `config/settings.json`
 - Approval UI with multi-channel fanout
 
@@ -363,7 +363,7 @@ ai-server/src/
 │   │   ├── support.py                # Proactive user assistance
 │   │   └── self_dev.py               # Self-improvement workflows
 │   ├── desire/
-│   │   ├── desire_system.py          # 10 desires, decay, frustration tracking
+│   │   ├── desire_system.py          # 3 desires, pressure tracking
 │   │   └── fulfillment.py            # Per-desire condition→delta rules
 │   ├── llm/
 │   │   ├── gateway.py                # LLMGateway facade (runtime-owned)
@@ -382,7 +382,7 @@ ai-server/src/
 │   ├── web/
 │   │   ├── app.py                    # Flask DashboardApp
 │   │   ├── dashboard_routes.py       # Pages + streaming chat
-│   │   ├── manager_routes.py         # 19 Manager API routes
+│   │   ├── manager_routes.py         # Manager API routes
 │   │   ├── chat_tools.py             # call_llm_with_tools() + regex parsing
 │   │   ├── settings_routes.py        # Settings CRUD API
 │   │   └── settings_ui_routes.py     # Settings Web UI
@@ -678,9 +678,9 @@ AEGIS can improve its own codebase — but only through a strictly gated workflo
 |--------|--------|-------|
 | **Runtime singleton** | ✅ Complete | AegisRuntime + 7 Managers |
 | **Capability Management** | ✅ Complete | Folder-based JSON manifests, 53 capabilities |
-| **Desire System** | ✅ Complete | D2A-inspired, 10 desires, fulfillment.py rules |
+| **Desire System** | ✅ Complete | Pressure-based 3 desires, fulfillment.py rules |
 | **Autonomous Loop** | ✅ Complete | Desire-driven, TaskManager integration |
-| **Dashboard** | ✅ Complete | Streaming chat + tool calling, 19 Manager API routes |
+| **Dashboard** | ✅ Complete | Streaming chat + tool calling, Manager API routes |
 | **PC Server** | ✅ Complete | Rust, TCP, 40+ capabilities, custom overlay |
 | **Browser Server** | ✅ Complete | browser-use, DeepSeek compatibility patch |
 | **LLM Integration** | ✅ Complete | LLMGateway + PromptRegistry + text-based tool calling |
@@ -731,7 +731,7 @@ AEGIS can improve its own codebase — but only through a strictly gated workflo
 | AI Server (Dashboard) | 8090 | HTTP |
 | PC Server | 50052 | TCP JSON |
 | Browser Server | 50053 | HTTP |
-| Android Server | 50054 | gRPC |
+| Android Server | 50054 contract / outbound client |
 | Room Server | 50055 | gRPC |
 | Dev Server | 50056 | gRPC |
 
@@ -741,7 +741,7 @@ AEGIS can improve its own codebase — but only through a strictly gated workflo
 |----------|---------|
 | [`AGENTS.md`](../AGENTS.md) | Rules for AI coding agents working on this repo |
 | [`README.md`](../README.md) | Human-readable project overview |
-| [`protos/AEGIS/`](../protos/AEGIS/) | gRPC API definitions (single source of truth) |
+| [`protos/aegis/`](../protos/aegis/) | gRPC API definitions (single source of truth) |
 | [`docs/memory.md`](memory.md) | Memory system design and components |
 | [`docs/desire-system.md`](desire-system.md) | Desire system design and fulfillment |
 | [`docs/dashboard.md`](dashboard.md) | Dashboard features and API routes |

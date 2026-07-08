@@ -40,7 +40,7 @@ pc-server/
 └── Cargo.toml            # Dependencies
 ```
 
-## Capabilities (30 total)
+## Capabilities (40+ total)
 
 ### Observe (Level 0: Read-only) — 15 capabilities
 - `pc.get_screenshot` - Capture screen
@@ -69,6 +69,19 @@ pc-server/
 - `pc.maximize_window` - Maximize window
 - `pc.mouse_move` - Move mouse
 - `pc.mouse_scroll` - Scroll
+- `pc.show_overlay` - Show overlay
+- `pc.hide_overlay` - Hide overlay
+- `pc.launch_app` - Launch app
+- `pc.focus_window` - Focus window
+- `pc.resize_window` - Resize window
+- `pc.minimize_window` - Minimize window
+- `pc.maximize_window` - Maximize window
+
+### System / Shell / Integration
+- `pc.shell_execute` - Run PowerShell / cmd commands
+- `pc.read_registry` - Read registry values
+- `pc.discord_connect` - Discord IPC / OAuth helpers
+- `pc.get_health` - Standalone health check
 
 ### Approval (Level 2) — 10 capabilities
 - `pc.mouse_click` - Click (approval)
@@ -147,7 +160,7 @@ cargo test
 
 ## Test Status
 
-- **Total tests**: 6 features working with real data
+- **Total tests**: real-device / integration coverage across observe + action paths
 - **Screenshot**: ✅ Working
 - **Active window**: ✅ Working
 - **Window list**: ✅ Working

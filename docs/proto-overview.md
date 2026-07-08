@@ -1,6 +1,6 @@
 # Protocol Buffers — Overview
 
-> **Status**: Complete (2026-06-11)  
+> **Status**: Complete (verified against current code snapshot)  
 > **Related**: [`architecture.md`](architecture.md), [`proto-build.md`](proto-build.md)
 
 ---

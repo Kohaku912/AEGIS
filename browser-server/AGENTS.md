@@ -13,7 +13,7 @@ The Browser Server handles **web browsing** for AEGIS using browser-use:
 - **Language**: Python
 - **Framework**: browser-use (AI-driven), Playwright (direct)
 - **Port**: 50053 (HTTP)
-- **LLM**: DeepSeek API via browser-use
+- **LLM**: browser-use with DeepSeek/OpenAI-compatible providers
 
 ## Directory Structure
 
@@ -23,9 +23,14 @@ browser-server/
 │   ├── main.py           # HTTP server entry point
 │   ├── browser_use_agent.py  # browser-use integration with DeepSeek compatibility
 │   ├── config.py         # Configuration
-│   ├── safety.py         # Safety rules
+│   ├── safety.py         # Capability registry / blocked actions
+│   ├── safety_boundary.py # Domain and content safety checks
+│   ├── observe.py        # Read-only page helpers
+│   ├── session.py        # Session/profile persistence
 │   ├── task_models.py    # BrowserTask, BrowserTaskResult
-│   └── trace.py          # Execution tracing
+│   ├── trace.py          # Execution tracing
+│   ├── logging.py        # Redacting logging setup
+│   └── redaction.py      # String/header redaction helpers
 ├── config.json           # LLM API key configuration
 └── AGENTS.md
 ```
@@ -39,6 +44,8 @@ Endpoints:
 - `GET /capabilities` — List capabilities
 - `POST /browse` — URL browsing via Playwright
 - `POST /execute` — AI-driven browser tasks via browser-use
+
+The runtime is HTTP-first; proto definitions exist for the shared contract, but the live server exposes these endpoints.
 
 ### Browser-Use Agent (`browser_use_agent.py`)
 

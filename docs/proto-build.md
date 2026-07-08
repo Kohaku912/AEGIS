@@ -140,14 +140,14 @@ protoc \
   -I protos \
   --js_out=import_style=commonjs,binary:browser-server/src/generated \
   --grpc_out=grpc_js:browser-server/src/generated \
-  protos/AEGIS/*.proto
+  protos/aegis/*.proto
 
 # Or using grpc_tools_node_protoc
 grpc_tools_node_protoc \
   --js_out=import_style=commonjs,binary:browser-server/src/generated \
   --grpc_out=grpc_js:browser-server/src/generated \
   --proto_path=protos \
-  protos/AEGIS/*.proto
+  protos/aegis/*.proto
 ```
 
 **Import example (TypeScript):**
@@ -256,7 +256,7 @@ jobs:
 
 ```
 AEGIS/
-├── protos/AEGIS/           # Proto definitions (source of truth)
+├── protos/aegis/           # Proto definitions (source of truth)
 ├── buf.yaml                # buf configuration
 ├── scripts/
 │   ├── generate_protos.ps1 # Windows generation script
@@ -302,5 +302,5 @@ protobuf {
 # .github/workflows/proto-lint.yml (planned)
 - name: Check proto syntax
   run: |
-    python -m grpc_tools.protoc -I protos --python_out=/tmp/proto_out protos/AEGIS/*.proto
+python -m grpc_tools.protoc -I protos --python_out=/tmp/proto_out protos/aegis/*.proto
 ```

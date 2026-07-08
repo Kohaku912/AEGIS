@@ -38,7 +38,7 @@ docker compose down
 
 AEGIS は Desire System に基づいて自律的に動作します:
 
-- **8つの欲求** (social_connectivity, personal_fulfillment, curiosity, safety, recognition, autonomy, creativity, purpose) が 0-10 スケールで管理
+- **3つの欲求** (user_support, social, growth) が pressure ベースで管理
 - 欲求が低下すると AutonomousLoop (`src/aegis_ai/autonomous/autonomous_loop.py`) が自動的にタスクを生成・実行
 - Planner (`src/aegis_ai/autonomous/planner.py`) がタスクを計画し、CuriosityDrivenExploration (`src/aegis_ai/autonomous/curiosity_exploration.py`) が探索タスクを生成
 - 学習パイプライン: ActionTrace → Lesson → Workflow → Skill で自己改善

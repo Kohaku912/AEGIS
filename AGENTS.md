@@ -88,7 +88,7 @@ The agent may proceed without asking when:
 | **AI Server** | Python 3.14 | 50051 | Central brain, LLM, memory, desires |
 | **PC Server** | Rust | 50052 | Windows operations (screenshot, mouse, keyboard) |
 | **Browser Server** | Python | 50053 | Web browsing with browser-use |
-| **Android Server** | Kotlin | 50054 | Mobile device control |
+| **Android Server** | Kotlin | 50054 (contract; app connects outbound to 50051) | Mobile device companion |
 | **Room Server** | Python | 50055 | IoT/sensor data |
 | **Dashboard** | Flask | 8090 | Web UI, chat, monitoring |
 
@@ -96,8 +96,8 @@ The agent may proceed without asking when:
 
 | System | Location | Purpose |
 |--------|----------|---------|
-| **Memory System** | `ai-server/src/aegis_ai/memory/` | AdvancedMemory (Zep-inspired), PersonaMemory, ChromaSemantic |
-| **Desire System** | `ai-server/src/aegis_ai/desire/` | D2A-inspired intrinsic motivations (8 desires) |
+| **Memory System** | `ai-server/src/aegis_ai/memory/` | AdvancedMemory, episodic/semantic, learning backends, MemoryManager |
+| **Desire System** | `ai-server/src/aegis_ai/desire/` | Pressure-based 3-desire system (user_support, social, growth) |
 | **Autonomous Loop** | `ai-server/src/aegis_ai/autonomous/` | Desire-driven task execution, self-scheduling |
 | **LLM Router** | `ai-server/src/aegis_ai/llm/` | DeepSeek/OpenAI provider, task routing |
 | **Policy Engine** | `ai-server/src/aegis_ai/policy_engine.py` | Deterministic safety gate |
@@ -227,7 +227,7 @@ Aliases are built at startup from JSON manifests. Code MUST use canonical format
 | **social** | AGORA, conversations, social interactions |
 | **growth** | Learning, curiosity, creativity, reflection, purpose |
 
-**Removed from desires** (now handled as health alerts): `reliability`, `maintenance`, `system_safety`
+**Removed from desires** (now handled as health alerts): legacy labels
 
 ### Pressure-Based Triggering
 
@@ -381,7 +381,7 @@ Audit logs are written to `data/settings_audit.jsonl`.
 - **Test command**: `cd ai-server && pytest`
 
 ### Test Status
-- **Total tests**: 216 passing
+- **Total tests**: 157 passing
 - **Memory system**: 8 tests
 - **Desire system**: 7 tests
 - **Autonomous loop**: 5 tests
@@ -439,7 +439,7 @@ The following operations MUST go through explicit user approval:
 | **Dashboard** | ✅ Complete | Tool calling chat, user input support, Manager API routes (19 routes) |
 | **PC Server** | ✅ Complete | Rust, TCP protocol, 40+ capabilities |
 | **Browser Server** | ✅ Complete | browser-use, DeepSeek compatibility patch, verification detection |
-| **LLM Integration** | ✅ Complete | DeepSeek API, tool calling, JSON fallback |
+| **LLM Integration** | ✅ Complete | Profile-driven OpenAI-compatible providers, tool calling, JSON fallback |
 | **Approval System** | ✅ Complete | ApprovalManager + Fanout, multi-channel (Dashboard SSE, PC overlay, Android, Room) |
 | **Manager Architecture** | ✅ Complete | TaskManager, MemoryManager, SleepManager, EventManager, AuditManager, StatusManager, NotificationManager |
 | **Runtime Integration** | ✅ Complete | Single entry point, all managers wired, _build_runtime post-init fixed |
@@ -472,7 +472,7 @@ The following operations MUST go through explicit user approval:
 | `ai-server/src/aegis_ai/audit/audit_manager.py` | JSONL tail reader, cursor pagination, no read_all |
 | `ai-server/src/aegis_ai/status/status_manager.py` | Background health checks, cached snapshots |
 | `ai-server/src/aegis_ai/notification/notification_manager.py` | Non-approval notification management |
-| `ai-server/src/aegis_ai/web/manager_routes.py` | 19 Manager API routes (tasks/events/audit/status/notifications/memory/sleep) |
+| `ai-server/src/aegis_ai/web/manager_routes.py` | Manager API routes (tasks/events/audit/status/notifications/memory/sleep) |
 | `ai-server/src/aegis_ai/autonomous/autonomous_loop.py` | TaskManager integration for task lifecycle tracking |
 | `ai-server/tests/test_e2e_lifecycle.py` | 8 E2E tests: approval lifecycle, concurrent tasks, all managers | |
 | `ai-server/src/aegis_ai/approval/approval_manager.py` | Unified approval lifecycle manager |

@@ -1,6 +1,6 @@
 # Dev Server — Safety & Privacy
 
-> **Status**: Phase 5 — Self-development scaffold
+> **Status**: Code-backed dev server safety model
 > **Related**: `docs/dev-server.md`, `docs/self-development.md`, `docs/architecture.md` §7, §8
 
 ## Safety Level Classification

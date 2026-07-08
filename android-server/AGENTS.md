@@ -2,7 +2,7 @@
 
 ## Purpose
 
-The Android Server handles **mobile device operations** for AEGIS:
+The Android Server is the **mobile companion app** for AEGIS:
 - Notification sync
 - Device state monitoring
 - App control
@@ -13,7 +13,7 @@ The Android Server handles **mobile device operations** for AEGIS:
 
 - **Language**: Kotlin
 - **Framework**: Android Native
-- **Port**: 50054 (gRPC)
+- **Port**: 50054 (contract port; runtime connects outbound to AI Server on 50051)
 - **Testing**: JUnit
 
 ## Directory Structure
@@ -24,24 +24,33 @@ android-server/
 │   └── src/main/
 │       ├── java/com/aegis/android/
 │       │   ├── MainActivity.kt
-│       │   ├── server/
-│       │   │   └── AegisServer.kt
-│       │   └── capabilities/
-│       │       ├── NotificationCapability.kt
-│       │       ├── DeviceStateCapability.kt
-│       │       └── ScreenshotCapability.kt
+│       │   ├── AegisConfig.kt
+│       │   ├── grpc/
+│       │   │   ├── AegisGrpcClient.kt
+│       │   │   └── AndroidCapabilityDispatcher.kt
+│       │   ├── service/
+│       │   │   └── ScreenshotService.kt
+│       │   ├── provider/
+│       │   │   ├── ScreenshotProvider.kt
+│       │   │   ├── UITreeProvider.kt
+│       │   │   ├── DeviceProvider.kt
+│       │   │   └── LocationProvider.kt
+│       │   ├── notification/
+│       │   │   └── AegisNotificationListener.kt
+│       │   └── overlay/
+│       │       └── OverlayController.kt
 │       └── AndroidManifest.xml
 └── build.gradle.kts
 ```
 
 ## Key Components
 
-### AegisServer (`server/AegisServer.kt`)
+### AegisGrpcClient / Dispatcher
 
 **Features**:
-- gRPC server on port 50054
-- Capability registration
-- Event handling
+- outbound gRPC client to AI Server
+- capability dispatching for notifications, screenshots, UI tree, gestures, overlays, and app control
+- event and notification sync back to the core
 
 ### Capabilities
 
@@ -50,22 +59,27 @@ android-server/
 - `get_current_app()` — Get current app info
 - `get_device_info()` — Get device information
 - `take_screenshot()` — Capture screen
+- `get_ui_tree()` — Accessibility UI tree
+- `get_location()` — Location snapshot
 
 **Action (L1)**:
 - `open_app(package)` — Open app
 - `press_home()` — Press home button
+- `press_back()` — Navigate back
+- `show_overlay()` — Display overlay
 
 **Approval (L2)**:
 - `tap(x, y)` — Tap at coordinates
 - `swipe(direction)` — Swipe gesture
 - `type_text(text)` — Type text
+- `request_approval()` — Explicit approval flow
 
 ## Safety Model
 
 | Level | Operations | Approval |
 |-------|-----------|----------|
 | L0 | Notifications, device info, screenshot | Auto-allowed |
-| L1 | Open app, press home | Safe action |
+| L1 | Open app, press home, back, overlay | Safe action |
 | L2 | Tap, swipe, type text | Requires approval |
 | Blocked | SMS send, contacts, calls | Forbidden |
 

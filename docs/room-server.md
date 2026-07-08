@@ -1,11 +1,12 @@
 # Room Server — Design & Usage
 
-> **Status**: Phase 4.3 + Action capabilities (light, AC, IR, plug, camera, robot arm)
+> **Status**: Code-backed room server (gRPC, mock-first providers)
 > **Language**: Python (AEGIS Core integration via `room_server_client.py`)
 
 ## Overview
 
 The Room Server provides AEGIS with physical environment observation AND control capabilities.
+The runtime is a Python gRPC service with mock-first sensor/actuator providers and an optional GPIO light path.
 Actions go through ToolBroker → PolicyEngine → Approval UI (for Level 2+).
 Emergency stop is Level 1 (auto-allowed for safety).
 
