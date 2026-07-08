@@ -1,6 +1,6 @@
 # PC Server — Safety Design
 
-> **Status**: Phase 4.1 + Action capabilities
+> **Status**: Code-backed PC server safety model
 > **Related**: [`pc-server.md`](pc-server.md), [`architecture.md`](architecture.md) §7
 
 ## Safety Level Classification

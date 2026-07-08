@@ -1,6 +1,6 @@
 # Android Server — Safety & Privacy
 
-> **Status**: Phase 4.2 + Action capabilities
+> **Status**: Code-backed Android companion safety model
 > **Related**: `docs/android-server.md`, `docs/architecture.md` §7
 
 ## Safety Level Classification

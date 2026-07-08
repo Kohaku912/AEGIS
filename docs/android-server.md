@@ -1,13 +1,13 @@
 # Android Server — Design & Usage
 
-> **Status**: Phase 4.2 + Action capabilities (screenshot, UI tree, overlay, basic actions)
+> **Status**: Code-backed mobile companion app (outbound client to AI Server)
 > **Language**: Kotlin (Android)
 > **Permissions**: MediaProjection, AccessibilityService, Overlay (ユーザー明示的有効化)
 
 ## Overview
 
 The Android Server provides AEGIS with mobile device observation AND action capabilities.
-Actions go through ToolBroker → PolicyEngine → Approval UI (for Level 2).
+The runtime is an Android app that syncs notifications, screenshots, UI tree, overlays, and gestures back to the core AI Server.
 
 ## Implemented Capabilities
 
@@ -29,6 +29,8 @@ Actions go through ToolBroker → PolicyEngine → Approval UI (for Level 2).
 | `android.hide_overlay` | アプリ内 Overlay | ✅ Mock |
 | `android.open_app` | — | ✅ Mock |
 | `android.press_home` | AccessibilityService | ✅ Mock |
+| `android.press_back` | AccessibilityService | ✅ Mock |
+| `android.get_location` | LocationProvider | ✅ Mock |
 
 ### Action (Level 2 — APPROVAL_REQUIRED)
 

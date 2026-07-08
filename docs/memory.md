@@ -1,6 +1,6 @@
 # Memory System — Design & Usage
 
-> **Status**: Implemented (2026-06-17)
+> **Status**: Implemented (verified against current code snapshot)
 > **Related**: `docs/architecture.md` §5.11
 
 ## Overview
@@ -29,7 +29,8 @@ person = mm.get_backend("person")        # PersonaMemory
 ```
 
 Available backends: `advanced`, `episodic`, `semantic`, `skill`, `lesson`,
-`workflow`, `experiential`, `person`, `store`.
+`workflow`, `experiential`, `person`, `store`, `reflection`, `procedural`,
+`association`, `action_trace`, `memory_store`, `memory_ingest`, `chroma_semantic`.
 
 Runtime wires all memory through `runtime.memory_manager.get_backend()` —
 external code MUST NOT create memory backends directly.
@@ -91,7 +92,7 @@ Traces are the raw material for the learning pipeline — lessons, workflows, an
 
 ```python
 atm = ActionTraceMemory()
-trace = atm.begin_trace(goal="Check AGORA", context="social_connection desire")
+trace = atm.begin_trace(goal="Check AGORA", context="social desire")
 atm.add_step(trace, tool_call="agora.read_posts", result="{posts: [...]}")
 atm.complete_trace(trace, success=True, verification="Posts read successfully")
 ```
@@ -162,7 +163,7 @@ Skills are promoted from workflows that have been repeatedly successful. Each sk
 sm = SkillMemory()
 sm.add_skill(Skill(
     name="Read AGORA Messages",
-    activation_conditions="User asks about messages OR social_connection desire is low",
+    activation_conditions="User asks about messages OR social desire is low",
     execution_steps=[
         {"tool": "ai.agora.read_posts", "args": {"limit": 10}},
         {"tool": "llm", "action": "Summarize important messages"},
@@ -174,6 +175,15 @@ skill = sm.find_skill("Check for new messages")
 ```
 
 **Data storage**: `data/memory/skills.jsonl`
+
+#### Additional Backends
+
+- `reflection.py` - reflection log
+- `procedural.py` - procedural memory
+- `association_memory.py` - associations between entities and concepts
+- `action_trace.py` - execution traces used by the learning pipeline
+- `memory_store.py` - shared storage utilities
+- `memory_ingest.py` - ingest pipeline for incoming memory data
 
 ### Sleep Consolidation
 

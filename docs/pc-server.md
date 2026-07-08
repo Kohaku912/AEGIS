@@ -1,13 +1,13 @@
 # PC Server — Design & Usage
 
-> **Status**: Phase 4.1 + Action capabilities (2026-06-11)
+> **Status**: Code-backed PC server (TCP JSON, Windows-native)
 > **Language**: Rust (user decision per Phase 4 technology options)
 > **OS**: Windows専用（ユーザー選択済み）
 
 ## Overview
 
 The PC Server provides AEGIS with PC observation AND action capabilities.
-Actions go through ToolBroker → PolicyEngine → Approval UI (for Level 2).
+The runtime uses a newline-delimited TCP JSON command router, Windows-native input APIs, overlay UI, shell/system helpers, and Discord IPC helpers.
 
 ## Implemented Capabilities
 
@@ -32,7 +32,7 @@ Actions go through ToolBroker → PolicyEngine → Approval UI (for Level 2).
 | `pc.focus_window` | LEVEL_1_SAFE_ACT | ✅ Mock |
 | `pc.move_window` | LEVEL_1_SAFE_ACT | ✅ Mock |
 | `pc.resize_window` | LEVEL_1_SAFE_ACT | ✅ Mock |
-| `pc.show_overlay` | LEVEL_1_SAFE_ACT | ✅ Mock (Tauri) |
+| `pc.show_overlay` | LEVEL_1_SAFE_ACT | ✅ Mock overlay |
 | `pc.hide_overlay` | LEVEL_1_SAFE_ACT | ✅ Mock |
 
 ### Action (Level 2 — APPROVAL_REQUIRED)

@@ -3,9 +3,9 @@
 ## Purpose
 
 The AI Server is the **central brain** of AEGIS. It handles:
-- LLM integration (DeepSeek/OpenAI)
-- Memory management (AdvancedMemory, PersonaMemory, ChromaSemantic)
-- Desire system (D2A-inspired intrinsic motivations)
+- LLM integration (profile-driven OpenAI-compatible providers: DeepSeek, OpenAI, Ollama, mock)
+- Memory management (AdvancedMemory, episodic/semantic, learning backends, MemoryManager)
+- Desire system (pressure-based 3-desire system)
 - Autonomous loop (desire-driven task execution)
 - Dashboard (Flask web UI with streaming chat)
 - Policy engine (deterministic safety gates)
@@ -14,8 +14,8 @@ The AI Server is the **central brain** of AEGIS. It handles:
 
 - **Language**: Python 3.14
 - **Framework**: Flask (dashboard), gRPC (server communication)
-- **LLM**: DeepSeek API (`deepseek-v4-flash` model)
-- **Embedding**: OpenAI API (`text-embedding-3-small`)
+- **LLM**: YAML profile-driven OpenAI-compatible providers
+- **Embedding**: OpenAI-compatible embeddings
 - **Vector DB**: ChromaDB
 - **Testing**: pytest
 
@@ -24,23 +24,11 @@ The AI Server is the **central brain** of AEGIS. It handles:
 ```
 ai-server/
 ├── src/aegis_ai/
-│   ├── memory/           # Memory system
-│   │   ├── advanced.py   # AdvancedMemory (Zep-inspired)
-│   │   ├── persona.py    # PersonaMemory
-│   │   ├── chroma_semantic.py  # ChromaSemanticMemory
-│   │   └── consolidation.py    # MemoryConsolidator
-│   ├── desire/           # Desire system
-│   │   ├── desire_system.py    # DesireSystem (D2A-inspired)
-│   │   └── fulfillment.py      # Desire fulfillment rules
-│   ├── autonomous/       # Autonomous loop
-│   │   └── autonomous_loop.py  # AutonomousLoop
-│   ├── llm/              # LLM integration
-│   │   ├── factory.py    # LLM provider factory
-│   │   └── providers/    # LLM providers (OpenAI, mock)
-│   ├── web/              # Dashboard
-│   │   ├── dashboard_routes.py  # Flask routes
-│   │   ├── chat_tools.py  # Chat tool calling
-│   │   └── templates/    # HTML templates
+│   ├── memory/           # Memory system (advanced, episodic, semantic, learning)
+│   ├── desire/           # Desire system (pressure + fulfillment)
+│   ├── autonomous/       # Autonomous loop, planner, curiosity
+│   ├── llm/              # LLM gateway/router/settings/prompt/cost tracking
+│   ├── web/              # Dashboard, auth, chat service, manager routes
 │   └── policy_engine.py  # Safety gates
 ├── capabilities/         # Capability definitions (JSON manifests)
 │   ├── builtin/
@@ -86,10 +74,10 @@ ai-server/
 
 ### Desire System (`src/aegis_ai/desire/`)
 
-**10 Desires** (0-10 scale):
-- user_helpfulness, reliability, system_safety, curiosity
-- social_connection, autonomy, creativity, purpose
-- learning_progress, maintenance
+**3 Desires** (pressure-based):
+- user_support
+- social
+- growth
 
 **Fulfillment rules** (`fulfillment.py`):
 - Per-desire conditions with delta values
@@ -103,7 +91,7 @@ ai-server/
 - `_generate_tasks()` uses CapabilityCatalog.list_for_tools()
 - `_generate_follow_up_tasks()` with tool calling
 - `_update_desires()` uses fulfillment rules (delta-based)
-- Frustration-based trigger (threshold: 2.0)
+- Pressure-based trigger with `AEGIS_MIN_LLM_INTERVAL_MS` gating
 
 ### Dashboard (`src/aegis_ai/web/`)
 
@@ -174,7 +162,7 @@ Audit logs are written to `data/settings_audit.jsonl`.
 
 ## Test Status
 
-- **Total tests**: 1336+ passing
+- **Total tests**: 157 passing
 - **Memory system**: 8 tests
 - **Desire system**: 7 tests
 - **Autonomous loop**: 5 tests

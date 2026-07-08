@@ -1,6 +1,6 @@
 # Approval UI — Design & Usage
 
-> **Status**: Implemented — ApprovalManager + Fanout (2026-06-17)  
+> **Status**: Verified against current code snapshot — ApprovalManager + Fanout  
 > **Related**: [`architecture.md`](architecture.md) §7.4, [`AGENTS.md`](../AGENTS.md) Security Policy
 
 ## Overview

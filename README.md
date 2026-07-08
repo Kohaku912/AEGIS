@@ -7,7 +7,7 @@ AEGIS is an event-driven, self-improving AI assistant that coordinates across mu
 AEGIS consists of 6 gRPC-connected servers:
 - **AI Server** (Python) — Central brain, event orchestration, LLM integration
 - **PC Server** (Rust) — PC control and monitoring
-- **Android Server** (Kotlin) — Mobile device integration
+- **Android Server** (Kotlin) — Mobile companion app / outbound client
 - **Room Server** — Physical environment control
 - **Browser Server** (Python + browser-use) — Web automation
 - **Dev Server** — Sandboxed development and self-improvement
@@ -43,7 +43,7 @@ cd ai-server
 | Lint | ruff clean |
 | Safety | PolicyEngine structural, 4 levels |
 | Capabilities | Folder-based JSON manifests, canonical `server_id.app_id.action` IDs |
-| LLM | DeepSeek API (OpenAI compatible) |
+| LLM | Profile-driven OpenAI-compatible providers |
 | Dashboard | HTTP server on port 8090, grouped audit log, shared chat history |
 | PC Server | Rust TCP on port 50052 |
 | Browser Server | Python service on port 50053 |
@@ -110,10 +110,10 @@ cd ai-server
 
 - AI, Browser, Room, and Dev servers are Docker Compose services.
 - PC Server remains host-native for Windows automation.
-- Android is the installed app and connects to AI gRPC on port `50051`.
+- Android is the installed app and connects outbound to AI gRPC on port `50051`.
 - Dashboard, Web Chat, and Android Home chat share `data/chat_history.jsonl`.
 - Audit Log is grouped by chat turn, autonomous cycle, task, or approval while raw events remain available.
-- Autonomous LLM calls are gated by `AEGIS_MIN_LLM_INTERVAL_MS` and default to 60 seconds when desire pressure is above threshold.
+- Autonomous LLM calls are gated by `AEGIS_MIN_LLM_INTERVAL_MS` and default to 30 minutes.
 - AGORA normal reads are unread-only; explicit positive `since_id` is history lookup and does not advance the shared cursor.
 
 ## Safety Model

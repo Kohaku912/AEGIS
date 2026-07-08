@@ -1,6 +1,6 @@
 # LLM Router — Design & Usage
 
-> **Status**: Implemented (2026-06-17)
+> **Status**: Implemented (verified against current code snapshot)
 > **Related**: `docs/model-policy.md`, `docs/architecture.md` §5.10
 
 ## Overview
@@ -16,9 +16,9 @@ LLMGateway (facade)
   │     ├── Cost budget check (daily/monthly limits)
   │     ├── Model Policy lookup (task_type → model profile)
   │     └── Provider dispatch
-  │           ├── MockLLMProvider (CI/testing)
-  │           ├── OpenAIProvider (DeepSeek/OpenAI compatible)
-  │           └── LocalProvider (optional)
+   │           ├── MockLLMProvider (CI/testing)
+   │           ├── OpenAIProvider (DeepSeek/OpenAI compatible)
+   │           └── LocalProvider / Ollama (optional)
   └── PromptRegistry (YAML prompts from config/prompts.yaml)
 ```
 
@@ -50,16 +50,16 @@ temperature bounds. Hot-reloads on mtime change.
 
 | Task Type | Description | Default Model |
 |-----------|-------------|---------------|
-| `RESEARCH_SUMMARY` | Summarize research findings | mock |
-| `PLANNING` | Plan next steps | mock |
-| `SUPPORT_SUGGESTION` | Generate support suggestions | mock |
-| `SELF_DEV_ANALYSIS` | Analyze for self-improvement | mock |
-| `CODE_GENERATION` | Generate code | mock |
-| `REFLECTION` | Reflect on results | mock |
-| `MEMORY_SUMMARIZATION` | Summarize memories | mock |
-| `CLASSIFICATION` | Classify data | mock |
-| `SMALL_FAST_TASK` | Quick tasks | mock |
-| `HIGH_REASONING_TASK` | Complex reasoning | mock |
+| `RESEARCH_SUMMARY` | Summarize research findings | profile-driven |
+| `PLANNING` | Plan next steps | profile-driven |
+| `SUPPORT_SUGGESTION` | Generate support suggestions | profile-driven |
+| `SELF_DEV_ANALYSIS` | Analyze for self-improvement | profile-driven |
+| `CODE_GENERATION` | Generate code | profile-driven |
+| `REFLECTION` | Reflect on results | profile-driven |
+| `MEMORY_SUMMARIZATION` | Summarize memories | profile-driven |
+| `CLASSIFICATION` | Classify data | profile-driven |
+| `SMALL_FAST_TASK` | Quick tasks | profile-driven |
+| `HIGH_REASONING_TASK` | Complex reasoning | profile-driven |
 
 ## Privacy Levels
 

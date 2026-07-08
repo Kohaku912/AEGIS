@@ -8,7 +8,7 @@
 | ID | Issue | Status |
 |----|-------|--------|
 | P0-01 | Chroma/OpenAI memory not integrated (semantic search is mock) | ✅ Done — AdvancedMemory, PersonaMemory, ChromaSemanticMemory |
-| P0-02 | Real LLM not integrated (all LLM calls are mock) | ✅ Done — DeepSeek API via LLMRouter + LLMGateway |
+| P0-02 | Real LLM not integrated (all LLM calls are mock) | ✅ Done — profile-driven OpenAI-compatible providers via LLMRouter + LLMGateway |
 | P0-03 | Docker Compose incomplete (services not containerized) | 🔲 Not started |
 | P0-04 | No TLS for gRPC (plaintext only) | ✅ Done — `security/tls_config.py` |
 | P0-05 | Single-user only (no multi-user auth) | 🔲 Not started |
@@ -28,7 +28,7 @@
 | P1-09 | Runtime singleton + Manager Architecture | ✅ Done — `runtime.py` |
 | P1-10 | TaskManager lifecycle tracking | ✅ Done — `task/task_manager.py` |
 | P1-11 | StatusManager health checks | ✅ Done — `status/status_manager.py` |
-| P1-12 | Manager API routes (19 routes) | ✅ Done — `web/manager_routes.py` |
+| P1-12 | Manager API routes | ✅ Done — `web/manager_routes.py` |
 | P1-13 | E2E lifecycle tests | ✅ Done — 8 tests |
 | P1-14 | PromptRegistry + LLMSettingsResolver (YAML) | ✅ Done |
 | P1-15 | Text-based tool calling for DeepSeek | ✅ Done — `chat_tools.py` |

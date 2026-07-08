@@ -1,6 +1,6 @@
 # Room Server — Safety & Privacy
 
-> **Status**: Phase 4.3 + Action capabilities
+> **Status**: Code-backed room server safety model
 > **Related**: `docs/room-server.md`, `docs/architecture.md` §7
 
 ## Safety Level Classification

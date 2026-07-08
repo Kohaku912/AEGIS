@@ -12,7 +12,7 @@ The Room Server handles **IoT and sensor operations** for AEGIS:
 ## Technology Stack
 
 - **Language**: Python
-- **Framework**: MQTT (primary), gRPC (communication)
+- **Framework**: gRPC service with mock/GPIO providers
 - **Port**: 50055 (gRPC)
 - **Testing**: pytest
 
@@ -35,12 +35,12 @@ room-server/
 
 ## Key Components
 
-### MQTT Provider (`src/mqtt_provider.py`)
+### Providers (`src/providers.py` / GPIO path)
 
 **Features**:
-- Subscribe to `aegis/room/#` topics
-- Real-time sensor data
-- Mock fallback when broker unavailable
+- Mock-first sensor/actuator behavior
+- Optional GPIO light path when `AEGIS_ROOM_LIGHT_PROVIDER=gpio`
+- No MQTT provider is present in the current runtime
 
 ### Capabilities
 
@@ -75,8 +75,8 @@ room-server/
 
 ## Key Design Decisions
 
-1. **MQTT primary**: Use MQTT for sensor data
-2. **gRPC communication**: All communication via gRPC
+1. **gRPC primary**: The runtime is a Python gRPC service
+2. **Mock-first providers**: CI uses mock providers; GPIO is optional
 3. **Safety levels**: Graduated safety model
 4. **Emergency stop**: Always allowed regardless of approval
 5. **Robot arm blocked**: Level 3 operations denied by default

@@ -1,6 +1,6 @@
 # Mind Layer — Design & Usage
 
-> **Status**: Phase 6 — Full implementation with layered affect model
+> **Status**: Verified against current code snapshot — layered affect model
 > **Related**: `docs/architecture.md` §5.11
 
 ## Overview

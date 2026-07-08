@@ -26,22 +26,17 @@ AEGIS Core → Response to user
 
 ## Usage
 
-### Via Interaction Router (Recommended)
+### Via Browser Server (Recommended)
 
-```python
-from aegis_ai.interaction.router import InteractionRouter
-
-router = InteractionRouter(llm_provider=llm, browser_executor=browser_executor)
-response = router.route(message)
-```
+Browser tasks are routed through the browser-server HTTP API from the AI Server chat flow.
 
 ### Direct Execution
 
 ```python
-from aegis_ai.browser_use import BrowserUseTaskExecutor
+from aegis_browser.browser_use_agent import BrowserUseAgent
 
-executor = BrowserUseTaskExecutor(llm_client=llm)
-result = executor.execute("Go to example.com and extract the text")
+agent = BrowserUseAgent(llm_client=llm)
+result = agent.run_task(task)
 ```
 
 ## Safety Boundary
@@ -49,7 +44,7 @@ result = executor.execute("Go to example.com and extract the text")
 All browser tasks go through `BrowserUseSafetyBoundary`:
 
 ```python
-from aegis_ai.browser_use import BrowserUseSafetyBoundary
+from aegis_browser.safety_boundary import BrowserUseSafetyBoundary
 
 safety = BrowserUseSafetyBoundary()
 check = safety.check_task("Go to twitter.com and read notifications")
