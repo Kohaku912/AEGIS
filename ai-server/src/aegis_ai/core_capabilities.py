@@ -63,6 +63,8 @@ class AegisCoreCapabilityClient:
             return self._repair(capability_id, params)
         if capability_id.startswith("ai-server.social."):
             return self._social(capability_id, params)
+        if capability_id.startswith("ai-server.presentation."):
+            return self._presentation(capability_id, params)
         return {"ok": False, "error": f"Unsupported AI capability: {capability_id}", "code": "UNSUPPORTED_CAPABILITY"}
 
     @staticmethod
@@ -503,3 +505,21 @@ class AegisCoreCapabilityClient:
                 approval_id=str(params.get("_aegis_approval_id") or ""),
             )
         return {"ok": False, "error": "Unsupported social capability"}
+
+    def _presentation(self, capability_id: str, params: dict[str, Any]) -> dict[str, Any]:
+        manager = self._personal.get("presentation_manager")
+        if manager is None:
+            return {"ok": False, "error": "PresentationManager unavailable"}
+        if capability_id.endswith(".present"):
+            return manager.present(params)
+        if capability_id.endswith(".list"):
+            limit = min(max(int(params.get("limit") or 100), 1), 500)
+            return {"ok": True, "presentations": manager.list_active(limit=limit)}
+        if capability_id.endswith(".dismiss"):
+            return manager.dismiss(str(params.get("presentation_id") or ""))
+        if capability_id.endswith(".action"):
+            return manager.user_action(
+                str(params.get("presentation_id") or ""),
+                dict(params.get("action") or {}),
+            )
+        return {"ok": False, "error": "Unsupported presentation capability"}

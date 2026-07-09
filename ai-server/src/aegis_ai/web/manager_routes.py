@@ -552,3 +552,78 @@ def social_drafts():
         return jsonify({"drafts": rt.social_proxy.list_drafts()})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+# ── Presentation Routes ──────────────────────────────────────────
+
+@manager_bp.route("/api/presentations", methods=["GET"])
+def list_presentations():
+    try:
+        rt = _get_runtime()
+        limit = int(request.args.get("limit", 100))
+        return jsonify({"presentations": rt.presentation_manager.list_active(limit=limit)})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@manager_bp.route("/api/presentations/<presentation_id>", methods=["GET"])
+def get_presentation(presentation_id):
+    try:
+        rt = _get_runtime()
+        pres = rt.presentation_manager.get(presentation_id)
+        if pres is None:
+            return jsonify({"error": "Not found"}), 404
+        return jsonify(pres)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@manager_bp.route("/api/presentations/<presentation_id>/action", methods=["POST"])
+def presentation_action(presentation_id):
+    try:
+        rt = _get_runtime()
+        payload = request.get_json(silent=True) or {}
+        return jsonify(rt.presentation_manager.user_action(presentation_id, payload))
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@manager_bp.route("/api/presentations/<presentation_id>/dismiss", methods=["POST"])
+def presentation_dismiss(presentation_id):
+    try:
+        rt = _get_runtime()
+        return jsonify(rt.presentation_manager.dismiss(presentation_id))
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@manager_bp.route("/api/presentations/stream")
+def presentation_stream():
+    """SSE endpoint for live presentation updates."""
+    import queue
+    import threading
+
+    q: queue.Queue = queue.Queue()
+
+    def _on_event(event_type: str, payload: dict) -> None:
+        if event_type.startswith("presentation."):
+            q.put({"event": event_type, "data": payload})
+
+    rt = _get_runtime()
+    if rt.event_manager is not None:
+        rt.event_manager.subscribe(_on_event)
+
+    def generate():
+        try:
+            while True:
+                try:
+                    item = q.get(timeout=30)
+                    import json
+                    yield f"data: {json.dumps(item)}\n\n"
+                except queue.Empty:
+                    yield ": keepalive\n\n"
+        except GeneratorExit:
+            pass
+
+    from flask import Response
+    return Response(generate(), mimetype="text/event-stream")

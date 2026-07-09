@@ -101,6 +101,7 @@ The agent may proceed without asking when:
 | **Autonomous Loop** | `ai-server/src/aegis_ai/autonomous/` | Desire-driven task execution, self-scheduling |
 | **LLM Router** | `ai-server/src/aegis_ai/llm/` | DeepSeek/OpenAI provider, task routing |
 | **Policy Engine** | `ai-server/src/aegis_ai/policy_engine.py` | Deterministic safety gate |
+| **Presentation Engine** | `ai-server/src/aegis_ai/presentation/` | Rich output delivery (text/chart/diagram/3D/overlay) |
 | **Dashboard** | `ai-server/src/aegis_ai/web/` | Flask UI with streaming chat |
 
 ---

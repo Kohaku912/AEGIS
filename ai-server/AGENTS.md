@@ -167,6 +167,21 @@ Audit logs are written to `data/settings_audit.jsonl`.
 - **Desire system**: 7 tests
 - **Autonomous loop**: 5 tests
 
+### Presentation Engine (`src/aegis_ai/presentation/`)
+
+AEGIS output layer for rich user-facing content. NOT a state viewer — it delivers information AEGIS decided the user should see.
+
+- PresentationSpec has: presentation_id, source, intent, importance, modality, title, summary, content, delivery, placement, interaction, lifecycle
+- safety / safety_level / requires_approval are intentionally ABSENT — safety belongs to the source capability
+- Modalities: text_card, chart_panel, diagram_panel, gltf_model, overlay_short
+- Targets: dashboard, pc_overlay, android_overlay, xr_scene
+- Persistence: data/presentations/presentations.jsonl
+- XR/MR: XRPendingAdapter stores XR-targeted presentations in a pending queue
+
+**API**: `/api/presentations`, `/api/presentations/<id>`, `/api/presentations/<id>/action`, `/api/presentations/<id>/dismiss`, `/api/presentations/stream`
+
+**Capabilities**: `ai-server.presentation.present`, `ai-server.presentation.list`, `ai-server.presentation.dismiss`, `ai-server.presentation.action`
+
 ## Key Design Decisions
 
 1. **LLM-driven operations**: All decisions made by LLM, not keyword matching

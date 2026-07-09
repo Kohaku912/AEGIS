@@ -1,0 +1,30 @@
+{
+  "title": "Present to User",
+  "description": "Deliver rich content to the user via Dashboard, PC overlay, Android overlay, or XR. Uses modality-specific rendering (text_card, chart_panel, diagram_panel, gltf_model). Safety is enforced by the source capability, not by the presentation layer.",
+  "server_id": "ai-server",
+  "app_id": "presentation",
+  "action": "present",
+  "operation_category": "observe",
+  "risk": {"level": "read_only", "side_effects": [], "requires_approval": false},
+  "tags": ["builtin", "presentation", "output", "display"],
+  "only_master": false,
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "source": {"type": "string", "description": "Origin of the presentation (e.g. autonomous_loop, user_request)"},
+      "intent": {"type": "string", "description": "Why this presentation is being created"},
+      "importance": {"type": "string", "enum": ["low", "normal", "high", "critical"], "description": "Urgency level"},
+      "modality": {"type": "string", "enum": ["text_card", "chart_panel", "diagram_panel", "gltf_model", "overlay_short"], "description": "Rendering format"},
+      "title": {"type": "string", "description": "Presentation title"},
+      "summary": {"type": "string", "description": "Short summary for overlay/preview"},
+      "content": {"type": "object", "description": "Modality-specific content payload"},
+      "targets": {"type": "array", "items": {"type": "string"}, "description": "Delivery targets: dashboard, pc_overlay, android_overlay, xr_scene"},
+      "ttl_ms": {"type": "integer", "description": "Time-to-live in milliseconds"},
+      "placement_zone": {"type": "string", "description": "Zone within target surface"},
+      "interaction_mode": {"type": "string", "enum": ["none", "dismiss_only", "action_buttons", "expandable"], "description": "User interaction model"},
+      "actions": {"type": "array", "items": {"type": "object"}, "description": "Action button definitions"},
+      "metadata": {"type": "object", "description": "Arbitrary metadata"}
+    },
+    "required": ["title", "content"]
+  }
+}
