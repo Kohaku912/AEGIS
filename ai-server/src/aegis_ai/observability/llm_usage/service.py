@@ -18,7 +18,7 @@ from aegis_ai.observability.llm_usage.aggregator import (
 from aegis_ai.observability.llm_usage.audit_extractor import extract_traces
 from aegis_ai.observability.llm_usage.models import LLMTrace
 from aegis_ai.observability.llm_usage.prompt_analyzer import analyze_prompts
-from aegis_ai.observability.llm_usage.waste_finder import find_waste_candidates
+from aegis_ai.observability.llm_usage.waste_finder import find_waste_candidates, find_waste_candidates_with_prompt_registry
 
 logger = logging.getLogger("aegis_ai.observability.llm_usage.service")
 
@@ -34,8 +34,9 @@ _PERIOD_MS = {
 class LLMUsageService:
     """Reads audit data and produces LLM usage analytics."""
 
-    def __init__(self, audit_manager: Any = None) -> None:
+    def __init__(self, audit_manager: Any = None, prompt_registry: Any = None) -> None:
         self._audit = audit_manager
+        self._prompt_registry = prompt_registry
         self._cache: dict[str, tuple[float, Any]] = {}
         self._lock = threading.Lock()
 
@@ -80,7 +81,10 @@ class LLMUsageService:
         self, period: str = "24h", **filters: Any
     ) -> list[dict[str, Any]]:
         traces = self._load_traces(period, **filters)
-        return [c.to_dict() for c in find_waste_candidates(traces)]
+        raw = self._load_raw_entries(period, **filters)
+        return [c.to_dict() for c in find_waste_candidates_with_prompt_registry(
+            traces, self._prompt_registry
+        )]
 
     # ── Internal ─────────────────────────────────────────────────
 
@@ -98,14 +102,15 @@ class LLMUsageService:
 
         raw = self._read_audit(limit=5000)
         traces = extract_traces(raw)
-        # Period filter
         traces = [t for t in traces if t.timestamp_ms >= cutoff_ms]
-        # Dimension filters
         traces = self._apply_filters(traces, **filters)
 
         with self._lock:
             self._cache[cache_key] = (now, traces)
         return traces
+
+    def _load_raw_entries(self, period: str, **filters: Any) -> list[dict[str, Any]]:
+        return self._read_audit(limit=5000)
 
     def _read_audit(self, limit: int = 5000) -> list[dict[str, Any]]:
         if self._audit is None:
@@ -115,6 +120,8 @@ class LLMUsageService:
                 return self._audit.read_recent_for_dashboard(limit=limit)
             if hasattr(self._audit, "list_recent"):
                 return self._audit.list_recent(limit=limit)
+            if hasattr(self._audit, "read_all"):
+                return self._audit.read_all()[:limit]
         except Exception:
             logger.debug("Failed to read audit data", exc_info=True)
         return []

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import math
 from collections import Counter
+from typing import Any
 
 from aegis_ai.observability.llm_usage.models import LLMTrace, WasteCandidate
 
@@ -19,8 +20,18 @@ def find_waste_candidates(traces: list[LLMTrace]) -> list[WasteCandidate]:
     candidates.extend(_failed_high_cost(traces))
     candidates.extend(_high_token_no_tool(traces))
     candidates.extend(_retry_loop_suspects(traces))
-    candidates.extend(_prompt_unused(traces))
     candidates.extend(_model_overkill(traces))
+    candidates.sort(key=lambda c: c.confidence, reverse=True)
+    return candidates
+
+
+def find_waste_candidates_with_prompt_registry(
+    traces: list[LLMTrace],
+    prompt_registry: Any = None,
+) -> list[WasteCandidate]:
+    """Detect waste candidates, cross-referencing prompts.yaml via prompt_registry."""
+    candidates = find_waste_candidates(traces)
+    candidates.extend(_prompt_unused_cross_ref(traces, prompt_registry))
     candidates.sort(key=lambda c: c.confidence, reverse=True)
     return candidates
 
@@ -116,23 +127,60 @@ def _high_token_no_tool(traces: list[LLMTrace]) -> list[WasteCandidate]:
     ]
 
 
-def _retry_loop_suspects(traces: list[LLMTrace]) -> list[WasteCandidate]:
-    """Same request_id appearing 3+ times — possible retry loop."""
-    counts: Counter[str] = Counter()
+def _retry_loop_suspects(
+    traces: list[LLMTrace],
+    raw_entries: list[dict[str, Any]] | None = None,
+) -> list[WasteCandidate]:
+    """Detect retry loops from raw audit entries (before dedup) or traces.
+
+    When raw_entries is provided, counts all LLM entries per request_id
+    (including router + provider duplicates). When not provided, falls
+    back to deduped traces.
+    """
+    if raw_entries is not None:
+        _LLM_ACTIONS = {"llm_call", "llm_request", "llm_tool_request", "llm_tool_call", "llm_vision_call", "llm_media_call"}
+        counts: Counter[str] = Counter()
+        trace_ids_by_rid: dict[str, list[str]] = {}
+        for entry in raw_entries:
+            if str(entry.get("action", "")) not in _LLM_ACTIONS:
+                continue
+            rid = str(entry.get("request_id") or entry.get("entry_id") or "")
+            if rid:
+                counts[rid] += 1
+                trace_ids_by_rid.setdefault(rid, []).append(str(entry.get("entry_id", "")))
+        suspects = {rid for rid, cnt in counts.items() if cnt >= 3}
+        if not suspects:
+            return []
+        result: list[WasteCandidate] = []
+        for rid in list(suspects)[:10]:
+            cnt = counts[rid]
+            result.append(
+                WasteCandidate(
+                    candidate_type="retry_loop_suspect",
+                    description=f"同一リクエストの繰り返し ({cnt}回)",
+                    confidence=min(0.9, cnt / 5),
+                    evidence=f"request_id={rid}, raw_count={cnt}",
+                    recommended_experiment="リトライ条件の見直し: 最大リトライ回数・バックオフ戦略の確認",
+                    affected_traces=trace_ids_by_rid.get(rid, []),
+                )
+            )
+        return result
+
+    counts2: Counter[str] = Counter()
     for t in traces:
         rid = t.request_id or t.trace_id
         if rid:
-            counts[rid] += 1
+            counts2[rid] += 1
 
-    suspects = {rid for rid, cnt in counts.items() if cnt >= 3}
-    if not suspects:
+    suspects2 = {rid for rid, cnt in counts2.items() if cnt >= 3}
+    if not suspects2:
         return []
 
-    result: list[WasteCandidate] = []
-    for rid in list(suspects)[:10]:
+    result2: list[WasteCandidate] = []
+    for rid in list(suspects2)[:10]:
         group = [t for t in traces if (t.request_id or t.trace_id) == rid]
         total_tokens = sum(t.tokens_used for t in group)
-        result.append(
+        result2.append(
             WasteCandidate(
                 candidate_type="retry_loop_suspect",
                 description=f"同一リクエストの繰り返し ({len(group)}回, {total_tokens} tokens合計)",
@@ -140,6 +188,53 @@ def _retry_loop_suspects(traces: list[LLMTrace]) -> list[WasteCandidate]:
                 evidence=f"request_id={rid}, count={len(group)}",
                 recommended_experiment="リトライ条件の見直し: 最大リトライ回数・バックオフ戦略の確認",
                 affected_traces=[t.trace_id for t in group],
+            )
+        )
+    return result2
+
+
+def _prompt_unused_cross_ref(
+    traces: list[LLMTrace],
+    prompt_registry: Any = None,
+) -> list[WasteCandidate]:
+    """Cross-reference prompts.yaml with audit usage to find unused prompts."""
+    if prompt_registry is None:
+        return []
+
+    all_prompt_ids: set[str] = set()
+    try:
+        if hasattr(prompt_registry, "list_prompts"):
+            prompts_list = prompt_registry.list_prompts()
+            if isinstance(prompts_list, list):
+                for p in prompts_list:
+                    pid = p.get("prompt_id") or p.get("id") or ""
+                    if pid:
+                        all_prompt_ids.add(pid)
+    except Exception:
+        return []
+
+    if not all_prompt_ids:
+        return []
+
+    used_prompt_ids: set[str] = set()
+    for t in traces:
+        if t.prompt_id:
+            used_prompt_ids.add(t.prompt_id)
+
+    unused = all_prompt_ids - used_prompt_ids
+    if not unused:
+        return []
+
+    result: list[WasteCandidate] = []
+    for pid in list(unused)[:10]:
+        result.append(
+            WasteCandidate(
+                candidate_type="prompt_unused_candidate",
+                description=f"prompts.yamlに定義されているが使用履歴なし ({pid})",
+                confidence=0.5,
+                evidence=f"prompt_id={pid}, defined_in_registry=True, used_in_audit=False",
+                recommended_experiment="このpromptがコードから参照されているか確認し、不要なら削除",
+                affected_traces=[],
             )
         )
     return result

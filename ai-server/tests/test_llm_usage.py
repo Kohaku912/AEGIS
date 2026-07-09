@@ -409,3 +409,102 @@ class TestLLMUsageRoutes:
             assert r.status_code == 200
             data = r.get_json()
             assert isinstance(data, list)
+
+
+class TestLLMUsageIntegration:
+    def _make_full_app(self, entries=None):
+        from flask import Flask
+        from aegis_ai.observability.llm_usage.service import LLMUsageService
+        from aegis_ai.observability.llm_usage.routes import init_llm_usage_routes
+
+        app = Flask(__name__, template_folder="../src/aegis_ai/web/templates")
+        entries = entries or [_mk_audit_entry(entry_id=f"e{i}") for i in range(3)]
+        audit = SimpleNamespace(
+            read_recent_for_dashboard=lambda limit=5000: entries,
+            list_recent=lambda limit=5000: entries,
+        )
+        svc = LLMUsageService(audit_manager=audit)
+        init_llm_usage_routes(app, svc)
+
+        @app.route("/dashboard/llm-usage")
+        def dashboard_llm_usage():
+            from flask import render_template
+            return render_template("dashboard/llm_usage.html")
+
+        return app
+
+    def test_dashboard_page_renders(self):
+        app = self._make_full_app()
+        with app.test_client() as c:
+            r = c.get("/dashboard/llm-usage")
+            assert r.status_code == 200
+            html = r.data.decode()
+            assert "lu-kpis" in html
+            assert "lu-tabs" in html
+            assert "llm_usage.js" in html
+            assert "llm_usage.css" in html
+
+    def test_api_summary_with_real_audit(self):
+        app = self._make_full_app()
+        with app.test_client() as c:
+            r = c.get("/api/llm-usage/summary?period=24h")
+            assert r.status_code == 200
+            data = r.get_json()
+            assert "total_calls" in data
+            assert "total_tokens" in data
+            assert "estimated_cost" in data
+            assert data["total_calls"] == 3
+
+    def test_api_traces_with_real_audit(self):
+        app = self._make_full_app()
+        with app.test_client() as c:
+            r = c.get("/api/llm-usage/traces?period=24h")
+            assert r.status_code == 200
+            data = r.get_json()
+            assert isinstance(data, list)
+            assert len(data) == 3
+
+    def test_waste_candidates_with_prompt_registry(self):
+        registry = SimpleNamespace(
+            list_prompts=lambda: [
+                {"prompt_id": "used_prompt"},
+                {"prompt_id": "unused_prompt"},
+                {"prompt_id": "another_unused"},
+            ]
+        )
+        entries = [_mk_audit_entry(prompt_id="used_prompt") for _ in range(5)]
+        audit = SimpleNamespace(read_recent_for_dashboard=lambda limit=5000: entries)
+        svc = LLMUsageService(audit_manager=audit, prompt_registry=registry)
+        traces = svc.get_traces(period="1h")
+        assert len(traces) == 5
+        from aegis_ai.observability.llm_usage.waste_finder import find_waste_candidates_with_prompt_registry
+        candidates = find_waste_candidates_with_prompt_registry(
+            [LLMTrace(**t) for t in traces] if traces else [],
+            registry,
+        )
+        prompt_unused = [c for c in candidates if c.candidate_type == "prompt_unused_candidate"]
+        assert len(prompt_unused) == 2
+
+    def test_llm_trace_has_new_fields(self):
+        entry = _mk_audit_entry(
+            extra_detail={
+                "context_tokens": {"system": 100, "history": 200},
+                "system_tokens": 100,
+                "history_tokens": 200,
+                "input_cache_hit_tokens": 50,
+                "provider_reported_cost": 0.001,
+            }
+        )
+        from aegis_ai.observability.llm_usage.audit_extractor import extract_traces
+        traces = extract_traces([entry])
+        assert len(traces) == 1
+        t = traces[0]
+        assert t.context_tokens == {"system": 100, "history": 200}
+        assert t.system_tokens == 100
+        assert t.history_tokens == 200
+        assert t.input_cache_hit_tokens == 50
+        assert t.provider_reported_cost == 0.001
+        d = t.to_dict()
+        assert "context_tokens" in d
+        assert "input_cache_hit_tokens" in d
+        assert "provider_reported_cost" in d

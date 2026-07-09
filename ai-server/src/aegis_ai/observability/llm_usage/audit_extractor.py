@@ -19,6 +19,16 @@ _LLM_ACTIONS = {
 }
 
 
+def _extract_cache_hit(detail: dict[str, Any]) -> int:
+    cached = detail.get("input_cache_hit_tokens")
+    if cached:
+        return int(cached)
+    pts = detail.get("prompt_tokens_details")
+    if isinstance(pts, dict):
+        return int(pts.get("cached_tokens") or 0)
+    return 0
+
+
 def extract_traces(entries: list[dict[str, Any]], limit: int = 5000) -> list[LLMTrace]:
     """Normalise LLM-related audit entries into LLMTrace objects.
 
@@ -91,6 +101,10 @@ def _entry_to_trace(entry: dict[str, Any]) -> LLMTrace:
     caller = str(detail.get("caller") or entry.get("actor") or "")
     route_type = str(detail.get("route_type") or "")
 
+    ctx = detail.get("context_tokens") or {}
+    if not isinstance(ctx, dict):
+        ctx = {}
+
     return LLMTrace(
         trace_id=str(entry.get("entry_id") or ""),
         timestamp_ms=int(entry.get("timestamp_ms") or 0),
@@ -117,4 +131,15 @@ def _entry_to_trace(entry: dict[str, Any]) -> LLMTrace:
         task_id=str(entry.get("task_id") or ""),
         detail_preview=str(detail.get("prompt_preview") or "")[:500],
         response_preview=str(detail.get("response_preview") or "")[:500],
+        context_tokens=ctx,
+        system_tokens=int(ctx.get("system") or detail.get("system_tokens") or 0),
+        history_tokens=int(ctx.get("history") or detail.get("history_tokens") or 0),
+        memory_tokens=int(ctx.get("memory") or detail.get("memory_tokens") or 0),
+        events_tokens=int(ctx.get("events") or detail.get("events_tokens") or 0),
+        capability_tokens=int(ctx.get("capabilities") or detail.get("capability_tokens") or 0),
+        tool_schema_tokens=int(ctx.get("tool_schema") or detail.get("tool_schema_tokens") or 0),
+        user_state_tokens=int(ctx.get("user_state") or detail.get("user_state_tokens") or 0),
+        input_cache_hit_tokens=int(detail.get("input_cache_hit_tokens") or _extract_cache_hit(detail)),
+        input_cache_miss_tokens=int(detail.get("input_cache_miss_tokens") or 0),
+        provider_reported_cost=float(detail.get("provider_reported_cost") or 0.0),
     )
