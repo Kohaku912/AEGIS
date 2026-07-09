@@ -1,0 +1,18 @@
+{
+  "title": "Dismiss Presentation",
+  "description": "Dismiss a presentation by ID so it is no longer shown to the user.",
+  "server_id": "ai-server",
+  "app_id": "presentation",
+  "action": "dismiss",
+  "operation_category": "observe",
+  "risk": {"level": "read_only", "side_effects": [], "requires_approval": false},
+  "tags": ["builtin", "presentation", "write"],
+  "only_master": false,
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "presentation_id": {"type": "string", "description": "ID of the presentation to dismiss"}
+    },
+    "required": ["presentation_id"]
+  }
+}

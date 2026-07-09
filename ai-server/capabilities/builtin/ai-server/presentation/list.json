@@ -1,0 +1,17 @@
+{
+  "title": "List Presentations",
+  "description": "List active presentations currently shown to the user.",
+  "server_id": "ai-server",
+  "app_id": "presentation",
+  "action": "list",
+  "operation_category": "observe",
+  "risk": {"level": "read_only", "side_effects": [], "requires_approval": false},
+  "tags": ["builtin", "presentation", "observe"],
+  "only_master": false,
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "limit": {"type": "integer", "description": "Max results (default 100)"}
+    }
+  }
+}

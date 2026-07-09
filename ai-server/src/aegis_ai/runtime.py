@@ -73,6 +73,7 @@ class AegisRuntime:
     social_proxy: Any = None
     interruption_controller: Any = None
     repair_manager: Any = None
+    presentation_manager: Any = None
     _lock: threading.RLock | None = None
 
     def start_autonomous_if_enabled(self) -> None:
@@ -474,6 +475,31 @@ def _build_runtime(config: Config) -> AegisRuntime:
     if core_client is not None and hasattr(core_client, "_personal"):
         core_client._personal["sleep_manager"] = sleep_manager
 
+    from aegis_ai.presentation.manager import PresentationManager
+    from aegis_ai.presentation.device_router import DeviceRouter, OverlayBroadcastAdapter, DashboardAdapter, XRPendingAdapter
+    from aegis_ai.presentation.object_store import PresentationObjectStore
+
+    pres_object_store = PresentationObjectStore(data_dir=data_dir)
+    pres_overlay_adapter = OverlayBroadcastAdapter(core_capability_client=core_client)
+    pres_dashboard_adapter = DashboardAdapter()
+    pres_xr_adapter = XRPendingAdapter()
+    pres_device_router = DeviceRouter(
+        overlay_adapter=pres_overlay_adapter,
+        dashboard_adapter=pres_dashboard_adapter,
+        xr_adapter=pres_xr_adapter,
+    )
+    presentation_manager = PresentationManager(
+        object_store=pres_object_store,
+        device_router=pres_device_router,
+        event_manager=event_manager,
+        audit_manager=audit_manager,
+        notification_manager=notification_manager,
+        interruption_controller=interruption_controller,
+        data_dir=data_dir,
+    )
+    if core_client is not None and hasattr(core_client, "_personal"):
+        core_client._personal["presentation_manager"] = presentation_manager
+
     try:
         pc_poll_interval = int(os.getenv("AEGIS_USER_STATE_PC_POLL_INTERVAL_SECONDS", "2"))
         user_state_manager.start_pc_poller(
@@ -526,6 +552,7 @@ def _build_runtime(config: Config) -> AegisRuntime:
         social_proxy=social_proxy,
         interruption_controller=interruption_controller,
         repair_manager=repair_manager,
+        presentation_manager=presentation_manager,
         _lock=threading.RLock(),
     )
     runtime_ref["runtime"] = runtime

@@ -1,0 +1,19 @@
+{
+  "title": "Presentation User Action",
+  "description": "Record a user action on a presentation (e.g. button click, acknowledgement).",
+  "server_id": "ai-server",
+  "app_id": "presentation",
+  "action": "action",
+  "operation_category": "observe",
+  "risk": {"level": "read_only", "side_effects": [], "requires_approval": false},
+  "tags": ["builtin", "presentation", "write"],
+  "only_master": false,
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "presentation_id": {"type": "string", "description": "Target presentation ID"},
+      "action": {"type": "object", "description": "Action payload (e.g. {\"type\": \"click\", \"button\": \"acknowledge\"})"}
+    },
+    "required": ["presentation_id", "action"]
+  }
+}
