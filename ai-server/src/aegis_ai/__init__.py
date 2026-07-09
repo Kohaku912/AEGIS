@@ -25,13 +25,17 @@ from importlib import import_module
 def _optional_reexport(module_name: str, names: tuple[str, ...]) -> None:
     try:
         module = import_module(module_name)
-    except ModuleNotFoundError:
+    except (ModuleNotFoundError, ImportError):
         for name in names:
             globals()[name] = None
         return
 
-    for name in names:
-        globals()[name] = getattr(module, name)
+    try:
+        for name in names:
+            globals()[name] = getattr(module, name)
+    except ImportError:
+        for name in names:
+            globals()[name] = None
 
 
 # Re-export core public APIs from existing implementations when their

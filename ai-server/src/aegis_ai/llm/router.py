@@ -171,21 +171,13 @@ class LLMRouter:
                     cost=response.cost_estimate,
                 )
 
-            # Audit
             if self._audit:
-                self._audit.log_decision(
-                    "llm_request", f"llm.{provider_name}", "EXECUTED",
-                    detail={
-                        "task_type": request.task_type.name,
-                        "provider": provider_name,
-                        "model": response.model_used,
-                        "tokens": response.tokens_used,
-                        "input_tokens": getattr(response, "input_tokens", 0),
-                        "output_tokens": getattr(response, "output_tokens", 0),
-                        "input_cache_hit_tokens": getattr(response, "input_cache_hit_tokens", 0),
-                        "input_cache_miss_tokens": getattr(response, "input_cache_miss_tokens", 0),
-                        "provider_reported_cost": getattr(response, "provider_reported_cost", 0.0),
-                    },
+                self._audit_request(
+                    action="llm_request",
+                    provider_name=provider_name,
+                    request=request,
+                    response=response,
+                    route_type="standard",
                 )
 
             return self._normalize_provider_response(response, provider_name, request.request_id)
@@ -250,21 +242,12 @@ class LLMRouter:
                 )
 
             if self._audit:
-                self._audit.log_decision(
-                    "llm_tool_request", f"llm.{provider_name}", "EXECUTED",
-                    detail={
-                        "task_type": request.task_type.name,
-                        "provider": provider_name,
-                        "model": response.model_used,
-                        "tokens": response.tokens_used,
-                        "input_tokens": getattr(response, "input_tokens", 0),
-                        "output_tokens": getattr(response, "output_tokens", 0),
-                        "input_cache_hit_tokens": getattr(response, "input_cache_hit_tokens", 0),
-                        "input_cache_miss_tokens": getattr(response, "input_cache_miss_tokens", 0),
-                        "provider_reported_cost": getattr(response, "provider_reported_cost", 0.0),
-                        "caller": request.caller,
-                        "route_type": "tools",
-                    },
+                self._audit_request(
+                    action="llm_tool_request",
+                    provider_name=provider_name,
+                    request=request,
+                    response=response,
+                    route_type="tools",
                 )
 
             return self._normalize_provider_response(response, provider_name, request.request_id)
@@ -349,20 +332,15 @@ class LLMRouter:
                 )
 
             if self._audit:
-                self._audit.log_decision(
-                    "llm_tool_request", f"llm.{provider_name}", "EXECUTED",
-                    detail={
-                        "task_type": request.task_type.name,
-                        "provider": provider_name,
-                        "model": response.model_used,
-                        "tokens": response.tokens_used,
-                        "input_tokens": getattr(response, "input_tokens", 0),
-                        "output_tokens": getattr(response, "output_tokens", 0),
-                        "input_cache_hit_tokens": getattr(response, "input_cache_hit_tokens", 0),
-                        "input_cache_miss_tokens": getattr(response, "input_cache_miss_tokens", 0),
-                        "provider_reported_cost": getattr(response, "provider_reported_cost", 0.0),
-                        "caller": request.caller,
-                        "route_type": "media",
+                self._audit_request(
+                    action="llm_media_call",
+                    provider_name=provider_name,
+                    request=request,
+                    response=response,
+                    route_type="media",
+                    extra_detail={
+                        "media_kind": media_kind,
+                        "media_count": len(image_base64s),
                     },
                 )
 
@@ -395,6 +373,61 @@ class LLMRouter:
             if name == "mock":
                 return name
         return ""
+
+    def _audit_request(
+        self,
+        *,
+        action: str,
+        provider_name: str,
+        request: LLMRequest,
+        response: Any,
+        route_type: str,
+        extra_detail: dict[str, Any] | None = None,
+    ) -> None:
+        detail = dict(request.context_meta or {})
+        detail.update({
+            "task_type": request.task_type.name,
+            "provider": provider_name,
+            "model": getattr(response, "model_used", ""),
+            "tokens": getattr(response, "tokens_used", 0),
+            "input_tokens": getattr(response, "input_tokens", 0),
+            "output_tokens": getattr(response, "output_tokens", 0),
+            "input_cache_hit_tokens": getattr(response, "input_cache_hit_tokens", 0),
+            "input_cache_miss_tokens": getattr(response, "input_cache_miss_tokens", 0),
+            "provider_reported_cost": getattr(response, "provider_reported_cost", 0.0),
+            "caller": request.caller,
+            "route_type": route_type,
+            "success": bool(getattr(response, "success", True)),
+            "error": getattr(response, "error", ""),
+        })
+        if extra_detail:
+            detail.update(extra_detail)
+
+        try:
+            from aegis_ai.audit import AuditEntry
+
+            if hasattr(self._audit, "append"):
+                self._audit.append(AuditEntry(
+                    action=action,
+                    actor="router",
+                    capability_id=f"llm.{provider_name}",
+                    decision="EXECUTED",
+                    reason=f"task_type={request.task_type.name}",
+                    detail=detail,
+                    model=getattr(response, "model_used", ""),
+                    provider=provider_name,
+                    tokens_used=int(getattr(response, "tokens_used", 0) or 0),
+                    request_id=request.request_id,
+                    task_id=str(detail.get("task_id") or detail.get("chat_task_id") or ""),
+                ))
+                return
+        except Exception:
+            logger.debug("Failed to append structured LLM audit entry", exc_info=True)
+
+        try:
+            self._audit.log_decision(action, f"llm.{provider_name}", "EXECUTED", detail=detail)
+        except Exception:
+            logger.debug("Failed to log LLM router audit entry", exc_info=True)
 
     @staticmethod
     def _normalize_provider_response(response: Any, provider_name: str, request_id: str) -> LLMResponse:

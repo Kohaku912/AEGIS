@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -32,6 +33,55 @@ def test_llm_response_usage_fields_are_normalized() -> None:
     assert response.provider_reported_cost == 0.0012
 
 
+def test_llm_router_audit_records_usage_and_context_detail() -> None:
+    from aegis_ai.llm.router import LLMRequest, LLMRouter, TaskType
+
+    class Audit:
+        def __init__(self) -> None:
+            self.entries = []
+
+        def append(self, entry) -> None:
+            self.entries.append(entry)
+
+    class Provider:
+        def generate(self, **_kwargs):
+            return SimpleNamespace(
+                content="ok",
+                model_used="m",
+                provider_used="p",
+                tokens_used=18,
+                input_tokens=12,
+                output_tokens=6,
+                input_cache_hit_tokens=5,
+                input_cache_miss_tokens=7,
+                provider_reported_cost=0.004,
+                cost_estimate=0.0,
+                success=True,
+                error="",
+            )
+
+    audit = Audit()
+    router = LLMRouter(audit_log=audit)
+    router.register_provider("mock", Provider())
+    router.route(LLMRequest(
+        task_type=TaskType.SMALL_FAST_TASK,
+        prompt="hello",
+        request_id="req-1",
+        caller="test",
+        context_meta={"context_tokens": {"system": 3, "memory": 4}},
+    ))
+
+    entry = audit.entries[0]
+    assert entry.request_id == "req-1"
+    assert entry.tokens_used == 18
+    assert entry.detail["input_tokens"] == 12
+    assert entry.detail["output_tokens"] == 6
+    assert entry.detail["input_cache_hit_tokens"] == 5
+    assert entry.detail["input_cache_miss_tokens"] == 7
+    assert entry.detail["provider_reported_cost"] == 0.004
+    assert entry.detail["context_tokens"]["memory"] == 4
+
+
 def test_context_builder_records_usage_breakdown() -> None:
     from aegis_ai.context_builder import ContextBuilder
 
@@ -59,6 +109,30 @@ def test_llm_usage_context_breakdown_aggregates() -> None:
     assert by_key["system"].tokens == 15
     assert by_key["memory"].tokens == 30
     assert by_key["tool_schema"].tokens == 20
+
+
+def test_llm_usage_retry_detection_uses_raw_entries_before_dedup() -> None:
+    from aegis_ai.observability.llm_usage.service import LLMUsageService
+
+    now = int(time.time() * 1000)
+
+    class Audit:
+        def read_recent_for_dashboard(self, limit=5000):
+            return [
+                {
+                    "entry_id": f"e{i}",
+                    "timestamp_ms": now - i,
+                    "action": "llm_call",
+                    "request_id": "same-request",
+                    "tokens_used": 10,
+                    "detail": {"success": False if i == 2 else True},
+                }
+                for i in range(3)
+            ]
+
+    candidates = LLMUsageService(audit_manager=Audit()).get_waste_candidates("1h")
+
+    assert any(c["candidate_type"] == "retry_loop_suspect" for c in candidates)
 
 
 class _FakeServerExecutor:
@@ -181,9 +255,56 @@ def test_dashboard_route_modules_are_registered(monkeypatch, tmp_path) -> None:
     assert "dashboard_presentation" in blueprint_names
     assert "dashboard_llm_usage_page" in blueprint_names
     assert "dashboard_server_status" in blueprint_names
+    assert "dashboard_memory" in blueprint_names
     rules = {rule.rule for rule in app.url_map.iter_rules()}
     assert "/api/chat/send" in rules
     assert "/api/autonomous/status" in rules
     assert "/api/approvals/pending" in rules
     assert "/api/health/alerts" in rules
     assert "/dashboard/llm-usage" in rules
+    assert Path("src/aegis_ai/web/routes/chat.py").exists()
+    assert Path("src/aegis_ai/web/routes/memory.py").exists()
+
+
+def test_task_execution_engine_fails_step_when_completion_verification_fails(tmp_path) -> None:
+    from aegis_ai.task.execution_engine import TaskExecutionEngine
+    from aegis_ai.task.task_manager import TaskManager
+    from aegis_ai.task_plan import PlanStep, TaskPlan, StepStatus
+    from tool_broker import InvokeStatus
+
+    verification = SimpleNamespace(
+        status="failed",
+        details=["screen_changed: changed=False"],
+        repair_hint="retry_or_user_confirmation",
+        checks_passed=0,
+        checks_failed=1,
+    )
+    result = SimpleNamespace(
+        success=True,
+        status=InvokeStatus.SUCCESS,
+        output={"ok": True},
+        error="",
+        verification=verification,
+        verification_status="failed",
+        approval_id="",
+    )
+    broker = SimpleNamespace(execute=lambda _request: result)
+    tm = TaskManager(data_dir=str(tmp_path / "tasks"))
+    task = tm.create_task(title="verify", source="test")
+    task_id = task["task_id"]
+    tm.start_task(task_id)
+    step = PlanStep(
+        step_id="s1",
+        description="click and verify",
+        action_type="tool_invoke",
+        capability_id="pc-server.test.clickish",
+    )
+
+    response = TaskExecutionEngine(task_manager=tm, tool_broker=broker).execute_task(
+        task_id,
+        TaskPlan(plan_id="p", steps=[step]),
+    )
+
+    assert step.status == StepStatus.FAILED
+    assert tm.get_task(task_id)["status"] == "failed"
+    assert "screen_changed" in response.text

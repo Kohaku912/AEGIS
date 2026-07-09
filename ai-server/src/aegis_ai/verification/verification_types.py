@@ -37,6 +37,53 @@ class VerificationStrategy(Enum):
     CUSTOM = "custom"
 
 
+class CompletionObservable(Enum):
+    """Observable state used by manifest completion checks."""
+    SCREENSHOT = "screenshot"
+    UI_TREE = "ui_tree"
+    DOM = "dom"
+    HTTP_STATUS = "http_status"
+    FILE_EXISTS = "file_exists"
+    EVENT = "event"
+    OUTPUT_FIELD = "output_field"
+    STATE_DIFF = "state_diff"
+
+
+@dataclass
+class CompletionCondition:
+    """Declarative success condition attached to a capability manifest."""
+    name: str = ""
+    observable: CompletionObservable = CompletionObservable.OUTPUT_FIELD
+    expected: Any = None
+    capability_id: str = ""
+    params: dict[str, Any] = field(default_factory=dict)
+    capture_before: bool = False
+    expect_changed: bool = False
+    min_value: int | None = None
+    max_value: int | None = None
+    repair_hint: str = ""
+
+    @classmethod
+    def from_manifest(cls, data: dict[str, Any]) -> "CompletionCondition":
+        observable_raw = str(data.get("observable") or data.get("type") or "output_field")
+        try:
+            observable = CompletionObservable(observable_raw)
+        except ValueError:
+            observable = CompletionObservable.OUTPUT_FIELD
+        return cls(
+            name=str(data.get("name") or ""),
+            observable=observable,
+            expected=data.get("expected", data.get("equals")),
+            capability_id=str(data.get("capability_id") or ""),
+            params=dict(data.get("params") or {}),
+            capture_before=bool(data.get("capture_before", False)),
+            expect_changed=bool(data.get("expect_changed", False)),
+            min_value=data.get("min"),
+            max_value=data.get("max"),
+            repair_hint=str(data.get("repair_hint") or data.get("on_failure") or ""),
+        )
+
+
 @dataclass
 class VerificationRequest:
     """Request to verify a tool execution outcome."""
