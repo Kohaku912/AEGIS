@@ -21,6 +21,7 @@ class PresentationStatus(Enum):
     """Lifecycle states for a presentation."""
 
     PENDING = "pending"
+    QUEUED = "queued"
     ACTIVE = "active"
     DELIVERED = "delivered"
     DISMISSED = "dismissed"
@@ -39,6 +40,10 @@ class Modality(Enum):
     DIAGRAM_PANEL = "diagram_panel"
     GLTF_MODEL = "gltf_model"
     OVERLAY_SHORT = "overlay_short"
+    IMAGE = "image"
+    VIDEO = "video"
+    SPEECH = "speech"
+    HUD = "hud"
 
 
 class Importance(Enum):
@@ -170,6 +175,7 @@ class PresentationSpec:
     updated_at_ms: int = 0
     revision: int = 0
     user_actions: list[dict[str, Any]] = field(default_factory=list)
+    delivery_state: dict[str, Any] = field(default_factory=dict)
     metadata: dict[str, Any] = field(default_factory=dict)
 
     # ── Serialisation helpers ────────────────────────────────────
@@ -193,6 +199,7 @@ class PresentationSpec:
             "updated_at_ms": self.updated_at_ms,
             "revision": self.revision,
             "user_actions": self.user_actions,
+            "delivery_state": self.delivery_state,
             "metadata": self.metadata,
         }
 
@@ -221,6 +228,7 @@ class PresentationSpec:
             updated_at_ms=data.get("updated_at_ms", 0),
             revision=data.get("revision", 0),
             user_actions=data.get("user_actions", []),
+            delivery_state=data.get("delivery_state", {}),
             metadata=data.get("metadata", {}),
         )
 
@@ -251,36 +259,50 @@ class PresentationRequest:
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
+        importance = self.importance.value if isinstance(self.importance, Importance) else self.importance
+        modality = self.modality.value if isinstance(self.modality, Modality) else self.modality
+        interaction_mode = (
+            self.interaction_mode.value if isinstance(self.interaction_mode, InteractionMode) else self.interaction_mode
+        )
         return {
             "source": self.source,
             "intent": self.intent,
-            "importance": self.importance,
-            "modality": self.modality,
+            "importance": importance,
+            "modality": modality,
             "title": self.title,
             "summary": self.summary,
             "content": self.content,
             "targets": self.targets,
             "ttl_ms": self.ttl_ms,
             "placement_zone": self.placement_zone,
-            "interaction_mode": self.interaction_mode,
+            "interaction_mode": interaction_mode,
             "actions": self.actions,
             "metadata": self.metadata,
         }
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> PresentationRequest:
+        importance = data.get("importance", "normal")
+        if isinstance(importance, Importance):
+            importance = importance.value
+        modality = data.get("modality", "text_card")
+        if isinstance(modality, Modality):
+            modality = modality.value
+        interaction_mode = data.get("interaction_mode", "dismiss_only")
+        if isinstance(interaction_mode, InteractionMode):
+            interaction_mode = interaction_mode.value
         return cls(
             source=data.get("source", ""),
             intent=data.get("intent", ""),
-            importance=data.get("importance", "normal"),
-            modality=data.get("modality", "text_card"),
+            importance=importance,
+            modality=modality,
             title=data.get("title", ""),
             summary=data.get("summary", ""),
             content=data.get("content", {}),
             targets=data.get("targets", ["dashboard"]),
             ttl_ms=data.get("ttl_ms", 3_600_000),
             placement_zone=data.get("placement_zone", "main"),
-            interaction_mode=data.get("interaction_mode", "dismiss_only"),
+            interaction_mode=interaction_mode,
             actions=data.get("actions", []),
             metadata=data.get("metadata", {}),
         )

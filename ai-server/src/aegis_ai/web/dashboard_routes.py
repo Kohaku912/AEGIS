@@ -973,6 +973,14 @@ class DashboardApp:
             from aegis_ai.web.llm_config_routes import init_llm_config, llm_config_bp
             init_llm_config(runtime.prompt_registry, runtime.settings_resolver)
             self._app.register_blueprint(llm_config_bp)
+        # LLM Usage observability
+        try:
+            from aegis_ai.observability.llm_usage.service import LLMUsageService
+            from aegis_ai.observability.llm_usage.routes import init_llm_usage_routes, llm_usage_bp
+            llm_usage_svc = LLMUsageService(audit_manager=getattr(runtime, "audit_manager", None))
+            init_llm_usage_routes(self._app, llm_usage_svc)
+        except Exception:
+            logger.debug("LLM Usage routes not registered", exc_info=True)
         if getattr(runtime, "approval_manager", None) is not None:
             runtime.approval_manager.on_state_change(self._handle_chat_approval_event)
         self._setup_routes()
@@ -2829,6 +2837,36 @@ class DashboardApp:
         @app.route("/dashboard/approvals")
         def dashboard_approvals():
             return render_template("dashboard/approvals.html")
+
+        @app.route("/dashboard/presentations")
+        def dashboard_presentations():
+            presentations: list[dict[str, Any]] = []
+            stats = {
+                "total_active": 0,
+                "total_delivered": 0,
+                "total_dismissed": 0,
+            }
+            try:
+                presentations = self._runtime.presentation_manager.list_all(limit=200)
+                for presentation in presentations:
+                    status = str(presentation.get("status", "")).lower()
+                    if status in {"pending", "queued", "active"}:
+                        stats["total_active"] += 1
+                    elif status == "delivered":
+                        stats["total_delivered"] += 1
+                    elif status == "dismissed":
+                        stats["total_dismissed"] += 1
+            except Exception as exc:
+                logger.warning("Presentations load failed: %s", exc)
+            return render_template(
+                "dashboard/presentations.html",
+                presentations=presentations,
+                stats=stats,
+            )
+
+        @app.route("/dashboard/llm-usage")
+        def dashboard_llm_usage():
+            return render_template("dashboard/llm_usage.html")
 
         @app.route("/dashboard/health")
         def dashboard_health():

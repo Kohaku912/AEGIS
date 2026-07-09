@@ -1,0 +1,385 @@
+{% extends "dashboard/base.html" %}
+{% block title %}Presentations — AEGIS{% endblock %}
+{% block topbar_title %}Presentations{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>Presentations</h1>
+    <p class="page-subtitle">Presentation Engine output with predefined modality renderers</p>
+</div>
+
+<div class="stat-grid">
+    <div class="stat-card">
+        <div class="label">Total Active</div>
+        <div class="val accent">{{ stats.total_active }}</div>
+    </div>
+    <div class="stat-card">
+        <div class="label">Total Delivered</div>
+        <div class="val green">{{ stats.total_delivered }}</div>
+    </div>
+    <div class="stat-card">
+        <div class="label">Total Dismissed</div>
+        <div class="val gray">{{ stats.total_dismissed }}</div>
+    </div>
+</div>
+
+<div class="presentation-grid">
+    <div class="card">
+        <div class="card-header">Presentation List</div>
+        <div style="overflow-x:auto;">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Title</th>
+                        <th>Modality</th>
+                        <th>Importance</th>
+                        <th>Status</th>
+                        <th>Source</th>
+                        <th>Created</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="presentation-table-body">
+                    {% for p in presentations %}
+                    <tr class="presentation-row {% if loop.first %}selected{% endif %}" data-presentation-id="{{ p.presentation_id }}" onclick="selectPresentation('{{ p.presentation_id }}')">
+                        <td style="font-weight:500;">{{ p.title or p.summary or p.presentation_id }}</td>
+                        <td><span class="badge badge-gray">{{ p.modality }}</span></td>
+                        <td>
+                            {% set importance = p.importance|lower %}
+                            {% if importance == 'low' %}
+                            <span class="badge badge-gray">LOW</span>
+                            {% elif importance == 'normal' %}
+                            <span class="badge badge-blue">NORMAL</span>
+                            {% elif importance == 'high' %}
+                            <span class="badge badge-yellow">HIGH</span>
+                            {% elif importance == 'critical' %}
+                            <span class="badge badge-red">CRITICAL</span>
+                            {% else %}
+                            <span class="badge badge-gray">{{ p.importance }}</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% set status = p.status|lower %}
+                            {% if status in ['pending', 'queued'] %}
+                            <span class="badge badge-blue">{{ status|upper }}</span>
+                            {% elif status == 'active' %}
+                            <span class="badge badge-green">ACTIVE</span>
+                            {% elif status == 'delivered' %}
+                            <span class="badge badge-accent">DELIVERED</span>
+                            {% elif status == 'dismissed' %}
+                            <span class="badge badge-gray">DISMISSED</span>
+                            {% elif status == 'expired' %}
+                            <span class="badge badge-yellow">EXPIRED</span>
+                            {% elif status == 'failed' %}
+                            <span class="badge badge-red">FAILED</span>
+                            {% else %}
+                            <span class="badge badge-gray">{{ p.status }}</span>
+                            {% endif %}
+                        </td>
+                        <td style="color:var(--text-dim);font-size:12px;">{{ p.source or '-' }}</td>
+                        <td style="color:var(--text-muted);font-size:12px;" data-ts="{{ p.created_at_ms or 0 }}">{{ format_jst(p.created_at_ms or 0) }}</td>
+                        <td>
+                            <div class="action-row">
+                                <button class="btn btn-ghost btn-small" type="button" onclick="event.stopPropagation(); selectPresentation('{{ p.presentation_id }}')">View Detail</button>
+                                <button class="btn btn-danger btn-small" type="button" onclick="event.stopPropagation(); dismissPresentation('{{ p.presentation_id }}')">Dismiss</button>
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="card presentation-detail-card">
+        <div class="card-header">Detail Panel</div>
+        <div id="presentation-empty" class="empty-state">Select a presentation to preview its predefined renderer.</div>
+        <div id="presentation-detail" style="display:none;">
+            <div class="detail-head">
+                <div>
+                    <div id="detail-title" class="detail-title"></div>
+                    <div id="detail-summary" class="detail-summary"></div>
+                </div>
+                <div id="detail-badges" class="detail-badges"></div>
+            </div>
+
+            <div class="detail-meta-grid">
+                <div><span class="meta-label">Source</span><span id="detail-source" class="meta-value"></span></div>
+                <div><span class="meta-label">Intent</span><span id="detail-intent" class="meta-value"></span></div>
+                <div><span class="meta-label">Created</span><span id="detail-created" class="meta-value"></span></div>
+                <div><span class="meta-label">Updated</span><span id="detail-updated" class="meta-value"></span></div>
+            </div>
+
+            <div class="preview-shell">
+                <div class="preview-shell-header">Modality Preview</div>
+                <div id="preview-panel"></div>
+            </div>
+
+            <div class="detail-json-shell">
+                <div class="preview-shell-header">Content</div>
+                <pre id="detail-json"></pre>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+    .page-header { margin-bottom: 12px; }
+    .page-subtitle { color: var(--text-muted); font-size: 13px; margin-top: 6px; }
+    .presentation-grid { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(320px, 1fr); gap: 16px; align-items: start; }
+    .presentation-detail-card { position: sticky; top: 0; }
+    .presentation-row { cursor: pointer; }
+    .presentation-row.selected td { background: var(--accent-dim); }
+    .action-row { display: flex; gap: 8px; flex-wrap: wrap; }
+    .btn-small { padding: 4px 10px; font-size: 11px; }
+    .empty-state {
+        padding: 20px 0 8px;
+        color: var(--text-muted);
+        font-size: 13px;
+    }
+    .detail-head { display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; margin-bottom: 14px; }
+    .detail-title { font-size: 18px; font-weight: 700; color: var(--text); line-height: 1.2; }
+    .detail-summary { margin-top: 6px; color: var(--text-dim); font-size: 13px; line-height: 1.5; }
+    .detail-badges { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+    .detail-meta-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-bottom: 14px; }
+    .meta-label { display: block; font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-muted); margin-bottom: 4px; }
+    .meta-value { display: block; font-size: 12px; color: var(--text); word-break: break-word; }
+    .preview-shell, .detail-json-shell {
+        background: var(--bg);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 14px;
+        margin-bottom: 12px;
+    }
+    .preview-shell-header {
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--text-muted);
+        margin-bottom: 10px;
+    }
+    .preview-card {
+        border: 1px solid var(--border);
+        background: var(--surface);
+        border-radius: 10px;
+        padding: 14px;
+    }
+    .preview-card-title { font-size: 14px; font-weight: 700; margin-bottom: 8px; color: var(--text); }
+    .preview-text { font-size: 13px; line-height: 1.6; color: var(--text-dim); white-space: pre-wrap; word-break: break-word; }
+    .preview-footer { margin-top: 10px; font-size: 11px; color: var(--text-muted); }
+    .preview-placeholder {
+        border: 1px dashed var(--border2);
+        border-radius: 10px;
+        padding: 18px;
+        color: var(--text-dim);
+        font-size: 13px;
+        line-height: 1.6;
+        background: rgba(255,255,255,0.02);
+    }
+    .preview-placeholder strong { color: var(--text); }
+    .preview-grid { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); margin-top: 12px; }
+    .preview-chip {
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 8px 10px;
+        background: var(--surface2);
+    }
+    .preview-chip .k { display: block; font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 4px; }
+    .preview-chip .v { display: block; font-size: 12px; color: var(--text); word-break: break-word; }
+    .preview-code { margin: 0; font-size: 12px; white-space: pre-wrap; word-break: break-word; }
+    @media (max-width: 1100px) { .presentation-grid { grid-template-columns: 1fr; } .presentation-detail-card { position: static; } }
+</style>
+
+<script>
+const initialPresentations = {{ presentations | tojson }};
+let presentations = Array.isArray(initialPresentations) ? initialPresentations : [];
+let selectedPresentationId = presentations.length ? presentations[0].presentation_id : null;
+let presentationSse = null;
+
+function escapeHtml(value) {
+    if (value === null || value === undefined) return '';
+    return String(value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+function formatTime(ms) {
+    const value = Number(ms || 0);
+    if (!value) return '-';
+    return new Date(value).toLocaleString();
+}
+
+function importanceBadge(importance) {
+    const value = String(importance || '').toLowerCase();
+    const label = value ? value.toUpperCase() : 'UNKNOWN';
+    const cls = value === 'low' ? 'badge-gray' : value === 'normal' ? 'badge-blue' : value === 'high' ? 'badge-yellow' : value === 'critical' ? 'badge-red' : 'badge-gray';
+    return `<span class="badge ${cls}">${escapeHtml(label)}</span>`;
+}
+
+function statusBadge(status) {
+    const value = String(status || '').toLowerCase();
+    const label = value ? value.toUpperCase() : 'UNKNOWN';
+    const cls = value === 'active' ? 'badge-green' : value === 'delivered' ? 'badge-accent' : value === 'dismissed' ? 'badge-gray' : value === 'expired' ? 'badge-yellow' : value === 'failed' ? 'badge-red' : 'badge-blue';
+    return `<span class="badge ${cls}">${escapeHtml(label)}</span>`;
+}
+
+function modalityPreview(presentation) {
+    const modality = String(presentation.modality || 'text_card').toLowerCase();
+    const content = presentation.content || {};
+    if (modality === 'text_card') {
+        return `
+            <div class="preview-card">
+                <div class="preview-card-title">${escapeHtml(content.icon || 'Text Card')}</div>
+                <div class="preview-text">${escapeHtml(content.text || presentation.summary || 'No text content')}</div>
+                ${content.footer ? `<div class="preview-footer">${escapeHtml(content.footer)}</div>` : ''}
+            </div>
+        `;
+    }
+    if (modality === 'chart_panel') {
+        const keys = Object.keys(content.data || {});
+        return `
+            <div class="preview-placeholder">
+                <strong>Chart renderer placeholder</strong><br>
+                Chart type: ${escapeHtml(content.chart_type || 'line')}<br>
+                Data keys: ${escapeHtml(keys.length ? keys.join(', ') : 'none')}<br>
+                <div class="preview-grid">
+                    <div class="preview-chip"><span class="k">Options</span><span class="v">${escapeHtml(JSON.stringify(content.options || {}, null, 2))}</span></div>
+                    <div class="preview-chip"><span class="k">Data</span><span class="v">${escapeHtml(JSON.stringify(content.data || {}, null, 2))}</span></div>
+                </div>
+            </div>
+        `;
+    }
+    if (modality === 'diagram_panel') {
+        const nodes = Array.isArray(content.nodes) ? content.nodes : [];
+        const edges = Array.isArray(content.edges) ? content.edges : [];
+        return `
+            <div class="preview-placeholder">
+                <strong>Diagram renderer placeholder</strong><br>
+                Diagram type: ${escapeHtml(content.diagram_type || 'graph')}<br>
+                Nodes: ${nodes.length} · Edges: ${edges.length}<br>
+                <div class="preview-grid">
+                    <div class="preview-chip"><span class="k">Nodes</span><span class="v">${escapeHtml(JSON.stringify(nodes, null, 2))}</span></div>
+                    <div class="preview-chip"><span class="k">Edges</span><span class="v">${escapeHtml(JSON.stringify(edges, null, 2))}</span></div>
+                </div>
+            </div>
+        `;
+    }
+    if (modality === 'gltf_model') {
+        return `
+            <div class="preview-placeholder">
+                <strong>3D model placeholder</strong><br>
+                Model URL: ${escapeHtml(content.model_url || 'n/a')}<br>
+                Scale: ${escapeHtml(content.scale ?? 1)}<br>
+                Position: ${escapeHtml(JSON.stringify(content.position || [0, 0, 0]))}
+            </div>
+        `;
+    }
+    return `
+        <div class="preview-placeholder">
+            <strong>${escapeHtml(modality || 'unknown')} renderer placeholder</strong><br>
+            Only predefined modality schemas are rendered here.
+        </div>
+    `;
+}
+
+function renderRow(presentation) {
+    const selected = presentation.presentation_id === selectedPresentationId ? 'selected' : '';
+    return `
+        <tr class="presentation-row ${selected}" data-presentation-id="${escapeHtml(presentation.presentation_id)}" onclick="selectPresentation('${escapeHtml(presentation.presentation_id)}')">
+            <td style="font-weight:500;">${escapeHtml(presentation.title || presentation.summary || presentation.presentation_id || '-')}</td>
+            <td><span class="badge badge-gray">${escapeHtml(presentation.modality || '-')}</span></td>
+            <td>${importanceBadge(presentation.importance)}</td>
+            <td>${statusBadge(presentation.status)}</td>
+            <td style="color:var(--text-dim);font-size:12px;">${escapeHtml(presentation.source || '-')}</td>
+            <td style="color:var(--text-muted);font-size:12px;">${escapeHtml(formatTime(presentation.created_at_ms))}</td>
+            <td>
+                <div class="action-row">
+                    <button class="btn btn-ghost btn-small" type="button" onclick="event.stopPropagation(); selectPresentation('${escapeHtml(presentation.presentation_id)}')">View Detail</button>
+                    <button class="btn btn-danger btn-small" type="button" onclick="event.stopPropagation(); dismissPresentation('${escapeHtml(presentation.presentation_id)}')">Dismiss</button>
+                </div>
+            </td>
+        </tr>
+    `;
+}
+
+function renderDetail(presentation) {
+    const empty = document.getElementById('presentation-empty');
+    const detail = document.getElementById('presentation-detail');
+    if (!presentation) {
+        empty.style.display = 'block';
+        detail.style.display = 'none';
+        return;
+    }
+    empty.style.display = 'none';
+    detail.style.display = 'block';
+    document.getElementById('detail-title').textContent = presentation.title || presentation.summary || presentation.presentation_id || 'Presentation';
+    document.getElementById('detail-summary').textContent = presentation.summary || 'No summary available.';
+    document.getElementById('detail-source').textContent = presentation.source || '-';
+    document.getElementById('detail-intent').textContent = presentation.intent || '-';
+    document.getElementById('detail-created').textContent = formatTime(presentation.created_at_ms);
+    document.getElementById('detail-updated').textContent = formatTime(presentation.updated_at_ms || presentation.created_at_ms);
+    document.getElementById('detail-badges').innerHTML = `${importanceBadge(presentation.importance)}${statusBadge(presentation.status)}<span class="badge badge-gray">${escapeHtml(String(presentation.modality || '-').toUpperCase())}</span>`;
+    document.getElementById('preview-panel').innerHTML = modalityPreview(presentation);
+    document.getElementById('detail-json').textContent = JSON.stringify(presentation.content || {}, null, 2);
+}
+
+function selectPresentation(presentationId) {
+    selectedPresentationId = presentationId;
+    sessionStorage.setItem('aegis.presentations.selected', presentationId);
+    renderAllPresentations();
+}
+
+function renderAllPresentations() {
+    const tbody = document.getElementById('presentation-table-body');
+    const selected = presentations.find((item) => item.presentation_id === selectedPresentationId) || presentations[0] || null;
+    if (selected) {
+        selectedPresentationId = selected.presentation_id;
+    }
+    tbody.innerHTML = presentations.length ? presentations.map(renderRow).join('') : '<tr><td colspan="7" style="padding:18px;color:var(--text-muted);">No presentations available.</td></tr>';
+    renderDetail(selected || null);
+}
+
+function refreshPresentations() {
+    window.location.reload();
+}
+
+async function dismissPresentation(presentationId) {
+    try {
+        const response = await fetch(`/api/presentations/${encodeURIComponent(presentationId)}/dismiss`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+        const data = await response.json();
+        if (data.error) {
+            alert(data.error);
+            return;
+        }
+        refreshPresentations();
+    } catch (error) {
+        alert('Failed to dismiss presentation');
+    }
+}
+
+function connectPresentationStream() {
+    if (presentationSse) {
+        presentationSse.close();
+    }
+    presentationSse = new EventSource('/api/presentations/stream');
+    presentationSse.onmessage = () => refreshPresentations();
+    presentationSse.onerror = () => {
+        setTimeout(connectPresentationStream, 5000);
+    };
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    const persistedSelection = sessionStorage.getItem('aegis.presentations.selected');
+    if (persistedSelection && presentations.some((item) => item.presentation_id === persistedSelection)) {
+        selectedPresentationId = persistedSelection;
+    }
+    renderAllPresentations();
+    connectPresentationStream();
+    setInterval(refreshPresentations, 15000);
+});
+</script>
+{% endblock %}

@@ -1308,6 +1308,9 @@ Candidate capability ids:
             }
             results.append(result_record)
 
+            if self._should_present_autonomous_result(result_record):
+                self._present_autonomous_result(task, result_record)
+
             result_text = str(result_record.get("result", "")).lower().strip()
             if result_text in _TRIVIAL_RESULTS or (len(result_text) < 20 and result_record.get("success", False)):
                 continue
@@ -1331,6 +1334,60 @@ Candidate capability ids:
                         logger.warning("Post-action failed: %s", e)
 
         return results
+
+    def _should_present_autonomous_result(self, result_record: dict[str, Any]) -> bool:
+        if not result_record.get("success", False):
+            return False
+        result_text = str(result_record.get("result", "")).lower().strip()
+        if result_text in _TRIVIAL_RESULTS or (len(result_text) < 20 and result_record.get("success", False)):
+            return False
+        return True
+
+    def _present_autonomous_result(self, task: dict[str, Any], result_record: dict[str, Any]) -> None:
+        try:
+            from aegis_ai.runtime import get_runtime
+            from aegis_ai.presentation.models import PresentationRequest
+        except Exception:
+            return
+
+        rt = get_runtime()
+        presentation_manager = getattr(rt, "presentation_manager", None) if rt is not None else None
+        if not hasattr(rt, "presentation_manager") or presentation_manager is None:
+            return
+
+        output = result_record.get("full_output", {})
+        modality = "text_card"
+        if isinstance(output, dict):
+            if output.get("image_base64") or output.get("image_data"):
+                modality = "diagram_panel"
+            elif any(key in output for key in ("chart", "chart_type", "series", "points", "labels")):
+                modality = "chart_panel"
+            elif any(key in output for key in ("diagram", "graph", "tree", "topology")):
+                modality = "diagram_panel"
+
+        summary = str(result_record.get("result", "") or "").strip()
+        if not summary:
+            return
+
+        request = PresentationRequest(
+            source="autonomous_loop",
+            intent=f"autonomous_{str(task.get('desire', 'task') or 'task')}",
+            importance="high",
+            modality=modality,
+            title=str(task.get("action") or task.get("capability_id") or "Autonomous result"),
+            summary=summary,
+            content={
+                "desire": task.get("desire", ""),
+                "action": task.get("action", ""),
+                "capability_id": task.get("capability_id", ""),
+                "result": summary,
+                "output": output,
+            },
+        )
+        try:
+            presentation_manager.present(request)
+        except Exception:
+            logger.debug("Failed to present autonomous result", exc_info=True)
 
     def _self_regressive_loop(
         self,

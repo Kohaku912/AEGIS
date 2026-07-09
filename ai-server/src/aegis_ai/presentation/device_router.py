@@ -8,6 +8,7 @@ router itself has no hard dependency on any specific server client.
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any, Protocol
 
 from aegis_ai.presentation.models import Modality, PresentationSpec, PresentationStatus
@@ -40,13 +41,58 @@ class OverlayBroadcastAdapter:
     def deliver(self, spec: PresentationSpec) -> dict[str, Any]:
         if self._client is None:
             return {"ok": False, "error": "CoreCapabilityClient unavailable"}
+        if spec.modality == Modality.GLTF_MODEL:
+            return {"ok": True, "skipped": True, "reason": "3D not supported in overlay"}
+
+        message = self._build_overlay_message(spec)
         targets = spec.delivery.targets or ["pc", "android"]
         return self._client._broadcast_overlay({
-            "message": spec.summary or spec.title,
+            "message": message,
             "title": spec.title,
             "targets": targets,
             "duration_ms": min(spec.delivery.ttl_ms, 15_000),
         })
+
+    def _build_overlay_message(self, spec: PresentationSpec) -> str:
+        if spec.modality in (Modality.TEXT_CARD, Modality.OVERLAY_SHORT):
+            return spec.summary or spec.content.get("message") or spec.content.get("text") or spec.title
+        if spec.modality == Modality.CHART_PANEL:
+            return self._summarize_chart(spec)
+        if spec.modality == Modality.DIAGRAM_PANEL:
+            return self._summarize_diagram(spec)
+        return spec.summary or spec.title
+
+    def _summarize_chart(self, spec: PresentationSpec) -> str:
+        content = spec.content or {}
+        chart_type = str(content.get("chart_type", "chart"))
+        data = content.get("data", {})
+
+        if isinstance(data, dict):
+            keys = list(data.keys())
+            if keys:
+                preview = ", ".join(str(key) for key in keys[:3])
+                if len(keys) > 3:
+                    preview += ", ..."
+                data_summary = f"data keys: {preview}"
+            else:
+                data_summary = "no data fields"
+        elif isinstance(data, list):
+            data_summary = f"{len(data)} data points"
+        else:
+            data_summary = f"data type: {type(data).__name__}"
+
+        summary = spec.summary or spec.title or "Chart"
+        return f"{summary} | chart: {chart_type} | {data_summary}"
+
+    def _summarize_diagram(self, spec: PresentationSpec) -> str:
+        content = spec.content or {}
+        diagram_type = str(content.get("diagram_type", "diagram"))
+        nodes = content.get("nodes", [])
+        edges = content.get("edges", [])
+        node_count = len(nodes) if isinstance(nodes, list) else 0
+        edge_count = len(edges) if isinstance(edges, list) else 0
+        summary = spec.summary or spec.title or "Diagram"
+        return f"{summary} | diagram: {diagram_type} | {node_count} nodes, {edge_count} edges"
 
 
 # ── Dashboard adapter (placeholder — real rendering is in JS) ────
@@ -130,9 +176,9 @@ class DeviceRouter:
                 if target == "dashboard":
                     result = self._dashboard.deliver(spec)
                 elif target == "overlay":
-                    # Overlay only supports short text — downgrade if needed
-                    if spec.modality not in (Modality.TEXT_CARD, Modality.OVERLAY_SHORT):
-                        result = {"ok": True, "skipped": True, "reason": "modality not supported on overlay"}
+                    # Overlay only skips unsupported 3D content; other modalities are summarized by the adapter.
+                    if spec.modality == Modality.GLTF_MODEL:
+                        result = {"ok": True, "skipped": True, "reason": "3D not supported in overlay"}
                     else:
                         result = self._overlay.deliver(spec)
                 elif target == "xr":
@@ -150,6 +196,18 @@ class DeviceRouter:
                 failed[raw_target] = result.get("error", "unknown error")
 
         spec.status = PresentationStatus.DELIVERED if delivered else PresentationStatus.FAILED
+        spec.delivery_state = {
+            "delivered_at_ms": int(time.time() * 1000),
+            "targets": {
+                target: {
+                    "ok": result.get("ok", False),
+                    "error": result.get("error"),
+                }
+                for target, result in results.items()
+            },
+            "delivered_count": len(delivered),
+            "failed_count": len(failed),
+        }
         return {
             "ok": bool(delivered),
             "delivered": delivered,

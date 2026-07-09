@@ -566,6 +566,27 @@ def list_presentations():
         return jsonify({"error": str(e)}), 500
 
 
+@manager_bp.route("/api/presentations/xr/pending", methods=["GET"])
+def xr_pending_presentations():
+    try:
+        rt = _get_runtime()
+        limit = int(request.args.get("limit", 50))
+        adapter = rt.presentation_manager._router._xr
+        return jsonify({"presentations": adapter.drain(limit)})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@manager_bp.route("/api/presentations/xr/count", methods=["GET"])
+def xr_pending_count():
+    try:
+        rt = _get_runtime()
+        adapter = rt.presentation_manager._router._xr
+        return jsonify({"count": adapter.count()})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @manager_bp.route("/api/presentations/<presentation_id>", methods=["GET"])
 def get_presentation(presentation_id):
     try:
