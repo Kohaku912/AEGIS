@@ -1,17 +1,4 @@
-"""Dashboard LLM usage page route."""
+"""Compatibility import for dashboard LLM Usage page route."""
 
-from __future__ import annotations
+from aegis_ai.web.routes.llm_usage_page import init_llm_usage_page_routes  # noqa: F401
 
-from typing import Any
-
-from flask import Blueprint, render_template
-
-
-def init_llm_usage_page_routes(owner: Any) -> None:
-    bp = Blueprint("dashboard_llm_usage_page", __name__)
-
-    @bp.route("/dashboard/llm-usage")
-    def dashboard_llm_usage():
-        return render_template("dashboard/llm_usage.html")
-
-    owner.app.register_blueprint(bp)

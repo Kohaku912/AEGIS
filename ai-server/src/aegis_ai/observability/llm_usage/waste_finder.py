@@ -13,13 +13,16 @@ from typing import Any
 from aegis_ai.observability.llm_usage.models import LLMTrace, WasteCandidate
 
 
-def find_waste_candidates(traces: list[LLMTrace]) -> list[WasteCandidate]:
+def find_waste_candidates(
+    traces: list[LLMTrace],
+    raw_entries: list[dict[str, Any]] | None = None,
+) -> list[WasteCandidate]:
     """Detect potential waste / review candidates."""
     candidates: list[WasteCandidate] = []
     candidates.extend(_high_token_traces(traces))
     candidates.extend(_failed_high_cost(traces))
     candidates.extend(_high_token_no_tool(traces))
-    candidates.extend(_retry_loop_suspects(traces))
+    candidates.extend(_retry_loop_suspects(traces, raw_entries=raw_entries))
     candidates.extend(_model_overkill(traces))
     candidates.sort(key=lambda c: c.confidence, reverse=True)
     return candidates
@@ -28,9 +31,10 @@ def find_waste_candidates(traces: list[LLMTrace]) -> list[WasteCandidate]:
 def find_waste_candidates_with_prompt_registry(
     traces: list[LLMTrace],
     prompt_registry: Any = None,
+    raw_entries: list[dict[str, Any]] | None = None,
 ) -> list[WasteCandidate]:
     """Detect waste candidates, cross-referencing prompts.yaml via prompt_registry."""
-    candidates = find_waste_candidates(traces)
+    candidates = find_waste_candidates(traces, raw_entries=raw_entries)
     candidates.extend(_prompt_unused_cross_ref(traces, prompt_registry))
     candidates.sort(key=lambda c: c.confidence, reverse=True)
     return candidates

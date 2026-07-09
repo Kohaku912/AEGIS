@@ -85,7 +85,7 @@ class LLMUsageService:
         traces = self._load_traces(period, **filters)
         raw = self._load_raw_entries(period, **filters)
         return [c.to_dict() for c in find_waste_candidates_with_prompt_registry(
-            traces, self._prompt_registry
+            traces, self._prompt_registry, raw_entries=raw
         )]
 
     # ── Internal ─────────────────────────────────────────────────
@@ -112,7 +112,13 @@ class LLMUsageService:
         return traces
 
     def _load_raw_entries(self, period: str, **filters: Any) -> list[dict[str, Any]]:
-        return self._read_audit(limit=5000)
+        period_ms = _PERIOD_MS.get(period, 24 * 3_600_000)
+        cutoff_ms = int(time.time() * 1000) - period_ms
+        entries = [
+            e for e in self._read_audit(limit=5000)
+            if int(e.get("timestamp_ms") or 0) >= cutoff_ms
+        ]
+        return self._apply_raw_filters(entries, **filters)
 
     def _read_audit(self, limit: int = 5000) -> list[dict[str, Any]]:
         if self._audit is None:
@@ -152,4 +158,33 @@ class LLMUsageService:
             result = [t for t in result if not t.success]
         if min_tokens > 0:
             result = [t for t in result if t.tokens_used >= min_tokens]
+        return result
+
+    @staticmethod
+    def _apply_raw_filters(
+        entries: list[dict[str, Any]],
+        caller: str = "",
+        profile: str = "",
+        prompt_id: str = "",
+        model: str = "",
+        errors_only: bool = False,
+        min_tokens: int = 0,
+        **_rest: Any,
+    ) -> list[dict[str, Any]]:
+        result = entries
+        if caller:
+            result = [e for e in result if (e.get("detail") or {}).get("caller") == caller or e.get("actor") == caller]
+        if profile:
+            result = [e for e in result if e.get("profile_id") == profile]
+        if prompt_id:
+            result = [e for e in result if e.get("prompt_id") == prompt_id]
+        if model:
+            result = [e for e in result if e.get("model") == model or (e.get("detail") or {}).get("model") == model]
+        if errors_only:
+            result = [e for e in result if bool((e.get("detail") or {}).get("error"))]
+        if min_tokens > 0:
+            result = [
+                e for e in result
+                if int(e.get("tokens_used") or (e.get("detail") or {}).get("tokens") or 0) >= min_tokens
+            ]
         return result

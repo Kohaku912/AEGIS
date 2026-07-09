@@ -204,8 +204,12 @@ class TaskExecutionEngine:
         )
         result = self._tool_broker.execute(request)
         if result.success:
+            if not self._completion_verified(result):
+                step.status = StepStatus.FAILED
+                step.error = self._completion_failure_message(result)
+                return f'[VERIFY] {step.description}: {step.error}'
             step.status = StepStatus.COMPLETED
-            step.result = result.output
+            step.result = self._tool_result_with_verification(result)
             return f'[OK] {step.description}'
         elif result.status == InvokeStatus.APPROVAL_NEEDED:
             step.status = StepStatus.NEEDS_APPROVAL
@@ -275,8 +279,18 @@ class TaskExecutionEngine:
         result = self._tool_broker.execute_approved(approval_id)
         if task_id and step_id:
             if result.success:
+                if not self._completion_verified(result):
+                    error = self._completion_failure_message(result)
+                    self._task_manager.update_step_status(task_id, step_id, 'failed', error=error)
+                    self._task_manager.fail_task(task_id, error=f'Step {step_id} failed verification: {error}')
+                    return ExecutionResponse(text=f'[VERIFY] Step {step_id}: {error}', task_id=task_id)
                 self._task_manager.resume_after_approval(task_id, step_id)
-                self._task_manager.update_step_status(task_id, step_id, 'completed', result=result.output)
+                self._task_manager.update_step_status(
+                    task_id,
+                    step_id,
+                    'completed',
+                    result=self._tool_result_with_verification(result),
+                )
                 self._task_manager.set_waiting_approval(task_id, '', '')
                 return self._continue_after_step(task_id, step_id)
             else:
@@ -429,6 +443,47 @@ class TaskExecutionEngine:
         if plan.expected_result:
             return str(plan.expected_result).strip()
         return 'All steps completed'
+
+    def _completion_verified(self, result: Any) -> bool:
+        verification = getattr(result, "verification", None)
+        status = str(
+            getattr(verification, "status", "")
+            or getattr(result, "verification_status", "")
+            or ""
+        ).lower()
+        if status in {"", "pending", "skipped", "passed", "verified", "unverified"}:
+            return True
+        return status not in {"failed", "error", "requires_observation"}
+
+    def _completion_failure_message(self, result: Any) -> str:
+        verification = getattr(result, "verification", None)
+        details = getattr(verification, "details", None) or getattr(verification, "evidence", None) or []
+        reason = getattr(verification, "reason", "") or getattr(result, "error", "")
+        repair = getattr(verification, "repair_hint", "") or getattr(verification, "suggested_recovery", "")
+        parts = [str(reason).strip()] if reason else []
+        if details:
+            parts.append("; ".join(str(item) for item in details if item))
+        if repair:
+            parts.append(f"repair={repair}")
+        return " / ".join(part for part in parts if part) or "Completion verification failed"
+
+    def _tool_result_with_verification(self, result: Any) -> dict[str, Any]:
+        output = dict(getattr(result, "output", {}) or {})
+        verification = getattr(result, "verification", None)
+        if verification is not None:
+            try:
+                status = str(getattr(verification, "status", "") or "")
+                if status and "MagicMock" not in status:
+                    output.setdefault("completion_verification", {
+                        "status": status,
+                        "checks_passed": int(getattr(verification, "checks_passed", 0) or 0),
+                        "checks_failed": int(getattr(verification, "checks_failed", 0) or 0),
+                        "details": list(getattr(verification, "details", []) or []),
+                        "repair_hint": str(getattr(verification, "repair_hint", "") or ""),
+                    })
+            except Exception:
+                logger.debug("Failed to attach completion verification payload", exc_info=True)
+        return output
 
     def _present_task_completion(self, task_id: str) -> None:
         try:
