@@ -156,6 +156,46 @@ class MemoryManager:
 
         return results[:limit]
 
+    def search_episodic(self, query: str = "", limit: int = 10) -> list[dict[str, Any]]:
+        """AI-facing episodic memory entry point."""
+        if query:
+            return self.search_memory(query, types=["episodic", "experience", "conversation"], limit=limit)
+        results: list[dict[str, Any]] = []
+        if self._episodic and hasattr(self._episodic, "list_recent"):
+            try:
+                results.extend(
+                    {"type": "episodic", "content": str(item)[:500], "source": "recent"}
+                    for item in self._episodic.list_recent(limit)
+                )
+            except Exception:
+                logger.debug("Episodic recent lookup failed", exc_info=True)
+        return results[:limit]
+
+    def search_semantic(self, query: str, limit: int = 10) -> list[dict[str, Any]]:
+        """AI-facing semantic memory entry point."""
+        return self.search_memory(query, types=["semantic", "preference"], limit=limit)
+
+    def search_procedural(self, query: str, limit: int = 10) -> list[dict[str, Any]]:
+        """AI-facing procedural memory entry point."""
+        return self.search_memory(query, types=["procedural", "skill", "workflow", "lesson"], limit=limit)
+
+    def ai_memory_interface(self) -> dict[str, Any]:
+        """Describe the three memory entrances exposed to AI callers."""
+        return {
+            "episodic": {
+                "description": "Past conversations, experiences, and action episodes.",
+                "method": "search_episodic(query, limit)",
+            },
+            "semantic": {
+                "description": "Facts, stable preferences, and user/world knowledge.",
+                "method": "search_semantic(query, limit)",
+            },
+            "procedural": {
+                "description": "Skills, workflows, lessons, and how-to knowledge.",
+                "method": "search_procedural(query, limit)",
+            },
+        }
+
     # ── Context ───────────────────────────────────────────────
 
     def get_context_for_task(self, task_id: str, max_chars: int = 4000) -> str:

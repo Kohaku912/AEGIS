@@ -59,7 +59,7 @@
 | Settings Web UI (real forms) | P1 | ✅ Done (`settings_ui_routes.py`) |
 | Browser Server (browser-use) implementation | P1 | ✅ Done (`browser-use-agent`) |
 | Real LLM provider (DeepSeek) integration | P1 | ✅ Done (`llm/factory.py`) |
-| Docker Compose with all services | P1 | 🔲 Not started |
+| Docker Compose with all services | P1 | Partial (`docker-compose.yml`/Dockerfiles exist; full validation pending) |
 | Notification to real channels (OS notification) | P2 | ✅ Done (`notification/os_provider.py`) |
 | Chroma vector DB integration for semantic memory | P2 | ✅ Done (`memory/chroma_semantic.py`) |
 | TaskManager lifecycle tracking | P1 | ✅ Done (`task/task_manager.py`) |
@@ -103,7 +103,7 @@
 | Device health monitoring (StatusManager) | P1 | ✅ Done |
 | Graceful degradation (device offline) | P2 | 🔲 Not started |
 | Multi-user support | P3 | 🔲 Not started |
-| TLS for gRPC | P3 | ✅ Done (`security/tls_config.py`) |
+| TLS for gRPC | P3 | Partial (`security/tls_config.py` exists; gRPC integration pending) |
 
 ## Phase Mapping
 

@@ -23,11 +23,16 @@ class MemoryContextResult:
     section_names: list[str] = field(default_factory=list)
 
     def audit_detail(self) -> dict[str, Any]:
+        memory_tokens = max(0, (len(self.text) + 3) // 4)
         return {
             "memory_profile": self.profile,
             "memory_sources": dict(self.source_counts),
             "memory_sections": list(self.section_names),
             "memory_context_chars": len(self.text),
+            "memory_budget_tokens": memory_tokens,
+            "memory_top_k": sum(self.source_counts.values()),
+            "memory_reason": f"shared memory context for {self.profile}",
+            "context_tokens": {"memory": memory_tokens},
         }
 
 

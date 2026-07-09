@@ -24,6 +24,11 @@ class LLMResponse:
     model_used: str = ""
     provider_used: str = ""
     tokens_used: int = 0
+    input_tokens: int = 0
+    output_tokens: int = 0
+    input_cache_hit_tokens: int = 0
+    input_cache_miss_tokens: int = 0
+    provider_reported_cost: float = 0.0
     cost_estimate: float = 0.0
     success: bool = True
     error: str = ""
@@ -72,6 +77,41 @@ class OpenAIProvider:
             return False
         return True
 
+    @staticmethod
+    def _usage_detail(response: Any) -> dict[str, Any]:
+        usage = getattr(response, "usage", None)
+        if usage is None:
+            return {
+                "tokens": 0,
+                "input_tokens": 0,
+                "output_tokens": 0,
+                "input_cache_hit_tokens": 0,
+                "input_cache_miss_tokens": 0,
+                "provider_reported_cost": 0.0,
+            }
+
+        def get_value(obj: Any, key: str, default: Any = 0) -> Any:
+            if isinstance(obj, dict):
+                return obj.get(key, default)
+            return getattr(obj, key, default)
+
+        input_tokens = int(get_value(usage, "prompt_tokens", 0) or 0)
+        output_tokens = int(get_value(usage, "completion_tokens", 0) or 0)
+        total_tokens = int(get_value(usage, "total_tokens", input_tokens + output_tokens) or 0)
+        prompt_details = get_value(usage, "prompt_tokens_details", {}) or {}
+        cached_tokens = int(get_value(prompt_details, "cached_tokens", 0) or 0)
+        miss_tokens = max(0, input_tokens - cached_tokens)
+        reported_cost = float(get_value(usage, "cost", get_value(usage, "total_cost", 0.0)) or 0.0)
+        return {
+            "tokens": total_tokens,
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+            "input_cache_hit_tokens": cached_tokens,
+            "input_cache_miss_tokens": miss_tokens,
+            "provider_reported_cost": reported_cost,
+            "prompt_tokens_details": prompt_details if isinstance(prompt_details, dict) else {},
+        }
+
     def generate(
         self,
         prompt: str,
@@ -109,7 +149,8 @@ class OpenAIProvider:
                 response = self._client.chat.completions.create(**request_kwargs)
 
             content = response.choices[0].message.content or ""
-            tokens = response.usage.total_tokens if response.usage else 0
+            usage_detail = self._usage_detail(response)
+            tokens = usage_detail["tokens"]
             duration_ms = (time.time() - start) * 1000
 
             logger.info(
@@ -125,6 +166,7 @@ class OpenAIProvider:
                     "prompt_preview": prompt,
                     "response_preview": content,
                     "tokens": tokens,
+                    **usage_detail,
                     "duration_ms": round(duration_ms, 1),
                     "json_mode": json_mode,
                     **(context_meta or {}),
@@ -136,6 +178,11 @@ class OpenAIProvider:
                 model_used=self._model,
                 provider_used="openai",
                 tokens_used=tokens,
+                input_tokens=usage_detail["input_tokens"],
+                output_tokens=usage_detail["output_tokens"],
+                input_cache_hit_tokens=usage_detail["input_cache_hit_tokens"],
+                input_cache_miss_tokens=usage_detail["input_cache_miss_tokens"],
+                provider_reported_cost=usage_detail["provider_reported_cost"],
                 cost_estimate=tokens * 0.000002,
                 success=True,
             )
@@ -200,7 +247,8 @@ class OpenAIProvider:
 
             choice = response.choices[0]
             content = choice.message.content or ""
-            tokens = response.usage.total_tokens if response.usage else 0
+            usage_detail = self._usage_detail(response)
+            tokens = usage_detail["tokens"]
             duration_ms = (time.time() - start) * 1000
 
             tool_calls = None
@@ -232,6 +280,7 @@ class OpenAIProvider:
                     "response_preview": content,
                     "tool_calls": tool_calls,
                     "tokens": tokens,
+                    **usage_detail,
                     "duration_ms": round(duration_ms, 1),
                     **(context_meta or {}),
                 },
@@ -242,6 +291,11 @@ class OpenAIProvider:
                 model_used=self._model,
                 provider_used="openai",
                 tokens_used=tokens,
+                input_tokens=usage_detail["input_tokens"],
+                output_tokens=usage_detail["output_tokens"],
+                input_cache_hit_tokens=usage_detail["input_cache_hit_tokens"],
+                input_cache_miss_tokens=usage_detail["input_cache_miss_tokens"],
+                provider_reported_cost=usage_detail["provider_reported_cost"],
                 cost_estimate=tokens * 0.000002,
                 success=True,
                 tool_calls=tool_calls,
@@ -367,7 +421,8 @@ class OpenAIProvider:
             )
 
             content = response.choices[0].message.content or ""
-            tokens = response.usage.total_tokens if response.usage else 0
+            usage_detail = self._usage_detail(response)
+            tokens = usage_detail["tokens"]
             duration_ms = (time.time() - start) * 1000
 
             action = "llm_vision_call" if len([item for item in image_base64s if item]) <= 1 else "llm_media_call"
@@ -379,6 +434,7 @@ class OpenAIProvider:
                     "prompt_preview": prompt,
                     "response_preview": content,
                     "tokens": tokens,
+                    **usage_detail,
                     "duration_ms": round(duration_ms, 1),
                     "media_kind": media_kind,
                     "media_count": len([item for item in image_base64s if item]),
@@ -391,6 +447,11 @@ class OpenAIProvider:
                 model_used=self._model,
                 provider_used="openai",
                 tokens_used=tokens,
+                input_tokens=usage_detail["input_tokens"],
+                output_tokens=usage_detail["output_tokens"],
+                input_cache_hit_tokens=usage_detail["input_cache_hit_tokens"],
+                input_cache_miss_tokens=usage_detail["input_cache_miss_tokens"],
+                provider_reported_cost=usage_detail["provider_reported_cost"],
                 cost_estimate=tokens * 0.000002,
                 success=True,
             )

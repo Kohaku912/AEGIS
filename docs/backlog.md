@@ -9,8 +9,8 @@
 |----|-------|--------|
 | P0-01 | Chroma/OpenAI memory not integrated (semantic search is mock) | ✅ Done — AdvancedMemory, PersonaMemory, ChromaSemanticMemory |
 | P0-02 | Real LLM not integrated (all LLM calls are mock) | ✅ Done — profile-driven OpenAI-compatible providers via LLMRouter + LLMGateway |
-| P0-03 | Docker Compose incomplete (services not containerized) | 🔲 Not started |
-| P0-04 | No TLS for gRPC (plaintext only) | ✅ Done — `security/tls_config.py` |
+| P0-03 | Docker Compose incomplete / not fully validated | Partial — compose and Dockerfiles exist |
+| P0-04 | No integrated TLS for gRPC (plaintext unless configured and verified) | Partial — `security/tls_config.py` exists |
 | P0-05 | Single-user only (no multi-user auth) | 🔲 Not started |
 
 ## P1 — MVP Completeness
@@ -37,7 +37,7 @@
 
 | ID | Issue | Status |
 |----|-------|--------|
-| P2-01 | OS notification integration | 🔲 Not started |
+| P2-01 | OS notification integration | Partial — provider exists; external channels remain approval-gated/stubbed |
 | P2-02 | Push-to-talk voice input | 🔲 Not started |
 | P2-03 | Cross-device context sharing | 🔲 Not started |
 | P2-04 | Device health monitoring dashboard | 🔲 Not started |
@@ -60,7 +60,7 @@
 | P3-05 | Real STT (faster-whisper) | 🔲 Not started |
 | P3-06 | Real TTS (edge-tts) | 🔲 Not started |
 | P3-07 | Multi-user support | 🔲 Not started |
-| P3-08 | TLS for gRPC | 🔲 Not started |
+| P3-08 | TLS for gRPC | Partial — config helper exists; server/client integration pending |
 | P3-09 | Plugin marketplace | 🔲 Not started |
 
 ## Deferred / Out of Scope

@@ -65,6 +65,11 @@ class LLMResponse:
     model_used: str = ""
     provider_used: str = ""
     tokens_used: int = 0
+    input_tokens: int = 0
+    output_tokens: int = 0
+    input_cache_hit_tokens: int = 0
+    input_cache_miss_tokens: int = 0
+    provider_reported_cost: float = 0.0
     cost_estimate: float = 0.0
     request_id: str = ""
     success: bool = True
@@ -175,6 +180,11 @@ class LLMRouter:
                         "provider": provider_name,
                         "model": response.model_used,
                         "tokens": response.tokens_used,
+                        "input_tokens": getattr(response, "input_tokens", 0),
+                        "output_tokens": getattr(response, "output_tokens", 0),
+                        "input_cache_hit_tokens": getattr(response, "input_cache_hit_tokens", 0),
+                        "input_cache_miss_tokens": getattr(response, "input_cache_miss_tokens", 0),
+                        "provider_reported_cost": getattr(response, "provider_reported_cost", 0.0),
                     },
                 )
 
@@ -247,6 +257,11 @@ class LLMRouter:
                         "provider": provider_name,
                         "model": response.model_used,
                         "tokens": response.tokens_used,
+                        "input_tokens": getattr(response, "input_tokens", 0),
+                        "output_tokens": getattr(response, "output_tokens", 0),
+                        "input_cache_hit_tokens": getattr(response, "input_cache_hit_tokens", 0),
+                        "input_cache_miss_tokens": getattr(response, "input_cache_miss_tokens", 0),
+                        "provider_reported_cost": getattr(response, "provider_reported_cost", 0.0),
                         "caller": request.caller,
                         "route_type": "tools",
                     },
@@ -341,6 +356,11 @@ class LLMRouter:
                         "provider": provider_name,
                         "model": response.model_used,
                         "tokens": response.tokens_used,
+                        "input_tokens": getattr(response, "input_tokens", 0),
+                        "output_tokens": getattr(response, "output_tokens", 0),
+                        "input_cache_hit_tokens": getattr(response, "input_cache_hit_tokens", 0),
+                        "input_cache_miss_tokens": getattr(response, "input_cache_miss_tokens", 0),
+                        "provider_reported_cost": getattr(response, "provider_reported_cost", 0.0),
                         "caller": request.caller,
                         "route_type": "media",
                     },
@@ -385,6 +405,11 @@ class LLMRouter:
             model_used=getattr(response, "model_used", ""),
             provider_used=getattr(response, "provider_used", provider_name),
             tokens_used=getattr(response, "tokens_used", 0),
+            input_tokens=getattr(response, "input_tokens", 0),
+            output_tokens=getattr(response, "output_tokens", 0),
+            input_cache_hit_tokens=getattr(response, "input_cache_hit_tokens", 0),
+            input_cache_miss_tokens=getattr(response, "input_cache_miss_tokens", 0),
+            provider_reported_cost=getattr(response, "provider_reported_cost", 0.0),
             cost_estimate=getattr(response, "cost_estimate", 0.0),
             request_id=getattr(response, "request_id", request_id),
             success=getattr(response, "success", True),

@@ -103,6 +103,7 @@ class LLMGateway:
         settings: LLMSettings,
         response: LLMResponse,
         duration_ms: int,
+        context_meta: dict[str, Any] | None = None,
     ) -> None:
         """Log LLM call to audit log."""
         if self._audit is None:
@@ -117,13 +118,23 @@ class LLMGateway:
                 except KeyError:
                     pass
 
+            meta_detail = dict(context_meta or {})
+            meta_detail.update({
+                "success": response.success,
+                "input_tokens": getattr(response, "input_tokens", 0),
+                "output_tokens": getattr(response, "output_tokens", 0),
+                "input_cache_hit_tokens": getattr(response, "input_cache_hit_tokens", 0),
+                "input_cache_miss_tokens": getattr(response, "input_cache_miss_tokens", 0),
+                "provider_reported_cost": getattr(response, "provider_reported_cost", 0.0),
+            })
+
             self._audit.append(AuditEntry(
                 action="llm_call",
                 actor="gateway",
                 capability_id=f"llm.{settings.provider}",
                 decision="EXECUTED",
                 reason=f"profile={profile}",
-                detail={"success": response.success},
+                detail=meta_detail,
                 profile_id=profile,
                 prompt_id=prompt_id or "",
                 prompt_version=metadata.get("version", ""),
@@ -135,6 +146,8 @@ class LLMGateway:
                 provider=settings.provider,
                 tokens_used=response.tokens_used,
                 duration_ms=duration_ms,
+                request_id=str((context_meta or {}).get("request_id", "")),
+                task_id=str((context_meta or {}).get("task_id") or (context_meta or {}).get("chat_task_id") or ""),
             ))
         except Exception:
             logger.debug("Failed to write LLM audit entry", exc_info=True)
@@ -191,6 +204,7 @@ class LLMGateway:
                 system_prompt=system_prompt,
                 max_tokens=settings.max_tokens,
                 temperature=settings.temperature,
+                context_meta=context_meta,
             )
         else:
             request = self._make_request(
@@ -209,6 +223,7 @@ class LLMGateway:
             settings=settings,
             response=response,
             duration_ms=duration_ms,
+            context_meta=context_meta,
         )
         return response
 
@@ -285,6 +300,7 @@ class LLMGateway:
             settings=settings,
             response=response,
             duration_ms=duration_ms,
+            context_meta=context_meta,
         )
         return response
 
@@ -335,6 +351,7 @@ class LLMGateway:
             settings=settings,
             response=response,
             duration_ms=duration_ms,
+            context_meta=context_meta,
         )
         return response
 
@@ -376,6 +393,7 @@ class LLMGateway:
             settings=settings,
             response=response,
             duration_ms=duration_ms,
+            context_meta=context_meta,
         )
         return response
 

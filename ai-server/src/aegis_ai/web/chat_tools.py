@@ -747,6 +747,35 @@ def _generate_tool_step(
     return result, _parse_tool_call(result.content or "", valid_tool_names=valid_tool_names)
 
 
+def _with_usage_breakdown(
+    context_meta: dict[str, Any],
+    *,
+    system_prompt: str = "",
+    history: list[Any] | None = None,
+    tools: list[dict[str, Any]] | None = None,
+    user_message: str = "",
+) -> dict[str, Any]:
+    meta = dict(context_meta)
+    context_tokens = dict(meta.get("context_tokens") or {})
+
+    def estimate(value: Any) -> int:
+        if value is None:
+            return 0
+        text = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False, default=str)
+        return max(0, (len(text) + 3) // 4)
+
+    if system_prompt:
+        context_tokens["system"] = context_tokens.get("system", 0) + estimate(system_prompt)
+    if history:
+        context_tokens["history"] = context_tokens.get("history", 0) + estimate(history)
+    if tools:
+        context_tokens["tool_schema"] = estimate(tools)
+    if user_message:
+        context_tokens["user_state"] = context_tokens.get("user_state", 0) + estimate(user_message)
+    meta["context_tokens"] = context_tokens
+    return meta
+
+
 def _llm_wants_tools(
     llm: Any,
     user_message: str,
@@ -950,6 +979,12 @@ def call_llm_with_tools(
     if runtime is not None and getattr(runtime, "presentation_manager", None) is not None:
         tools = list(tools)
         tools.append(_presentation_tool_definition())
+    context_meta = _with_usage_breakdown(
+        context_meta,
+        system_prompt=system_prompt,
+        tools=tools,
+        user_message=user_message,
+    )
     if not tools:
         response = _generate_direct_response(
             llm,

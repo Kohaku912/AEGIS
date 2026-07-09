@@ -18,8 +18,8 @@
 | R-10 | External integrations misuse | Low | High | All stubs, default disabled, approval required | ✅ Mitigated |
 | R-11 | Long-running autonomy cost | Medium | Medium | Cost tracker, daily/monthly budgets | ✅ Mitigated |
 | R-12 | Real LLM hallucination | High | Medium | Mock for CI, prompt safety, untrusted content wrapping | ⚠️ Partial |
-| R-13 | Docker misconfiguration | Medium | Medium | Compose skeleton exists, needs full validation | 🔲 Not started |
-| R-14 | gRPC plaintext | Low | Medium | TLS planned but not implemented | 🔲 Not started |
+| R-13 | Docker misconfiguration | Medium | Medium | Compose/Dockerfiles exist, needs full validation | Partial |
+| R-14 | gRPC plaintext | Low | Medium | TLS config helper exists; gRPC integration pending | Partial |
 | R-15 | Single-user credential theft | Low | High | Token-based auth, localhost binding | ✅ Mitigated |
 | R-16 | Real device damage (Room) | Low | Critical | FORBIDDEN patterns, approval gates, emergency stop | ✅ Mitigated |
 | R-17 | SNS/DM/email auto-send | Low | Critical | FORBIDDEN patterns, all stubs | ✅ Mitigated |
@@ -79,7 +79,7 @@
 
 **Threat**: gRPC traffic intercepted on network.
 
-**Mitigation**: None currently. TLSConfig exists but is not integrated with gRPC.
+**Mitigation**: TLSConfig exists, but it is not fully integrated with all gRPC server/client paths.
 
 **Action**: Implement TLS before any network-exposed deployment.
 

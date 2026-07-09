@@ -18,12 +18,14 @@ from __future__ import annotations
 
 import logging
 import re
+import hashlib
 import threading
 import time
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
+from pathlib import Path
 from typing import Any
 
 from jsonschema import ValidationError, validate
@@ -145,6 +147,7 @@ class ToolExecutionResult:
     verification_status: str = "pending"
     audit_log_id: str = ""
     approval_id: str = ""
+    verification: VerificationResult | None = None
 
     @property
     def success(self) -> bool:
@@ -169,6 +172,7 @@ class VerificationResult:
     checks_passed: int = 0
     checks_failed: int = 0
     details: list[str] = field(default_factory=list)
+    repair_hint: str = ""
 
 
 def verify_tool_result(request: ToolExecutionRequest, result: ToolExecutionResult) -> VerificationResult:
@@ -215,6 +219,17 @@ def verify_tool_result(request: ToolExecutionRequest, result: ToolExecutionResul
 
     vr.status = "passed" if vr.checks_failed == 0 else "failed"
     return vr
+
+
+def _fingerprint(value: Any) -> str:
+    text = str(value)
+    try:
+        import json as _json
+
+        text = _json.dumps(value, sort_keys=True, ensure_ascii=False, default=str)
+    except Exception:
+        pass
+    return hashlib.sha256(text.encode("utf-8", errors="replace")).hexdigest()
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -324,6 +339,7 @@ class ToolBroker:
         catalog: Any = None,
         delegation_policy: Any = None,
         repair_manager: Any = None,
+        event_manager: Any = None,
     ) -> None:
         self._registry = registry
         self._policy = policy_engine or create_default_policy_engine()
@@ -336,6 +352,7 @@ class ToolBroker:
         self._catalog = catalog
         self._delegation_policy = delegation_policy
         self._repair_manager = repair_manager
+        self._event_manager = event_manager
 
         if self._catalog is not None and self._server_executor is not None:
             self._server_executor.set_catalog(self._catalog)
@@ -516,6 +533,7 @@ class ToolBroker:
             return result
 
         # Execute (only if ALLOW)
+        pre_observations = self._collect_completion_observations(manifest, phase="before")
         result = self._invoke_internal(cap, request)
         result.policy_result = policy_result
 
@@ -525,14 +543,33 @@ class ToolBroker:
                 self._idempotency_cache[request.idempotency_key] = result
 
         # Verification
-        if self._verification is not None:
-            vr = self._verification.build_request(request, result)
-            verification = self._verification.verify(vr)
-            result.verification_status = verification.status.value
-            self._verification.record_verification(vr, verification)
-        else:
-            verification = verify_tool_result(request, result)
-            result.verification_status = verification.status
+        verification = self._verify_completion_or_default(request, result, manifest, pre_observations)
+        if verification.status == "failed" and result.success and _is_retryable(request.capability_id):
+            max_retries = self._completion_retry_count(manifest)
+            for attempt in range(max_retries):
+                delay_ms = self._completion_retry_delay_ms(manifest)
+                if delay_ms > 0:
+                    time.sleep(delay_ms / 1000.0)
+                retry_pre = self._collect_completion_observations(manifest, phase="before")
+                retry_result = self._invoke_internal(cap, request)
+                retry_result.policy_result = policy_result
+                retry_verification = self._verify_completion_or_default(request, retry_result, manifest, retry_pre)
+                retry_result.output.setdefault("retry_of_request_id", result.request_id)
+                retry_result.output.setdefault("retry_attempt", attempt + 1)
+                result = retry_result
+                verification = retry_verification
+                if verification.status == "passed" or not result.success:
+                    break
+        result.verification = verification
+        result.verification_status = verification.status
+        if verification.status == "failed" and result.success and self._manifest_has_completion(manifest):
+            result.status = InvokeStatus.EXECUTION_ERROR
+            result.error = "Completion verification failed: " + "; ".join(verification.details)
+            result.output.setdefault("completion_verification", {
+                "status": verification.status,
+                "details": list(verification.details),
+                "repair_hint": verification.repair_hint,
+            })
 
         self._record_audit(request, result)
         if not result.success:
@@ -563,6 +600,7 @@ class ToolBroker:
             duration_ms=result.duration_ms,
             request=request,
             policy_result=result.policy_result,
+            verification=result.verification,
         )
 
     def invoke_tool_approved(
@@ -758,9 +796,34 @@ class ToolBroker:
             metadata={"approval_id": approval_id, "approved_execution": True},
         )
 
+        pre_observations = self._collect_completion_observations(manifest, phase="before")
         result = self._invoke_internal(cap, request)
         result.policy_result = policy_result
         result.approval_id = approval_id
+        verification = self._verify_completion_or_default(request, result, manifest, pre_observations)
+        if verification.status == "failed" and result.success and _is_retryable(request.capability_id):
+            for attempt in range(self._completion_retry_count(manifest)):
+                delay_ms = self._completion_retry_delay_ms(manifest)
+                if delay_ms > 0:
+                    time.sleep(delay_ms / 1000.0)
+                retry_pre = self._collect_completion_observations(manifest, phase="before")
+                result = self._invoke_internal(cap, request)
+                result.policy_result = policy_result
+                result.approval_id = approval_id
+                verification = self._verify_completion_or_default(request, result, manifest, retry_pre)
+                result.output.setdefault("retry_attempt", attempt + 1)
+                if verification.status == "passed" or not result.success:
+                    break
+        result.verification = verification
+        result.verification_status = verification.status
+        if verification.status == "failed" and result.success and self._manifest_has_completion(manifest):
+            result.status = InvokeStatus.EXECUTION_ERROR
+            result.error = "Completion verification failed: " + "; ".join(verification.details)
+            result.output.setdefault("completion_verification", {
+                "status": verification.status,
+                "details": list(verification.details),
+                "repair_hint": verification.repair_hint,
+            })
 
         if result.success:
             if manager is not None:
@@ -824,6 +887,177 @@ class ToolBroker:
         """Override the default executor (for testing only)."""
         with self._lock:
             self._default_mock = executor
+
+    def _manifest_has_completion(self, manifest: Any) -> bool:
+        completion = getattr(manifest, "completion", {}) or {}
+        return isinstance(completion, dict) and bool(completion.get("checks"))
+
+    def _completion_retry_count(self, manifest: Any) -> int:
+        completion = getattr(manifest, "completion", {}) or {}
+        retry = completion.get("retry", {}) if isinstance(completion, dict) else {}
+        if not isinstance(retry, dict):
+            return 0
+        return max(0, min(3, int(retry.get("max_attempts", 0) or 0)))
+
+    def _completion_retry_delay_ms(self, manifest: Any) -> int:
+        completion = getattr(manifest, "completion", {}) or {}
+        retry = completion.get("retry", {}) if isinstance(completion, dict) else {}
+        if not isinstance(retry, dict):
+            return 0
+        return max(0, min(5000, int(retry.get("delay_ms", 0) or 0)))
+
+    def _collect_completion_observations(self, manifest: Any, *, phase: str) -> dict[str, Any]:
+        completion = getattr(manifest, "completion", {}) or {}
+        checks = completion.get("checks", []) if isinstance(completion, dict) else []
+        observations: dict[str, Any] = {}
+        if phase != "before" or not isinstance(checks, list):
+            return observations
+        for idx, check in enumerate(checks):
+            if not isinstance(check, dict) or not check.get("capture_before", True):
+                continue
+            key = str(check.get("name") or f"check_{idx}")
+            observations[key] = self._run_completion_observation(check)
+        return observations
+
+    def _verify_completion_or_default(
+        self,
+        request: ToolExecutionRequest,
+        result: ToolExecutionResult,
+        manifest: Any,
+        pre_observations: dict[str, Any] | None = None,
+    ) -> VerificationResult:
+        if self._manifest_has_completion(manifest):
+            return self._verify_manifest_completion(request, result, manifest, pre_observations or {})
+        if self._verification is not None:
+            vr = self._verification.build_request(request, result)
+            verification = self._verification.verify(vr)
+            result.verification_status = verification.status.value
+            self._verification.record_verification(vr, verification)
+            return VerificationResult(
+                request_id=request.request_id,
+                status=verification.status.value,
+                details=[str(getattr(verification, "reason", ""))],
+            )
+        return verify_tool_result(request, result)
+
+    def _verify_manifest_completion(
+        self,
+        request: ToolExecutionRequest,
+        result: ToolExecutionResult,
+        manifest: Any,
+        pre_observations: dict[str, Any],
+    ) -> VerificationResult:
+        verification = VerificationResult(request_id=request.request_id)
+        completion = getattr(manifest, "completion", {}) or {}
+        checks = completion.get("checks", []) if isinstance(completion, dict) else []
+        mode = str(completion.get("mode", "all")).lower()
+        if result.status != InvokeStatus.SUCCESS:
+            verification.status = "skipped"
+            verification.details.append(f"Skipped: status={result.status.value}")
+            return verification
+        passed = 0
+        failed = 0
+        for idx, check in enumerate(checks if isinstance(checks, list) else []):
+            if not isinstance(check, dict):
+                continue
+            name = str(check.get("name") or f"check_{idx}")
+            ok, detail = self._evaluate_completion_check(check, result, pre_observations.get(name))
+            if ok:
+                passed += 1
+            else:
+                failed += 1
+            verification.details.append(f"{name}: {detail}")
+        verification.checks_passed = passed
+        verification.checks_failed = failed
+        if not checks:
+            verification.status = "skipped"
+        elif mode == "any":
+            verification.status = "passed" if passed > 0 else "failed"
+        else:
+            verification.status = "passed" if failed == 0 else "failed"
+        if verification.status == "failed":
+            verification.repair_hint = str(completion.get("on_failure") or "retry_or_user_confirmation")
+        return verification
+
+    def _evaluate_completion_check(
+        self,
+        check: dict[str, Any],
+        result: ToolExecutionResult,
+        before: Any = None,
+    ) -> tuple[bool, str]:
+        check_type = str(check.get("type", "")).lower()
+        if check_type == "http_status":
+            code = int(result.output.get("status_code", result.output.get("code", 0)) or 0)
+            minimum = int(check.get("min", 200) or 200)
+            maximum = int(check.get("max", 399) or 399)
+            return minimum <= code <= maximum, f"HTTP status {code}, expected {minimum}-{maximum}"
+        if check_type == "file_exists":
+            path_key = str(check.get("path_param") or check.get("path_key") or "path")
+            path = str(result.output.get(path_key) or result.output.get("file_path") or check.get("path") or "")
+            exists = bool(path) and Path(path).exists()
+            return exists, f"file exists={exists} path={path}"
+        if check_type == "event":
+            event_type = str(check.get("event_type") or "")
+            observed = self._observe_recent_event(event_type)
+            return observed, f"event observed={observed} type={event_type or '(any)'}"
+        if check_type in {"screenshot", "ui_tree"}:
+            after = self._run_completion_observation(check)
+            if isinstance(after, dict) and after.get("error"):
+                return False, f"observation failed: {after.get('error')}"
+            if check.get("expect_changed", False):
+                if before is None:
+                    return False, "missing before observation"
+                changed = _fingerprint(before) != _fingerprint(after)
+                return changed, f"changed={changed}"
+            if check_type == "ui_tree":
+                nodes = self._count_ui_nodes(after)
+                minimum = int(check.get("min_nodes", 1) or 1)
+                return nodes >= minimum, f"ui nodes={nodes}, expected >= {minimum}"
+            return bool(after), "observation present"
+        if check_type == "output_field":
+            field_name = str(check.get("field") or "")
+            expected = check.get("equals")
+            value = result.output.get(field_name)
+            ok = value == expected if "equals" in check else bool(value)
+            return ok, f"output {field_name}={value!r}"
+        return False, f"unsupported completion check type={check_type}"
+
+    def _run_completion_observation(self, check: dict[str, Any]) -> Any:
+        capability_id = str(check.get("capability_id") or "")
+        if not capability_id or self._server_executor is None:
+            return {"error": "No observation capability configured"}
+        params = dict(check.get("params") or {})
+        try:
+            return self._server_executor.execute_capability(capability_id, params)
+        except Exception as exc:
+            return {"error": str(exc)}
+
+    def _observe_recent_event(self, event_type: str) -> bool:
+        manager = getattr(self, "_event_manager", None)
+        if manager is None:
+            return False
+        try:
+            result = manager.list_recent(limit=25)
+            events = result.get("events", []) if isinstance(result, dict) else result
+            for event in events:
+                value = event.get("event_type") if isinstance(event, dict) else getattr(event, "event_type", "")
+                if not event_type or value == event_type:
+                    return True
+        except Exception:
+            logger.debug("Completion event observation failed", exc_info=True)
+        return False
+
+    @staticmethod
+    def _count_ui_nodes(value: Any) -> int:
+        if isinstance(value, dict):
+            if isinstance(value.get("nodes"), list):
+                return len(value["nodes"])
+            if isinstance(value.get("ui_tree"), dict):
+                return ToolBroker._count_ui_nodes(value["ui_tree"])
+            return sum(ToolBroker._count_ui_nodes(v) for v in value.values())
+        if isinstance(value, list):
+            return len(value) + sum(ToolBroker._count_ui_nodes(v) for v in value)
+        return 0
 
     # ── Internal — the ONLY execution path ─────────────────────
 
@@ -896,6 +1130,13 @@ class ToolBroker:
             "output": result.output,
             "duration_ms": result.duration_ms,
             "verification_status": result.verification_status,
+            "verification": {
+                "status": result.verification.status if result.verification else result.verification_status,
+                "checks_passed": result.verification.checks_passed if result.verification else 0,
+                "checks_failed": result.verification.checks_failed if result.verification else 0,
+                "details": result.verification.details if result.verification else [],
+                "repair_hint": result.verification.repair_hint if result.verification else "",
+            },
             "reason": request.reason,
             "timestamp": int(time.time() * 1000),
         }

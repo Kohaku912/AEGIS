@@ -40,6 +40,12 @@ def _cost_for(model: str, tokens: int) -> float:
     return tokens / 1000.0 * rate
 
 
+def _trace_cost(trace: LLMTrace) -> float:
+    if trace.provider_reported_cost > 0:
+        return trace.provider_reported_cost
+    return _cost_for(trace.model, trace.tokens_used)
+
+
 def compute_summary(traces: list[LLMTrace]) -> LLMSummary:
     if not traces:
         return LLMSummary()
@@ -50,7 +56,7 @@ def compute_summary(traces: list[LLMTrace]) -> LLMSummary:
     latency_values = [t.duration_ms for t in traces]
     failed = sum(1 for t in traces if not t.success)
     tool_calls = sum(1 for t in traces if t.tool_call_count > 0)
-    cost = sum(_cost_for(t.model, t.tokens_used) for t in traces)
+    cost = sum(_trace_cost(t) for t in traces)
 
     return LLMSummary(
         total_calls=total_calls,
@@ -80,7 +86,7 @@ def compute_timeseries(
         b = buckets[key]
         b.calls += 1
         b.tokens += t.tokens_used
-        b.cost += _cost_for(t.model, t.tokens_used)
+        b.cost += _trace_cost(t)
         if not t.success:
             b.failures += 1
 
@@ -101,6 +107,39 @@ def breakdown_by_model(traces: list[LLMTrace]) -> list[BreakdownRow]:
 
 def breakdown_by_provider(traces: list[LLMTrace]) -> list[BreakdownRow]:
     return _breakdown(traces, key_fn=lambda t: t.provider or "(unknown)")
+
+
+def breakdown_by_context(traces: list[LLMTrace]) -> list[BreakdownRow]:
+    totals: dict[str, list[int]] = {}
+    last_seen: dict[str, int] = {}
+    failures: dict[str, int] = {}
+    for trace in traces:
+        for key, tokens in (trace.context_tokens or {}).items():
+            normalized = "capability" if key == "capabilities" else str(key)
+            value = int(tokens or 0)
+            if value <= 0:
+                continue
+            totals.setdefault(normalized, []).append(value)
+            last_seen[normalized] = max(last_seen.get(normalized, 0), trace.timestamp_ms)
+            failures[normalized] = failures.get(normalized, 0) + (0 if trace.success else 1)
+
+    rows: list[BreakdownRow] = []
+    for key, values in totals.items():
+        calls = len(values)
+        tokens = sum(values)
+        rows.append(
+            BreakdownRow(
+                key=key,
+                calls=calls,
+                tokens=tokens,
+                avg_tokens=tokens / calls if calls else 0,
+                p95_tokens=_p95(values),
+                failure_rate=failures.get(key, 0) / calls if calls else 0,
+                last_seen_ms=last_seen.get(key, 0),
+            )
+        )
+    rows.sort(key=lambda r: r.tokens, reverse=True)
+    return rows
 
 
 def _breakdown(
