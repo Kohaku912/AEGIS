@@ -2,6 +2,7 @@
 {% block title %}AEGIS — LLM Usage{% endblock %}
 {% block topbar_title %}LLM Usage{% endblock %}
 {% block content %}
+<link rel="stylesheet" href="/static/css/llm_usage.css">
 
 <div class="lu-tabs">
     <button class="lu-tab active" data-tab="overview">Overview</button>
@@ -37,18 +38,26 @@
 
 <div id="lu-overview" class="lu-panel">
     <div class="lu-kpis" id="lu-kpis"></div>
-    <div class="lu-chart-wrap">
-        <div class="lu-card"><div class="lu-card-title">Token / Cost 推移</div><div id="lu-chart-area"></div></div>
-    </div>
+    <div class="lu-section-title">Token / Cost 推移</div>
+    <div class="lu-chart-wrap"><div class="lu-card"><div id="lu-chart-timeseries"></div></div></div>
+    <div class="lu-section-title">Failure Rate 推移</div>
+    <div class="lu-chart-wrap"><div class="lu-card"><div id="lu-chart-failure-rate"></div></div></div>
+    <div class="lu-section-title">Dimension別ランキング</div>
     <div class="lu-grid3">
-        <div class="lu-card"><div class="lu-card-title">Caller別ランキング</div><div id="lu-bk-callers"></div></div>
-        <div class="lu-card"><div class="lu-card-title">Profile別ランキング</div><div id="lu-bk-profiles"></div></div>
-        <div class="lu-card"><div class="lu-card-title">Model別ランキング</div><div id="lu-bk-models"></div></div>
+        <div class="lu-card"><div class="lu-card-title">Caller別</div><div id="lu-bk-callers"></div></div>
+        <div class="lu-card"><div class="lu-card-title">Profile別</div><div id="lu-bk-profiles"></div></div>
+        <div class="lu-card"><div class="lu-card-title">Model別</div><div id="lu-bk-models"></div></div>
+    </div>
+    <div class="lu-section-title">削減候補 type別件数</div>
+    <div class="lu-chart-wrap"><div class="lu-card"><div id="lu-chart-waste-types"></div></div></div>
+    <div class="lu-grid2">
+        <div class="lu-card"><div class="lu-card-title">高Token Trace（上位20件）</div><div id="lu-high-token-table"></div></div>
+        <div class="lu-card"><div class="lu-card-title">失敗Trace（上位20件）</div><div id="lu-failed-table"></div></div>
     </div>
 </div>
 
 <div id="lu-traces" class="lu-panel" style="display:none">
-    <div class="lu-card"><div class="lu-card-title">LLM Trace 一覧</div><div id="lu-trace-table"></div></div>
+    <div class="lu-card"><div class="lu-card-title">LLM Trace 一覧（クリックで詳細展開）</div><div id="lu-trace-table"></div></div>
 </div>
 
 <div id="lu-prompts" class="lu-panel" style="display:none">
@@ -59,177 +68,5 @@
     <div class="lu-card"><div class="lu-card-title">削減候補 / 要レビュー</div><div id="lu-waste-table"></div></div>
 </div>
 
-<style>
-.lu-tabs{display:flex;gap:4px;margin-bottom:16px}
-.lu-tab{padding:8px 16px;border-radius:8px;background:var(--surface);color:var(--text-dim);border:1px solid var(--border);cursor:pointer;font-size:13px;font-weight:500}
-.lu-tab.active{background:var(--accent-dim);color:var(--accent);border-color:var(--accent)}
-.lu-filters{display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin-bottom:20px;font-size:13px;color:var(--text-dim)}
-.lu-filters select,.lu-filters input{background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:12px}
-.lu-check{display:flex;align-items:center;gap:4px}
-.lu-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:20px}
-.lu-kpi{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 16px;text-align:center}
-.lu-kpi .v{font-size:22px;font-weight:700;color:var(--accent);margin-top:4px}
-.lu-kpi .k{font-size:10px;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-muted)}
-.lu-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:16px;margin-bottom:16px}
-.lu-card-title{font-size:13px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:var(--text-muted);margin-bottom:12px}
-.lu-chart-wrap{margin-bottom:16px}
-.lu-grid3{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px}
-.lu-table{width:100%;border-collapse:collapse;font-size:12px}
-.lu-table th{text-align:left;color:var(--text-muted);font-size:10px;text-transform:uppercase;letter-spacing:0.06em;padding:6px 8px;border-bottom:1px solid var(--border)}
-.lu-table td{padding:6px 8px;border-bottom:1px solid var(--border);color:var(--text-dim);vertical-align:top}
-.lu-table tr:hover td{background:var(--surface2)}
-.lu-bar{height:6px;border-radius:3px;background:var(--accent);display:inline-block;vertical-align:middle;margin-left:6px}
-.lu-badge{display:inline-block;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:600}
-.lu-badge-green{background:var(--green-dim);color:var(--green)}
-.lu-badge-red{background:var(--red-dim);color:var(--red)}
-.lu-badge-yellow{background:var(--yellow-dim);color:var(--yellow)}
-.lu-badge-blue{background:var(--blue-dim);color:var(--blue)}
-.lu-svg-chart{width:100%;height:200px}
-.lu-empty{color:var(--text-muted);font-size:13px;padding:20px 0;text-align:center}
-.lu-toggle{color:var(--accent);cursor:pointer;font-size:11px;text-decoration:underline}
-.lu-detail{display:none;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:10px;margin-top:6px;font-size:11px;white-space:pre-wrap;word-break:break-word;max-height:300px;overflow-y:auto;color:var(--text-dim)}
-</style>
-
-<script>
-const $ = id => document.getElementById(id);
-const esc = v => String(v||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-const fmt = n => n >= 1e6 ? (n/1e6).toFixed(1)+'M' : n >= 1e3 ? (n/1e3).toFixed(1)+'K' : String(n);
-const fmtCost = n => n >= 0.01 ? '$'+n.toFixed(2) : n >= 0.0001 ? '$'+n.toFixed(4) : '$'+n.toFixed(6);
-const fmtMs = n => n >= 1000 ? (n/1000).toFixed(1)+'s' : n+'ms';
-
-let luData = {};
-
-function luParams(){
-    const p = new URLSearchParams();
-    p.set('period', $('lu-period').value);
-    const c = $('lu-caller').value; if(c) p.set('caller',c);
-    const m = $('lu-model').value; if(m) p.set('model',m);
-    const pr = $('lu-profile').value; if(pr) p.set('profile',pr);
-    if($('lu-errors').checked) p.set('errors_only','1');
-    const mt = parseInt($('lu-min-tokens').value); if(mt>0) p.set('min_tokens',mt);
-    return p.toString();
-}
-
-async function luFetch(path){
-    try{
-        const r = await fetch('/api/llm-usage/'+path+'?'+luParams());
-        if(!r.ok) return null;
-        return await r.json();
-    }catch(e){return null;}
-}
-
-function luRenderKPIs(s){
-    if(!s){$('lu-kpis').innerHTML='<div class="lu-empty">No data</div>';return;}
-    const items=[
-        ['Total Calls',fmt(s.total_calls)],['Total Tokens',fmt(s.total_tokens)],
-        ['Est. Cost',fmtCost(s.estimated_cost)],['Avg Tokens',fmt(Math.round(s.avg_tokens))],
-        ['P95 Tokens',fmt(s.p95_tokens)],['Avg Latency',fmtMs(Math.round(s.avg_latency_ms))],
-        ['P95 Latency',fmtMs(s.p95_latency_ms)],['Failed',s.failed_calls],
-        ['Failure Rate',(s.failure_rate*100).toFixed(1)+'%'],['Tool Call Rate',(s.tool_call_rate*100).toFixed(1)+'%']
-    ];
-    $('lu-kpis').innerHTML = items.map(([k,v])=>`<div class="lu-kpi"><div class="k">${esc(k)}</div><div class="v">${esc(v)}</div></div>`).join('');
-}
-
-function luRenderChart(ts){
-    const area = $('lu-chart-area');
-    if(!ts||!ts.length){area.innerHTML='<div class="lu-empty">No time series data</div>';return;}
-    const maxTok = Math.max(...ts.map(b=>b.tokens),1);
-    const maxCost = Math.max(...ts.map(b=>b.cost),0.0001);
-    const w=600,h=180,pad=40;
-    const barW = Math.max(4, (w-pad*2)/ts.length - 2);
-    let svg=`<svg class="lu-svg-chart" viewBox="0 0 ${w} ${h+20}" preserveAspectRatio="xMidYMid meet">`;
-    ts.forEach((b,i)=>{
-        const x=pad+i*(barW+2);
-        const bh=(b.tokens/maxTok)*h*0.8;
-        const y=h-bh;
-        svg+=`<rect x="${x}" y="${y}" width="${barW}" height="${bh}" fill="var(--accent)" opacity="0.7" rx="2"><title>${fmt(b.tokens)} tokens, ${fmtCost(b.cost)}</title></rect>`;
-        if(b.failures>0){
-            const fh=(b.failures/Math.max(...ts.map(t=>t.failures),1))*h*0.3;
-            svg+=`<rect x="${x}" y="${h-fh}" width="${barW}" height="${fh}" fill="var(--red)" opacity="0.8" rx="2"></rect>`;
-        }
-    });
-    svg+=`<line x1="${pad}" y1="${h}" x2="${w-pad}" y2="${h}" stroke="var(--border)" stroke-width="1"/>`;
-    svg+=`</svg>`;
-    area.innerHTML=svg;
-}
-
-function luRenderBreakdown(el, rows, valueLabel){
-    if(!rows||!rows.length){el.innerHTML='<div class="lu-empty">No data</div>';return;}
-    const maxVal = Math.max(...rows.map(r=>r.tokens),1);
-    el.innerHTML=`<table class="lu-table"><thead><tr><th>Key</th><th>Calls</th><th>Tokens</th><th>Avg</th><th>P95</th><th>Fail%</th></tr></thead><tbody>`+
-        rows.slice(0,15).map(r=>`<tr><td style="font-weight:500">${esc(r.key)}</td><td>${r.calls}</td><td>${fmt(r.tokens)}<span class="lu-bar" style="width:${(r.tokens/maxVal)*60}px"></span></td><td>${fmt(Math.round(r.avg_tokens))}</td><td>${fmt(r.p95_tokens)}</td><td>${(r.failure_rate*100).toFixed(1)}%</td></tr>`).join('')+
-        '</tbody></table>';
-}
-
-function luRenderTraces(traces){
-    const el=$('lu-trace-table');
-    if(!traces||!traces.length){el.innerHTML='<div class="lu-empty">No traces</div>';return;}
-    el.innerHTML=`<table class="lu-table"><thead><tr><th>Time</th><th>Caller</th><th>Model</th><th>Profile</th><th>Tokens</th><th>Duration</th><th>Status</th><th>Action</th></tr></thead><tbody>`+
-        traces.map((t,i)=>{
-            const dt=new Date(t.timestamp_ms).toLocaleTimeString();
-            const badge=t.success?'<span class="lu-badge lu-badge-green">OK</span>':'<span class="lu-badge lu-badge-red">FAIL</span>';
-            return `<tr onclick="luToggleDetail(${i})" style="cursor:pointer"><td>${dt}</td><td>${esc(t.caller)}</td><td>${esc(t.model)}</td><td>${esc(t.profile_id)}</td><td>${fmt(t.tokens_used)}</td><td>${fmtMs(t.duration_ms)}</td><td>${badge}</td><td>${esc(t.action)}</td></tr><tr><td colspan="8"><div class="lu-detail" id="lu-det-${i}">prompt: ${esc(t.detail_preview)}\nresponse: ${esc(t.response_preview)}\nerror: ${esc(t.error)}\nrequest_id: ${esc(t.request_id)}\ntools: ${esc(t.tool_names.join(', '))}</div></td></tr>`;
-        }).join('')+'</tbody></table>';
-}
-
-function luToggleDetail(i){
-    const d=$('lu-det-'+i);if(d)d.style.display=d.style.display==='block'?'none':'block';
-}
-
-function luRenderPrompts(prompts){
-    const el=$('lu-prompt-table');
-    if(!prompts||!prompts.length){el.innerHTML='<div class="lu-empty">No prompts</div>';return;}
-    el.innerHTML=`<table class="lu-table"><thead><tr><th>Prompt ID</th><th>Calls</th><th>Total Tokens</th><th>Avg</th><th>P95</th><th>Last Seen</th></tr></thead><tbody>`+
-        prompts.map(r=>`<tr><td style="font-weight:500">${esc(r.prompt_id)}</td><td>${r.calls}</td><td>${fmt(r.tokens)}</td><td>${fmt(Math.round(r.avg_tokens))}</td><td>${fmt(r.p95_tokens)}</td><td>${new Date(r.last_seen_ms).toLocaleString()}</td></tr>`).join('')+
-        '</tbody></table>';
-}
-
-function luRenderWaste(cands){
-    const el=$('lu-waste-table');
-    if(!cands||!cands.length){el.innerHTML='<div class="lu-empty">削減候補は見つかりませんでした</div>';return;}
-    el.innerHTML=`<table class="lu-table"><thead><tr><th>種別</th><th>説明</th><th>信頼度</th><th>根拠</th><th>推奨実験</th></tr></thead><tbody>`+
-        cands.map(c=>{
-            const conf=c.confidence>=0.7?'<span class="lu-badge lu-badge-yellow">高</span>':c.confidence>=0.4?'<span class="lu-badge lu-badge-blue">中</span>':'<span class="lu-badge" style="background:var(--surface2);color:var(--text-muted)">低</span>';
-            return `<tr><td>${esc(c.candidate_type)}</td><td>${esc(c.description)}</td><td>${conf}</td><td style="font-size:11px">${esc(c.evidence)}</td><td style="font-size:11px">${esc(c.recommended_experiment)}</td></tr>`;
-        }).join('')+'</tbody></table>';
-}
-
-function luPopulateFilters(callers,models,profiles){
-    const fill=(el,items)=>{const v=el.value;el.innerHTML='<option value="">All</option>'+items.map(i=>`<option value="${esc(i)}">${esc(i)}</option>`).join('');el.value=v;};
-    if(callers) fill($('lu-caller'),callers.map(r=>r.key));
-    if(models) fill($('lu-model'),models.map(r=>r.key));
-    if(profiles) fill($('lu-profile'),profiles.map(r=>r.key));
-}
-
-async function luRefresh(){
-    const [sum,ts,callers,profiles,prompts,traces,waste,models]=await Promise.all([
-        luFetch('summary'),luFetch('timeseries'),
-        luFetch('breakdown/callers'),luFetch('breakdown/profiles'),
-        luFetch('breakdown/prompts'),luFetch('traces'),luFetch('waste-candidates'),
-        luFetch('breakdown/models')
-    ]);
-    luData={sum,ts,callers,profiles,prompts,traces,waste,models};
-    luRenderKPIs(sum);
-    luRenderChart(ts);
-    luRenderBreakdown($('lu-bk-callers'),callers,'Calls');
-    luRenderBreakdown($('lu-bk-profiles'),profiles,'Calls');
-    luRenderBreakdown($('lu-bk-models'),models,'Calls');
-    luRenderTraces(traces);
-    luRenderPrompts(prompts);
-    luRenderWaste(waste);
-    luPopulateFilters(callers,models,profiles);
-}
-
-document.querySelectorAll('.lu-tab').forEach(btn=>{
-    btn.addEventListener('click',()=>{
-        document.querySelectorAll('.lu-tab').forEach(b=>b.classList.remove('active'));
-        btn.classList.add('active');
-        document.querySelectorAll('.lu-panel').forEach(p=>p.style.display='none');
-        const target=document.getElementById('lu-'+btn.dataset.tab);
-        if(target)target.style.display='block';
-    });
-});
-
-document.addEventListener('DOMContentLoaded',()=>luRefresh());
-</script>
+<script src="/static/js/llm_usage.js"></script>
 {% endblock %}
