@@ -9,6 +9,7 @@ from typing import Any
 
 from aegis_ai.observability.llm_usage.aggregator import (
     breakdown_by_caller,
+    breakdown_by_context,
     breakdown_by_model,
     breakdown_by_profile,
     breakdown_by_provider,
@@ -62,6 +63,7 @@ class LLMUsageService:
             "profile": breakdown_by_profile,
             "model": breakdown_by_model,
             "provider": breakdown_by_provider,
+            "context": breakdown_by_context,
         }.get(dimension)
         if fn is None:
             return []

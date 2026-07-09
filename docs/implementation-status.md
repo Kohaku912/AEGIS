@@ -1,8 +1,8 @@
 # AEGIS Implementation Status
 
-> **Last Updated**: verified against current code snapshot
-> **Tests**: 157 passed, 0 failed
-> **Lint**: ruff clean
+> **Last Updated**: current code snapshot; prefer regenerating this file from module/test discovery.
+> **Tests**: run `cd ai-server && pytest` for the current count.
+> **Lint**: run `cd ai-server && ruff check .` for current status.
 
 ## Module Status
 
@@ -49,6 +49,8 @@
 | LLMSettingsResolver | `src/aegis_ai/llm/settings_resolver.py` | ✅ Done | YAML-backed profiles |
 | CostTracker | `src/aegis_ai/llm/cost_tracker.py` | ✅ Done | Token/cost tracking |
 | ChatTools | `src/aegis_ai/web/chat_tools.py` | ✅ Done | Text-based tool calling |
+
+| LLM Usage Observability | `src/aegis_ai/observability/llm_usage/` | Done | Provider usage details + context breakdown |
 
 ### Agents
 
@@ -103,6 +105,16 @@
 | Chat Tool Calling | `src/aegis_ai/web/chat_tools.py` | ✅ Done | CapabilityCatalog-driven |
 | Settings Routes | `src/aegis_ai/web/settings_routes.py` | ✅ Done | Settings CRUD |
 | Settings UI | `src/aegis_ai/web/settings_ui_routes.py` | ✅ Done | Web UI forms |
+
+### Runtime/Deployment Status
+
+| Area | Current Code Status | Notes |
+|------|---------------------|-------|
+| TLS | Partial | `security/tls_config.py` exists; gRPC server/client integration is not complete. Treat LAN gRPC as plaintext unless explicitly configured and verified. |
+| Docker | Partial | Compose and Dockerfiles exist; full multi-service runtime validation is still required. |
+| Notifications | Partial | Dashboard/approval fanout and OS notification provider exist; email/Line/Discord external senders are stubs or approval-gated integrations. |
+| External integrations | Partial | Agora/search/browser integrations exist; money/payment and auto-send flows remain blocked by policy/approval gates. |
+| Completion verification | In progress | Capability manifests can declare `completion`; ToolBroker verifies and retries for manifest-backed checks. |
 
 ### PC Server (Rust)
 

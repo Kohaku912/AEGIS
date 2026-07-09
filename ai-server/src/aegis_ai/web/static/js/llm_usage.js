@@ -113,7 +113,8 @@
       traces.map((t, i) => {
         const dt = new Date(t.timestamp_ms).toLocaleTimeString();
         const badge = t.success ? '<span class="lu-badge lu-badge-green">OK</span>' : '<span class="lu-badge lu-badge-red">FAIL</span>';
-        return `<tr onclick="window.luToggleDetail(${i})" style="cursor:pointer"><td>${dt}</td><td>${esc(t.caller)}</td><td>${esc(t.model)}</td><td>${esc(t.profile_id)}</td><td>${fmt(t.tokens_used)}</td><td>${fmtMs(t.duration_ms)}</td><td>${badge}</td><td>${esc(t.action)}</td></tr><tr><td colspan="8"><div class="lu-detail" id="lu-det-${i}">prompt: ${esc(t.detail_preview)}\nresponse: ${esc(t.response_preview)}\nerror: ${esc(t.error)}\nrequest_id: ${esc(t.request_id)}\ntools: ${esc(t.tool_names.join(', '))}</div></td></tr>`;
+        const ctx = Object.entries(t.context_tokens || {}).map(([k, v]) => `${k}: ${fmt(v)}`).join(', ');
+        return `<tr onclick="window.luToggleDetail(${i})" style="cursor:pointer"><td>${dt}</td><td>${esc(t.caller)}</td><td>${esc(t.model)}</td><td>${esc(t.profile_id)}</td><td>${fmt(t.tokens_used)}</td><td>${fmtMs(t.duration_ms)}</td><td>${badge}</td><td>${esc(t.action)}</td></tr><tr><td colspan="8"><div class="lu-detail" id="lu-det-${i}">prompt: ${esc(t.detail_preview)}\nresponse: ${esc(t.response_preview)}\nerror: ${esc(t.error)}\nrequest_id: ${esc(t.request_id)}\ntools: ${esc(t.tool_names.join(', '))}\ninput/output: ${fmt(t.input_tokens || 0)} / ${fmt(t.output_tokens || 0)}\ncache hit/miss: ${fmt(t.input_cache_hit_tokens || 0)} / ${fmt(t.input_cache_miss_tokens || 0)}\ncontext: ${esc(ctx)}\nprovider cost: ${fmtCost(t.provider_reported_cost || 0)}</div></td></tr>`;
       }).join('') + '</tbody></table>';
   }
 
@@ -169,11 +170,11 @@
   };
 
   window.luRefresh = async function () {
-    const [sum, ts, callers, profiles, prompts, traces, waste, models] = await Promise.all([
+    const [sum, ts, callers, profiles, prompts, traces, waste, models, context] = await Promise.all([
       luFetch('summary'), luFetch('timeseries'),
       luFetch('breakdown/callers'), luFetch('breakdown/profiles'),
       luFetch('breakdown/prompts'), luFetch('traces'), luFetch('waste-candidates'),
-      luFetch('breakdown/models')
+      luFetch('breakdown/models'), luFetch('breakdown/context')
     ]);
     luRenderKPIs(sum);
     luRenderTimeseries(ts);
@@ -181,6 +182,7 @@
     luRenderBreakdown($('lu-bk-callers'), callers);
     luRenderBreakdown($('lu-bk-profiles'), profiles);
     luRenderBreakdown($('lu-bk-models'), models);
+    luRenderBreakdown($('lu-bk-context'), context);
     luRenderTraces(traces);
     luRenderHighTokenTraces(traces);
     luRenderFailedTraces(traces);

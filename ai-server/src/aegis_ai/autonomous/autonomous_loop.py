@@ -124,6 +124,8 @@ class AutonomousLoop:
         self._last_pressure_signature: str = ""
         self._min_execution_interval_ms: int = 60_000  # Minimum 1 minute between executions
         self._min_llm_interval_ms: int = int(os.environ.get("AEGIS_MIN_LLM_INTERVAL_MS", 1_800_000))
+        self._llm_usage_window_ms: int = int(os.environ.get("AEGIS_AUTONOMOUS_LLM_USAGE_WINDOW_MS", 3_600_000))
+        self._llm_usage_token_limit: int = int(os.environ.get("AEGIS_AUTONOMOUS_LLM_USAGE_TOKEN_LIMIT", 80_000))
         self._last_llm_call_ms: int = 0
         self._last_decision: str = ""
         self._last_decision_ms: int = 0
@@ -357,7 +359,38 @@ class AutonomousLoop:
         if not self._llm:
             return False, "provider_unavailable"
 
+        high_usage, usage_reason = self._llm_usage_high()
+        if high_usage:
+            return False, usage_reason
+
         return True, "ok"
+
+    def _llm_usage_high(self) -> tuple[bool, str]:
+        if self._llm_usage_token_limit <= 0 or self._audit_log is None:
+            return False, ""
+        try:
+            from aegis_ai.observability.llm_usage.audit_extractor import extract_traces
+
+            if hasattr(self._audit_log, "read_all"):
+                entries = self._audit_log.read_all()[-5000:]
+            elif hasattr(self._audit_log, "list_recent"):
+                raw_entries = self._audit_log.list_recent(5000)
+                entries = [getattr(entry, "__dict__", entry) for entry in raw_entries]
+            else:
+                return False, ""
+            now_ms = int(time.time() * 1000)
+            cutoff = now_ms - self._llm_usage_window_ms
+            traces = [trace for trace in extract_traces(entries) if trace.timestamp_ms >= cutoff]
+            total_tokens = sum(trace.tokens_used for trace in traces)
+            if total_tokens >= self._llm_usage_token_limit:
+                return True, (
+                    "llm_usage_high "
+                    f"(tokens={total_tokens} >= limit={self._llm_usage_token_limit}, "
+                    f"window_ms={self._llm_usage_window_ms})"
+                )
+        except Exception:
+            logger.debug("Autonomous LLM usage preflight failed", exc_info=True)
+        return False, ""
 
     def _check_repetition(self, tasks: list[dict[str, Any]], action_history: str) -> list[dict[str, Any]]:
         """Ask LLM to self-review tasks for semantic repetition before execution."""

@@ -136,7 +136,7 @@ def _entry_to_trace(entry: dict[str, Any]) -> LLMTrace:
         history_tokens=int(ctx.get("history") or detail.get("history_tokens") or 0),
         memory_tokens=int(ctx.get("memory") or detail.get("memory_tokens") or 0),
         events_tokens=int(ctx.get("events") or detail.get("events_tokens") or 0),
-        capability_tokens=int(ctx.get("capabilities") or detail.get("capability_tokens") or 0),
+        capability_tokens=int(ctx.get("capability") or ctx.get("capabilities") or detail.get("capability_tokens") or 0),
         tool_schema_tokens=int(ctx.get("tool_schema") or detail.get("tool_schema_tokens") or 0),
         user_state_tokens=int(ctx.get("user_state") or detail.get("user_state_tokens") or 0),
         input_cache_hit_tokens=int(detail.get("input_cache_hit_tokens") or _extract_cache_hit(detail)),

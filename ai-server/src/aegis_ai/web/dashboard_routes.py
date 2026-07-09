@@ -984,6 +984,21 @@ class DashboardApp:
             logger.debug("LLM Usage routes not registered", exc_info=True)
         if getattr(runtime, "approval_manager", None) is not None:
             runtime.approval_manager.on_state_change(self._handle_chat_approval_event)
+        from aegis_ai.web.approval_routes import init_approval_routes
+        from aegis_ai.web.autonomous_routes import init_autonomous_routes
+        from aegis_ai.web.chat_routes import init_chat_routes
+        from aegis_ai.web.health_routes import init_health_routes
+        from aegis_ai.web.llm_usage_page_routes import init_llm_usage_page_routes
+        from aegis_ai.web.presentation_routes import init_presentation_routes
+        from aegis_ai.web.server_status_routes import init_server_status_routes
+
+        init_chat_routes(self)
+        init_autonomous_routes(self, _DATA_DIR)
+        init_approval_routes(self)
+        init_health_routes(self, _DATA_DIR)
+        init_presentation_routes(self)
+        init_llm_usage_page_routes(self)
+        init_server_status_routes(self)
         self._setup_routes()
         self._autonomous_loop = runtime.autonomous_loop
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import time
 from collections import OrderedDict
 from dataclasses import dataclass, field
@@ -29,6 +30,11 @@ MEDIA_CACHE_SIZE = 32
 
 def _truncate(text: str, max_chars: int) -> str:
     return text[:max_chars] + "..." if len(text) > max_chars else text
+
+
+def _estimate_tokens(value: Any) -> int:
+    text = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False, default=str)
+    return int(math.ceil(len(text) / 4)) if text else 0
 
 
 @dataclass
@@ -74,6 +80,22 @@ class Context:
     context_id: str = ""
     total_chars: int = 0
     truncated: bool = False
+    context_tokens: dict[str, int] = field(default_factory=dict)
+    memory_budget_tokens: int = 0
+    memory_top_k: int = 0
+    memory_reason: str = ""
+
+    def usage_meta(self) -> dict[str, Any]:
+        """Return LLM Usage metadata for audit records."""
+        return {
+            "context_id": self.context_id,
+            "context_tokens": dict(self.context_tokens),
+            "memory_budget_tokens": self.memory_budget_tokens,
+            "memory_top_k": self.memory_top_k,
+            "memory_reason": self.memory_reason,
+            "context_total_chars": self.total_chars,
+            "context_truncated": self.truncated,
+        }
 
 
 class ContextBuilder:
@@ -308,6 +330,7 @@ class ContextBuilder:
             )
 
         self._apply_budget(ctx)
+        self._annotate_usage(ctx, triggering_query)
         self._last_context = ctx
         return ctx
 
@@ -678,6 +701,47 @@ class ContextBuilder:
             + sum(len(s) for s in ctx.pending_tasks)
             + len(ctx.dialogue_policy)
             + len(ctx.agora_summary)
+        )
+
+    def _annotate_usage(self, ctx: Context, triggering_query: str = "") -> None:
+        memory_items = (
+            ctx.recent_episodes
+            + ctx.relevant_facts
+            + ctx.relevant_procedures
+            + ctx.recent_reflections
+            + ctx.failure_lessons
+            + ctx.safety_lessons
+            + ctx.approval_lessons
+            + ctx.user_preferences
+        )
+        user_state_text = "\n".join(
+            item
+            for item in [
+                ctx.dialogue_policy,
+                ctx.identity,
+                ctx.desires,
+                ctx.emotional_state,
+                "\n".join(ctx.current_goals),
+                "\n".join(ctx.pending_tasks),
+                ctx.agora_summary,
+            ]
+            if item
+        )
+        ctx.context_tokens = {
+            "system": _estimate_tokens(ctx.identity),
+            "history": _estimate_tokens(ctx.recent_user_messages),
+            "memory": _estimate_tokens(memory_items),
+            "events": _estimate_tokens([str(e) for e in ctx.recent_events] + ctx.recent_media_summaries),
+            "capability": _estimate_tokens(ctx.available_capability_ids),
+            "tool_schema": 0,
+            "user_state": _estimate_tokens(user_state_text),
+        }
+        ctx.memory_budget_tokens = max(1, _estimate_tokens(memory_items))
+        ctx.memory_top_k = len(memory_items)
+        ctx.memory_reason = (
+            f"query-driven retrieval for: {triggering_query[:120]}"
+            if triggering_query
+            else "recent memory and state context"
         )
 
     @property

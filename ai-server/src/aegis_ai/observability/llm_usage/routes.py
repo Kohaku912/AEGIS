@@ -107,6 +107,17 @@ def api_breakdown_models():
         return jsonify({"error": str(e)}), 500
 
 
+@llm_usage_bp.route("/api/llm-usage/breakdown/context")
+def api_breakdown_context():
+    try:
+        svc = _svc()
+        if svc is None:
+            return jsonify({"error": "LLMUsageService unavailable"}), 503
+        return jsonify(svc.get_breakdown("context", **_common_filters()))
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @llm_usage_bp.route("/api/llm-usage/traces")
 def api_traces():
     try:

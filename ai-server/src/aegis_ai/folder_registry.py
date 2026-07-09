@@ -49,6 +49,7 @@ class CapabilityManifest:
     only_master: bool = True
     tcp_command: str = ""
     tcp_command_json: str = ""
+    completion: dict[str, Any] = field(default_factory=dict)
     extra: dict[str, Any] = field(default_factory=dict)
     file_path: str = ""
     loaded_at: int = 0
@@ -180,6 +181,7 @@ class FolderCapabilityRegistry:
             only_master=data.get("only_master", True),
             tcp_command=data.get("tcp_command", ""),
             tcp_command_json=data.get("tcp_command_json", ""),
+            completion=data.get("completion", {}),
             extra=extra,
             file_path=path,
             loaded_at=int(time.time() * 1000),
