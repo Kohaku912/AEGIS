@@ -35,6 +35,20 @@ class LLMTrace:
     task_id: str = ""
     detail_preview: str = ""
     response_preview: str = ""
+    # Token breakdown (ContextBuilder side, future-proofed)
+    context_tokens: dict[str, int] = field(default_factory=dict)
+    system_tokens: int = 0
+    history_tokens: int = 0
+    memory_tokens: int = 0
+    events_tokens: int = 0
+    capability_tokens: int = 0
+    tool_schema_tokens: int = 0
+    user_state_tokens: int = 0
+    # Cache hit/miss (DeepSeek etc.)
+    input_cache_hit_tokens: int = 0
+    input_cache_miss_tokens: int = 0
+    # Provider-reported cost (future)
+    provider_reported_cost: float = 0.0
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -63,6 +77,17 @@ class LLMTrace:
             "task_id": self.task_id,
             "detail_preview": self.detail_preview,
             "response_preview": self.response_preview,
+            "context_tokens": self.context_tokens,
+            "system_tokens": self.system_tokens,
+            "history_tokens": self.history_tokens,
+            "memory_tokens": self.memory_tokens,
+            "events_tokens": self.events_tokens,
+            "capability_tokens": self.capability_tokens,
+            "tool_schema_tokens": self.tool_schema_tokens,
+            "user_state_tokens": self.user_state_tokens,
+            "input_cache_hit_tokens": self.input_cache_hit_tokens,
+            "input_cache_miss_tokens": self.input_cache_miss_tokens,
+            "provider_reported_cost": self.provider_reported_cost,
         }
 
 

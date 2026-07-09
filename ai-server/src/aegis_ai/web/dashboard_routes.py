@@ -977,7 +977,8 @@ class DashboardApp:
         try:
             from aegis_ai.observability.llm_usage.service import LLMUsageService
             from aegis_ai.observability.llm_usage.routes import init_llm_usage_routes, llm_usage_bp
-            llm_usage_svc = LLMUsageService(audit_manager=getattr(runtime, "audit_manager", None))
+            _audit_src = getattr(runtime, "audit_manager", None) or getattr(runtime, "audit_log", None)
+            llm_usage_svc = LLMUsageService(audit_manager=_audit_src)
             init_llm_usage_routes(self._app, llm_usage_svc)
         except Exception:
             logger.debug("LLM Usage routes not registered", exc_info=True)
