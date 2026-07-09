@@ -20,6 +20,7 @@ def find_waste_candidates(traces: list[LLMTrace]) -> list[WasteCandidate]:
     candidates.extend(_high_token_no_tool(traces))
     candidates.extend(_retry_loop_suspects(traces))
     candidates.extend(_prompt_unused(traces))
+    candidates.extend(_model_overkill(traces))
     candidates.sort(key=lambda c: c.confidence, reverse=True)
     return candidates
 
@@ -176,3 +177,45 @@ def _prompt_unused(traces: list[LLMTrace]) -> list[WasteCandidate]:
         )
 
     return result[:10]
+
+
+_MODEL_TIERS = {
+    "deepseek-v4-flash": 1,
+    "deepseek-chat": 1,
+    "gpt-5.4-nano": 1,
+    "gpt-5.4-mini": 2,
+    "deepseek-reasoner": 3,
+    "gpt-4o-mini": 2,
+    "gpt-4o": 3,
+}
+
+
+def _model_overkill(traces: list[LLMTrace]) -> list[WasteCandidate]:
+    """Calls using a high-tier model with very short prompts — possible overkill."""
+    if len(traces) < 5:
+        return []
+    tokens = [t.tokens_used for t in traces if t.tokens_used > 0]
+    p50 = sorted(tokens)[len(tokens) // 2] if tokens else 0
+    low_threshold = max(p50 * 0.3, 50)
+    high_tier_models = {m for m, tier in _MODEL_TIERS.items() if tier >= 3}
+
+    hits = [
+        t for t in traces
+        if t.model in high_tier_models
+        and t.tokens_used < low_threshold
+        and t.detail_preview and len(t.detail_preview) < 200
+    ]
+    if not hits:
+        return []
+
+    return [
+        WasteCandidate(
+            candidate_type="model_overkill_candidate",
+            description=f"高コストモデル({t.model})で短いプロンプト({t.tokens_used} tokens)を使用",
+            confidence=0.45,
+            evidence=f"model={t.model}, tokens={t.tokens_used}, preview_len={len(t.detail_preview or '')}",
+            recommended_experiment="下位モデルへの変更テスト: 品質を維持できるか確認",
+            affected_traces=[t.trace_id],
+        )
+        for t in hits[:10]
+    ]
