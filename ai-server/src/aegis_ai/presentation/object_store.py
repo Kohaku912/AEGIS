@@ -10,6 +10,7 @@ import json
 import logging
 import os
 import threading
+import time
 from typing import Any
 
 from aegis_ai.presentation.models import PresentationSpec, PresentationStatus
@@ -83,6 +84,18 @@ class PresentationObjectStore:
             items = list(self._store.values())
         items.sort(key=lambda s: s.created_at_ms, reverse=True)
         return items[:limit]
+
+    def list_expired(self) -> list[PresentationSpec]:
+        now_ms = int(time.time() * 1000)
+        with self._lock:
+            expired = [
+                s for s in self._store.values()
+                if s.lifecycle.expires_at_ms > 0
+                and s.lifecycle.expires_at_ms < now_ms
+                and s.status in (PresentationStatus.PENDING, PresentationStatus.ACTIVE, PresentationStatus.DELIVERED)
+            ]
+        expired.sort(key=lambda s: s.created_at_ms, reverse=True)
+        return expired
 
     def delete(self, presentation_id: str) -> bool:
         with self._lock:

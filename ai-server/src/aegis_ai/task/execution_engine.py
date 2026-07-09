@@ -134,7 +134,9 @@ class TaskExecutionEngine:
             pass
         elif state == TaskFinalState.ALL_COMPLETED:
             if current not in ('completed',):
-                self._task_manager.complete_task(task_id, result_summary='All steps completed')
+                result_summary = self._build_task_result_summary(task_id, plan)
+                self._task_manager.complete_task(task_id, result_summary=result_summary)
+                self._present_task_completion(task_id)
 
     def execute_task(self, task_id: str, plan: TaskPlan) -> ExecutionResponse:
         self._plans[task_id] = plan
@@ -418,6 +420,62 @@ class TaskExecutionEngine:
                     step.result = ts['result']
                 if ts.get('error'):
                     step.error = ts['error']
+
+    def _build_task_result_summary(self, task_id: str, plan: TaskPlan) -> str:
+        task = self._task_manager.get_task(task_id) or {}
+        summary = str(task.get('result_summary') or '').strip()
+        if summary:
+            return summary
+        if plan.expected_result:
+            return str(plan.expected_result).strip()
+        return 'All steps completed'
+
+    def _present_task_completion(self, task_id: str) -> None:
+        try:
+            from aegis_ai.runtime import get_runtime
+            from aegis_ai.presentation.models import PresentationRequest
+        except Exception:
+            return
+
+        rt = get_runtime()
+        presentation_manager = getattr(rt, 'presentation_manager', None) if rt is not None else None
+        if not hasattr(rt, 'presentation_manager') or presentation_manager is None:
+            return
+
+        task = self._task_manager.get_task(task_id)
+        if not task:
+            return
+
+        result_summary = str(task.get('result_summary') or '').strip()
+        if not result_summary:
+            return
+
+        request = PresentationRequest(
+            source='task_execution_engine',
+            intent='task_completed',
+            importance=self._importance_from_priority(int(task.get('priority', 0) or 0)),
+            modality='text_card',
+            title=str(task.get('title') or task_id),
+            summary=result_summary,
+            content={
+                'task_id': task_id,
+                'task_title': str(task.get('title') or ''),
+                'result_summary': result_summary,
+            },
+        )
+        try:
+            presentation_manager.present(request)
+        except Exception:
+            logger.debug('Failed to present completed task %s', task_id, exc_info=True)
+
+    def _importance_from_priority(self, priority: int) -> str:
+        if priority >= 7:
+            return 'critical'
+        if priority >= 4:
+            return 'high'
+        if priority >= 2:
+            return 'normal'
+        return 'low'
 
     def _get_system_prompt(self, prompt_id: str, default: str = '') -> str:
         if self._prompt_registry:

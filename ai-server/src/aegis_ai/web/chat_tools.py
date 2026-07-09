@@ -103,6 +103,71 @@ def get_capability_selection(
     )
 
 
+def _presentation_tool_definition() -> dict[str, Any]:
+    return {
+        "type": "function",
+        "function": {
+            "name": "present_info",
+            "description": "Create a presentation card for information the user should see. Use this for concise summaries, findings, task results, or structured updates worth showing visually.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "title": {
+                        "type": "string",
+                        "description": "Short display title.",
+                    },
+                    "summary": {
+                        "type": "string",
+                        "description": "Short human-readable summary.",
+                    },
+                    "content": {
+                        "type": "object",
+                        "description": "Structured presentation content.",
+                    },
+                    "modality": {
+                        "type": "string",
+                        "description": "Optional modality such as text_card, chart_panel, diagram_panel, gltf_model, or overlay_short.",
+                    },
+                    "importance": {
+                        "type": "string",
+                        "description": "Optional importance: low, normal, high, or critical.",
+                    },
+                },
+                "required": ["title", "summary", "content"],
+                "additionalProperties": False,
+            },
+        },
+    }
+
+
+def _present_info(runtime: Any, arguments: dict[str, Any]) -> dict[str, Any]:
+    presentation_manager = getattr(runtime, "presentation_manager", None) if runtime is not None else None
+    if presentation_manager is None:
+        return {
+            "ok": False,
+            "error": "PresentationManager not available",
+            "presentation": {},
+            "delivery": {},
+        }
+
+    from aegis_ai.presentation.models import PresentationRequest
+
+    content = arguments.get("content", {})
+    if not isinstance(content, dict):
+        content = {"value": content}
+
+    request = PresentationRequest(
+        source="chat",
+        intent="present_info",
+        title=str(arguments.get("title", "") or "").strip(),
+        summary=str(arguments.get("summary", "") or "").strip(),
+        content=content,
+        importance=str(arguments.get("importance", "normal") or "normal").strip(),
+        modality=str(arguments.get("modality", "text_card") or "text_card").strip(),
+    )
+    return presentation_manager.present(request)
+
+
 def execute_tool_call(
     catalog,
     function_name: str,
@@ -110,6 +175,13 @@ def execute_tool_call(
     runtime: Any = None,
     tool_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    if function_name == "present_info":
+        if runtime is None:
+            from aegis_ai.runtime import get_runtime
+
+            runtime = get_runtime()
+        return _present_info(runtime, arguments)
+
     if function_name in {"capability__search", "capability__describe"}:
         return _execute_meta_tool(function_name, arguments, runtime=runtime, catalog=catalog)
 
@@ -875,6 +947,9 @@ def call_llm_with_tools(
         session_context=context_meta,
         runtime=runtime,
     )
+    if runtime is not None and getattr(runtime, "presentation_manager", None) is not None:
+        tools = list(tools)
+        tools.append(_presentation_tool_definition())
     if not tools:
         response = _generate_direct_response(
             llm,

@@ -1,6 +1,6 @@
 {
   "title": "Present to User",
-  "description": "Deliver rich content to the user via Dashboard, PC overlay, Android overlay, or XR. Uses modality-specific rendering (text_card, chart_panel, diagram_panel, gltf_model). Safety is enforced by the source capability, not by the presentation layer.",
+  "description": "Deliver rich content to the user via Dashboard, PC overlay, Android overlay, or XR. Uses modality-specific rendering (text_card, chart_panel, diagram_panel, gltf_model) and may summarize rich content for overlay surfaces. Safety is enforced by the source capability, not by the presentation layer.",
   "server_id": "ai-server",
   "app_id": "presentation",
   "action": "present",
@@ -17,7 +17,7 @@
       "modality": {"type": "string", "enum": ["text_card", "chart_panel", "diagram_panel", "gltf_model", "overlay_short"], "description": "Rendering format"},
       "title": {"type": "string", "description": "Presentation title"},
       "summary": {"type": "string", "description": "Short summary for overlay/preview"},
-      "content": {"type": "object", "description": "Modality-specific content payload"},
+      "content": {"type": "object", "description": "Modality-specific content payload, including rich chart/diagram/3D data"},
       "targets": {"type": "array", "items": {"type": "string"}, "description": "Delivery targets: dashboard, pc_overlay, android_overlay, xr_scene"},
       "ttl_ms": {"type": "integer", "description": "Time-to-live in milliseconds"},
       "placement_zone": {"type": "string", "description": "Zone within target surface"},
