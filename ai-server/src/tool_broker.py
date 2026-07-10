@@ -31,6 +31,7 @@ from typing import Any
 from jsonschema import ValidationError, validate
 
 from aegis_ai.capability_catalog import risk_level_from_label
+from aegis_ai.production_readiness import is_mock_like_output, is_production_mode
 from aegis_schema.models import Capability, RiskLevel, ServerType
 from policy_engine import PolicyDecision, PolicyEngine, PolicyResult, create_default_policy_engine
 from server_executor import ServerExecutor
@@ -546,6 +547,7 @@ class ToolBroker:
         # Execute (only if ALLOW)
         pre_observations = self._collect_completion_observations(manifest, phase="before")
         result = self._invoke_internal(cap, request)
+        self._apply_production_mock_guard(request, result)
         result.policy_result = policy_result
 
         # Idempotency cache
@@ -563,6 +565,7 @@ class ToolBroker:
                     time.sleep(delay_ms / 1000.0)
                 retry_pre = self._collect_completion_observations(manifest, phase="before")
                 retry_result = self._invoke_internal(cap, request)
+                self._apply_production_mock_guard(request, retry_result)
                 retry_result.policy_result = policy_result
                 retry_verification = self._verify_completion_or_default(request, retry_result, manifest, retry_pre)
                 retry_result.output.setdefault("retry_of_request_id", result.request_id)
@@ -809,6 +812,7 @@ class ToolBroker:
 
         pre_observations = self._collect_completion_observations(manifest, phase="before")
         result = self._invoke_internal(cap, request)
+        self._apply_production_mock_guard(request, result)
         result.policy_result = policy_result
         result.approval_id = approval_id
         verification = self._verify_completion_or_default(request, result, manifest, pre_observations)
@@ -819,6 +823,7 @@ class ToolBroker:
                     time.sleep(delay_ms / 1000.0)
                 retry_pre = self._collect_completion_observations(manifest, phase="before")
                 result = self._invoke_internal(cap, request)
+                self._apply_production_mock_guard(request, result)
                 result.policy_result = policy_result
                 result.approval_id = approval_id
                 verification = self._verify_completion_or_default(request, result, manifest, retry_pre)
@@ -1176,6 +1181,24 @@ class ToolBroker:
             "Tool execution: cap=%s status=%s source=%s duration=%.1fms",
             request.capability_id, result.status.value, request.source.value, result.duration_ms,
         )
+
+    def _apply_production_mock_guard(
+        self,
+        request: ToolExecutionRequest,
+        result: ToolExecutionResult,
+    ) -> None:
+        if not is_production_mode() or not result.success:
+            return
+        if not is_mock_like_output(result.output):
+            return
+        result.status = InvokeStatus.EXECUTION_ERROR
+        result.error = (
+            "Production mode rejected mock/stub output for "
+            f"capability '{request.capability_id}'."
+        )
+        result.output.setdefault("production_blocker", True)
+        result.output.setdefault("production_blocker_reason", result.error)
+        result.verification_status = "failed"
 
     def _record_failure_for_repair(self, request: ToolExecutionRequest, result: ToolExecutionResult) -> None:
         if self._repair_manager is None or result.success:

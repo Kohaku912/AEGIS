@@ -20,6 +20,7 @@ def _catalog(tmp_path: Path) -> CapabilityCatalog:
             "server_id": "ai-server",
             "app_id": "strict",
             "action": "run",
+            "operation_category": "observe",
             "risk": {"level": "low", "requires_approval": False},
             "input_schema": {
                 "type": "object",
