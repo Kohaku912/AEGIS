@@ -33,11 +33,11 @@
     ]
   },
   "risk": {
-    "level": "safe",
+    "level": "approval_required",
     "side_effects": [
       "touch_input"
     ],
-    "requires_approval": false
+    "requires_approval": true
   },
   "tags": [
     "builtin",

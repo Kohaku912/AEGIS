@@ -61,7 +61,9 @@ Test full stack wiring with mock providers.
 Skipped in CI. Run manually with marker flags.
 
 - `test_android_local.py` — ADB provider with real Android device
-  - Requires: ADB installed, device connected, USB debugging enabled
+  - Requires: ADB installed, device connected, USB debugging enabled, AEGIS Core running
+  - Opt-in: `AEGIS_ANDROID_LOCAL=1`
+  - Uses the current Android reverse-stream path through `AndroidServerManager`
 - `test_pc_observe_e2e.py` (marked `pc_local`) — Real screenshot, real active window
 
 ## CI Configuration
