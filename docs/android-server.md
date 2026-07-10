@@ -111,8 +111,13 @@ pytest tests/test_android_observe_e2e.py tests/test_android_action_e2e.py -v
 ### ADB Provider (local, real device)
 
 ```bash
-cd ai-server && pytest -m android_local -v
+cd ai-server
+AEGIS_ANDROID_LOCAL=1 pytest -m android_local -v
 ```
+
+The current local test path uses the installed Android companion app and the
+AI Server reverse-stream connection. The older ADB provider remains available
+for read-only diagnostics, but it is not the canonical Runtime execution path.
 
 ### Kotlin Unit Tests
 
@@ -122,9 +127,21 @@ cd android-server && ./gradlew test
 
 ## gRPC Connection
 
-Default connection: `10.0.2.2:50051` (Android emulator → host machine)
+Default connection in source: `192.168.50.175:50051` for the current local PC.
+For an emulator, use `10.0.2.2:50051`.
 
-For real device, update the host in `AegisGrpcClient.kt` or use the app's settings.
+For a real device, use the app settings or start it with intent extras:
+
+```powershell
+adb shell am start -n com.aegis.android/.MainActivity --es host 192.168.50.175 --ei port 50051 --ez auto_connect true
+```
+
+If USB reverse is supported:
+
+```powershell
+adb reverse tcp:50051 tcp:50051
+adb shell am start -n com.aegis.android/.MainActivity --es host 127.0.0.1 --ei port 50051 --ez auto_connect true
+```
 
 ## Current Android App Runtime
 

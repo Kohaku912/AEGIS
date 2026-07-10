@@ -24,24 +24,24 @@ $passed = 0
 $failed = 0
 
 function Test-TcpConnection {
-    param([string]$Host, [int]$Port, [string]$Name)
+    param([string]$HostName, [int]$Port, [string]$Name)
     try {
         $tcp = New-Object System.Net.Sockets.TcpClient
-        $tcp.Connect($Host, $Port)
+        $tcp.Connect($HostName, $Port)
         $tcp.Close()
-        Write-Host "  [PASS] $Name ($Host`:$Port)" -ForegroundColor Green
+        Write-Host "  [PASS] $Name ($HostName`:$Port)" -ForegroundColor Green
         return $true
     } catch {
-        Write-Host "  [FAIL] $Name ($Host`:$Port) - $($_.Exception.Message)" -ForegroundColor Red
+        Write-Host "  [FAIL] $Name ($HostName`:$Port) - $($_.Exception.Message)" -ForegroundColor Red
         return $false
     }
 }
 
 function Send-TcpCommand {
-    param([string]$Host, [int]$Port, [string]$Command)
+    param([string]$HostName, [int]$Port, [string]$Command)
     try {
         $tcp = New-Object System.Net.Sockets.TcpClient
-        $tcp.Connect($Host, $Port)
+        $tcp.Connect($HostName, $Port)
         $stream = $tcp.GetStream()
         $writer = New-Object System.IO.StreamWriter($stream)
         $reader = New-Object System.IO.StreamReader($stream)

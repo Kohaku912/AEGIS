@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 
 def test_android_manager_unavailable_returns_explicit_code(tmp_path):
     from aegis_ai.integrations.android.manager import AndroidServerManager
@@ -40,3 +43,12 @@ def test_android_device_registry_requires_pairing_token(tmp_path):
     assert not registry.verify_and_authorize(device_id="phone", pairing_token="wrong")
     assert registry.verify_and_authorize(device_id="phone", pairing_token="secret")
     assert registry.is_authorized("phone", "secret")
+
+
+def test_android_ui_input_manifests_require_approval() -> None:
+    manifest_dir = Path(__file__).resolve().parents[1] / "capabilities" / "builtin" / "android-server" / "ui"
+
+    for filename in ("tap.json", "swipe.json", "type_text.json"):
+        manifest = json.loads((manifest_dir / filename).read_text(encoding="utf-8"))
+        assert manifest["risk"]["level"] == "approval_required"
+        assert manifest["risk"]["requires_approval"] is True

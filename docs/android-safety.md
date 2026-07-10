@@ -93,7 +93,8 @@ Notifications from these apps are **never forwarded**:
 
 - UI tree may contain sensitive text (form fields, displayed content)
 - Password fields are flagged with `is_password: true`
-- `android.type_text` checks for password fields and denies if detected
+- `android.tap`, `android.swipe`, and `android.type_text` are manifest-level approval-required capabilities.
+- `android.type_text` checks for password fields and denies if detected.
 - UI tree data should not be logged without redaction
 
 ## Password Field Protection

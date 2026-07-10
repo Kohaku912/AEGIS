@@ -12,6 +12,7 @@ Tests are separated into mock (CI) and real-device (opt-in) categories.
 | `mock` | Mock providers only (default) | CI |
 | `real_browser` | Real Chromium browser | Docker |
 | `real_pc_host` | Real PC Server on Windows host | Windows |
+| `android_local` | Real Android companion app via ADB + reverse stream | Local |
 | `e2e` | End-to-end integration | Docker + host |
 
 ## Running Tests
@@ -39,6 +40,22 @@ pytest -m real_browser -v
 # Run tests
 cd ai-server
 pytest -m real_pc_host -v
+```
+
+### Android Device Tests
+
+```powershell
+# Preferred: try USB reverse first.
+.\scripts\test-android-real.ps1 -TryUsbReverse
+
+# If the device rejects adb reverse, use the PC LAN address.
+.\scripts\test-android-real.ps1 -HostAddress 192.168.50.175
+
+# Run opt-in pytest checks.
+cd ai-server
+$env:AEGIS_ANDROID_LOCAL = "1"
+$env:AEGIS_ANDROID_TEST_HOST = "192.168.50.175"
+uv run pytest -m android_local -q
 ```
 
 ### Full E2E
@@ -119,7 +136,9 @@ Test-NetConnection -ComputerName host.docker.internal -Port 50052
 - Start services: `docker compose up -d ai-server browser-server room-server dev-server`.
 - Build Android: `cd android-server && .\gradlew.bat assembleDebug`.
 - Install Android: `adb install -r app\build\outputs\apk\debug\app-debug.apk`.
-- Start Android with host, port, pairing token, and `auto_connect=true`.
+- Start Android with host, port, pairing token when needed, and `auto_connect=true`.
+- Preferred local transport is `adb reverse tcp:50051 tcp:50051` with Android host `127.0.0.1`.
+- Some vendor Android builds reject `adb reverse`; use the PC LAN IP in that case.
 - Verify Home chat syncs with Dashboard chat history and approval requests appear in Action.
 - If MediaProjection or Accessibility is missing, a natural permission-needed response is acceptable until the user grants it on-device.
 ```
