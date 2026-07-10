@@ -190,6 +190,28 @@ class TestAuditExtractor:
     def test_extract_traces_empty_input(self):
         assert extract_traces([]) == []
 
+    def test_extract_traces_accepts_detail_request_id_and_llm_dot_action(self):
+        entry = _mk_audit_entry(
+            action="llm.request.completed",
+            entry_id="e1",
+            request_id="",
+            tokens_used=0,
+            extra_detail={
+                "request_id": "detail-rid",
+                "input_tokens": 70,
+                "output_tokens": 30,
+                "profile_id": "chat_balanced",
+                "context_tokens": {"system": 10, "history": 20},
+            },
+        )
+
+        traces = extract_traces([entry])
+
+        assert len(traces) == 1
+        assert traces[0].request_id == "detail-rid"
+        assert traces[0].tokens_used == 100
+        assert traces[0].context_tokens == {"system": 10, "history": 20}
+
 
 # ── Aggregator tests ─────────────────────────────────────────────
 
@@ -298,6 +320,41 @@ class TestLLMUsageService:
         s = svc.get_summary(period="1h")
         assert s["total_calls"] == 5
         assert s["total_tokens"] == 500
+
+    def test_get_summary_with_audit_manager_dict_response(self):
+        entries = [_mk_audit_entry(entry_id="e1", tokens_used=123)]
+
+        class FakeAuditManager:
+            def read_recent_for_dashboard(self, max_entries=5000):
+                return {"entries": entries, "total": 1}
+
+        svc = LLMUsageService(audit_manager=FakeAuditManager())
+        s = svc.get_summary(period="1h")
+        assert s["total_calls"] == 1
+        assert s["total_tokens"] == 123
+
+    def test_get_summary_with_audit_log_dataclass_entries(self):
+        from aegis_ai.audit.audit_log import AuditEntry
+
+        now = int(time.time() * 1000)
+        entry = AuditEntry(
+            timestamp_ms=now,
+            action="llm_call",
+            entry_id="e1",
+            actor="gateway",
+            detail={"success": True, "input_tokens": 20, "output_tokens": 10},
+            tokens_used=30,
+            request_id="r1",
+        )
+
+        class FakeAuditLog:
+            def list_recent(self, n=50):
+                return [entry]
+
+        svc = LLMUsageService(audit_manager=FakeAuditLog())
+        s = svc.get_summary(period="1h")
+        assert s["total_calls"] == 1
+        assert s["total_tokens"] == 30
 
     def test_get_traces(self):
         entries = [_mk_audit_entry(entry_id=f"e{i}") for i in range(3)]

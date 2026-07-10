@@ -434,7 +434,7 @@ class TestDeviceRouter:
 
 
 class TestPresentationManager:
-    def test_interruption_controller_suppresses_low_priority(self, tmp_path):
+    def test_interruption_controller_keeps_dashboard_visible(self, tmp_path):
         calls: list[dict] = []
 
         class FakeInterruptionController:
@@ -461,11 +461,41 @@ class TestPresentationManager:
         result = mgr.present(_make_request(importance="low").to_dict())
 
         assert result["ok"] is True
-        assert result["delivery"] == {"ok": False, "suppressed": True, "reason": "quiet hours"}
-        assert result["presentation"]["status"] == "queued"
+        assert result["delivery"]["ok"] is True
+        assert result["delivery"]["suppressed"] is True
+        assert result["delivery"]["reason"] == "quiet hours"
+        assert result["presentation"]["status"] == "delivered"
         assert result["presentation"]["metadata"]["interruption"]["decision"] == "suppress"
         assert result["presentation"]["metadata"]["interruption"]["reason"] == "quiet hours"
         assert calls == [{"category": "presentation", "severity": "low", "title": "Hello"}]
+        assert router.called is True
+
+    def test_interruption_controller_queues_intrusive_only_targets(self, tmp_path):
+        class FakeInterruptionController:
+            def decide(self, notification):
+                return {"decision": "batch_later", "reason": "quiet hours"}
+
+        class FakeRouter:
+            def __init__(self):
+                self.called = False
+
+            def deliver(self, spec):
+                self.called = True
+                return {"ok": True}
+
+        router = FakeRouter()
+        mgr = PresentationManager(
+            object_store=PresentationObjectStore(data_dir=str(tmp_path)),
+            device_router=router,
+            interruption_controller=FakeInterruptionController(),
+            data_dir=str(tmp_path),
+        )
+
+        result = mgr.present(_make_request(importance="low", targets=["pc_overlay"]).to_dict())
+
+        assert result["ok"] is True
+        assert result["delivery"] == {"ok": False, "suppressed": True, "reason": "quiet hours"}
+        assert result["presentation"]["status"] == "queued"
         assert router.called is False
 
     def test_critical_bypasses_interruption_controller(self, tmp_path):
@@ -512,6 +542,12 @@ class TestPresentationManager:
         active = mgr.list_active()
         assert len(active) == 1
         assert active[0]["presentation_id"] == pid
+
+        summaries = mgr.list_summaries()
+        assert summaries[0]["presentation_id"] == pid
+        assert summaries[0]["_summary_only"] is True
+        assert summaries[0]["content"] == {}
+        assert summaries[0]["content_size"] > 0
 
     def test_delivery_state_persisted_after_delivery(self, tmp_path):
         mgr = _make_manager(str(tmp_path))

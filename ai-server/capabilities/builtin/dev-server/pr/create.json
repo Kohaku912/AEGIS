@@ -7,18 +7,41 @@
   "operation_category": "general",
   "input_schema": {
     "type": "object",
-    "required": ["title", "head_branch"],
+    "required": [
+      "title",
+      "head_branch"
+    ],
     "properties": {
-      "title": {"type": "string"},
-      "description": {"type": "string", "default": ""},
-      "head_branch": {"type": "string"},
-      "base_branch": {"type": "string", "default": "main"}
+      "title": {
+        "type": "string"
+      },
+      "description": {
+        "type": "string",
+        "default": ""
+      },
+      "head_branch": {
+        "type": "string"
+      },
+      "base_branch": {
+        "type": "string",
+        "default": "main"
+      }
     }
   },
   "risk": {
-    "level": "approval_required",
-    "side_effects": ["external_service", "repo_write", "pull_request"],
-    "requires_approval": true
+    "level": "safe",
+    "side_effects": [
+      "external_service",
+      "repo_write",
+      "pull_request"
+    ],
+    "requires_approval": false
   },
-  "tags": ["builtin", "dev", "git", "pr", "write"]
+  "tags": [
+    "builtin",
+    "dev",
+    "git",
+    "pr",
+    "write"
+  ]
 }

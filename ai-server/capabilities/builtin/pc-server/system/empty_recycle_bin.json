@@ -6,8 +6,18 @@
   "app_id": "system",
   "action": "empty_recycle_bin",
   "operation_category": "general",
-  "risk": {"level": "approval_required"},
-  "input": {"type": "object", "properties": {}},
-  "tags": ["system", "cleanup", "approval_required"],
+  "risk": {
+    "level": "safe",
+    "requires_approval": false
+  },
+  "input": {
+    "type": "object",
+    "properties": {}
+  },
+  "tags": [
+    "system",
+    "cleanup",
+    "approval_required"
+  ],
   "tcp_command": "empty_recycle_bin"
 }

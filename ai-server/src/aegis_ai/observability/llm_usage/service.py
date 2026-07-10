@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import logging
 import time
 import threading
@@ -125,14 +126,41 @@ class LLMUsageService:
             return []
         try:
             if hasattr(self._audit, "read_recent_for_dashboard"):
-                return self._audit.read_recent_for_dashboard(limit=limit)
+                try:
+                    raw = self._audit.read_recent_for_dashboard(max_entries=limit)
+                except TypeError:
+                    raw = self._audit.read_recent_for_dashboard(limit)
+                return self._normalize_audit_entries(raw, limit)
             if hasattr(self._audit, "list_recent"):
-                return self._audit.list_recent(limit=limit)
+                try:
+                    raw = self._audit.list_recent(limit=limit)
+                except TypeError:
+                    try:
+                        raw = self._audit.list_recent(n=limit)
+                    except TypeError:
+                        raw = self._audit.list_recent(limit)
+                return self._normalize_audit_entries(raw, limit)
             if hasattr(self._audit, "read_all"):
-                return self._audit.read_all()[:limit]
+                return self._normalize_audit_entries(self._audit.read_all(), limit)
         except Exception:
             logger.debug("Failed to read audit data", exc_info=True)
         return []
+
+    @staticmethod
+    def _normalize_audit_entries(raw: Any, limit: int) -> list[dict[str, Any]]:
+        if isinstance(raw, dict):
+            raw = raw.get("entries") or raw.get("items") or raw.get("results") or []
+        if raw is None:
+            return []
+        entries: list[dict[str, Any]] = []
+        for item in list(raw)[:limit]:
+            if isinstance(item, dict):
+                entries.append(item)
+            elif dataclasses.is_dataclass(item):
+                entries.append(dataclasses.asdict(item))
+            elif hasattr(item, "__dict__"):
+                entries.append(dict(vars(item)))
+        return entries
 
     @staticmethod
     def _apply_filters(

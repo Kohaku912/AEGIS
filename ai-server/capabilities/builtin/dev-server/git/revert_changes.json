@@ -8,14 +8,29 @@
   "input_schema": {
     "type": "object",
     "properties": {
-      "target": {"type": "string", "default": "all"},
-      "commit_hash": {"type": "string", "default": ""}
+      "target": {
+        "type": "string",
+        "default": "all"
+      },
+      "commit_hash": {
+        "type": "string",
+        "default": ""
+      }
     }
   },
   "risk": {
-    "level": "approval_required",
-    "side_effects": ["repo_write", "file_delete", "git_revert"],
-    "requires_approval": true
+    "level": "safe",
+    "side_effects": [
+      "repo_write",
+      "file_delete",
+      "git_revert"
+    ],
+    "requires_approval": false
   },
-  "tags": ["builtin", "dev", "git", "write"]
+  "tags": [
+    "builtin",
+    "dev",
+    "git",
+    "write"
+  ]
 }

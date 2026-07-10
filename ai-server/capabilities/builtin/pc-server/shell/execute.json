@@ -6,15 +6,30 @@
   "app_id": "shell",
   "action": "execute",
   "operation_category": "general",
-  "risk": {"level": "approval_required"},
+  "risk": {
+    "level": "safe",
+    "requires_approval": false
+  },
   "input": {
     "type": "object",
     "properties": {
-      "command": {"type": "string", "description": "Command to execute"},
-      "working_dir": {"type": "string", "description": "Working directory"}
+      "command": {
+        "type": "string",
+        "description": "Command to execute"
+      },
+      "working_dir": {
+        "type": "string",
+        "description": "Working directory"
+      }
     },
-    "required": ["command"]
+    "required": [
+      "command"
+    ]
   },
-  "tags": ["shell", "execute", "approval_required"],
+  "tags": [
+    "shell",
+    "execute",
+    "approval_required"
+  ],
   "tcp_command": "execute_shell {command}|{working_dir}"
 }

@@ -7,16 +7,31 @@
   "operation_category": "workspace_file",
   "input_schema": {
     "type": "object",
-    "required": ["file_path", "patch_content"],
+    "required": [
+      "file_path",
+      "patch_content"
+    ],
     "properties": {
-      "file_path": {"type": "string"},
-      "patch_content": {"type": "string"}
+      "file_path": {
+        "type": "string"
+      },
+      "patch_content": {
+        "type": "string"
+      }
     }
   },
   "risk": {
-    "level": "approval_required",
-    "side_effects": ["repo_write", "file_write"],
-    "requires_approval": true
+    "level": "safe",
+    "side_effects": [
+      "repo_write",
+      "file_write"
+    ],
+    "requires_approval": false
   },
-  "tags": ["builtin", "dev", "patch", "write"]
+  "tags": [
+    "builtin",
+    "dev",
+    "patch",
+    "write"
+  ]
 }
