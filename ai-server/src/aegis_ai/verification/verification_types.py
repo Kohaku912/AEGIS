@@ -99,6 +99,8 @@ class VerificationRequest:
     pre_observation: dict[str, Any] = field(default_factory=dict)
     post_observation: dict[str, Any] = field(default_factory=dict)
     verification_strategy: VerificationStrategy = VerificationStrategy.NONE
+    completion_conditions: list[CompletionCondition] = field(default_factory=list)
+    completion: dict[str, Any] = field(default_factory=dict)
     created_at: int = 0
 
 

@@ -551,6 +551,70 @@ class VerificationService:
 
     def _verify_browser_operation(self, request: VerificationRequest) -> VerificationResult:
         """Verify browser operation — requires browser client."""
+        output = request.execution_output or {}
+        expected_url = request.arguments.get("url", "")
+        expected_text = (
+            request.arguments.get("expected_text")
+            or request.arguments.get("text_contains")
+            or request.expected_outcome
+            or ""
+        )
+        expected_selector = request.arguments.get("selector", "")
+
+        if expected_url:
+            observed_url = (
+                output.get("final_url")
+                or output.get("current_url")
+                or output.get("url")
+                or output.get("navigated_url")
+                or ""
+            )
+            if expected_url in str(observed_url):
+                return VerificationResult(
+                    verification_id=request.verification_id,
+                    request_id=request.request_id,
+                    status=VerificationStatus.VERIFIED,
+                    confidence=0.75,
+                    reason=f"Browser URL matches: {observed_url}",
+                    evidence=[f"url={observed_url}"],
+                    created_at=int(time.time() * 1000),
+                )
+
+        if expected_text:
+            text_blob = " ".join(
+                str(output.get(key, ""))
+                for key in ("text", "content", "html", "dom", "result", "summary")
+            )
+            if str(expected_text) in text_blob:
+                return VerificationResult(
+                    verification_id=request.verification_id,
+                    request_id=request.request_id,
+                    status=VerificationStatus.VERIFIED,
+                    confidence=0.7,
+                    reason="Browser output contains expected text.",
+                    evidence=[f"text_length={len(text_blob)}"],
+                    created_at=int(time.time() * 1000),
+                )
+
+        if expected_selector:
+            selector_observation = self._call_observer(
+                self._browser,
+                "browser-server.page.get_dom_snapshot",
+                {"selector": expected_selector},
+            )
+            if selector_observation and not selector_observation.get("error"):
+                html = str(selector_observation.get("html") or selector_observation.get("dom") or selector_observation)
+                if html.strip():
+                    return VerificationResult(
+                        verification_id=request.verification_id,
+                        request_id=request.request_id,
+                        status=VerificationStatus.VERIFIED,
+                        confidence=0.7,
+                        reason=f"Browser selector observed: {expected_selector}",
+                        evidence=[f"selector={expected_selector}"],
+                        created_at=int(time.time() * 1000),
+                    )
+
         if self._browser is None:
             return VerificationResult(
                 verification_id=request.verification_id,
@@ -566,7 +630,6 @@ class VerificationService:
         try:
             if hasattr(self._browser, "get_current_url"):
                 current_url = self._browser.get_current_url()
-                expected_url = request.arguments.get("url", "")
                 if expected_url and expected_url in str(current_url):
                     return VerificationResult(
                         verification_id=request.verification_id,
@@ -607,6 +670,233 @@ class VerificationService:
             suggested_recovery="Take screenshot and verify visually, or connect pc/android server.",
             created_at=int(time.time() * 1000),
         )
+
+    def _verify_browser_operation(self, request: VerificationRequest) -> VerificationResult:
+        """Verify browser operation using URL, DOM, selector, or returned text."""
+        output = request.execution_output or {}
+        expected_url = request.arguments.get("url", "")
+        expected_text = (
+            request.arguments.get("expected_text")
+            or request.arguments.get("text_contains")
+            or request.expected_outcome
+            or ""
+        )
+        expected_selector = request.arguments.get("selector", "")
+
+        observed_url = (
+            output.get("final_url")
+            or output.get("current_url")
+            or output.get("url")
+            or output.get("navigated_url")
+            or ""
+        )
+        if expected_url and expected_url in str(observed_url):
+            return VerificationResult(
+                verification_id=request.verification_id,
+                request_id=request.request_id,
+                status=VerificationStatus.VERIFIED,
+                confidence=0.75,
+                reason=f"Browser URL matches: {observed_url}",
+                evidence=[f"url={observed_url}"],
+                created_at=int(time.time() * 1000),
+            )
+
+        text_blob = " ".join(
+            str(output.get(key, ""))
+            for key in ("text", "content", "html", "dom", "result", "summary")
+        )
+        if expected_text and str(expected_text) in text_blob:
+            return VerificationResult(
+                verification_id=request.verification_id,
+                request_id=request.request_id,
+                status=VerificationStatus.VERIFIED,
+                confidence=0.7,
+                reason="Browser output contains expected text.",
+                evidence=[f"text_length={len(text_blob)}"],
+                created_at=int(time.time() * 1000),
+            )
+
+        if expected_selector:
+            selector_observation = self._call_observer(
+                self._browser,
+                "browser-server.page.get_dom_snapshot",
+                {"selector": expected_selector},
+            )
+            if selector_observation and not selector_observation.get("error"):
+                html = str(selector_observation.get("html") or selector_observation.get("dom") or selector_observation)
+                if html.strip():
+                    return VerificationResult(
+                        verification_id=request.verification_id,
+                        request_id=request.request_id,
+                        status=VerificationStatus.VERIFIED,
+                        confidence=0.7,
+                        reason=f"Browser selector observed: {expected_selector}",
+                        evidence=[f"selector={expected_selector}"],
+                        created_at=int(time.time() * 1000),
+                    )
+
+        if self._browser is None:
+            return VerificationResult(
+                verification_id=request.verification_id,
+                request_id=request.request_id,
+                status=VerificationStatus.REQUIRES_OBSERVATION,
+                confidence=0.0,
+                reason="Browser client not available; requires observation.",
+                suggested_recovery="Connect browser-server or ask the user to confirm the browser state.",
+                created_at=int(time.time() * 1000),
+            )
+
+        try:
+            if hasattr(self._browser, "get_current_url"):
+                current_url = self._browser.get_current_url()
+                if expected_url and expected_url in str(current_url):
+                    return VerificationResult(
+                        verification_id=request.verification_id,
+                        request_id=request.request_id,
+                        status=VerificationStatus.VERIFIED,
+                        confidence=0.7,
+                        reason=f"Browser URL matches: {current_url}",
+                        evidence=[f"url={current_url}"],
+                        created_at=int(time.time() * 1000),
+                    )
+
+            dom = self._call_observer(self._browser, "browser-server.page.get_dom_snapshot", {})
+            text = str(dom.get("html") or dom.get("text") or dom.get("result") or "") if dom else ""
+            if expected_text and expected_text in text:
+                return VerificationResult(
+                    verification_id=request.verification_id,
+                    request_id=request.request_id,
+                    status=VerificationStatus.VERIFIED,
+                    confidence=0.65,
+                    reason="Browser DOM contains expected text.",
+                    evidence=[f"dom_length={len(text)}"],
+                    created_at=int(time.time() * 1000),
+                )
+            if dom and not dom.get("error"):
+                return VerificationResult(
+                    verification_id=request.verification_id,
+                    request_id=request.request_id,
+                    status=VerificationStatus.VERIFIED,
+                    confidence=0.55,
+                    reason="Browser post-state observed.",
+                    evidence=["dom_observed=True"],
+                    created_at=int(time.time() * 1000),
+                )
+        except Exception as exc:
+            return VerificationResult(
+                verification_id=request.verification_id,
+                request_id=request.request_id,
+                status=VerificationStatus.REQUIRES_OBSERVATION,
+                confidence=0.0,
+                reason=f"Browser check error: {exc}",
+                suggested_recovery="Collect DOM snapshot or page text and retry verification.",
+                created_at=int(time.time() * 1000),
+            )
+
+        return VerificationResult(
+            verification_id=request.verification_id,
+            request_id=request.request_id,
+            status=VerificationStatus.REQUIRES_OBSERVATION,
+            confidence=0.3,
+            reason="Browser state unclear; requires observation.",
+            suggested_recovery="Collect DOM snapshot, selector state, or page text after the operation.",
+            created_at=int(time.time() * 1000),
+        )
+
+    def _verify_screen_observation(self, request: VerificationRequest) -> VerificationResult:
+        """Verify PC/Android operation by collecting post-operation state."""
+        is_android = request.verification_strategy == VerificationStrategy.ANDROID_SCREEN_OBSERVATION
+        observer = self._android if is_android else self._pc
+        label = "Android" if is_android else "PC"
+        if observer is not None:
+            capability_ids = (
+                [
+                    "android-server.screen.get_ui_tree",
+                    "android-server.screen.get_current_app",
+                    "android-server.device.get_status",
+                ]
+                if is_android
+                else [
+                    "pc-server.window.get_active_window",
+                    "pc-server.screenshot.get_screenshot",
+                    "pc-server.system.get_os_info",
+                ]
+            )
+            observations: dict[str, Any] = {}
+            errors: list[str] = []
+            for cap_id in capability_ids:
+                observed = self._call_observer(observer, cap_id, {})
+                if observed and not observed.get("error"):
+                    observations[cap_id] = observed
+                elif observed and observed.get("error"):
+                    errors.append(f"{cap_id}: {observed.get('error')}")
+            if observations:
+                request.post_observation.update(observations)
+                if request.pre_observation:
+                    changed = self._fingerprint(request.pre_observation) != self._fingerprint(observations)
+                    if changed:
+                        return VerificationResult(
+                            verification_id=request.verification_id,
+                            request_id=request.request_id,
+                            status=VerificationStatus.VERIFIED,
+                            confidence=0.7,
+                            reason=f"{label} state changed after operation.",
+                            evidence=[f"observations={list(observations.keys())}"],
+                            created_at=int(time.time() * 1000),
+                        )
+                return VerificationResult(
+                    verification_id=request.verification_id,
+                    request_id=request.request_id,
+                    status=VerificationStatus.VERIFIED,
+                    confidence=0.55,
+                    reason=f"{label} post-operation state observed.",
+                    evidence=[f"observations={list(observations.keys())}"],
+                    created_at=int(time.time() * 1000),
+                )
+            if errors:
+                return VerificationResult(
+                    verification_id=request.verification_id,
+                    request_id=request.request_id,
+                    status=VerificationStatus.REQUIRES_OBSERVATION,
+                    confidence=0.2,
+                    reason=f"{label} observation failed: {'; '.join(errors[:2])}",
+                    suggested_recovery=f"Reconnect {label.lower()} server or request user confirmation.",
+                    created_at=int(time.time() * 1000),
+                )
+        return VerificationResult(
+            verification_id=request.verification_id,
+            request_id=request.request_id,
+            status=VerificationStatus.REQUIRES_OBSERVATION,
+            confidence=0.0,
+            reason=f"{label} screen observation required; cannot verify automatically.",
+            suggested_recovery="Take screenshot/UI tree and verify, or connect pc/android server.",
+            created_at=int(time.time() * 1000),
+        )
+
+    @staticmethod
+    def _fingerprint(value: Any) -> str:
+        import hashlib
+        import json
+
+        try:
+            payload = json.dumps(value, ensure_ascii=False, sort_keys=True, default=str)
+        except Exception:
+            payload = str(value)
+        return hashlib.sha256(payload.encode("utf-8", errors="replace")).hexdigest()[:16]
+
+    def _call_observer(self, client: Any, capability_id: str, params: dict[str, Any]) -> dict[str, Any]:
+        if client is None:
+            return {}
+        try:
+            if hasattr(client, "execute_capability"):
+                result = client.execute_capability(capability_id, params)
+            elif hasattr(client, "invoke_capability"):
+                result = client.invoke_capability(capability_id, params)
+            else:
+                return {}
+            return result if isinstance(result, dict) else {"result": result}
+        except Exception as exc:
+            return {"error": str(exc)}
 
     def _verify_unverified(self, request: VerificationRequest) -> VerificationResult:
         """Unknown strategy — mark as unverified."""

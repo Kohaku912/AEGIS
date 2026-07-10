@@ -42,6 +42,11 @@ class CapabilityManifest:
     risk_level: str = "low"
     side_effects: list[str] = field(default_factory=list)
     requires_approval: bool = False
+    manifest_risk_level: str = "low"
+    manifest_requires_approval: bool = False
+    approval_mode: str = ""
+    enabled: bool = True
+    override: dict[str, Any] | None = None
     tags: list[str] = field(default_factory=list)
     aliases: list[str] = field(default_factory=list)
     examples: list[Any] = field(default_factory=list)
@@ -159,6 +164,9 @@ class FolderCapabilityRegistry:
         if "requires_permissions" in data and "requires_permissions" not in extra:
             extra["requires_permissions"] = data.get("requires_permissions", [])
 
+        manifest_risk = data.get("risk", {}).get("level", "low")
+        manifest_requires_approval = data.get("risk", {}).get("requires_approval", False)
+
         self._manifests[cap_id] = CapabilityManifest(
             capability_id=cap_id,
             title=data.get("title", ids["action"].replace("_", " ").title()),
@@ -171,9 +179,13 @@ class FolderCapabilityRegistry:
             version=data.get("version", "1.0.0"),
             input_schema=data.get("input_schema", data.get("input", {})),
             output_schema=data.get("output_schema", {}),
-            risk_level=data.get("risk", {}).get("level", "low"),
+            risk_level=manifest_risk,
             side_effects=data.get("risk", {}).get("side_effects", []),
-            requires_approval=data.get("risk", {}).get("requires_approval", False),
+            requires_approval=manifest_requires_approval,
+            manifest_risk_level=manifest_risk,
+            manifest_requires_approval=manifest_requires_approval,
+            approval_mode=str(data.get("risk", {}).get("approval_mode", "")),
+            enabled=bool(data.get("enabled", True)),
             tags=data.get("tags", []),
             aliases=data.get("aliases", []),
             examples=data.get("examples", []),

@@ -60,6 +60,7 @@ class AegisRuntime:
     status_manager: Any = None
     task_manager: Any = None
     execution_engine: Any = None
+    verification_service: Any = None
     notification_manager: Any = None
     memory_manager: Any = None
     sleep_manager: Any = None
@@ -224,6 +225,7 @@ def _build_runtime(config: Config) -> AegisRuntime:
     capability_catalog = CapabilityCatalog(
         capabilities_dir=str(base_dir / "capabilities"),
         apps_dir=str(base_dir / "apps"),
+        data_dir=data_dir,
     )
     capability_index = CapabilityIndex(
         capability_catalog,
@@ -241,6 +243,13 @@ def _build_runtime(config: Config) -> AegisRuntime:
 
     server_executor = ServerExecutor()
     server_executor.set_catalog(capability_catalog)
+    from aegis_ai.verification import VerificationService
+
+    verification_service = VerificationService(
+        audit_log=audit_log,
+        browser_client=server_executor,
+        pc_client=server_executor,
+    )
     tool_broker = ToolBroker(
         registry=tool_registry,
         policy_engine=policy_engine,
@@ -250,6 +259,7 @@ def _build_runtime(config: Config) -> AegisRuntime:
         server_executor=server_executor,
         folder_registry=folder_registry,
         catalog=capability_catalog,
+        verification_service=verification_service,
     )
 
     llm_router = LLMRouter(settings_store=settings_store, audit_log=audit_log)
@@ -425,6 +435,7 @@ def _build_runtime(config: Config) -> AegisRuntime:
     approval_fanout.register_channel(RoomApprovalChannel(server_executor=server_executor))
     approval_fanout.register_channel(AndroidApprovalChannel(android_manager=android_manager))
 
+    verification_service._android = android_manager
     execution_engine = TaskExecutionEngine(
         task_manager=task_manager,
         tool_broker=tool_broker,
@@ -432,6 +443,9 @@ def _build_runtime(config: Config) -> AegisRuntime:
         llm_gateway=llm_gateway,
         prompt_registry=prompt_registry,
         settings_resolver=settings_resolver,
+        verification_service=verification_service,
+        event_manager=event_manager,
+        audit_manager=audit_manager,
     )
 
     interaction_router._task_manager = task_manager
@@ -466,6 +480,7 @@ def _build_runtime(config: Config) -> AegisRuntime:
         core_client._personal["memory_manager"] = memory_manager
         core_client._personal["repair_manager"] = repair_manager
     tool_broker.set_repair_manager(repair_manager)
+    execution_engine._repair_manager = repair_manager
     sleep_manager = SleepManager(
         memory_manager=memory_manager,
         event_manager=event_manager,
@@ -539,6 +554,7 @@ def _build_runtime(config: Config) -> AegisRuntime:
         status_manager=status_manager,
         task_manager=task_manager,
         execution_engine=execution_engine,
+        verification_service=verification_service,
         notification_manager=notification_manager,
         memory_manager=memory_manager,
         sleep_manager=sleep_manager,

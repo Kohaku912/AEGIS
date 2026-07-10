@@ -28,7 +28,7 @@
     <div style="max-height:600px;overflow-y:auto;">
     <table>
         <thead><tr>
-            <th>ID</th><th>Title</th><th>Origin</th><th>Server</th><th>App</th><th>Risk</th><th>Approval</th><th>Tags</th><th>Action</th>
+            <th>ID</th><th>Title</th><th>Origin</th><th>Server</th><th>Manifest</th><th>Override</th><th>Effective</th><th>Enabled</th><th>Action</th>
         </tr></thead>
         <tbody>
         {% for c in capabilities %}
@@ -36,24 +36,41 @@
             <td style="font-family:monospace;font-size:11px;max-width:250px;word-break:break-all;">{{ c.id }}</td>
             <td style="font-weight:500;">{{ c.title }}</td>
             <td><span class="badge {{ 'badge-blue' if c.origin == 'builtin' else 'badge-yellow' }}">{{ c.origin }}</span></td>
-            <td>{{ c.server_id }}</td>
-            <td>{{ c.app_id }}</td>
+            <td>{{ c.server_id }} / {{ c.app_id }}</td>
+            <td style="font-size:11px;">
+                <div>risk: <code>{{ c.manifest_risk_level }}</code></div>
+                <div>approval: {{ 'yes' if c.manifest_requires_approval else 'no' }}</div>
+            </td>
+            <td style="font-size:11px;">
+                {% if c.override_active %}
+                <span class="badge badge-yellow">OVERRIDE</span>
+                <pre style="white-space:pre-wrap;font-size:10px;margin:4px 0;">{{ c.override }}</pre>
+                {% else %}
+                <span style="color:#8b949e;">manifest</span>
+                {% endif %}
+            </td>
             <td>
                 <select id="risk-{{ c.id }}" data-saved-risk="{{ c.risk_level }}" onchange="updateAndSave('{{ c.id }}')" style="background:#0d1117;border:1px solid #30363d;color:#c9d1d9;padding:4px;border-radius:4px;font-size:11px;">
                     {% for r in risk_levels %}
                     <option value="{{ r }}" {{ 'selected' if r == c.risk_level else '' }}>{{ r }}</option>
                     {% endfor %}
                 </select>
+                <div id="approval-{{ c.id }}" style="margin-top:4px;">
+                    {% if c.requires_approval %}
+                    <span class="badge badge-red">approval</span>
+                    {% else %}
+                    <span class="badge badge-green">no approval</span>
+                    {% endif %}
+                </div>
             </td>
-            <td id="approval-{{ c.id }}">
-                {% if c.risk_level in ['APPROVAL_REQUIRED', 'HIGH_RISK', 'FORBIDDEN'] %}
-                <span class="badge badge-red">YES</span>
-                {% else %}
-                <span class="badge badge-green">no</span>
-                {% endif %}
+            <td>
+                <label style="font-size:11px;"><input id="enabled-{{ c.id }}" type="checkbox" {{ 'checked' if c.enabled else '' }} onchange="updateAndSave('{{ c.id }}')"> enabled</label>
             </td>
-            <td style="font-size:10px;color:#8b949e;">{{ c.tags|join(', ') }}</td>
-            <td id="status-{{ c.id }}" style="font-size:10px;max-width:260px;"></td>
+            <td style="font-size:10px;max-width:300px;">
+                <button onclick="resetOverride('{{ c.id }}')" style="background:#30363d;color:#c9d1d9;border:1px solid #484f58;padding:4px 8px;border-radius:4px;cursor:pointer;font-size:11px;">manifest値に戻す</button>
+                <div id="status-{{ c.id }}" style="margin-top:4px;"></div>
+                <div style="color:#8b949e;margin-top:4px;">{{ c.tags|join(', ') }}</div>
+            </td>
         </tr>
         {% endfor %}
         </tbody>
@@ -66,6 +83,7 @@ async function updateAndSave(capId) {
     const select = document.getElementById('risk-' + capId);
     const approval = document.getElementById('approval-' + capId);
     const statusEl = document.getElementById('status-' + capId);
+    const enabledEl = document.getElementById('enabled-' + capId);
     const risk = select.value;
     const previousRisk = select.dataset.savedRisk || risk;
 
@@ -76,7 +94,13 @@ async function updateAndSave(capId) {
         const res = await fetch('/api/capabilities/risk', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({capability_id: capId, risk_level: risk}),
+            body: JSON.stringify({
+                capability_id: capId,
+                risk_level: risk,
+                requires_approval: ['APPROVAL_REQUIRED', 'HIGH_RISK', 'FORBIDDEN'].includes(risk),
+                approval_mode: ['APPROVAL_REQUIRED', 'HIGH_RISK', 'FORBIDDEN'].includes(risk) ? 'one_time' : 'none',
+                enabled: enabledEl ? enabledEl.checked : true,
+            }),
         });
         const data = await res.json();
         if (data.ok) {
@@ -98,8 +122,25 @@ async function updateAndSave(capId) {
 function updateApprovalBadge(approval, risk) {
     const needsApproval = ['APPROVAL_REQUIRED', 'HIGH_RISK', 'FORBIDDEN'].includes(risk);
     approval.innerHTML = needsApproval
-        ? '<span class="badge badge-red">YES</span>'
-        : '<span class="badge badge-green">no</span>';
+        ? '<span class="badge badge-red">approval</span>'
+        : '<span class="badge badge-green">no approval</span>';
+}
+
+async function resetOverride(capId) {
+    const statusEl = document.getElementById('status-' + capId);
+    statusEl.innerHTML = '<span style="color:#58a6ff;">Resetting...</span>';
+    try {
+        const res = await fetch('/api/capabilities/' + encodeURIComponent(capId) + '/risk/reset', {method: 'POST'});
+        const data = await res.json();
+        if (data.ok) {
+            statusEl.innerHTML = '<span style="color:#3fb950;">Reset</span>';
+            setTimeout(() => location.reload(), 700);
+        } else {
+            statusEl.innerHTML = '<span style="color:#f85149;">' + escapeHtml(data.error || 'Reset failed') + '</span>';
+        }
+    } catch (e) {
+        statusEl.innerHTML = '<span style="color:#f85149;">' + escapeHtml(e.message) + '</span>';
+    }
 }
 
 function escapeHtml(value) {

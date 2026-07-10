@@ -52,8 +52,9 @@ _VALID_TRANSITIONS: dict[str, set[str]] = {
 
 _VALID_STEP_TRANSITIONS: dict[str, set[str]] = {
     "pending": {"running", "needs_approval", "cancelled"},
-    "running": {"completed", "failed", "needs_approval", "cancelled"},
+    "running": {"completed", "failed", "requires_observation", "needs_approval", "cancelled"},
     "needs_approval": {"running", "cancelled", "failed"},
+    "requires_observation": {"pending", "running", "failed", "cancelled"},
     "completed": set(),
     "failed": {"pending"},
     "cancelled": set(),
