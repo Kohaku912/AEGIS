@@ -12,6 +12,12 @@ logger = logging.getLogger("aegis_ai.observability.llm_usage.audit_extractor")
 _LLM_ACTIONS = {
     "llm_call",
     "llm_request",
+    "llm_request_completed",
+    "llm.request.completed",
+    "llm_route",
+    "llm_router_route",
+    "llm_gateway_call",
+    "llm_gateway_generate",
     "llm_tool_request",
     "llm_tool_call",
     "llm_vision_call",
@@ -39,14 +45,17 @@ def extract_traces(entries: list[dict[str, Any]], limit: int = 5000) -> list[LLM
     llm_entries: list[dict[str, Any]] = []
     for entry in entries[:limit]:
         action = str(entry.get("action") or "")
-        if action in _LLM_ACTIONS:
+        if action in _LLM_ACTIONS or action.startswith("llm_") or action.startswith("llm."):
             llm_entries.append(entry)
 
     # Deduplicate by request_id — prefer provider-level (richer detail / more tokens)
     _PROVIDER_ACTIONS = {"llm_call", "llm_tool_call", "llm_vision_call", "llm_media_call"}
     by_request: dict[str, dict[str, Any]] = {}
     for entry in llm_entries:
-        rid = str(entry.get("request_id") or entry.get("entry_id") or "")
+        detail = entry.get("detail") or {}
+        if not isinstance(detail, dict):
+            detail = {}
+        rid = str(entry.get("request_id") or detail.get("request_id") or entry.get("entry_id") or "")
         if not rid:
             rid = entry.get("entry_id", "")
         if rid in by_request:
@@ -80,10 +89,17 @@ def extract_traces(entries: list[dict[str, Any]], limit: int = 5000) -> list[LLM
 
 def _entry_to_trace(entry: dict[str, Any]) -> LLMTrace:
     detail = entry.get("detail") or {}
+    if not isinstance(detail, dict):
+        detail = {}
 
     tokens_raw = entry.get("tokens_used") or 0
     if tokens_raw == 0:
-        tokens_raw = detail.get("tokens") or 0
+        tokens_raw = (
+            detail.get("tokens")
+            or detail.get("tokens_used")
+            or detail.get("total_tokens")
+            or int(detail.get("input_tokens") or 0) + int(detail.get("output_tokens") or 0)
+        )
 
     success = detail.get("success")
     if success is None:
@@ -110,10 +126,10 @@ def _entry_to_trace(entry: dict[str, Any]) -> LLMTrace:
         timestamp_ms=int(entry.get("timestamp_ms") or 0),
         action=str(entry.get("action") or ""),
         caller=caller,
-        profile_id=str(entry.get("profile_id") or ""),
-        prompt_id=str(entry.get("prompt_id") or ""),
-        prompt_version=int(entry.get("prompt_version") or 0),
-        prompt_hash=str(entry.get("prompt_hash") or ""),
+        profile_id=str(entry.get("profile_id") or detail.get("profile_id") or detail.get("profile") or ""),
+        prompt_id=str(entry.get("prompt_id") or detail.get("prompt_id") or ""),
+        prompt_version=int(entry.get("prompt_version") or detail.get("prompt_version") or 0),
+        prompt_hash=str(entry.get("prompt_hash") or detail.get("prompt_hash") or ""),
         model=str(entry.get("model") or detail.get("model") or ""),
         provider=str(entry.get("provider") or detail.get("provider") or ""),
         tokens_used=int(tokens_raw),
@@ -127,8 +143,8 @@ def _entry_to_trace(entry: dict[str, Any]) -> LLMTrace:
         tool_names=tool_names,
         media_kind=str(detail.get("media_kind") or ""),
         media_count=int(detail.get("media_count") or 0),
-        request_id=str(entry.get("request_id") or ""),
-        task_id=str(entry.get("task_id") or ""),
+        request_id=str(entry.get("request_id") or detail.get("request_id") or ""),
+        task_id=str(entry.get("task_id") or detail.get("task_id") or ""),
         detail_preview=str(detail.get("prompt_preview") or "")[:500],
         response_preview=str(detail.get("response_preview") or "")[:500],
         context_tokens=ctx,

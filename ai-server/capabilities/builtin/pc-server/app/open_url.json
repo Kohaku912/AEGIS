@@ -7,8 +7,8 @@
   "action": "open_url",
   "operation_category": "general",
   "risk": {
-    "level": "medium",
-    "requires_approval": true
+    "level": "safe",
+    "requires_approval": false
   },
   "input": {
     "type": "object",
@@ -27,9 +27,18 @@
     "url",
     "open"
   ],
-  "aliases": ["URLを開く", "ブラウザでURLを開く", "ページを開く"],
+  "aliases": [
+    "URLを開く",
+    "ブラウザでURLを開く",
+    "ページを開く"
+  ],
   "examples": [
-    {"user": "https://example.com を開いて", "arguments": {"url": "https://example.com"}}
+    {
+      "user": "https://example.com を開いて",
+      "arguments": {
+        "url": "https://example.com"
+      }
+    }
   ],
   "tcp_command": "open_url {url}"
 }

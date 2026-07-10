@@ -196,6 +196,7 @@ const initialPresentations = {{ presentations | tojson }};
 let presentations = Array.isArray(initialPresentations) ? initialPresentations : [];
 let selectedPresentationId = presentations.length ? presentations[0].presentation_id : null;
 let presentationSse = null;
+const pendingDetailLoads = new Set();
 
 function escapeHtml(value) {
     if (value === null || value === undefined) return '';
@@ -323,6 +324,12 @@ function renderDetail(presentation) {
     document.getElementById('detail-created').textContent = formatTime(presentation.created_at_ms);
     document.getElementById('detail-updated').textContent = formatTime(presentation.updated_at_ms || presentation.created_at_ms);
     document.getElementById('detail-badges').innerHTML = `${importanceBadge(presentation.importance)}${statusBadge(presentation.status)}<span class="badge badge-gray">${escapeHtml(String(presentation.modality || '-').toUpperCase())}</span>`;
+    if (presentation._summary_only) {
+        document.getElementById('preview-panel').innerHTML = '<div class="preview-placeholder">Loading detail...</div>';
+        document.getElementById('detail-json').textContent = presentation.content_preview || '{}';
+        loadPresentationDetail(presentation.presentation_id);
+        return;
+    }
     document.getElementById('preview-panel').innerHTML = modalityPreview(presentation);
     document.getElementById('detail-json').textContent = JSON.stringify(presentation.content || {}, null, 2);
 }
@@ -331,6 +338,29 @@ function selectPresentation(presentationId) {
     selectedPresentationId = presentationId;
     sessionStorage.setItem('aegis.presentations.selected', presentationId);
     renderAllPresentations();
+}
+
+async function loadPresentationDetail(presentationId) {
+    if (!presentationId || pendingDetailLoads.has(presentationId)) return;
+    pendingDetailLoads.add(presentationId);
+    try {
+        const response = await fetch(`/api/presentations/${encodeURIComponent(presentationId)}`);
+        const data = await response.json();
+        const detail = data.presentation || data;
+        if (detail && detail.presentation_id) {
+            detail._summary_only = false;
+            presentations = presentations.map((item) => item.presentation_id === presentationId ? { ...item, ...detail } : item);
+            if (selectedPresentationId === presentationId) {
+                renderAllPresentations();
+            }
+        }
+    } catch (error) {
+        if (selectedPresentationId === presentationId) {
+            document.getElementById('preview-panel').innerHTML = '<div class="preview-placeholder">Failed to load detail.</div>';
+        }
+    } finally {
+        pendingDetailLoads.delete(presentationId);
+    }
 }
 
 function renderAllPresentations() {

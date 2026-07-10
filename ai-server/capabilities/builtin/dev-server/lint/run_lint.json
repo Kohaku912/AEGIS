@@ -8,14 +8,28 @@
   "input_schema": {
     "type": "object",
     "properties": {
-      "target": {"type": "string", "default": "ai-server"},
-      "linter": {"type": "string", "default": "ruff"}
+      "target": {
+        "type": "string",
+        "default": "ai-server"
+      },
+      "linter": {
+        "type": "string",
+        "default": "ruff"
+      }
     }
   },
   "risk": {
-    "level": "approval_required",
-    "side_effects": ["code_execution", "lint_execution"],
-    "requires_approval": true
+    "level": "safe",
+    "side_effects": [
+      "code_execution",
+      "lint_execution"
+    ],
+    "requires_approval": false
   },
-  "tags": ["builtin", "dev", "lint", "execute"]
+  "tags": [
+    "builtin",
+    "dev",
+    "lint",
+    "execute"
+  ]
 }

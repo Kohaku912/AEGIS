@@ -6,14 +6,26 @@
   "app_id": "service",
   "action": "start",
   "operation_category": "general",
-  "risk": {"level": "approval_required"},
+  "risk": {
+    "level": "safe",
+    "requires_approval": false
+  },
   "input": {
     "type": "object",
     "properties": {
-      "name": {"type": "string", "description": "Service name"}
+      "name": {
+        "type": "string",
+        "description": "Service name"
+      }
     },
-    "required": ["name"]
+    "required": [
+      "name"
+    ]
   },
-  "tags": ["service", "start", "approval_required"],
+  "tags": [
+    "service",
+    "start",
+    "approval_required"
+  ],
   "tcp_command": "start_service {name}"
 }

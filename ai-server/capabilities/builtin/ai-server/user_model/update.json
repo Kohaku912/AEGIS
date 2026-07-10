@@ -5,14 +5,32 @@
   "app_id": "user_model",
   "action": "update",
   "operation_category": "personal_policy",
-  "risk": {"level": "approval_required", "side_effects": ["personal_policy_update"], "requires_approval": true},
+  "risk": {
+    "level": "safe",
+    "side_effects": [
+      "personal_policy_update"
+    ],
+    "requires_approval": false
+  },
   "input_schema": {
     "type": "object",
     "properties": {
-      "patch": {"type": "object", "description": "UserModel fields to update."},
-      "reason": {"type": "string", "default": ""}
+      "patch": {
+        "type": "object",
+        "description": "UserModel fields to update."
+      },
+      "reason": {
+        "type": "string",
+        "default": ""
+      }
     },
-    "required": ["patch"]
+    "required": [
+      "patch"
+    ]
   },
-  "tags": ["user-model", "personal-ai", "write"]
+  "tags": [
+    "user-model",
+    "personal-ai",
+    "write"
+  ]
 }

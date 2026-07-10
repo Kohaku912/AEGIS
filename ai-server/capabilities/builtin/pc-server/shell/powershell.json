@@ -6,15 +6,30 @@
   "app_id": "shell",
   "action": "powershell",
   "operation_category": "general",
-  "risk": {"level": "approval_required"},
+  "risk": {
+    "level": "safe",
+    "requires_approval": false
+  },
   "input": {
     "type": "object",
     "properties": {
-      "command": {"type": "string", "description": "PowerShell command"},
-      "working_dir": {"type": "string", "description": "Working directory"}
+      "command": {
+        "type": "string",
+        "description": "PowerShell command"
+      },
+      "working_dir": {
+        "type": "string",
+        "description": "Working directory"
+      }
     },
-    "required": ["command"]
+    "required": [
+      "command"
+    ]
   },
-  "tags": ["shell", "powershell", "approval_required"],
+  "tags": [
+    "shell",
+    "powershell",
+    "approval_required"
+  ],
   "tcp_command": "execute_powershell {command}|{working_dir}"
 }

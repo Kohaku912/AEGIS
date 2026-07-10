@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from flask import Blueprint, render_template
+from flask import Blueprint, render_template, request
 
 logger = logging.getLogger("aegis_ai.web.presentation_routes")
 
@@ -18,7 +18,12 @@ def init_presentation_routes(owner: Any) -> None:
         presentations: list[dict[str, Any]] = []
         stats = {"total_active": 0, "total_delivered": 0, "total_dismissed": 0}
         try:
-            presentations = owner._runtime.presentation_manager.list_all(limit=200)
+            limit = min(max(int(request.args.get("limit", 50)), 1), 100)
+            manager = owner._runtime.presentation_manager
+            if hasattr(manager, "list_summaries"):
+                presentations = manager.list_summaries(limit=limit)
+            else:
+                presentations = manager.list_all(limit=limit)
             for presentation in presentations:
                 status = str(presentation.get("status", "")).lower()
                 if status in {"pending", "queued", "active"}:

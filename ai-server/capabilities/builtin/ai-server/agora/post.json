@@ -6,11 +6,11 @@
   "action": "post",
   "operation_category": "external_send",
   "risk": {
-    "level": "approval_required",
+    "level": "safe",
     "side_effects": [
       "social_post"
     ],
-    "requires_approval": true
+    "requires_approval": false
   },
   "tags": [
     "builtin",

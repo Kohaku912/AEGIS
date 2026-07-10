@@ -14,6 +14,7 @@ Safety is NOT enforced here — safety lives in the source capability.
 
 from __future__ import annotations
 
+import json
 import logging
 import threading
 import time
@@ -100,31 +101,7 @@ class PresentationManager:
             }
             decision = self._interruption_controller.decide(notification)
             if decision["decision"] in {"suppress", "batch_later"}:
-                spec.metadata.setdefault("interruption", {})
-                spec.metadata["interruption"].update(
-                    {
-                        "decision": decision["decision"],
-                        "reason": decision["reason"],
-                    }
-                )
-                spec.updated_at_ms = int(time.time() * 1000)
-                spec.status = PresentationStatus.QUEUED
-                self._store.put(spec)
-                self._publish_event(
-                    "presentation.queued",
-                    spec,
-                    extra={"interruption": decision},
-                )
-                self._audit("queue", spec, {"interruption": decision})
-                return {
-                    "ok": True,
-                    "presentation": spec.to_dict(),
-                    "delivery": {
-                        "ok": False,
-                        "suppressed": True,
-                        "reason": decision["reason"],
-                    },
-                }
+                return self._handle_interruption_queue(spec, decision)
 
         # Deliver
         delivery_result = self._router.deliver(spec)
@@ -189,31 +166,7 @@ class PresentationManager:
             }
             decision = self._interruption_controller.decide(notification)
             if decision.get("decision") in {"suppress", "batch_later"}:
-                spec.metadata.setdefault("interruption", {})
-                spec.metadata["interruption"].update(
-                    {
-                        "decision": decision.get("decision"),
-                        "reason": decision.get("reason"),
-                    }
-                )
-                spec.updated_at_ms = int(time.time() * 1000)
-                spec.status = PresentationStatus.QUEUED
-                self._store.put(spec)
-                self._publish_event(
-                    "presentation.queued",
-                    spec,
-                    extra={"interruption": decision},
-                )
-                self._audit("queue", spec, {"interruption": decision})
-                return {
-                    "ok": True,
-                    "presentation": spec.to_dict(),
-                    "delivery": {
-                        "ok": False,
-                        "suppressed": True,
-                        "reason": decision.get("reason"),
-                    },
-                }
+                return self._handle_interruption_queue(spec, decision)
 
         delivery_result = self._router.deliver(spec)
         spec.delivery_state = delivery_result.get("delivery_state", spec.delivery_state)
@@ -281,6 +234,10 @@ class PresentationManager:
     def list_all(self, limit: int = 200) -> list[dict[str, Any]]:
         """List all presentations."""
         return [s.to_dict() for s in self._store.list_all(limit=limit)]
+
+    def list_summaries(self, limit: int = 50) -> list[dict[str, Any]]:
+        """List lightweight presentation rows for dashboard tables."""
+        return [self._summary_dict(s) for s in self._store.list_all(limit=limit)]
 
     def start_sweeper(self, interval_seconds: int = 300) -> None:
         """Start the background expiry sweeper."""
@@ -360,6 +317,101 @@ class PresentationManager:
         return self._preferences.get_scores()
 
     # ── Internal helpers ─────────────────────────────────────────
+
+    def _handle_interruption_queue(
+        self,
+        spec: PresentationSpec,
+        decision: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Queue intrusive targets while keeping dashboard-visible output usable."""
+        targets = list(spec.delivery.targets or ["dashboard"])
+        dashboard_visible = "dashboard" in targets or "auto" in targets
+
+        spec.metadata.setdefault("interruption", {})
+        spec.metadata["interruption"].update(
+            {
+                "decision": decision.get("decision"),
+                "reason": decision.get("reason"),
+            }
+        )
+        spec.updated_at_ms = int(time.time() * 1000)
+
+        if dashboard_visible:
+            original_targets = list(spec.delivery.targets or ["dashboard"])
+            queued_targets = [
+                target for target in targets if target not in {"dashboard", "auto"}
+            ]
+            spec.metadata["interruption"]["queued_targets"] = queued_targets
+            try:
+                spec.delivery.targets = ["dashboard"]
+                delivery_result = self._router.deliver(spec)
+            finally:
+                spec.delivery.targets = original_targets
+            spec.delivery_state = delivery_result.get("delivery_state", spec.delivery_state)
+            spec.status = (
+                PresentationStatus.DELIVERED
+                if delivery_result.get("ok")
+                else PresentationStatus.QUEUED
+            )
+            self._store.put(spec)
+            event_type = "presentation.delivered" if delivery_result.get("ok") else "presentation.queued"
+            self._publish_event(
+                event_type,
+                spec,
+                extra={"delivery": delivery_result, "interruption": decision},
+            )
+            self._audit(
+                "present" if delivery_result.get("ok") else "queue",
+                spec,
+                {"delivery": delivery_result, "interruption": decision},
+            )
+            return {
+                "ok": bool(delivery_result.get("ok")),
+                "presentation": spec.to_dict(),
+                "delivery": {
+                    **delivery_result,
+                    "suppressed": True,
+                    "suppressed_targets": queued_targets,
+                    "reason": decision.get("reason"),
+                },
+            }
+
+        spec.status = PresentationStatus.QUEUED
+        self._store.put(spec)
+        self._publish_event(
+            "presentation.queued",
+            spec,
+            extra={"interruption": decision},
+        )
+        self._audit("queue", spec, {"interruption": decision})
+        return {
+            "ok": True,
+            "presentation": spec.to_dict(),
+            "delivery": {
+                "ok": False,
+                "suppressed": True,
+                "reason": decision.get("reason"),
+            },
+        }
+
+    @staticmethod
+    def _summary_dict(spec: PresentationSpec) -> dict[str, Any]:
+        data = spec.to_dict()
+        content = data.get("content") or {}
+        try:
+            content_json = json.dumps(content, ensure_ascii=False)
+        except Exception:
+            content_json = str(content)
+        data["content_preview"] = content_json[:240]
+        data["content_size"] = len(content_json)
+        data["content"] = {}
+        data["user_actions"] = []
+        data["delivery_state"] = {}
+        data["metadata"] = {
+            "interruption": (data.get("metadata") or {}).get("interruption", {})
+        }
+        data["_summary_only"] = True
+        return data
 
     def _publish_event(self, event_type: str, spec: PresentationSpec, extra: dict[str, Any] | None = None) -> None:
         if self._event_manager is None:
