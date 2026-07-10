@@ -23,6 +23,7 @@ from aegis_ai.interaction.router import InteractionRouter
 from aegis_ai.interaction.session import SessionManager
 from aegis_ai.llm.gateway import LLMGateway
 from aegis_ai.llm.router import LLMRouter
+from aegis_ai.production_readiness import is_production_mode
 
 logger = logging.getLogger("aegis_ai.runtime")
 
@@ -265,11 +266,17 @@ def _build_runtime(config: Config) -> AegisRuntime:
     llm_router = LLMRouter(settings_store=settings_store, audit_log=audit_log)
     provider = create_llm_provider_from_settings(settings_store, audit_log=audit_log)
     if isinstance(provider, MockLLMProvider):
+        if is_production_mode():
+            raise RuntimeError(
+                "AEGIS_RUNTIME_MODE=production cannot start with MockLLMProvider. "
+                "Configure a real local or cloud LLM provider before production startup."
+            )
         llm_router.register_provider("mock", provider)
         llm_router.set_default_provider("mock")
     else:
         llm_router.register_provider("default", provider)
-        llm_router.register_provider("mock", MockLLMProvider())
+        if not is_production_mode():
+            llm_router.register_provider("mock", MockLLMProvider())
         llm_router.set_default_provider("default")
 
     prompt_registry = PromptRegistry(str(base_dir / "config" / "prompts.yaml"))

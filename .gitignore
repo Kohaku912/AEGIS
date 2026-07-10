@@ -1,73 +1,98 @@
-# Byte-compiled
+# ============================================================
+# AEGIS .gitignore
+# ============================================================
+
+# ---- Byte-compiled / Python cache ----
 __pycache__/
 *.py[cod]
 *$py.class
 
-# Virtual environments
+# ---- Virtual environments ----
 .venv/
 venv/
 env/
 
-# Distribution / packaging
+# ---- Distribution / packaging ----
 dist/
 build/
 *.egg-info/
 
-# IDE
+# ---- Linter / formatter cache ----
+.ruff_cache/
+.pytest_cache/
+.pytest*
+
+# ---- Test temp dirs ----
+.tmp-pytest-*/
+**/.pytest-tmp/
+**/.tmp-pytest-*/
+.tmp_*/
+
+# ---- IDE ----
 .vscode/
 .idea/
 *.swp
 *.swo
 
-# OS
+# ---- OS ----
 .DS_Store
 Thumbs.db
 
-# Environment
+# ---- Environment / secrets ----
 .env
 .env.*
 !.env.example
-
-# Secrets
 secrets/
 *.pem
 *.key
 credentials.json
 
-# Docker
+# ---- Docker ----
 docker-compose.override.yml
 
-# Logs
+# ---- Logs ----
 *.log
 logs/
 
-# Test coverage
-.coverage
-htmlcov/
-.pytest_cache/
-
-# Node
+# ---- Node ----
 node_modules/
 npm-debug.log*
 
-# Android
+# ---- Runtime data (ephemeral) ----
+# Root data directory (approvals, chat history, desires, world_state, etc.)
+data/
+# AI server runtime data (memory, chroma, audit DB, events, etc.)
+ai-server/data/
+# ChromaDB vector data
+**/chroma/
+
+# ---- Android build artifacts ----
 android-server/app/build/
 android-server/.gradle/
 android-server/local.properties
 
-# Proto generated
+# ---- Proto generated code ----
 protos/**/*_pb2.py
 protos/**/*_pb2_grpc.py
-
-# Rust
-pc-server/target/
 protos/**/*.pb.go
 protos/**/*_grpc.pb.go
 
-ai-server/data/*
+# ---- Deployment artifacts ----
+*.tar.gz
 
-.pytest*
-**/.pytest-tmp/
-**/.tmp-pytest-*/
-.omo/*
-.mimocode/*
+# ---- Generated / temp files ----
+*.dot
+*_audit.json
+.android_test_token.tmp
+test_flask.py
+
+# ---- Playwright MCP cache ----
+.playwright-mcp/
+
+# ---- Mimocode / agent state ----
+.mimocode/
+
+# ---- OpenCode plans/drafts ----
+.omo/
+
+*/target/

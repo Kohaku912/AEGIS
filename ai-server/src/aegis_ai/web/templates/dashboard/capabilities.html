@@ -21,6 +21,11 @@
     <div class="card"><h3>Builtin</h3><div class="value">{{ capabilities|selectattr('origin', 'equalto', 'builtin')|list|length }}</div></div>
     <div class="card"><h3>Generated</h3><div class="value">{{ capabilities|selectattr('origin', 'equalto', 'generated')|list|length }}</div></div>
     <div class="card"><h3>Requires Approval</h3><div class="value">{{ capabilities|selectattr('requires_approval')|list|length }}</div></div>
+    <div class="card" style="{% if production_status.blocker_count %}border-color:#da3633;{% endif %}">
+        <h3>Production Blockers</h3>
+        <div class="value" style="color:{% if production_status.blocker_count %}#f85149{% else %}#3fb950{% endif %};">{{ production_status.blocker_count }}</div>
+        <div style="font-size:11px;color:#8b949e;">mode: {{ production_status.runtime_mode }}</div>
+    </div>
 </div>
 
 <div class="card">
@@ -34,7 +39,12 @@
         {% for c in capabilities %}
         <tr>
             <td style="font-family:monospace;font-size:11px;max-width:250px;word-break:break-all;">{{ c.id }}</td>
-            <td style="font-weight:500;">{{ c.title }}</td>
+            <td style="font-weight:500;">
+                {{ c.title }}
+                {% if c.production_blocker %}
+                <div><span class="badge badge-red">Production Blocker</span></div>
+                {% endif %}
+            </td>
             <td><span class="badge {{ 'badge-blue' if c.origin == 'builtin' else 'badge-yellow' }}">{{ c.origin }}</span></td>
             <td>{{ c.server_id }} / {{ c.app_id }}</td>
             <td style="font-size:11px;">

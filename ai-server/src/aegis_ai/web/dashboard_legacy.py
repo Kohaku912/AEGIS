@@ -1512,8 +1512,18 @@ class DashboardApp:
         def capabilities():
             caps = []
             errors = []
+            production_report = {}
+            production_blocker_ids: set[str] = set()
 
             try:
+                from aegis_ai.production_readiness import (
+                    blocker_capability_ids,
+                    load_production_blocker_report,
+                    production_blocker_count,
+                    runtime_mode,
+                )
+                production_report = load_production_blocker_report()
+                production_blocker_ids = blocker_capability_ids(production_report)
                 catalog = getattr(self._runtime, "capability_catalog", None)
                 manifests = catalog.list_all() if catalog is not None else self._runtime.folder_registry.list_all()
                 for m in manifests:
@@ -1538,16 +1548,37 @@ class DashboardApp:
                         "requires_approval": bool(m.requires_approval),
                         "side_effects": m.side_effects,
                         "tags": m.tags,
+                        "production_blocker": m.capability_id in production_blocker_ids,
                     })
                 errors = self._runtime.folder_registry.errors()
             except Exception as exc:
                 logger.warning("Capabilities load failed: %s", exc)
 
             risk_levels = ["READ_ONLY", "SAFE_ACTION", "APPROVAL_REQUIRED", "HIGH_RISK", "FORBIDDEN"]
+            try:
+                production_status = {
+                    "runtime_mode": runtime_mode(),
+                    "blocker_count": production_blocker_count(production_report),
+                    "report_corrupted": bool(production_report.get("corrupted")),
+                }
+            except Exception:
+                production_status = {"runtime_mode": "unknown", "blocker_count": 0, "report_corrupted": False}
 
             return render_template("dashboard/capabilities.html",
-                capabilities=caps, risk_levels=risk_levels, errors=errors,
+                capabilities=caps,
+                risk_levels=risk_levels,
+                errors=errors,
+                production_status=production_status,
             )
+
+        @app.route("/api/production/readiness")
+        def api_production_readiness():
+            try:
+                from aegis_ai.production_readiness import load_production_blocker_report, runtime_mode
+                report = load_production_blocker_report()
+                return jsonify({"runtime_mode": runtime_mode(), **report})
+            except Exception as exc:
+                return jsonify({"error": str(exc), "blockers": []}), 500
 
         @app.route("/api/capabilities/reload", methods=["POST"])
         def api_capabilities_reload():
