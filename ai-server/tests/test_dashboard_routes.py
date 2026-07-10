@@ -40,6 +40,7 @@ def _runtime(tmp_path):
     catalog = CapabilityCatalog(
         capabilities_dir=str(data_dir / "capabilities"),
         apps_dir=str(data_dir / "apps"),
+        data_dir=str(data_dir),
     )
     registry = ToolRegistry()
     audit_log = AuditLog(path=str(data_dir / "audit.jsonl"))
@@ -342,11 +343,15 @@ def test_capability_risk_update_allows_127_loopback(monkeypatch, tmp_path) -> No
         environ_base={"REMOTE_ADDR": "127.0.0.1"},
     )
     payload = response.get_json()
-    updated = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest_after = json.loads(manifest_path.read_text(encoding="utf-8"))
+    override_path = tmp_path / "data" / "settings" / "capability_overrides.json"
+    overrides = json.loads(override_path.read_text(encoding="utf-8"))
 
     assert response.status_code == 200
     assert payload["ok"] is True
-    assert updated["risk"]["level"] == "safe"
+    assert manifest_after["risk"]["level"] == "low"
+    assert overrides["overrides"]["pc-server.test.sample"]["risk_level"] == "SAFE_ACTION"
+    assert payload["effective"]["risk_level"] == "safe"
 
 
 def test_risk_label_normalization_supports_manifest_variants() -> None:
@@ -492,11 +497,14 @@ def test_capability_risk_update_allows_non_loopback_and_updates_manifest(monkeyp
         headers={"Origin": "http://evil.example"},
         environ_base={"REMOTE_ADDR": "203.0.113.9"},
     )
-    updated = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest_after = json.loads(manifest_path.read_text(encoding="utf-8"))
+    override_path = tmp_path / "data" / "settings" / "capability_overrides.json"
+    overrides = json.loads(override_path.read_text(encoding="utf-8"))
 
     assert response.status_code == 200
     assert response.get_json()["ok"] is True
-    assert updated["risk"]["level"] == "safe"
+    assert manifest_after["risk"]["level"] == "low"
+    assert overrides["overrides"]["pc-server.test.remote"]["risk_level"] == "SAFE_ACTION"
 
 
 def test_chat_prompt_includes_actual_server_status(monkeypatch, tmp_path) -> None:
@@ -555,19 +563,20 @@ def test_capability_risk_update_can_weaken_forbidden_and_clears_override(monkeyp
         json={"capability_id": "pc-server.test.blocked", "risk_level": "SAFE_ACTION"},
         headers={"Origin": "https://example.com"},
     )
-    updated = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest_after = json.loads(manifest_path.read_text(encoding="utf-8"))
+    override_path = tmp_path / "data" / "settings" / "capability_overrides.json"
+    overrides = json.loads(override_path.read_text(encoding="utf-8"))
 
     assert response.status_code == 200
-    assert updated["risk"]["level"] == "safe"
+    assert manifest_after["risk"]["level"] == "critical"
+    assert overrides["overrides"]["pc-server.test.blocked"]["risk_level"] == "SAFE_ACTION"
     assert "pc-server.test.blocked" not in rt.policy_engine._risk_overrides
     cap = rt.tool_registry.get_capability("pc-server.test.blocked")
     assert cap is not None
     assert cap.risk_level == RiskLevel.SAFE_ACTION
 
 
-def test_capabilities_page_displays_manifest_risk_not_override(monkeypatch, tmp_path) -> None:
-    from aegis_schema.models import RiskLevel
-
+def test_capabilities_page_displays_manifest_override_and_effective_risk(monkeypatch, tmp_path) -> None:
     rt = _runtime(tmp_path)
     client = dashboard_routes.DashboardApp(runtime=rt).app.test_client()
     manifest_path = tmp_path / "data" / "capabilities" / "builtin" / "pc-server" / "test" / "visible.json"
@@ -585,14 +594,21 @@ def test_capabilities_page_displays_manifest_risk_not_override(monkeypatch, tmp_
         ),
         encoding="utf-8",
     )
-    rt.policy_engine.set_risk_override("pc-server.test.visible", RiskLevel.FORBIDDEN)
     dashboard_routes._reload_capabilities_runtime(rt)
+    client.post(
+        "/api/capabilities/risk",
+        json={"capability_id": "pc-server.test.visible", "risk_level": "APPROVAL_REQUIRED"},
+    )
 
     response = client.get("/dashboard/capabilities")
 
     assert response.status_code == 200
     assert b'id="risk-pc-server.test.visible"' in response.data
-    assert b'data-saved-risk="SAFE_ACTION"' in response.data
+    assert b"Manifest" in response.data
+    assert b"Override" in response.data
+    assert b"Effective" in response.data
+    assert b"OVERRIDE" in response.data
+    assert b'data-saved-risk="APPROVAL_REQUIRED"' in response.data
 
 
 def test_dashboard_audit_shows_llm_tool_timeline(monkeypatch, tmp_path) -> None:

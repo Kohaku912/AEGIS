@@ -15,8 +15,11 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
+from pathlib import Path
 from typing import Any
 
+from aegis_ai.capability_overrides import CapabilityOverrideStore
 from aegis_ai.folder_registry import (
     CapabilityManifest,
     ExecutionResult,
@@ -44,8 +47,8 @@ _RISK_LABEL_TO_NAME = {
 _RISK_NAME_TO_JSON_LABEL = {
     "READ_ONLY": "low",
     "SAFE_ACTION": "safe",
-    "APPROVAL_REQUIRED": "medium",
-    "HIGH_RISK": "high",
+    "APPROVAL_REQUIRED": "approval_required",
+    "HIGH_RISK": "high_risk",
     "FORBIDDEN": "critical",
 }
 
@@ -56,6 +59,14 @@ _PREFIX_MAP = {
     "android-server": "android",
     "room-server": "room",
     "dev-server": "dev",
+}
+
+_RISK_ORDER = {
+    "READ_ONLY": 1,
+    "SAFE_ACTION": 2,
+    "APPROVAL_REQUIRED": 3,
+    "HIGH_RISK": 4,
+    "FORBIDDEN": 5,
 }
 
 
@@ -81,12 +92,56 @@ def risk_level_from_label(label: str):
 class CapabilityCatalog:
     """Unified capability catalog — single source of truth."""
 
-    def __init__(self, capabilities_dir: str, apps_dir: str = "") -> None:
+    def __init__(
+        self,
+        capabilities_dir: str,
+        apps_dir: str = "",
+        override_store: CapabilityOverrideStore | None = None,
+        data_dir: str | None = None,
+    ) -> None:
         self._cap_reg = FolderCapabilityRegistry(capabilities_dir)
         self._exec_reg = ExecutorRegistry(apps_dir) if apps_dir else None
+        override_path = Path(data_dir or "data") / "settings" / "capability_overrides.json"
+        self._override_store = override_store or CapabilityOverrideStore(override_path)
         self._aliases: dict[str, str] = {}
         self._lock = threading.RLock()
+        self._apply_overrides()
         self._load_aliases()
+
+    def _apply_overrides(self) -> None:
+        """Apply persisted user overrides to manifests after disk load."""
+        with self._lock:
+            for manifest in self._cap_reg.list_all():
+                manifest.risk_level = manifest.manifest_risk_level
+                manifest.requires_approval = manifest.manifest_requires_approval
+                manifest.override = None
+
+                override = self._override_store.get(manifest.capability_id)
+                if override is not None:
+                    if override.risk_level:
+                        manifest.risk_level = override.risk_level
+                    if override.requires_approval is not None:
+                        manifest.requires_approval = bool(override.requires_approval)
+                    if override.approval_mode:
+                        manifest.approval_mode = override.approval_mode
+                    if override.enabled is not None:
+                        manifest.enabled = bool(override.enabled)
+                    manifest.override = override.to_dict()
+
+                if self._override_store.corrupted:
+                    manifest.risk_level = self._stricter_risk(manifest.risk_level, "APPROVAL_REQUIRED")
+                    manifest.requires_approval = True
+                    manifest.override = {
+                        "corrupted_store": True,
+                        "safe_fallback": "approval_required",
+                        "updated_at": int(time.time() * 1000),
+                    }
+
+    @staticmethod
+    def _stricter_risk(left: str, right: str) -> str:
+        left_name = normalize_risk_label(left)
+        right_name = normalize_risk_label(right)
+        return left_name if _RISK_ORDER.get(left_name, 0) >= _RISK_ORDER.get(right_name, 0) else right_name
 
     def _load_aliases(self) -> None:
         """Build old-ID → canonical-ID mappings for backward compatibility."""
@@ -103,7 +158,9 @@ class CapabilityCatalog:
     def reload(self) -> dict[str, Any]:
         """Reload capabilities from disk and rebuild aliases."""
         with self._lock:
+            self._override_store.reload()
             result = self._cap_reg.reload()
+            self._apply_overrides()
             self._aliases.clear()
             self._load_aliases()
             if self._exec_reg:
@@ -129,7 +186,7 @@ class CapabilityCatalog:
     def list_for_llm(self) -> list[dict[str, Any]]:
         """Get capability list formatted for LLM consumption."""
         with self._lock:
-            manifests = self._cap_reg.list_all()
+            manifests = [m for m in self._cap_reg.list_all() if m.enabled]
         return [
             {
                 "id": m.capability_id,
@@ -160,7 +217,7 @@ class CapabilityCatalog:
         """
         tools = []
         with self._lock:
-            manifests = self._cap_reg.list_all()
+            manifests = [m for m in self._cap_reg.list_all() if m.enabled]
         for m in manifests:
             if cap_ids and m.capability_id not in cap_ids:
                 continue
@@ -184,7 +241,7 @@ class CapabilityCatalog:
         """Return schema-free summaries for LLM lightweight catalogs."""
         ids = set(cap_ids) if cap_ids is not None else None
         with self._lock:
-            manifests = self._cap_reg.list_all()
+            manifests = [m for m in self._cap_reg.list_all() if m.enabled]
         summaries = []
         for m in manifests:
             if ids is not None and m.capability_id not in ids:
@@ -214,6 +271,13 @@ class CapabilityCatalog:
             "aliases": list(manifest.aliases),
             "examples": list(manifest.examples),
             "risk": manifest.risk_level,
+            "enabled": manifest.enabled,
+            "requires_approval": manifest.requires_approval,
+            "manifest": {
+                "risk_level": manifest.manifest_risk_level,
+                "requires_approval": bool(manifest.manifest_requires_approval),
+            },
+            "override": dict(manifest.override or {}),
             "input_schema": manifest.input_schema or {"type": "object", "properties": {}},
             "notes": manifest.extra.get("notes", ""),
         }
@@ -237,6 +301,8 @@ class CapabilityCatalog:
         with self._lock:
             manifests = self._cap_reg.list_all()
         for m in manifests:
+            if not getattr(m, "enabled", True):
+                continue
             risk_level = risk_level_from_label(m.risk_level)
             if risk_level == RiskLevel.FORBIDDEN:
                 continue
@@ -277,6 +343,34 @@ class CapabilityCatalog:
     def get_folder_registry(self) -> FolderCapabilityRegistry:
         """Return the underlying folder capability registry."""
         return self._cap_reg
+
+    def get_override_store(self) -> CapabilityOverrideStore:
+        """Return the persistent override store."""
+        return self._override_store
+
+    def risk_details(self, cap_id: str) -> dict[str, Any] | None:
+        """Return manifest, override, and effective risk policy for a capability."""
+        manifest = self.resolve(cap_id)
+        if manifest is None:
+            return None
+        return {
+            "capability_id": manifest.capability_id,
+            "manifest": {
+                "risk_level": manifest.manifest_risk_level,
+                "requires_approval": bool(manifest.manifest_requires_approval),
+                "approval_mode": "",
+                "enabled": True,
+            },
+            "override": dict(manifest.override or {}),
+            "effective": {
+                "risk_level": risk_json_label(manifest.risk_level),
+                "requires_approval": bool(manifest.requires_approval),
+                "approval_mode": manifest.approval_mode,
+                "enabled": bool(manifest.enabled),
+            },
+            "override_active": bool(manifest.override),
+            "override_store_corrupted": bool(self._override_store.corrupted),
+        }
 
     def count(self) -> int:
         with self._lock:

@@ -308,3 +308,137 @@ def test_task_execution_engine_fails_step_when_completion_verification_fails(tmp
     assert step.status == StepStatus.FAILED
     assert tm.get_task(task_id)["status"] == "failed"
     assert "screen_changed" in response.text
+
+
+def test_task_execution_engine_completes_after_verification_service_verified(tmp_path) -> None:
+    from aegis_ai.task.execution_engine import TaskExecutionEngine
+    from aegis_ai.task.task_manager import TaskManager
+    from aegis_ai.task_plan import PlanStep, TaskPlan, StepStatus
+    from aegis_ai.verification import VerificationRequest, VerificationResult, VerificationStatus
+    from tool_broker import InvokeStatus
+
+    class FakeVerificationService:
+        def __init__(self) -> None:
+            self.request = None
+
+        def build_request(self, tool_request, tool_result):
+            return VerificationRequest(
+                request_id=tool_request.request_id,
+                task_id=tool_request.task_id,
+                capability_id=tool_request.capability_id,
+                execution_output=tool_result.output,
+            )
+
+        def verify(self, request):
+            self.request = request
+            assert request.completion["mode"] == "all"
+            assert request.completion_conditions[0].name == "ok_field"
+            return VerificationResult(
+                verification_id="ver_ok",
+                request_id=request.request_id,
+                status=VerificationStatus.VERIFIED,
+                confidence=0.9,
+                reason="verified in test",
+            )
+
+        def record_verification(self, request, result):
+            return None
+
+    result = SimpleNamespace(
+        success=True,
+        status=InvokeStatus.SUCCESS,
+        output={"ok": True},
+        error="",
+        approval_id="",
+        request_id="req_verified",
+        verification_status="pending",
+    )
+    catalog = SimpleNamespace(resolve=lambda _cap_id: SimpleNamespace(completion={
+        "mode": "all",
+        "checks": [{"name": "ok_field", "observable": "output_field", "field": "ok"}],
+    }))
+    broker = SimpleNamespace(execute=lambda _request: result, _catalog=catalog)
+    verification = FakeVerificationService()
+    tm = TaskManager(data_dir=str(tmp_path / "tasks"))
+    task = tm.create_task(title="verify", source="test")
+    task_id = task["task_id"]
+    tm.start_task(task_id)
+    step = PlanStep(
+        step_id="s1",
+        description="execute and verify",
+        action_type="tool_invoke",
+        capability_id="pc-server.test.ok",
+    )
+
+    response = TaskExecutionEngine(
+        task_manager=tm,
+        tool_broker=broker,
+        verification_service=verification,
+    ).execute_task(task_id, TaskPlan(plan_id="p", steps=[step]))
+
+    assert step.status == StepStatus.COMPLETED
+    assert tm.get_task(task_id)["status"] == "completed"
+    assert verification.request is not None
+    assert "OK" in response.text
+
+
+def test_task_execution_engine_pauses_when_verification_requires_observation(tmp_path) -> None:
+    from aegis_ai.task.execution_engine import TaskExecutionEngine
+    from aegis_ai.task.task_manager import TaskManager
+    from aegis_ai.task_plan import PlanStep, TaskPlan, StepStatus
+    from aegis_ai.verification import VerificationRequest, VerificationResult, VerificationStatus
+    from tool_broker import InvokeStatus
+
+    class FakeVerificationService:
+        def build_request(self, tool_request, tool_result):
+            return VerificationRequest(
+                request_id=tool_request.request_id,
+                task_id=tool_request.task_id,
+                capability_id=tool_request.capability_id,
+                execution_output=tool_result.output,
+            )
+
+        def verify(self, request):
+            return VerificationResult(
+                verification_id="ver_observe",
+                request_id=request.request_id,
+                status=VerificationStatus.REQUIRES_OBSERVATION,
+                confidence=0.2,
+                reason="ui_tree unavailable",
+                suggested_recovery="ask user to confirm screen",
+            )
+
+        def record_verification(self, request, result):
+            return None
+
+    result = SimpleNamespace(
+        success=True,
+        status=InvokeStatus.SUCCESS,
+        output={"ok": True},
+        error="",
+        approval_id="",
+        request_id="req_observe",
+        verification_status="pending",
+    )
+    broker = SimpleNamespace(execute=lambda _request: result, _catalog=SimpleNamespace(resolve=lambda _cap_id: None))
+    tm = TaskManager(data_dir=str(tmp_path / "tasks"))
+    task = tm.create_task(title="observe", source="test")
+    task_id = task["task_id"]
+    tm.start_task(task_id)
+    step = PlanStep(
+        step_id="s1",
+        description="tap and observe",
+        action_type="tool_invoke",
+        capability_id="android-server.ui.tap",
+    )
+
+    response = TaskExecutionEngine(
+        task_manager=tm,
+        tool_broker=broker,
+        verification_service=FakeVerificationService(),
+    ).execute_task(task_id, TaskPlan(plan_id="p", steps=[step]))
+
+    assert step.status == StepStatus.REQUIRES_OBSERVATION
+    assert tm.get_step(task_id, "s1")["status"] == "requires_observation"
+    assert tm.get_task(task_id)["status"] == "paused"
+    assert "OBSERVE" in response.text

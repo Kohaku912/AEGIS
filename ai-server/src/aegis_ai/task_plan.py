@@ -32,6 +32,7 @@ class StepStatus(Enum):
     RUNNING = auto()
     COMPLETED = auto()
     FAILED = auto()
+    REQUIRES_OBSERVATION = auto()
     SKIPPED = auto()
     BLOCKED = auto()
     NEEDS_APPROVAL = auto()

@@ -434,6 +434,17 @@ class ToolBroker:
                 started_at=request.created_at,
                 finished_at=int(time.time() * 1000),
             )
+        if not bool(getattr(manifest, "enabled", True)):
+            result = ToolExecutionResult(
+                request_id=request.request_id,
+                status=InvokeStatus.DENIED,
+                error=f"Capability '{request.capability_id}' is disabled by user override.",
+                started_at=request.created_at,
+                finished_at=int(time.time() * 1000),
+                policy_decision="DISABLED_BY_OVERRIDE",
+            )
+            self._record_audit(request, result)
+            return result
         request.capability_id = manifest.capability_id
         validation_error = self._validate_arguments(manifest, request.arguments)
         if validation_error:

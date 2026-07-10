@@ -33,7 +33,7 @@ _JST = timezone(timedelta(hours=9))
 _DATA_DIR = str(Path(__file__).resolve().parent.parent.parent.parent / "data")
 
 from flask import Flask, jsonify, redirect, render_template, request
-from aegis_ai.capability_catalog import normalize_risk_label, risk_json_label, risk_level_from_label
+from aegis_ai.capability_catalog import normalize_risk_label, risk_level_from_label
 from aegis_ai.llm.memory_context import build_shared_memory_context
 from aegis_ai.web.auth import install_dashboard_token_auth
 from aegis_ai.web.chat_history import ChatHistoryStore, entry_to_mobile_messages
@@ -107,6 +107,11 @@ def _sync_tool_registry_from_catalog(runtime: Any) -> dict[str, int]:
     registered = 0
     skipped = 0
     for manifest in manifests:
+        if not getattr(manifest, "enabled", True):
+            registry.unregister_capability(manifest.capability_id)
+            unregistered += 1
+            skipped += 1
+            continue
         risk_level = risk_level_from_label(manifest.risk_level)
         if risk_level == RiskLevel.FORBIDDEN:
             registry.unregister_capability(manifest.capability_id)
@@ -1506,19 +1511,28 @@ class DashboardApp:
             errors = []
 
             try:
-                for m in self._runtime.folder_registry.list_all():
+                catalog = getattr(self._runtime, "capability_catalog", None)
+                manifests = catalog.list_all() if catalog is not None else self._runtime.folder_registry.list_all()
+                for m in manifests:
                     risk = normalize_risk_label(m.risk_level)
+                    details = catalog.risk_details(m.capability_id) if catalog is not None else {}
                     caps.append({
                         "id": m.capability_id,
                         "short_name": m.short_name,
                         "title": m.title,
                         "description": m.description,
                         "risk_level": risk,
+                        "manifest_risk_level": getattr(m, "manifest_risk_level", m.risk_level),
+                        "manifest_requires_approval": bool(getattr(m, "manifest_requires_approval", m.requires_approval)),
+                        "override": dict(getattr(m, "override", None) or {}),
+                        "override_active": bool((details or {}).get("override_active")),
+                        "effective": (details or {}).get("effective", {}),
+                        "enabled": bool(getattr(m, "enabled", True)),
                         "server_id": m.server_id,
                         "app_id": m.app_id,
                         "action": m.action,
                         "origin": m.origin,
-                        "requires_approval": risk in ("APPROVAL_REQUIRED", "HIGH_RISK", "FORBIDDEN"),
+                        "requires_approval": bool(m.requires_approval),
                         "side_effects": m.side_effects,
                         "tags": m.tags,
                     })
@@ -1540,64 +1554,141 @@ class DashboardApp:
             except Exception as exc:
                 return jsonify({"ok": False, "error": str(exc)}), 500
 
-        @app.route("/api/capabilities/risk", methods=["POST"])
-        def api_capabilities_risk():
-            from flask import request
-
-            data = request.get_json(silent=True) or {}
-            cap_id = data.get("capability_id", "").strip()
-            risk = data.get("risk_level", "").strip()
-            reason = data.get("reason", "").strip() or "Updated via dashboard"
-
-            if not cap_id or not risk:
-                return jsonify({"error": "capability_id and risk_level required"}), 400
-
+        def _publish_capability_event(event_type: str, cap_id: str, payload: dict[str, Any]) -> None:
             try:
-                catalog = self._runtime.tool_broker._catalog
+                from aegis_schema.models import Event, EventPriority, ServerType
+
+                event_manager = getattr(self._runtime, "event_manager", None)
+                if event_manager is None:
+                    return
+                event_manager.publish(Event(
+                    event_id=f"{event_type}-{cap_id}-{int(time.time() * 1000)}",
+                    event_type=event_type,
+                    source_server_type=ServerType.AI,
+                    source_server_id="dashboard",
+                    timestamp_ms=int(time.time() * 1000),
+                    payload_json=json.dumps(payload, ensure_ascii=False),
+                    priority=EventPriority.NORMAL,
+                    correlation_id=cap_id,
+                    attributes={"capability_id": cap_id},
+                ))
+            except Exception:
+                logger.debug("Failed to publish capability override event", exc_info=True)
+
+        def _update_capability_override(cap_id: str, data: dict[str, Any]) -> tuple[dict[str, Any], int]:
+            catalog = getattr(self._runtime, "capability_catalog", None)
+            if catalog is None:
+                return {"error": "CapabilityCatalog unavailable"}, 503
+            manifest = catalog.resolve(cap_id)
+            if not manifest:
                 _reload_capabilities_runtime(self._runtime)
                 manifest = catalog.resolve(cap_id)
-                if not manifest:
-                    return jsonify({"error": f"Capability '{cap_id}' not found"}), 404
+            if not manifest:
+                return {"error": f"Capability '{cap_id}' not found"}, 404
 
-                normalized_risk = normalize_risk_label(risk, default="")
-                if not normalized_risk:
-                    return jsonify({"error": f"Invalid risk level: {risk}"}), 400
-                risk = normalized_risk
-                json_risk = risk_json_label(risk)
+            risk = data.get("risk_level")
+            requires_approval = data.get("requires_approval")
+            approval_mode = data.get("approval_mode")
+            enabled = data.get("enabled")
+            reason = str(data.get("reason") or "Updated via dashboard")
+            updated_by = str(data.get("updated_by") or "dashboard")
 
-                import json as _json
-                file_path = Path(manifest.file_path)
-                with open(file_path, encoding="utf-8-sig") as f:
-                    cap_data = _json.load(f)
+            normalized_risk = normalize_risk_label(str(risk), default="") if risk is not None else None
+            if risk is not None and not normalized_risk:
+                return {"error": f"Invalid risk level: {risk}"}, 400
+            if requires_approval is None and normalized_risk is not None:
+                requires_approval = normalized_risk in {"APPROVAL_REQUIRED", "HIGH_RISK", "FORBIDDEN"}
 
-                current_json_risk = str(cap_data.get("risk", {}).get("level", "")).lower()
-                current_risk = normalize_risk_label(current_json_risk, default=current_json_risk.upper())
+            before = catalog.risk_details(cap_id)
+            override = catalog.get_override_store().upsert(
+                manifest.capability_id,
+                risk_level=normalized_risk,
+                requires_approval=requires_approval if requires_approval is not None else None,
+                approval_mode=approval_mode if approval_mode is not None else None,
+                enabled=enabled if enabled is not None else None,
+                updated_by=updated_by,
+                reason=reason,
+            )
+            policy_engine = getattr(self._runtime, "policy_engine", None)
+            if policy_engine is not None and hasattr(policy_engine, "clear_risk_override"):
+                policy_engine.clear_risk_override(manifest.capability_id)
+            reload_result = _reload_capabilities_runtime(self._runtime)
+            after = catalog.risk_details(manifest.capability_id)
 
-                if "risk" not in cap_data:
-                    cap_data["risk"] = {}
-                cap_data["risk"]["level"] = json_risk
-                cap_data["risk"]["requires_approval"] = json_risk in ("medium", "high", "critical")
+            self._audit_log.log_decision(
+                "capability.override.updated",
+                manifest.capability_id,
+                "ALLOW",
+                reason=reason,
+                actor=updated_by,
+                detail={"before": before, "after": after, "override": override.to_dict()},
+            )
+            _publish_capability_event("capability.override.updated", manifest.capability_id, {"before": before, "after": after})
+            _publish_capability_event("capability.effective_policy.changed", manifest.capability_id, {"before": before, "after": after})
+            return {"ok": True, **(after or {}), "reload": reload_result}, 200
 
-                with open(file_path, "w", encoding="utf-8") as f:
-                    _json.dump(cap_data, f, indent=2, ensure_ascii=False)
+        @app.route("/api/capabilities/<path:capability_id>/risk")
+        def api_capability_risk_get(capability_id: str):
+            catalog = getattr(self._runtime, "capability_catalog", None)
+            details = catalog.risk_details(capability_id) if catalog is not None else None
+            if details is None:
+                return jsonify({"error": f"Capability '{capability_id}' not found"}), 404
+            return jsonify(details)
 
-                if hasattr(self._runtime.policy_engine, "clear_risk_override"):
-                    self._runtime.policy_engine.clear_risk_override(cap_id)
+        @app.route("/api/capabilities/<path:capability_id>/risk", methods=["POST"])
+        def api_capability_risk_post(capability_id: str):
+            data = request.get_json(silent=True) or {}
+            payload, status = _update_capability_override(capability_id.strip(), data)
+            return jsonify(payload), status
 
-                reload_result = _reload_capabilities_runtime(self._runtime)
-                self._audit_log.log_decision(
-                    "capability_risk_change",
-                    cap_id,
-                    "ALLOW",
-                    reason=reason,
-                    actor="dashboard",
-                    detail={"from": current_risk, "to": risk, "file": str(file_path)},
-                )
+        @app.route("/api/capabilities/<path:capability_id>/risk/reset", methods=["POST"])
+        def api_capability_risk_reset(capability_id: str):
+            catalog = getattr(self._runtime, "capability_catalog", None)
+            if catalog is None:
+                return jsonify({"error": "CapabilityCatalog unavailable"}), 503
+            manifest = catalog.resolve(capability_id)
+            if not manifest:
+                _reload_capabilities_runtime(self._runtime)
+                manifest = catalog.resolve(capability_id)
+            if not manifest:
+                return jsonify({"error": f"Capability '{capability_id}' not found"}), 404
+            before = catalog.risk_details(manifest.capability_id)
+            removed = catalog.get_override_store().reset(manifest.capability_id)
+            policy_engine = getattr(self._runtime, "policy_engine", None)
+            if policy_engine is not None and hasattr(policy_engine, "clear_risk_override"):
+                policy_engine.clear_risk_override(manifest.capability_id)
+            reload_result = _reload_capabilities_runtime(self._runtime)
+            after = catalog.risk_details(manifest.capability_id)
+            self._audit_log.log_decision(
+                "capability.override.reset",
+                manifest.capability_id,
+                "ALLOW",
+                reason="Reset capability override to manifest",
+                actor="dashboard",
+                detail={"before": before, "after": after, "removed": removed},
+            )
+            _publish_capability_event("capability.override.reset", manifest.capability_id, {"before": before, "after": after})
+            _publish_capability_event("capability.effective_policy.changed", manifest.capability_id, {"before": before, "after": after})
+            return jsonify({"ok": True, "removed": removed, **(after or {}), "reload": reload_result})
 
-                return jsonify({"ok": True, "capability_id": cap_id, "risk_level": risk, **reload_result})
-            except Exception as exc:
-                logger.warning("Capability risk update error: %s", exc)
-                return jsonify({"error": str(exc)}), 500
+        @app.route("/api/capabilities/overrides")
+        def api_capability_overrides():
+            catalog = getattr(self._runtime, "capability_catalog", None)
+            if catalog is None:
+                return jsonify({"error": "CapabilityCatalog unavailable"}), 503
+            return jsonify({
+                "overrides": catalog.get_override_store().list(),
+                "corrupted": bool(catalog.get_override_store().corrupted),
+            })
+
+        @app.route("/api/capabilities/risk", methods=["POST"])
+        def api_capabilities_risk():
+            data = request.get_json(silent=True) or {}
+            cap_id = str(data.get("capability_id") or "").strip()
+            if not cap_id:
+                return jsonify({"error": "capability_id required"}), 400
+            payload, status = _update_capability_override(cap_id, data)
+            return jsonify(payload), status
 
         @app.route("/api/capabilities/use", methods=["POST"])
         def api_capabilities_use():
@@ -1643,7 +1734,13 @@ class DashboardApp:
                     "origin": m.origin,
                     "risk_level": m.risk_level,
                     "requires_approval": m.requires_approval,
-                } for m in self._runtime.folder_registry.list_all()]
+                    "enabled": bool(getattr(m, "enabled", True)),
+                    "manifest": {
+                        "risk_level": normalize_risk_label(getattr(m, "manifest_risk_level", m.risk_level)),
+                        "requires_approval": bool(getattr(m, "manifest_requires_approval", m.requires_approval)),
+                    },
+                    "override": dict(getattr(m, "override", None) or {}),
+                } for m in self._runtime.capability_catalog.list_all()]
                 return jsonify({"capabilities": caps, "count": len(caps)})
             except Exception as exc:
                 return jsonify({"error": str(exc)}), 500
@@ -1741,12 +1838,30 @@ class DashboardApp:
             page = int(flask_req.args.get("page", 1))
             view = flask_req.args.get("view", "grouped")
             per_page = 20
-            group_result = self._runtime.audit_manager.list_groups(page=page, per_page=per_page)
-            groups = group_result.get("groups", [])
-            result = self._runtime.audit_manager.list_recent(limit=per_page, page=page)
-            entries = result.get("entries", [])
-            total = result.get("total", 0)
-            total_pages = group_result.get("total_pages", 1) if view != "raw" else result.get("total_pages", 1)
+            audit_manager = getattr(self._runtime, "audit_manager", None)
+            if (
+                audit_manager is not None
+                and hasattr(audit_manager, "list_groups")
+                and hasattr(audit_manager, "list_recent")
+            ):
+                group_result = audit_manager.list_groups(page=page, per_page=per_page)
+                groups = group_result.get("groups", [])
+                result = audit_manager.list_recent(limit=per_page, page=page)
+                entries = result.get("entries", [])
+                total = result.get("total", 0)
+                total_pages = group_result.get("total_pages", 1) if view != "raw" else result.get("total_pages", 1)
+                if hasattr(audit_manager, "read_recent_for_dashboard"):
+                    all_entries = audit_manager.read_recent_for_dashboard(max_entries=5000)
+                else:
+                    all_entries = entries
+            else:
+                all_entries = _load_audit_entries()
+                groups = []
+                total = len(all_entries)
+                start = max(0, (page - 1) * per_page)
+                entries = all_entries[start:start + per_page]
+                total_pages = max(1, (total + per_page - 1) // per_page)
+                group_result = {"total": total, "total_pages": total_pages}
             for entry in entries:
                 entry["time_str"] = _format_timestamp_ms(entry.get("timestamp_ms", 0))
                 detail = entry.get("detail", {})
@@ -1759,7 +1874,6 @@ class DashboardApp:
                     entry["detail_summary"] = _truncate_text(detail, 100)
                 entry["detail_pretty"] = _pretty_json(detail)
             action_counts: dict[str, int] = {}
-            all_entries = self._runtime.audit_manager.read_recent_for_dashboard(max_entries=5000)
             for e in all_entries:
                 action = e.get("action", "unknown")
                 action_counts[action] = action_counts.get(action, 0) + 1
