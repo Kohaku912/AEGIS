@@ -13,13 +13,23 @@
         "description": "Discord RPC activity payload"
       }
     },
-    "required": ["activity"]
+    "required": [
+      "activity"
+    ]
   },
   "risk": {
-    "level": "medium",
-    "requires_approval": true,
-    "side_effects": ["external_service_operation", "discord_presence_change"]
+    "level": "safe",
+    "requires_approval": false,
+    "side_effects": [
+      "external_service_operation",
+      "discord_presence_change"
+    ]
   },
-  "tags": ["discord", "activity", "presence", "approval_required"],
+  "tags": [
+    "discord",
+    "activity",
+    "presence",
+    "approval_required"
+  ],
   "tcp_command_json": "discord_set_activity"
 }

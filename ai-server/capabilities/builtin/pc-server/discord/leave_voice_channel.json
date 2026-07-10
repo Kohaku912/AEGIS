@@ -10,10 +10,19 @@
     "properties": {}
   },
   "risk": {
-    "level": "medium",
-    "requires_approval": true,
-    "side_effects": ["external_service_operation", "discord_voice_call_leave", "presence_change"]
+    "level": "safe",
+    "requires_approval": false,
+    "side_effects": [
+      "external_service_operation",
+      "discord_voice_call_leave",
+      "presence_change"
+    ]
   },
-  "tags": ["discord", "voice", "call", "approval_required"],
+  "tags": [
+    "discord",
+    "voice",
+    "call",
+    "approval_required"
+  ],
   "tcp_command_json": "discord_leave_voice_channel"
 }
