@@ -20,6 +20,7 @@ dependencies = [
     "chromadb>=1.0",
     "openai>=2.0",
     "cryptography>=42.0",
+    "webauthn>=2.0",
 ]
 
 [project.optional-dependencies]

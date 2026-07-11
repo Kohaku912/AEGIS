@@ -165,6 +165,12 @@ class OrangePiGpioIrProvider(MockLightIrProvider):
 
 def create_light_provider() -> LightProvider:
     provider = os.environ.get("AEGIS_ROOM_LIGHT_PROVIDER", "mock").strip().lower()
+    runtime_mode = os.environ.get("AEGIS_RUNTIME_MODE", "development").strip().lower()
+    if runtime_mode == "production" and provider in {"", "mock"}:
+        raise RuntimeError(
+            "AEGIS_ROOM_LIGHT_PROVIDER=mock is not allowed when AEGIS_RUNTIME_MODE=production; "
+            "disable room-server or configure a real provider."
+        )
     default_device_id = os.environ.get("AEGIS_ROOM_DEVICE_ID", "light-main")
     if provider == "gpio":
         return OrangePiGpioIrProvider(
@@ -172,4 +178,3 @@ def create_light_provider() -> LightProvider:
             default_device_id=default_device_id,
         )
     return MockLightIrProvider(default_device_id=default_device_id)
-

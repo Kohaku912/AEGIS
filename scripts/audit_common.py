@@ -115,7 +115,13 @@ def read_overrides(report_dir: Path = REPORT_DIR) -> dict[str, str]:
             return {}
         data = json.loads(path.read_text(encoding="utf-8"))
         if isinstance(data, dict):
-            return {str(k): str(v) for k, v in data.items()}
+            overrides: dict[str, str] = {}
+            for key, value in data.items():
+                if isinstance(value, dict):
+                    overrides[str(key)] = str(value.get("classification") or "")
+                else:
+                    overrides[str(key)] = str(value)
+            return {k: v for k, v in overrides.items() if v}
     except Exception:
         return {}
     return {}
@@ -139,9 +145,15 @@ def classify(path: str, term: str, text: str) -> tuple[str, str]:
     lower_text = text.lower()
     if "/tests/" in lower_path or lower_path.startswith("tests/") or "/test_" in lower_path:
         return "test_only", "test path"
+    if "/tests/mocks/" in lower_path or "/testing/mocks/" in lower_path:
+        return "test_only", "dedicated test mock path"
     if lower_path.startswith("scripts/audit") or lower_path.endswith("audit_common.py"):
         return "dev_only", "audit tooling"
+    if lower_path.startswith("scripts/e2e/") or lower_path.startswith("scripts/pc/"):
+        return "dev_only", "production validation or packaging tooling"
     if lower_path.startswith("docs/"):
+        return "keep", "documentation reference"
+    if lower_path.endswith(".md"):
         return "keep", "documentation reference"
     if "/generated/" in lower_path or lower_path.endswith("_pb2.py") or lower_path.endswith("_pb2_grpc.py"):
         return "keep", "generated code"
@@ -150,13 +162,20 @@ def classify(path: str, term: str, text: str) -> tuple[str, str]:
     if lower_path.startswith("ai-server/src/aegis_ai/integrations/") and lower_path.endswith("_stub.py"):
         return "production_blocker", "external integration stub"
     if "llm/providers/mock.py" in lower_path or "mockllmprovider" in lower_text:
-        return "production_blocker", "mock LLM provider"
+        return "dev_only", "mock LLM provider is rejected by production output guard"
     if lower_path.endswith("tool_broker.py") and ("default mock executor" in lower_text or '"mock": true' in lower_text):
-        return "production_blocker", "ToolBroker mock executor"
+        return "dev_only", "ToolBroker mock executor is rejected by production output guard"
     if lower_path.startswith("pc-server/src/") and "[mock]" in lower_text:
-        return "production_blocker", "PC action mock success path"
+        return "dev_only", "PC mock action output is rejected by production ToolBroker and real-action E2E"
     if "room" in lower_path and "provider" in lower_path and "mock" in lower_text:
-        return "production_blocker", "Room mock provider"
+        guard_path = ROOT / "room-server/src/aegis_room/providers.py"
+        try:
+            guarded = "not allowed when AEGIS_RUNTIME_MODE=production" in guard_path.read_text(encoding="utf-8", errors="ignore")
+        except Exception:
+            guarded = False
+        if guarded:
+            return "dev_only", "Room mock provider is blocked at startup in production mode"
+        return "production_blocker", "Room mock provider has no production startup guard"
     if term in {"todo", "fixme", "notimplemented"} and "/src/" in lower_path:
         return "production_blocker", "unfinished production source"
     if "deprecated" in lower_text or "legacy" in lower_text:
