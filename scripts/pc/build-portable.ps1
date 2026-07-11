@@ -13,7 +13,7 @@ if (-not (Test-Path $binary)) { throw "Missing $binary" }
 Copy-Item $binary "$OutputDir/aegis-pc-server.exe" -Force
 @"
 port=50052
-bind=0.0.0.0
+bind=127.0.0.1
 enable_real_pc_actions=false
 "@ | Set-Content "$OutputDir/aegis-pc-server.example.conf" -Encoding utf8
 Copy-Item scripts/pc/install-service.ps1 "$OutputDir/install-service.ps1" -Force

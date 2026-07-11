@@ -1,4 +1,9 @@
-"""Token authentication helpers for dashboard-facing Flask apps."""
+"""Dashboard authentication compatibility helpers.
+
+The historical function name is kept because both Dashboard and WebChat call
+``install_dashboard_token_auth``. It now installs passkey auth by default and
+only keeps token login for explicitly requested non-production recovery mode.
+"""
 
 from __future__ import annotations
 
@@ -8,6 +13,8 @@ import os
 from urllib.parse import quote
 
 from flask import jsonify, redirect, request, session
+
+from aegis_ai.auth import install_passkey_auth
 
 
 TOKEN_ENV = "AEGIS_DASHBOARD_ACCESS_TOKEN"
@@ -20,12 +27,27 @@ def configured_dashboard_token() -> str:
 
 
 def install_dashboard_token_auth(app, *, exempt_paths: set[str] | None = None) -> None:
-    """Install optional token auth on a Flask dashboard or web chat app.
+    """Install dashboard auth.
 
-    Auth is disabled when AEGIS_DASHBOARD_ACCESS_TOKEN is unset. When enabled,
-    browser pages can authenticate through /login and APIs/SSE can use either
-    the Flask session cookie, Authorization: Bearer, or X-AEGIS-Dashboard-Token.
+    Passkey auth is the default and the only allowed production mode. Legacy
+    token auth remains available only when ``AEGIS_AUTH_MODE=token`` outside
+    production, so existing local recovery flows still have an escape hatch.
     """
+    runtime_mode = os.getenv("AEGIS_RUNTIME_MODE", "development").strip().lower()
+    explicit_mode = os.getenv("AEGIS_AUTH_MODE", "").strip().lower()
+    auth_mode = explicit_mode
+    if not auth_mode:
+        if runtime_mode == "production":
+            auth_mode = "passkey"
+        elif configured_dashboard_token():
+            auth_mode = "token"
+        else:
+            auth_mode = "disabled"
+    if runtime_mode == "production" or auth_mode == "passkey":
+        install_passkey_auth(app, exempt_paths=exempt_paths)
+        return
+    if auth_mode != "token":
+        return
     exempt = set(exempt_paths or {"/health"})
     exempt.add("/login")
     secret = os.getenv("AEGIS_DASHBOARD_SESSION_SECRET", "")

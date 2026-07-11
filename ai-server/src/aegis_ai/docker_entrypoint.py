@@ -6,10 +6,12 @@ Runs gRPC, Dashboard, and Web Chat in one container without starting the CLI.
 from __future__ import annotations
 
 import logging
+import os
 import signal
 import threading
 import time
 
+from aegis_ai.production_readiness import is_production_mode
 from aegis_ai.runtime import get_runtime
 
 logging.basicConfig(
@@ -35,14 +37,16 @@ def _start_grpc(runtime) -> None:
 def _start_dashboard(runtime) -> None:
     from aegis_ai.web.dashboard_routes import DashboardApp
 
-    DashboardApp(runtime=runtime).run(host="0.0.0.0", port=8090, debug=False)
+    host = os.getenv("AEGIS_DASHBOARD_HOST", "0.0.0.0")
+    DashboardApp(runtime=runtime).run(host=host, port=8090, debug=False)
 
 
 def _start_web_chat(runtime) -> None:
     from aegis_ai.interaction.channels.web import WebChatApp
 
+    host = os.getenv("AEGIS_WEB_CHAT_HOST", "0.0.0.0")
     WebChatApp(router=runtime.interaction_router, session_manager=runtime.session_manager).run(
-        host="0.0.0.0",
+        host=host,
         port=8091,
         debug=False,
     )
@@ -67,6 +71,12 @@ def _refresh_status_after_start(runtime) -> None:
 def main() -> None:
     signal.signal(signal.SIGTERM, _handle_stop)
     signal.signal(signal.SIGINT, _handle_stop)
+
+    if is_production_mode():
+        if os.getenv("AEGIS_AUTH_MODE", "passkey").strip().lower() != "passkey":
+            raise SystemExit("AEGIS_AUTH_MODE=passkey is required when AEGIS_RUNTIME_MODE=production")
+        if not os.getenv("AEGIS_SESSION_SECRET", "").strip():
+            raise SystemExit("AEGIS_SESSION_SECRET is required when AEGIS_RUNTIME_MODE=production")
 
     runtime = get_runtime()
     runtime.start_autonomous_if_enabled()

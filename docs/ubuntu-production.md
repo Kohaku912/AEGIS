@@ -17,14 +17,33 @@ cp .env.example .env
 $EDITOR .env
 ```
 
+`install.sh` creates `/opt/aegis` as a symlink to the checked-out repository
+unless `AEGIS_INSTALL_DIR` is set. The generated `aegis.service` uses that exact
+working directory, so systemd and the shell scripts resolve the same files.
+
 Minimum production values:
 
 ```dotenv
 AEGIS_RUNTIME_MODE=production
-AEGIS_DASHBOARD_ACCESS_TOKEN=change-me
+AEGIS_PRODUCTION_BIND_HOST=127.0.0.1
+AEGIS_AUTH_MODE=passkey
+AEGIS_WEBAUTHN_RP_ID=kawahara.pp.ua
+AEGIS_WEBAUTHN_ORIGINS=https://kawahara.pp.ua
+AEGIS_SESSION_SECRET=change-me-long-random-session-secret
+AEGIS_AUTH_BOOTSTRAP_TOKEN=change-me-one-time-bootstrap-token
 AEGIS_ANDROID_PAIRING_TOKEN=change-me
 LLM_API_KEY=...
 ```
+
+`AEGIS_DASHBOARD_ACCESS_TOKEN` is no longer accepted for normal production
+login. During migration it may be used only as a bootstrap/recovery token when
+no passkey user exists. Remove `AEGIS_AUTH_BOOTSTRAP_TOKEN` after the first
+admin passkey is registered.
+
+Start uses `docker-compose.yml` plus `docker-compose.production.yml`, exports
+`AEGIS_BIND_HOST=127.0.0.1` by default, and starts only `ai-server` and
+`browser-server`. `dev-server` is behind the `dev` profile. `room-server` is
+behind the `room` profile and refuses the mock provider in production.
 
 For Android outside LAN, install Tailscale on Ubuntu and Android, then use the
 Ubuntu Tailscale IP or MagicDNS name as the Android host.
@@ -48,6 +67,9 @@ Health check:
 ```bash
 bash scripts/ubuntu/healthcheck.sh
 ```
+
+After systemd start, `healthcheck.sh` verifies `aegis.service`, Docker Compose
+state, Dashboard health, and the production readiness audit.
 
 ## Volumes
 

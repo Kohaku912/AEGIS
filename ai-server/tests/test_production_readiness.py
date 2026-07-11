@@ -87,7 +87,7 @@ def test_tool_broker_rejects_mock_success_in_production(monkeypatch, tmp_path: P
     assert "mock/stub output" in result.error
 
 
-def test_audit_common_classifies_pc_mock_as_blocker() -> None:
+def test_audit_common_classifies_pc_mock_as_guarded_dev_marker() -> None:
     scripts_dir = Path(__file__).resolve().parents[2] / "scripts"
     sys.path.insert(0, str(scripts_dir))
     try:
@@ -101,8 +101,8 @@ def test_audit_common_classifies_pc_mock_as_blocker() -> None:
     finally:
         sys.path.remove(str(scripts_dir))
 
-    assert classification == "production_blocker"
-    assert "PC action" in reason
+    assert classification == "dev_only"
+    assert "production ToolBroker" in reason
 
 
 def test_capability_dashboard_renders_production_blocker_badge() -> None:

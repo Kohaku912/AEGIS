@@ -62,7 +62,7 @@ fn main() {
         .windows(2)
         .find(|w| w[0] == "--bind")
         .map(|w| w[1].clone())
-        .unwrap_or_else(|| "0.0.0.0".to_string());
+        .unwrap_or_else(|| "127.0.0.1".to_string());
 
     let enable_real_actions = args.contains(&"--enable-real-pc-actions".to_string());
 
@@ -136,7 +136,7 @@ fn print_help() {
     println!();
     println!("Options:");
     println!("  --port <PORT>              Health endpoint port (default: 50052)");
-    println!("  --bind <ADDR>              Bind address (default: 0.0.0.0)");
+    println!("  --bind <ADDR>              Bind address (default: 127.0.0.1)");
     println!("  --enable-real-pc-actions   Enable real mouse/keyboard (requires approval)");
     println!("  --help                     Show this help");
     println!();

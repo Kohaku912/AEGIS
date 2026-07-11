@@ -7,9 +7,9 @@ services:
     env_file:
       - .env
     ports:
-      - "0.0.0.0:${AEGIS_CORE_GRPC_PORT:-50051}:50051"
-      - "0.0.0.0:${AEGIS_DASHBOARD_PORT:-8090}:8090"
-      - "0.0.0.0:${AEGIS_WEB_CHAT_PORT:-8091}:8091"
+      - "${AEGIS_BIND_HOST:-0.0.0.0}:${AEGIS_CORE_GRPC_PORT:-50051}:50051"
+      - "${AEGIS_BIND_HOST:-0.0.0.0}:${AEGIS_DASHBOARD_PORT:-8090}:8090"
+      - "${AEGIS_BIND_HOST:-0.0.0.0}:${AEGIS_WEB_CHAT_PORT:-8091}:8091"
     environment:
       LLM_API_KEY: ${LLM_API_KEY:-${OPENAI_API_KEY:-}}
       LLM_VISION_API_KEY: ${LLM_VISION_API_KEY:-${LLM_API_KEY:-${OPENAI_API_KEY:-}}}
@@ -19,12 +19,18 @@ services:
       DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL:-https://api.deepseek.com}
       AEGIS_MIN_LLM_INTERVAL_MS: ${AEGIS_MIN_LLM_INTERVAL_MS:-60000}
       AEGIS_RUNTIME_MODE: ${AEGIS_RUNTIME_MODE:-development}
+      AEGIS_AUTH_MODE: ${AEGIS_AUTH_MODE:-passkey}
+      AEGIS_WEBAUTHN_RP_ID: ${AEGIS_WEBAUTHN_RP_ID:-localhost}
+      AEGIS_WEBAUTHN_RP_NAME: ${AEGIS_WEBAUTHN_RP_NAME:-AEGIS Dashboard}
+      AEGIS_WEBAUTHN_ORIGINS: ${AEGIS_WEBAUTHN_ORIGINS:-http://localhost:8090,http://127.0.0.1:8090}
+      AEGIS_SESSION_SECRET: ${AEGIS_SESSION_SECRET:-}
+      AEGIS_AUTH_BOOTSTRAP_TOKEN: ${AEGIS_AUTH_BOOTSTRAP_TOKEN:-}
       AEGIS_PRODUCTION_READINESS_REPORT: ${AEGIS_PRODUCTION_READINESS_REPORT:-/app/data/reports/production_blockers.json}
       AEGIS_PRESSURE_PER_HOUR: ${AEGIS_PRESSURE_PER_HOUR:-10.0}
       AGORA_TOKEN: ${AGORA_TOKEN:-}
       AGORA_BASE_URL: ${AGORA_BASE_URL:-https://agora.kakunin.me}
       AGORA_MASTER_USER: ${AGORA_MASTER_USER:-}
-      AEGIS_GRPC_HOST: 0.0.0.0
+      AEGIS_GRPC_HOST: ${AEGIS_CONTAINER_GRPC_HOST:-0.0.0.0}
       AEGIS_GRPC_PORT: 50051
       AEGIS_DASHBOARD_ACCESS_TOKEN: ${AEGIS_DASHBOARD_ACCESS_TOKEN:-}
       BROWSER_SERVER_HOST: browser-server
@@ -47,10 +53,6 @@ services:
     depends_on:
       browser-server:
         condition: service_started
-      room-server:
-        condition: service_started
-      dev-server:
-        condition: service_started
     restart: unless-stopped
 
   browser-server:
@@ -59,10 +61,10 @@ services:
       dockerfile: infra/docker/browser-server.Dockerfile
     image: aegis/browser-server:local
     ports:
-      - "0.0.0.0:${BROWSER_SERVER_PORT:-50053}:50053"
+      - "${AEGIS_BIND_HOST:-0.0.0.0}:${BROWSER_SERVER_PORT:-50053}:50053"
     environment:
       AEGIS_AI_GRPC_ADDR: ai-server:50051
-      AEGIS_GRPC_HOST: 0.0.0.0
+      AEGIS_GRPC_HOST: ${AEGIS_CONTAINER_GRPC_HOST:-0.0.0.0}
       AEGIS_GRPC_PORT: 50053
       AEGIS_BROWSER_HEADLESS: "true"
       LLM_API_KEY: ${LLM_API_KEY:-${OPENAI_API_KEY:-}}
@@ -86,9 +88,10 @@ services:
       dockerfile: infra/docker/room-server.Dockerfile
     image: aegis/room-server:local
     ports:
-      - "0.0.0.0:${ROOM_SERVER_PORT:-50055}:50055"
+      - "${AEGIS_BIND_HOST:-0.0.0.0}:${ROOM_SERVER_PORT:-50055}:50055"
     environment:
-      AEGIS_ROOM_HOST: 0.0.0.0
+      AEGIS_RUNTIME_MODE: ${AEGIS_RUNTIME_MODE:-development}
+      AEGIS_ROOM_HOST: ${AEGIS_CONTAINER_GRPC_HOST:-0.0.0.0}
       AEGIS_ROOM_PORT: 50055
       AEGIS_ROOM_LIGHT_PROVIDER: ${AEGIS_ROOM_LIGHT_PROVIDER:-mock}
       AEGIS_ROOM_IR_PIN: ${AEGIS_ROOM_IR_PIN:-}
@@ -101,7 +104,7 @@ services:
       dockerfile: infra/docker/dev-server.Dockerfile
     image: aegis/dev-server:local
     ports:
-      - "0.0.0.0:${DEV_SERVER_PORT:-50056}:50056"
+      - "${AEGIS_BIND_HOST:-0.0.0.0}:${DEV_SERVER_PORT:-50056}:50056"
     environment:
       DEV_SERVER_PORT: 50056
       AEGIS_REPO_PATH: /workspace
