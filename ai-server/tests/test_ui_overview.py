@@ -106,3 +106,47 @@ def test_ui_overview_route_returns_normalized_contract():
     payload = response.get_json()
     assert payload["schema_version"] == "ui-overview.v2"
     assert payload["servers"]["data"]["items"]
+
+
+def test_ui_overview_compacts_large_step_results():
+    huge_result = {"html": "x" * 5_000_000, "status": "ok", "items": list(range(200))}
+
+    class LargeTaskManager:
+        def list_running(self):
+            return [
+                {
+                    "task_id": "task-large",
+                    "title": "Large result task",
+                    "status": "running",
+                    "updated_at": 1000,
+                    "steps": [
+                        {
+                            "step_id": "step-large",
+                            "capability_id": "browser-server.page.browse",
+                            "status": "completed",
+                            "result": huge_result,
+                        }
+                    ],
+                }
+            ]
+
+        def list_waiting_approval(self):
+            return []
+
+    runtime = SimpleNamespace(
+        status_manager=_StatusManager(),
+        approval_manager=_ApprovalManager(),
+        task_manager=LargeTaskManager(),
+        notification_manager=_NotificationManager(),
+        memory_manager=_MemoryManager(),
+        event_manager=_EventManager(),
+    )
+
+    overview = build_ui_overview(runtime)
+    step = overview["current_task"]["data"]["steps"][0]
+
+    assert len(str(overview)) < 20_000
+    assert step["result"]["available"] is True
+    assert step["result"]["truncated"] is True
+    assert step["result"]["size_chars"] > 5_000_000
+    assert "html" in step["result"]["keys"]

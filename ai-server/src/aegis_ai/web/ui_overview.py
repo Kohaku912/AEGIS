@@ -6,6 +6,12 @@ import time
 from dataclasses import asdict, is_dataclass
 from typing import Any
 
+_MAX_UI_STRING_CHARS = 2_000
+_MAX_UI_LIST_ITEMS = 50
+_MAX_UI_DICT_ITEMS = 80
+_MAX_UI_DEPTH = 6
+_MAX_STEP_RESULT_PREVIEW_CHARS = 900
+
 
 def build_ui_overview(runtime: Any) -> dict[str, Any]:
     """Build the v2 UI overview from runtime managers.
@@ -50,7 +56,7 @@ def normalize_ui_event(event: Any) -> dict[str, Any]:
 
 def _section(name: str, build, generated_at: int) -> dict[str, Any]:
     try:
-        data = _to_plain(build())
+        data = _bound_for_ui(_to_plain(build()))
         source_updated_at = _infer_source_updated_at(data) or generated_at
         return {
             "generated_at": generated_at,
@@ -151,19 +157,20 @@ def _current_task(runtime: Any) -> dict[str, Any]:
             "blocked_reason": "",
             "steps": [],
         }
-    steps = _get(task, "steps", []) or []
-    current_step = next((s for s in steps if _get(s, "status", "") in {"running", "needs_approval"}), None)
+    raw_steps = _get(task, "steps", []) or []
+    current_step = next((s for s in raw_steps if _get(s, "status", "") in {"running", "needs_approval"}), None)
     return {
         "task_id": _get(task, "task_id", ""),
         "title": _get(task, "title", "") or _get(task, "goal", "") or "Task",
         "phase": _get(task, "status", ""),
-        "current_action": _get(current_step, "description", "") if current_step else "",
-        "next_action": _get(task, "next_action", ""),
-        "blocked_reason": _get(task, "blocked_reason", ""),
+        "current_action": _truncate_text(_get(current_step, "description", "") if current_step else ""),
+        "next_action": _truncate_text(_get(task, "next_action", "")),
+        "blocked_reason": _truncate_text(_get(task, "blocked_reason", "")),
         "capability_id": _get(current_step, "capability_id", "") if current_step else "",
         "started_at": _get(task, "created_at", 0),
         "updated_at": _get(task, "updated_at", 0),
-        "steps": steps[:12],
+        "steps": [_task_step_projection(step) for step in raw_steps[:12]],
+        "step_count": len(raw_steps),
     }
 
 
@@ -319,6 +326,45 @@ def _approval_projection(approval: Any) -> dict[str, Any]:
     }
 
 
+def _task_step_projection(step: Any) -> dict[str, Any]:
+    result = _get(step, "result", None)
+    error = _get(step, "error", "")
+    return {
+        "step_id": _get(step, "step_id", ""),
+        "name": _get(step, "name", ""),
+        "description": _truncate_text(_get(step, "description", "")),
+        "capability_id": _get(step, "capability_id", ""),
+        "status": _get(step, "status", ""),
+        "approval_id": _get(step, "approval_id", ""),
+        "created_at": _get(step, "created_at", 0),
+        "updated_at": _get(step, "updated_at", 0),
+        "error": _truncate_text(error),
+        "result": _summarize_step_result(result),
+    }
+
+
+def _summarize_step_result(result: Any) -> dict[str, Any]:
+    if result is None:
+        return {"available": False, "type": "none", "preview": "", "truncated": False}
+    plain = _to_plain(result)
+    rendered = _json_preview(plain)
+    summary: dict[str, Any] = {
+        "available": True,
+        "type": type(plain).__name__,
+        "size_chars": len(rendered),
+        "preview": _truncate_text(rendered, limit=_MAX_STEP_RESULT_PREVIEW_CHARS),
+        "truncated": len(rendered) > _MAX_STEP_RESULT_PREVIEW_CHARS,
+    }
+    if isinstance(plain, dict):
+        summary["keys"] = list(plain.keys())[:12]
+        for key in ("success", "status", "status_code", "message", "error"):
+            if key in plain:
+                summary[key] = _bound_for_ui(plain[key], max_depth=2)
+    elif isinstance(plain, list):
+        summary["item_count"] = len(plain)
+    return summary
+
+
 def _ui_event_type(event_type: str) -> str:
     mapping = {
         "status.changed": "status.changed",
@@ -382,6 +428,68 @@ def _to_plain(value: Any) -> Any:
     if isinstance(value, (str, int, float, bool)) or value is None:
         return value
     return str(value)
+
+
+def _bound_for_ui(
+    value: Any,
+    *,
+    max_depth: int = _MAX_UI_DEPTH,
+    max_string_chars: int = _MAX_UI_STRING_CHARS,
+    max_list_items: int = _MAX_UI_LIST_ITEMS,
+    max_dict_items: int = _MAX_UI_DICT_ITEMS,
+) -> Any:
+    if max_depth <= 0:
+        return _truncate_text(_json_preview(value), limit=max_string_chars)
+    if isinstance(value, str):
+        return _truncate_text(value, limit=max_string_chars)
+    if isinstance(value, dict):
+        items = list(value.items())
+        bounded = {
+            str(key): _bound_for_ui(
+                item,
+                max_depth=max_depth - 1,
+                max_string_chars=max_string_chars,
+                max_list_items=max_list_items,
+                max_dict_items=max_dict_items,
+            )
+            for key, item in items[:max_dict_items]
+        }
+        if len(items) > max_dict_items:
+            bounded["_truncated_keys"] = len(items) - max_dict_items
+        return bounded
+    if isinstance(value, list):
+        bounded_list = [
+            _bound_for_ui(
+                item,
+                max_depth=max_depth - 1,
+                max_string_chars=max_string_chars,
+                max_list_items=max_list_items,
+                max_dict_items=max_dict_items,
+            )
+            for item in value[:max_list_items]
+        ]
+        if len(value) > max_list_items:
+            bounded_list.append({"_truncated_items": len(value) - max_list_items})
+        return bounded_list
+    return value
+
+
+def _truncate_text(value: Any, *, limit: int = _MAX_UI_STRING_CHARS) -> str:
+    if value is None:
+        return ""
+    text = value if isinstance(value, str) else str(value)
+    if len(text) <= limit:
+        return text
+    return f"{text[:limit]}... [truncated {len(text) - limit} chars]"
+
+
+def _json_preview(value: Any) -> str:
+    try:
+        import json
+
+        return json.dumps(value, ensure_ascii=False, sort_keys=True)
+    except Exception:
+        return str(value)
 
 
 def _get(value: Any, key: str, default: Any = None) -> Any:

@@ -2,8 +2,8 @@ FROM node:22-bookworm-slim AS web-ui-build
 
 WORKDIR /web-ui
 
-COPY web-ui/package.json ./package.json
-RUN npm install
+COPY web-ui/package*.json ./
+RUN if [ -f package-lock.json ]; then npm ci; else npm install; fi
 COPY web-ui ./
 COPY design-tokens /design-tokens
 RUN npm run build
