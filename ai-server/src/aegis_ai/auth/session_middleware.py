@@ -85,6 +85,8 @@ def install_passkey_auth(app: Any, *, data_dir: str | Path = "data/auth", exempt
 
     @app.after_request
     def _inject_auth_ui(response):
+        if (request.path or "").startswith("/display/"):
+            return response
         if not response.content_type.startswith("text/html") or response.direct_passthrough:
             return response
         try:

@@ -7,6 +7,7 @@ import json
 import os
 import tempfile
 import time
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
@@ -41,6 +42,7 @@ from aegis_ai.autonomous.autonomous_loop import AutonomousLoop
 from aegis_ai.task.execution_engine import TaskExecutionEngine
 from aegis_ai.task_plan import PlanStep, StepStatus, TaskPlan
 from aegis_ai.web import manager_routes
+from aegis_ai.web.routes.presentation import init_presentation_routes
 from aegis_ai.web import chat_tools
 
 
@@ -919,6 +921,33 @@ class TestXRPendingAPI:
 
         pending_response = client.get("/api/presentations/xr/pending")
         assert len(pending_response.get_json()["presentations"]) == 1
+
+
+class TestDedicatedDisplayRoute:
+    def test_display_route_is_local_only_and_read_only(self, tmp_path):
+        mgr = _make_manager(str(tmp_path))
+        mgr.present(_make_request(title="Display Ready", summary="Presentation surface only."))
+
+        template_dir = Path(__file__).resolve().parents[1] / "src" / "aegis_ai" / "web" / "templates"
+        app = Flask(__name__, template_folder=str(template_dir))
+        owner = SimpleNamespace(app=app, _runtime=SimpleNamespace(presentation_manager=mgr))
+        init_presentation_routes(owner)
+        client = app.test_client()
+
+        page = client.get("/display/presentations", headers={"Host": "127.0.0.1:8090"})
+        assert page.status_code == 200
+        assert b"presentation display" in page.data
+        assert b"Dashboard" not in page.data
+        assert b"dismissPresentation" not in page.data
+
+        data = client.get("/display/presentations/data", headers={"Host": "127.0.0.1:8090"})
+        payload = data.get_json()
+        assert data.status_code == 200
+        assert payload["presentations"][0]["title"] == "Display Ready"
+        assert "user_actions" not in payload["presentations"][0]
+
+        external = client.get("/display/presentations", headers={"Host": "kawahara.pp.ua"})
+        assert external.status_code == 403
 
     def test_sweeper_expires_presentations(self, tmp_path):
         events: list[dict] = []

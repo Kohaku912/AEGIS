@@ -1,0 +1,321 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AEGIS Display</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #05070a;
+      --panel: #111820;
+      --panel2: #17212b;
+      --line: #2a3845;
+      --text: #edf4fb;
+      --muted: #91a3b2;
+      --accent: #7dd3fc;
+      --good: #74d99f;
+      --warn: #f7c76c;
+      --bad: #fb8a8a;
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+      margin: 0;
+      overflow: hidden;
+      background: var(--bg);
+      color: var(--text);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    .surface {
+      min-height: 100vh;
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+      padding: clamp(18px, 3vw, 42px);
+      gap: 22px;
+    }
+    header, footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+      min-height: 42px;
+    }
+    .brand { display: flex; align-items: baseline; gap: 14px; }
+    .brand strong { font-size: 22px; letter-spacing: .12em; }
+    .brand span, .clock, .meta { color: var(--muted); font-size: 15px; }
+    .status-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
+    .pill {
+      border: 1px solid var(--line);
+      background: var(--panel);
+      border-radius: 999px;
+      padding: 7px 12px;
+      color: var(--muted);
+      font-size: 13px;
+      white-space: nowrap;
+    }
+    main {
+      min-height: 0;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(280px, 24vw);
+      gap: 22px;
+    }
+    .primary, .queue {
+      min-height: 0;
+      border: 1px solid var(--line);
+      background: var(--panel);
+      border-radius: 8px;
+    }
+    .primary {
+      display: grid;
+      grid-template-rows: auto 1fr;
+      padding: clamp(22px, 4vw, 56px);
+      gap: 24px;
+    }
+    .eyebrow {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+      color: var(--muted);
+      font-size: 14px;
+      text-transform: uppercase;
+      letter-spacing: .1em;
+    }
+    .importance { color: var(--accent); }
+    .importance.high { color: var(--warn); }
+    .importance.critical { color: var(--bad); }
+    .title {
+      margin: 0;
+      font-size: clamp(42px, 7vw, 118px);
+      line-height: .98;
+      letter-spacing: 0;
+      overflow-wrap: anywhere;
+    }
+    .summary {
+      max-width: 1100px;
+      margin: 22px 0 0;
+      color: var(--muted);
+      font-size: clamp(20px, 2.2vw, 34px);
+      line-height: 1.35;
+      overflow-wrap: anywhere;
+    }
+    .content {
+      align-self: end;
+      display: grid;
+      gap: 16px;
+      min-height: 0;
+      overflow: hidden;
+    }
+    .text-card {
+      border-left: 4px solid var(--accent);
+      padding-left: 22px;
+      color: var(--text);
+      font-size: clamp(22px, 2.5vw, 40px);
+      line-height: 1.38;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+    }
+    .json-card {
+      max-height: 34vh;
+      overflow: hidden;
+      margin: 0;
+      padding: 18px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel2);
+      color: #d6e8f7;
+      font-size: clamp(15px, 1.35vw, 22px);
+      line-height: 1.45;
+      white-space: pre-wrap;
+    }
+    .queue {
+      padding: 18px;
+      display: grid;
+      grid-template-rows: auto 1fr;
+      gap: 14px;
+    }
+    .queue h2 {
+      margin: 0;
+      color: var(--muted);
+      font-size: 14px;
+      letter-spacing: .12em;
+      text-transform: uppercase;
+      font-weight: 600;
+    }
+    .queue-list {
+      min-height: 0;
+      overflow: hidden;
+      display: grid;
+      align-content: start;
+      gap: 10px;
+    }
+    .queue-item {
+      border: 1px solid var(--line);
+      background: #0d1319;
+      border-radius: 8px;
+      padding: 12px;
+    }
+    .queue-item strong {
+      display: block;
+      margin-bottom: 6px;
+      font-size: 15px;
+      line-height: 1.25;
+      overflow-wrap: anywhere;
+    }
+    .queue-item span { color: var(--muted); font-size: 12px; }
+    .standby {
+      height: 100%;
+      display: grid;
+      place-content: center;
+      text-align: center;
+      gap: 18px;
+    }
+    .standby h1 {
+      margin: 0;
+      font-size: clamp(48px, 8vw, 132px);
+      letter-spacing: .14em;
+    }
+    .standby p { margin: 0; color: var(--muted); font-size: clamp(18px, 2vw, 28px); }
+    footer { color: var(--muted); font-size: 13px; }
+    @media (max-width: 980px) {
+      body { overflow: auto; }
+      main { grid-template-columns: 1fr; }
+      .surface { min-height: 100vh; }
+      .queue { min-height: 220px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="surface">
+    <header>
+      <div class="brand"><strong>AEGIS</strong><span>presentation display</span></div>
+      <div class="status-row">
+        <span class="pill" id="count-pill">0 active</span>
+        <span class="clock" id="clock"></span>
+      </div>
+    </header>
+    <main>
+      <section class="primary" id="primary"></section>
+      <aside class="queue">
+        <h2>Display Queue</h2>
+        <div class="queue-list" id="queue-list"></div>
+      </aside>
+    </main>
+    <footer>
+      <span id="updated">Waiting for presentation data</span>
+      <span class="meta">local display only</span>
+    </footer>
+  </div>
+  <script>
+    const state = { presentations: [], index: 0, lastSignature: '' };
+
+    function escapeHtml(value) {
+      if (value === null || value === undefined) return '';
+      return String(value).replace(/[&<>"']/g, function(ch) {
+        return ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'})[ch];
+      });
+    }
+
+    function formatTime(ms) {
+      const value = Number(ms || 0);
+      if (!value) return '-';
+      return new Date(value).toLocaleString();
+    }
+
+    function contentText(presentation) {
+      const content = presentation.content || {};
+      return content.text || content.message || content.body || content.markdown || presentation.summary || '';
+    }
+
+    function renderContent(presentation) {
+      const modality = String(presentation.modality || 'text_card').toLowerCase();
+      const text = contentText(presentation);
+      if (text) return `<div class="text-card">${escapeHtml(text)}</div>`;
+      const content = presentation.content || {};
+      if (Object.keys(content).length) return `<pre class="json-card">${escapeHtml(JSON.stringify(content, null, 2))}</pre>`;
+      return '<div class="text-card">No display content.</div>';
+    }
+
+    function renderPrimary() {
+      const primary = document.getElementById('primary');
+      const items = state.presentations;
+      if (!items.length) {
+        primary.innerHTML = '<div class="standby"><h1>AEGIS</h1><p>No active presentations</p></div>';
+        return;
+      }
+      const item = items[state.index % items.length];
+      const importance = String(item.importance || 'normal').toLowerCase();
+      primary.innerHTML = `
+        <div>
+          <div class="eyebrow">
+            <span>${escapeHtml(item.source || item.intent || 'presentation')}</span>
+            <span class="importance ${escapeHtml(importance)}">${escapeHtml(importance)}</span>
+          </div>
+          <h1 class="title">${escapeHtml(item.title || item.summary || item.presentation_id || 'Presentation')}</h1>
+          ${item.summary ? `<p class="summary">${escapeHtml(item.summary)}</p>` : ''}
+        </div>
+        <div class="content">${renderContent(item)}</div>
+      `;
+    }
+
+    function renderQueue() {
+      const queue = document.getElementById('queue-list');
+      const items = state.presentations.slice(0, 8);
+      queue.innerHTML = items.length ? items.map((item, idx) => `
+        <div class="queue-item">
+          <strong>${escapeHtml(item.title || item.summary || item.presentation_id || 'Presentation')}</strong>
+          <span>${escapeHtml(item.status || '-')} / ${escapeHtml(item.modality || '-')} / ${formatTime(item.updated_at_ms || item.created_at_ms)}</span>
+        </div>
+      `).join('') : '<div class="queue-item"><strong>Standby</strong><span>No active presentation output.</span></div>';
+      document.getElementById('count-pill').textContent = `${state.presentations.length} active`;
+    }
+
+    function renderAll() {
+      renderPrimary();
+      renderQueue();
+      document.getElementById('updated').textContent = `Updated ${new Date().toLocaleTimeString()}`;
+    }
+
+    async function loadData() {
+      try {
+        const response = await fetch('/display/presentations/data?limit=20', { cache: 'no-store' });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const data = await response.json();
+        const presentations = Array.isArray(data.presentations) ? data.presentations : [];
+        const signature = JSON.stringify(presentations.map((item) => [
+          item.presentation_id,
+          item.status,
+          item.updated_at_ms,
+          item.title,
+          item.summary
+        ]));
+        if (signature !== state.lastSignature) {
+          state.presentations = presentations;
+          state.index = 0;
+          state.lastSignature = signature;
+          renderAll();
+        }
+      } catch (error) {
+        document.getElementById('updated').textContent = `Display data unavailable: ${error.message}`;
+      }
+    }
+
+    function tickClock() {
+      document.getElementById('clock').textContent = new Date().toLocaleTimeString();
+    }
+
+    setInterval(() => {
+      if (state.presentations.length > 1) {
+        state.index = (state.index + 1) % state.presentations.length;
+        renderPrimary();
+      }
+    }, 12000);
+    setInterval(loadData, 5000);
+    setInterval(tickClock, 1000);
+    tickClock();
+    loadData();
+    renderAll();
+  </script>
+</body>
+</html>
