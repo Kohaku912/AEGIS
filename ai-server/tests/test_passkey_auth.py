@@ -131,6 +131,23 @@ def test_dashboard_and_api_require_auth_and_csrf(tmp_path, monkeypatch):
     assert client.post("/api/capabilities/demo/risk", json={}).status_code == 403
 
 
+def test_display_html_does_not_receive_dashboard_auth_bar(tmp_path, monkeypatch):
+    monkeypatch.setenv("AEGIS_AUTH_MODE", "passkey")
+    app = Flask(__name__)
+    install_passkey_auth(app, data_dir=tmp_path / "auth")
+
+    @app.route("/display/presentations")
+    def display():
+        return "<html><body>display</body></html>"
+
+    client = app.test_client()
+    response = client.get("/display/presentations")
+
+    assert response.status_code == 200
+    assert b"display" in response.data
+    assert b"__aegisAuthInstalled" not in response.data
+
+
 def test_passkey_session_allows_dashboard_and_fresh_risk_requires_csrf(tmp_path, monkeypatch):
     monkeypatch.setenv("AEGIS_AUTH_MODE", "passkey")
     app = Flask(__name__)
