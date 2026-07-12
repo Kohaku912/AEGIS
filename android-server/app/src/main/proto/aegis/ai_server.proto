@@ -33,6 +33,8 @@ service AIServer {
   rpc InvokeTool(ToolInvocationRequest) returns (ToolInvocationResult);
   rpc SendChat(ChatRequest) returns (ChatResponse);
   rpc GetMobileDashboardState(MobileDashboardStateRequest) returns (MobileDashboardStateResponse);
+  rpc GetUiOverview(UiOverviewRequest) returns (UiOverviewResponse);
+  rpc StreamUiEvents(UiEventStreamRequest) returns (stream UiEvent);
 
   // ── Approval ──────────────────────────────────────────────
   rpc RequestApproval(RequestApprovalRequest) returns (ApprovalRequest);
@@ -219,6 +221,28 @@ message MobileDashboardStateResponse {
   repeated MobileServerStatus server_statuses = 2;
   repeated ChatHistoryMessage chat_history = 3;
   repeated string warnings = 4;
+}
+
+message UiOverviewRequest {
+  string surface_id = 1;
+  AndroidAuth auth = 2;             // Android direct RPC auth (optional for non-Android callers)
+}
+
+message UiOverviewResponse {
+  Status status = 1;
+  string overview_json = 2;
+  int64 generated_at_ms = 3;
+}
+
+message UiEventStreamRequest {
+  string surface_id = 1;
+  AndroidAuth auth = 2;             // Android direct RPC auth (optional for non-Android callers)
+}
+
+message UiEvent {
+  string event_type = 1;
+  string event_json = 2;
+  int64 timestamp_ms = 3;
 }
 
 // ═══════════════════════════════════════════════════════════════

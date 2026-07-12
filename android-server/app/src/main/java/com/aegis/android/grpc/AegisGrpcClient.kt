@@ -11,6 +11,7 @@ import com.aegis.android.AegisConfig
 import com.aegis.android.AegisConnectionConfig
 import com.aegis.android.overlay.OverlayController
 import com.aegis.android.provider.DeviceProvider
+import com.aegis.android.ui.model.UiOverviewSnapshot
 import io.grpc.ManagedChannel
 import io.grpc.ManagedChannelBuilder
 import io.grpc.Status
@@ -140,6 +141,8 @@ class AegisGrpcClient private constructor(
     val serverStatuses: StateFlow<List<MobileServerStatus>> = _serverStatuses.asStateFlow()
     private val _chatMessages = MutableStateFlow<List<MobileChatMessage>>(emptyList())
     val chatMessages: StateFlow<List<MobileChatMessage>> = _chatMessages.asStateFlow()
+    private val _uiOverview = MutableStateFlow(UiOverviewSnapshot())
+    val uiOverview: StateFlow<UiOverviewSnapshot> = _uiOverview.asStateFlow()
 
     suspend fun connect(): Boolean = withContext(Dispatchers.IO) {
         if (config.pairingToken.isBlank()) {
@@ -179,6 +182,7 @@ class AegisGrpcClient private constructor(
                 chatRpcAvailable = chatRpcAvailable,
             )
             refreshMobileDashboardState()
+            refreshUiOverview()
             startMobileDashboardRefresh()
             Log.i(TAG, "Reverse stream started for AEGIS Core at ${config.host}:${config.port}")
             true
@@ -302,7 +306,10 @@ class AegisGrpcClient private constructor(
                 approvalId = response.approvalId,
                 error = if (response.status.code == 0) "" else response.status.message,
             ).also {
-                if (it.ok) refreshMobileDashboardState()
+                if (it.ok) {
+                    refreshMobileDashboardState()
+                    refreshUiOverview()
+                }
             }
         } catch (exc: Exception) {
             Log.e(TAG, "Chat request failed", exc)
@@ -368,6 +375,28 @@ class AegisGrpcClient private constructor(
                 lastError = message,
                 chatRpcAvailable = if (isMethodNotFound(exc)) false else _state.value.chatRpcAvailable,
             )
+            false
+        }
+    }
+
+    suspend fun refreshUiOverview(): Boolean = withContext(Dispatchers.IO) {
+        val currentStub = stub ?: return@withContext false
+        try {
+            val response = currentStub.getUiOverview(
+                AiServer.UiOverviewRequest.newBuilder()
+                    .setSurfaceId(config.deviceId)
+                    .setAuth(auth())
+                    .build()
+            )
+            if (response.status.code != 0) {
+                updateState(lastError = response.status.message)
+                return@withContext false
+            }
+            _uiOverview.value = parseUiOverview(response.overviewJson, response.generatedAtMs)
+            true
+        } catch (exc: Exception) {
+            Log.e(TAG, "UI overview refresh failed", exc)
+            updateState(lastError = exc.message ?: "UI overview refresh failed")
             false
         }
     }
@@ -716,6 +745,25 @@ class AegisGrpcClient private constructor(
         return exc.message ?: status.description ?: "Chat request failed"
     }
 
+    private fun parseUiOverview(rawJson: String, generatedAtMs: Long): UiOverviewSnapshot {
+        return try {
+            val obj = JSONObject(rawJson)
+            val core = obj.optJSONObject("core")?.optJSONObject("data")
+            val approvals = obj.optJSONObject("approvals")?.optJSONObject("data")
+            val task = obj.optJSONObject("current_task")?.optJSONObject("data")
+            UiOverviewSnapshot(
+                rawJson = rawJson,
+                generatedAtMs = generatedAtMs,
+                coreMode = core?.optString("mode", "IDLE") ?: "IDLE",
+                coreHealth = core?.optString("health", "UNKNOWN") ?: "UNKNOWN",
+                pendingApprovals = approvals?.optInt("pending_count", 0) ?: 0,
+                activeTaskTitle = task?.optString("title", "No active task") ?: "No active task",
+            )
+        } catch (exc: Exception) {
+            UiOverviewSnapshot(rawJson = rawJson, generatedAtMs = generatedAtMs)
+        }
+    }
+
     private fun startMobileDashboardRefresh() {
         dashboardRefreshJob?.cancel()
         dashboardRefreshJob = scope.launch {
@@ -723,6 +771,7 @@ class AegisGrpcClient private constructor(
                 delay(15_000L)
                 if (connected) {
                     refreshMobileDashboardState()
+                    refreshUiOverview()
                 }
             }
         }

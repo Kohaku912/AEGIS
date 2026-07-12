@@ -1000,7 +1000,10 @@ class DashboardApp:
         from aegis_ai.web.routes.memory import init_memory_routes
         from aegis_ai.web.routes.presentation import init_presentation_routes
         from aegis_ai.web.routes.server_status import init_server_status_routes
+        from aegis_ai.web.routes.ui import init_ui_routes
+        from aegis_ai.web.routes.ui_v2 import init_ui_v2_routes
 
+        init_ui_routes(self)
         init_chat_routes(self)
         init_autonomous_routes(self, _DATA_DIR)
         init_approval_routes(self)
@@ -1010,6 +1013,7 @@ class DashboardApp:
         init_llm_usage_page_routes(self)
         init_server_status_routes(self)
         self._setup_routes()
+        init_ui_v2_routes(self)
         self._autonomous_loop = runtime.autonomous_loop
 
     def _create_llm_provider(self, audit_log: Any = None) -> Any:
@@ -1315,6 +1319,13 @@ class DashboardApp:
         @app.route("/")
         @app.route("/dashboard")
         def home():
+            try:
+                from aegis_ai.web.routes.ui_v2 import ui_v2_available
+
+                if ui_v2_available():
+                    return self._app.view_functions["ui_v2_shell"]()
+            except Exception:
+                pass
             status = self._get_server_status()
 
             agora_data = {"configured": False, "unread": 0, "cursor": 0, "recent": ""}
@@ -1837,7 +1848,7 @@ class DashboardApp:
 
         @app.route("/dashboard/support")
         def support():
-            return redirect("/dashboard")
+            return render_template("dashboard/support.html")
 
         @app.route("/dashboard/memory")
         def memory():
@@ -2110,7 +2121,18 @@ class DashboardApp:
 
         @app.route("/dashboard/agora")
         def agora_page():
-            return redirect("/dashboard")
+            return render_template(
+                "dashboard/agora.html",
+                agora={
+                    "configured": False,
+                    "account": "",
+                    "cursor": 0,
+                    "max_post_id": 0,
+                    "total_posts": 0,
+                    "posts": [],
+                    "mentions": [],
+                },
+            )
 
         @app.route("/dashboard/desires")
         def desires_page():

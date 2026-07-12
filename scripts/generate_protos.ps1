@@ -36,10 +36,13 @@ try {
         $OutDir = "ai-server\src\generated"
         New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
         python -m grpc_tools.protoc -I protos --python_out=$OutDir --grpc_python_out=$OutDir --pyi_out=$OutDir $protoList
+        if ($LASTEXITCODE -ne 0) {
+            throw "grpc_tools.protoc failed with exit code $LASTEXITCODE"
+        }
 
         # Fix generated imports
         $genDir = Join-Path $OutDir "aegis"
-        Get-ChildItem -Path $genDir -Filter "*_pb2*.py" | ForEach-Object {
+        Get-ChildItem -Path $genDir -Include "*_pb2*.py","*.pyi" -Recurse | ForEach-Object {
             $c = Get-Content $_.FullName -Raw
             $c = $c -replace "from aegis import", "from generated.aegis import"
             Set-Content -NoNewline -Path $_.FullName -Value $c

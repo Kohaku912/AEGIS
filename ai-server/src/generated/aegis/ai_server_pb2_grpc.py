@@ -105,6 +105,16 @@ class AIServerStub:
                 request_serializer=aegis_dot_ai__server__pb2.MobileDashboardStateRequest.SerializeToString,
                 response_deserializer=aegis_dot_ai__server__pb2.MobileDashboardStateResponse.FromString,
                 _registered_method=True)
+        self.GetUiOverview = channel.unary_unary(
+                '/aegis.AIServer/GetUiOverview',
+                request_serializer=aegis_dot_ai__server__pb2.UiOverviewRequest.SerializeToString,
+                response_deserializer=aegis_dot_ai__server__pb2.UiOverviewResponse.FromString,
+                _registered_method=True)
+        self.StreamUiEvents = channel.unary_stream(
+                '/aegis.AIServer/StreamUiEvents',
+                request_serializer=aegis_dot_ai__server__pb2.UiEventStreamRequest.SerializeToString,
+                response_deserializer=aegis_dot_ai__server__pb2.UiEvent.FromString,
+                _registered_method=True)
         self.RequestApproval = channel.unary_unary(
                 '/aegis.AIServer/RequestApproval',
                 request_serializer=aegis_dot_ai__server__pb2.RequestApprovalRequest.SerializeToString,
@@ -225,6 +235,18 @@ class AIServerServicer:
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def GetUiOverview(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def StreamUiEvents(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
     def RequestApproval(self, request, context):
         """── Approval ──────────────────────────────────────────────
         """
@@ -331,6 +353,16 @@ def add_AIServerServicer_to_server(servicer, server):
                     servicer.GetMobileDashboardState,
                     request_deserializer=aegis_dot_ai__server__pb2.MobileDashboardStateRequest.FromString,
                     response_serializer=aegis_dot_ai__server__pb2.MobileDashboardStateResponse.SerializeToString,
+            ),
+            'GetUiOverview': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetUiOverview,
+                    request_deserializer=aegis_dot_ai__server__pb2.UiOverviewRequest.FromString,
+                    response_serializer=aegis_dot_ai__server__pb2.UiOverviewResponse.SerializeToString,
+            ),
+            'StreamUiEvents': grpc.unary_stream_rpc_method_handler(
+                    servicer.StreamUiEvents,
+                    request_deserializer=aegis_dot_ai__server__pb2.UiEventStreamRequest.FromString,
+                    response_serializer=aegis_dot_ai__server__pb2.UiEvent.SerializeToString,
             ),
             'RequestApproval': grpc.unary_unary_rpc_method_handler(
                     servicer.RequestApproval,
@@ -718,6 +750,60 @@ class AIServer:
             '/aegis.AIServer/GetMobileDashboardState',
             aegis_dot_ai__server__pb2.MobileDashboardStateRequest.SerializeToString,
             aegis_dot_ai__server__pb2.MobileDashboardStateResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetUiOverview(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/aegis.AIServer/GetUiOverview',
+            aegis_dot_ai__server__pb2.UiOverviewRequest.SerializeToString,
+            aegis_dot_ai__server__pb2.UiOverviewResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def StreamUiEvents(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_stream(
+            request,
+            target,
+            '/aegis.AIServer/StreamUiEvents',
+            aegis_dot_ai__server__pb2.UiEventStreamRequest.SerializeToString,
+            aegis_dot_ai__server__pb2.UiEvent.FromString,
             options,
             channel_credentials,
             insecure,

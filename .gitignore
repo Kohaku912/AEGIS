@@ -43,6 +43,7 @@ Thumbs.db
 .env.*
 !.env.example
 secrets/
+.aegis-local/
 *.pem
 *.key
 credentials.json

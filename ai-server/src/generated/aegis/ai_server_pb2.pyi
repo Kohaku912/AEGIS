@@ -1,5 +1,5 @@
-from aegis import common_pb2 as _common_pb2
-from aegis import android_server_pb2 as _android_server_pb2
+from generated.aegis import common_pb2 as _common_pb2
+from generated.aegis import android_server_pb2 as _android_server_pb2
 from google.protobuf.internal import containers as _containers
 from google.protobuf import descriptor as _descriptor
 from google.protobuf import message as _message
@@ -278,6 +278,42 @@ class MobileDashboardStateResponse(_message.Message):
     chat_history: _containers.RepeatedCompositeFieldContainer[ChatHistoryMessage]
     warnings: _containers.RepeatedScalarFieldContainer[str]
     def __init__(self, status: _Optional[_Union[_common_pb2.Status, _Mapping]] = ..., server_statuses: _Optional[_Iterable[_Union[MobileServerStatus, _Mapping]]] = ..., chat_history: _Optional[_Iterable[_Union[ChatHistoryMessage, _Mapping]]] = ..., warnings: _Optional[_Iterable[str]] = ...) -> None: ...
+
+class UiOverviewRequest(_message.Message):
+    __slots__ = ("surface_id", "auth")
+    SURFACE_ID_FIELD_NUMBER: _ClassVar[int]
+    AUTH_FIELD_NUMBER: _ClassVar[int]
+    surface_id: str
+    auth: _android_server_pb2.AndroidAuth
+    def __init__(self, surface_id: _Optional[str] = ..., auth: _Optional[_Union[_android_server_pb2.AndroidAuth, _Mapping]] = ...) -> None: ...
+
+class UiOverviewResponse(_message.Message):
+    __slots__ = ("status", "overview_json", "generated_at_ms")
+    STATUS_FIELD_NUMBER: _ClassVar[int]
+    OVERVIEW_JSON_FIELD_NUMBER: _ClassVar[int]
+    GENERATED_AT_MS_FIELD_NUMBER: _ClassVar[int]
+    status: _common_pb2.Status
+    overview_json: str
+    generated_at_ms: int
+    def __init__(self, status: _Optional[_Union[_common_pb2.Status, _Mapping]] = ..., overview_json: _Optional[str] = ..., generated_at_ms: _Optional[int] = ...) -> None: ...
+
+class UiEventStreamRequest(_message.Message):
+    __slots__ = ("surface_id", "auth")
+    SURFACE_ID_FIELD_NUMBER: _ClassVar[int]
+    AUTH_FIELD_NUMBER: _ClassVar[int]
+    surface_id: str
+    auth: _android_server_pb2.AndroidAuth
+    def __init__(self, surface_id: _Optional[str] = ..., auth: _Optional[_Union[_android_server_pb2.AndroidAuth, _Mapping]] = ...) -> None: ...
+
+class UiEvent(_message.Message):
+    __slots__ = ("event_type", "event_json", "timestamp_ms")
+    EVENT_TYPE_FIELD_NUMBER: _ClassVar[int]
+    EVENT_JSON_FIELD_NUMBER: _ClassVar[int]
+    TIMESTAMP_MS_FIELD_NUMBER: _ClassVar[int]
+    event_type: str
+    event_json: str
+    timestamp_ms: int
+    def __init__(self, event_type: _Optional[str] = ..., event_json: _Optional[str] = ..., timestamp_ms: _Optional[int] = ...) -> None: ...
 
 class QueryAuditLogRequest(_message.Message):
     __slots__ = ("since_ms", "until_ms", "action", "capability_id", "max_records")
