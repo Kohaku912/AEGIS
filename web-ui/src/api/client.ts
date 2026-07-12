@@ -1,12 +1,18 @@
 import type { UiOverview } from "../types";
 
 export async function fetchOverview(surface: "dashboard" | "display" = "dashboard"): Promise<UiOverview> {
-  const endpoint = surface === "display" ? "/display/overview" : "/api/ui/overview";
+  const endpoint = surface === "display" ? `/display/overview${displayReadQuery()}` : "/api/ui/overview";
   const response = await fetch(endpoint, { credentials: "include" });
   if (!response.ok) {
     throw new Error(`Overview request failed: ${response.status}`);
   }
   return response.json();
+}
+
+export function displayReadQuery(): string {
+  if (typeof window === "undefined") return "";
+  const token = new URLSearchParams(window.location.search).get("display_token");
+  return token ? `?display_token=${encodeURIComponent(token)}` : "";
 }
 
 export async function sendChat(message: string): Promise<Record<string, unknown>> {

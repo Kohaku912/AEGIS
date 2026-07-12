@@ -60,19 +60,23 @@ def _ui_dist_dir() -> Path:
 def _require_display_read() -> None:
     if request.method != "GET":
         abort(405)
-    token = os.getenv("AEGIS_DISPLAY_READ_TOKEN", "").strip()
+    token = os.getenv("AEGIS_DISPLAY_TOKEN", "").strip() or os.getenv("AEGIS_DISPLAY_READ_TOKEN", "").strip()
     provided = request.args.get("display_token", "") or request.headers.get("X-AEGIS-Display-Token", "")
     if token and provided == token:
         return
     host = _request_host_without_port()
     remote = (request.remote_addr or "").strip().lower()
-    if host in _LOOPBACK_HOSTS or remote in _LOOPBACK_HOSTS:
+    if host in _LOOPBACK_HOSTS:
+        return
+    if request.headers.get("X-Forwarded-Host"):
+        abort(403)
+    if remote in _LOOPBACK_HOSTS:
         return
     abort(403)
 
 
 def _request_host_without_port() -> str:
-    host = (request.host or "").strip().lower()
+    host = (request.headers.get("X-Forwarded-Host") or request.host or "").strip().lower()
     if host.startswith("["):
         return host.split("]", 1)[0].lstrip("[")
     return host.split(":", 1)[0]

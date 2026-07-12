@@ -10,6 +10,7 @@ from aegis_ai.auth.passkey_store import PasskeyStore
 from aegis_ai.auth.passkey_store import now_ms
 from aegis_ai.auth.session_middleware import install_passkey_auth
 from aegis_ai.auth.session_store import SessionStore
+from aegis_ai.web.routes.ui_v2 import init_ui_v2_routes
 
 
 def _service(tmp_path):
@@ -146,6 +147,70 @@ def test_display_html_does_not_receive_dashboard_auth_bar(tmp_path, monkeypatch)
     assert response.status_code == 200
     assert b"display" in response.data
     assert b"__aegisAuthInstalled" not in response.data
+
+
+def test_display_stream_allows_local_get_without_session(tmp_path, monkeypatch):
+    monkeypatch.setenv("AEGIS_AUTH_MODE", "passkey")
+    app = Flask(__name__)
+    install_passkey_auth(app, data_dir=tmp_path / "auth")
+
+    @app.route("/api/ui/stream")
+    def stream():
+        return "ok"
+
+    client = app.test_client()
+    response = client.get("/api/ui/stream?surface=display", headers={"Accept": "text/event-stream"})
+
+    assert response.status_code == 200
+    assert response.data == b"ok"
+
+
+def test_display_stream_rejects_remote_without_token(tmp_path, monkeypatch):
+    monkeypatch.setenv("AEGIS_AUTH_MODE", "passkey")
+    monkeypatch.setenv("AEGIS_DISPLAY_TOKEN", "display-secret")
+    app = Flask(__name__)
+    install_passkey_auth(app, data_dir=tmp_path / "auth")
+
+    @app.route("/api/ui/stream")
+    def stream():
+        return "ok"
+
+    client = app.test_client()
+    denied = client.get(
+        "/api/ui/stream?surface=display",
+        headers={"Accept": "text/event-stream", "Host": "example.test"},
+        environ_overrides={"REMOTE_ADDR": "203.0.113.20"},
+    )
+    allowed = client.get(
+        "/api/ui/stream?surface=display&display_token=display-secret",
+        headers={"Accept": "text/event-stream", "Host": "example.test"},
+        environ_overrides={"REMOTE_ADDR": "203.0.113.20"},
+    )
+
+    assert denied.status_code == 401
+    assert allowed.status_code == 200
+
+
+def test_display_overview_requires_token_when_forwarded_host_is_external(monkeypatch):
+    monkeypatch.setenv("AEGIS_UI_VERSION", "v2")
+    monkeypatch.setenv("AEGIS_DISPLAY_TOKEN", "display-secret")
+    app = Flask(__name__)
+    init_ui_v2_routes(SimpleNamespace(app=app, _runtime=SimpleNamespace()))
+
+    client = app.test_client()
+    denied = client.get(
+        "/display/overview",
+        headers={"Host": "127.0.0.1:8090", "X-Forwarded-Host": "kawahara.pp.ua"},
+        environ_overrides={"REMOTE_ADDR": "127.0.0.1"},
+    )
+    allowed = client.get(
+        "/display/overview?display_token=display-secret",
+        headers={"Host": "127.0.0.1:8090", "X-Forwarded-Host": "kawahara.pp.ua"},
+        environ_overrides={"REMOTE_ADDR": "127.0.0.1"},
+    )
+
+    assert denied.status_code == 403
+    assert allowed.status_code == 200
 
 
 def test_passkey_session_allows_dashboard_and_fresh_risk_requires_csrf(tmp_path, monkeypatch):

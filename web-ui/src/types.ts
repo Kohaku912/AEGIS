@@ -86,4 +86,24 @@ export type UiEvent = {
   generated_at: number;
   source_updated_at: number;
   payload: Record<string, unknown>;
+  capability_id?: string;
+  server_id?: string;
+  status?: string;
+  approval_id?: string;
+  task_id?: string;
+  severity?: string;
+  message?: string;
+};
+
+export type VisualEvent = {
+  id: string;
+  type: string;
+  effect: "pulse" | "complete" | "fracture" | "containment" | "containment-resolved" | "disconnect" | "recovery";
+  serverId: string;
+  capabilityId?: string;
+  status?: string;
+  severity?: string;
+  message: string;
+  createdAt: number;
+  expiresAt: number;
 };
