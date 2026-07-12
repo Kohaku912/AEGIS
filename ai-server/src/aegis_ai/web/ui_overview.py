@@ -45,12 +45,15 @@ def normalize_ui_event(event: Any) -> dict[str, Any]:
     payload = getattr(event, "payload", None)
     if payload is None:
         payload = _get(event, "payload", {})
+    plain_payload = _bound_for_ui(_to_plain(payload), max_depth=5)
+    fields = _event_fields(event_type, plain_payload)
     return {
         "type": _ui_event_type(event_type),
         "source_type": event_type,
         "generated_at": _now_ms(),
         "source_updated_at": timestamp,
-        "payload": _to_plain(payload),
+        "payload": plain_payload,
+        **fields,
     }
 
 
@@ -372,16 +375,89 @@ def _ui_event_type(event_type: str) -> str:
         "task.updated": "task.updated",
         "task.completed": "task.updated",
         "task.failed": "task.updated",
+        "tool.execution.started": "tool.execution.started",
+        "tool.execution.completed": "tool.execution.completed",
+        "tool.execution.failed": "tool.execution.failed",
+        "capability.execution.started": "tool.execution.started",
+        "capability.execution.completed": "tool.execution.completed",
+        "capability.execution.failed": "tool.execution.failed",
         "approval.created": "approval.created",
         "approval.approved": "approval.resolved",
         "approval.rejected": "approval.resolved",
         "approval.expired": "approval.resolved",
+        "approval.executed": "approval.resolved",
+        "approval.failed": "approval.resolved",
         "notification.sent": "notification.created",
         "android.permission.changed": "permission.changed",
         "android.connected": "connection.changed",
         "android.disconnected": "connection.changed",
     }
     return mapping.get(event_type, "activity.updated")
+
+
+def _event_fields(event_type: str, payload: Any) -> dict[str, Any]:
+    payload_dict = payload if isinstance(payload, dict) else {}
+    nested = payload_dict.get("payload") if isinstance(payload_dict.get("payload"), dict) else {}
+    detail = payload_dict.get("detail") if isinstance(payload_dict.get("detail"), dict) else {}
+    candidates = [payload_dict, nested, detail]
+
+    def first(*keys: str) -> Any:
+        for source in candidates:
+            for key in keys:
+                value = source.get(key)
+                if value not in (None, ""):
+                    return value
+        return ""
+
+    capability_id = str(first("capability_id", "tool_id", "tool_name", "capability") or "")
+    server_id = str(first("server_id", "server") or _server_from_capability_id(capability_id))
+    status = str(first("status", "state", "decision") or _status_from_event_type(event_type))
+    approval_id = str(first("approval_id", "request_id") or "")
+    task_id = str(first("task_id") or "")
+    message = str(first("message", "summary", "reason", "error") or event_type)
+    severity = str(first("severity") or _severity_from_event(event_type, status))
+    return {
+        "capability_id": capability_id,
+        "server_id": server_id,
+        "status": status,
+        "approval_id": approval_id,
+        "task_id": task_id,
+        "severity": severity,
+        "message": _truncate_text(message, limit=300),
+    }
+
+
+def _server_from_capability_id(capability_id: str) -> str:
+    prefix = capability_id.split(".", 1)[0].strip().lower()
+    if prefix in {"ai-server", "pc-server", "android-server", "browser-server", "room-server", "dev-server"}:
+        return prefix
+    return "ai-server" if capability_id else ""
+
+
+def _status_from_event_type(event_type: str) -> str:
+    lowered = event_type.lower()
+    if lowered.endswith(".started") or "executing" in lowered:
+        return "running"
+    if lowered.endswith(".completed") or lowered.endswith(".executed") or lowered.endswith(".approved"):
+        return "completed"
+    if lowered.endswith(".failed") or lowered.endswith(".rejected"):
+        return "failed"
+    if lowered.endswith(".created"):
+        return "created"
+    if "disconnected" in lowered:
+        return "offline"
+    if "connected" in lowered:
+        return "online"
+    return ""
+
+
+def _severity_from_event(event_type: str, status: str) -> str:
+    lowered = f"{event_type} {status}".lower()
+    if any(token in lowered for token in ("failed", "offline", "error", "critical")):
+        return "critical"
+    if any(token in lowered for token in ("approval", "degraded", "warning", "permission")):
+        return "warning"
+    return "info"
 
 
 def _attention_sort_key(item: dict[str, Any]) -> tuple[int, int]:

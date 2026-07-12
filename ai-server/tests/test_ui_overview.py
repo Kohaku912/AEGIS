@@ -5,7 +5,7 @@ from types import SimpleNamespace
 from flask import Flask
 
 from aegis_ai.web.routes.ui import init_ui_routes
-from aegis_ai.web.ui_overview import build_ui_overview
+from aegis_ai.web.ui_overview import build_ui_overview, normalize_ui_event
 
 
 class _StatusManager:
@@ -150,3 +150,25 @@ def test_ui_overview_compacts_large_step_results():
     assert step["result"]["truncated"] is True
     assert step["result"]["size_chars"] > 5_000_000
     assert "html" in step["result"]["keys"]
+
+
+def test_normalize_ui_event_exposes_visual_fields():
+    event = SimpleNamespace(
+        event_type="tool.execution.failed",
+        timestamp=1234,
+        payload={
+            "capability_id": "android-server.screen.get_ui_tree",
+            "task_id": "task-1",
+            "status": "failed",
+            "error": "permission missing",
+        },
+    )
+
+    normalized = normalize_ui_event(event)
+
+    assert normalized["type"] == "tool.execution.failed"
+    assert normalized["server_id"] == "android-server"
+    assert normalized["capability_id"] == "android-server.screen.get_ui_tree"
+    assert normalized["task_id"] == "task-1"
+    assert normalized["severity"] == "critical"
+    assert normalized["message"] == "permission missing"

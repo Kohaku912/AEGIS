@@ -24,7 +24,7 @@ import { MindMemory } from "./pages/MindMemory";
 import { Settings } from "./pages/Settings";
 import { Systems } from "./pages/Systems";
 import { Work } from "./pages/Work";
-import type { UiOverview } from "./types";
+import type { UiEvent, UiOverview } from "./types";
 
 type PageId = "command" | "work" | "approvals" | "systems" | "mind" | "activity" | "settings";
 
@@ -42,6 +42,7 @@ export function App() {
   const displayMode = window.location.pathname.startsWith("/display");
   const queryClient = useQueryClient();
   const [chatOpen, setChatOpen] = useState(window.location.pathname === "/chat");
+  const [recentEvents, setRecentEvents] = useState<UiEvent[]>([]);
   const selectedPage = useMemo(() => selectedPageFromPath(window.location.pathname), []);
   const [page, setPage] = useState<PageId>(selectedPage);
   const query = useQuery({
@@ -49,7 +50,10 @@ export function App() {
     queryFn: () => fetchOverview(displayMode ? "display" : "dashboard"),
     refetchInterval: displayMode ? 15_000 : 30_000
   });
-  const onEvent = useCallback(() => {
+  const onEvent = useCallback((event: UiEvent) => {
+    if (!("schema_version" in event)) {
+      setRecentEvents((items) => [event, ...items].slice(0, 10));
+    }
     void queryClient.invalidateQueries({ queryKey: ["ui-overview"] });
   }, [queryClient]);
   useOverviewStream(onEvent, !displayMode);
@@ -100,21 +104,21 @@ export function App() {
             </button>
           </div>
         </header>
-        <Page page={page} overview={overview} />
+        <Page page={page} overview={overview} recentEvents={recentEvents} />
       </main>
       <ChatDrawer open={chatOpen} onClose={() => setChatOpen(false)} />
     </div>
   );
 }
 
-function Page({ page, overview }: { page: PageId; overview: UiOverview }) {
+function Page({ page, overview, recentEvents }: { page: PageId; overview: UiOverview; recentEvents: UiEvent[] }) {
   if (page === "work") return <Work overview={overview} />;
   if (page === "approvals") return <Approvals overview={overview} />;
   if (page === "systems") return <Systems overview={overview} />;
   if (page === "mind") return <MindMemory overview={overview} />;
-  if (page === "activity") return <ActivityPage overview={overview} />;
+  if (page === "activity") return <ActivityPage overview={overview} recentEvents={recentEvents} />;
   if (page === "settings") return <Settings />;
-  return <CommandCenter overview={overview} />;
+  return <CommandCenter overview={overview} recentEvents={recentEvents} />;
 }
 
 function selectedPageFromPath(path: string): PageId {

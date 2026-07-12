@@ -1,76 +1,130 @@
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { CoreSphere } from "../components/CoreSphere";
 import { StatusBadge } from "../components/StatusBadge";
-import type { UiOverview } from "../types";
+import { useOverviewStream } from "../api/useOverviewStream";
+import {
+  attentionItems,
+  mapUiEventToVisualEvent,
+  missionPhase,
+  normalizeStatus,
+  serverLabel,
+  serverNeedsDetail
+} from "../displayModel";
+import type { ServerItem, UiEvent, UiOverview, VisualEvent } from "../types";
 
-export function Display({ overview }: { overview: UiOverview }) {
+export function Display({ overview: initialOverview }: { overview: UiOverview }) {
+  const [overview, setOverview] = useState(initialOverview);
+  const [events, setEvents] = useState<UiEvent[]>([]);
+  const [visualEvents, setVisualEvents] = useState<VisualEvent[]>([]);
+
+  useEffect(() => setOverview(initialOverview), [initialOverview]);
+
+  const onStreamEvent = useCallback((event: UiEvent | UiOverview) => {
+    if ("schema_version" in event) {
+      setOverview(event);
+      return;
+    }
+    setEvents((items) => [event, ...items].slice(0, 10));
+    const visual = mapUiEventToVisualEvent(event);
+    setVisualEvents((items) => [visual, ...items.filter((item) => item.expiresAt > Date.now())].slice(0, 12));
+  }, []);
+  useOverviewStream(onStreamEvent, true, "display");
+
   const core = overview.core.data;
   const servers = overview.servers.data.items || [];
   const task = overview.current_task.data;
-  const approvals = overview.approvals.data.pending || [];
+  const attention = attentionItems(overview);
+  const activeServerId = String(task.capability_id || "").split(".", 1)[0];
+  const phase = missionPhase(overview);
+
   return (
-    <main className="display-shell">
-      <header className="top-bar">
-        <div className="brand">
-          <span className="brand__name">AEGIS</span>
-          <span className="brand__sub">Dedicated Display / Read Only</span>
-        </div>
-        <StatusBadge status={String(core.health || "ONLINE")} />
-      </header>
-      <section className="display-grid">
-        <aside className="panel">
-          <div className="panel__header"><h2>AI State</h2></div>
-          <div className="grid">
-            <div className="stat"><span className="muted">Mode</span><b>{String(core.mode || "IDLE")}</b></div>
-            <div className="stat"><span className="muted">Goal</span><b style={{ fontSize: 16 }}>{String(core.active_goal || "No active goal")}</b></div>
-            <div className="stat"><span className="muted">Confidence</span><b>{String(core.confidence || "medium")}</b></div>
-            <div className="stat"><span className="muted">Task</span><b style={{ fontSize: 16 }}>{task.title}</b></div>
+    <main className="display-shell" data-phase={phase} data-testid="display-shell">
+      <header className="display-top">
+        <section className="display-card display-operation" aria-label="Current Operation">
+          <span className="display-kicker">Current Operation</span>
+          <h1>{task.title || "No active task"}</h1>
+          <p>{task.current_action || task.next_action || task.blocked_reason || "Waiting for a meaningful signal."}</p>
+          <div className="display-meta">
+            <StatusBadge status={String(core.mode || "IDLE")} />
+            <span>{phase}</span>
           </div>
-        </aside>
-        <section className="display-core">
-          <CoreSphere
-            mode={String(core.mode || "IDLE")}
-            health={String(core.health || "ONLINE")}
-            activityLevel={Number(core.activity_level || 1)}
-            confidence={String(core.confidence || "medium")}
-            servers={servers}
-          />
         </section>
-        <aside className="panel">
-          <div className="panel__header"><h2>Attention</h2></div>
-          <div className="grid">
-            {approvals.slice(0, 3).map((approval) => (
-              <div className="attention-item" data-severity="warning" key={approval.approval_id}>
-                <div>
-                  <strong>Approval</strong>
-                  <div className="muted">{approval.summary || approval.capability_id}</div>
-                </div>
-              </div>
+        {attention.length ? (
+          <section className="display-card display-attention" aria-label="Attention">
+            <span className="display-kicker">Attention</span>
+            {attention.slice(0, 4).map((item) => (
+              <article className="display-attention__item" data-severity={item.severity} key={item.id}>
+                <strong>{item.title}</strong>
+                <p>{item.message || item.recovery_hint || "Review this signal."}</p>
+              </article>
             ))}
-            {(overview.attention.data.items || []).filter((item) => item.kind !== "approval").slice(0, 5).map((item) => (
-              <div className="attention-item" data-severity={item.severity} key={item.id}>
-                <div>
-                  <strong>{item.title}</strong>
-                  <div className="muted">{item.message}</div>
-                </div>
-              </div>
-            ))}
-            {approvals.length === 0 && (overview.attention.data.items || []).length === 0 ? <div className="muted">No immediate attention required.</div> : null}
-          </div>
-        </aside>
+          </section>
+        ) : null}
+      </header>
+
+      <section className="display-core-stage" aria-label="AEGIS core">
+        <CoreSphere
+          mode={String(core.mode || "IDLE")}
+          health={String(core.health || "ONLINE")}
+          activityLevel={Number(core.activity_level || 1)}
+          confidence={String(core.confidence || "medium")}
+          servers={servers}
+          visualEvents={visualEvents}
+          activeServerId={activeServerId}
+          nextServerId={nextServerId(task.steps)}
+          approvalServerIds={(overview.approvals.data.pending || []).map((approval) => String(approval.capability_id || "").split(".", 1)[0])}
+        />
       </section>
-      <footer className="panel" style={{ marginTop: 24 }}>
-        <div className="grid grid--three">
-          {servers.slice(0, 6).map((server) => (
-            <div className="list-row" key={server.server_id}>
-              <div>
-                <strong>{server.server_id}</strong>
-                <div className="muted">{server.status_detail || server.recovery_hint || server.mode}</div>
-              </div>
-              <StatusBadge status={server.status} />
-            </div>
-          ))}
+
+      <section className="display-bottom">
+        <div className="display-card display-phase">
+          <span className="display-kicker">Mission Phase</span>
+          <strong>{phase}</strong>
+          <p>{String(core.active_goal || task.title || "Standing by.")}</p>
         </div>
-      </footer>
+        <div className="display-card display-events" aria-label="Recent Events">
+          <span className="display-kicker">Recent Events</span>
+          {events.length ? (
+            events.slice(0, 6).map((event) => (
+              <div className="event-row" data-severity={event.severity || "info"} key={`${event.type}-${event.source_updated_at}-${event.message}`}>
+                <span>{event.type}</span>
+                <strong>{event.message || event.source_type}</strong>
+              </div>
+            ))
+          ) : (
+            <div className="event-row" data-severity="normal">
+              <span>stream</span>
+              <strong>Waiting for live events</strong>
+            </div>
+          )}
+        </div>
+      </section>
+
+      <ServerRail servers={servers} activeServerId={activeServerId} />
     </main>
   );
+}
+
+function ServerRail({ servers, activeServerId }: { servers: ServerItem[]; activeServerId: string }) {
+  const ordered = useMemo(() => [...servers].sort((a, b) => serverLabel(a.server_id).localeCompare(serverLabel(b.server_id))), [servers]);
+  return (
+    <footer className="server-rail" aria-label="Server rail">
+      {ordered.map((server) => {
+        const expanded = serverNeedsDetail(server, activeServerId);
+        return (
+          <article className="server-rail__item" data-status={normalizeStatus(server.status)} data-expanded={expanded} key={server.server_id}>
+            <span className="server-dot" aria-hidden="true" />
+            <strong>{serverLabel(server.server_id)}</strong>
+            {expanded ? <span className="server-rail__detail">{server.status_detail || server.degraded_reason || server.recovery_hint || normalizeStatus(server.status)}</span> : null}
+          </article>
+        );
+      })}
+    </footer>
+  );
+}
+
+function nextServerId(steps: Array<Record<string, unknown>> | undefined): string {
+  const pending = (steps || []).find((step) => String(step.status || "").toLowerCase() === "pending" || String(step.status || "").toLowerCase() === "ready");
+  const capabilityId = String(pending?.capability_id || "");
+  return capabilityId.split(".", 1)[0] || "";
 }

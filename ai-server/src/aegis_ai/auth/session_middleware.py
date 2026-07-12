@@ -67,6 +67,8 @@ def install_passkey_auth(app: Any, *, data_dir: str | Path = "data/auth", exempt
             if _fresh_required(path) and not _fresh_ok():
                 return jsonify({"error": "fresh_passkey_required", "fresh_auth_url": "/auth/login"}), 403
             return None
+        if _display_read_allowed(path):
+            return None
 
         protected = path == "/" or path.startswith("/dashboard") or path.startswith("/api/") or _is_sse_or_ws()
         if not protected:
@@ -155,6 +157,32 @@ def _wants_json() -> bool:
 
 def _is_local_request() -> bool:
     return (request.remote_addr or "") in {"127.0.0.1", "::1", "localhost"}
+
+
+def _display_read_allowed(path: str) -> bool:
+    if request.method != "GET":
+        return False
+    is_stream = path == "/api/ui/stream" and request.args.get("surface", "").strip().lower() == "display"
+    is_overview = path == "/display/overview"
+    if not is_stream and not is_overview:
+        return False
+    token = os.getenv("AEGIS_DISPLAY_TOKEN", "").strip() or os.getenv("AEGIS_DISPLAY_READ_TOKEN", "").strip()
+    provided = request.args.get("display_token", "") or request.headers.get("X-AEGIS-Display-Token", "")
+    if token and provided == token:
+        return True
+    host = _request_host_without_port()
+    if host in {"127.0.0.1", "::1", "localhost"}:
+        return True
+    if request.headers.get("X-Forwarded-Host"):
+        return False
+    return _is_local_request()
+
+
+def _request_host_without_port() -> str:
+    host = (request.headers.get("X-Forwarded-Host") or request.host or "").strip().lower()
+    if host.startswith("["):
+        return host.split("]", 1)[0].lstrip("[")
+    return host.split(":", 1)[0]
 
 
 def _auth_header_script() -> str:
