@@ -8,6 +8,7 @@ services:
       AEGIS_WEBAUTHN_ORIGINS: ${AEGIS_WEBAUTHN_ORIGINS:-https://kawahara.pp.ua}
       AEGIS_SESSION_SECRET: ${AEGIS_SESSION_SECRET:-}
       AEGIS_AUTH_BOOTSTRAP_TOKEN: ${AEGIS_AUTH_BOOTSTRAP_TOKEN:-}
+      AEGIS_UI_VERSION: v2
 
   browser-server:
     environment:

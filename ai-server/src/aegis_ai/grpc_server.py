@@ -322,6 +322,66 @@ class AegisAIServicer(ai_server_pb2_grpc.AIServerServicer):
             warnings=warnings,
         )
 
+    def GetUiOverview(self, request, context):
+        from aegis_ai.web.ui_overview import build_ui_overview
+
+        auth_ok, _, auth_message = self._validate_android_direct_rpc_auth(
+            request,
+            context,
+            fallback_device_id=request.surface_id,
+        )
+        if not auth_ok:
+            return ai_server_pb2.UiOverviewResponse(status=Status(code=16, message=auth_message))
+        overview = build_ui_overview(self._runtime)
+        return ai_server_pb2.UiOverviewResponse(
+            status=Status(code=0, message="ok"),
+            overview_json=json.dumps(overview, ensure_ascii=False),
+            generated_at_ms=int(overview.get("generated_at", int(time.time() * 1000))),
+        )
+
+    def StreamUiEvents(self, request, context):
+        from aegis_ai.web.ui_overview import normalize_ui_event
+
+        auth_ok, _, auth_message = self._validate_android_direct_rpc_auth(
+            request,
+            context,
+            fallback_device_id=request.surface_id,
+        )
+        if not auth_ok:
+            context.set_code(grpc.StatusCode.PERMISSION_DENIED)
+            context.set_details(auth_message)
+            return
+        event_manager = getattr(self._runtime, "event_manager", None)
+        if event_manager is None or not hasattr(event_manager, "subscribe"):
+            context.set_code(grpc.StatusCode.UNAVAILABLE)
+            context.set_details("event manager unavailable")
+            return
+        import queue
+
+        event_queue: queue.Queue[dict[str, Any]] = queue.Queue(maxsize=200)
+
+        def _handler(event: Any) -> None:
+            try:
+                event_queue.put_nowait(normalize_ui_event(event))
+            except queue.Full:
+                pass
+
+        subscriber_id = event_manager.subscribe(_handler)
+        try:
+            while context.is_active():
+                try:
+                    item = event_queue.get(timeout=10)
+                except queue.Empty:
+                    item = {"type": "heartbeat", "generated_at": int(time.time() * 1000)}
+                yield ai_server_pb2.UiEvent(
+                    event_type=str(item.get("type", "activity.updated")),
+                    event_json=json.dumps(item, ensure_ascii=False),
+                    timestamp_ms=int(item.get("generated_at", int(time.time() * 1000))),
+                )
+        finally:
+            if hasattr(event_manager, "unsubscribe"):
+                event_manager.unsubscribe(subscriber_id)
+
     # ── Approval ─────────────────────────────────────────────
 
     def RequestApproval(self, request, context):

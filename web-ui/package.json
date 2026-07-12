@@ -1,0 +1,38 @@
+{
+  "name": "@aegis/web-ui",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1 --port 5173",
+    "build": "tsc -b && vite build --outDir ../ai-server/src/aegis_ai/web/static/ui-v2",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "playwright": "playwright test",
+    "storybook": "storybook dev -p 6006",
+    "build-storybook": "storybook build"
+  },
+  "dependencies": {
+    "@tanstack/react-query": "^5.64.2",
+    "lucide-react": "^0.468.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "three": "^0.171.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.49.1",
+    "@storybook/react-vite": "^8.4.7",
+    "@testing-library/jest-dom": "^6.6.3",
+    "@testing-library/react": "^16.1.0",
+    "@types/node": "^22.10.2",
+    "@types/react": "^19.0.2",
+    "@types/react-dom": "^19.0.2",
+    "@types/three": "^0.171.0",
+    "@vitejs/plugin-react": "^4.3.4",
+    "jsdom": "^25.0.1",
+    "storybook": "^8.4.7",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.5",
+    "vitest": "^2.1.8"
+  }
+}

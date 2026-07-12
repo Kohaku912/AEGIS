@@ -523,11 +523,11 @@ extern "system" fn overlay_wnd_proc(
                     CreateCompatibleBitmap(hdc, rect.right - rect.left, rect.bottom - rect.top);
                 let old_bmp = SelectObject(mem_dc, bmp);
 
-                let bg_brush = CreateSolidBrush(0x001E1E2E);
+                let bg_brush = CreateSolidBrush(0x001B110B);
                 FillRect(mem_dc, &rect, bg_brush);
                 DeleteObject(bg_brush as _);
 
-                let border_pen = CreatePen(PS_SOLID, 2, 0x00FF8800);
+                let border_pen = CreatePen(PS_SOLID, 2, 0x004DB8FF);
                 let old_pen = SelectObject(mem_dc, border_pen);
                 let old_brush = SelectObject(mem_dc, GetStockObject(NULL_BRUSH));
                 Rectangle(mem_dc, rect.left, rect.top, rect.right, rect.bottom);
@@ -538,7 +538,7 @@ extern "system" fn overlay_wnd_proc(
                 SetBkMode(mem_dc, 1);
 
                 let title: Vec<u16> = "AEGIS Approval Required\0".encode_utf16().collect();
-                SetTextColor(mem_dc, 0x00FF8800);
+                SetTextColor(mem_dc, 0x004DB8FF);
                 let mut title_rect = RECT {
                     left: rect.left + 16,
                     top: rect.top + 12,
@@ -553,7 +553,7 @@ extern "system" fn overlay_wnd_proc(
                     DT_LEFT | DT_SINGLELINE,
                 );
 
-                SetTextColor(mem_dc, 0x00CCCCCC);
+                SetTextColor(mem_dc, 0x00FFF2EA);
 
                 if let Some(ref data) = OVERLAY_DATA {
                     let action_text: Vec<u16> = format!("Action: {}\0", data.action)
@@ -604,7 +604,7 @@ extern "system" fn overlay_wnd_proc(
                     );
                     y_pos += 28;
 
-                    SetTextColor(mem_dc, 0x0088FF88);
+                    SetTextColor(mem_dc, 0x00A8D42D);
                     let approve_text: Vec<u16> = "[Y] Approve\0".encode_utf16().collect();
                     line_rect.top = y_pos;
                     line_rect.bottom = y_pos + 22;
@@ -616,7 +616,7 @@ extern "system" fn overlay_wnd_proc(
                         DT_LEFT | DT_SINGLELINE,
                     );
 
-                    SetTextColor(mem_dc, 0x008888FF);
+                    SetTextColor(mem_dc, 0x00735DFF);
                     let reject_text: Vec<u16> = "[N] Reject\0".encode_utf16().collect();
                     line_rect.left = rect.right - 120;
                     line_rect.right = rect.right - 16;
@@ -628,7 +628,7 @@ extern "system" fn overlay_wnd_proc(
                         DT_LEFT | DT_SINGLELINE,
                     );
 
-                    SetTextColor(mem_dc, 0x00888888);
+                    SetTextColor(mem_dc, 0x008EA08B);
                     let esc_text: Vec<u16> = "[ESC] Cancel\0".encode_utf16().collect();
                     line_rect.left = rect.left + 16;
                     line_rect.right = rect.right - 16;

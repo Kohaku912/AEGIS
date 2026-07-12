@@ -81,6 +81,9 @@ import com.aegis.android.provider.ScreenshotProvider
 import com.aegis.android.provider.UITreeProvider
 import com.aegis.android.service.AegisAccessibilityService
 import com.aegis.android.service.ScreenshotService
+import com.aegis.android.ui.AegisMobileV2App
+import com.aegis.android.ui.MobileUiActions
+import com.aegis.android.ui.model.MobilePermissionSnapshot
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -115,7 +118,34 @@ class MainActivity : ComponentActivity() {
         startForegroundService(Intent(this, AegisForegroundService::class.java))
 
         setContent {
-            AegisAndroidApp()
+            val scope = rememberCoroutineScope()
+            var config by remember { mutableStateOf(AegisConfig.load(this@MainActivity)) }
+            var client by remember { mutableStateOf(grpcClient) }
+            AegisMobileV2App(
+                client = client,
+                config = config,
+                permissionsProvider = { buildMobilePermissionSnapshot() },
+                actions = MobileUiActions(
+                    permissionAction = { action ->
+                        when (action) {
+                            "notification-runtime" -> requestRuntimeNotificationPermission()
+                            "notification-access" -> openNotificationAccessSettings()
+                            "accessibility" -> openAccessibilitySettings()
+                            "screenshot" -> requestScreenshotPermission()
+                            "overlay" -> openOverlaySettings()
+                            "location" -> requestLocationPermission()
+                        }
+                    },
+                    saveConnection = { host, port, token ->
+                        config = AegisConfig.save(this@MainActivity, host, port, token)
+                        client = AegisGrpcClient.getInstance(this@MainActivity)
+                        grpcClient = client
+                    },
+                    connect = {
+                        scope.launch(Dispatchers.IO) { client.connect() }
+                    },
+                ),
+            )
         }
     }
 
@@ -732,6 +762,18 @@ class MainActivity : ComponentActivity() {
             deviceLine = "${device.manufacturer} ${device.model} / Android ${device.androidVersion}",
             batteryLine = "${device.batteryLevel}%${if (device.batteryCharging) " charging" else ""}",
             screenLine = "${if (device.screenOn) "On" else "Off"} / ${if (device.locked) "Locked" else "Unlocked"}",
+        )
+    }
+
+    private fun buildMobilePermissionSnapshot(): MobilePermissionSnapshot {
+        val snapshot = buildStatusSnapshot()
+        return MobilePermissionSnapshot(
+            notificationRuntime = snapshot.notificationRuntime,
+            notificationAccess = snapshot.notificationAccess,
+            accessibility = snapshot.accessibility,
+            screenshot = snapshot.screenshot,
+            overlay = snapshot.overlay,
+            location = snapshot.location,
         )
     }
 

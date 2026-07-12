@@ -41,6 +41,13 @@ def init_presentation_routes(owner: Any) -> None:
     @bp.route("/display/presentations")
     def display_presentations():
         _require_local_display_request()
+        try:
+            from aegis_ai.web.routes.ui_v2 import ui_v2_available
+
+            if ui_v2_available():
+                return owner.app.view_functions["display_v2_shell"]()
+        except Exception:
+            pass
         return render_template("display/presentations.html")
 
     @bp.route("/display/presentations/data")
