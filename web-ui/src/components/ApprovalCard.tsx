@@ -40,14 +40,22 @@ export function ApprovalCard({ approval, readonly = false }: Props) {
       <div className="stat-grid">
         <div className="stat">
           <span className="muted">Capability</span>
-          <b className="mono" style={{ fontSize: 14 }}>{approval.capability_id}</b>
+          <b className="mono stat__value--small">{approval.capability_id}</b>
         </div>
         <div className="stat">
           <span className="muted">Target</span>
-          <b style={{ fontSize: 14 }}>{approval.target || "Not specified"}</b>
+          <b className="stat__value--small">{approval.target || "Not specified"}</b>
         </div>
       </div>
-      {approval.preview ? <pre className="panel mono" style={{ whiteSpace: "pre-wrap", margin: 0 }}>{approval.preview}</pre> : null}
+      <div className="approval-detail-grid">
+        <Detail label="Side effects" value={approval.side_effects} />
+        <Detail label="Previous action" value={approval.previous_action} />
+        <Detail label="Similar history" value={approval.similar_action_summary} />
+        <Detail label="Expected effect" value={approval.expected_effect} />
+        <Detail label="Fresh auth" value={approval.fresh_auth_required ? "Required" : "Not required for this request"} />
+        <Detail label="Task" value={approval.task_id || "Not linked"} />
+      </div>
+      {approval.preview ? <pre className="approval-preview mono">{approval.preview}</pre> : null}
       {error ? <div className="attention-item" data-severity="critical">{error}</div> : null}
       {!readonly ? (
         <div className="approval-card__actions">
@@ -60,5 +68,15 @@ export function ApprovalCard({ approval, readonly = false }: Props) {
         </div>
       ) : null}
     </article>
+  );
+}
+
+function Detail({ label, value }: { label: string; value?: unknown }) {
+  const text = Array.isArray(value) ? value.join(", ") : String(value || "Not reported");
+  return (
+    <div className="approval-detail">
+      <span>{label}</span>
+      <strong>{text}</strong>
+    </div>
   );
 }

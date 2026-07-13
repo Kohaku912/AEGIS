@@ -13,6 +13,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.aegis.android.grpc.AegisConnectionState
 import com.aegis.android.grpc.MobileServerStatus
+import com.aegis.android.ui.designsystem.AegisStatusChip
+import com.aegis.android.ui.designsystem.FreshnessLabel
+import com.aegis.android.ui.designsystem.PermissionMissingState
+import com.aegis.android.ui.designsystem.ServerStatusRow
+import com.aegis.android.ui.designsystem.TaskProgressBlock
 import com.aegis.android.ui.designsystem.AegisPanel
 import com.aegis.android.ui.designsystem.AegisText
 import com.aegis.android.ui.designsystem.AegisTextSecondary
@@ -43,13 +48,21 @@ fun HomeScreen(
                 CoreGlyph(mode = overview.coreMode, health = overview.coreHealth, pendingApprovals = overview.pendingApprovals)
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("AEGIS Mobile", color = AegisText, fontWeight = FontWeight.Bold)
-                    Text("Core: ${overview.coreMode} / ${overview.coreHealth} / ${overview.missionPhase}", color = AegisTextSecondary)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        AegisStatusChip("Core", overview.coreHealth)
+                        AegisStatusChip("Mode", overview.coreMode)
+                    }
+                    FreshnessLabel(stale = overview.freshnessStale, generatedAtMs = overview.generatedAtMs)
                     Text(if (state.connected) "Connected to ${state.host}:${state.port}" else "Disconnected: ${state.lastError.ifBlank { "waiting" }}", color = AegisTextSecondary)
-                    Text("Current: ${overview.activeTaskTitle}", color = AegisTextSecondary)
-                    Text("Next: ${overview.nextAction.ifBlank { overview.currentAction.ifBlank { "Not reported" } }}", color = AegisTextSecondary)
                 }
             }
         }
+        TaskProgressBlock(
+            title = overview.activeTaskTitle,
+            phase = overview.missionPhase.ifBlank { overview.taskPhase },
+            currentAction = overview.currentAction.ifBlank { overview.blockedReason },
+            nextAction = overview.nextAction,
+        )
         AegisPanel(modifier = Modifier.fillMaxWidth()) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(16.dp)) {
                 Text("Attention", color = AegisText, fontWeight = FontWeight.Bold)
@@ -58,21 +71,22 @@ fun HomeScreen(
                 Text("Memory ${overview.memorySummary}", color = AegisTextSecondary)
             }
         }
-        AegisPanel(modifier = Modifier.fillMaxWidth()) {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(16.dp)) {
-                Text("Permissions", color = AegisText, fontWeight = FontWeight.Bold)
-                Text("Accessibility ${ok(permissions.accessibility)} / Notifications ${ok(permissions.notificationAccess)} / Screenshot ${ok(permissions.screenshot)}", color = AegisTextSecondary)
-            }
+        val missingPermissions = listOfNotNull(
+            "Accessibility".takeUnless { permissions.accessibility },
+            "Notifications".takeUnless { permissions.notificationAccess },
+            "Screenshot".takeUnless { permissions.screenshot },
+            "Overlay".takeUnless { permissions.overlay },
+        )
+        if (missingPermissions.isNotEmpty()) {
+            PermissionMissingState(missingPermissions)
         }
         AegisPanel(modifier = Modifier.fillMaxWidth()) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(16.dp)) {
                 Text("Systems", color = AegisText, fontWeight = FontWeight.Bold)
                 overviewServers.take(6).forEach { server ->
-                    Text("${server.label.ifBlank { server.serverId }}: ${server.status} ${server.detail}", color = AegisTextSecondary)
+                    ServerStatusRow(server)
                 }
             }
         }
     }
 }
-
-private fun ok(value: Boolean): String = if (value) "OK" else "Missing"

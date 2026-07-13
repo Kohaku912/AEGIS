@@ -8,11 +8,43 @@
   "input_schema": {
     "type": "object",
     "properties": {
-      "app_path": {"type": "string"}
+      "app_path": {
+        "type": "string"
+      }
     },
-    "required": ["app_path"]
+    "required": [
+      "app_path"
+    ]
   },
-  "risk": {"level": "safe", "side_effects": ["process_start"], "requires_approval": false},
-  "tags": ["builtin", "pc", "action", "app"],
-  "tcp_command": "launch_app {app_path}"
+  "risk": {
+    "level": "safe",
+    "side_effects": [
+      "process_start"
+    ],
+    "requires_approval": false
+  },
+  "tags": [
+    "builtin",
+    "pc",
+    "action",
+    "app"
+  ],
+  "tcp_command": "launch_app {app_path}",
+  "completion": {
+    "mode": "all",
+    "retry": {
+      "max_attempts": 1,
+      "delay_ms": 200
+    },
+    "on_failure": "retry_or_user_confirmation",
+    "checks": [
+      {
+        "name": "screen_changed_after_action",
+        "type": "screenshot",
+        "capability_id": "pc-server.screenshot.get_screenshot",
+        "expect_changed": true,
+        "capture_before": true
+      }
+    ]
+  }
 }

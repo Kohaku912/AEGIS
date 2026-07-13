@@ -53,6 +53,11 @@ export function Display({ overview: initialOverview }: { overview: UiOverview })
         <span>{director.offline ? "OFFLINE SNAPSHOT" : director.stale ? "STALE SNAPSHOT" : "LIVE DISPLAY"}</span>
         {director.privacyMode ? <span>PRIVACY MODE</span> : null}
       </div>
+      <div className="display-global-hud" aria-label="Display HUD">
+        <strong>AEGIS</strong>
+        <span>{phase}</span>
+        <span>{servers.filter((server) => normalizeStatus(server.status) === "ONLINE").length}/{servers.length || 0} online</span>
+      </div>
       {director.takeover ? (
         <section className="display-takeover" data-priority={director.takeover.priority} aria-label="Display takeover">
           <span className="display-kicker">{director.takeover.priority} / {director.takeover.severity}</span>

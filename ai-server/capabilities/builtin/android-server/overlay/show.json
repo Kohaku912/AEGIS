@@ -8,16 +8,75 @@
   "input_schema": {
     "type": "object",
     "properties": {
-      "text": {"type": "string"},
-      "x": {"type": "integer", "default": 0},
-      "y": {"type": "integer", "default": 0},
-      "duration_ms": {"type": "integer", "default": 5000},
-      "color": {"type": "string", "default": ""}
+      "text": {
+        "type": "string"
+      },
+      "x": {
+        "type": "integer",
+        "default": 0
+      },
+      "y": {
+        "type": "integer",
+        "default": 0
+      },
+      "duration_ms": {
+        "type": "integer",
+        "default": 5000
+      },
+      "color": {
+        "type": "string",
+        "default": ""
+      }
     },
-    "required": ["text"]
+    "required": [
+      "text"
+    ]
   },
-  "risk": {"level": "safe", "side_effects": ["android_overlay"], "requires_approval": false},
-  "tags": ["builtin", "android", "overlay"],
-  "requires_permissions": ["overlay"],
-  "extra": {"requires_permissions": ["overlay"]}
+  "risk": {
+    "level": "safe",
+    "side_effects": [
+      "android_overlay"
+    ],
+    "requires_approval": false
+  },
+  "tags": [
+    "builtin",
+    "android",
+    "overlay"
+  ],
+  "requires_permissions": [
+    "overlay"
+  ],
+  "extra": {
+    "requires_permissions": [
+      "overlay"
+    ]
+  },
+  "completion": {
+    "mode": "any",
+    "retry": {
+      "max_attempts": 0,
+      "delay_ms": 0
+    },
+    "on_failure": "retry_or_user_confirmation",
+    "checks": [
+      {
+        "name": "success_true",
+        "type": "output_field",
+        "field": "success",
+        "equals": true
+      },
+      {
+        "name": "ok_true",
+        "type": "output_field",
+        "field": "ok",
+        "equals": true
+      },
+      {
+        "name": "command_id_present",
+        "type": "output_field",
+        "field": "command_id"
+      }
+    ]
+  }
 }

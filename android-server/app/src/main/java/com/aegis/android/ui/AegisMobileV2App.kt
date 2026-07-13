@@ -3,6 +3,9 @@ package com.aegis.android.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
@@ -15,7 +18,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
@@ -45,16 +50,16 @@ data class MobileUiActions(
     val connect: () -> Unit,
 )
 
-private data class Tab(val route: String, val label: String)
+private data class Tab(val route: String, val label: String, val icon: String)
 
 private val tabs = listOf(
-    Tab("home", "Home"),
-    Tab("chat", "Chat"),
-    Tab("approvals", "Approvals"),
-    Tab("tasks", "Tasks"),
-    Tab("devices", "Devices"),
-    Tab("permissions", "Permissions"),
-    Tab("settings", "Settings"),
+    Tab("home", "Home", "⌂"),
+    Tab("chat", "Chat", "✉"),
+    Tab("approvals", "Approvals", "!"),
+    Tab("tasks", "Tasks", "✓"),
+    Tab("devices", "Devices", "◇"),
+    Tab("permissions", "Permissions", "⌁"),
+    Tab("settings", "Settings", "⚙"),
 )
 
 @Composable
@@ -104,13 +109,13 @@ fun AegisMobileV2App(
                                 }
                             },
                             label = { Text(tab.label, color = if (currentRoute == tab.route) AegisText else AegisTextSecondary) },
-                            icon = { Text(tab.label.take(1), color = if (currentRoute == tab.route) AegisText else AegisTextSecondary) },
+                            icon = { NavGlyph(tab.icon, selected = currentRoute == tab.route) },
                         )
                     }
                 }
             },
         ) { padding ->
-            Box(modifier = Modifier.fillMaxSize().background(AegisBackground)) {
+            Box(modifier = Modifier.fillMaxSize().padding(padding).background(AegisBackground)) {
                 NavHost(navController = navController, startDestination = "home", modifier = Modifier.fillMaxSize()) {
                     composable("home") {
                         HomeScreen(state = state, overview = overview, permissions = permissions, servers = servers)
@@ -136,5 +141,17 @@ fun AegisMobileV2App(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun NavGlyph(symbol: String, selected: Boolean) {
+    Box(
+        modifier = Modifier
+            .size(28.dp)
+            .background(if (selected) AegisSurface else AegisBackground, RoundedCornerShape(10.dp)),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(symbol, color = if (selected) AegisText else AegisTextSecondary)
     }
 }

@@ -5,7 +5,35 @@
   "app_id": "system",
   "action": "show_overlay",
   "operation_category": "notification",
-  "risk": {"level": "safe", "side_effects": ["ui_change"], "requires_approval": false},
-  "tags": ["builtin", "pc", "action", "overlay"],
-  "tcp_command": "show_overlay {text}"
+  "risk": {
+    "level": "safe",
+    "side_effects": [
+      "ui_change"
+    ],
+    "requires_approval": false
+  },
+  "tags": [
+    "builtin",
+    "pc",
+    "action",
+    "overlay"
+  ],
+  "tcp_command": "show_overlay {text}",
+  "completion": {
+    "mode": "all",
+    "retry": {
+      "max_attempts": 1,
+      "delay_ms": 200
+    },
+    "on_failure": "retry_or_user_confirmation",
+    "checks": [
+      {
+        "name": "screen_changed_after_action",
+        "type": "screenshot",
+        "capability_id": "pc-server.screenshot.get_screenshot",
+        "expect_changed": true,
+        "capture_before": true
+      }
+    ]
+  }
 }

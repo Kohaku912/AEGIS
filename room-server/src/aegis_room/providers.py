@@ -166,6 +166,11 @@ class OrangePiGpioIrProvider(MockLightIrProvider):
 def create_light_provider() -> LightProvider:
     provider = os.environ.get("AEGIS_ROOM_LIGHT_PROVIDER", "mock").strip().lower()
     runtime_mode = os.environ.get("AEGIS_RUNTIME_MODE", "development").strip().lower()
+    if provider in {"disabled", "none", "off", "unconfigured"}:
+        raise RuntimeError(
+            "Room light provider is disabled/unconfigured; deploy room-server only after "
+            "configuring the Orange Pi real provider."
+        )
     if runtime_mode == "production" and provider in {"", "mock"}:
         raise RuntimeError(
             "AEGIS_ROOM_LIGHT_PROVIDER=mock is not allowed when AEGIS_RUNTIME_MODE=production; "
@@ -177,4 +182,6 @@ def create_light_provider() -> LightProvider:
             pin=os.environ.get("AEGIS_ROOM_IR_PIN", ""),
             default_device_id=default_device_id,
         )
+    if runtime_mode == "production":
+        raise RuntimeError(f"AEGIS_ROOM_LIGHT_PROVIDER={provider!r} is not a supported production provider.")
     return MockLightIrProvider(default_device_id=default_device_id)

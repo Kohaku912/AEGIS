@@ -94,7 +94,8 @@ def _docker_bind_check() -> dict[str, object]:
             "docker-compose.yml contains hard-coded 0.0.0.0 port bindings.",
         )
     production_text = production.read_text(encoding="utf-8", errors="ignore") if production.exists() else ""
-    if "AEGIS_PRODUCTION_BIND_HOST" not in production_text and "AEGIS_BIND_HOST" not in text:
+    combined = f"{text}\n{production_text}"
+    if "AEGIS_PRODUCTION_BIND_HOST" not in combined and "AEGIS_BIND_HOST" not in combined:
         return _check(
             "docker_bind_scope",
             "Production Docker bind scope",
@@ -102,7 +103,42 @@ def _docker_bind_check() -> dict[str, object]:
             evidence,
             "No production bind host control found.",
         )
+    if "127.0.0.1" not in combined:
+        return _check(
+            "docker_bind_scope",
+            "Production Docker bind scope",
+            "fail",
+            evidence,
+            "docker-compose.production.yml does not default production bindings to 127.0.0.1.",
+        )
     return _check("docker_bind_scope", "Production Docker bind scope", "pass", evidence)
+
+
+def _room_production_scope_check() -> dict[str, object]:
+    production = ROOT / "docker-compose.production.yml"
+    text = production.read_text(encoding="utf-8", errors="ignore") if production.exists() else ""
+    if "profiles:" not in text or "- room" not in text:
+        return _check(
+            "room_server_production_scope",
+            "Room Server is scoped out until Orange Pi real provider",
+            "fail",
+            [str(production.relative_to(ROOT))],
+            "room-server is not behind the room profile.",
+        )
+    if "AEGIS_ROOM_LIGHT_PROVIDER:-disabled" not in text:
+        return _check(
+            "room_server_production_scope",
+            "Room Server is scoped out until Orange Pi real provider",
+            "fail",
+            [str(production.relative_to(ROOT))],
+            "production compose does not default Room provider to disabled.",
+        )
+    return _check(
+        "room_server_production_scope",
+        "Room Server is scoped out until Orange Pi real provider",
+        "pass",
+        [str(production.relative_to(ROOT))],
+    )
 
 
 def _dashboard_auth_check() -> dict[str, object]:
@@ -232,9 +268,30 @@ def main() -> int:
         "report_path": str(report_dir / "capability_coverage.json"),
     })
     run_command(["python", "scripts/audit-dead-code.py", "--report-dir", str(report_dir), "--json-only"])
+    ui = run_command(["python", "scripts/audit-ui-completeness.py"])
+    checks.append({
+        "id": "ui_completeness",
+        "name": "UI completeness audit",
+        "status": ui["status"],
+        "duration_ms": ui["duration_ms"],
+        "evidence": [str(report_dir / "ui_completeness.json")],
+        "error": ui["stderr"] if ui["status"] != "pass" else "",
+        "report_path": str(report_dir / "ui_completeness.json"),
+    })
+    v1 = run_command(["python", "scripts/audit-v1-completion.py", "--report-dir", str(report_dir), "--json-only"])
+    checks.append({
+        "id": "v1_completion",
+        "name": "v1 completion audit",
+        "status": v1["status"],
+        "duration_ms": v1["duration_ms"],
+        "evidence": [str(report_dir / "v1_completion.json")],
+        "error": v1["stderr"] if v1["status"] != "pass" else "",
+        "report_path": str(report_dir / "v1_completion.json"),
+    })
 
     checks.extend([
         _docker_bind_check(),
+        _room_production_scope_check(),
         _dashboard_auth_check(),
         _volume_persistence_check(),
         _capability_override_persistence_check(),
@@ -242,6 +299,8 @@ def main() -> int:
         _secrets_check(),
         _report_pass(report_dir / "mock_inventory.json", "mock_inventory_report", "Mock inventory report"),
         _report_pass(report_dir / "capability_coverage.json", "capability_coverage_report", "Capability coverage report"),
+        _report_pass(report_dir / "ui_completeness.json", "ui_completeness_report", "UI completeness report"),
+        _report_pass(report_dir / "v1_completion.json", "v1_completion_report", "v1 completion report"),
         _e2e_check(report_dir, "docker_core", "Docker core E2E"),
         _e2e_check(report_dir, "manager_e2e", "Stateful Manager E2E"),
         _e2e_check(report_dir, "pc_real", "PC service observe/action E2E"),

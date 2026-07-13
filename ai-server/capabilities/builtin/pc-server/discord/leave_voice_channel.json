@@ -24,5 +24,27 @@
     "call",
     "approval_required"
   ],
-  "tcp_command_json": "discord_leave_voice_channel"
+  "tcp_command_json": "discord_leave_voice_channel",
+  "completion": {
+    "mode": "any",
+    "retry": {
+      "max_attempts": 0,
+      "delay_ms": 0
+    },
+    "on_failure": "retry_or_user_confirmation",
+    "checks": [
+      {
+        "name": "success_true",
+        "type": "output_field",
+        "field": "success",
+        "equals": true
+      },
+      {
+        "name": "ok_true",
+        "type": "output_field",
+        "field": "ok",
+        "equals": true
+      }
+    ]
+  }
 }

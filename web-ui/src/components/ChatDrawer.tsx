@@ -31,7 +31,7 @@ export function ChatDrawer({ open, onClose }: Props) {
 
   return (
     <aside className="chat-drawer" data-open={open} aria-hidden={!open}>
-      <div className="panel__header" style={{ padding: "16px", borderBottom: "1px solid var(--aegis-border)", margin: 0 }}>
+      <div className="chat-drawer__header">
         <h2><MessageSquare size={18} aria-hidden="true" /> Chat</h2>
         <button className="icon-button" onClick={onClose} title="Close chat">
           <X size={16} aria-hidden="true" />
@@ -40,7 +40,7 @@ export function ChatDrawer({ open, onClose }: Props) {
       <div className="chat-log">
         {log.length === 0 ? <div className="muted">Chat is ready. Messages are sent through the existing AEGIS chat API.</div> : null}
         {log.map((item, index) => (
-          <div className="list-row" key={`${item.role}-${index}`} style={{ marginBottom: 8 }}>
+          <div className="list-row chat-log__item" key={`${item.role}-${index}`}>
             <div>
               <strong>{item.role}</strong>
               <div>{item.text}</div>

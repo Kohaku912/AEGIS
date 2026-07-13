@@ -218,7 +218,14 @@ def _runtime_server_status(settings: Any = None, runtime: Any = None) -> dict[st
     snapshot = runtime.status_manager.get_snapshot() if runtime else {}
     servers: list[dict[str, Any]] = []
 
-    _STATUS_MAP = {"online": "ONLINE", "offline": "OFFLINE", "degraded": "DEGRADED", "unknown": "OFFLINE", "disabled": "DISABLED"}
+    _STATUS_MAP = {
+        "online": "ONLINE",
+        "offline": "OFFLINE",
+        "degraded": "DEGRADED",
+        "unknown": "OFFLINE",
+        "disabled": "DISABLED",
+        "unconfigured": "UNCONFIGURED",
+    }
 
     def _status_entry(server_id: str, server_type: str, port: int, expected: bool = True,
                       registered_capabilities: str = "0", version: str = "-", mode: str = "unavailable",
@@ -227,9 +234,12 @@ def _runtime_server_status(settings: Any = None, runtime: Any = None) -> dict[st
         s = snapshot.get(server_id, {})
         raw_status = s.get("status", "unknown")
         status = _STATUS_MAP.get(raw_status, "OFFLINE")
+        if status in {"DISABLED", "UNCONFIGURED"}:
+            expected = False
+            mode = str(s.get("mode") or "disabled")
         if not expected:
             status = "UNCONFIGURED"
-            mode = "disabled"
+            mode = mode if mode != "unavailable" else "disabled"
         ok = status in ("ONLINE", "DEGRADED")
         return _server_entry(
             server_id=server_id, server_type=server_type, host="localhost", port=port, expected=expected,

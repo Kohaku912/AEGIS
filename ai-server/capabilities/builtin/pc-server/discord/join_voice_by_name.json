@@ -17,15 +17,31 @@
         "description": "Optional voice channel name. Leave empty if the user only asked for the server's call."
       }
     },
-    "required": ["guild_name"]
+    "required": [
+      "guild_name"
+    ]
   },
   "risk": {
     "level": "medium",
     "requires_approval": true,
-    "side_effects": ["external_service_operation", "discord_voice_call_join", "presence_change"]
+    "side_effects": [
+      "external_service_operation",
+      "discord_voice_call_join",
+      "presence_change"
+    ]
   },
-  "tags": ["discord", "voice", "call", "guild", "approval_required"],
-  "aliases": ["Discordの通話に入る", "Discordサーバーの通話に入る", "memoサーバーの通話に入る"],
+  "tags": [
+    "discord",
+    "voice",
+    "call",
+    "guild",
+    "approval_required"
+  ],
+  "aliases": [
+    "Discordの通話に入る",
+    "Discordサーバーの通話に入る",
+    "memoサーバーの通話に入る"
+  ],
   "examples": [
     {
       "user": "memoサーバーの通話に入って",
@@ -34,5 +50,27 @@
       }
     }
   ],
-  "tcp_command_json": "discord_join_voice_by_name"
+  "tcp_command_json": "discord_join_voice_by_name",
+  "completion": {
+    "mode": "any",
+    "retry": {
+      "max_attempts": 0,
+      "delay_ms": 0
+    },
+    "on_failure": "retry_or_user_confirmation",
+    "checks": [
+      {
+        "name": "success_true",
+        "type": "output_field",
+        "field": "success",
+        "equals": true
+      },
+      {
+        "name": "ok_true",
+        "type": "output_field",
+        "field": "ok",
+        "equals": true
+      }
+    ]
+  }
 }
