@@ -1,10 +1,11 @@
-import { Activity, Brain, Clock, Cpu, Server } from "lucide-react";
+import { Activity, Brain, Clock, Cpu, Radio, Server, ShieldAlert, UserRound } from "lucide-react";
 import type { ReactNode } from "react";
 import { AttentionStrip } from "../components/AttentionStrip";
 import { CoreSphere } from "../components/CoreSphere";
 import { Freshness } from "../components/Freshness";
+import { SectionState } from "../components/UiState";
 import { StatusBadge } from "../components/StatusBadge";
-import { serverLabel, serverNeedsDetail, summarizeMemory, summarizeServers } from "../displayModel";
+import { missionPhase, serverLabel, serverNeedsDetail, summarizeMemory, summarizeServers } from "../displayModel";
 import type { UiEvent, UiOverview } from "../types";
 
 type Props = {
@@ -24,35 +25,68 @@ export function CommandCenter({ overview, recentEvents }: Props) {
   const serverSummary = summarizeServers(servers);
   const memorySummary = summarizeMemory(overview);
   const problemServers = servers.filter((server) => serverNeedsDetail(server));
+  const phase = missionPhase(overview);
+  const criticalCount = [...(overview.attention.data.items || []), ...errors].filter((item) => String(item.severity || "").toLowerCase() === "critical").length;
+  const timeline = [
+    ...recentEvents.map((event) => ({ id: event.event_id || `${event.type}-${event.source_updated_at}`, title: event.safe_title || event.type, message: event.safe_message || event.message || event.source_type, priority: event.priority || "P3" })),
+    ...(overview.activity?.data.recent || []).map((event, index) => ({ id: String(event.event_id || index), title: String(event.title || event.type || "Activity"), message: String(event.message || event.event_type || ""), priority: String(event.priority || "P3") })),
+    ...(overview.notifications.data.recent || []).map((item, index) => ({ id: String(item.notification_id || item.id || index), title: String(item.title || "Notification"), message: String(item.message || item.severity || ""), priority: "P3" })),
+  ].slice(0, 8);
 
   return (
-    <>
-      <section className="command-priority">
-        <section className="panel command-operation">
+    <div className="command-center">
+      <section className="command-hud" aria-label="Command HUD">
+        <HudMetric icon={<Radio size={16} />} label="Core" value={`${String(core.mode || "IDLE")} / ${String(core.health || "ONLINE")}`} />
+        <HudMetric icon={<Activity size={16} />} label="Phase" value={phase} />
+        <HudMetric icon={<Server size={16} />} label="Connection" value={`${connection.online_count ?? serverSummary.ok}/${connection.total_count ?? servers.length} online`} />
+        <HudMetric icon={<ShieldAlert size={16} />} label="Approvals" value={String(core.pending_approval_count ?? overview.approvals.data.pending_count ?? 0)} />
+        <HudMetric icon={<Brain size={16} />} label="Profile" value={String((overview.mind_summary.data.autonomy as Record<string, unknown> | undefined)?.profile || core.attention_level || "normal")} />
+        <HudMetric icon={<Clock size={16} />} label="Freshness" value={overview.freshness.stale ? "STALE" : "LIVE"} />
+      </section>
+
+      <section className="command-attention">
+        <AttentionStrip items={overview.attention.data.items || []} />
+        <SectionState stale={overview.attention.stale} error={overview.attention.error} empty={(overview.attention.data.items || []).length === 0 && criticalCount > 0} label="Attention" />
+      </section>
+
+      <section className="command-grid-12">
+        <article className="panel command-operation command-span-8">
           <div className="panel__header">
-            <h2>Current Operation</h2>
+            <div>
+              <h2>Current Operation</h2>
+              <div className="muted mono">{task.task_id || "no active task id"}</div>
+            </div>
             <StatusBadge status={String(core.mode || "IDLE")} />
           </div>
           <h3>{task.title || "No active task"}</h3>
-          <p className="muted">{task.current_action || task.next_action || task.blocked_reason || "AEGIS is waiting for a meaningful signal or user request."}</p>
-          <div className="stat-grid">
-            <Metric icon={<Activity size={18} />} label="Activity" value={String(core.activity_level ?? 0)} />
-            <Metric icon={<Brain size={18} />} label="Confidence" value={String(core.confidence || "Not reported")} />
-            <Metric icon={<Cpu size={18} />} label="Approvals" value={String(core.pending_approval_count ?? 0)} />
-            <Metric icon={<Clock size={18} />} label="Freshness" value={overview.freshness.stale ? "STALE" : "LIVE"} />
+          <p className="command-operation__action">{task.current_action || task.next_action || task.blocked_reason || "AEGIS is waiting for a meaningful signal or user request."}</p>
+          <div className="operation-map" aria-label="Operation map">
+            <span data-active="true">Observe</span>
+            <span data-active={phase === "Planning"}>Plan</span>
+            <span data-active={phase === "Executing"}>Execute</span>
+            <span data-active={Boolean(task.verification_summary)}>Verify</span>
+            <span data-active={String(task.phase).toLowerCase() === "completed"}>Complete</span>
           </div>
           <div className="mission-strip" aria-label="Mission context">
             <span>Next: <strong>{task.next_action || "Not reported"}</strong></span>
-            <span>User: <strong>{String(user.summary || user.availability || "Not reported")}</strong></span>
-            <span>Connection: <strong>{String(connection.quality || connection.status || "Not reported")}</strong></span>
-            <span>Commitments: <strong>{commitments.length}</strong></span>
+            <span>Capability: <strong>{task.capability_id || "Not reported"}</strong></span>
+            <span>Verification: <strong>{task.verification_summary || "Not reported"}</strong></span>
+            <span>Blocked: <strong>{task.blocked_reason || "No"}</strong></span>
           </div>
-        </section>
-        <AttentionStrip items={overview.attention.data.items || []} />
-      </section>
+        </article>
 
-      <div className="grid grid--command">
-        <section className="panel core-card">
+        <article className="panel command-ai-state command-span-4">
+          <div className="panel__header">
+            <h2>AI State</h2>
+            <Freshness {...freshProps(overview.core)} />
+          </div>
+          <Metric icon={<Brain size={18} />} label="Active goal" value={String(core.active_goal || "No active goal")} compact />
+          <Metric icon={<Activity size={18} />} label="Confidence" value={String(core.confidence || "Not reported")} compact />
+          <Metric icon={<Cpu size={18} />} label="LLM budget" value={String(usage.budget_state || usage.autonomous_suppression || usage.cost_state || "Not reported")} compact />
+          <Metric icon={<ShieldAlert size={18} />} label="Critical" value={String(criticalCount)} compact />
+        </article>
+
+        <section className="panel core-card command-span-8">
           <CoreSphere
             mode={String(core.mode || "IDLE")}
             health={String(core.health || "ONLINE")}
@@ -61,49 +95,29 @@ export function CommandCenter({ overview, recentEvents }: Props) {
             servers={servers}
             visualEvents={[]}
             activeServerId={String(task.capability_id || "").split(".", 1)[0]}
-            nextServerId=""
+            nextServerId={nextServerFromTask(task)}
             approvalServerIds={(overview.approvals.data.pending || []).map((approval) => String(approval.capability_id || "").split(".", 1)[0])}
           />
         </section>
-        <section className="panel">
-          <div className="panel__header">
-            <h2>AI State</h2>
-            <Freshness {...freshProps(overview.core)} />
-          </div>
-          <div className="grid">
-            <div className="stat">
-              <span className="muted">Active goal</span>
-              <b style={{ fontSize: 16 }}>{String(core.active_goal || "No active goal")}</b>
-            </div>
-            <div className="stat">
-              <span className="muted">Attention level</span>
-              <b style={{ fontSize: 16 }}>{String(core.attention_level || "normal")}</b>
-            </div>
-            <div className="stat">
-              <span className="muted">LLM usage</span>
-              <b style={{ fontSize: 16 }}>{String(usage.summary || usage.total_tokens || "Audit-backed")}</b>
-            </div>
-            <div className="stat">
-              <span className="muted">LLM budget</span>
-              <b style={{ fontSize: 16 }}>{String(usage.budget_state || usage.autonomous_suppression || usage.cost_state || "Not reported")}</b>
-            </div>
-            <div className="stat">
-              <span className="muted">Open issues</span>
-              <b style={{ fontSize: 16 }}>{String(errors.length || overview.errors?.data.count || 0)}</b>
-            </div>
+
+        <section className="panel command-situation command-span-4">
+          <div className="panel__header"><h2>Situation</h2><UserRound size={16} /></div>
+          <div className="metric-list">
+            <Row label="User" value={String(user.summary || user.availability || "Not reported")} />
+            <Row label="Commitments" value={overview.commitments.data.summary || `${commitments.length} active`} />
+            <Row label="Usage" value={String(usage.summary || usage.total_tokens || "Audit-backed")} />
+            <Row label="Open issues" value={String(errors.length || overview.errors?.data.count || 0)} />
           </div>
         </section>
-      </div>
 
-      <div className="grid grid--three" style={{ marginTop: 16 }}>
-        <section className="panel server-summary-card">
+        <section className="panel command-span-4 server-summary-card">
           <div className="panel__header"><h2>Systems</h2><Freshness {...freshProps(overview.servers)} /></div>
           <div className="server-summary-line">
             <Server size={18} />
             <strong>{serverSummary.ok} normal</strong>
             <span>{serverSummary.attention.length} need attention</span>
           </div>
-          <div className="grid">
+          <div className="compact-list">
             {problemServers.length ? problemServers.slice(0, 4).map((server) => (
               <div className="list-row" key={server.server_id}>
                 <div>
@@ -115,50 +129,50 @@ export function CommandCenter({ overview, recentEvents }: Props) {
             )) : <p className="muted">All configured systems are operating normally.</p>}
           </div>
         </section>
-        <section className="panel">
-          <div className="panel__header"><h2>Recent Events</h2><Freshness {...freshProps(overview.notifications)} /></div>
-          <div className="grid">
-            {recentEvents.length ? recentEvents.slice(0, 5).map((event) => (
-              <div className="list-row" key={`${event.type}-${event.source_updated_at}-${event.message}`}>
-                <div>
-                  <strong>{event.type}</strong>
-                  <div className="muted">{event.message || event.source_type}</div>
-                </div>
-              </div>
-            )) : (overview.notifications.data.recent || []).slice(0, 5).map((item, index) => (
-              <div className="list-row" key={String(item.notification_id || item.id || index)}>
-                <div>
-                  <strong>{String(item.title || "Notification")}</strong>
-                  <div className="muted">{String(item.message || item.severity || "")}</div>
-                </div>
-              </div>
-            ))}
-            {recentEvents.length === 0 && (overview.notifications.data.recent || []).length === 0 ? <p className="muted">No recent events reported.</p> : null}
-          </div>
-        </section>
-        <section className="panel">
+
+        <section className="panel command-span-4">
           <div className="panel__header"><h2>Memory & Mind</h2><Freshness {...freshProps(overview.mind_summary)} /></div>
-          <div className="grid">
-            {Object.entries(memorySummary).map(([label, value]) => (
-              <div className="stat" key={label}>
-                <span className="muted">{label}</span>
-                <b style={{ fontSize: 15 }}>{value}</b>
-              </div>
-            ))}
+          <div className="metric-list">
+            {Object.entries(memorySummary).map(([label, value]) => <Row label={label} value={value} key={label} />)}
           </div>
         </section>
-      </div>
-    </>
+
+        <section className="panel command-span-4">
+          <div className="panel__header"><h2>Recent Operation Timeline</h2><Freshness {...freshProps(overview.activity || overview.notifications)} /></div>
+          <div className="timeline-list">
+            {timeline.length ? timeline.map((item) => (
+              <div className="timeline-item" data-priority={item.priority} key={item.id}>
+                <span>{item.priority}</span>
+                <div><strong>{item.title}</strong><p>{item.message}</p></div>
+              </div>
+            )) : <p className="muted">No recent events reported.</p>}
+          </div>
+        </section>
+      </section>
+    </div>
   );
 }
 
-function Metric({ icon, label, value }: { icon: ReactNode; label: string; value: string }) {
+function HudMetric({ icon, label, value }: { icon: ReactNode; label: string; value: string }) {
+  return <div className="hud-metric"><span>{icon}{label}</span><strong>{value}</strong></div>;
+}
+
+function Metric({ icon, label, value, compact = false }: { icon: ReactNode; label: string; value: string; compact?: boolean }) {
   return (
-    <div className="stat">
+    <div className={compact ? "stat stat--compact" : "stat"}>
       <span className="muted">{icon} {label}</span>
       <b>{value}</b>
     </div>
   );
+}
+
+function Row({ label, value }: { label: string; value: string }) {
+  return <div className="metric-row"><span>{label}</span><strong>{value}</strong></div>;
+}
+
+function nextServerFromTask(task: { steps?: Array<Record<string, unknown>> }): string {
+  const pending = (task.steps || []).find((step) => ["pending", "ready"].includes(String(step.status || "").toLowerCase()));
+  return String(pending?.capability_id || "").split(".", 1)[0] || "";
 }
 
 function freshProps(section: { generated_at: number; source_updated_at: number; stale: boolean }) {

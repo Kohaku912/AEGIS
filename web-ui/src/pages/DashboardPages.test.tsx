@@ -96,6 +96,8 @@ describe("dashboard v2 pages", () => {
     mind.unmount();
 
     render(<ActivityPage overview={data} recentEvents={[event()]} />);
+    expect(screen.getByText("Operational Replay")).toBeInTheDocument();
+    expect(screen.getByText("shared approval")).toBeInTheDocument();
     expect(screen.getByText("connection.changed")).toBeInTheDocument();
     expect(screen.getAllByText("Connection dropped").length).toBeGreaterThan(0);
   });
@@ -113,6 +115,46 @@ function overview(): UiOverview {
     connection: envelope({ quality: "degraded", online_count: 1, total_count: 2, attention_count: 1 }),
     display_scene: envelope({ phase: "Executing", takeover: { active: false }, privacy_mode: false, offline: false, stale: false }),
     presentations: envelope({ takeover: [], overlays: [], persistent: [], ambient: [], items: [], count: 0 }),
+    presentation_events: envelope({
+      items: [
+        {
+          event_id: "presentation-event-1",
+          scene_type: "approval",
+          priority: "P1",
+          severity: "warning",
+          source: "approval_manager",
+          title: "shared approval",
+          summary: "Approval can be opened on Web or mobile.",
+          affected_entities: ["approval-1"],
+          approval_id: "approval-1",
+          persistence: "until_resolved",
+          expires_at: 2000,
+          privacy_class: "sensitive",
+          recommended_surfaces: ["web_dashboard", "mobile_app", "android_notification", "dedicated_display"],
+          visual_hint: { effect: "containment", arc: "pc-server" },
+          available_actions: [{ id: "open_approval", surface: "web_dashboard", target_id: "approval-1" }]
+        }
+      ],
+      count: 1,
+      source: "presentation_surface_contract"
+    }),
+    surface_roles: envelope({
+      items: [
+        {
+          surface_id: "dedicated_display",
+          role: "Read-only state display",
+          interactive: false,
+          privacy_levels: ["public", "normal"],
+          priorities: ["P0", "P1", "P2", "P3"],
+          max_text_chars: 420,
+          max_display_ms: 0,
+          actions: [],
+          scenes: ["idle", "approval", "critical"]
+        }
+      ],
+      count: 1,
+      source: "presentation_surface_contract"
+    }),
     tasks: envelope({
       primary: {
         task_id: "task-1",

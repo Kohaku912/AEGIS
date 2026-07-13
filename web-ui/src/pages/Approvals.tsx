@@ -59,10 +59,11 @@ export function Approvals({ overview }: { overview: UiOverview }) {
               <div className="metric-row"><span>Related task</span><strong className="mono">{selected.task_id || overview.current_task.data.task_id || "Not reported"}</strong></div>
               <div className="metric-row"><span>Target server</span><strong>{serverLabel(serverFromCapabilityId(selected.capability_id))}</strong></div>
               <div className="metric-row"><span>Risk rationale</span><strong>{selected.reason || "Not reported"}</strong></div>
-              <div className="metric-row"><span>Previous action</span><strong>{String((selected as Record<string, unknown>).previous_action || relatedEvents[0]?.message || relatedEvents[0]?.title || "Not reported")}</strong></div>
-              <div className="metric-row"><span>Similar past action</span><strong>{String((selected as Record<string, unknown>).similar_past_action || relatedEvents[1]?.message || "Not reported")}</strong></div>
-              <div className="metric-row"><span>After approval</span><strong>Execution resumes through ApprovalManager and TaskExecutionEngine.</strong></div>
-              <div className="metric-row"><span>Post-approval effect</span><strong>{String((selected as Record<string, unknown>).expected_effect || "Not reported")}</strong></div>
+              <div className="metric-row"><span>Side effects</span><strong>{formatContextValue(selected.side_effects)}</strong></div>
+              <div className="metric-row"><span>Previous action</span><strong>{String(selected.previous_action || relatedEvents[0]?.message || relatedEvents[0]?.title || "Not reported")}</strong></div>
+              <div className="metric-row"><span>Similar past action</span><strong>{String(selected.similar_action_summary || relatedEvents[1]?.message || "Not reported")}</strong></div>
+              <div className="metric-row"><span>Fresh auth</span><strong>{selected.fresh_auth_required ? "Required" : "Not required"}</strong></div>
+              <div className="metric-row"><span>Post-approval effect</span><strong>{String(selected.expected_effect || "Not reported")}</strong></div>
               <div className="metric-row"><span>Audit</span><strong>{selected.request_id || selected.step_id || "Not reported"}</strong></div>
               <div className="approval-safety-note">Bulk approval is not available. Each high-risk action must be reviewed independently with fresh authentication when required.</div>
             </div>
@@ -73,4 +74,9 @@ export function Approvals({ overview }: { overview: UiOverview }) {
       </section>
     </div>
   );
+}
+
+function formatContextValue(value: unknown): string {
+  if (Array.isArray(value)) return value.length ? value.join(", ") : "None reported";
+  return String(value || "Not reported");
 }

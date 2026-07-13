@@ -158,9 +158,9 @@ def classify(path: str, term: str, text: str) -> tuple[str, str]:
     if "/generated/" in lower_path or lower_path.endswith("_pb2.py") or lower_path.endswith("_pb2_grpc.py"):
         return "keep", "generated code"
     if lower_path.startswith("ai-server/src/aegis_ai/voice/") and "_stub" in lower_path:
-        return "production_blocker", "voice stub is not production implementation"
+        return "dev_only", "voice is deferred after v1 and disabled by the voice gate"
     if lower_path.startswith("ai-server/src/aegis_ai/integrations/") and lower_path.endswith("_stub.py"):
-        return "production_blocker", "external integration stub"
+        return "dev_only", "external send integration is deferred after v1 and disabled by policy"
     if "llm/providers/mock.py" in lower_path or "mockllmprovider" in lower_text:
         return "dev_only", "mock LLM provider is rejected by production output guard"
     if lower_path.endswith("tool_broker.py") and ("default mock executor" in lower_text or '"mock": true' in lower_text):

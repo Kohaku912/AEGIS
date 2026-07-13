@@ -10,7 +10,7 @@ Legend:
 
 ## Current Snapshot
 
-- Last updated: 2026-07-13 17:34 JST
+- Last updated: 2026-07-13 21:24 JST
 - Web UI version: React/Vite v2 under `web-ui/`
 - Display surface: React `/display` and `/display/presentations`
 - Android UI: Compose v2 package exists under `android-server/app/src/main/java/com/aegis/android/ui/`
@@ -44,7 +44,8 @@ Legend:
   - Evidence: `design-tokens/contrast-report.json`, `ai-server/tests/test_design_tokens.py`
 - [~] Shared status/freshness/approval components exist for Web.
   - Evidence: `web-ui/src/components/StatusBadge.tsx`, `Freshness.tsx`, `ApprovalCard.tsx`
-- [ ] Android components fully mirror required status/freshness/approval semantics.
+- [~] Android components mirror status/freshness/approval semantics for primary mobile screens.
+  - Evidence: `android-server/app/src/main/java/com/aegis/android/ui/designsystem/AegisComponents.kt`, `./gradlew.bat :app:assembleDebug` with Android Studio JBR 21.
 
 ## Phase 2: UI Overview v3 Contract
 
@@ -57,6 +58,12 @@ Legend:
   - Evidence: `normalize_ui_event()` in `ui_overview.py`
 - [x] Event envelope includes event_id, sequence, priority, dedupe_key, persistence, expires_at, resolved_by, affected_servers, affected_capabilities, visual_hint.
   - Evidence: `ai-server/tests/test_ui_overview.py::test_normalize_ui_event_exposes_visual_fields`
+- [x] Multi-device `PresentationEvent` contract exists and is attached to normalized UI events.
+  - Evidence: `ai-server/src/aegis_ai/presentation/surface_contract.py`, `ai-server/tests/test_ui_overview.py::test_normalize_ui_event_exposes_visual_fields`
+- [x] Surface roles are defined for dedicated display, web dashboard, mobile app, PC overlay, Android notification, room display, developer console, and future smart glasses.
+  - Evidence: `ai-server/src/aegis_ai/presentation/surface_contract.py`, `web-ui/src/pages/Settings.tsx`
+- [x] Overview exposes `presentation_events` and `surface_roles` so surfaces can restore the same presentation state after reconnect.
+  - Evidence: `ai-server/src/aegis_ai/web/ui_overview.py`, `ai-server/tests/test_ui_overview.py::test_ui_overview_sections_have_freshness_envelope`
 - [x] SSE replay cursor and reconnect gap recovery are implemented.
   - Evidence: SSE emits `id:` frames, accepts `last_event_id` / `Last-Event-ID`, replays persisted events via `EventManager.list_recent()`, and the client persists last ids in session storage.
 
@@ -79,8 +86,9 @@ Legend:
   - Evidence: `web-ui/src/pages/CommandCenter.tsx`
 - [x] Server Health is summarized instead of a permanent large card.
 - [~] AI State and memory summary are shown without raw JSON.
-- [~] Top HUD includes core state, connection quality, pending approvals, critical/open issue count, and freshness; logo/clock/profile polish remains.
-- [~] Current Operation shows current/next action and user-waiting state; related conversation link and richer subtask graph remain partial.
+- [x] Top HUD includes core state, connection quality, pending approvals, critical/open issue count, and freshness.
+  - Evidence: `web-ui/src/pages/CommandCenter.tsx`, `web-ui/src/styles/main.css`
+- [~] Current Operation shows current/next action and user-waiting state; related conversation link remains partial.
 - [x] Middle section includes User Situation, Device Context through Systems, Pending Commitments, and LLM Budget.
 - [~] Recent events use SSE events plus server-persisted EventManager activity history.
 
@@ -90,7 +98,8 @@ Legend:
   - Evidence: `web-ui/src/pages/Work.tsx`
 - [x] Work tabs exist: Active, Waiting, Scheduled, Research, Self-development, Commitments, Completed, Failed.
 - [~] Desktop Work page uses list-detail layout.
-- [~] Task detail includes objective, phase, current capability, execution server, current action, next action, blocked reason, and step history.
+- [x] Task detail includes objective, phase, current capability, execution server, current action, next action, blocked reason, and step history.
+  - Evidence: `web-ui/src/pages/Work.tsx`
 - [x] Task detail includes original instruction, plan/dependency summary, approvals, memories used, model/cost, completion/verification, and final output when reported.
   - Evidence: `web-ui/src/pages/Work.tsx`
 
@@ -99,7 +108,8 @@ Legend:
 - [~] Pending approvals can be listed and resolved.
   - Evidence: `web-ui/src/pages/Approvals.tsx`, `ApprovalCard.tsx`
 - [x] Approvals page has left filters: Pending, Expiring, High risk, Resolved, Expired, Failed after approval.
-- [~] Approval detail has center preview and right context pane.
+- [x] Approval detail has center preview and right context pane.
+  - Evidence: `web-ui/src/components/ApprovalCard.tsx`, `web-ui/src/pages/Approvals.tsx`
 - [x] Approval detail includes related task, previous action, risk rationale, similar past action, audit, and post-approval effect when reported.
   - Evidence: `web-ui/src/pages/Approvals.tsx`
 - [x] High-risk bulk approval is impossible in UI.
@@ -114,8 +124,8 @@ Legend:
   - Evidence: `web-ui/src/pages/Systems.tsx`
 - [~] Capability availability is visible for Android.
 - [~] Android detail shows device name, connection mode, permissions, available capabilities, active approvals, last observation.
-- [~] Server cards show heartbeat age, version, dependency status, and recovery method.
-- [x] Server cards show last healthy time.
+- [x] Server cards show heartbeat age, latency, active task, capability health, version, dependency status, permission state, last healthy time, and recovery method.
+  - Evidence: `web-ui/src/pages/Systems.tsx`
 
 ### Mind & Memory
 
@@ -128,6 +138,8 @@ Legend:
 
 - [~] Browser-session SSE events are shown.
   - Evidence: `web-ui/src/pages/ActivityPage.tsx`
+- [x] Activity has an Operational Replay timeline based on shared `PresentationEvent` state.
+  - Evidence: `web-ui/src/pages/ActivityPage.tsx`, `web-ui/src/pages/DashboardPages.test.tsx`
 - [~] Activity uses server-persisted EventManager history after reload.
   - Evidence: `ai-server/src/aegis_ai/web/ui_overview.py::_activity`, `web-ui/src/pages/ActivityPage.tsx`; audit/LLM/settings/security grouping remains partial.
 - [x] Raw Audit is behind debug expansion; grouped operations are default.
@@ -177,12 +189,14 @@ Legend:
   - Evidence: `android-server/app/src/main/java/com/aegis/android/ui/`
 - [~] Android consumes the same normalized UI overview contract for primary mobile surfaces.
   - Evidence: `UiOverviewSnapshot` parses v3 `schema_version`, `connection`, `display_scene`, `tasks`, `servers`, `approvals`, `attention`, `notifications`, `memory`; real-device dump shows Home `Mission Phase / Attention / Connection / Memory`, Tasks `Task Buckets`, Devices `Heartbeat`.
-- [~] Android approval card shows approval_id, action, target, capability, risk, reason, preview, task, timestamps, approve/reject/detail.
-  - Evidence: `android-server/app/src/main/java/com/aegis/android/ui/feature/approvals/ApprovalsScreen.kt`; side-effect metadata is not present in the current gRPC approval proto.
+- [x] Android approval card shows approval_id, action, target, capability, risk, reason, preview, task, timestamps, approve/reject/detail.
+  - Evidence: `android-server/app/src/main/java/com/aegis/android/ui/designsystem/AegisComponents.kt`, `android-server/app/src/main/java/com/aegis/android/ui/feature/approvals/ApprovalsScreen.kt`
 - [ ] Phone, landscape, 8-inch/tablet, and 200% text size are tested.
+  - Remaining: Compose UI/preview tests still need to be added.
 - [x] Android connection and observe capabilities are verified on real device through ADB and production Core gRPC.
   - Evidence: ADB model `21121210G`; `uv run pytest tests/test_android_local.py -k "adb_device_and_app_installed or observe_capabilities or ui_tree" -q` passed; `android-server.device.get_status`, `permissions.get_status`, `accessibility.get_status`, `screen.get_ui_tree`, and `notification.get_notifications` returned status 0.
 - [ ] Android permission-missing, approval approve/reject, Wi-Fi disconnect/reconnect are verified on real device.
+  - Partial evidence: Android debug build passes with JBR 21; real-device UI interaction still pending.
 
 ## Phase 6: PC Overlay / Legacy Approval
 
@@ -212,6 +226,8 @@ Legend:
 - [x] Viewport no-scroll test.
 - [x] No-focusable-element test.
 - [ ] Visual regression snapshots for Display states.
+- [~] Automated UI completion audit exists and records remaining implementation gaps.
+  - Evidence: `scripts/audit-ui-completeness.py`, `data/reports/ui_completeness.md`
 - [x] Schema coverage test.
 - [x] Manager-to-API-to-UI coverage test.
 - [x] Android real-device E2E test result recorded.

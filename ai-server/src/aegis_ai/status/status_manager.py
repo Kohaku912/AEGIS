@@ -23,6 +23,7 @@ class ServerStatus(Enum):
     DEGRADED = "degraded"
     OFFLINE = "offline"
     DISABLED = "disabled"
+    UNCONFIGURED = "unconfigured"
 
 
 def _env_host(name: str, default: str = "localhost") -> str:
@@ -43,6 +44,29 @@ def _default_servers() -> dict[str, tuple[str, int]]:
         "dev-server": (_env_host("DEV_SERVER_HOST"), _env_port("DEV_SERVER_PORT", 50056)),
         "dashboard": (_env_host("DASHBOARD_HOST"), _env_port("DASHBOARD_PORT", 8090)),
     }
+
+
+def _server_env_prefix(server_id: str) -> str:
+    return server_id.upper().replace("-", "_")
+
+
+def _disabled_servers() -> set[str]:
+    raw = os.getenv("AEGIS_DISABLED_SERVERS", "")
+    return {item.strip() for item in raw.split(",") if item.strip()}
+
+
+def _server_enabled(server_id: str) -> bool:
+    if server_id in _disabled_servers():
+        return False
+    key = f"{_server_env_prefix(server_id)}_ENABLED"
+    raw = os.getenv(key)
+    if raw is None and server_id == "room-server":
+        raw = os.getenv("ROOM_SERVER_ENABLED")
+    if raw is None and server_id == "dev-server":
+        raw = os.getenv("DEV_SERVER_ENABLED")
+    if raw is None:
+        return True
+    return raw.strip().lower() not in {"0", "false", "no", "off", "disabled", "unconfigured"}
 
 
 class StatusManager:
@@ -79,14 +103,16 @@ class StatusManager:
         self._running = False
 
         for server_id, (host, port) in self._servers.items():
+            enabled = _server_enabled(server_id)
             self._status[server_id] = {
                 "server_id": server_id,
-                "status": ServerStatus.UNKNOWN.value,
+                "status": ServerStatus.UNKNOWN.value if enabled else ServerStatus.UNCONFIGURED.value,
                 "host": host,
                 "port": port,
                 "last_check_ms": 0,
                 "last_change_ms": 0,
-                "error": None,
+                "error": None if enabled else "Server disabled or unconfigured by environment",
+                "mode": "enabled" if enabled else "unconfigured",
             }
 
     # ── Public API ────────────────────────────────────────────
@@ -124,15 +150,17 @@ class StatusManager:
     def register_server(self, server_id: str, host: str, port: int) -> None:
         """Register a server for health checking."""
         with self._lock:
+            enabled = _server_enabled(server_id)
             self._servers[server_id] = (host, port)
             self._status[server_id] = {
                 "server_id": server_id,
-                "status": ServerStatus.UNKNOWN.value,
+                "status": ServerStatus.UNKNOWN.value if enabled else ServerStatus.UNCONFIGURED.value,
                 "host": host,
                 "port": port,
                 "last_check_ms": 0,
                 "last_change_ms": 0,
-                "error": None,
+                "error": None if enabled else "Server disabled or unconfigured by environment",
+                "mode": "enabled" if enabled else "unconfigured",
             }
 
     # ── Background checks ─────────────────────────────────────
@@ -175,12 +203,24 @@ class StatusManager:
             servers = dict(self._servers)
 
         for server_id, (host, port) in servers.items():
+            if not _server_enabled(server_id):
+                old_status = self._status.get(server_id, {}).get("status", ServerStatus.UNKNOWN.value)
+                with self._lock:
+                    self._status[server_id]["last_check_ms"] = int(time.time() * 1000)
+                    self._status[server_id]["status"] = ServerStatus.UNCONFIGURED.value
+                    self._status[server_id]["mode"] = "unconfigured"
+                    self._status[server_id]["error"] = "Server disabled or unconfigured by environment"
+                    if old_status != ServerStatus.UNCONFIGURED.value:
+                        self._status[server_id]["last_change_ms"] = int(time.time() * 1000)
+                        self._publish_change(server_id, old_status, ServerStatus.UNCONFIGURED.value)
+                continue
             is_up = self._check_port(host, port)
             old_status = self._status.get(server_id, {}).get("status", ServerStatus.UNKNOWN.value)
             new_status = ServerStatus.ONLINE.value if is_up else ServerStatus.OFFLINE.value
 
             with self._lock:
                 self._status[server_id]["last_check_ms"] = int(time.time() * 1000)
+                self._status[server_id]["mode"] = "enabled"
                 if self._status[server_id]["status"] != new_status:
                     self._status[server_id]["status"] = new_status
                     self._status[server_id]["last_change_ms"] = int(time.time() * 1000)

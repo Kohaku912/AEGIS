@@ -5,18 +5,64 @@
   "app_id": "commitment",
   "action": "upsert",
   "operation_category": "commitment_management",
-  "risk": {"level": "safe", "side_effects": ["commitment_write"], "requires_approval": false},
+  "risk": {
+    "level": "safe",
+    "side_effects": [
+      "commitment_write"
+    ],
+    "requires_approval": false
+  },
   "input_schema": {
     "type": "object",
     "properties": {
-      "commitment_id": {"type": "string"},
-      "title": {"type": "string"},
-      "description": {"type": "string"},
-      "due_at_ms": {"type": "integer"},
-      "priority": {"type": "string"},
-      "next_action": {"type": "string"}
+      "commitment_id": {
+        "type": "string"
+      },
+      "title": {
+        "type": "string"
+      },
+      "description": {
+        "type": "string"
+      },
+      "due_at_ms": {
+        "type": "integer"
+      },
+      "priority": {
+        "type": "string"
+      },
+      "next_action": {
+        "type": "string"
+      }
     },
-    "required": ["title"]
+    "required": [
+      "title"
+    ]
   },
-  "tags": ["commitment", "personal-ai", "write"]
+  "tags": [
+    "commitment",
+    "personal-ai",
+    "write"
+  ],
+  "completion": {
+    "mode": "any",
+    "retry": {
+      "max_attempts": 0,
+      "delay_ms": 0
+    },
+    "on_failure": "retry_or_user_confirmation",
+    "checks": [
+      {
+        "name": "ok_true",
+        "type": "output_field",
+        "field": "ok",
+        "equals": true
+      },
+      {
+        "name": "success_true",
+        "type": "output_field",
+        "field": "success",
+        "equals": true
+      }
+    ]
+  }
 }

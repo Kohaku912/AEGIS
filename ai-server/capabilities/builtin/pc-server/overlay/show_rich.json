@@ -5,20 +5,65 @@
   "app_id": "overlay",
   "action": "show_rich",
   "operation_category": "notification",
-  "risk": {"level": "safe", "side_effects": ["pc_overlay"], "requires_approval": false},
-  "tags": ["overlay", "display", "image", "safe"],
+  "risk": {
+    "level": "safe",
+    "side_effects": [
+      "pc_overlay"
+    ],
+    "requires_approval": false
+  },
+  "tags": [
+    "overlay",
+    "display",
+    "image",
+    "safe"
+  ],
   "only_master": false,
   "tcp_command_json": "show_rich_overlay",
   "input_schema": {
     "type": "object",
     "properties": {
-      "title": {"type": "string", "default": "AEGIS"},
-      "body": {"type": "string"},
-      "duration_seconds": {"type": "integer", "default": 8},
-      "style": {"type": "string", "default": "info"},
-      "image_base64": {"type": "string"},
-      "image_mime": {"type": "string"}
+      "title": {
+        "type": "string",
+        "default": "AEGIS"
+      },
+      "body": {
+        "type": "string"
+      },
+      "duration_seconds": {
+        "type": "integer",
+        "default": 8
+      },
+      "style": {
+        "type": "string",
+        "default": "info"
+      },
+      "image_base64": {
+        "type": "string"
+      },
+      "image_mime": {
+        "type": "string"
+      }
     },
-    "required": ["body"]
+    "required": [
+      "body"
+    ]
+  },
+  "completion": {
+    "mode": "all",
+    "retry": {
+      "max_attempts": 1,
+      "delay_ms": 200
+    },
+    "on_failure": "retry_or_user_confirmation",
+    "checks": [
+      {
+        "name": "screen_changed_after_action",
+        "type": "screenshot",
+        "capability_id": "pc-server.screenshot.get_screenshot",
+        "expect_changed": true,
+        "capture_before": true
+      }
+    ]
   }
 }

@@ -10,6 +10,7 @@ export function Work({ overview }: { overview: UiOverview }) {
   const usedMemory = overview.memory?.data?.summary || overview.mind_summary.data?.memory || {};
   const usage = overview.usage.data || {};
   const recentResult = [...steps].reverse().map((step) => resultPreview(step)).find(Boolean);
+  const dependencyEdges = task.dependency_edges || [];
   return (
     <div className="grid">
       <section className="panel">
@@ -53,13 +54,14 @@ export function Work({ overview }: { overview: UiOverview }) {
             </div>
           </div>
           <div className="stat-grid">
-            <div className="stat"><span className="muted">Objective</span><b style={{ fontSize: 16 }}>{task.title || "Not reported"}</b></div>
+            <div className="stat"><span className="muted">Objective</span><b>{task.title || "Not reported"}</b></div>
             <div className="stat"><span className="muted">Phase</span><b>{task.phase || "Not reported"}</b></div>
-            <div className="stat"><span className="muted">Current capability</span><b className="mono" style={{ fontSize: 14 }}>{activeCapability || "Not reported"}</b></div>
+            <div className="stat"><span className="muted">Current capability</span><b className="mono">{activeCapability || "Not reported"}</b></div>
             <div className="stat"><span className="muted">Execution server</span><b>{activeCapability ? serverLabel(serverFromCapabilityId(activeCapability)) : "Not reported"}</b></div>
           </div>
           <div className="task-narrative">
-            <div><span className="muted">Original instruction</span><strong>{String(task.title || task.task_id || "Not reported")}</strong></div>
+            <div><span className="muted">Original instruction</span><strong>{String(task.original_instruction || task.title || task.task_id || "Not reported")}</strong></div>
+            <div><span className="muted">AI plan</span><strong>{String(task.plan_summary || "Not reported")}</strong></div>
             <div><span className="muted">Current action</span><strong>{task.current_action || "Not reported"}</strong></div>
             <div><span className="muted">Next action</span><strong>{task.next_action || "Not reported"}</strong></div>
             <div><span className="muted">Blocked reason</span><strong>{task.blocked_reason || "Not blocked"}</strong></div>
@@ -68,7 +70,7 @@ export function Work({ overview }: { overview: UiOverview }) {
           <div className="work-insight-grid" aria-label="Task operational context">
             <div className="mini-panel">
               <h3>Plan / Dependency</h3>
-              <p className="muted">{steps.length ? `${steps.length} step plan, executed through ${activeCapability ? serverLabel(serverFromCapabilityId(activeCapability)) : "reported server"}.` : "No step plan reported."}</p>
+              <p className="muted">{steps.length ? `${steps.length} step plan, ${dependencyEdges.length} dependency edge(s).` : "No step plan reported."}</p>
             </div>
             <div className="mini-panel">
               <h3>Approvals</h3>
@@ -80,17 +82,24 @@ export function Work({ overview }: { overview: UiOverview }) {
             </div>
             <div className="mini-panel">
               <h3>Model / Cost</h3>
-              <p className="muted">{String(usage.summary || usage.total_tokens || usage.cost || "Not reported")}</p>
+              <p className="muted">{String(task.cost_summary || usage.summary || usage.total_tokens || usage.cost || "Not reported")}</p>
             </div>
             <div className="mini-panel">
               <h3>Completion / Verification</h3>
-              <p className="muted">{verificationPreview(steps) || "No verification result reported."}</p>
+              <p className="muted">{task.verification_summary || verificationPreview(steps) || "No verification result reported."}</p>
             </div>
             <div className="mini-panel">
-              <h3>Final Output</h3>
-              <p className="muted">{String((task as Record<string, unknown>).final_output || (task as Record<string, unknown>).result || "Not reported")}</p>
+              <h3>Audit / Output</h3>
+              <p className="muted">{task.audit_group_id ? `Audit ${task.audit_group_id}. ` : ""}{String(task.final_output || (task as Record<string, unknown>).result || "Not reported")}</p>
             </div>
           </div>
+          {dependencyEdges.length ? (
+            <div className="dependency-chain" aria-label="Task dependency graph">
+              {dependencyEdges.slice(0, 12).map((edge, index) => (
+                <span key={`${String(edge.from)}-${String(edge.to)}-${index}`}>{String(edge.from)} {"->"} {String(edge.to)}</span>
+              ))}
+            </div>
+          ) : null}
           <div className="step-list">
             {steps.map((step, index) => (
               <article className="step-row" key={String(step.step_id || index)}>

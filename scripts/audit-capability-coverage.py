@@ -46,6 +46,19 @@ def _side_effects(data: dict[str, object]) -> list[object]:
     return value if isinstance(value, list) else []
 
 
+def _mutating_side_effects(data: dict[str, object]) -> list[str]:
+    read_prefixes = ("read", "reads_", "observe", "capture", "get_", "list_")
+    result: list[str] = []
+    for effect in _side_effects(data):
+        text = str(effect).strip().lower()
+        if not text:
+            continue
+        if text.startswith(read_prefixes) or text in {"privacy_read", "screen_read"}:
+            continue
+        result.append(text)
+    return result
+
+
 def _completion(data: dict[str, object]) -> dict[str, object]:
     value = data.get("completion") or data.get("verification") or data.get("postcondition")
     return value if isinstance(value, dict) else {}
@@ -89,16 +102,17 @@ def main() -> int:
         risk_level = _risk_level(data)
         requires_approval = _requires_approval(data)
         side_effects = _side_effects(data)
+        mutating_side_effects = _mutating_side_effects(data)
         checks = _completion_checks(data)
         has_completion = bool(checks)
         issues: list[dict[str, str]] = []
-        if side_effects and not has_completion:
+        if mutating_side_effects and not has_completion:
             issues.append(_issue(
                 "side_effects_without_completion",
                 "blocker",
                 "Capability declares side effects but has no completion checks.",
             ))
-        if server_id in ACTION_SERVERS and operation_category in ACTION_CATEGORIES and side_effects and not has_completion:
+        if server_id in ACTION_SERVERS and operation_category in ACTION_CATEGORIES and mutating_side_effects and not has_completion:
             issues.append(_issue(
                 "operation_without_verification",
                 "blocker",
@@ -130,12 +144,15 @@ def main() -> int:
             "requires_approval": requires_approval,
             "risk_level": risk_level,
             "side_effects": side_effects,
+            "mutating_side_effects": mutating_side_effects,
             "enabled": _enabled(data),
             "issues": issues,
         }
         rows.append(row)
     failing = [row for row in rows if row.get("status") != "pass"]
+    overall_status = "pass" if not failing else "fail"
     payload = {
+        "overall_status": overall_status,
         "summary": {
             "total": len(rows),
             "failing": len(failing),

@@ -33,6 +33,12 @@ export type ServerItem = {
   recovery_hint?: string;
   dependencies?: Record<string, unknown>;
   health_checked_at?: number;
+  latency_ms?: number;
+  last_healthy_at?: number | string;
+  active_task_id?: string;
+  permission_missing?: boolean;
+  capability_health?: Record<string, unknown>;
+  recovery_state?: string;
 };
 
 export type ApprovalItem = {
@@ -47,6 +53,11 @@ export type ApprovalItem = {
   summary?: string;
   target?: string;
   preview?: string;
+  side_effects?: string;
+  previous_action?: string;
+  similar_action_summary?: string;
+  expected_effect?: string;
+  fresh_auth_required?: boolean;
   created_at?: number;
   expires_at?: number;
   status?: string;
@@ -56,13 +67,57 @@ export type CurrentTask = {
   task_id: string;
   title: string;
   phase: string;
+  original_instruction?: string;
+  plan_summary?: string;
+  dependency_edges?: Array<Record<string, unknown>>;
   current_action: string;
   next_action: string;
   blocked_reason: string;
+  verification_summary?: string;
+  final_output?: string;
+  audit_group_id?: string;
+  cost_summary?: string;
   capability_id?: string;
   started_at?: number;
   updated_at?: number;
   steps?: Array<Record<string, unknown>>;
+};
+
+export type SurfaceRole = {
+  surface_id: string;
+  role: string;
+  interactive: boolean;
+  privacy_levels: string[];
+  priorities: string[];
+  max_text_chars: number;
+  max_display_ms: number;
+  actions: string[];
+  scenes: string[];
+};
+
+export type PresentationEvent = {
+  event_id: string;
+  scene_type: string;
+  priority: "P0" | "P1" | "P2" | "P3" | string;
+  severity: string;
+  source: string;
+  title: string;
+  summary: string;
+  detail?: string;
+  affected_entities: string[];
+  task_id?: string;
+  approval_id?: string;
+  persistence: string;
+  expires_at: number;
+  privacy_class: string;
+  recommended_surfaces: string[];
+  visual_hint: {
+    effect?: VisualEvent["effect"] | string;
+    arc?: string;
+    color?: string;
+    duration_ms?: number;
+  };
+  available_actions: Array<Record<string, unknown>>;
 };
 
 export type UiOverview = {
@@ -79,8 +134,10 @@ export type UiOverview = {
     items?: Array<Record<string, unknown>>;
     count?: number;
   }>;
+  presentation_events?: FreshnessEnvelope<{ items?: PresentationEvent[]; count?: number; source?: string }>;
+  surface_roles?: FreshnessEnvelope<{ items?: SurfaceRole[]; count?: number; source?: string }>;
   display_queue?: FreshnessEnvelope<{
-    items?: Array<Record<string, unknown>>;
+    items?: Array<Record<string, unknown> & { presentation_event?: PresentationEvent }>;
     count?: number;
     source?: string;
     persisted?: boolean;
@@ -140,6 +197,11 @@ export type UiEvent = {
     color?: string;
     duration_ms?: number;
   };
+  presentation_event?: PresentationEvent;
+  scene_type?: string;
+  privacy_class?: string;
+  recommended_surfaces?: string[];
+  available_actions?: Array<Record<string, unknown>>;
   payload: Record<string, unknown>;
   capability_id?: string;
   server_id?: string;

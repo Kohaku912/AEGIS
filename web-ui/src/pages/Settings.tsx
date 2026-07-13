@@ -97,7 +97,7 @@ export function Settings({ overview }: { overview: UiOverview }) {
             <h2>Operational Settings</h2>
             <div className="muted">Loaded from SettingsStore. POST changes use CSRF and fresh passkey protection.</div>
           </div>
-          <div style={{ display: "flex", gap: 8 }}>
+          <div className="settings-actions">
             <a className="secondary-button" href="/api/settings/export">Export</a>
             <button className="danger-button" onClick={reset} type="button">Reset</button>
           </div>
@@ -132,6 +132,32 @@ export function Settings({ overview }: { overview: UiOverview }) {
             </label>
           ))}
           {!editable.length && !loading ? <div className="muted">No simple editable settings were reported.</div> : null}
+        </div>
+      </section>
+      <section className="panel">
+        <div className="panel__header">
+          <div>
+            <h2>Surface Roles</h2>
+            <div className="muted">PresentationEvent routing contract. Each device renders the same event with its own limits.</div>
+          </div>
+          <span className="freshness" data-stale={overview.surface_roles?.stale || false}>{overview.surface_roles?.data.source || "surface contract"}</span>
+        </div>
+        <div className="surface-role-grid">
+          {(overview.surface_roles?.data.items || []).map((role) => (
+            <article className="surface-role" data-interactive={role.interactive} key={role.surface_id}>
+              <div>
+                <strong>{role.surface_id.replace(/_/g, " ")}</strong>
+                <p>{role.role}</p>
+              </div>
+              <div className="surface-role__meta">
+                <span>{role.interactive ? "interactive" : "read-only"}</span>
+                <span>{role.priorities.join("/")}</span>
+                <span>{role.privacy_levels.join("/")}</span>
+              </div>
+              <div className="surface-role__scenes">{role.scenes.slice(0, 8).join(" / ")}</div>
+            </article>
+          ))}
+          {!(overview.surface_roles?.data.items || []).length ? <div className="muted">Surface role contract is not reported.</div> : null}
         </div>
       </section>
       <section className="panel">

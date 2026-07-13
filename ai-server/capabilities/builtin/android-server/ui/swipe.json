@@ -52,5 +52,22 @@
     "requires_permissions": [
       "accessibility"
     ]
+  },
+  "completion": {
+    "mode": "all",
+    "retry": {
+      "max_attempts": 1,
+      "delay_ms": 250
+    },
+    "on_failure": "retry_or_user_confirmation",
+    "checks": [
+      {
+        "name": "ui_tree_changed_after_action",
+        "type": "ui_tree",
+        "capability_id": "android-server.screen.get_ui_tree",
+        "expect_changed": true,
+        "capture_before": true
+      }
+    ]
   }
 }

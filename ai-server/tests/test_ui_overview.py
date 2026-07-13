@@ -143,6 +143,8 @@ def test_ui_overview_sections_have_freshness_envelope():
         "connection",
         "display_scene",
         "presentations",
+        "presentation_events",
+        "surface_roles",
         "display_queue",
         "tasks",
         "activity",
@@ -168,6 +170,10 @@ def test_ui_overview_sections_have_freshness_envelope():
     assert overview["approvals"]["data"]["pending"][0]["approval_id"] == "approval-1"
     assert overview["presentations"]["status"] == "ok"
     assert overview["presentations"]["data"]["count"] == 1
+    assert overview["surface_roles"]["data"]["items"]
+    assert any(item["surface_id"] == "dedicated_display" and item["interactive"] is False for item in overview["surface_roles"]["data"]["items"])
+    assert overview["presentation_events"]["data"]["items"]
+    assert "recommended_surfaces" in overview["presentation_events"]["data"]["items"][0]
     assert overview["activity"]["data"]["groups"]
     assert overview["display_queue"]["data"]["persisted"] is True
     assert overview["display_queue"]["data"]["items"]
@@ -286,9 +292,10 @@ def test_ui_overview_compacts_large_step_results():
     overview = build_ui_overview(runtime)
     step = overview["current_task"]["data"]["steps"][0]
 
-    assert len(str(overview)) < 20_000
+    assert len(str(overview)) < 35_000
     assert step["result"]["available"] is True
     assert step["result"]["truncated"] is True
+    assert len(step["result"]["preview"]) < 500
     assert step["result"]["size_chars"] > 5_000_000
     assert "html" in step["result"]["keys"]
 
@@ -339,3 +346,8 @@ def test_normalize_ui_event_exposes_visual_fields():
     assert normalized["task_id"] == "task-1"
     assert normalized["severity"] == "critical"
     assert normalized["message"] == "permission missing"
+    assert normalized["scene_type"] == "critical"
+    assert normalized["privacy_class"] == "normal"
+    assert "presentation_event" in normalized
+    assert "dedicated_display" in normalized["presentation_event"]["recommended_surfaces"]
+    assert "mobile_app" in normalized["presentation_event"]["recommended_surfaces"]

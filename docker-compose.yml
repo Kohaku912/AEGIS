@@ -7,9 +7,9 @@ services:
     env_file:
       - .env
     ports:
-      - "${AEGIS_GRPC_BIND_HOST:-${AEGIS_BIND_HOST:-0.0.0.0}}:${AEGIS_CORE_GRPC_PORT:-50051}:50051"
-      - "${AEGIS_DASHBOARD_BIND_HOST:-${AEGIS_BIND_HOST:-0.0.0.0}}:${AEGIS_DASHBOARD_PORT:-8090}:8090"
-      - "${AEGIS_WEB_CHAT_BIND_HOST:-${AEGIS_BIND_HOST:-0.0.0.0}}:${AEGIS_WEB_CHAT_PORT:-8091}:8091"
+      - "${AEGIS_GRPC_BIND_HOST:-${AEGIS_BIND_HOST:-127.0.0.1}}:${AEGIS_CORE_GRPC_PORT:-50051}:50051"
+      - "${AEGIS_DASHBOARD_BIND_HOST:-${AEGIS_BIND_HOST:-127.0.0.1}}:${AEGIS_DASHBOARD_PORT:-8090}:8090"
+      - "${AEGIS_WEB_CHAT_BIND_HOST:-${AEGIS_BIND_HOST:-127.0.0.1}}:${AEGIS_WEB_CHAT_PORT:-8091}:8091"
     environment:
       LLM_API_KEY: ${LLM_API_KEY:-${OPENAI_API_KEY:-}}
       LLM_VISION_API_KEY: ${LLM_VISION_API_KEY:-${LLM_API_KEY:-${OPENAI_API_KEY:-}}}
@@ -61,7 +61,7 @@ services:
       dockerfile: infra/docker/browser-server.Dockerfile
     image: aegis/browser-server:local
     ports:
-      - "${BROWSER_SERVER_BIND_HOST:-${AEGIS_BIND_HOST:-0.0.0.0}}:${BROWSER_SERVER_PORT:-50053}:50053"
+      - "${BROWSER_SERVER_BIND_HOST:-${AEGIS_BIND_HOST:-127.0.0.1}}:${BROWSER_SERVER_PORT:-50053}:50053"
     environment:
       AEGIS_AI_GRPC_ADDR: ai-server:50051
       AEGIS_GRPC_HOST: ${AEGIS_CONTAINER_GRPC_HOST:-0.0.0.0}
@@ -88,7 +88,7 @@ services:
       dockerfile: infra/docker/room-server.Dockerfile
     image: aegis/room-server:local
     ports:
-      - "${ROOM_SERVER_BIND_HOST:-${AEGIS_BIND_HOST:-0.0.0.0}}:${ROOM_SERVER_PORT:-50055}:50055"
+      - "${ROOM_SERVER_BIND_HOST:-${AEGIS_BIND_HOST:-127.0.0.1}}:${ROOM_SERVER_PORT:-50055}:50055"
     environment:
       AEGIS_RUNTIME_MODE: ${AEGIS_RUNTIME_MODE:-development}
       AEGIS_ROOM_HOST: ${AEGIS_CONTAINER_GRPC_HOST:-0.0.0.0}
@@ -104,7 +104,7 @@ services:
       dockerfile: infra/docker/dev-server.Dockerfile
     image: aegis/dev-server:local
     ports:
-      - "${DEV_SERVER_BIND_HOST:-${AEGIS_BIND_HOST:-0.0.0.0}}:${DEV_SERVER_PORT:-50056}:50056"
+      - "${DEV_SERVER_BIND_HOST:-${AEGIS_BIND_HOST:-127.0.0.1}}:${DEV_SERVER_PORT:-50056}:50056"
     environment:
       DEV_SERVER_PORT: 50056
       AEGIS_REPO_PATH: /workspace

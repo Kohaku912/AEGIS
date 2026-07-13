@@ -48,8 +48,12 @@ export function Systems({ overview }: { overview: UiOverview }) {
               <div className="metric-row"><span>Endpoint</span><strong>{server.host || "host"}:{server.port || "-"}</strong></div>
               <div className="metric-row"><span>Mode</span><strong>{server.mode || "Not reported"}</strong></div>
               <div className="metric-row"><span>Capabilities</span><strong>{server.registered_capabilities || "Not reported"}</strong></div>
+              <div className="metric-row"><span>Capability health</span><strong>{formatCapabilityHealth(server.capability_health)}</strong></div>
+              <div className="metric-row"><span>Latency</span><strong>{formatLatency(server.latency_ms)}</strong></div>
               <div className="metric-row"><span>Heartbeat age</span><strong>{server.heartbeat_age_seconds ?? "Not reported"}</strong></div>
               <div className="metric-row"><span>Last healthy</span><strong>{lastHealthy(server)}</strong></div>
+              <div className="metric-row"><span>Active task</span><strong className="mono">{server.active_task_id || "No active task"}</strong></div>
+              <div className="metric-row"><span>Permissions</span><strong>{formatMissingPermissions(server.permission_missing)}</strong></div>
               <div className="metric-row"><span>Version</span><strong>{server.version || "Not reported"}</strong></div>
               <div className="metric-row"><span>Dependencies</span><strong>{serverDependencySummary(server)}</strong></div>
             </div>
@@ -79,12 +83,37 @@ function dependencyNames(server: NonNullable<UiOverview["servers"]["data"]["item
 function lastHealthy(server: NonNullable<UiOverview["servers"]["data"]["items"][number]>): string {
   const dependencies = (server.dependencies || {}) as Record<string, unknown>;
   return String(
+    server.last_healthy_at ||
     dependencies.last_healthy_at ||
     dependencies.last_online_at ||
     server.health_checked_at ||
     dependencies.last_seen ||
     "Not reported"
   );
+}
+
+function formatLatency(value?: number): string {
+  if (typeof value !== "number" || Number.isNaN(value)) return "Not reported";
+  return `${Math.round(value)} ms`;
+}
+
+function formatMissingPermissions(value?: string[] | boolean): string {
+  if (value === true) return "Missing permission reported";
+  if (value === false) return "None reported";
+  if (!value || !value.length) return "None reported";
+  return value.join(", ");
+}
+
+function formatCapabilityHealth(value?: Record<string, unknown>): string {
+  if (!value || !Object.keys(value).length) return "Not reported";
+  const ok = Number(value.ok ?? value.available ?? 0);
+  const degraded = Number(value.degraded ?? 0);
+  const unavailable = Number(value.unavailable ?? value.failed ?? 0);
+  const parts = [];
+  if (ok) parts.push(`${ok} ok`);
+  if (degraded) parts.push(`${degraded} degraded`);
+  if (unavailable) parts.push(`${unavailable} unavailable`);
+  return parts.join(" / ") || Object.entries(value).slice(0, 3).map(([key, val]) => `${key}:${String(val)}`).join(" / ");
 }
 
 function AndroidDetail({ server }: { server: NonNullable<UiOverview["servers"]["data"]["items"][number]> }) {

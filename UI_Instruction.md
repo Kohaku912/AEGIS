@@ -3191,3 +3191,939 @@ Overlayの縁だけに、
 * Manager→API→UI coverage test
 
 WindowsのAssigned Accessでは、単一アプリまたはEdgeを全画面で起動し、閉じられた場合に自動再起動するキオスク構成が用意されています。AEGIS Displayもブラウザ表示だけでなく、このOS側の全画面・自動復旧まで完了条件に含めます。
+# AEGIS マルチデバイスUI配置計画
+
+## 1. 各デバイスの役割
+
+| デバイス          | 主な役割             |   操作 |   注視時間 | 情報密度 |
+| ------------- | ---------------- | ---: | -----: | ---: |
+| AI専用ディスプレイ    | AIの現在状態を空間的に伝える  |   不可 |  数秒～常時 |  低～中 |
+| Webマスターボード    | 全機能の管理・分析・デバッグ   |   高度 | 数分～数時間 |    高 |
+| スマホアプリ        | 会話・承認・緊急対応・外出時確認 |   可能 |  数秒～数分 |    中 |
+| PCオーバーレイ      | PC作業を邪魔せず現在状態を通知 |  最小限 |  1～10秒 |    低 |
+| Androidシステム通知 | 画面外でも重要事項を通知     |   限定 |   1～5秒 |   最小 |
+| 部屋用サブディスプレイ   | 環境・予定・AEGISの存在感  | 原則不可 |     常時 |    低 |
+| 開発者コンソール      | 内部状態・ログ・性能の調査    |   高度 |    長時間 | 非常に高 |
+| 将来のスマートグラス    | 現実空間に関係する状況通知    |   限定 |    瞬間的 |   最小 |
+
+---
+
+# 2. 共通アーキテクチャ
+
+各デバイスで独自にイベントの意味を推測してはいけない。
+
+AI Server側で、情報を次の共通形式へ変換する。
+
+```text
+PresentationEvent
+├─ event_id
+├─ scene_type
+├─ priority
+├─ severity
+├─ source
+├─ title
+├─ summary
+├─ detail
+├─ affected_entities
+├─ task_id
+├─ approval_id
+├─ persistence
+├─ expires_at
+├─ privacy_class
+├─ recommended_surfaces
+├─ visual_hint
+└─ available_actions
+```
+
+## recommended_surfacesの例
+
+```text
+dedicated_display
+web_dashboard
+mobile_app
+pc_overlay
+android_notification
+room_display
+smart_glasses
+developer_console
+```
+
+同じイベントでも、端末ごとに表現を変える。
+
+### 例：Browser Serverが停止
+
+AI専用画面：
+
+```text
+Browser領域が暗転
+→ 実行経路が停止
+→ 影響を受けたTaskを表示
+→ Recovery進捗へ遷移
+```
+
+Web：
+
+```text
+Systems Topology上でBrowserを選択
+→ エラー、依存関係、ログ、再試行、関連Taskを表示
+```
+
+スマホ：
+
+```text
+「調査タスクがBrowser停止により中断」
+「自動復旧中」
+```
+
+PC Overlay：
+
+```text
+右上に小さく「Browser recovery 2/4」
+```
+
+---
+
+# 3. AI専用操作不能ディスプレイ
+
+## 役割
+
+AIが、
+
+* 何をしているか
+* 何に注目しているか
+* 次に何をするか
+* 何か問題があるか
+* ユーザーに対応が必要か
+
+を、離れた場所から数秒で把握できる画面にする。
+
+操作要素は一切置かない。
+
+## 基本表現
+
+中心表現を一つに固定せず、AEGISの状態によって切り替える。
+
+### Idle：Ambient Intelligence
+
+表示：
+
+* Context Horizon
+* 次の予定
+* Due Commitment
+* 最後に完了したTask
+* User Situation
+* Memory consolidation
+* 各サーバーの小さな状態
+
+中央には静かなNeural Loomを置く。
+
+「No active task」を大きく表示しない。
+
+### Observing：Sensor Sweep
+
+表示：
+
+* 観測対象
+* 観測元デバイス
+* 最終更新時刻
+* 推定結果
+* Confidence
+
+画面を走査する線は、実際に観測イベントが発生した瞬間だけ表示する。
+
+### Planning：Decision Lens
+
+中央表現：
+
+* Neural Loomの分岐
+* 要約された候補経路
+* Risk
+* Cost
+* Approval requirement
+* Expected success
+
+内部Chain of Thoughtは表示しない。
+
+### Executing：Holographic Machine
+
+表示：
+
+* Current operation
+* Current capability
+* Target
+* Operation River
+* Next action
+* Verification予定
+
+現在使用中のServerやDeviceだけを明るくし、無関係な領域は暗くする。
+
+### Approval：Containment Chamber
+
+画面構成をApproval専用Sceneへ変更する。
+
+表示：
+
+* 実行予定のAction
+* Target
+* Risk
+* 影響範囲
+* 期待結果
+* 有効期限
+* 関連Task
+* 「スマホまたはWebで確認」
+
+AIから対象へ伸びる実行経路は、隔離領域の手前で停止する。
+
+操作ボタンは表示しない。
+
+### Critical：Diagnostic Cutaway
+
+通常画面を暗くし、障害対象だけを前面へ出す。
+
+表示：
+
+* どこで発生したか
+* 原因
+* 影響先
+* 自動復旧の有無
+* Recovery phase
+* ユーザーが必要な操作
+* 最後に正常だった時刻
+
+単純に画面全体を赤くしない。
+
+### Recovery：Reconstruction Sequence
+
+表示：
+
+```text
+Isolate
+→ Diagnose
+→ Restart
+→ Reconnect
+→ Capability Test
+→ Resume Task
+```
+
+実際の復旧段階と同期する。
+
+緑色は復旧完了時の短い波だけに使用し、通常色へ戻す。
+
+## 専用画面に表示しないもの
+
+* 長大なログ
+* 全Capability一覧
+* 生JSON
+* 設定フォーム
+* Approve／Rejectボタン
+* 詳細なToken履歴
+* 全Task履歴
+* デバッグ用Stack trace
+
+---
+
+# 4. Webマスターボード
+
+## 役割
+
+WebはAEGIS全体の司令室とする。
+
+* 状況確認
+* 操作
+* 承認
+* 設定
+* 調査
+* デバッグ
+* 履歴
+* 再現
+* 復旧
+
+を担当する。
+
+映画的表現は使用するが、常に操作性を優先する。
+
+## Command Center
+
+表示：
+
+* Current Operation
+* Attention
+* Current／Next Action
+* Task progress
+* User Situation
+* Connection
+* Commitments
+* LLM budget
+* Recent errors
+* Core visualization
+
+中央表現は小型のNeural LoomまたはHolographic Machineにする。
+
+専用画面のような大規模演出ではなく、クリック可能な概要として使う。
+
+## Work
+
+Task Storyboardを主表示にする。
+
+```text
+Instruction
+→ Understanding
+→ Plan
+→ Step
+→ Capability
+→ Result
+→ Approval
+→ Verification
+→ Final Output
+```
+
+各場面をクリックすると、
+
+* 入出力要約
+* 使用したMemory
+* Model
+* Cost
+* 実行時間
+* Result
+* Error
+* Audit
+
+を確認できる。
+
+### 必要なTask分類
+
+* Active
+* Waiting
+* Scheduled
+* Research
+* Self-development
+* Commitments
+* Completed
+* Failed
+
+## Systems
+
+Living TopologyまたはInteractive System Mapを使う。
+
+ノード：
+
+* AI Server
+* PC Server
+* Android Server
+* Browser Server
+* Room Server
+* Dev Server
+* External service
+* Device
+* Capability
+
+線：
+
+* Network connection
+* Dependency
+* Active execution
+* Data flow
+* Permission dependency
+* Failure influence
+
+ノードを選ぶと右側に詳細を表示する。
+
+## Approvals
+
+Containment Chamberを2D操作画面へ変換する。
+
+表示：
+
+* Action
+* Target
+* Capability
+* Arguments preview
+* Risk
+* Policy reason
+* Previous action
+* Expected effect
+* Related Task
+* Expiry
+* Audit
+
+Approve／Rejectはここで行う。
+
+High-risk操作には追加確認とFresh Authを要求する。
+
+## Mind & Memory
+
+Memory Auroraの管理版とする。
+
+表示：
+
+* Episodic
+* Semantic
+* Procedural
+* Skills
+* People
+* Preferences
+* Lessons
+* Workflows
+* Consolidation
+* Sleep
+
+現在のTaskで使われたMemoryを強調し、Taskとの関連線を表示する。
+
+## Activity
+
+Operational Replayを実装する。
+
+過去のTaskを選択し、次を時系列で再生する。
+
+* Observation
+* Planning
+* Capability開始
+* Result
+* Approval
+* Retry
+* Verification
+* Completion
+
+これは監査・デバッグ・AI改善の中心機能とする。
+
+## Webに表示する情報
+
+Webは原則として全情報を閲覧可能にする。
+
+ただし、
+
+* Raw JSON
+* Stack trace
+* 内部イベント
+* Low-level latency
+* Prompt／Model routing
+
+はDeveloper DrawerまたはDeveloper Modeへ隔離する。
+
+---
+
+# 5. スマホアプリ
+
+## 役割
+
+スマホはAEGISを常に持ち歩くための操作端末とする。
+
+主機能：
+
+* Chat
+* Approval
+* 緊急通知
+* Task確認
+* 状態確認
+* Device permission
+* 外出先からの操作
+
+Webの縮小版にはしない。
+
+## Home
+
+表示：
+
+* Core Glyph
+* Current Operation
+* Current Action
+* Next Action
+* Attention
+* Pending Approval数
+* Connection
+* 重要Device状態
+
+Neural Loomや3D機械は通常表示しない。
+
+背景で小さなCore Glyphだけを動かす。
+
+## Approval
+
+スマホで最も重要な画面。
+
+カードを次の順に表示する。
+
+```text
+何をするか
+どこへ作用するか
+なぜ必要か
+何が変わるか
+どの程度危険か
+いつ失効するか
+```
+
+Approve／Rejectの前にPreviewを必須表示する。
+
+Critical riskでは、スワイプ確認や生体認証を追加する。
+
+## Task
+
+表示：
+
+* 現在Task
+* Progress
+* Current Action
+* Next Action
+* Blocked reason
+* Approval
+* 最終結果
+
+Operation Riverを縦型Timelineとして表示する。
+
+## Devices
+
+表示：
+
+* PC
+* Android自身
+* Browser
+* Room
+* Dev
+* Connection
+* Permission
+* Last seen
+
+詳細なTopologyは使わない。
+
+問題があるDeviceだけを先頭へ出す。
+
+## Notification Center
+
+スマホでは全通知を同じ扱いにしない。
+
+### 緊急
+
+Full-screen intentまたは強いHeads-up。
+
+対象：
+
+* Security
+* Room critical
+* AI Core停止
+* 人間の即時対応が必要
+
+### 重要
+
+通常のHeads-up。
+
+対象：
+
+* Approval
+* Task failure
+* Permission missing
+* 復旧失敗
+
+### 通常
+
+Notification trayへ蓄積。
+
+対象：
+
+* Task complete
+* Scheduled task
+* Recovery complete
+* Message
+
+---
+
+# 6. PCオーバーレイ
+
+## 役割
+
+ユーザーのPC作業を邪魔せず、現在の作業に直接関係する情報だけを表示する。
+
+フルDashboardにはしない。
+
+## 通常状態
+
+原則非表示。
+
+必要な場合だけ画面端に細いStatus Stripを表示する。
+
+```text
+AEGIS · Researching · Browser · 42%
+```
+
+## PC操作中
+
+AEGISがPCを操作している場合だけ表示する。
+
+* 実行中Action
+* 操作対象アプリ
+* 自動操作中
+* 一時停止状態
+* ユーザー操作待ち
+
+カーソルや対象Windowの近くへ大量の情報を出さない。
+
+## Approval
+
+PC操作に関係するApprovalだけを表示する。
+
+例：
+
+* ファイル削除
+* アプリ起動
+* メッセージ送信
+* Clipboard読み取り
+* 入力操作
+
+表示：
+
+```text
+AEGISがファイルを削除しようとしています
+Target: ...
+Risk: ...
+```
+
+Approve／RejectをOverlayで行えるようにしてもよいが、High-riskはWebまたはスマホへ誘導する。
+
+## Error
+
+対象アプリや操作箇所の近くに短く表示する。
+
+```text
+Browser control unavailable
+Recovery running
+```
+
+詳細はWebへのリンクで確認する。
+
+## オーバーレイの表示時間
+
+* Normal：3～5秒
+* Warning：8～12秒
+* Approval：解決まで
+* Critical：画面端へ固定
+* Progress：操作中のみ
+
+---
+
+# 7. Androidシステム通知・モバイルオーバーレイ
+
+スマホアプリを開いていない時の入口として使用する。
+
+## 通知に含めるもの
+
+* 短いタイトル
+* 影響
+* 必要な行動
+* Expiry
+* Deep link
+
+例：
+
+```text
+Approval required
+AEGIS wants to send a message to ○○.
+Expires in 4 minutes.
+```
+
+## 通知に含めないもの
+
+* 長いArguments
+* 内部Capability IDだけの表示
+* 生JSON
+* 詳細なServer status
+* 複数Taskの同時表示
+
+## Android Overlay
+
+常駐Bubbleや全面Overlayは原則使わない。
+
+使用するのは次の場合だけ。
+
+* Accessibility permissionが切れた
+* Screenshot permissionが必要
+* ユーザーの手動操作が必要
+* AEGISが現在の画面操作を実行中
+
+---
+
+# 8. 部屋用サブディスプレイ・TV
+
+## 役割
+
+AEGISの環境認識と予定情報を静かに表示する。
+
+AI専用ディスプレイより生活情報寄りにする。
+
+表示：
+
+* 時刻
+* 天気
+* 次の予定
+* Room状態
+* User Situation
+* AEGISの簡単な状態
+* 重要通知
+
+中央表現はLiving Topologyではなく、Context Horizonや静かなNeural Loomを使う。
+
+Privacy Modeでは個人名、メッセージ本文、Task詳細を表示しない。
+
+---
+
+# 9. 開発者コンソール
+
+## 役割
+
+映画的表現をほぼ使用せず、内部動作を正確に確認する。
+
+表示：
+
+* Event stream
+* Raw Overview
+* Manager state
+* Capability selection
+* Tool arguments
+* Execution result
+* Latency
+* Token usage
+* Cache hit
+* Errors
+* Stack trace
+* Memory retrieval
+* Policy result
+* Approval lifecycle
+* SSE／gRPC状態
+
+通常Web DashboardからDeveloper Modeとして開く。
+
+専用AI画面には絶対に混ぜない。
+
+---
+
+# 10. 将来のスマートグラス
+
+## 役割
+
+現実空間に直接関係する情報だけを表示する。
+
+表示候補：
+
+* 現在のTask
+* Navigation
+* Device status
+* Room alert
+* 手順
+* 短いApproval
+* AEGISの音声応答字幕
+
+表示しないもの：
+
+* Neural Loom全体
+* Server topology
+* 長文Notification
+* Memory一覧
+* 詳細Dashboard
+
+画面中央を覆わず、視野の端に短時間表示する。
+
+---
+
+# 11. 機能ごとの配置
+
+| 機能                    |      専用画面 |         Web |     スマホ | PC Overlay |        通知 |
+| --------------------- | --------: | ----------: | ------: | ---------: | --------: |
+| Neural Loom           |       主表示 |        小型概要 |   Glyph |         不要 |        不要 |
+| Holographic Machine   |       実行時 | Interactive |      不要 |         不要 |        不要 |
+| Operation River       |        横型 |         詳細型 |      縦型 | 1行Progress |        不要 |
+| Mission Constellation |       状況時 | Interactive |      不要 |         不要 |        不要 |
+| Context Horizon       |        常設 |     Summary | Summary |         不要 |        不要 |
+| Memory Aurora         |   Ambient |        詳細管理 |    件数のみ |         不要 |        不要 |
+| Decision Lens         | Planning時 |      Plan詳細 |    要約のみ |         不要 |        不要 |
+| Containment Chamber   |      表示のみ |        操作可能 |    操作可能 |     PC関連のみ | Deep link |
+| Diagnostic Cutaway    | Critical時 |        詳細診断 |      要約 |       短い警告 |      緊急通知 |
+| Causal Shockwave      | Critical時 |       影響グラフ |    影響要約 |         不要 |      影響1行 |
+| Reconstruction        |       復旧時 |        詳細進捗 |    簡易進捗 |       短い進捗 |      完了通知 |
+| Operational Replay    |        不要 |         主機能 |    簡易履歴 |         不要 |        不要 |
+
+---
+
+# 12. 優先通知のデバイス配信
+
+## P0：Critical
+
+配信先：
+
+* AI専用画面：中央Takeover
+* Web：Critical Banner＋詳細
+* スマホ：Full-screen／強いHeads-up
+* PC Overlay：画面端へ固定
+* Room Display：Privacy-safe警告
+* 開発者Console：詳細ログ
+
+## P1：User Action Required
+
+配信先：
+
+* AI専用画面：Containment Chamber
+* Web：Approval Queue
+* スマホ：Approval notification
+* PC Overlay：PC関連のみ
+* Android通知：Approve画面へのDeep link
+
+## P2：Important
+
+配信先：
+
+* AI専用画面：右側Overlay
+* Web：Attention
+* スマホ：通常Heads-up
+* PC Overlay：関連時のみ
+* Room Display：通常は表示しない
+
+## P3：Ambient
+
+配信先：
+
+* AI専用画面：Pulse／Timeline
+* Web：Activity
+* スマホ：Notification trayまたは非通知
+* PC Overlay：通常非表示
+* Room Display：一部のみ
+
+---
+
+# 13. デバイス間の引き継ぎ
+
+各画面は互いに役割を補完する。
+
+## 専用画面 → スマホ
+
+```text
+Approval required
+→ QRや短い識別表示
+→ スマホ通知からApprovalを開く
+```
+
+## PC Overlay → Web
+
+```text
+Error detected
+→ 「Details」
+→ Webの該当Server／Taskを開く
+```
+
+## スマホ → Web
+
+```text
+Task detailを確認
+→ 「Open in Dashboard」
+→ 同じTask IDをWebで開く
+```
+
+## Web → 専用画面
+
+WebからPresentationを送れるようにする。
+
+例：
+
+* 特定Taskを専用画面へ表示
+* Room用案内を表示
+* Privacy Modeを有効化
+* Maintenance Sceneを表示
+
+専用画面自体には操作を持たせない。
+
+---
+
+# 14. 実装構成
+
+```text
+Presentation Manager
+├─ Presentation Policy
+├─ Priority Resolver
+├─ Privacy Filter
+├─ Surface Router
+├─ Lifecycle Manager
+└─ Replay Store
+
+Surface Renderers
+├─ DedicatedDisplayRenderer
+├─ WebDashboardRenderer
+├─ MobileRenderer
+├─ PcOverlayRenderer
+├─ AndroidNotificationRenderer
+├─ RoomDisplayRenderer
+└─ DeveloperRenderer
+```
+
+同じイベントを各Rendererへ渡し、端末固有の表現へ変換する。
+
+---
+
+# 15. 実装順序
+
+## Phase 1：Surface Role固定
+
+各Surfaceについて次を定義する。
+
+* 操作可能性
+* 表示可能なPrivacy level
+* 対応Priority
+* 最大文字量
+* 最大表示時間
+* 使用できるAction
+* 表示可能なScene
+
+## Phase 2：Presentation Router
+
+イベントごとの送信先をバックエンドで決定する。
+
+## Phase 3：専用画面Scene
+
+* Idle
+* Observing
+* Planning
+* Executing
+* Approval
+* Critical
+* Recovery
+* Complete
+
+## Phase 4：Web詳細画面
+
+* Task Storyboard
+* Interactive Topology
+* Approval Detail
+* Operational Replay
+
+## Phase 5：スマホの判断UI
+
+* Approval
+* Task
+* Notification Center
+* Device issue
+* Deep link
+
+## Phase 6：Overlay
+
+* PC操作状態
+* Approval
+* Warning
+* Recovery
+* User action required
+
+## Phase 7：Room／Wearable
+
+Privacy-safeな表示として追加する。
+
+---
+
+# 16. 完了条件
+
+* すべてのデバイスに同じ情報をそのまま表示しない
+* 専用画面に操作要素が存在しない
+* Webですべての詳細と操作へ到達できる
+* スマホでApprovalと緊急対応が完結する
+* PC Overlayはユーザーの作業を常時邪魔しない
+* P0／P1は必要な全デバイスへ届く
+* P3は不要なデバイスへ通知しない
+* 同じイベントの状態が全デバイスで一致する
+* 一つのデバイスで解決したApprovalが他端末からも消える
+* Privacy classに応じて端末ごとに内容がRedactされる
+* 専用画面からWeb／スマホへ自然に引き継げる
+* 各Surfaceが切断後に同じPresentation stateへ復帰する
+* 低性能端末では3Dを2D表現へ自動的に置き換える

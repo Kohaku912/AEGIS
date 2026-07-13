@@ -5,16 +5,59 @@
   "app_id": "memory",
   "action": "save",
   "operation_category": "memory",
-  "risk": {"level": "low", "side_effects": ["memory_write"], "requires_approval": false},
-  "tags": ["builtin", "memory", "write"],
+  "risk": {
+    "level": "low",
+    "side_effects": [
+      "memory_write"
+    ],
+    "requires_approval": false
+  },
+  "tags": [
+    "builtin",
+    "memory",
+    "write"
+  ],
   "only_master": false,
   "input_schema": {
     "type": "object",
     "properties": {
-      "content": {"type": "string", "description": "Content to save"},
-      "entity": {"type": "string", "description": "Entity name"},
-      "type": {"type": "string", "description": "Memory type (fact, entity, conversation)"}
+      "content": {
+        "type": "string",
+        "description": "Content to save"
+      },
+      "entity": {
+        "type": "string",
+        "description": "Entity name"
+      },
+      "type": {
+        "type": "string",
+        "description": "Memory type (fact, entity, conversation)"
+      }
     },
-    "required": ["content"]
+    "required": [
+      "content"
+    ]
+  },
+  "completion": {
+    "mode": "any",
+    "retry": {
+      "max_attempts": 0,
+      "delay_ms": 0
+    },
+    "on_failure": "retry_or_user_confirmation",
+    "checks": [
+      {
+        "name": "ok_true",
+        "type": "output_field",
+        "field": "ok",
+        "equals": true
+      },
+      {
+        "name": "success_true",
+        "type": "output_field",
+        "field": "success",
+        "equals": true
+      }
+    ]
   }
 }

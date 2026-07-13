@@ -172,6 +172,7 @@ export function taskBuckets(overview: UiOverview): Array<{ id: string; label: st
     { id: "research", label: "Research", count: taskContains(task, "browser-server") ? active.length : 0, items: taskContains(task, "browser-server") ? active : [] },
     { id: "self-development", label: "Self-development", count: taskContains(task, "dev-server") ? active.length : 0, items: taskContains(task, "dev-server") ? active : [] },
     { id: "commitments", label: "Commitments", count: commitments.length, items: commitments },
+    { id: "delegated", label: "Delegated", count: (tasks?.recent || []).filter((item) => Boolean(item.server_id || item.assignee || item.delegated_to)).length, items: (tasks?.recent || []).filter((item) => Boolean(item.server_id || item.assignee || item.delegated_to)) },
     { id: "completed", label: "Completed", count: (tasks?.recent || []).filter((item) => String(item.status || "").toLowerCase() === "completed").length || countSteps(task, "completed"), items: [] },
     { id: "failed", label: "Failed", count: (tasks?.recent || []).filter((item) => String(item.status || "").toLowerCase() === "failed").length || countSteps(task, "failed"), items: [] }
   ];
@@ -218,16 +219,17 @@ export function serverDependencySummary(server: ServerItem): string {
 
 function directorItemFromEvent(event: UiEvent): DisplayDirectorItem | undefined {
   const visualEvent = mapUiEventToVisualEvent(event);
-  const priority = event.priority || priorityFromSeverity(event.severity || visualEvent.severity || "info");
+  const presentation = event.presentation_event;
+  const priority = presentation?.priority || event.priority || priorityFromSeverity(event.severity || visualEvent.severity || "info");
   return {
     id: event.dedupe_key || event.event_id || visualEvent.id,
     priority,
-    severity: event.severity || visualEvent.severity || "info",
-    title: event.safe_title || event.type || "AEGIS event",
-    message: event.safe_message || event.message || event.source_type || "AEGIS event",
-    persistence: event.persistence || (priority === "P0" || priority === "P1" ? "until_resolved" : priority === "P2" ? "attention_dock" : "ephemeral"),
+    severity: presentation?.severity || event.severity || visualEvent.severity || "info",
+    title: presentation?.title || event.safe_title || event.type || "AEGIS event",
+    message: presentation?.summary || event.safe_message || event.message || event.source_type || "AEGIS event",
+    persistence: presentation?.persistence || event.persistence || (priority === "P0" || priority === "P1" ? "until_resolved" : priority === "P2" ? "attention_dock" : "ephemeral"),
     createdAt: event.occurred_at || event.source_updated_at || event.generated_at || Date.now(),
-    expiresAt: event.expires_at || visualEvent.expiresAt,
+    expiresAt: presentation?.expires_at || event.expires_at || visualEvent.expiresAt,
     affectedServers: event.affected_servers || (event.server_id ? [event.server_id] : []),
     visualEvent
   };
@@ -291,17 +293,18 @@ function displayQueueDirectorItems(overview: UiOverview): DisplayDirectorItem[] 
   const items = overview.display_queue?.data?.items || [];
   return items.map((item) => {
     const record = asRecord(item);
+    const presentation = asRecord(record.presentation_event);
     const priority = String(record.priority || "P3");
     const visualHint = asRecord(record.visual_hint);
     return {
       id: String(record.id || record.event_id || record.title || "display-queue-item"),
-      priority,
-      severity: String(record.severity || "info"),
-      title: String(record.title || "AEGIS signal"),
-      message: String(record.message || record.title || "AEGIS signal"),
-      persistence: String(record.persistence || (priority === "P0" || priority === "P1" ? "until_resolved" : "attention_dock")),
+      priority: String(presentation.priority || priority),
+      severity: String(presentation.severity || record.severity || "info"),
+      title: String(presentation.title || record.title || "AEGIS signal"),
+      message: String(presentation.summary || record.message || record.title || "AEGIS signal"),
+      persistence: String(presentation.persistence || record.persistence || (priority === "P0" || priority === "P1" ? "until_resolved" : "attention_dock")),
       createdAt: Number(record.created_at || record.updated_at || Date.now()),
-      expiresAt: Number(record.expires_at || 0),
+      expiresAt: Number(presentation.expires_at || record.expires_at || 0),
       affectedServers: Array.isArray(record.affected_servers) ? record.affected_servers.map(String) : [],
       visualEvent: visualHint.effect
         ? {

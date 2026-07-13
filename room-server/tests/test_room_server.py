@@ -1,6 +1,8 @@
 from generated.aegis import common_pb2, room_server_pb2
 
-from aegis_room.providers import MockLightIrProvider
+import pytest
+
+from aegis_room.providers import MockLightIrProvider, create_light_provider
 from aegis_room.server import RoomServer
 
 
@@ -52,3 +54,14 @@ def test_invalid_brightness_and_repeat_return_safe_errors() -> None:
     assert ir_response.status.code == 400
     assert "repeat" in ir_response.status.message
 
+
+def test_production_rejects_disabled_or_mock_room_provider(monkeypatch) -> None:
+    monkeypatch.setenv("AEGIS_RUNTIME_MODE", "production")
+
+    monkeypatch.setenv("AEGIS_ROOM_LIGHT_PROVIDER", "disabled")
+    with pytest.raises(RuntimeError, match="disabled"):
+        create_light_provider()
+
+    monkeypatch.setenv("AEGIS_ROOM_LIGHT_PROVIDER", "mock")
+    with pytest.raises(RuntimeError, match="mock"):
+        create_light_provider()

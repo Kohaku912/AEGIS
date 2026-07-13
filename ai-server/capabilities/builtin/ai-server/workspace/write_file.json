@@ -7,19 +7,64 @@
   "operation_category": "workspace_file",
   "risk": {
     "level": "safe",
-    "side_effects": ["workspace_file_write"],
+    "side_effects": [
+      "workspace_file_write"
+    ],
     "requires_approval": false
   },
   "input_schema": {
     "type": "object",
     "properties": {
-      "relative_path": {"type": "string", "description": "Path relative to the AEGIS workspace."},
-      "content": {"type": "string", "description": "UTF-8 text content to write."},
-      "content_base64": {"type": "string", "description": "Optional base64 bytes to write instead of content."},
-      "overwrite": {"type": "boolean", "default": true},
-      "append": {"type": "boolean", "default": false}
+      "relative_path": {
+        "type": "string",
+        "description": "Path relative to the AEGIS workspace."
+      },
+      "content": {
+        "type": "string",
+        "description": "UTF-8 text content to write."
+      },
+      "content_base64": {
+        "type": "string",
+        "description": "Optional base64 bytes to write instead of content."
+      },
+      "overwrite": {
+        "type": "boolean",
+        "default": true
+      },
+      "append": {
+        "type": "boolean",
+        "default": false
+      }
     },
-    "required": ["relative_path"]
+    "required": [
+      "relative_path"
+    ]
   },
-  "tags": ["workspace", "file", "write", "safe"]
+  "tags": [
+    "workspace",
+    "file",
+    "write",
+    "safe"
+  ],
+  "completion": {
+    "mode": "all",
+    "retry": {
+      "max_attempts": 0,
+      "delay_ms": 0
+    },
+    "on_failure": "retry_or_user_confirmation",
+    "checks": [
+      {
+        "name": "written_file_exists",
+        "type": "file_exists",
+        "path_key": "path"
+      },
+      {
+        "name": "ok_true",
+        "type": "output_field",
+        "field": "ok",
+        "equals": true
+      }
+    ]
+  }
 }

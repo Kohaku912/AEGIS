@@ -13,13 +13,46 @@
         "description": "Discord voice channel id"
       }
     },
-    "required": ["channel_id"]
+    "required": [
+      "channel_id"
+    ]
   },
   "risk": {
     "level": "medium",
     "requires_approval": true,
-    "side_effects": ["external_service_operation", "discord_voice_call_join", "presence_change"]
+    "side_effects": [
+      "external_service_operation",
+      "discord_voice_call_join",
+      "presence_change"
+    ]
   },
-  "tags": ["discord", "voice", "call", "approval_required"],
-  "tcp_command_json": "discord_join_voice_channel"
+  "tags": [
+    "discord",
+    "voice",
+    "call",
+    "approval_required"
+  ],
+  "tcp_command_json": "discord_join_voice_channel",
+  "completion": {
+    "mode": "any",
+    "retry": {
+      "max_attempts": 0,
+      "delay_ms": 0
+    },
+    "on_failure": "retry_or_user_confirmation",
+    "checks": [
+      {
+        "name": "success_true",
+        "type": "output_field",
+        "field": "success",
+        "equals": true
+      },
+      {
+        "name": "ok_true",
+        "type": "output_field",
+        "field": "ok",
+        "equals": true
+      }
+    ]
+  }
 }

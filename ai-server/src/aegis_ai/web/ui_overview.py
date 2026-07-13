@@ -7,11 +7,17 @@ import hashlib
 from dataclasses import asdict, is_dataclass
 from typing import Any
 
+from aegis_ai.presentation.surface_contract import (
+    presentation_event_from_presentation,
+    presentation_event_from_ui_event,
+    surface_roles,
+)
+
 _MAX_UI_STRING_CHARS = 2_000
 _MAX_UI_LIST_ITEMS = 50
 _MAX_UI_DICT_ITEMS = 80
 _MAX_UI_DEPTH = 6
-_MAX_STEP_RESULT_PREVIEW_CHARS = 900
+_MAX_STEP_RESULT_PREVIEW_CHARS = 240
 
 
 def build_ui_overview(runtime: Any) -> dict[str, Any]:
@@ -27,6 +33,8 @@ def build_ui_overview(runtime: Any) -> dict[str, Any]:
         "connection": _section("connection", lambda: _connection(runtime), generated_at),
         "display_scene": _section("display_scene", lambda: _display_scene(runtime), generated_at),
         "presentations": _section("presentations", lambda: _presentations(runtime), generated_at),
+        "presentation_events": _section("presentation_events", lambda: _presentation_events(runtime), generated_at),
+        "surface_roles": _section("surface_roles", lambda: _surface_roles(), generated_at),
         "display_queue": _section("display_queue", lambda: _display_queue(runtime), generated_at),
         "tasks": _section("tasks", lambda: _tasks(runtime), generated_at),
         "activity": _section("activity", lambda: _activity(runtime), generated_at),
@@ -61,7 +69,7 @@ def normalize_ui_event(event: Any) -> dict[str, Any]:
     fields = _event_fields(event_type, plain_payload)
     sequence = _event_sequence(event, event_type, timestamp, plain_payload)
     event_id = _event_id(event, event_type, timestamp, sequence, plain_payload)
-    return {
+    normalized = {
         "event_id": event_id,
         "sequence": sequence,
         "type": _ui_event_type(event_type),
@@ -84,6 +92,12 @@ def normalize_ui_event(event: Any) -> dict[str, Any]:
         "payload": plain_payload,
         **fields,
     }
+    normalized["presentation_event"] = presentation_event_from_ui_event(normalized)
+    normalized["scene_type"] = normalized["presentation_event"]["scene_type"]
+    normalized["privacy_class"] = normalized["presentation_event"]["privacy_class"]
+    normalized["recommended_surfaces"] = normalized["presentation_event"]["recommended_surfaces"]
+    normalized["available_actions"] = normalized["presentation_event"]["available_actions"]
+    return normalized
 
 
 def _section(name: str, build, generated_at: int) -> dict[str, Any]:
@@ -192,9 +206,16 @@ def _current_task(runtime: Any) -> dict[str, Any]:
             "task_id": "",
             "title": "No active task",
             "phase": "idle",
+            "original_instruction": "",
+            "plan_summary": "",
+            "dependency_edges": [],
             "current_action": "",
             "next_action": "",
             "blocked_reason": "",
+            "verification_summary": "",
+            "final_output": "",
+            "audit_group_id": "",
+            "cost_summary": "",
             "steps": [],
         }
     raw_steps = _get(task, "steps", []) or []
@@ -203,12 +224,19 @@ def _current_task(runtime: Any) -> dict[str, Any]:
         "task_id": _get(task, "task_id", ""),
         "title": _get(task, "title", "") or _get(task, "goal", "") or "Task",
         "phase": _get(task, "status", ""),
+        "original_instruction": _task_original_instruction(task),
+        "plan_summary": _task_plan_summary(task, raw_steps),
+        "dependency_edges": _task_dependency_edges(raw_steps),
         "current_action": _truncate_text(_get(current_step, "description", "") if current_step else ""),
         "next_action": _truncate_text(_get(task, "next_action", "")),
         "blocked_reason": _truncate_text(_get(task, "blocked_reason", "")),
         "capability_id": _get(current_step, "capability_id", "") if current_step else "",
         "started_at": _get(task, "created_at", 0),
         "updated_at": _get(task, "updated_at", 0),
+        "verification_summary": _verification_summary(raw_steps),
+        "final_output": _final_output_summary(task, raw_steps),
+        "audit_group_id": _get(task, "audit_group_id", "") or _get(task, "request_id", ""),
+        "cost_summary": _cost_summary(task),
         "steps": [_task_step_projection(step) for step in raw_steps[:12]],
         "step_count": len(raw_steps),
     }
@@ -235,6 +263,9 @@ def _display_scene(runtime: Any) -> dict[str, Any]:
     return {
         "mode": core.get("mode", "IDLE"),
         "phase": phase,
+        "density": "standard",
+        "recovery_state": "stable" if core.get("health") == "ONLINE" else "attention",
+        "privacy_redaction_reason": "privacy mode hides task titles and messages" if False else "",
         "priority": "P1" if core.get("pending_approval_count", 0) else "P2" if attention else "P3",
         "privacy_mode": False,
         "offline": core.get("health") == "OFFLINE",
@@ -264,6 +295,41 @@ def _presentations(runtime: Any) -> dict[str, Any]:
         "ambient": ambient,
         "items": items,
         "count": len(items),
+    }
+
+
+def _presentation_events(runtime: Any) -> dict[str, Any]:
+    presentation_items = _presentations(runtime).get("items", [])
+    events = _recent_ui_events(runtime, limit=50)
+    projected = [presentation_event_from_presentation(item) for item in presentation_items]
+    projected.extend(presentation_event_from_ui_event(event) for event in events[:30])
+    return {
+        "items": _dedupe_presentation_events(projected)[:40],
+        "count": len(projected),
+        "source": "presentation_surface_contract",
+    }
+
+
+def _surface_roles() -> dict[str, Any]:
+    roles = [_compact_surface_role(role) for role in surface_roles()]
+    return {
+        "items": roles,
+        "count": len(roles),
+        "source": "presentation_surface_contract",
+    }
+
+
+def _compact_surface_role(role: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "surface_id": role.get("surface_id", ""),
+        "role": _truncate_text(role.get("role", ""), limit=120),
+        "interactive": bool(role.get("interactive", False)),
+        "privacy_levels": role.get("privacy_levels", [])[:4] if isinstance(role.get("privacy_levels"), list) else [],
+        "priorities": role.get("priorities", [])[:4] if isinstance(role.get("priorities"), list) else [],
+        "max_text_chars": role.get("max_text_chars", 0),
+        "max_display_ms": role.get("max_display_ms", 0),
+        "actions": role.get("actions", [])[:5] if isinstance(role.get("actions"), list) else [],
+        "scenes": role.get("scenes", [])[:8] if isinstance(role.get("scenes"), list) else [],
     }
 
 
@@ -303,6 +369,9 @@ def _activity(runtime: Any) -> dict[str, Any]:
                 "capability_id": event.get("capability_id", ""),
                 "task_id": event.get("task_id", ""),
                 "approval_id": event.get("approval_id", ""),
+                "operation_type": _activity_operation_type(event),
+                "actor": event.get("payload", {}).get("actor", "aegis") if isinstance(event.get("payload", {}), dict) else "aegis",
+                "source_manager": _activity_source_manager(event),
                 "started_at": event.get("occurred_at", 0),
                 "updated_at": event.get("occurred_at", 0),
                 "events": [],
@@ -311,11 +380,12 @@ def _activity(runtime: Any) -> dict[str, Any]:
         group["updated_at"] = max(int(group.get("updated_at", 0) or 0), int(event.get("occurred_at", 0) or 0))
         group["severity"] = _max_severity(str(group.get("severity", "info")), str(event.get("severity", "info")))
         group["status"] = event.get("status") or group.get("status", "")
-        group["events"].append(_activity_event_projection(event))
+        if len(group["events"]) < 8:
+            group["events"].append(_activity_group_event_projection(event))
     ordered_groups = sorted(groups.values(), key=lambda item: int(item.get("updated_at", 0) or 0), reverse=True)
     return {
-        "recent": [_activity_event_projection(event) for event in events[:80]],
-        "groups": ordered_groups[:40],
+        "recent": [_activity_event_projection(event) for event in events[:40]],
+        "groups": ordered_groups[:24],
         "count": len(events),
         "source": "event_manager",
     }
@@ -431,10 +501,10 @@ def _commitments(runtime: Any) -> dict[str, Any]:
 def _usage(runtime: Any) -> dict[str, Any]:
     tracker = getattr(runtime, "cost_tracker", None)
     if tracker is not None and hasattr(tracker, "get_summary"):
-        return tracker.get_summary()
+        return _usage_projection(tracker.get_summary())
     if tracker is not None and hasattr(tracker, "summary"):
-        return tracker.summary()
-    return {"summary": "LLM usage is available from the LLM Usage service.", "input_tokens": 0, "output_tokens": 0}
+        return _usage_projection(tracker.summary())
+    return _usage_projection({"summary": "LLM usage is available from the LLM Usage service.", "input_tokens": 0, "output_tokens": 0})
 
 
 def _errors(runtime: Any) -> dict[str, Any]:
@@ -471,10 +541,10 @@ def _server_list(runtime: Any) -> list[dict[str, Any]]:
     try:
         from aegis_ai.web.dashboard_routes import _runtime_server_status
 
-        return list(_runtime_server_status(runtime=runtime).get("servers", []))
+        return [_server_projection(item) for item in list(_runtime_server_status(runtime=runtime).get("servers", []))]
     except Exception:
         snapshot = _status_snapshot(runtime)
-        return [
+        return [_server_projection(item) for item in [
             {
                 "server_id": server_id,
                 "status": str(item.get("status", "unknown")).upper(),
@@ -482,7 +552,7 @@ def _server_list(runtime: Any) -> list[dict[str, Any]]:
                 "health_checked_at": item.get("updated_at", _now_ms()),
             }
             for server_id, item in snapshot.items()
-        ]
+        ]]
 
 
 def _server_needs_attention(server: dict[str, Any]) -> bool:
@@ -562,6 +632,9 @@ def _recent_ui_events(runtime: Any, *, limit: int) -> list[dict[str, Any]]:
 
 
 def _display_queue_item(event: dict[str, Any]) -> dict[str, Any]:
+    presentation_event = event.get("presentation_event")
+    if not isinstance(presentation_event, dict):
+        presentation_event = presentation_event_from_ui_event(event)
     return {
         "id": event.get("dedupe_key") or event.get("event_id", ""),
         "event_id": event.get("event_id", ""),
@@ -579,6 +652,11 @@ def _display_queue_item(event: dict[str, Any]) -> dict[str, Any]:
         "approval_id": event.get("approval_id", ""),
         "task_id": event.get("task_id", ""),
         "visual_hint": event.get("visual_hint", {}),
+        "presentation_event": _compact_presentation_event(presentation_event),
+        "scene_type": presentation_event.get("scene_type", ""),
+        "privacy_class": presentation_event.get("privacy_class", ""),
+        "recommended_surfaces": presentation_event.get("recommended_surfaces", []),
+        "available_actions": presentation_event.get("available_actions", []),
     }
 
 
@@ -603,7 +681,40 @@ def _resolve_display_items(active: dict[str, dict[str, Any]], event: dict[str, A
         active.pop(key, None)
 
 
+def _dedupe_presentation_events(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    seen: dict[str, dict[str, Any]] = {}
+    for item in items:
+        key = str(item.get("event_id") or item.get("approval_id") or item.get("task_id") or item.get("title") or "")
+        if not key:
+            continue
+        current = seen.get(key)
+        if current is None or _priority_rank(item.get("priority", "P3")) < _priority_rank(current.get("priority", "P3")):
+            seen[key] = item
+    return sorted(seen.values(), key=lambda item: (_priority_rank(item.get("priority", "P3")), -int(item.get("expires_at", 0) or 0)))
+
+
+def _compact_presentation_event(event: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "event_id": event.get("event_id", ""),
+        "scene_type": event.get("scene_type", ""),
+        "priority": event.get("priority", "P3"),
+        "severity": event.get("severity", "info"),
+        "source": event.get("source", ""),
+        "title": _truncate_text(event.get("title", ""), limit=120),
+        "summary": _truncate_text(event.get("summary", ""), limit=180),
+        "affected_entities": event.get("affected_entities", [])[:6] if isinstance(event.get("affected_entities"), list) else [],
+        "task_id": event.get("task_id", ""),
+        "approval_id": event.get("approval_id", ""),
+        "privacy_class": event.get("privacy_class", "normal"),
+        "recommended_surfaces": event.get("recommended_surfaces", [])[:5] if isinstance(event.get("recommended_surfaces"), list) else [],
+        "visual_hint": event.get("visual_hint", {}),
+    }
+
+
 def _activity_event_projection(event: dict[str, Any]) -> dict[str, Any]:
+    presentation_event = event.get("presentation_event")
+    if not isinstance(presentation_event, dict):
+        presentation_event = presentation_event_from_ui_event(event)
     return {
         "event_id": event.get("event_id", ""),
         "type": event.get("type", ""),
@@ -616,8 +727,40 @@ def _activity_event_projection(event: dict[str, Any]) -> dict[str, Any]:
         "capability_id": event.get("capability_id", ""),
         "task_id": event.get("task_id", ""),
         "approval_id": event.get("approval_id", ""),
+        "operation_type": _activity_operation_type(event),
+        "actor": event.get("payload", {}).get("actor", "aegis") if isinstance(event.get("payload", {}), dict) else "aegis",
+        "source_manager": _activity_source_manager(event),
+        "related": {
+            "task_id": event.get("task_id", ""),
+            "approval_id": event.get("approval_id", ""),
+            "capability_id": event.get("capability_id", ""),
+            "server_id": event.get("server_id", ""),
+        },
         "title": event.get("safe_title", ""),
         "message": event.get("safe_message") or event.get("message", ""),
+        "presentation_event": _compact_presentation_event(presentation_event),
+        "scene_type": presentation_event.get("scene_type", ""),
+        "privacy_class": presentation_event.get("privacy_class", ""),
+        "recommended_surfaces": presentation_event.get("recommended_surfaces", []),
+        "available_actions": presentation_event.get("available_actions", []),
+    }
+
+
+def _activity_group_event_projection(event: dict[str, Any]) -> dict[str, Any]:
+    presentation_event = event.get("presentation_event")
+    if not isinstance(presentation_event, dict):
+        presentation_event = presentation_event_from_ui_event(event)
+    return {
+        "event_id": event.get("event_id", ""),
+        "type": event.get("type", ""),
+        "occurred_at": event.get("occurred_at", 0),
+        "priority": event.get("priority", "P3"),
+        "severity": event.get("severity", "info"),
+        "status": event.get("status", ""),
+        "title": event.get("safe_title", ""),
+        "message": _truncate_text(event.get("safe_message") or event.get("message", ""), limit=160),
+        "scene_type": presentation_event.get("scene_type", ""),
+        "source": presentation_event.get("source", ""),
     }
 
 
@@ -653,8 +796,28 @@ def _call_with_limit(method: Any, limit: int) -> Any:
         return method(limit)
 
 
+def _server_projection(server: Any) -> dict[str, Any]:
+    data = _to_plain(server)
+    dependencies = data.get("dependencies", {}) if isinstance(data.get("dependencies", {}), dict) else {}
+    status = str(data.get("status", "")).upper()
+    permission_missing = bool(data.get("permission_missing") or dependencies.get("permission_missing"))
+    capability_health = data.get("capability_health") or dependencies.get("capability_health") or dependencies.get("capability_availability", {})
+    return {
+        **data,
+        "status": status,
+        "latency_ms": _number(data.get("latency_ms", dependencies.get("latency_ms", -1)), -1),
+        "last_healthy_at": data.get("last_healthy_at") or dependencies.get("last_healthy_at") or dependencies.get("last_seen") or data.get("health_checked_at", 0),
+        "active_task_id": data.get("active_task_id", dependencies.get("active_task_id", "")),
+        "permission_missing": permission_missing,
+        "capability_health": _bound_for_ui(capability_health, max_depth=3, max_dict_items=40),
+        "recovery_state": "attention" if status in {"OFFLINE", "DEGRADED", "CRITICAL"} or permission_missing else "stable",
+    }
+
+
 def _approval_projection(approval: Any) -> dict[str, Any]:
     data = approval.to_dict() if hasattr(approval, "to_dict") else _to_plain(approval)
+    metadata = data.get("metadata", {}) if isinstance(data.get("metadata", {}), dict) else {}
+    arguments_summary = data.get("arguments_summary", "")
     return {
         "approval_id": data.get("approval_id", ""),
         "request_id": data.get("request_id", ""),
@@ -664,17 +827,106 @@ def _approval_projection(approval: Any) -> dict[str, Any]:
         "tool_name": data.get("tool_name", ""),
         "risk": data.get("risk_level", ""),
         "reason": data.get("approval_reason", ""),
-        "summary": data.get("user_facing_summary", "") or data.get("arguments_summary", ""),
-        "target": data.get("metadata", {}).get("target", ""),
-        "preview": data.get("arguments_summary", ""),
+        "summary": data.get("user_facing_summary", "") or arguments_summary,
+        "target": metadata.get("target", ""),
+        "preview": arguments_summary,
+        "side_effects": metadata.get("side_effects", data.get("side_effects", "")),
+        "previous_action": metadata.get("previous_action", ""),
+        "similar_action_summary": metadata.get("similar_action_summary", ""),
+        "expected_effect": metadata.get("expected_effect", ""),
+        "fresh_auth_required": bool(metadata.get("fresh_auth_required", data.get("fresh_auth_required", False))),
         "created_at": data.get("created_at", 0),
         "expires_at": data.get("expires_at", 0),
         "status": data.get("status", "pending"),
     }
 
 
+def _task_original_instruction(task: Any) -> str:
+    for key in ("original_instruction", "user_message", "instruction", "prompt", "goal", "title"):
+        value = _get(task, key, "")
+        if value:
+            return _truncate_text(value, limit=500)
+    return ""
+
+
+def _task_plan_summary(task: Any, steps: list[Any]) -> str:
+    for key in ("plan_summary", "plan", "strategy", "description"):
+        value = _get(task, key, "")
+        if isinstance(value, str) and value:
+            return _truncate_text(value, limit=700)
+        if isinstance(value, list) and value:
+            return _truncate_text("; ".join(str(item) for item in value[:6]), limit=700)
+    if steps:
+        labels = [_get(step, "description", "") or _get(step, "capability_id", "") or _get(step, "name", "") for step in steps[:6]]
+        return _truncate_text(" -> ".join(str(label) for label in labels if label), limit=700)
+    return ""
+
+
+def _task_dependency_edges(steps: list[Any]) -> list[dict[str, Any]]:
+    edges: list[dict[str, Any]] = []
+    previous = ""
+    for index, step in enumerate(steps[:16]):
+        step_id = str(_get(step, "step_id", "") or _get(step, "id", "") or f"step-{index + 1}")
+        depends_on = _get(step, "depends_on", None)
+        if isinstance(depends_on, list):
+            for dep in depends_on[:6]:
+                edges.append({"from": str(dep), "to": step_id, "type": "depends_on"})
+        elif depends_on:
+            edges.append({"from": str(depends_on), "to": step_id, "type": "depends_on"})
+        elif previous:
+            edges.append({"from": previous, "to": step_id, "type": "sequence"})
+        previous = step_id
+    return edges
+
+
+def _verification_summary(steps: list[Any]) -> str:
+    for step in reversed(steps):
+        verification = _get(step, "verification", None) or _get(step, "verification_result", None) or _get(step, "completion", None)
+        if verification:
+            if isinstance(verification, str):
+                return _truncate_text(verification, limit=360)
+            status = _get(verification, "status", "") or _get(verification, "summary", "") or _get(verification, "message", "")
+            return _truncate_text(status or _json_preview(_to_plain(verification)), limit=360)
+    return ""
+
+
+def _final_output_summary(task: Any, steps: list[Any]) -> str:
+    for key in ("final_output", "result", "summary", "output"):
+        value = _get(task, key, "")
+        if value:
+            return _truncate_text(value if isinstance(value, str) else _json_preview(_to_plain(value)), limit=700)
+    for step in reversed(steps):
+        result = _get(step, "result", None)
+        if result:
+            summary = _summarize_step_result(result)
+            if summary.get("message") or summary.get("status"):
+                return _truncate_text(summary.get("message") or summary.get("status") or "", limit=360)
+            keys = ", ".join(str(key) for key in summary.get("keys", [])[:6]) if isinstance(summary.get("keys"), list) else ""
+            size = summary.get("size_chars")
+            return _truncate_text(f"Step result available ({size} chars){f'; keys: {keys}' if keys else ''}", limit=360)
+    return ""
+
+
+def _cost_summary(value: Any) -> str:
+    candidates = _get(value, "cost_summary", "") or _get(value, "usage_summary", "")
+    if candidates:
+        return _truncate_text(candidates, limit=240)
+    usage = _get(value, "usage", {}) or _get(value, "llm_usage", {})
+    if isinstance(usage, dict) and usage:
+        tokens = usage.get("total_tokens") or usage.get("tokens")
+        cost = usage.get("cost") or usage.get("provider_reported_cost")
+        parts = []
+        if tokens not in (None, ""):
+            parts.append(f"{tokens} tokens")
+        if cost not in (None, ""):
+            parts.append(f"{cost} cost")
+        return ", ".join(parts)
+    return ""
+
+
 def _task_projection(task: Any) -> dict[str, Any]:
     data = _to_plain(task)
+    steps = _get(data, "steps", []) or []
     return {
         "task_id": _get(data, "task_id", ""),
         "title": _get(data, "title", "") or _get(data, "goal", "") or "Task",
@@ -684,9 +936,76 @@ def _task_projection(task: Any) -> dict[str, Any]:
         "updated_at": _get(data, "updated_at", 0),
         "completed_at": _get(data, "completed_at", 0),
         "blocked_reason": _truncate_text(_get(data, "blocked_reason", "")),
-        "step_count": len(_get(data, "steps", []) or []),
-        "steps": [_task_step_projection(step) for step in (_get(data, "steps", []) or [])[:12]],
+        "original_instruction": _task_original_instruction(data),
+        "plan_summary": _task_plan_summary(data, steps),
+        "dependency_edges": _task_dependency_edges(steps),
+        "verification_summary": _verification_summary(steps),
+        "final_output": _final_output_summary(data, steps),
+        "audit_group_id": _get(data, "audit_group_id", "") or _get(data, "request_id", ""),
+        "cost_summary": _cost_summary(data),
+        "step_count": len(steps),
+        "steps": [_task_step_projection(step) for step in steps[:12]],
     }
+
+
+def _usage_projection(summary: Any) -> dict[str, Any]:
+    data = _to_plain(summary)
+    if not isinstance(data, dict):
+        data = {"summary": str(data)}
+    input_tokens = _number(data.get("input_tokens", data.get("prompt_tokens", 0)), 0)
+    output_tokens = _number(data.get("output_tokens", data.get("completion_tokens", 0)), 0)
+    total_tokens = _number(data.get("total_tokens", input_tokens + output_tokens), input_tokens + output_tokens)
+    cost = data.get("provider_reported_cost", data.get("cost", data.get("estimated_cost", "")))
+    budget_state = data.get("budget_state") or data.get("status") or ("active" if total_tokens else "not_reported")
+    summary_text = data.get("summary") or (
+        f"{int(total_tokens)} tokens" if total_tokens else "LLM usage is not reported yet."
+    )
+    return {
+        **data,
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+        "total_tokens": total_tokens,
+        "provider_reported_cost": data.get("provider_reported_cost", ""),
+        "estimated_cost": data.get("estimated_cost", cost),
+        "cost": cost,
+        "budget_state": budget_state,
+        "autonomous_suppression": data.get("autonomous_suppression", data.get("suppression_reason", "")),
+        "summary": summary_text,
+    }
+
+
+def _activity_operation_type(event: dict[str, Any]) -> str:
+    event_type = str(event.get("event_type") or event.get("type") or "").lower()
+    if event.get("approval_id") or "approval" in event_type:
+        return "approval"
+    if event.get("capability_id") or "tool.execution" in event_type or "capability" in event_type:
+        return "capability"
+    if "setting" in event_type:
+        return "settings"
+    if "llm" in event_type or "usage" in event_type:
+        return "llm"
+    if "security" in event_type or "auth" in event_type:
+        return "security"
+    if event.get("server_id") or "status" in event_type or "connection" in event_type:
+        return "system"
+    if "error" in event_type or str(event.get("severity", "")).lower() == "critical":
+        return "error"
+    return "event"
+
+
+def _activity_source_manager(event: dict[str, Any]) -> str:
+    event_type = str(event.get("event_type") or event.get("type") or "")
+    if event.get("approval_id") or event_type.startswith("approval."):
+        return "ApprovalManager"
+    if event.get("task_id") or event_type.startswith("task."):
+        return "TaskManager"
+    if event.get("server_id") or event_type.startswith(("status.", "connection.")):
+        return "StatusManager"
+    if event_type.startswith("notification."):
+        return "NotificationManager"
+    if event_type.startswith(("llm.", "usage.")):
+        return "LLMUsage"
+    return "EventManager"
 
 
 def _task_step_projection(step: Any) -> dict[str, Any]:
@@ -703,6 +1022,9 @@ def _task_step_projection(step: Any) -> dict[str, Any]:
         "updated_at": _get(step, "updated_at", 0),
         "error": _truncate_text(error),
         "result": _summarize_step_result(result),
+        "verification": _bound_for_ui(_get(step, "verification", None) or _get(step, "verification_result", None) or _get(step, "completion", None), max_depth=3),
+        "completion_condition": _bound_for_ui(_get(step, "completion_condition", None) or _get(step, "postcondition", None), max_depth=3),
+        "cost_summary": _cost_summary(step),
     }
 
 
@@ -1050,8 +1372,10 @@ def _is_stale(source_updated_at: int, generated_at: int) -> bool:
 def _empty_data(name: str) -> Any:
     if name in {"attention", "servers", "notifications", "approvals", "commitments"}:
         return {"items": []}
-    if name in {"activity", "display_queue"}:
+    if name in {"activity", "display_queue", "presentation_events"}:
         return {"items": [], "recent": [], "groups": [], "count": 0}
+    if name == "surface_roles":
+        return {"items": [], "count": 0}
     return {}
 
 

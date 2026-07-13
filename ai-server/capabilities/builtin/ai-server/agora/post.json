@@ -34,5 +34,27 @@
     "required": [
       "body"
     ]
+  },
+  "completion": {
+    "mode": "any",
+    "retry": {
+      "max_attempts": 0,
+      "delay_ms": 0
+    },
+    "on_failure": "retry_or_user_confirmation",
+    "checks": [
+      {
+        "name": "ok_true",
+        "type": "output_field",
+        "field": "ok",
+        "equals": true
+      },
+      {
+        "name": "success_true",
+        "type": "output_field",
+        "field": "success",
+        "equals": true
+      }
+    ]
   }
 }
