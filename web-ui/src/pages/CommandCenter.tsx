@@ -17,6 +17,10 @@ export function CommandCenter({ overview, recentEvents }: Props) {
   const servers = overview.servers.data.items || [];
   const task = overview.current_task.data;
   const usage = overview.usage.data;
+  const user = overview.user_situation?.data || overview.user_state.data || {};
+  const commitments = overview.commitments.data.items || [];
+  const errors = overview.errors?.data.items || [];
+  const connection = overview.connection?.data || {};
   const serverSummary = summarizeServers(servers);
   const memorySummary = summarizeMemory(overview);
   const problemServers = servers.filter((server) => serverNeedsDetail(server));
@@ -36,6 +40,12 @@ export function CommandCenter({ overview, recentEvents }: Props) {
             <Metric icon={<Brain size={18} />} label="Confidence" value={String(core.confidence || "Not reported")} />
             <Metric icon={<Cpu size={18} />} label="Approvals" value={String(core.pending_approval_count ?? 0)} />
             <Metric icon={<Clock size={18} />} label="Freshness" value={overview.freshness.stale ? "STALE" : "LIVE"} />
+          </div>
+          <div className="mission-strip" aria-label="Mission context">
+            <span>Next: <strong>{task.next_action || "Not reported"}</strong></span>
+            <span>User: <strong>{String(user.summary || user.availability || "Not reported")}</strong></span>
+            <span>Connection: <strong>{String(connection.quality || connection.status || "Not reported")}</strong></span>
+            <span>Commitments: <strong>{commitments.length}</strong></span>
           </div>
         </section>
         <AttentionStrip items={overview.attention.data.items || []} />
@@ -72,6 +82,14 @@ export function CommandCenter({ overview, recentEvents }: Props) {
             <div className="stat">
               <span className="muted">LLM usage</span>
               <b style={{ fontSize: 16 }}>{String(usage.summary || usage.total_tokens || "Audit-backed")}</b>
+            </div>
+            <div className="stat">
+              <span className="muted">LLM budget</span>
+              <b style={{ fontSize: 16 }}>{String(usage.budget_state || usage.autonomous_suppression || usage.cost_state || "Not reported")}</b>
+            </div>
+            <div className="stat">
+              <span className="muted">Open issues</span>
+              <b style={{ fontSize: 16 }}>{String(errors.length || overview.errors?.data.count || 0)}</b>
             </div>
           </div>
         </section>

@@ -6,7 +6,7 @@ import type { UiOverview } from "../types";
 describe("Approvals", () => {
   it("shows approval identifiers and capability ids", () => {
     render(<Approvals overview={overview()} />);
-    expect(screen.getByText("approval-1")).toBeInTheDocument();
+    expect(screen.getAllByText("approval-1").length).toBeGreaterThan(0);
     expect(screen.getByText("pc-server.keyboard.type_text")).toBeInTheDocument();
   });
 });

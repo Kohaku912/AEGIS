@@ -15,16 +15,26 @@ import com.aegis.android.grpc.MobileServerStatus
 import com.aegis.android.ui.designsystem.AegisPanel
 import com.aegis.android.ui.designsystem.AegisText
 import com.aegis.android.ui.designsystem.AegisTextSecondary
+import com.aegis.android.ui.model.UiOverviewSnapshot
+import com.aegis.android.ui.model.UiServerSummary
 
 @Composable
-fun DevicesScreen(servers: List<MobileServerStatus>) {
+fun DevicesScreen(servers: List<MobileServerStatus>, overview: UiOverviewSnapshot) {
+    val items = if (overview.servers.isNotEmpty()) {
+        overview.servers
+    } else {
+        servers.map { UiServerSummary(it.serverId, it.label.ifBlank { it.serverId }, it.status, it.mode, it.detail) }
+    }
     LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxSize().padding(16.dp)) {
-        items(servers) { server ->
+        items(items) { server ->
             AegisPanel(modifier = Modifier.fillMaxWidth()) {
-                Column(modifier = Modifier.padding(16.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(16.dp)) {
                     Text(server.label.ifBlank { server.serverId }, color = AegisText)
                     Text("${server.status} / ${server.mode}", color = AegisTextSecondary)
                     Text(server.detail.ifBlank { "No detail" }, color = AegisTextSecondary)
+                    if (server.heartbeatAgeSeconds >= 0) {
+                        Text("Heartbeat ${server.heartbeatAgeSeconds}s ago", color = AegisTextSecondary)
+                    }
                 }
             }
         }

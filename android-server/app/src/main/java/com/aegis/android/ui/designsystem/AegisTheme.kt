@@ -20,19 +20,6 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.unit.dp
 
-val AegisBackground = Color(0xFF05090F)
-val AegisSurface = Color(0xFF0B111B)
-val AegisSurfaceElevated = Color(0xFF111A27)
-val AegisBorder = Color(0xFF1E2A3A)
-val AegisText = Color(0xFFEAF2FF)
-val AegisTextSecondary = Color(0xFF8EA0B8)
-val AegisCyan = Color(0xFF29D3FF)
-val AegisViolet = Color(0xFF8B7CFF)
-val AegisSuccess = Color(0xFF2DD4A8)
-val AegisWarning = Color(0xFFFFB84D)
-val AegisCritical = Color(0xFFFF5D73)
-val AegisOffline = Color(0xFF7C8798)
-
 private val AegisScheme = darkColorScheme(
     background = AegisBackground,
     surface = AegisSurface,

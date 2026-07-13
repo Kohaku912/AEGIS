@@ -125,7 +125,7 @@ fun AegisMobileV2App(
                         TasksScreen(overview = overview)
                     }
                     composable("devices") {
-                        DevicesScreen(servers = servers)
+                        DevicesScreen(servers = servers, overview = overview)
                     }
                     composable("permissions") {
                         PermissionsScreen(snapshot = permissions, onAction = actions.permissionAction)

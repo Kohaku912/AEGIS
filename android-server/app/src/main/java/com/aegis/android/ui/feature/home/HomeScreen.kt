@@ -18,6 +18,7 @@ import com.aegis.android.ui.designsystem.AegisText
 import com.aegis.android.ui.designsystem.AegisTextSecondary
 import com.aegis.android.ui.designsystem.CoreGlyph
 import com.aegis.android.ui.model.MobilePermissionSnapshot
+import com.aegis.android.ui.model.UiServerSummary
 import com.aegis.android.ui.model.UiOverviewSnapshot
 
 @Composable
@@ -27,6 +28,11 @@ fun HomeScreen(
     permissions: MobilePermissionSnapshot,
     servers: List<MobileServerStatus>,
 ) {
+    val overviewServers = if (overview.servers.isNotEmpty()) {
+        overview.servers
+    } else {
+        servers.map { UiServerSummary(it.serverId, it.label.ifBlank { it.serverId }, it.status, it.mode, it.detail) }
+    }
     Column(verticalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.padding(16.dp)) {
         AegisPanel(modifier = Modifier.fillMaxWidth()) {
             Row(
@@ -37,10 +43,19 @@ fun HomeScreen(
                 CoreGlyph(mode = overview.coreMode, health = overview.coreHealth, pendingApprovals = overview.pendingApprovals)
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("AEGIS Mobile", color = AegisText, fontWeight = FontWeight.Bold)
-                    Text("Core: ${overview.coreMode} / ${overview.coreHealth}", color = AegisTextSecondary)
+                    Text("Core: ${overview.coreMode} / ${overview.coreHealth} / ${overview.missionPhase}", color = AegisTextSecondary)
                     Text(if (state.connected) "Connected to ${state.host}:${state.port}" else "Disconnected: ${state.lastError.ifBlank { "waiting" }}", color = AegisTextSecondary)
                     Text("Current: ${overview.activeTaskTitle}", color = AegisTextSecondary)
+                    Text("Next: ${overview.nextAction.ifBlank { overview.currentAction.ifBlank { "Not reported" } }}", color = AegisTextSecondary)
                 }
+            }
+        }
+        AegisPanel(modifier = Modifier.fillMaxWidth()) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(16.dp)) {
+                Text("Attention", color = AegisText, fontWeight = FontWeight.Bold)
+                Text("Approvals ${overview.pendingApprovals} / Attention ${overview.attentionCount} / Notifications ${overview.unreadNotifications}", color = AegisTextSecondary)
+                Text("Connection ${overview.connectionQuality}${if (overview.freshnessStale) " / stale" else ""}", color = AegisTextSecondary)
+                Text("Memory ${overview.memorySummary}", color = AegisTextSecondary)
             }
         }
         AegisPanel(modifier = Modifier.fillMaxWidth()) {
@@ -52,7 +67,7 @@ fun HomeScreen(
         AegisPanel(modifier = Modifier.fillMaxWidth()) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(16.dp)) {
                 Text("Systems", color = AegisText, fontWeight = FontWeight.Bold)
-                servers.take(6).forEach { server ->
+                overviewServers.take(6).forEach { server ->
                     Text("${server.label.ifBlank { server.serverId }}: ${server.status} ${server.detail}", color = AegisTextSecondary)
                 }
             }

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+import hashlib
 from dataclasses import asdict, is_dataclass
 from typing import Any
 
@@ -23,18 +24,29 @@ def build_ui_overview(runtime: Any) -> dict[str, Any]:
     generated_at = _now_ms()
     sections = {
         "core": _section("core", lambda: _core(runtime), generated_at),
+        "connection": _section("connection", lambda: _connection(runtime), generated_at),
+        "display_scene": _section("display_scene", lambda: _display_scene(runtime), generated_at),
+        "presentations": _section("presentations", lambda: _presentations(runtime), generated_at),
+        "display_queue": _section("display_queue", lambda: _display_queue(runtime), generated_at),
+        "tasks": _section("tasks", lambda: _tasks(runtime), generated_at),
+        "activity": _section("activity", lambda: _activity(runtime), generated_at),
         "attention": _section("attention", lambda: _attention(runtime), generated_at),
         "current_task": _section("current_task", lambda: _current_task(runtime), generated_at),
         "servers": _section("servers", lambda: _servers(runtime), generated_at),
+        "capabilities": _section("capabilities", lambda: _capabilities(runtime), generated_at),
+        "user_situation": _section("user_situation", lambda: _user_state(runtime), generated_at),
         "user_state": _section("user_state", lambda: _user_state(runtime), generated_at),
+        "mind": _section("mind", lambda: _mind_summary(runtime), generated_at),
         "mind_summary": _section("mind_summary", lambda: _mind_summary(runtime), generated_at),
+        "memory": _section("memory", lambda: _memory(runtime), generated_at),
         "notifications": _section("notifications", lambda: _notifications(runtime), generated_at),
         "approvals": _section("approvals", lambda: _approvals(runtime), generated_at),
         "commitments": _section("commitments", lambda: _commitments(runtime), generated_at),
         "usage": _section("usage", lambda: _usage(runtime), generated_at),
+        "errors": _section("errors", lambda: _errors(runtime), generated_at),
         "freshness": _section("freshness", lambda: _freshness(runtime), generated_at),
     }
-    return {"schema_version": "ui-overview.v2", "generated_at": generated_at, **sections}
+    return {"schema_version": "ui-overview.v3", "generated_at": generated_at, **sections}
 
 
 def normalize_ui_event(event: Any) -> dict[str, Any]:
@@ -47,11 +59,28 @@ def normalize_ui_event(event: Any) -> dict[str, Any]:
         payload = _get(event, "payload", {})
     plain_payload = _bound_for_ui(_to_plain(payload), max_depth=5)
     fields = _event_fields(event_type, plain_payload)
+    sequence = _event_sequence(event, event_type, timestamp, plain_payload)
+    event_id = _event_id(event, event_type, timestamp, sequence, plain_payload)
     return {
+        "event_id": event_id,
+        "sequence": sequence,
         "type": _ui_event_type(event_type),
+        "event_type": event_type,
         "source_type": event_type,
+        "occurred_at": timestamp,
+        "received_at": _now_ms(),
         "generated_at": _now_ms(),
         "source_updated_at": timestamp,
+        "priority": _event_priority(fields),
+        "dedupe_key": _event_dedupe_key(event_type, fields),
+        "persistence": _event_persistence(fields),
+        "expires_at": _event_expires_at(timestamp, fields),
+        "resolved_by": _event_resolved_by(event_type, fields),
+        "affected_servers": [fields["server_id"]] if fields.get("server_id") else [],
+        "affected_capabilities": [fields["capability_id"]] if fields.get("capability_id") else [],
+        "safe_title": _event_title(event_type, fields),
+        "safe_message": fields.get("message", ""),
+        "visual_hint": _visual_hint(event_type, fields),
         "payload": plain_payload,
         **fields,
     }
@@ -81,13 +110,21 @@ def _section(name: str, build, generated_at: int) -> dict[str, Any]:
 
 
 def _core(runtime: Any) -> dict[str, Any]:
-    snapshot = _status_snapshot(runtime)
-    offline = [sid for sid, item in snapshot.items() if str(item.get("status", "")).lower() in {"offline", "unknown"}]
-    degraded = [sid for sid, item in snapshot.items() if str(item.get("status", "")).lower() == "degraded"]
+    servers = _server_list(runtime)
+    offline = [
+        str(item.get("server_id", ""))
+        for item in servers
+        if str(item.get("status", "")).upper() in {"OFFLINE", "UNKNOWN"}
+    ]
+    degraded = [
+        str(item.get("server_id", ""))
+        for item in servers
+        if str(item.get("status", "")).upper() in {"DEGRADED", "CRITICAL", "PERMISSION_MISSING"}
+    ]
     pending_approvals = len(_pending_approvals(runtime))
     active_tasks = _running_tasks(runtime)
     mode = "WAITING" if pending_approvals else "EXECUTING" if active_tasks else "IDLE"
-    health = "DEGRADED" if degraded else "OFFLINE" if offline and len(offline) >= len(snapshot or offline) else "ONLINE"
+    health = "DEGRADED" if degraded else "OFFLINE" if offline and len(offline) >= len(servers or offline) else "ONLINE"
     return {
         "mode": mode,
         "health": health,
@@ -177,8 +214,159 @@ def _current_task(runtime: Any) -> dict[str, Any]:
     }
 
 
+def _connection(runtime: Any) -> dict[str, Any]:
+    servers = _server_list(runtime)
+    online = sum(1 for server in servers if str(server.get("status", "")).upper() == "ONLINE")
+    attention = [server for server in servers if _server_needs_attention(server)]
+    return {
+        "quality": "degraded" if attention else "good",
+        "online_count": online,
+        "total_count": len(servers),
+        "attention_count": len(attention),
+        "surface": "runtime",
+        "last_updated_at": max([int(server.get("health_checked_at", 0) or 0) for server in servers] or [_now_ms()]),
+    }
+
+
+def _display_scene(runtime: Any) -> dict[str, Any]:
+    core = _core(runtime)
+    attention = _attention(runtime).get("items", [])
+    phase = _mission_phase(core, _current_task(runtime), len(_pending_approvals(runtime)))
+    return {
+        "mode": core.get("mode", "IDLE"),
+        "phase": phase,
+        "priority": "P1" if core.get("pending_approval_count", 0) else "P2" if attention else "P3",
+        "privacy_mode": False,
+        "offline": core.get("health") == "OFFLINE",
+        "stale": False,
+        "takeover": _display_takeover(attention),
+        "ambient": {
+            "core_health": core.get("health", "ONLINE"),
+            "activity_level": core.get("activity_level", 1),
+            "background": _display_background(core, phase),
+        },
+    }
+
+
+def _presentations(runtime: Any) -> dict[str, Any]:
+    manager = getattr(runtime, "presentation_manager", None)
+    items: list[dict[str, Any]] = []
+    if manager is not None and hasattr(manager, "list_active"):
+        items = [_presentation_projection(item) for item in manager.list_active(limit=30)]
+    takeover = [item for item in items if str(item.get("priority", "")).lower() in {"critical", "urgent"}][:1]
+    overlays = [item for item in items if str(item.get("priority", "")).lower() in {"high", "important"}][:5]
+    persistent = [item for item in items if _number(item.get("ttl_seconds", 0), 0) <= 0][:8]
+    ambient = [item for item in items if item not in takeover and item not in overlays and item not in persistent][:12]
+    return {
+        "takeover": takeover,
+        "overlays": overlays,
+        "persistent": persistent,
+        "ambient": ambient,
+        "items": items,
+        "count": len(items),
+    }
+
+
+def _display_queue(runtime: Any) -> dict[str, Any]:
+    events = _recent_ui_events(runtime, limit=160)
+    active: dict[str, dict[str, Any]] = {}
+    for event in reversed(events):
+        _resolve_display_items(active, event)
+        if event.get("persistence") == "ephemeral":
+            continue
+        key = str(event.get("dedupe_key") or event.get("event_id") or "")
+        if not key:
+            continue
+        active[key] = _display_queue_item(event)
+    items = sorted(active.values(), key=lambda item: (_priority_rank(item.get("priority", "P3")), -int(item.get("created_at", 0) or 0)))
+    return {
+        "items": items[:30],
+        "count": len(items),
+        "source": "event_manager",
+        "persisted": True,
+    }
+
+
+def _activity(runtime: Any) -> dict[str, Any]:
+    events = _recent_ui_events(runtime, limit=120)
+    groups: dict[str, dict[str, Any]] = {}
+    for event in events:
+        group_id = _activity_group_id(event)
+        group = groups.setdefault(
+            group_id,
+            {
+                "group_id": group_id,
+                "title": _activity_group_title(event),
+                "severity": event.get("severity", "info"),
+                "status": event.get("status", ""),
+                "server_id": event.get("server_id", ""),
+                "capability_id": event.get("capability_id", ""),
+                "task_id": event.get("task_id", ""),
+                "approval_id": event.get("approval_id", ""),
+                "started_at": event.get("occurred_at", 0),
+                "updated_at": event.get("occurred_at", 0),
+                "events": [],
+            },
+        )
+        group["updated_at"] = max(int(group.get("updated_at", 0) or 0), int(event.get("occurred_at", 0) or 0))
+        group["severity"] = _max_severity(str(group.get("severity", "info")), str(event.get("severity", "info")))
+        group["status"] = event.get("status") or group.get("status", "")
+        group["events"].append(_activity_event_projection(event))
+    ordered_groups = sorted(groups.values(), key=lambda item: int(item.get("updated_at", 0) or 0), reverse=True)
+    return {
+        "recent": [_activity_event_projection(event) for event in events[:80]],
+        "groups": ordered_groups[:40],
+        "count": len(events),
+        "source": "event_manager",
+    }
+
+
+def _tasks(runtime: Any) -> dict[str, Any]:
+    primary = _current_task(runtime)
+    manager = getattr(runtime, "task_manager", None)
+    active = _running_tasks(runtime)
+    waiting = _waiting_tasks(runtime)
+    scheduled: list[dict[str, Any]] = []
+    recent: list[dict[str, Any]] = []
+    if manager is not None and hasattr(manager, "list_tasks"):
+        scheduled = [_to_plain(item) for item in manager.list_tasks(status="created", limit=20)]
+        recent = [_to_plain(item) for item in manager.list_tasks(limit=50)]
+    return {
+        "primary": primary,
+        "active": [_task_projection(item) for item in active],
+        "waiting": [_task_projection(item) for item in waiting],
+        "scheduled": [_task_projection(item) for item in scheduled],
+        "recent": [_task_projection(item) for item in recent],
+    }
+
+
 def _servers(runtime: Any) -> dict[str, Any]:
     return {"items": _server_list(runtime)}
+
+
+def _capabilities(runtime: Any) -> dict[str, Any]:
+    catalog = getattr(runtime, "capability_catalog", None)
+    items: list[dict[str, Any]] = []
+    if catalog is not None and hasattr(catalog, "list_for_llm"):
+        items = [_capability_projection(item) for item in catalog.list_for_llm()]
+    by_server: dict[str, int] = {}
+    approval_required = 0
+    high_risk = 0
+    for item in items:
+        server_id = _server_from_capability_id(str(item.get("id", "")))
+        by_server[server_id] = by_server.get(server_id, 0) + 1
+        risk = str(item.get("risk", "")).lower()
+        if item.get("requires_approval") or risk in {"high", "critical"}:
+            approval_required += 1
+        if risk in {"high", "critical"}:
+            high_risk += 1
+    return {
+        "items": items[:120],
+        "count": len(items),
+        "by_server": by_server,
+        "approval_required_count": approval_required,
+        "high_risk_count": high_risk,
+    }
 
 
 def _user_state(runtime: Any) -> dict[str, Any]:
@@ -202,6 +390,20 @@ def _mind_summary(runtime: Any) -> dict[str, Any]:
     if manager is not None and hasattr(manager, "get_stats"):
         memory_stats = manager.get_stats()
     return {"autonomy": desires, "memory": memory_stats}
+
+
+def _memory(runtime: Any) -> dict[str, Any]:
+    manager = getattr(runtime, "memory_manager", None)
+    stats = {}
+    if manager is not None and hasattr(manager, "get_stats"):
+        stats = manager.get_stats()
+    return {
+        "summary": stats,
+        "episodic": _get(stats, "episodic", {}),
+        "semantic": _get(stats, "semantic", {}),
+        "procedural": _get(stats, "procedural", {}),
+        "last_consolidation": _get(stats, "last_consolidation", "") or _get(stats, "last_sleep_at", ""),
+    }
 
 
 def _notifications(runtime: Any) -> dict[str, Any]:
@@ -235,6 +437,26 @@ def _usage(runtime: Any) -> dict[str, Any]:
     return {"summary": "LLM usage is available from the LLM Usage service.", "input_tokens": 0, "output_tokens": 0}
 
 
+def _errors(runtime: Any) -> dict[str, Any]:
+    audit = getattr(runtime, "audit_manager", None) or getattr(runtime, "audit_log", None)
+    entries: list[dict[str, Any]] = []
+    if audit is not None and hasattr(audit, "list_errors"):
+        result = _call_with_limit(audit.list_errors, 20)
+        entries = result.get("entries", result if isinstance(result, list) else [])
+    elif audit is not None and hasattr(audit, "list_recent"):
+        result = _call_with_limit(audit.list_recent, 80)
+        raw_entries = result.get("entries", result if isinstance(result, list) else [])
+        entries = [
+            entry
+            for entry in raw_entries
+            if str(entry.get("action", "")).endswith("_failed") or _get(entry.get("detail", {}), "error", "")
+        ][:20]
+    return {
+        "items": [_error_projection(item) for item in entries],
+        "count": len(entries),
+    }
+
+
 def _freshness(runtime: Any) -> dict[str, Any]:
     now = _now_ms()
     snapshot = _status_snapshot(runtime)
@@ -261,6 +483,16 @@ def _server_list(runtime: Any) -> list[dict[str, Any]]:
             }
             for server_id, item in snapshot.items()
         ]
+
+
+def _server_needs_attention(server: dict[str, Any]) -> bool:
+    status = str(server.get("status", "")).upper()
+    detail = " ".join(
+        str(server.get(key, "") or "") for key in ("status_detail", "degraded_reason", "recovery_hint")
+    ).lower()
+    return status in {"OFFLINE", "DEGRADED", "CRITICAL", "UNCONFIGURED", "DISABLED", "RECOVERING"} or any(
+        token in detail for token in ("permission", "missing", "recover")
+    )
 
 
 def _status_snapshot(runtime: Any) -> dict[str, dict[str, Any]]:
@@ -309,6 +541,118 @@ def _recent_notifications(runtime: Any, *, unread_only: bool, limit: int) -> lis
     return []
 
 
+def _recent_ui_events(runtime: Any, *, limit: int) -> list[dict[str, Any]]:
+    manager = getattr(runtime, "event_manager", None)
+    if manager is None or not hasattr(manager, "list_recent"):
+        return []
+    try:
+        result = manager.list_recent(limit=limit)
+    except TypeError:
+        result = manager.list_recent(limit)
+    except Exception:
+        return []
+    raw_items = result.get("events", []) if isinstance(result, dict) else result
+    items: list[dict[str, Any]] = []
+    for raw in raw_items or []:
+        try:
+            items.append(normalize_ui_event(raw))
+        except Exception:
+            continue
+    return sorted(items, key=lambda item: int(item.get("occurred_at", 0) or 0), reverse=True)
+
+
+def _display_queue_item(event: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": event.get("dedupe_key") or event.get("event_id", ""),
+        "event_id": event.get("event_id", ""),
+        "priority": event.get("priority", "P3"),
+        "severity": event.get("severity", "info"),
+        "title": event.get("safe_title") or event.get("type", "AEGIS event"),
+        "message": event.get("safe_message") or event.get("message", ""),
+        "persistence": event.get("persistence", "ephemeral"),
+        "created_at": event.get("occurred_at", 0),
+        "updated_at": event.get("received_at", 0),
+        "expires_at": event.get("expires_at", 0),
+        "resolved_by": event.get("resolved_by", ""),
+        "affected_servers": event.get("affected_servers", []),
+        "affected_capabilities": event.get("affected_capabilities", []),
+        "approval_id": event.get("approval_id", ""),
+        "task_id": event.get("task_id", ""),
+        "visual_hint": event.get("visual_hint", {}),
+    }
+
+
+def _resolve_display_items(active: dict[str, dict[str, Any]], event: dict[str, Any]) -> None:
+    event_type = str(event.get("type") or event.get("event_type") or "")
+    status = str(event.get("status") or "").lower()
+    approval_id = str(event.get("approval_id") or "")
+    server_id = str(event.get("server_id") or "")
+    capability_id = str(event.get("capability_id") or "")
+    resolved_keys: list[str] = []
+    for key, item in active.items():
+        item_approval = str(item.get("approval_id") or "")
+        item_servers = {str(value) for value in item.get("affected_servers", [])}
+        item_caps = {str(value) for value in item.get("affected_capabilities", [])}
+        if event_type == "approval.resolved" and approval_id and item_approval == approval_id:
+            resolved_keys.append(key)
+        elif status in {"online", "connected", "recovered", "completed"} and server_id and server_id in item_servers:
+            resolved_keys.append(key)
+        elif status in {"completed", "approved", "resolved"} and capability_id and capability_id in item_caps:
+            resolved_keys.append(key)
+    for key in resolved_keys:
+        active.pop(key, None)
+
+
+def _activity_event_projection(event: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "event_id": event.get("event_id", ""),
+        "type": event.get("type", ""),
+        "event_type": event.get("event_type", ""),
+        "occurred_at": event.get("occurred_at", 0),
+        "priority": event.get("priority", "P3"),
+        "severity": event.get("severity", "info"),
+        "status": event.get("status", ""),
+        "server_id": event.get("server_id", ""),
+        "capability_id": event.get("capability_id", ""),
+        "task_id": event.get("task_id", ""),
+        "approval_id": event.get("approval_id", ""),
+        "title": event.get("safe_title", ""),
+        "message": event.get("safe_message") or event.get("message", ""),
+    }
+
+
+def _activity_group_id(event: dict[str, Any]) -> str:
+    for key in ("task_id", "approval_id", "capability_id", "server_id"):
+        value = str(event.get(key) or "")
+        if value:
+            return f"{key}:{value}"
+    return str(event.get("dedupe_key") or event.get("event_id") or event.get("type") or "activity")
+
+
+def _activity_group_title(event: dict[str, Any]) -> str:
+    if event.get("task_id"):
+        return f"Task {event.get('task_id')}"
+    if event.get("approval_id"):
+        return "Approval lifecycle"
+    if event.get("capability_id"):
+        return str(event.get("capability_id"))
+    if event.get("server_id"):
+        return f"{event.get('server_id')} activity"
+    return str(event.get("safe_title") or event.get("type") or "Activity")
+
+
+def _max_severity(left: str, right: str) -> str:
+    order = {"critical": 0, "warning": 1, "info": 2, "normal": 3}
+    return left if order.get(left, 4) <= order.get(right, 4) else right
+
+
+def _call_with_limit(method: Any, limit: int) -> Any:
+    try:
+        return method(limit=limit)
+    except TypeError:
+        return method(limit)
+
+
 def _approval_projection(approval: Any) -> dict[str, Any]:
     data = approval.to_dict() if hasattr(approval, "to_dict") else _to_plain(approval)
     return {
@@ -326,6 +670,22 @@ def _approval_projection(approval: Any) -> dict[str, Any]:
         "created_at": data.get("created_at", 0),
         "expires_at": data.get("expires_at", 0),
         "status": data.get("status", "pending"),
+    }
+
+
+def _task_projection(task: Any) -> dict[str, Any]:
+    data = _to_plain(task)
+    return {
+        "task_id": _get(data, "task_id", ""),
+        "title": _get(data, "title", "") or _get(data, "goal", "") or "Task",
+        "status": _get(data, "status", ""),
+        "source": _get(data, "source", ""),
+        "created_at": _get(data, "created_at", 0),
+        "updated_at": _get(data, "updated_at", 0),
+        "completed_at": _get(data, "completed_at", 0),
+        "blocked_reason": _truncate_text(_get(data, "blocked_reason", "")),
+        "step_count": len(_get(data, "steps", []) or []),
+        "steps": [_task_step_projection(step) for step in (_get(data, "steps", []) or [])[:12]],
     }
 
 
@@ -366,6 +726,94 @@ def _summarize_step_result(result: Any) -> dict[str, Any]:
     elif isinstance(plain, list):
         summary["item_count"] = len(plain)
     return summary
+
+
+def _capability_projection(capability: Any) -> dict[str, Any]:
+    data = _to_plain(capability)
+    capability_id = str(data.get("id", ""))
+    return {
+        "id": capability_id,
+        "short_name": data.get("short_name", capability_id),
+        "description": _truncate_text(data.get("description", ""), limit=240),
+        "server_id": _server_from_capability_id(capability_id),
+        "risk": data.get("risk", ""),
+        "requires_approval": bool(data.get("requires_approval") or data.get("only_master")),
+        "enabled": not bool(data.get("disabled", False)),
+        "params": _bound_for_ui(data.get("params", []), max_depth=3, max_list_items=12),
+    }
+
+
+def _presentation_projection(presentation: Any) -> dict[str, Any]:
+    data = presentation.to_dict() if hasattr(presentation, "to_dict") else _to_plain(presentation)
+    return {
+        "presentation_id": data.get("presentation_id", ""),
+        "title": data.get("title", "") or data.get("summary", "") or "Presentation",
+        "summary": _truncate_text(data.get("summary", "") or data.get("content", ""), limit=360),
+        "status": data.get("status", ""),
+        "priority": data.get("priority", "") or data.get("urgency", ""),
+        "modality": data.get("modality", ""),
+        "target_surface": data.get("target_surface", "") or data.get("target", ""),
+        "created_at": data.get("created_at", 0),
+        "updated_at": data.get("updated_at", 0),
+        "ttl_seconds": _number(data.get("ttl_seconds", 0), 0),
+    }
+
+
+def _error_projection(entry: Any) -> dict[str, Any]:
+    data = _to_plain(entry)
+    detail = data.get("detail", {}) if isinstance(data.get("detail", {}), dict) else {}
+    return {
+        "id": data.get("id", "") or data.get("entry_id", ""),
+        "action": data.get("action", ""),
+        "source": data.get("source", ""),
+        "message": _truncate_text(detail.get("error", "") or data.get("error", "") or data.get("message", ""), limit=320),
+        "timestamp_ms": data.get("timestamp_ms", 0) or data.get("created_at", 0),
+        "severity": "critical" if str(data.get("action", "")).endswith("_failed") else "warning",
+    }
+
+
+def _display_takeover(attention: list[dict[str, Any]]) -> dict[str, Any]:
+    if not attention:
+        return {"active": False}
+    first = attention[0]
+    severity = str(first.get("severity", "info")).lower()
+    if severity == "critical":
+        priority = "P0"
+    elif first.get("kind") == "approval":
+        priority = "P1"
+    else:
+        priority = "P2"
+    return {
+        "active": priority in {"P0", "P1"},
+        "priority": priority,
+        "title": first.get("title", ""),
+        "message": first.get("message", ""),
+        "severity": severity,
+        "source_id": first.get("id", ""),
+        "expires_at": first.get("expires_at", 0),
+    }
+
+
+def _display_background(core: dict[str, Any], phase: str) -> str:
+    health = str(core.get("health", "")).upper()
+    if health == "OFFLINE":
+        return "offline"
+    if health == "DEGRADED":
+        return "critical-edge"
+    return phase.lower().replace(" ", "-") or "idle"
+
+
+def _mission_phase(core: dict[str, Any], task: dict[str, Any], pending_approvals: int) -> str:
+    if pending_approvals > 0:
+        return "Waiting for Approval"
+    health = str(core.get("health", "")).upper()
+    if health == "OFFLINE":
+        return "Offline"
+    if health == "DEGRADED":
+        return "Stabilizing"
+    if task.get("task_id") or str(core.get("mode", "")).upper() == "EXECUTING":
+        return "Executing"
+    return "Idle"
 
 
 def _ui_event_type(event_type: str) -> str:
@@ -460,6 +908,121 @@ def _severity_from_event(event_type: str, status: str) -> str:
     return "info"
 
 
+def _event_sequence(event: Any, event_type: str, timestamp: int, payload: Any) -> int:
+    explicit = getattr(event, "sequence", None) or _get(event, "sequence", 0)
+    if explicit:
+        return int(explicit)
+    raw = f"{event_type}:{timestamp}:{_json_preview(payload)[:500]}".encode("utf-8", "replace")
+    return int(hashlib.sha1(raw).hexdigest()[:12], 16)
+
+
+def _event_id(event: Any, event_type: str, timestamp: int, sequence: int, payload: Any) -> str:
+    explicit = getattr(event, "event_id", None) or _get(event, "event_id", "")
+    if explicit:
+        return str(explicit)
+    raw = f"{event_type}:{timestamp}:{sequence}:{_json_preview(payload)[:500]}".encode("utf-8", "replace")
+    return hashlib.sha1(raw).hexdigest()[:24]
+
+
+def _event_priority(fields: dict[str, Any]) -> str:
+    severity = str(fields.get("severity", "")).lower()
+    status = str(fields.get("status", "")).lower()
+    if severity == "critical" or status in {"offline", "failed", "error"}:
+        return "P0"
+    if str(fields.get("approval_id", "")) or severity == "warning":
+        return "P1"
+    if status in {"degraded", "recovering", "created", "running"}:
+        return "P2"
+    return "P3"
+
+
+def _event_dedupe_key(event_type: str, fields: dict[str, Any]) -> str:
+    parts = [
+        event_type,
+        str(fields.get("server_id", "")),
+        str(fields.get("capability_id", "")),
+        str(fields.get("approval_id", "")),
+        str(fields.get("task_id", "")),
+        str(fields.get("status", "")),
+    ]
+    return ":".join(part for part in parts if part)
+
+
+def _event_persistence(fields: dict[str, Any]) -> str:
+    priority = _event_priority(fields)
+    if priority in {"P0", "P1"}:
+        return "until_resolved"
+    if priority == "P2":
+        return "attention_dock"
+    return "ephemeral"
+
+
+def _event_expires_at(timestamp: int, fields: dict[str, Any]) -> int:
+    priority = _event_priority(fields)
+    if priority in {"P0", "P1"}:
+        return 0
+    duration_ms = 15_000 if priority == "P2" else 5_000
+    return timestamp + duration_ms
+
+
+def _event_resolved_by(event_type: str, fields: dict[str, Any]) -> str:
+    status = str(fields.get("status", "")).lower()
+    if event_type.startswith("approval.") or fields.get("approval_id"):
+        return "approval.resolved"
+    if status in {"offline", "degraded", "failed", "error"}:
+        return "status.changed:online"
+    return ""
+
+
+def _event_title(event_type: str, fields: dict[str, Any]) -> str:
+    server_id = str(fields.get("server_id", ""))
+    capability_id = str(fields.get("capability_id", ""))
+    if fields.get("approval_id"):
+        return "Approval required"
+    if server_id:
+        return f"{server_id} {fields.get('status') or event_type}"
+    if capability_id:
+        return capability_id
+    return event_type
+
+
+def _visual_hint(event_type: str, fields: dict[str, Any]) -> dict[str, Any]:
+    status = str(fields.get("status", "")).lower()
+    event_lower = event_type.lower()
+    if fields.get("approval_id") or "approval" in event_lower:
+        effect = "containment-resolved" if status in {"approved", "rejected", "executed", "resolved"} else "containment"
+    elif status in {"offline", "disconnected"}:
+        effect = "disconnect"
+    elif status in {"online", "connected", "recovered"}:
+        effect = "recovery"
+    elif status in {"failed", "error"} or event_lower.endswith(".failed"):
+        effect = "fracture"
+    elif event_lower.endswith(".completed") or status == "completed":
+        effect = "complete"
+    else:
+        effect = "pulse"
+    return {
+        "effect": effect,
+        "arc": fields.get("server_id", ""),
+        "color": _visual_color(effect, fields),
+        "duration_ms": 4500 if effect in {"pulse", "complete"} else 8000,
+    }
+
+
+def _visual_color(effect: str, fields: dict[str, Any]) -> str:
+    if effect == "recovery":
+        return "green"
+    if effect in {"fracture", "disconnect"} or str(fields.get("severity", "")).lower() == "critical":
+        return "red"
+    if effect.startswith("containment"):
+        return "amber"
+    return "cyan"
+
+
+def _priority_rank(priority: Any) -> int:
+    return {"P0": 0, "P1": 1, "P2": 2, "P3": 3}.get(str(priority), 4)
+
+
 def _attention_sort_key(item: dict[str, Any]) -> tuple[int, int]:
     severity = {"critical": 0, "warning": 1, "info": 2, "normal": 3}.get(str(item.get("severity", "")).lower(), 3)
     created_at = int(item.get("created_at", 0) or 0)
@@ -487,6 +1050,8 @@ def _is_stale(source_updated_at: int, generated_at: int) -> bool:
 def _empty_data(name: str) -> Any:
     if name in {"attention", "servers", "notifications", "approvals", "commitments"}:
         return {"items": []}
+    if name in {"activity", "display_queue"}:
+        return {"items": [], "recent": [], "groups": [], "count": 0}
     return {}
 
 
@@ -572,6 +1137,15 @@ def _get(value: Any, key: str, default: Any = None) -> Any:
     if isinstance(value, dict):
         return value.get(key, default)
     return getattr(value, key, default)
+
+
+def _number(value: Any, default: float = 0) -> float:
+    try:
+        if value in (None, ""):
+            return default
+        return float(value)
+    except (TypeError, ValueError):
+        return default
 
 
 def _now_ms() -> int:

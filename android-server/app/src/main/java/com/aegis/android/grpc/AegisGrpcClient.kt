@@ -11,6 +11,7 @@ import com.aegis.android.AegisConfig
 import com.aegis.android.AegisConnectionConfig
 import com.aegis.android.overlay.OverlayController
 import com.aegis.android.provider.DeviceProvider
+import com.aegis.android.ui.model.UiServerSummary
 import com.aegis.android.ui.model.UiOverviewSnapshot
 import io.grpc.ManagedChannel
 import io.grpc.ManagedChannelBuilder
@@ -60,6 +61,14 @@ data class ApprovalItem(
     val capabilityId: String,
     val summary: String,
     val risk: String,
+    val requestedAction: String = "",
+    val reason: String = "",
+    val preview: String = "",
+    val target: String = "",
+    val taskId: String = "",
+    val status: String = "",
+    val createdAtMs: Long = 0L,
+    val expiresAtMs: Long = 0L,
 )
 
 data class ToolReply(
@@ -421,6 +430,13 @@ class AegisGrpcClient private constructor(
                     capabilityId = it.capabilityId,
                     summary = summary.ifBlank { it.requestedAction.ifBlank { it.approvalId } },
                     risk = it.riskExplanation,
+                    requestedAction = it.requestedAction,
+                    reason = it.riskExplanation,
+                    preview = it.payloadPreview,
+                    target = it.toolName,
+                    status = it.status.name,
+                    createdAtMs = it.createdAtMs,
+                    expiresAtMs = it.expiresAtMs,
                 )
             }
         } catch (exc: Exception) {
@@ -749,19 +765,91 @@ class AegisGrpcClient private constructor(
         return try {
             val obj = JSONObject(rawJson)
             val core = obj.optJSONObject("core")?.optJSONObject("data")
+            val connection = obj.optJSONObject("connection")?.optJSONObject("data")
+            val displayScene = obj.optJSONObject("display_scene")?.optJSONObject("data")
             val approvals = obj.optJSONObject("approvals")?.optJSONObject("data")
+            val attention = obj.optJSONObject("attention")?.optJSONObject("data")
+            val notifications = obj.optJSONObject("notifications")?.optJSONObject("data")
             val task = obj.optJSONObject("current_task")?.optJSONObject("data")
+            val tasks = obj.optJSONObject("tasks")?.optJSONObject("data")
+            val memory = obj.optJSONObject("memory")?.optJSONObject("data")
+            val mindSummary = obj.optJSONObject("mind_summary")?.optJSONObject("data")
+            val freshness = obj.optJSONObject("freshness")
+            val servers = obj.optJSONObject("servers")?.optJSONObject("data")?.optJSONArray("items")
             UiOverviewSnapshot(
                 rawJson = rawJson,
+                schemaVersion = obj.optString("schema_version", ""),
                 generatedAtMs = generatedAtMs,
                 coreMode = core?.optString("mode", "IDLE") ?: "IDLE",
                 coreHealth = core?.optString("health", "UNKNOWN") ?: "UNKNOWN",
+                missionPhase = displayScene?.optString("phase", "")?.takeIf { it.isNotBlank() }
+                    ?: task?.optString("phase", "")?.takeIf { it.isNotBlank() }
+                    ?: "Idle",
+                connectionQuality = connection?.optString("quality", "Not reported") ?: "Not reported",
+                freshnessStale = freshness?.optBoolean("stale", false) ?: false,
                 pendingApprovals = approvals?.optInt("pending_count", 0) ?: 0,
-                activeTaskTitle = task?.optString("title", "No active task") ?: "No active task",
+                attentionCount = attention?.optInt("count", 0) ?: 0,
+                unreadNotifications = notifications?.optInt("unread_count", 0) ?: 0,
+                activeGoal = core?.optString("active_goal", "Not reported")?.ifBlank { "Not reported" } ?: "Not reported",
+                activeTaskTitle = task?.optString("title", "No active task")?.ifBlank { "No active task" } ?: "No active task",
+                taskPhase = task?.optString("phase", "Not reported")?.ifBlank { "Not reported" } ?: "Not reported",
+                currentAction = task?.optString("current_action", "") ?: "",
+                nextAction = task?.optString("next_action", "") ?: "",
+                blockedReason = task?.optString("blocked_reason", "") ?: "",
+                activeTaskCount = tasks?.optJSONArray("active")?.length() ?: 0,
+                waitingTaskCount = tasks?.optJSONArray("waiting")?.length() ?: 0,
+                scheduledTaskCount = tasks?.optJSONArray("scheduled")?.length() ?: 0,
+                memorySummary = summarizeMobileMemory(memory, mindSummary),
+                lastConsolidation = lastConsolidation(memory, mindSummary),
+                servers = parseUiServers(servers),
             )
         } catch (exc: Exception) {
             UiOverviewSnapshot(rawJson = rawJson, generatedAtMs = generatedAtMs)
         }
+    }
+
+    private fun parseUiServers(items: org.json.JSONArray?): List<UiServerSummary> {
+        if (items == null) return emptyList()
+        val servers = mutableListOf<UiServerSummary>()
+        for (index in 0 until items.length()) {
+            val item = items.optJSONObject(index) ?: continue
+            val serverId = item.optString("server_id", "")
+            if (serverId.isBlank()) continue
+            servers.add(
+                UiServerSummary(
+                    serverId = serverId,
+                    label = item.optString("label", serverId.removeSuffix("-server")),
+                    status = item.optString("status", "UNKNOWN"),
+                    mode = item.optString("mode", ""),
+                    detail = item.optString("status_detail", item.optString("degraded_reason", item.optString("recovery_hint", ""))),
+                    heartbeatAgeSeconds = item.optLong("heartbeat_age_seconds", -1L),
+                )
+            )
+        }
+        return servers
+    }
+
+    private fun summarizeMobileMemory(memory: JSONObject?, mindSummary: JSONObject?): String {
+        val memoryData = memory?.optJSONObject("summary") ?: memory ?: mindSummary?.optJSONObject("memory")
+        if (memoryData == null) return "Not reported"
+        val episodic = memoryData.optInt("episodic", -1)
+        val semantic = memoryData.optInt("semantic", -1)
+        val procedural = memoryData.optInt("procedural", -1)
+        val known = listOf(episodic, semantic, procedural).filter { it >= 0 }
+        return if (known.isNotEmpty()) {
+            "E ${episodic.coerceAtLeast(0)} / S ${semantic.coerceAtLeast(0)} / P ${procedural.coerceAtLeast(0)}"
+        } else {
+            memoryData.optString("summary", "Not reported").ifBlank { "Not reported" }
+        }
+    }
+
+    private fun lastConsolidation(memory: JSONObject?, mindSummary: JSONObject?): String {
+        val memoryData = memory?.optJSONObject("summary") ?: memory ?: mindSummary?.optJSONObject("memory")
+        return memoryData?.optString("last_consolidation", "")
+            ?.ifBlank { memoryData.optString("last_consolidated_at", "") }
+            ?.ifBlank { memoryData.optString("last_sleep_at", "") }
+            ?.ifBlank { "Not reported" }
+            ?: "Not reported"
     }
 
     private fun startMobileDashboardRefresh() {

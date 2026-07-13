@@ -1,0 +1,61 @@
+{
+  "pairs": [
+    {
+      "id": "body-on-background",
+      "foreground": "textPrimary",
+      "background": "background",
+      "ratio": 17.71,
+      "aa_body": true,
+      "aa_large": true
+    },
+    {
+      "id": "body-on-surface",
+      "foreground": "textPrimary",
+      "background": "surface",
+      "ratio": 16.79,
+      "aa_body": true,
+      "aa_large": true
+    },
+    {
+      "id": "secondary-on-background",
+      "foreground": "textSecondary",
+      "background": "background",
+      "ratio": 7.48,
+      "aa_body": true,
+      "aa_large": true
+    },
+    {
+      "id": "secondary-on-surface",
+      "foreground": "textSecondary",
+      "background": "surface",
+      "ratio": 7.09,
+      "aa_body": true,
+      "aa_large": true
+    },
+    {
+      "id": "accent-on-background",
+      "foreground": "aegisCyan",
+      "background": "background",
+      "ratio": 11.27,
+      "aa_body": true,
+      "aa_large": true
+    },
+    {
+      "id": "warning-on-background",
+      "foreground": "warning",
+      "background": "background",
+      "ratio": 11.61,
+      "aa_body": true,
+      "aa_large": true
+    },
+    {
+      "id": "critical-on-background",
+      "foreground": "critical",
+      "background": "background",
+      "ratio": 6.71,
+      "aa_body": true,
+      "aa_large": true
+    }
+  ],
+  "all_aa_body": true
+}

@@ -411,9 +411,18 @@ mod tests {
     #[test]
     fn app_and_input_target_are_safe_summaries() {
         assert_eq!(app_name_from_process("eldenring.exe"), "eldenring");
-        assert_eq!(input_target_category("eldenring.exe", "ELDEN RING", true), "game");
-        assert_eq!(input_target_category("Code.exe", "AEGIS - Visual Studio Code", false), "coding");
-        assert_eq!(input_target_category("chrome.exe", "Example", false), "browser");
+        assert_eq!(
+            input_target_category("eldenring.exe", "ELDEN RING", true),
+            "game"
+        );
+        assert_eq!(
+            input_target_category("Code.exe", "AEGIS - Visual Studio Code", false),
+            "coding"
+        );
+        assert_eq!(
+            input_target_category("chrome.exe", "Example", false),
+            "browser"
+        );
     }
 
     #[test]
@@ -422,7 +431,15 @@ mod tests {
         let keys: Vec<&str> = counts.keys().map(String::as_str).collect();
         assert_eq!(
             keys,
-            vec!["editing", "function", "modifier", "mouse", "navigation", "printable", "system"]
+            vec![
+                "editing",
+                "function",
+                "modifier",
+                "mouse",
+                "navigation",
+                "printable",
+                "system"
+            ]
         );
         assert!(counts.values().all(|value| *value == 0));
     }

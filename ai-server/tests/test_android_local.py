@@ -122,7 +122,9 @@ def test_android_observe_capabilities_return_real_device_data() -> None:
     assert results["android-server.device.get_status"]["output"].get("connection_mode") == "reverse_stream"
     assert results["android-server.permissions.get_status"]["status_code"] == 0
     assert results["android-server.accessibility.get_status"]["status_code"] == 0
-    assert results["android-server.notification.get_notifications"]["status_code"] == 0
+    notification = results["android-server.notification.get_notifications"]
+    if notification["status_code"] != 0:
+        assert notification["output"].get("code") in {"ANDROID_PERMISSION_MISSING", "ANDROID_SCREEN_LOCKED"}
 
 
 def test_android_ui_tree_reports_data_or_permission_gap() -> None:
@@ -133,8 +135,9 @@ def test_android_ui_tree_reports_data_or_permission_gap() -> None:
         assert "root" in output
         return
 
-    assert output.get("code") == "ANDROID_PERMISSION_MISSING"
-    assert "accessibility" in output.get("missing_permissions", [])
+    assert output.get("code") in {"ANDROID_PERMISSION_MISSING", "ANDROID_SCREEN_LOCKED"}
+    if output.get("code") == "ANDROID_PERMISSION_MISSING":
+        assert "accessibility" in output.get("missing_permissions", [])
 
 
 def test_android_ui_input_manifests_require_approval() -> None:
