@@ -1,4 +1,4 @@
-package com.aegis.android.ui.designsystem
+﻿package com.aegis.android.ui.designsystem
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -40,7 +40,7 @@ fun AegisStatusChip(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(label, color = AegisTextSecondary)
-        Text(status.ifBlank { "Not reported" }, color = color, fontWeight = FontWeight.Bold)
+        Text(status.ifBlank { "No data yet" }, color = color, fontWeight = FontWeight.Bold)
     }
 }
 
@@ -83,10 +83,10 @@ fun TaskProgressBlock(
         Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(16.dp)) {
             Text(title.ifBlank { "No active task" }, color = AegisText, fontWeight = FontWeight.Bold)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                AegisStatusChip("Phase", phase.ifBlank { "Not reported" })
+                AegisStatusChip("Phase", phase.ifBlank { "No data yet" })
             }
             Text("Now: ${currentAction.ifBlank { "Standing by" }}", color = AegisTextSecondary)
-            Text("Next: ${nextAction.ifBlank { "Not reported" }}", color = AegisTextSecondary)
+            Text("Next: ${nextAction.ifBlank { "No data yet" }}", color = AegisTextSecondary)
         }
     }
 }
@@ -150,7 +150,7 @@ fun ApprovalRiskCard(
 private fun ApprovalLine(label: String, value: String) {
     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
         Text(label, color = AegisTextSecondary, fontWeight = FontWeight.Bold)
-        Text(value.ifBlank { "Not reported" }, color = AegisText)
+        Text(value.ifBlank { "No data yet" }, color = AegisText)
     }
 }
 
@@ -162,6 +162,7 @@ private fun statusColor(status: String): Color = when (status.uppercase()) {
 }
 
 private fun formatTime(value: Long): String {
-    if (value <= 0L) return "Not reported"
+    if (value <= 0L) return "No data yet"
     return DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(value))
 }
+

@@ -1,4 +1,4 @@
-import type { UiOverview } from "../types";
+﻿import type { UiOverview } from "../types";
 import { summarizeMemory } from "../displayModel";
 
 export function MindMemory({ overview }: { overview: UiOverview }) {
@@ -19,7 +19,7 @@ export function MindMemory({ overview }: { overview: UiOverview }) {
           {Object.entries(summary).map(([label, value]) => (
             <div className="stat" key={label}>
               <span className="muted">{label}</span>
-              <b style={{ fontSize: 16 }}>{value}</b>
+              <b className="stat__value">{value}</b>
             </div>
           ))}
         </div>
@@ -39,8 +39,8 @@ export function MindMemory({ overview }: { overview: UiOverview }) {
         <section className="panel">
           <div className="panel__header"><h2>User Situation</h2></div>
           <div className="metric-list">
-            <div className="metric-row"><span>Status</span><strong>{String(user.summary || user.status || "Not reported")}</strong></div>
-            <div className="metric-row"><span>Available</span><strong>{String(user.available ?? "Not reported")}</strong></div>
+            <div className="metric-row"><span>Status</span><strong>{String(user.summary || user.status || "No data yet")}</strong></div>
+            <div className="metric-row"><span>Available</span><strong>{String(user.available ?? "No data yet")}</strong></div>
             <div className="metric-row"><span>Updated</span><strong>{overview.user_state.stale ? "STALE" : "LIVE"}</strong></div>
           </div>
         </section>
@@ -48,8 +48,8 @@ export function MindMemory({ overview }: { overview: UiOverview }) {
           <div className="panel__header"><h2>Commitments</h2></div>
           <div className="metric-list">
             <div className="metric-row"><span>Open commitments</span><strong>{commitments.length}</strong></div>
-            <div className="metric-row"><span>Next commitment</span><strong>{String(commitments[0]?.title || commitments[0]?.summary || "Not reported")}</strong></div>
-            <div className="metric-row"><span>Summary</span><strong>{overview.commitments.data.summary || "Not reported"}</strong></div>
+            <div className="metric-row"><span>Next commitment</span><strong>{String(commitments[0]?.title || commitments[0]?.summary || "No data yet")}</strong></div>
+            <div className="metric-row"><span>Summary</span><strong>{overview.commitments.data.summary || "No data yet"}</strong></div>
           </div>
         </section>
       </div>
@@ -62,7 +62,7 @@ export function MindMemory({ overview }: { overview: UiOverview }) {
 }
 
 function describeMemoryStore(value: unknown): string {
-  if (value === undefined || value === null) return "Not reported";
+  if (value === undefined || value === null) return "No data yet";
   if (typeof value === "number") return String(value);
   if (typeof value !== "object") return String(value);
   const record = value as Record<string, unknown>;
@@ -71,3 +71,4 @@ function describeMemoryStore(value: unknown): string {
   const keys = Object.keys(record);
   return keys.length ? `${keys.length} fields` : "Empty";
 }
+

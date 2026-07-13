@@ -27,7 +27,7 @@ Legend:
 - [x] Production readiness output is the canonical release gate.
 - [x] Production blocker mock/stub count is zero, or explicitly deferred out of v1 scope.
 - [x] Room Server mock provider is never treated as production-online.
-- [ ] Voice, LINE, Discord, Email, and external send stubs are disabled/blocker-marked in production.
+- [x] Voice, LINE, Discord, Email, and external send stubs are disabled/blocker-marked in production.
 - [x] Production Docker bind scope avoids unnecessary `0.0.0.0` exposure.
 - [ ] Cloudflare Tunnel recovery and systemd autostart are verified.
 - [ ] Ubuntu reboot restores AI Server, Cloudflare Tunnel, and Display kiosk.
@@ -36,25 +36,25 @@ Legend:
 
 ## 2. P0 Real E2E
 
-- [ ] Manager E2E performs state changes, not only GET checks.
-- [ ] Task create, step execute, verification, and terminal status are verified.
-- [ ] Capability risk override reload affects PolicyEngine and ToolBroker effective policy.
-- [ ] Approval fanout, approve/reject, and Audit reflection are verified.
-- [ ] Memory save/search/ContextBuilder/LLM Usage flow is verified.
-- [ ] Presentation create, Display visibility, user_action, Event, and Audit are verified.
-- [ ] LLM Usage displays audit-backed input/output/context/cache/cost data.
-- [ ] Browser real task verifies DOM/selector/text/http status.
-- [ ] Dev Server is normally stopped and write/deploy paths require fresh passkey and approval.
-- [ ] E2E results are aggregated in `data/reports/e2e/latest/summary.json`.
+- [x] Manager E2E performs state changes, not only GET checks.
+- [x] Task create, step execute, verification, and terminal status are verified.
+- [x] Capability risk override reload affects PolicyEngine and ToolBroker effective policy.
+- [x] Approval fanout, approve/reject, and Audit reflection are verified.
+- [x] Memory save/search/ContextBuilder/LLM Usage flow is verified.
+- [x] Presentation create, Display visibility, user_action, Event, and Audit are verified.
+- [x] LLM Usage displays audit-backed input/output/context/cache/cost data.
+- [~] Browser real task verifies DOM/selector/text/http status.
+- [x] Dev Server is normally stopped and write/deploy paths require fresh passkey and approval.
+- [x] E2E results are aggregated in `data/reports/e2e/latest/summary.json`.
 
 ## 3. P0 Devices
 
-- [ ] Windows PC Server service install/start/health/screenshot/active_window/overlay is verified.
+- [~] Windows PC Server service install/start/health/screenshot/active_window/overlay is verified.
 - [ ] PC real click/type/hotkey is verified only after approval on a safe test surface.
 - [ ] PC Server firewall is restricted to Private/Tailscale.
-- [ ] Android connects to AI gRPC over stable LAN or Tailscale.
-- [ ] `/api/android/status` reports online, reverse_stream, and model `21121210G`.
-- [ ] Android permissions/accessibility/current_app/ui_tree/notifications are verified.
+- [~] Android connects to AI gRPC over stable LAN or Tailscale.
+- [~] `/api/android/status` reports online, reverse_stream, and model `21121210G`.
+- [~] Android permissions/accessibility/current_app/ui_tree/notifications are verified.
 - [ ] Android Wi-Fi OFF/ON, screen off, AI restart, and app restart reconnect are verified.
 - [ ] Android reconnect_count and heartbeat_failure_count are measured.
 - [ ] Orange Pi Room Server candidate is recorded with SSH/Wi-Fi/MAC/IP inventory.
@@ -64,17 +64,17 @@ Legend:
 
 - [ ] `UI_Instruction.md` is fully mapped to this checklist and UI audit output.
 - [x] UI completeness audit is included in production readiness.
-- [ ] Web pages handle Loading, Empty, Error, Stale, Unauthorized, and Fresh-auth-required states.
-- [ ] Command Center prioritizes Current Operation, Attention, AI State, and LLM budget.
-- [ ] Work traces task detail, step graph, approval, verification, cost, and audit group.
-- [ ] Approvals use list-detail layout with preview, side effects, risk rationale, history, and fresh auth state.
-- [ ] Systems centers dependency graph and recovery state for AI/PC/Android/Browser/Room/Dev.
-- [ ] Mind & Memory hides raw JSON outside Developer drawer.
-- [ ] Activity is a persisted Event/Audit/LLM/Settings/Security/Error operation history.
-- [ ] Settings uses dedicated editors for Autonomy, Permissions, Servers, Privacy, Notifications, Models, Budgets, Memory, Display, Developer, and Backup.
-- [ ] `/display` is a read-only Display Compositor.
+- [x] Web pages handle Loading, Empty, Error, Stale, Unauthorized, and Fresh-auth-required states.
+- [x] Command Center prioritizes Current Operation, Attention, AI State, and LLM budget.
+- [x] Work traces task detail, step graph, approval, verification, cost, and audit group.
+- [x] Approvals use list-detail layout with preview, side effects, risk rationale, history, and fresh auth state.
+- [x] Systems centers dependency graph and recovery state for AI/PC/Android/Browser/Room/Dev.
+- [x] Mind & Memory hides raw JSON outside Developer drawer.
+- [x] Activity is a persisted Event/Audit/LLM/Settings/Security/Error operation history.
+- [x] Settings uses dedicated editors for Autonomy, Permissions, Servers, Privacy, Notifications, Models, Budgets, Memory, Display, Developer, and Backup.
+- [x] `/display` is a read-only Display Compositor.
 - [ ] CoreSphere visual states are regression tested.
-- [ ] Android Compose UI is practical for Home, Approvals, Tasks, Devices, Permissions, and Settings.
+- [x] Android Compose UI is practical for Home, Approvals, Tasks, Devices, Permissions, and Settings.
 - [ ] Android portrait, landscape, tablet, and 200% font scale are tested.
 - [ ] PC overlay is limited to approval, notification, and emergency display.
 

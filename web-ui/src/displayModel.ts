@@ -1,4 +1,4 @@
-import type { ApprovalItem, AttentionItem, DisplayDirectorItem, DisplayDirectorState, ServerItem, UiEvent, UiOverview, VisualEvent } from "./types";
+﻿import type { ApprovalItem, AttentionItem, DisplayDirectorItem, DisplayDirectorState, ServerItem, UiEvent, UiOverview, VisualEvent } from "./types";
 
 export const CORE_SERVER_IDS = ["ai-server", "pc-server", "android-server", "browser-server", "room-server", "dev-server"] as const;
 
@@ -150,11 +150,11 @@ export function summarizeMemory(overview: UiOverview): Record<string, string> {
   const desires = asRecord(autonomy.desires || autonomy.pressures || autonomy.desire_state);
   const dominant = dominantDesire(desires);
   return {
-    "Active goal": String(core.active_goal || "Not reported"),
-    "Dominant desire": dominant || "Not reported",
-    "Context confidence": String(core.confidence || mind.context_confidence || "Not reported"),
+    "Active goal": String(core.active_goal || "No data yet"),
+    "Dominant desire": dominant || "No data yet",
+    "Context confidence": String(core.confidence || mind.context_confidence || "No data yet"),
     "Memories used": memoriesUsed(memory),
-    "Last consolidation": String(memory.last_consolidation || memory.last_consolidated_at || memory.last_sleep_at || "Not reported")
+    "Last consolidation": String(memory.last_consolidation || memory.last_consolidated_at || memory.last_sleep_at || "No data yet")
   };
 }
 
@@ -194,14 +194,14 @@ export function settingSections(overview?: UiOverview): Array<{ id: string; labe
   const pending = overview?.approvals.data.pending_count || 0;
   const memoryStats = overview ? summarizeMemory(overview) : {};
   return [
-    { id: "autonomy", label: "Autonomy", summary: "Loop cadence, profile, and autonomous execution guardrails.", status: String(overview?.mind_summary.data?.autonomy ? "Configured" : "Not reported") },
+    { id: "autonomy", label: "Autonomy", summary: "Loop cadence, profile, and autonomous execution guardrails.", status: String(overview?.mind_summary.data?.autonomy ? "Configured" : "No data yet") },
     { id: "permissions", label: "Permissions", summary: "Capability risk, approval requirements, PC/Android operation limits.", status: pending ? `${pending} approval pending` : "Guarded" },
     { id: "servers", label: "Servers", summary: "AI, PC, Android, Browser, Room, and Dev endpoints.", status: `${overview?.servers.data.items?.length || 0} known` },
     { id: "privacy", label: "Privacy", summary: "Display privacy mode, redaction, local-only surfaces.", status: "Local-first" },
     { id: "notifications", label: "Notifications", summary: "Attention routing, persistent warnings, and quiet states.", status: `${overview?.notifications.data.unread_count || 0} unread` },
     { id: "models", label: "Models", summary: "LLM profiles, provider routing, and fresh-auth protected changes.", status: "Fresh auth required" },
     { id: "budgets", label: "Budgets", summary: "LLM usage, cost ceilings, and autonomous suppression.", status: String(overview?.usage.data?.summary || "Audit-backed") },
-    { id: "memory", label: "Memory", summary: "Episodic, semantic, procedural retrieval and consolidation.", status: memoryStats["Memories used"] || "Not reported" },
+    { id: "memory", label: "Memory", summary: "Episodic, semantic, procedural retrieval and consolidation.", status: memoryStats["Memories used"] || "No data yet" },
     { id: "display", label: "Display", summary: "Read-only dedicated display, token, kiosk, privacy and power behavior.", status: "Read-only" },
     { id: "developer", label: "Developer", summary: "Debug drawers, raw JSON, audit traces, and dev server writes.", status: "Restricted" },
     { id: "backup", label: "Backup", summary: "Data volume, auth credentials, audit, memory, and override backups.", status: "Manual check" }
@@ -393,5 +393,6 @@ function memoriesUsed(memory: Record<string, unknown>): string {
     const value = Number(memory[key] || 0);
     return Number.isFinite(value) ? sum + value : sum;
   }, 0);
-  return total > 0 ? String(total) : "Not reported";
+  return total > 0 ? String(total) : "No data yet";
 }
+

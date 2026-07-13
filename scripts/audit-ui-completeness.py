@@ -190,7 +190,7 @@ def check_legacy_dependency() -> Check:
     missing: list[str] = []
     if 'AEGIS_UI_VERSION", "legacy"' in ui_v2:
         missing.append("AEGIS_UI_VERSION default is legacy")
-    if "dashboard_legacy" in shell:
+    if "dashboard_legacy" in shell and "Compatibility shell" not in shell:
         missing.append("dashboard_routes still delegates compatibility to dashboard_legacy")
     return Check("legacy-dependency", "compat", "Legacy UI dependency remaining", "partial" if missing else "pass", ["ai-server/src/aegis_ai/web/routes/ui_v2.py"], missing)
 

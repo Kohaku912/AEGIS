@@ -1,4 +1,4 @@
-package com.aegis.android.ui.feature.tasks
+﻿package com.aegis.android.ui.feature.tasks
 
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Arrangement
@@ -22,8 +22,8 @@ fun TasksScreen(overview: UiOverviewSnapshot) {
                 Text("Current Task", color = AegisText, fontWeight = FontWeight.Bold)
                 Text(overview.activeTaskTitle, color = AegisTextSecondary)
                 Text("Phase ${overview.taskPhase} / Mission ${overview.missionPhase}", color = AegisTextSecondary)
-                Text("Current action: ${overview.currentAction.ifBlank { "Not reported" }}", color = AegisTextSecondary)
-                Text("Next action: ${overview.nextAction.ifBlank { "Not reported" }}", color = AegisTextSecondary)
+                Text("Current action: ${overview.currentAction.ifBlank { "No data yet" }}", color = AegisTextSecondary)
+                Text("Next action: ${overview.nextAction.ifBlank { "No data yet" }}", color = AegisTextSecondary)
                 if (overview.blockedReason.isNotBlank()) {
                     Text("Blocked: ${overview.blockedReason}", color = AegisTextSecondary)
                 }
@@ -38,3 +38,4 @@ fun TasksScreen(overview: UiOverviewSnapshot) {
         }
     }
 }
+
