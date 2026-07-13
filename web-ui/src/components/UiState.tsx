@@ -1,6 +1,6 @@
 import { AlertTriangle, LockKeyhole, RefreshCw, ShieldAlert } from "lucide-react";
 
-type StateKind = "loading" | "empty" | "stale" | "permission" | "unauthorized" | "fresh-auth" | "error" | "partial";
+type StateKind = "loading" | "empty" | "stale" | "permission" | "unauthorized" | "fresh-auth" | "error" | "partial" | "disconnected";
 
 type Props = {
   kind: StateKind;
@@ -19,6 +19,7 @@ const icons = {
   "fresh-auth": LockKeyhole,
   error: AlertTriangle,
   partial: AlertTriangle,
+  disconnected: AlertTriangle,
 };
 
 export function UiState({ kind, title, message, actionLabel, actionHref }: Props) {
@@ -40,4 +41,8 @@ export function SectionState({ stale, error, empty, label }: { stale?: boolean; 
   if (stale) return <UiState kind="stale" title={`${label} is stale`} message="Showing the last known value while AEGIS waits for a fresh update." />;
   if (empty) return <UiState kind="empty" title={`No ${label.toLowerCase()} reported`} message="AEGIS has no current data for this section." />;
   return null;
+}
+
+export function DisconnectedState({ label = "AEGIS" }: { label?: string }) {
+  return <UiState kind="disconnected" title={`${label} disconnected`} message="Disconnected from the live event stream. The last snapshot remains visible while reconnecting." />;
 }

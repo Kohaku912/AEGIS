@@ -1,4 +1,4 @@
-import { Archive, Bell, BrainCircuit, Code2, DatabaseBackup, Eye, KeyRound, Lock, MonitorCog, ServerCog, ShieldCheck, SlidersHorizontal } from "lucide-react";
+﻿import { Archive, Bell, BrainCircuit, Code2, DatabaseBackup, Eye, KeyRound, Lock, MonitorCog, ServerCog, ShieldCheck, SlidersHorizontal } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { fetchSettings, resetSettings, updateSetting } from "../api/client";
 import { settingSections } from "../displayModel";
@@ -207,3 +207,4 @@ function editableSettings(settings: Record<string, unknown>): Array<{ section: s
 function labelize(key: string): string {
   return key.replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
+

@@ -8,14 +8,29 @@ New-Item -ItemType Directory -Force -Path $ReportDir | Out-Null
 $evidence = @()
 $status = "pass"
 $errorMessage = ""
+function Wait-HttpOk([string]$Url, [int]$Attempts = 24, [int]$DelaySec = 3) {
+    $lastError = ""
+    for ($i = 0; $i -lt $Attempts; $i++) {
+        try {
+            $res = Invoke-WebRequest -UseBasicParsing -TimeoutSec 10 $Url
+            if ($res.StatusCode -lt 400) { return $res }
+            $lastError = "HTTP $($res.StatusCode)"
+        } catch {
+            $lastError = $_.Exception.Message
+        }
+        Start-Sleep -Seconds $DelaySec
+    }
+    throw "Timed out waiting for $Url. Last error: $lastError"
+}
+
 try {
     if ($Rebuild) { docker compose build ai-server browser-server room-server dev-server | Out-File "$ReportDir/docker-build.log" -Encoding utf8 }
     docker compose up -d ai-server browser-server room-server dev-server | Out-File "$ReportDir/docker-up.log" -Encoding utf8
     $evidence += "$ReportDir/docker-up.log"
-    Start-Sleep -Seconds 5
-    $dashboard = Invoke-WebRequest -UseBasicParsing -TimeoutSec 10 "http://127.0.0.1:8090/health"
-    if ($dashboard.StatusCode -ge 400) { throw "Dashboard health returned $($dashboard.StatusCode)" }
+    $dashboard = Wait-HttpOk "http://127.0.0.1:8090/health"
     $evidence += "http://127.0.0.1:8090/health"
+    docker compose ps --format json | Set-Content "$ReportDir/docker-ps.json" -Encoding utf8
+    $evidence += "$ReportDir/docker-ps.json"
 } catch {
     $status = "fail"
     $errorMessage = $_.Exception.Message

@@ -101,7 +101,14 @@ class MemoryManager:
 
         try:
             if memory_type == "episodic" and hasattr(backend, "record"):
-                backend.record(content, tags=tags, importance=importance)
+                try:
+                    backend.record(content, tags=tags, importance=importance)
+                except TypeError:
+                    backend.record(content, content, tags=tags, importance=importance)
+            elif memory_type == "episodic" and hasattr(backend, "add"):
+                from aegis_ai.memory.episodic import Episode
+
+                backend.add(Episode(summary=content, category="general", detail={"tags": tags, "importance": importance}))
             elif memory_type == "semantic" and hasattr(backend, "add"):
                 backend.add(content, category=tags[0] if tags else "general")
             elif memory_type in ("skill", "procedural") and hasattr(backend, "add_skill"):
@@ -210,17 +217,23 @@ class MemoryManager:
                     parts.append(f"  - {str(ep)[:200]}")
 
         if self._lesson and hasattr(self._lesson, "get_relevant"):
-            lessons = self._lesson.get_relevant(task_id, limit=3)
+            try:
+                lessons = self._lesson.get_relevant(task_id, limit=3)
+            except TypeError:
+                lessons = self._lesson.get_relevant(task_id)
             if lessons:
                 parts.append("Relevant lessons:")
-                for l in lessons:
+                for l in list(lessons)[:3]:
                     parts.append(f"  - {str(l)[:200]}")
 
         if self._skill and hasattr(self._skill, "find_relevant"):
-            skills = self._skill.find_relevant(task_id, limit=3)
+            try:
+                skills = self._skill.find_relevant(task_id, limit=3)
+            except TypeError:
+                skills = self._skill.find_relevant(task_id)
             if skills:
                 parts.append("Relevant skills:")
-                for s in skills:
+                for s in list(skills)[:3]:
                     parts.append(f"  - {str(s)[:200]}")
 
         context = "\n".join(parts)

@@ -1,4 +1,4 @@
-import { Check, ShieldAlert, X } from "lucide-react";
+﻿import { Check, ShieldAlert, X } from "lucide-react";
 import { useState } from "react";
 import { resolveApproval } from "../api/client";
 import type { ApprovalItem } from "../types";
@@ -72,7 +72,7 @@ export function ApprovalCard({ approval, readonly = false }: Props) {
 }
 
 function Detail({ label, value }: { label: string; value?: unknown }) {
-  const text = Array.isArray(value) ? value.join(", ") : String(value || "Not reported");
+  const text = Array.isArray(value) ? value.join(", ") : String(value || "No data yet");
   return (
     <div className="approval-detail">
       <span>{label}</span>
@@ -80,3 +80,4 @@ function Detail({ label, value }: { label: string; value?: unknown }) {
     </div>
   );
 }
+

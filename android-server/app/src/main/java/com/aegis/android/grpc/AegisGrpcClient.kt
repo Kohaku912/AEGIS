@@ -1,4 +1,4 @@
-package com.aegis.android.grpc
+﻿package com.aegis.android.grpc
 
 import android.content.Context
 import android.os.Build
@@ -777,7 +777,7 @@ class AegisGrpcClient private constructor(
             val freshness = obj.optJSONObject("freshness")
             val servers = obj.optJSONObject("servers")?.optJSONObject("data")?.optJSONArray("items")
             UiOverviewSnapshot(
-                rawJson = rawJson,
+                debugRawJson = rawJson,
                 schemaVersion = obj.optString("schema_version", ""),
                 generatedAtMs = generatedAtMs,
                 coreMode = core?.optString("mode", "IDLE") ?: "IDLE",
@@ -804,7 +804,7 @@ class AegisGrpcClient private constructor(
                 servers = parseUiServers(servers),
             )
         } catch (exc: Exception) {
-            UiOverviewSnapshot(rawJson = rawJson, generatedAtMs = generatedAtMs)
+            UiOverviewSnapshot(debugRawJson = rawJson, generatedAtMs = generatedAtMs)
         }
     }
 
@@ -910,3 +910,4 @@ class AegisGrpcClient private constructor(
         )
     }
 }
+

@@ -1,4 +1,4 @@
-import { Activity, Brain, Clock, Cpu, Radio, Server, ShieldAlert, UserRound } from "lucide-react";
+﻿import { Activity, Brain, Clock, Cpu, Radio, Server, ShieldAlert, UserRound } from "lucide-react";
 import type { ReactNode } from "react";
 import { AttentionStrip } from "../components/AttentionStrip";
 import { CoreSphere } from "../components/CoreSphere";
@@ -68,9 +68,9 @@ export function CommandCenter({ overview, recentEvents }: Props) {
             <span data-active={String(task.phase).toLowerCase() === "completed"}>Complete</span>
           </div>
           <div className="mission-strip" aria-label="Mission context">
-            <span>Next: <strong>{task.next_action || "Not reported"}</strong></span>
-            <span>Capability: <strong>{task.capability_id || "Not reported"}</strong></span>
-            <span>Verification: <strong>{task.verification_summary || "Not reported"}</strong></span>
+            <span>Next: <strong>{task.next_action || "No data yet"}</strong></span>
+            <span>Capability: <strong>{task.capability_id || "No data yet"}</strong></span>
+            <span>Verification: <strong>{task.verification_summary || "No data yet"}</strong></span>
             <span>Blocked: <strong>{task.blocked_reason || "No"}</strong></span>
           </div>
         </article>
@@ -81,8 +81,8 @@ export function CommandCenter({ overview, recentEvents }: Props) {
             <Freshness {...freshProps(overview.core)} />
           </div>
           <Metric icon={<Brain size={18} />} label="Active goal" value={String(core.active_goal || "No active goal")} compact />
-          <Metric icon={<Activity size={18} />} label="Confidence" value={String(core.confidence || "Not reported")} compact />
-          <Metric icon={<Cpu size={18} />} label="LLM budget" value={String(usage.budget_state || usage.autonomous_suppression || usage.cost_state || "Not reported")} compact />
+          <Metric icon={<Activity size={18} />} label="Confidence" value={String(core.confidence || "No data yet")} compact />
+          <Metric icon={<Cpu size={18} />} label="LLM budget" value={String(usage.budget_state || usage.autonomous_suppression || usage.cost_state || "No data yet")} compact />
           <Metric icon={<ShieldAlert size={18} />} label="Critical" value={String(criticalCount)} compact />
         </article>
 
@@ -103,7 +103,7 @@ export function CommandCenter({ overview, recentEvents }: Props) {
         <section className="panel command-situation command-span-4">
           <div className="panel__header"><h2>Situation</h2><UserRound size={16} /></div>
           <div className="metric-list">
-            <Row label="User" value={String(user.summary || user.availability || "Not reported")} />
+            <Row label="User" value={String(user.summary || user.availability || "No data yet")} />
             <Row label="Commitments" value={overview.commitments.data.summary || `${commitments.length} active`} />
             <Row label="Usage" value={String(usage.summary || usage.total_tokens || "Audit-backed")} />
             <Row label="Open issues" value={String(errors.length || overview.errors?.data.count || 0)} />
@@ -178,3 +178,4 @@ function nextServerFromTask(task: { steps?: Array<Record<string, unknown>> }): s
 function freshProps(section: { generated_at: number; source_updated_at: number; stale: boolean }) {
   return { generatedAt: section.generated_at, sourceUpdatedAt: section.source_updated_at, stale: section.stale };
 }
+

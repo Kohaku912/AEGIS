@@ -346,6 +346,10 @@ a {
   font-size: 22px;
 }
 
+.stat__value {
+  font-size: 16px !important;
+}
+
 .stat__value--small {
   font-size: 14px !important;
 }

@@ -1,4 +1,4 @@
-import { Freshness } from "../components/Freshness";
+﻿import { Freshness } from "../components/Freshness";
 import { StatusBadge } from "../components/StatusBadge";
 import type { UiOverview } from "../types";
 import { serverDependencySummary, serverLabel } from "../displayModel";
@@ -46,15 +46,15 @@ export function Systems({ overview }: { overview: UiOverview }) {
             </div>
             <div className="metric-list">
               <div className="metric-row"><span>Endpoint</span><strong>{server.host || "host"}:{server.port || "-"}</strong></div>
-              <div className="metric-row"><span>Mode</span><strong>{server.mode || "Not reported"}</strong></div>
-              <div className="metric-row"><span>Capabilities</span><strong>{server.registered_capabilities || "Not reported"}</strong></div>
+              <div className="metric-row"><span>Mode</span><strong>{server.mode || "No data yet"}</strong></div>
+              <div className="metric-row"><span>Capabilities</span><strong>{server.registered_capabilities || "No data yet"}</strong></div>
               <div className="metric-row"><span>Capability health</span><strong>{formatCapabilityHealth(server.capability_health)}</strong></div>
               <div className="metric-row"><span>Latency</span><strong>{formatLatency(server.latency_ms)}</strong></div>
-              <div className="metric-row"><span>Heartbeat age</span><strong>{server.heartbeat_age_seconds ?? "Not reported"}</strong></div>
+              <div className="metric-row"><span>Heartbeat age</span><strong>{server.heartbeat_age_seconds ?? "No data yet"}</strong></div>
               <div className="metric-row"><span>Last healthy</span><strong>{lastHealthy(server)}</strong></div>
               <div className="metric-row"><span>Active task</span><strong className="mono">{server.active_task_id || "No active task"}</strong></div>
               <div className="metric-row"><span>Permissions</span><strong>{formatMissingPermissions(server.permission_missing)}</strong></div>
-              <div className="metric-row"><span>Version</span><strong>{server.version || "Not reported"}</strong></div>
+              <div className="metric-row"><span>Version</span><strong>{server.version || "No data yet"}</strong></div>
               <div className="metric-row"><span>Dependencies</span><strong>{serverDependencySummary(server)}</strong></div>
             </div>
             <div>
@@ -88,12 +88,12 @@ function lastHealthy(server: NonNullable<UiOverview["servers"]["data"]["items"][
     dependencies.last_online_at ||
     server.health_checked_at ||
     dependencies.last_seen ||
-    "Not reported"
+    "No data yet"
   );
 }
 
 function formatLatency(value?: number): string {
-  if (typeof value !== "number" || Number.isNaN(value)) return "Not reported";
+  if (typeof value !== "number" || Number.isNaN(value)) return "No data yet";
   return `${Math.round(value)} ms`;
 }
 
@@ -105,7 +105,7 @@ function formatMissingPermissions(value?: string[] | boolean): string {
 }
 
 function formatCapabilityHealth(value?: Record<string, unknown>): string {
-  if (!value || !Object.keys(value).length) return "Not reported";
+  if (!value || !Object.keys(value).length) return "No data yet";
   const ok = Number(value.ok ?? value.available ?? 0);
   const degraded = Number(value.degraded ?? 0);
   const unavailable = Number(value.unavailable ?? value.failed ?? 0);
@@ -123,23 +123,23 @@ function AndroidDetail({ server }: { server: NonNullable<UiOverview["servers"]["
   return (
     <div className="android-detail">
       <div className="stat-grid">
-        <div className="stat"><span className="muted">Device</span><b>{String(dependencies.device_model || "Not reported")}</b></div>
-        <div className="stat"><span className="muted">Connection</span><b>{String(server.mode || dependencies.connection_mode || "Not reported")}</b></div>
-        <div className="stat"><span className="muted">Last seen</span><b>{String(dependencies.last_seen || "Not reported")}</b></div>
+        <div className="stat"><span className="muted">Device</span><b>{String(dependencies.device_model || "No data yet")}</b></div>
+        <div className="stat"><span className="muted">Connection</span><b>{String(server.mode || dependencies.connection_mode || "No data yet")}</b></div>
+        <div className="stat"><span className="muted">Last seen</span><b>{String(dependencies.last_seen || "No data yet")}</b></div>
         <div className="stat"><span className="muted">Active approvals</span><b>{Array.isArray(dependencies.active_approvals) ? dependencies.active_approvals.length : 0}</b></div>
       </div>
       <div className="grid grid--three">
         <div>
           <h3>Permissions</h3>
           <div className="metric-list">
-            {Object.entries(permissions).length ? Object.entries(permissions).map(([key, value]) => <div className="metric-row" key={key}><span>{key}</span><strong>{String(value)}</strong></div>) : <div className="metric-row"><span>Status</span><strong>Not reported</strong></div>}
+            {Object.entries(permissions).length ? Object.entries(permissions).map(([key, value]) => <div className="metric-row" key={key}><span>{key}</span><strong>{String(value)}</strong></div>) : <div className="metric-row"><span>Status</span><strong>No data yet</strong></div>}
           </div>
         </div>
         <div>
           <h3>Capabilities</h3>
           <div className="metric-list">
             {Object.entries(availability).slice(0, 8).map(([key, value]) => <div className="metric-row" key={key}><span className="mono">{key.replace("android-server.", "")}</span><strong>{String(value.available ?? "unknown")}</strong></div>)}
-            {!Object.entries(availability).length ? <div className="metric-row"><span>Status</span><strong>Not reported</strong></div> : null}
+            {!Object.entries(availability).length ? <div className="metric-row"><span>Status</span><strong>No data yet</strong></div> : null}
           </div>
         </div>
         <div>
@@ -150,3 +150,4 @@ function AndroidDetail({ server }: { server: NonNullable<UiOverview["servers"]["
     </div>
   );
 }
+

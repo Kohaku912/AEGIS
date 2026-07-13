@@ -46,7 +46,7 @@ def check_file(path: str, name: str) -> dict[str, object]:
 def _load_json(path: Path) -> dict[str, object]:
     try:
         if path.exists():
-            data = json.loads(path.read_text(encoding="utf-8"))
+            data = json.loads(path.read_text(encoding="utf-8-sig"))
             if isinstance(data, dict):
                 return data
     except Exception:
@@ -58,6 +58,14 @@ def _e2e_check(report_dir: Path, check_id: str, name: str, required: bool = True
     summary = _load_json(ROOT / "data" / "reports" / "e2e" / "latest" / "summary.json")
     checks = summary.get("checks") if isinstance(summary.get("checks"), list) else []
     match = next((c for c in checks if isinstance(c, dict) and c.get("id") == check_id), None)
+    for candidate in (
+        ROOT / "data" / "reports" / "e2e" / "latest" / f"{check_id.replace('_', '-')}.json",
+        ROOT / "data" / "reports" / "e2e" / "latest" / f"{check_id}.json",
+    ):
+        loaded = _load_json(candidate)
+        if loaded.get("id") == check_id:
+            match = loaded
+            break
     if not match:
         return _check(
             check_id,

@@ -48,7 +48,7 @@ def init_ui_v2_routes(owner: Any) -> None:
 
 
 def ui_v2_available() -> bool:
-    if os.getenv("AEGIS_UI_VERSION", "legacy").strip().lower() != "v2":
+    if os.getenv("AEGIS_UI_VERSION", "v2").strip().lower() != "v2":
         return False
     return (_ui_dist_dir() / "index.html").exists()
 
