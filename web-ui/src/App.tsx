@@ -117,7 +117,7 @@ function Page({ page, overview, recentEvents }: { page: PageId; overview: UiOver
   if (page === "systems") return <Systems overview={overview} />;
   if (page === "mind") return <MindMemory overview={overview} />;
   if (page === "activity") return <ActivityPage overview={overview} recentEvents={recentEvents} />;
-  if (page === "settings") return <Settings />;
+  if (page === "settings") return <Settings overview={overview} />;
   return <CommandCenter overview={overview} recentEvents={recentEvents} />;
 }
 

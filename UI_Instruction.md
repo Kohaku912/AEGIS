@@ -2163,3 +2163,1031 @@ AEGIS専用ディスプレイの中央には、多数の光線から構成され
 球体の下にはOperation Timelineを置き、横には人間が読める状態説明を表示する。
 
 これにより、映画的でありながら、単なる雰囲気ではなく、AEGISの内部状態を把握するための実用的なUIになる。
+# AEGIS UI 第3次改修計画
+
+## Display Director・多層画面・情報網羅性の再設計
+
+# 1. 現状評価
+
+## 改善された部分
+
+今回の更新では、以前指摘した球体の再生成問題は解消されています。
+
+* Three.js Sceneをマウント時に一度だけ生成
+* Props更新を`targetRef`へ反映
+* `THREE.Clock`によるDelta time
+* `MathUtils.damp`による速度・Opacity補間
+* 色の連続補間
+* Shader Core
+* Server Arc
+* Unreal Bloom
+* Display向けSSE
+* Capability開始・完了・失敗イベント
+* ContainmentとRecovery表現
+
+が追加されています。
+
+専用ディスプレイでも`surface=display`としてSSEを購読するようになっているため、以前の15秒ポーリングだけの状態からは改善しています。
+
+ただし、現在追加されたのは主に「球体内の視覚効果」であり、**画面全体を管理する表示システム**が不足しています。
+
+---
+
+# 2. 発見した主要問題
+
+## P0：専用ディスプレイにレイヤー管理が存在しない
+
+現在のDisplayは次の要素を通常のDOMレイアウトとして縦に並べています。
+
+* Current Operation
+* Attention
+* Core Sphere
+* Mission Phase
+* Recent Events
+* Server Rail
+
+Attentionも通常のカードであり、Overlay、Portal、Takeover Layer、Modal Layerなどはありません。
+
+したがって、現在は以下を実現できません。
+
+* 右上から一時的に出る通知
+* 球体の前面に浮かぶ通知
+* 画面中央を占有する重要警告
+* 背景全体を暗くするCritical表示
+* 承認要求による一時的な画面構成変更
+* 複数通知の優先順位制御
+* 通知が解決されたときの解除演出
+* Privacy／Offline Layer
+* 通知同士の割り込みと待ち行列
+
+必要なのは通知コンポーネントの追加ではなく、**Display DirectorとCompositor**です。
+
+---
+
+## P0：一画面に収まる構造になっていない
+
+現在のCSSは、
+
+* `min-height: 100vh`
+* 4行のGrid
+* 上部カード
+* 最低52vhのCore
+* 下部2カード
+* Server Rail
+* Core凡例
+* Core Caption
+* 各領域間のGapとPadding
+
+を同時に積み上げています。
+
+さらに幅1040px以下では、Display上部と下部を1カラムへ変更します。非操作画面なのに縦長化し、スクロールしなければ見られない画面になります。
+
+`min-height`ではなく、次の制約が必要です。
+
+```text
+height: 100dvh
+max-height: 100dvh
+overflow: clip
+```
+
+動的Viewport単位の`dvh`は、実際に見えているViewportに合わせて寸法を調整するための単位です。通常の`vh`は現在のブラウザでは大きいViewport相当となる場合があり、全画面表示で内容が隠れる可能性があります。
+
+ただし、単に`100dvh`へ変更するだけでは足りません。全要素に高さの予算を割り当てる必要があります。
+
+---
+
+## P0：通知の重要度を画面構成へ反映していない
+
+現在のAttentionは最大4件を右上カードへ並べるだけです。
+
+次の2件が同時に発生しても、
+
+* Room Serverで火災センサー警告
+* 軽微な承認要求
+
+同じAttention領域へ並びます。
+
+また、`attentionItems()`は承認要求を先頭に置いてから既存Attentionを連結しており、最終的な重大度ソートをしていません。したがってCriticalよりApprovalが上に出る可能性があります。
+
+重要通知には「カード内の並び順」ではなく、画面全体の優先権が必要です。
+
+---
+
+## P0：Visual Eventの意味判定が単純すぎる
+
+現在のクライアント側判定では、`status`または`connection`を含むイベントは、
+
+* OfflineならDisconnect
+* それ以外ならRecovery
+
+と判断します。
+
+そのため、通常のOnline heartbeatや初回接続までRecovery Waveになる可能性があります。
+
+また、全イベントの寿命が一律4.5秒です。
+
+```text
+expiresAt = createdAt + 4500
+```
+
+これでは、
+
+* 軽い処理完了
+* 承認待ち
+* Critical failure
+* Server offline
+* Recovery
+
+がすべて同じ時間的扱いになります。
+
+Criticalや承認は時間切れで消すのではなく、**状態が解決されるまで継続**させる必要があります。
+
+---
+
+## P0：バックエンドのCore Health判定が誤解を招く
+
+現在のCore Healthは、
+
+* Degradedサーバーがあれば`DEGRADED`
+* 全サーバーに近い数がOfflineなら`OFFLINE`
+* それ以外は`ONLINE`
+
+となっています。
+
+つまり、Browser、Android、Roomなど複数サーバーの一部がOfflineでも、Core全体は`ONLINE`と表示される可能性があります。
+
+また、Attention LevelはApprovalが1件でもあれば、CriticalなOfflineよりApprovalが優先されます。
+
+```text
+approval if pending
+else critical if offline
+```
+
+これでは全体状態を表す球体の色と実際の問題の深刻度が一致しません。
+
+### 修正後の判定
+
+| 状態                | Core Health           |
+| ----------------- | --------------------- |
+| AI Server自体が停止    | OFFLINE               |
+| 実行中タスクに必要なサーバーが停止 | BLOCKED               |
+| 必須サーバーの一部が停止      | DEGRADED              |
+| 任意サーバーが停止         | ONLINE_WITH_ATTENTION |
+| サーバー復旧処理中         | RECOVERING            |
+| 全必須サービス正常         | ONLINE                |
+
+ApprovalはHealthではなく、別軸の`interaction_state`として扱います。
+
+---
+
+## P0：Freshnessが実際のLive状態を表していない
+
+バックエンドのFreshnessは現在、常に`live: True`を返しています。
+
+SSEが切断されても、
+
+* 接続中
+* 再接続中
+* Snapshotのみ
+* Stale
+* 完全Offline
+
+を区別できません。
+
+Display側のSSE Hookにも、次がありません。
+
+* `onopen`
+* `onerror`
+* 接続状態
+* 最終イベント時刻
+* 再接続回数
+* Event cursor
+* 取りこぼし検出
+* Replay要求
+
+専用画面では古いデータを正常なLive値のように見せるのが最も危険です。
+
+---
+
+# 3. ダッシュボードで表示されていない情報
+
+UI Overviewには現在、次の情報があります。
+
+* Core
+* Attention
+* Current Task
+* Servers
+* User State
+* Mind Summary
+* Notifications
+* Approvals
+* Commitments
+* Usage
+* Freshness
+
+しかし表示側の利用状況は不完全です。
+
+| 情報                     | 専用Display     | Dashboard        |
+| ---------------------- | ------------- | ---------------- |
+| Core                   | 部分表示          | 部分表示             |
+| Attention              | 最大4件          | 表示               |
+| Current Task           | 1件のみ          | 1件のみ             |
+| Servers                | Rail          | 概要＋Systems       |
+| User State             | 未表示           | Raw JSONのみ       |
+| Mind Summary           | 未表示           | 一部要約／別画面Raw JSON |
+| Notifications          | Attention経由のみ | Recentのみ         |
+| Approvals              | 概要のみ          | Pendingのみ        |
+| Commitments            | 未表示           | Raw JSONのみ       |
+| Usage                  | 未表示           | Summary 1行のみ     |
+| Freshness              | 未表示           | 上部に一部            |
+| Scheduled Tasks        | 未提供           | 未表示              |
+| Completed／Failed Tasks | 未提供           | 未表示              |
+| Audit Groups           | 未提供           | 未表示              |
+| Errors／Stack trace     | 未提供           | 未表示              |
+| Capability stats       | 未提供           | 未表示              |
+| Sleep状態                | 未提供           | 未表示              |
+| Situation推定            | User State次第  | 構造化表示なし          |
+| Delegation             | 未提供           | 未表示              |
+| Hooks                  | 未提供           | 未表示              |
+
+## Work画面
+
+現在はCurrent Task 1件と最大12ステップだけです。Active一覧、Waiting、Scheduled、Completed、Failed、Research、Self-developmentなどはありません。
+
+## Approvals画面
+
+Pendingだけで、Resolved、Rejected、Expired、実行結果、履歴、関連Auditがありません。
+
+## Systems画面
+
+基本的なServer状態だけで、次が不足しています。
+
+* Heartbeat age
+* Capability数
+* 利用可能Capability
+* 現在使用中Capability
+* 依存サービス
+* Last success
+* Retry
+* Active approvals
+* Permission status
+* Latency
+* Version差異
+
+## Mind & Memory画面
+
+User State、Mind、CommitmentsをRaw JSONで表示しており、検索・関係表示・根拠・信頼度・時系列などはありません。
+
+## Activity画面
+
+ページを開いてから受信した最大10イベントしか表示しません。再読み込みすると消え、イベントがない場合はAttentionへ置き換わります。Audit、Task履歴、Notification履歴ではありません。
+
+## Settings画面
+
+実際の設定フォームではなく、旧ページやAPIへのリンクだけです。
+
+## Dashboardの球体
+
+Command CenterのCore Sphereには`visualEvents={[]}`が渡されています。そのため、専用Displayでは出るPulseやFractureが、Dashboardの球体では一切出ません。
+
+---
+
+# 4. 最新UIデザインから採用する要素
+
+## 4.1 Reactive GlassはOverlayだけに使う
+
+2025年以降のAppleのLiquid Glassでは、透明素材、背景の屈折、動きに反応する表面などが大きな特徴になりました。一方、初期版では可読性への懸念もあり、後の調整で読みやすさが改善されています。
+
+AEGISでは画面全体をGlassにしません。
+
+使う場所は、
+
+* 一時通知
+* Priority Overlay
+* Server Detail展開
+* Context Panel
+* Approval Containment
+* Floating telemetry
+
+だけに限定します。
+
+基本情報は不透明度の高いDark Surfaceで読みやすく保ちます。
+
+---
+
+## 4.2 Z軸の高さを情報優先度に対応させる
+
+Fluent 2ではElevationを、重要度とフォーカスを伝える視覚階層として使用しています。高いElevationほど背景から離れ、Pop-up dialogなどに利用されます。
+
+AEGISでもZ軸を意味付けします。
+
+| Zレベル | 用途                           |
+| ---: | ---------------------------- |
+|    0 | 背景、グリッド、環境光                  |
+|   10 | Core Sphere                  |
+|   20 | 常設Telemetry                  |
+|   30 | Context Panel                |
+|   40 | 通常通知                         |
+|   50 | 重要通知                         |
+|   60 | Approval Takeover            |
+|   70 | Critical Takeover            |
+|   80 | Privacy／Offline System Layer |
+
+単なる`z-index`ではなく、Blur、Shadow、背景暗転、視差も同時に変えます。
+
+---
+
+## 4.3 映画的UIは「派手な警告」ではなくストーリーと実データを統合する
+
+『The Martian』の画面制作では、映画的ストーリー、実データ、科学の中間を狙い、現実には使われない巨大な赤い警告をあえて避けたと説明されています。
+
+AEGISも映画をそのまま真似するのではなく、
+
+* 何が起きたか
+* どこで起きたか
+* 何に影響するか
+* AEGISが何をしているか
+* ユーザーに何が必要か
+
+を演出に対応させます。
+
+---
+
+## 4.4 状態通知と割り込み通知を分ける
+
+W3Cも、通常のStatus Messageは現在の文脈を不必要に中断せず通知し、ModalのようなContext changeはより重大な情報に使われるという区別をしています。
+
+AEGISでは、
+
+* 通常Status：端やTimeline
+* 重要Status：浮遊Overlay
+* Critical：画面中央Takeover
+
+に分けます。
+
+---
+
+# 5. 新しいDisplay Compositor
+
+専用画面を次の8レイヤーに分割します。
+
+```text
+L7  System Veil
+    Privacy / Offline / Fatal / Reconnecting
+
+L6  Priority Takeover
+    Critical / Security / Room alert / fatal task
+
+L5  Action Takeover
+    Approval / user response required / blocked
+
+L4  Transient Overlay
+    Completion / warning / connection / recovery
+
+L3  Persistent Context
+    Current operation / attention / next action
+
+L2  Ambient Telemetry
+    Mission phase / recent events / confidence / clock
+
+L1  Core World
+    AI Sphere / server arcs / pulses / camera choreography
+
+L0  Environment
+    background / grid / noise / vignette / light
+```
+
+React構成案：
+
+```text
+DisplayCompositor
+├─ EnvironmentLayer
+├─ CoreWorldLayer
+├─ AmbientTelemetryLayer
+├─ ContextLayer
+├─ OverlayStack
+├─ ActionTakeover
+├─ CriticalTakeover
+└─ SystemVeil
+```
+
+各レイヤーは`position:absolute; inset:0`で重ねます。
+
+通常のDocument Flowで縦に積み上げません。
+
+---
+
+# 6. Display Director
+
+## 6.1 役割
+
+Display Directorが以下を一元管理します。
+
+* 表示すべき情報
+* 優先順位
+* 表示位置
+* 表示開始
+* 表示終了
+* 割り込み
+* 復帰
+* 同種通知の統合
+* 表示回数
+* Critical継続
+* 解決演出
+* Privacy
+* Offline
+
+球体とDOM通知が別々にイベントを解釈してはいけません。
+
+## 6.2 優先レベル
+
+### P0：System Critical
+
+対象：
+
+* Security alert
+* Room critical alert
+* AI Core offline
+* データ破損
+* 全主要サービス停止
+* 制御不能状態
+
+表示：
+
+* 画面中央の大型Takeover
+* 背景を70%暗転
+* 球体を後方へ移動
+* 外周をRed
+* 原因、影響、時刻、自動復旧状態
+* 解決まで消さない
+* 複数ある場合は件数と8秒周期の自動切替
+
+### P1：User Action Required
+
+対象：
+
+* Approval
+* Passwordなどユーザー入力待ち
+* Permission設定待ち
+* CAPTCHA
+* 物理操作待ち
+* 判断確認
+
+表示：
+
+* 中央のAmber Takeover
+* 球体の実行Arcを途中で停止
+* 操作対象と理由
+* 有効期限
+* 「スマートフォンまたはWebで確認」
+* 入力ボタンは置かない
+* 一定時間後は右上へ縮小するが、解決まで消さない
+
+### P2：Important
+
+対象：
+
+* Server degraded
+* Task failed
+* Budget warning
+* Reconnect
+* High notification
+
+表示：
+
+* 右側または上部からOverlay
+* 8～15秒
+* 未解決ならAttention Dockへ移動
+
+### P3：Ambient
+
+対象：
+
+* Capability開始
+* Capability完了
+* 通常の観測
+* Memory consolidation
+* 軽微な通知
+
+表示：
+
+* 球体Pulse
+* Event Timeline
+* 小さなEdge notification
+* 3～6秒
+
+---
+
+# 7. 通知の競合ルール
+
+1. P0はすべてに割り込む
+2. P1はP2、P3へ割り込む
+3. P2はP3へ割り込む
+4. P0表示中もP1以下はQueueへ保存
+5. 同一`dedupe_key`は統合
+6. 同じServer障害を毎Heartbeatで再表示しない
+7. 状態が解決するまでPersistent notificationを消さない
+8. 解決時は「消える」のではなくRecovery表示へ遷移
+9. 5件以上の同レベル通知はグループ化
+10. Criticalを時間切れで消さない
+
+---
+
+# 8. 一画面固定レイアウト
+
+## 基本構成
+
+```text
+┌─────────────────────────────────────────────────────────┐
+│ AEGIS  MODE  CONNECTION                  CLOCK  LIVE    │
+│                                                         │
+│ CURRENT OPERATION                         ATTENTION     │
+│ title                                     compact list  │
+│ current action                                          │
+│                                                         │
+│                  CORE SPHERE                            │
+│           server arcs / pulses / focus                  │
+│                                                         │
+│ OBSERVE ━ PLAN ━ EXECUTE ━ VERIFY ━ COMPLETE            │
+│ ●AI ●PC ●ANDROID ●BROWSER ●ROOM ●DEV   EVENT SUMMARY   │
+└─────────────────────────────────────────────────────────┘
+```
+
+## 高さ予算
+
+1920×1080基準：
+
+| 領域           |    高さ |
+| ------------ | ----: |
+| Global HUD   |  48px |
+| Main Stage   | 残りすべて |
+| Mission Rail |  64px |
+| Server Rail  |  32px |
+
+Current OperationとAttentionはStage上に浮かせます。
+
+Coreの凡例とCaptionは通常Flowから削除し、Server RailまたはCanvas内ラベルへ統合します。
+
+## 画面サイズ別Density
+
+### 1366×768 Compact
+
+* Attention最大2件
+* Recent Event最大2件
+* Coreラベル省略
+* Current Operation最大2行
+* Server detailは1件だけ展開
+* Mission Rail 48px
+
+### 1920×1080 Standard
+
+* Attention最大3件
+* Recent Event最大4件
+* Core server label表示
+* Mission Rail 64px
+
+### 2560×1440 Cinematic
+
+* Context summary
+* Confidence Halo説明
+* 次のCapability
+* Memory source count
+* より広い余白
+
+幅で1カラムに崩すのではなく、**高さとアスペクト比に応じて情報密度だけを変えます**。
+
+---
+
+# 9. AIディスプレイで追加表示すべき情報
+
+常時すべて出すのではなく、状況に応じて出します。
+
+## 常設
+
+* Mode
+* Core Health
+* SSE Connection
+* Freshness
+* Current time
+* Current operation
+* Current action
+* Mission phase
+* Server Rail
+
+## タスク中
+
+* Next action
+* Current Capability
+* Target device／site／application
+* Verification state
+* Child task数
+* Blocked reason
+* Task elapsed time
+
+## Idle中
+
+* 次のScheduled task
+* Due commitment
+* 最後に完了したタスク
+* User situation
+* Last observation
+* Sleep consolidation
+* Budget status
+
+## 必要時だけ
+
+* Approval
+* Warning
+* Error
+* Recovery
+* Permission missing
+* Privacy
+* Offline
+* Security alert
+* Room alert
+
+---
+
+# 10. Dashboard再構築
+
+## Command Center
+
+表示：
+
+* Current Operation
+* Critical／Approval
+* Core Sphere
+* Situation summary
+* Task queue
+* Next commitment
+* LLM budget
+* Recent operation timeline
+* System summary
+
+Server一覧は通常時に大きく表示しない。
+
+## Work
+
+タブ：
+
+* Active
+* Waiting
+* Scheduled
+* Research
+* Self-development
+* Commitments
+* Completed
+* Failed
+
+詳細：
+
+* 元の指示
+* Plan
+* Step graph
+* Capability
+* Approval
+* Result
+* Verification
+* Cost
+* Audit group
+
+## Approvals
+
+* Pending
+* Expiring
+* High risk
+* Resolved
+* Rejected
+* Expired
+* Failed after approval
+
+List–Detail構成にし、関連Task、Preview、影響、Auditを表示。
+
+## Systems
+
+* Topology view
+* Server list
+* Capability availability
+* Dependency graph
+* Heartbeat
+* Latency
+* Errors
+* Permission
+* Recovery
+* Active task relation
+
+## Mind & Memory
+
+Raw JSONを標準表示にしない。
+
+* Current goal
+* Desire state
+* Emotion
+* People
+* Episodic memory
+* Semantic memory
+* Procedural memory
+* Skills
+* Recent memories used
+* Sleep consolidation
+* Confidence and sources
+
+JSONはDeveloper Drawerに残す。
+
+## Activity
+
+サーバー側の永続データを使用する。
+
+* Operations
+* Audit groups
+* Events
+* Notifications
+* Errors
+* LLM calls
+* Settings changes
+* Security events
+
+ブラウザを開いてから受信した10件だけに依存しない。
+
+## Settings
+
+旧ページへのリンクではなく、実際のV2設定画面を実装する。
+
+* Autonomy
+* Permissions
+* Servers
+* Privacy
+* Notifications
+* Models
+* Budgets
+* Memory
+* Display
+* Developer
+* Backup
+
+---
+
+# 11. UI Overview v3
+
+現在のOverview v2では、1件のCurrent Taskと要約データしか足りません。
+
+次の契約へ拡張します。
+
+```text
+ui-overview.v3
+├─ core
+├─ connection
+├─ display_scene
+├─ presentations
+│  ├─ takeover
+│  ├─ overlays
+│  ├─ persistent
+│  └─ ambient
+├─ tasks
+│  ├─ primary
+│  ├─ active
+│  ├─ waiting
+│  ├─ scheduled
+│  └─ recent
+├─ approvals
+├─ servers
+├─ capabilities
+├─ user_situation
+├─ mind
+├─ memory
+├─ commitments
+├─ notifications
+├─ usage
+├─ errors
+└─ freshness
+```
+
+## Event Envelope
+
+```text
+event_id
+sequence
+event_type
+occurred_at
+received_at
+priority
+severity
+dedupe_key
+persistence
+expires_at
+resolved_by
+affected_servers
+affected_capabilities
+task_id
+approval_id
+safe_title
+safe_message
+visual_hint
+payload
+```
+
+Clientが文字列からFractureやRecoveryを推測するのではなく、バックエンドが安全な`visual_hint`を渡します。
+
+---
+
+# 12. 映画的表現の追加
+
+## Cinematic Focus Choreography
+
+重要イベント時に、
+
+1. 通常パネルが薄くなる
+2. 球体が少し奥へ移動
+3. 関係Server Arcが正面へ回転
+4. Overlayが奥から前へ出る
+5. 周囲のTelemetryが対象情報へ切り替わる
+
+という一連の演出を行います。
+
+ただし急激なZoomではなく、450～800msの連続遷移にします。
+
+## Glass Refraction Overlay
+
+Overlayの縁だけに、
+
+* 背景屈折
+* Chromatic aberration
+* Fresnel edge
+* 微細なNoise
+* Light sweep
+
+を使用します。
+
+本文背景は十分な不透明度を保ちます。
+
+## Edge Intelligence
+
+画面外周を情報領域として使います。
+
+* 上：Core／接続／時刻
+* 左：現在タスク
+* 右：Attention
+* 下：Mission／Servers
+* 四隅：重大度と対象領域
+
+中央は球体とTakeoverのために空けます。
+
+## Environmental Response
+
+画面背景も状態に連動させます。
+
+| 状態        | 背景             |
+| --------- | -------------- |
+| Idle      | 静かな暗青          |
+| Observing | 微かな走査線         |
+| Planning  | Violetの内部経路    |
+| Executing | CyanのData Flow |
+| Approval  | Amberの停止フィールド  |
+| Critical  | 外周のみRed        |
+| Recovery  | Greenの一時波      |
+| Offline   | 色を失い静止         |
+| Privacy   | ほぼ黒＋一般状態だけ     |
+
+---
+
+# 13. 実装順序
+
+## Phase 0：全UI情報監査
+
+* Runtime Manager一覧
+* API一覧
+* Overview field一覧
+* Dashboard利用一覧
+* Display利用一覧
+* Android利用一覧
+* 未表示field一覧
+* 重複表示一覧
+* Raw JSON表示一覧
+* Legacy依存一覧
+
+成果物：
+
+`docs/ui-information-coverage.md`
+
+## Phase 1：Display Director
+
+* Priority model
+* Notification queue
+* Dedupe
+* Preemption
+* Persistent state
+* Resolution
+* Overlay lifecycle
+* Offline／Privacy
+* Connection state
+
+## Phase 2：Display Compositor
+
+* 8レイヤー構成
+* Absolute positioning
+* Portal roots
+* Z-level tokens
+* Backdrop dim
+* Focus choreography
+* No input
+* No tab stops
+
+## Phase 3：一画面固定
+
+* `100dvh`
+* `overflow: clip`
+* Height budget
+* Compact／Standard／Cinematic density
+* Text clamp
+* Content overflow strategy
+* Core legend統合
+* 1366×768対応
+
+## Phase 4：Overview v3
+
+* Task list
+* Presentation model
+* Connection state
+* Event ID／sequence
+* Replay cursor
+* Visual hint
+* Situation
+* Errors
+* Capability state
+* Correct health and freshness
+
+## Phase 5：Dashboard網羅性
+
+* Work
+* Approvals
+* Systems
+* Mind
+* Memory
+* Activity
+* Notifications
+* Settings
+* Usage
+* Situation
+
+## Phase 6：映画的仕上げ
+
+* Reactive glass
+* Camera choreography
+* Overlay refraction
+* Ambient scan
+* Edge HUD
+* Recovery reconstruction
+* Critical scene
+* Optional sound cues
+
+---
+
+# 14. 完了条件
+
+## 専用Display
+
+* 1366×768、1920×1080、2560×1440ですべて一画面
+* `scrollHeight === clientHeight`
+* スクロールバーなし
+* Button、Input、Link、Tab stopなし
+* 全画面の各Layerが独立
+* P0、P1、P2、P3通知が異なる表示になる
+* Criticalが中央を覆う
+* Approvalが中央へ優先表示される
+* 解決まで重要通知が消えない
+* 同一通知がHeartbeatごとに再表示されない
+* Offline時にLive表示が消える
+* Stale Snapshotと明示する
+* Privacy modeで個人情報を隠す
+* SSE再接続後に欠落イベントをReplay
+* 72時間動作でCanvasやEventが蓄積し続けない
+
+## Dashboard
+
+* Overviewの全fieldについて表示先が定義されている
+* Raw JSONはDeveloper表示以外で使用しない
+* Active以外のTaskも確認できる
+* Approval履歴を確認できる
+* Audit／Event／Errorが再読み込み後も残る
+* Settingsを実際に変更できる
+* ServerとCapabilityの依存関係を確認できる
+* UsageとBudgetを確認できる
+* User situationとCommitmentを確認できる
+
+## テスト
+
+* Priority preemption test
+* Overlay lifecycle test
+* Notification dedupe test
+* SSE reconnect test
+* Event replay test
+* Offline／Stale test
+* Privacy test
+* Viewport no-scroll test
+* No-focusable-element test
+* Visual regression test
+* Reduced-motion test
+* Schema coverage test
+* Manager→API→UI coverage test
+
+WindowsのAssigned Accessでは、単一アプリまたはEdgeを全画面で起動し、閉じられた場合に自動再起動するキオスク構成が用意されています。AEGIS Displayもブラウザ表示だけでなく、このOS側の全画面・自動復旧まで完了条件に含めます。

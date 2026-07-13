@@ -4,6 +4,7 @@ import { StatusBadge } from "../components/StatusBadge";
 import { useOverviewStream } from "../api/useOverviewStream";
 import {
   attentionItems,
+  buildDisplayDirectorState,
   mapUiEventToVisualEvent,
   missionPhase,
   normalizeStatus,
@@ -36,14 +37,45 @@ export function Display({ overview: initialOverview }: { overview: UiOverview })
   const attention = attentionItems(overview);
   const activeServerId = String(task.capability_id || "").split(".", 1)[0];
   const phase = missionPhase(overview);
+  const director = buildDisplayDirectorState(overview, events, visualEvents);
 
   return (
-    <main className="display-shell" data-phase={phase} data-testid="display-shell">
+    <main
+      className="display-shell"
+      data-phase={phase}
+      data-testid="display-shell"
+      data-priority={director.takeover?.priority || "P3"}
+      data-offline={director.offline}
+      data-stale={director.stale}
+      data-privacy={director.privacyMode}
+    >
+      <div className="display-state-ribbon" aria-label="Display state">
+        <span>{director.offline ? "OFFLINE SNAPSHOT" : director.stale ? "STALE SNAPSHOT" : "LIVE DISPLAY"}</span>
+        {director.privacyMode ? <span>PRIVACY MODE</span> : null}
+      </div>
+      {director.takeover ? (
+        <section className="display-takeover" data-priority={director.takeover.priority} aria-label="Display takeover">
+          <span className="display-kicker">{director.takeover.priority} / {director.takeover.severity}</span>
+          <strong>{redact(director.takeover.title, director.privacyMode)}</strong>
+          <p>{director.privacyMode ? "Private information hidden." : director.takeover.message}</p>
+        </section>
+      ) : null}
+      {director.overlays.length ? (
+        <aside className="display-overlay-stack" aria-label="Important overlays">
+          {director.overlays.map((item) => (
+            <article className="display-overlay" data-priority={item.priority} data-severity={item.severity} key={item.id}>
+              <span>{item.priority}</span>
+              <strong>{item.title}</strong>
+              <p>{item.message}</p>
+            </article>
+          ))}
+        </aside>
+      ) : null}
       <header className="display-top">
         <section className="display-card display-operation" aria-label="Current Operation">
           <span className="display-kicker">Current Operation</span>
-          <h1>{task.title || "No active task"}</h1>
-          <p>{task.current_action || task.next_action || task.blocked_reason || "Waiting for a meaningful signal."}</p>
+          <h1>{redact(task.title || "No active task", director.privacyMode)}</h1>
+          <p>{redact(task.current_action || task.next_action || task.blocked_reason || "Waiting for a meaningful signal.", director.privacyMode)}</p>
           <div className="display-meta">
             <StatusBadge status={String(core.mode || "IDLE")} />
             <span>{phase}</span>
@@ -54,8 +86,8 @@ export function Display({ overview: initialOverview }: { overview: UiOverview })
             <span className="display-kicker">Attention</span>
             {attention.slice(0, 4).map((item) => (
               <article className="display-attention__item" data-severity={item.severity} key={item.id}>
-                <strong>{item.title}</strong>
-                <p>{item.message || item.recovery_hint || "Review this signal."}</p>
+                <strong>{redact(item.title, director.privacyMode)}</strong>
+                <p>{redact(item.message || item.recovery_hint || "Review this signal.", director.privacyMode)}</p>
               </article>
             ))}
           </section>
@@ -80,21 +112,21 @@ export function Display({ overview: initialOverview }: { overview: UiOverview })
         <div className="display-card display-phase">
           <span className="display-kicker">Mission Phase</span>
           <strong>{phase}</strong>
-          <p>{String(core.active_goal || task.title || "Standing by.")}</p>
+          <p>{redact(String(core.active_goal || task.title || "Standing by."), director.privacyMode)}</p>
         </div>
         <div className="display-card display-events" aria-label="Recent Events">
           <span className="display-kicker">Recent Events</span>
-          {events.length ? (
-            events.slice(0, 6).map((event) => (
-              <div className="event-row" data-severity={event.severity || "info"} key={`${event.type}-${event.source_updated_at}-${event.message}`}>
-                <span>{event.type}</span>
-                <strong>{event.message || event.source_type}</strong>
+          {director.dock.length || director.ambient.length ? (
+            [...director.dock, ...director.ambient].slice(0, 6).map((item) => (
+              <div className="event-row" data-severity={item.severity || "info"} data-priority={item.priority} key={item.id}>
+                <span>{item.priority}</span>
+                <strong>{redact(item.message || item.title, director.privacyMode)}</strong>
               </div>
             ))
           ) : (
-            <div className="event-row" data-severity="normal">
-              <span>stream</span>
-              <strong>Waiting for live events</strong>
+            <div className="event-row" data-severity={director.offline || director.stale ? "warning" : "normal"}>
+              <span>{director.offline ? "offline" : director.stale ? "stale" : "stream"}</span>
+              <strong>{director.offline ? "Showing last known snapshot" : director.stale ? "Waiting for fresh events" : "Waiting for live events"}</strong>
             </div>
           )}
         </div>
@@ -127,4 +159,8 @@ function nextServerId(steps: Array<Record<string, unknown>> | undefined): string
   const pending = (steps || []).find((step) => String(step.status || "").toLowerCase() === "pending" || String(step.status || "").toLowerCase() === "ready");
   const capabilityId = String(pending?.capability_id || "");
   return capabilityId.split(".", 1)[0] || "";
+}
+
+function redact(value: string, privacyMode: boolean): string {
+  return privacyMode ? "Private information hidden" : value;
 }

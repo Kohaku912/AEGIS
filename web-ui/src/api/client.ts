@@ -40,3 +40,49 @@ export async function resolveApproval(approvalId: string, decision: "approve" | 
     throw new Error(`Approval ${decision} failed: ${response.status}`);
   }
 }
+
+export async function fetchAuthMe(): Promise<Record<string, unknown>> {
+  const response = await fetch("/auth/me", { credentials: "include" });
+  if (!response.ok) {
+    throw new Error(`Auth session request failed: ${response.status}`);
+  }
+  return response.json();
+}
+
+export async function fetchSettings(): Promise<Record<string, unknown>> {
+  const response = await fetch("/api/settings", { credentials: "include" });
+  if (!response.ok) {
+    throw new Error(`Settings request failed: ${response.status}`);
+  }
+  return response.json();
+}
+
+export async function updateSetting(section: string, key: string, value: unknown): Promise<Record<string, unknown>> {
+  const csrf = String((await fetchAuthMe()).csrf_token || "");
+  const response = await fetch("/api/settings", {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", "X-CSRF-Token": csrf },
+    body: JSON.stringify({ section, key, value })
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const message = String(payload.error || (Array.isArray(payload.errors) ? payload.errors.join(", ") : "") || response.status);
+    throw new Error(message);
+  }
+  return payload;
+}
+
+export async function resetSettings(): Promise<Record<string, unknown>> {
+  const csrf = String((await fetchAuthMe()).csrf_token || "");
+  const response = await fetch("/api/settings/reset", {
+    method: "POST",
+    credentials: "include",
+    headers: { "X-CSRF-Token": csrf }
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(String(payload.error || response.status));
+  }
+  return payload;
+}

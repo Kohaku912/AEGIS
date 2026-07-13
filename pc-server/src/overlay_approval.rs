@@ -5,6 +5,26 @@
 
 use serde::{Deserialize, Serialize};
 
+// COLORREF is 0x00bbggrr. These values mirror design-tokens/tokens.json.
+#[cfg(target_os = "windows")]
+const COLOR_BG: u32 = 0x000F0905;
+#[cfg(target_os = "windows")]
+const COLOR_SURFACE: u32 = 0x001B110B;
+#[cfg(target_os = "windows")]
+const COLOR_TEXT: u32 = 0x00FFF2EA;
+#[cfg(target_os = "windows")]
+const COLOR_MUTED: u32 = 0x00B8A08E;
+#[cfg(target_os = "windows")]
+const COLOR_CYAN: u32 = 0x00FFD329;
+#[cfg(target_os = "windows")]
+const COLOR_VIOLET: u32 = 0x00FF7C8B;
+#[cfg(target_os = "windows")]
+const COLOR_GREEN: u32 = 0x00A8D42D;
+#[cfg(target_os = "windows")]
+const COLOR_AMBER: u32 = 0x004DB8FF;
+#[cfg(target_os = "windows")]
+const COLOR_RED: u32 = 0x00735DFF;
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ApprovalRequest {
     pub request_id: String,
@@ -523,11 +543,11 @@ extern "system" fn overlay_wnd_proc(
                     CreateCompatibleBitmap(hdc, rect.right - rect.left, rect.bottom - rect.top);
                 let old_bmp = SelectObject(mem_dc, bmp);
 
-                let bg_brush = CreateSolidBrush(0x001B110B);
+                let bg_brush = CreateSolidBrush(COLOR_SURFACE);
                 FillRect(mem_dc, &rect, bg_brush);
                 DeleteObject(bg_brush as _);
 
-                let border_pen = CreatePen(PS_SOLID, 2, 0x004DB8FF);
+                let border_pen = CreatePen(PS_SOLID, 2, COLOR_AMBER);
                 let old_pen = SelectObject(mem_dc, border_pen);
                 let old_brush = SelectObject(mem_dc, GetStockObject(NULL_BRUSH));
                 Rectangle(mem_dc, rect.left, rect.top, rect.right, rect.bottom);
@@ -538,7 +558,7 @@ extern "system" fn overlay_wnd_proc(
                 SetBkMode(mem_dc, 1);
 
                 let title: Vec<u16> = "AEGIS Approval Required\0".encode_utf16().collect();
-                SetTextColor(mem_dc, 0x004DB8FF);
+                SetTextColor(mem_dc, COLOR_AMBER);
                 let mut title_rect = RECT {
                     left: rect.left + 16,
                     top: rect.top + 12,
@@ -553,7 +573,7 @@ extern "system" fn overlay_wnd_proc(
                     DT_LEFT | DT_SINGLELINE,
                 );
 
-                SetTextColor(mem_dc, 0x00FFF2EA);
+                SetTextColor(mem_dc, COLOR_TEXT);
 
                 if let Some(ref data) = OVERLAY_DATA {
                     let action_text: Vec<u16> = format!("Action: {}\0", data.action)
@@ -604,7 +624,7 @@ extern "system" fn overlay_wnd_proc(
                     );
                     y_pos += 28;
 
-                    SetTextColor(mem_dc, 0x00A8D42D);
+                    SetTextColor(mem_dc, COLOR_GREEN);
                     let approve_text: Vec<u16> = "[Y] Approve\0".encode_utf16().collect();
                     line_rect.top = y_pos;
                     line_rect.bottom = y_pos + 22;
@@ -616,7 +636,7 @@ extern "system" fn overlay_wnd_proc(
                         DT_LEFT | DT_SINGLELINE,
                     );
 
-                    SetTextColor(mem_dc, 0x00735DFF);
+                    SetTextColor(mem_dc, COLOR_RED);
                     let reject_text: Vec<u16> = "[N] Reject\0".encode_utf16().collect();
                     line_rect.left = rect.right - 120;
                     line_rect.right = rect.right - 16;
@@ -628,7 +648,7 @@ extern "system" fn overlay_wnd_proc(
                         DT_LEFT | DT_SINGLELINE,
                     );
 
-                    SetTextColor(mem_dc, 0x008EA08B);
+                    SetTextColor(mem_dc, COLOR_MUTED);
                     let esc_text: Vec<u16> = "[ESC] Cancel\0".encode_utf16().collect();
                     line_rect.left = rect.left + 16;
                     line_rect.right = rect.right - 16;
@@ -694,13 +714,16 @@ extern "system" fn display_wnd_proc(
 
                 let (bg_color, border_color, title_color) = if let Some(ref data) = DISPLAY_DATA {
                     match data.style.as_str() {
-                        "warning" => (0x001A1A3E, 0x0000AAFF, 0x0000CCFF),
-                        "error" => (0x001A0A0A, 0x000000FF, 0x004444FF),
-                        "success" => (0x000A1A0A, 0x0000FF00, 0x0044FF44),
-                        _ => (0x001E1E2E, 0x00FF8800, 0x00FF8800),
+                        "warning" => (COLOR_SURFACE, COLOR_AMBER, COLOR_AMBER),
+                        "error" => (COLOR_BG, COLOR_RED, COLOR_RED),
+                        "success" => (COLOR_BG, COLOR_GREEN, COLOR_GREEN),
+                        "approval" => (COLOR_SURFACE, COLOR_AMBER, COLOR_AMBER),
+                        "emergency" => (COLOR_BG, COLOR_RED, COLOR_RED),
+                        "notice" => (COLOR_SURFACE, COLOR_VIOLET, COLOR_VIOLET),
+                        _ => (COLOR_SURFACE, COLOR_CYAN, COLOR_CYAN),
                     }
                 } else {
-                    (0x001E1E2E, 0x00FF8800, 0x00FF8800)
+                    (COLOR_SURFACE, COLOR_CYAN, COLOR_CYAN)
                 };
 
                 let bg_brush = CreateSolidBrush(bg_color);
@@ -734,7 +757,7 @@ extern "system" fn display_wnd_proc(
                         DT_LEFT | DT_SINGLELINE,
                     );
 
-                    SetTextColor(mem_dc, 0x00DDDDDD);
+                    SetTextColor(mem_dc, COLOR_TEXT);
                     let mut y_pos = 44;
                     for line in data.body.lines() {
                         let text: Vec<u16> = format!("{}\0", line).encode_utf16().collect();
@@ -754,7 +777,7 @@ extern "system" fn display_wnd_proc(
                         y_pos += 24;
                     }
 
-                    SetTextColor(mem_dc, 0x00666666);
+                    SetTextColor(mem_dc, COLOR_MUTED);
                     let hint: Vec<u16> = "[ESC] Close\0".encode_utf16().collect();
                     let mut hint_rect = RECT {
                         left: rect.left + 16,
@@ -822,13 +845,16 @@ extern "system" fn rich_display_wnd_proc(
                 let (bg_color, border_color, title_color) =
                     if let Some(ref data) = RICH_DISPLAY_DATA {
                         match data.style.as_str() {
-                            "warning" => (0x001A1A3E, 0x0000AAFF, 0x0000CCFF),
-                            "error" => (0x001A0A0A, 0x000000FF, 0x004444FF),
-                            "success" => (0x000A1A0A, 0x0000FF00, 0x0044FF44),
-                            _ => (0x001E1E2E, 0x00FF8800, 0x00FF8800),
+                            "warning" => (COLOR_SURFACE, COLOR_AMBER, COLOR_AMBER),
+                            "error" => (COLOR_BG, COLOR_RED, COLOR_RED),
+                            "success" => (COLOR_BG, COLOR_GREEN, COLOR_GREEN),
+                            "approval" => (COLOR_SURFACE, COLOR_AMBER, COLOR_AMBER),
+                            "emergency" => (COLOR_BG, COLOR_RED, COLOR_RED),
+                            "notice" => (COLOR_SURFACE, COLOR_VIOLET, COLOR_VIOLET),
+                            _ => (COLOR_SURFACE, COLOR_CYAN, COLOR_CYAN),
                         }
                     } else {
-                        (0x001E1E2E, 0x00FF8800, 0x00FF8800)
+                        (COLOR_SURFACE, COLOR_CYAN, COLOR_CYAN)
                     };
 
                 let bg_brush = CreateSolidBrush(bg_color);
@@ -861,7 +887,7 @@ extern "system" fn rich_display_wnd_proc(
                         DT_LEFT | DT_SINGLELINE,
                     );
 
-                    SetTextColor(mem_dc, 0x00DDDDDD);
+                    SetTextColor(mem_dc, COLOR_TEXT);
                     let mut y_pos = 44;
                     for line in data.body.lines() {
                         let text: Vec<u16> = format!("{}\0", line).encode_utf16().collect();
@@ -918,7 +944,7 @@ extern "system" fn rich_display_wnd_proc(
                         }
                     }
 
-                    SetTextColor(mem_dc, 0x00666666);
+                    SetTextColor(mem_dc, COLOR_MUTED);
                     let hint: Vec<u16> = "[ESC] Close\0".encode_utf16().collect();
                     let mut hint_rect = RECT {
                         left: rect.left + 16,

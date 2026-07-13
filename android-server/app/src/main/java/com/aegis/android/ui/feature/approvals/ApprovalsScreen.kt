@@ -20,6 +20,8 @@ import com.aegis.android.grpc.ApprovalItem
 import com.aegis.android.ui.designsystem.AegisPanel
 import com.aegis.android.ui.designsystem.AegisText
 import com.aegis.android.ui.designsystem.AegisTextSecondary
+import java.text.DateFormat
+import java.util.Date
 import kotlinx.coroutines.launch
 
 @Composable
@@ -36,9 +38,18 @@ fun ApprovalsScreen(client: AegisGrpcClient, approvals: List<ApprovalItem>, onRe
         items(approvals) { approval ->
             AegisPanel(modifier = Modifier.fillMaxWidth()) {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(16.dp)) {
-                    Text(approval.summary, color = AegisText, fontWeight = FontWeight.Bold)
-                    Text(approval.capabilityId, color = AegisTextSecondary)
-                    Text("Risk: ${approval.risk.ifBlank { "review required" }}", color = AegisTextSecondary)
+                    Text(approval.summary.ifBlank { approval.requestedAction.ifBlank { "Approval required" } }, color = AegisText, fontWeight = FontWeight.Bold)
+                    ApprovalField("Approval ID", approval.approvalId)
+                    ApprovalField("Action", approval.requestedAction.ifBlank { approval.summary })
+                    ApprovalField("Target", approval.target.ifBlank { "Not specified" })
+                    ApprovalField("Capability", approval.capabilityId)
+                    ApprovalField("Risk", approval.risk.ifBlank { "review required" })
+                    ApprovalField("Reason", approval.reason.ifBlank { "No additional reason reported" })
+                    ApprovalField("Preview", approval.preview.ifBlank { "No preview reported" })
+                    ApprovalField("Task", approval.taskId.ifBlank { "Not linked" })
+                    ApprovalField("Status", approval.status.ifBlank { "pending" })
+                    ApprovalField("Created", formatApprovalTime(approval.createdAtMs))
+                    ApprovalField("Expires", formatApprovalTime(approval.expiresAtMs))
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(onClick = { scope.launch { client.resolveApproval(approval.approvalId, true); onRefresh() } }) { Text("Approve") }
                         Button(onClick = { scope.launch { client.resolveApproval(approval.approvalId, false); onRefresh() } }) { Text("Reject") }
@@ -47,4 +58,17 @@ fun ApprovalsScreen(client: AegisGrpcClient, approvals: List<ApprovalItem>, onRe
             }
         }
     }
+}
+
+@Composable
+private fun ApprovalField(label: String, value: String) {
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text(label, color = AegisTextSecondary, fontWeight = FontWeight.Bold)
+        Text(value.ifBlank { "Not reported" }, color = AegisText)
+    }
+}
+
+private fun formatApprovalTime(value: Long): String {
+    if (value <= 0L) return "Not reported"
+    return DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(value))
 }
