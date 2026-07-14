@@ -215,6 +215,7 @@ def _current_task(runtime: Any) -> dict[str, Any]:
             "verification_summary": "",
             "final_output": "",
             "audit_group_id": "",
+            "conversation_id": "",
             "cost_summary": "",
             "steps": [],
         }
@@ -236,6 +237,7 @@ def _current_task(runtime: Any) -> dict[str, Any]:
         "verification_summary": _verification_summary(raw_steps),
         "final_output": _final_output_summary(task, raw_steps),
         "audit_group_id": _get(task, "audit_group_id", "") or _get(task, "request_id", ""),
+        "conversation_id": _get(task, "conversation_id", "") or _get(task, "chat_id", ""),
         "cost_summary": _cost_summary(task),
         "steps": [_task_step_projection(step) for step in raw_steps[:12]],
         "step_count": len(raw_steps),

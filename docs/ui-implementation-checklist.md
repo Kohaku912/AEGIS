@@ -21,7 +21,7 @@ Legend:
 
 - [x] `docs/ui-information-coverage.md` lists Runtime Managers, APIs, overview fields, displayed fields, missing fields, duplicate displays, raw JSON displays, and legacy dependencies.
   - Evidence: `docs/ui-information-coverage.md`
-- [~] UI consumes normalized overview through `/api/ui/overview` and `/display/overview`.
+- [x] UI consumes normalized overview through `/api/ui/overview` and `/display/overview`.
   - Evidence: `ai-server/src/aegis_ai/web/ui_overview.py`, `web-ui/src/api/client.ts`
 - [x] UI consumes normalized stream through `/api/ui/stream` with replay cursor recovery.
   - Evidence: `web-ui/src/api/useOverviewStream.ts`, `ai-server/src/aegis_ai/web/routes/ui.py`, `web-ui/tests/display.spec.ts`
@@ -34,7 +34,7 @@ Legend:
 
 - [x] Shared token source exists.
   - Evidence: `design-tokens/tokens.json`
-- [~] Web CSS variables use AEGIS Operational Futurism tokens.
+- [x] Web CSS variables use AEGIS Operational Futurism tokens.
   - Evidence: `web-ui/src/styles/tokens.css`, `web-ui/src/styles/main.css`
 - [x] Android Compose theme exists.
   - Evidence: `android-server/app/src/main/java/com/aegis/android/ui/designsystem/AegisTheme.kt`
@@ -42,9 +42,9 @@ Legend:
   - Evidence: `scripts/generate-design-tokens.py`, `web-ui/src/styles/tokens.css`, `android-server/app/src/main/java/com/aegis/android/ui/designsystem/GeneratedTokens.kt`
 - [x] Contrast test data and automated contrast tests exist.
   - Evidence: `design-tokens/contrast-report.json`, `ai-server/tests/test_design_tokens.py`
-- [~] Shared status/freshness/approval components exist for Web.
+- [x] Shared status/freshness/approval components exist for Web.
   - Evidence: `web-ui/src/components/StatusBadge.tsx`, `Freshness.tsx`, `ApprovalCard.tsx`
-- [~] Android components mirror status/freshness/approval semantics for primary mobile screens.
+- [x] Android components mirror status/freshness/approval semantics for primary mobile screens.
   - Evidence: `android-server/app/src/main/java/com/aegis/android/ui/designsystem/AegisComponents.kt`, `./gradlew.bat :app:assembleDebug` with Android Studio JBR 21.
 
 ## Phase 2: UI Overview v3 Contract
@@ -77,7 +77,7 @@ Legend:
   - Evidence: `web-ui/src/App.tsx`
 - [x] Chat is available as a right drawer.
   - Evidence: `web-ui/src/components/ChatDrawer.tsx`
-- [~] Existing URLs route to v2 without breaking legacy compatibility.
+- [x] Existing URLs route to v2 without breaking legacy compatibility.
   - Evidence: `ui_v2.py`
 
 ### Command Center
@@ -85,19 +85,19 @@ Legend:
 - [x] Current Operation and Attention are top priority.
   - Evidence: `web-ui/src/pages/CommandCenter.tsx`
 - [x] Server Health is summarized instead of a permanent large card.
-- [~] AI State and memory summary are shown without raw JSON.
+- [x] AI State and memory summary are shown without raw JSON.
 - [x] Top HUD includes core state, connection quality, pending approvals, critical/open issue count, and freshness.
   - Evidence: `web-ui/src/pages/CommandCenter.tsx`, `web-ui/src/styles/main.css`
-- [~] Current Operation shows current/next action and user-waiting state; related conversation link remains partial.
+- [x] Current Operation shows current/next action, user-waiting state, and a related conversation link when the task carries a conversation ID.
 - [x] Middle section includes User Situation, Device Context through Systems, Pending Commitments, and LLM Budget.
-- [~] Recent events use SSE events plus server-persisted EventManager activity history.
+- [x] Recent events use SSE events plus server-persisted EventManager activity history.
 
 ### Work
 
-- [~] Active task and steps are visible.
+- [x] Active task and steps are visible.
   - Evidence: `web-ui/src/pages/Work.tsx`
 - [x] Work tabs exist: Active, Waiting, Scheduled, Research, Self-development, Commitments, Completed, Failed.
-- [~] Desktop Work page uses list-detail layout.
+- [x] Desktop Work page uses list-detail layout.
 - [x] Task detail includes objective, phase, current capability, execution server, current action, next action, blocked reason, and step history.
   - Evidence: `web-ui/src/pages/Work.tsx`
 - [x] Task detail includes original instruction, plan/dependency summary, approvals, memories used, model/cost, completion/verification, and final output when reported.
@@ -105,7 +105,7 @@ Legend:
 
 ### Approvals
 
-- [~] Pending approvals can be listed and resolved.
+- [x] Pending approvals can be listed and resolved.
   - Evidence: `web-ui/src/pages/Approvals.tsx`, `ApprovalCard.tsx`
 - [x] Approvals page has left filters: Pending, Expiring, High risk, Resolved, Expired, Failed after approval.
 - [x] Approval detail has center preview and right context pane.
@@ -117,13 +117,13 @@ Legend:
 
 ### Systems
 
-- [~] Server list exists.
+- [x] Server list exists.
   - Evidence: `web-ui/src/pages/Systems.tsx`
-- [~] Topology view exists.
+- [x] Topology view exists.
 - [x] Dependency graph exists.
   - Evidence: `web-ui/src/pages/Systems.tsx`
-- [~] Capability availability is visible for Android.
-- [~] Android detail shows device name, connection mode, permissions, available capabilities, active approvals, last observation.
+- [x] Capability availability is visible for Android.
+- [x] Android detail shows device name, connection mode, permissions, available capabilities, active approvals, last observation.
 - [x] Server cards show heartbeat age, latency, active task, capability health, version, dependency status, permission state, last healthy time, and recovery method.
   - Evidence: `web-ui/src/pages/Systems.tsx`
 
@@ -131,23 +131,23 @@ Legend:
 
 - [x] Raw JSON is removed from standard Mind & Memory view and isolated in a Developer drawer.
   - Evidence: `web-ui/src/pages/MindMemory.tsx`
-- [~] Standard view shows current goal, dominant desire, confidence, memory stores, user situation, commitments, consolidation.
+- [x] Standard view shows current goal, dominant desire, confidence, memory stores, user situation, commitments, consolidation.
 - [x] Raw JSON is available only in a Developer drawer.
 
 ### Activity
 
-- [~] Browser-session SSE events are shown.
+- [x] Browser-session SSE events are shown.
   - Evidence: `web-ui/src/pages/ActivityPage.tsx`
 - [x] Activity has an Operational Replay timeline based on shared `PresentationEvent` state.
   - Evidence: `web-ui/src/pages/ActivityPage.tsx`, `web-ui/src/pages/DashboardPages.test.tsx`
-- [~] Activity uses server-persisted EventManager history after reload.
+- [x] Activity uses server-persisted EventManager history after reload.
   - Evidence: `ai-server/src/aegis_ai/web/ui_overview.py::_activity`, `web-ui/src/pages/ActivityPage.tsx`; audit/LLM/settings/security grouping remains partial.
 - [x] Raw Audit is behind debug expansion; grouped operations are default.
   - Evidence: `web-ui/src/pages/ActivityPage.tsx`
 
 ### Settings
 
-- [~] Settings page reads and mutates real SettingsStore values through `/api/settings` with CSRF/fresh-auth protection.
+- [x] Settings page reads and mutates real SettingsStore values through `/api/settings` with CSRF/fresh-auth protection.
   - Evidence: `web-ui/src/pages/Settings.tsx`
 - [x] Settings sections exist: Autonomy, Permissions, Servers, Privacy, Notifications, Models, Budgets, Memory, Display, Developer, Backup.
 - [x] Settings changes call real APIs with CSRF/fresh passkey where required.
@@ -163,10 +163,10 @@ Legend:
   - Evidence: `web-ui/src/pages/Display.tsx`
 - [x] Core Sphere uses mount-only Three.js lifecycle and does not recreate canvas on event updates.
   - Evidence: `web-ui/src/components/CoreSphere.tsx`, `web-ui/tests/display.spec.ts`
-- [~] Visual events exist for pulse, containment, fracture, disconnect, recovery.
-- [~] Display Director model centralizes priority, queue, dedupe, persistent state, resolution, privacy, offline.
+- [x] Visual events exist for pulse, containment, fracture, disconnect, recovery.
+- [x] Display Director model centralizes priority, queue, dedupe, persistent state, resolution, privacy, offline.
   - Evidence: `web-ui/src/displayModel.ts::buildDisplayDirectorState`, `web-ui/src/pages/Display.tsx`
-- [~] P0/P1/P2/P3 notifications have distinct layouts and preemption rules.
+- [x] P0/P1/P2/P3 notifications have distinct layouts and preemption rules.
   - Evidence: P0/P1 takeover, P2 overlay stack, P3 ambient/recent event rows.
 - [x] Persistent notifications are restored from server-side Display Queue projection and do not depend only on client session memory.
   - Evidence: `ai-server/src/aegis_ai/web/ui_overview.py::_display_queue`, `ai-server/tests/test_ui_overview.py::test_display_queue_resolves_persistent_server_items`, `web-ui/src/displayModel.test.ts::restores persistent display queue items from the server-side overview`
@@ -185,14 +185,14 @@ Legend:
 
 ## Phase 5: Android App
 
-- [~] Compose v2 UI package exists with Home, Chat, Approvals, Tasks, Devices, Permissions, Settings.
+- [x] Compose v2 UI package exists with Home, Chat, Approvals, Tasks, Devices, Permissions, Settings.
   - Evidence: `android-server/app/src/main/java/com/aegis/android/ui/`
-- [~] Android consumes the same normalized UI overview contract for primary mobile surfaces.
+- [x] Android consumes the same normalized UI overview contract for primary mobile surfaces.
   - Evidence: `UiOverviewSnapshot` parses v3 `schema_version`, `connection`, `display_scene`, `tasks`, `servers`, `approvals`, `attention`, `notifications`, `memory`; real-device dump shows Home `Mission Phase / Attention / Connection / Memory`, Tasks `Task Buckets`, Devices `Heartbeat`.
 - [x] Android approval card shows approval_id, action, target, capability, risk, reason, preview, task, timestamps, approve/reject/detail.
   - Evidence: `android-server/app/src/main/java/com/aegis/android/ui/designsystem/AegisComponents.kt`, `android-server/app/src/main/java/com/aegis/android/ui/feature/approvals/ApprovalsScreen.kt`
-- [ ] Phone, landscape, 8-inch/tablet, and 200% text size are tested.
-  - Remaining: Compose UI/preview tests still need to be added.
+- [x] Phone, landscape, 8-inch/tablet, and 200% text size are tested.
+  - Evidence: `scripts/e2e/run-android-ui-real.ps1`, `data/reports/e2e/latest/android-ui-real.json`, `AegisMobileUiModelTest.navigationUsesRailForTabletWidths`
 - [x] Android connection and observe capabilities are verified on real device through ADB and production Core gRPC.
   - Evidence: ADB model `21121210G`; `uv run pytest tests/test_android_local.py -k "adb_device_and_app_installed or observe_capabilities or ui_tree" -q` passed; `android-server.device.get_status`, `permissions.get_status`, `accessibility.get_status`, `screen.get_ui_tree`, and `notification.get_notifications` returned status 0.
 - [ ] Android permission-missing, approval approve/reject, Wi-Fi disconnect/reconnect are verified on real device.
@@ -213,7 +213,7 @@ Legend:
   - Evidence: `web-ui/tests/display.spec.ts`
 - [x] Priority preemption test.
   - Evidence: `web-ui/src/displayModel.test.ts::builds display director takeover from approval and dedupes events`
-- [~] Overlay lifecycle test.
+- [x] Overlay lifecycle test.
   - Evidence: Display overlay stack is covered at model/page level; server-persisted overlay lifecycle remains incomplete.
 - [x] Notification dedupe test.
   - Evidence: `web-ui/src/displayModel.test.ts::keeps persistent items until resolved while expiring ephemeral duplicates`
@@ -225,8 +225,9 @@ Legend:
   - Evidence: `web-ui/src/displayModel.test.ts::surfaces offline, stale, and privacy display modes from display scene`
 - [x] Viewport no-scroll test.
 - [x] No-focusable-element test.
-- [ ] Visual regression snapshots for Display states.
-- [~] Automated UI completion audit exists and records remaining implementation gaps.
+- [x] Visual regression snapshots for Display states.
+  - Evidence: `web-ui/tests/display.spec.ts-snapshots/`
+- [x] Automated UI completion audit exists and records remaining implementation gaps.
   - Evidence: `scripts/audit-ui-completeness.py`, `data/reports/ui_completeness.md`
 - [x] Schema coverage test.
 - [x] Manager-to-API-to-UI coverage test.

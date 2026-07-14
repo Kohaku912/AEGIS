@@ -99,11 +99,18 @@ class SleepManager:
         self._sleep_thread.start()
         return True
 
-    def stop_sleep(self) -> None:
-        """Cancel running sleep."""
+    def stop_sleep(self, wait: bool = True, timeout_s: float = 30.0) -> None:
+        """Cancel running sleep and optionally wait for worker resource cleanup."""
         with self._lock:
             if self._state == SleepState.RUNNING:
                 self._state = SleepState.CANCELLED
+            thread = self._sleep_thread
+        if wait and thread is not None and thread.is_alive() and thread is not threading.current_thread():
+            thread.join(timeout=max(0.0, timeout_s))
+
+    def close(self) -> None:
+        """Release the background consolidation worker."""
+        self.stop_sleep(wait=True)
 
     def schedule_sleep(self, timestamp_ms: int) -> None:
         """Schedule sleep at a specific time."""

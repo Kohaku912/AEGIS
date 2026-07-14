@@ -6,7 +6,7 @@ Implements Level-0 read-only operations:
 - browser.get_current_url
 - browser.get_page_title
 - browser.get_links
-- browser.get_dom_snapshot (skeleton)
+- browser.get_dom_snapshot
 
 All observe capabilities are LEVEL_0_READ — always safe, no side effects.
 """

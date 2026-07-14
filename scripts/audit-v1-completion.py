@@ -54,13 +54,14 @@ def _report_status(path: Path, ok_values: set[str] | None = None) -> tuple[str, 
 
 def _checklist_counts() -> tuple[dict[str, int], list[str]]:
     text = CHECKLIST.read_text(encoding="utf-8") if CHECKLIST.exists() else ""
+    v1_text = text.split("## Deferred After v1", 1)[0]
     counts = {
-        "done": len(re.findall(r"^- \[x\]", text, flags=re.MULTILINE | re.IGNORECASE)),
-        "partial": len(re.findall(r"^- \[~\]", text, flags=re.MULTILINE)),
-        "open": len(re.findall(r"^- \[ \]", text, flags=re.MULTILINE)),
-        "blocker": len(re.findall(r"^- \[!\]", text, flags=re.MULTILINE)),
+        "done": len(re.findall(r"^- \[x\]", v1_text, flags=re.MULTILINE | re.IGNORECASE)),
+        "partial": len(re.findall(r"^- \[~\]", v1_text, flags=re.MULTILINE)),
+        "open": len(re.findall(r"^- \[ \]", v1_text, flags=re.MULTILINE)),
+        "blocker": len(re.findall(r"^- \[!\]", v1_text, flags=re.MULTILINE)),
     }
-    return counts, re.findall(r"^##\s+(.+)$", text, flags=re.MULTILINE)
+    return counts, re.findall(r"^##\s+(.+)$", v1_text, flags=re.MULTILINE)
 
 
 def _required_e2e() -> dict[str, object]:

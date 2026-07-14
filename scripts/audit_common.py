@@ -5,14 +5,12 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import re
 import subprocess
 import time
+from collections.abc import Iterable
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Iterable
-
 
 ROOT = Path(__file__).resolve().parents[1]
 REPORT_DIR = ROOT / "data" / "reports"
@@ -163,14 +161,20 @@ def classify(path: str, term: str, text: str) -> tuple[str, str]:
         return "dev_only", "external send integration is deferred after v1 and disabled by policy"
     if "llm/providers/mock.py" in lower_path or "mockllmprovider" in lower_text:
         return "dev_only", "mock LLM provider is rejected by production output guard"
-    if lower_path.endswith("tool_broker.py") and ("default mock executor" in lower_text or '"mock": true' in lower_text):
+    if lower_path.endswith("tool_broker.py") and (
+        "default mock executor" in lower_text or '"mock": true' in lower_text
+    ):
         return "dev_only", "ToolBroker mock executor is rejected by production output guard"
     if lower_path.startswith("pc-server/src/") and "[mock]" in lower_text:
         return "dev_only", "PC mock action output is rejected by production ToolBroker and real-action E2E"
+    if lower_path.startswith("pc-server/src/") and ("mock:" in lower_text or "in real implementation" in lower_text):
+        return "production_blocker", "PC production command still returns a placeholder result"
     if "room" in lower_path and "provider" in lower_path and "mock" in lower_text:
         guard_path = ROOT / "room-server/src/aegis_room/providers.py"
         try:
-            guarded = "not allowed when AEGIS_RUNTIME_MODE=production" in guard_path.read_text(encoding="utf-8", errors="ignore")
+            guarded = "not allowed when AEGIS_RUNTIME_MODE=production" in guard_path.read_text(
+                encoding="utf-8", errors="ignore"
+            )
         except Exception:
             guarded = False
         if guarded:

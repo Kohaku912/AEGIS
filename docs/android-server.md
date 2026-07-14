@@ -2,6 +2,17 @@
 
 > **Status**: Code-backed mobile companion app (outbound client to AI Server)
 > **Language**: Kotlin (Android)
+
+## Production Connection And UI
+
+Production uses the saved host or Intent extras with the Ubuntu Tailscale
+IP/MagicDNS host; LAN IP and USB reverse are diagnostic fallbacks. Compose v2
+provides Home, Chat, Approvals, Tasks, Devices, Permissions, and Settings.
+Phone widths use four primary destinations plus More; widths of 600dp and above
+use a navigation rail. `scripts/test-android-real.ps1` records Wi-Fi off/on,
+screen-off, Core/app restart, reconnect count, heartbeat failures, and network
+evidence. CI skips `android_local`; release acceptance requires a real-device
+report.
 > **Permissions**: MediaProjection, AccessibilityService, Overlay (ユーザー明示的有効化)
 
 ## Overview

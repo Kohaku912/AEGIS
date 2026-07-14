@@ -3,6 +3,14 @@
 > **Status**: Code-backed room server (gRPC, mock-first providers)
 > **Language**: Python (AEGIS Core integration via `room_server_client.py`)
 
+## Production Scope
+
+Room is `UNCONFIGURED/DISABLED` for v1 until the Orange Pi has a real provider.
+Mock sensors and actuators are test/development only and cannot produce a
+production success. Production Compose starts Room only with the explicit
+`room` profile and a non-mock provider. The target host, Wi-Fi, IP, and MAC are
+kept in the local device inventory; physical actions remain approval-gated.
+
 ## Overview
 
 The Room Server provides AEGIS with physical environment observation AND control capabilities.

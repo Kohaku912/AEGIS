@@ -1,5 +1,14 @@
 # AEGIS Backlog
 
+## 2026-07-14 Production Focus
+
+Open v1 work is tracked in `docs/v1-completion-checklist.md`. The release gate
+is real E2E evidence, including persistence, backup/restore, PC, Android,
+Browser/Dev, authentication, and Display recovery. LINE, Discord, SMTP, voice,
+multi-user, and payment integrations are deferred and are not v1 blockers.
+Room remains out of production scope until a real Orange Pi provider replaces
+the development mock provider.
+
 > **Last Updated**: 2026-06-17
 > **Total Tests**: 157 passed
 

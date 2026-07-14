@@ -624,9 +624,18 @@ a {
   inset: calc(var(--space-xl) + 34px) var(--space-xl) auto var(--space-xl);
   z-index: 2;
   display: grid;
-  grid-template-columns: minmax(320px, 0.95fr) minmax(280px, 0.62fr);
+  grid-template-columns: minmax(300px, 420px) minmax(320px, 1fr) minmax(280px, 360px);
   gap: var(--space-lg);
   align-items: start;
+  pointer-events: none;
+}
+
+.display-operation {
+  grid-column: 1;
+}
+
+.display-attention {
+  grid-column: 3;
 }
 
 .display-card {
@@ -638,9 +647,10 @@ a {
 }
 
 .display-operation h1 {
-  font-size: clamp(26px, 4.2vw, 58px);
-  line-height: 1.02;
+  font-size: clamp(26px, 3vw, 42px);
+  line-height: 1.08;
   margin: 6px 0 10px;
+  overflow-wrap: anywhere;
 }
 
 .display-operation p,
@@ -686,16 +696,18 @@ a {
 
 .display-core-stage {
   position: absolute;
-  inset: 16vh 13vw 19vh 13vw;
+  inset: 9vh min(31vw, 470px) 25vh min(31vw, 470px);
   z-index: 1;
-  min-height: 52vh;
+  min-height: 360px;
   display: grid;
   place-items: stretch;
+  overflow: hidden;
+  background: var(--aegis-bg);
 }
 
 .display-core-stage .core-sphere,
 .display-core-stage .core-canvas {
-  min-height: 52vh;
+  min-height: 360px;
 }
 
 .display-core-stage .core-sphere {
@@ -705,7 +717,7 @@ a {
 .display-core-stage .core-legend {
   position: absolute;
   left: 50%;
-  bottom: 4px;
+  bottom: 2px;
   max-width: min(860px, 80vw);
   transform: translateX(-50%);
   border: 1px solid rgba(142, 160, 184, 0.13);
@@ -718,7 +730,7 @@ a {
 .display-core-stage .core-caption {
   position: absolute;
   left: 50%;
-  top: 4px;
+  top: 2px;
   transform: translateX(-50%);
   margin: 0;
   border: 1px solid rgba(142, 160, 184, 0.12);
@@ -731,7 +743,7 @@ a {
   position: absolute;
   left: var(--space-xl);
   right: var(--space-xl);
-  bottom: 56px;
+  bottom: 58px;
   z-index: 2;
   display: grid;
   grid-template-columns: minmax(260px, 0.55fr) minmax(360px, 1fr);
@@ -847,6 +859,31 @@ a {
   display: block;
   width: 100%;
   height: 100%;
+}
+
+@media (max-height: 820px) {
+  .display-card {
+    padding: var(--space-md);
+  }
+
+  .display-operation h1 {
+    font-size: clamp(24px, 2.7vw, 36px);
+  }
+
+  .display-meta {
+    margin-top: var(--space-sm);
+  }
+
+  .display-core-stage {
+    top: 10vh;
+    bottom: 27vh;
+    min-height: 320px;
+  }
+
+  .display-core-stage .core-sphere,
+  .display-core-stage .core-canvas {
+    min-height: 320px;
+  }
 }
 
 .core-legend {
@@ -1008,6 +1045,20 @@ a {
   color: var(--aegis-text-secondary);
   padding: 6px 10px;
   font-size: 12px;
+}
+
+.operation-conversation-link {
+  color: var(--aegis-accent-cyan);
+  display: inline-flex;
+  font-size: 12px;
+  margin-top: var(--space-sm);
+  text-decoration: none;
+}
+
+.operation-conversation-link:hover,
+.operation-conversation-link:focus-visible {
+  color: var(--aegis-text-primary);
+  text-decoration: underline;
 }
 
 .compact-list {

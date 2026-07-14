@@ -9,6 +9,14 @@ exec >>"$LOG_DIR/kiosk.log" 2>&1
 
 echo "[$(date --iso-8601=seconds)] kiosk supervisor starting for $URL DISPLAY=${DISPLAY:-} WAYLAND_DISPLAY=${WAYLAND_DISPLAY:-}"
 
+# The AI Core must never suspend with the desktop session. Display power is
+# managed independently by aegis-display-power.service.
+if command -v gsettings >/dev/null 2>&1; then
+  gsettings set org.gnome.settings-daemon.plugins.power sleep-inactive-ac-type 'nothing' || true
+  gsettings set org.gnome.settings-daemon.plugins.power sleep-inactive-battery-type 'nothing' || true
+  gsettings set org.gnome.desktop.session idle-delay 0 || true
+fi
+
 launch_browser() {
   rm -f "$PROFILE_DIR"/SingletonLock "$PROFILE_DIR"/SingletonSocket "$PROFILE_DIR"/SingletonCookie 2>/dev/null || true
   if command -v chromium-browser >/dev/null 2>&1; then

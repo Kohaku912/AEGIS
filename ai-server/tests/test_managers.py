@@ -73,11 +73,14 @@ def memory_manager(event_manager):
 @pytest.fixture
 def sleep_manager(memory_manager, event_manager, audit_manager):
     from aegis_ai.memory.sleep import SleepManager
-    return SleepManager(
+    manager = SleepManager(
         memory_manager=memory_manager,
         event_manager=event_manager,
         audit_manager=audit_manager,
     )
+    yield manager
+    manager.close()
+    audit_manager._log.close()
 
 
 # ── TaskManager Tests ─────────────────────────────────────────
@@ -140,6 +143,38 @@ class TestTaskManager:
         task_manager.start_task(task["task_id"])
         running = task_manager.list_running()
         assert len(running) == 1
+
+    def test_reload_recovers_interrupted_tasks(self, tmp_dir):
+        from aegis_ai.task.task_manager import TaskManager
+
+        manager = TaskManager(data_dir=tmp_dir)
+        interrupted = manager.create_task("Interrupted execution")
+        manager.start_task(interrupted["task_id"])
+        manager.add_step(interrupted["task_id"], "step-1", capability_id="pc-server.test.run")
+        manager.update_step_status(interrupted["task_id"], "step-1", "running")
+
+        recovered = TaskManager(data_dir=tmp_dir).get_task(interrupted["task_id"])
+
+        assert recovered is not None
+        assert recovered["status"] == "failed"
+        assert recovered["steps"][0]["status"] == "failed"
+        assert "restart" in recovered["error"].lower()
+
+    def test_reload_completes_task_whose_steps_were_terminal(self, tmp_dir):
+        from aegis_ai.task.task_manager import TaskManager
+
+        manager = TaskManager(data_dir=tmp_dir)
+        task = manager.create_task("Final state interrupted")
+        manager.start_task(task["task_id"])
+        manager.add_step(task["task_id"], "step-1", capability_id="pc-server.test.observe")
+        manager.update_step_status(task["task_id"], "step-1", "running")
+        manager.update_step_status(task["task_id"], "step-1", "completed", result={"ok": True})
+
+        recovered = TaskManager(data_dir=tmp_dir).get_task(task["task_id"])
+
+        assert recovered is not None
+        assert recovered["status"] == "completed"
+        assert "Recovered completed" in recovered["result_summary"]
 
     def test_approval_reject_cancels_task(self, task_manager):
         task = task_manager.create_task(title="Test")

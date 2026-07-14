@@ -187,22 +187,23 @@ fn handle_command(cmd: &str) -> String {
         }
 
         // ── App/Window (Level 1) ───────────────────────────
-        "launch_app" => {
-            // Mock: in real implementation, use std::process::Command
-            json_response(&serde_json::json!({
+        "launch_app" => match system_ops::launch_app(params) {
+            Ok(pid) => json_response(&serde_json::json!({
                 "status": "ok",
                 "action": "launch_app",
                 "app": params,
-            }))
-        }
-        "focus_window" => {
-            // Mock: in real implementation, use Windows API
-            json_response(&serde_json::json!({
+                "pid": pid,
+            })),
+            Err(error) => json_error(error),
+        },
+        "focus_window" => match system_ops::focus_window(params) {
+            Ok(()) => json_response(&serde_json::json!({
                 "status": "ok",
                 "action": "focus_window",
                 "target": params,
-            }))
-        }
+            })),
+            Err(error) => json_error(error),
+        },
 
         // ── Input (Level 2: Approval required) ─────────────
         "mouse_move" => {

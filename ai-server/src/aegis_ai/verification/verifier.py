@@ -1032,11 +1032,12 @@ class VerificationService:
             return
 
         try:
-            from audit import AuditEntry
+            from aegis_ai.audit import AuditEntry
 
+            source = request.source or "system"
             entry = AuditEntry(
                 action="verification",
-                actor=request.source or "system",
+                actor=str(getattr(source, "value", source)),
                 capability_id=request.capability_id,
                 decision=result.status.value,
                 reason=result.reason,

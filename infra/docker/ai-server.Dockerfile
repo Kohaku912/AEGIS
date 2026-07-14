@@ -26,6 +26,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 COPY ai-server/pyproject.toml ./pyproject.toml
+RUN mkdir -p src/aegis_ai \
+    && touch src/aegis_ai/__init__.py \
+    && pip install --no-cache-dir ".[dev]" flask pyyaml requests
+
 COPY ai-server/src ./src
 COPY ai-server/config ./config
 COPY ai-server/capabilities ./capabilities
@@ -33,7 +37,7 @@ COPY ai-server/apps ./apps
 COPY protos /protos
 COPY --from=web-ui-build /ai-server/src/aegis_ai/web/static/ui-v2 ./src/aegis_ai/web/static/ui-v2
 
-RUN pip install --no-cache-dir -e ".[dev]" flask pyyaml requests
+RUN pip install --no-cache-dir --no-deps -e .
 RUN mkdir -p /app/data /app/evaluation/reports
 
 EXPOSE 50051 8090 8091

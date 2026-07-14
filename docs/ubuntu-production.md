@@ -69,7 +69,30 @@ bash scripts/ubuntu/healthcheck.sh
 ```
 
 After systemd start, `healthcheck.sh` verifies `aegis.service`, Docker Compose
-state, Dashboard health, and the production readiness audit.
+state, and Dashboard health. Release readiness is intentionally separate so an
+incomplete real-device gate cannot prevent the Core from recovering after a
+reboot:
+
+```bash
+AEGIS_RUN_READINESS_CHECK=1 bash scripts/ubuntu/healthcheck.sh
+```
+
+## Dedicated Display
+
+Install the read-only Display kiosk units for the graphical-session user:
+
+```bash
+sudo AEGIS_KIOSK_USER=tatuki bash scripts/ubuntu/install.sh
+systemctl --user daemon-reload
+systemctl --user enable --now aegis-kiosk.service aegis-display-power.service
+```
+
+The kiosk opens only `http://127.0.0.1:8090/display/presentations`. The kiosk
+disables GNOME automatic suspend because the AI Core must remain running.
+`aegis-display-power.service` independently switches the panel off after ten
+minutes without an operation-state change and wakes it for task, approval,
+presentation, server-state, or attention changes. Set
+`AEGIS_DISPLAY_IDLE_SECONDS` in the user unit override to tune the interval.
 
 ## Volumes
 

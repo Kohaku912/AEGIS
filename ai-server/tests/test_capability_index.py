@@ -29,6 +29,7 @@ def _write_capability(
                 "server_id": server_id,
                 "app_id": app_id,
                 "action": action,
+                "operation_category": "test_fixture",
                 "risk": {"level": "low", "requires_approval": False},
                 "tags": tags or [],
                 "aliases": aliases or [],

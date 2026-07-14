@@ -5,10 +5,13 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.aegis.android.grpc.AegisConnectionState
@@ -33,27 +36,51 @@ fun HomeScreen(
     permissions: MobilePermissionSnapshot,
     servers: List<MobileServerStatus>,
 ) {
+    val highFontScale = LocalDensity.current.fontScale >= 1.5f
     val overviewServers = if (overview.servers.isNotEmpty()) {
         overview.servers
     } else {
         servers.map { UiServerSummary(it.serverId, it.label.ifBlank { it.serverId }, it.status, it.mode, it.detail) }
     }
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.padding(16.dp)) {
+    Column(
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+        modifier = Modifier.padding(16.dp).verticalScroll(rememberScrollState()),
+    ) {
         AegisPanel(modifier = Modifier.fillMaxWidth()) {
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(16.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.padding(16.dp),
-            ) {
-                CoreGlyph(mode = overview.coreMode, health = overview.coreHealth, pendingApprovals = overview.pendingApprovals)
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (highFontScale) {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    horizontalAlignment = Alignment.Start,
+                    modifier = Modifier.fillMaxWidth().padding(16.dp),
+                ) {
+                    CoreGlyph(
+                        mode = overview.coreMode,
+                        health = overview.coreHealth,
+                        pendingApprovals = overview.pendingApprovals,
+                        diameter = 96.dp,
+                    )
                     Text("AEGIS Mobile", color = AegisText, fontWeight = FontWeight.Bold)
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        AegisStatusChip("Core", overview.coreHealth)
-                        AegisStatusChip("Mode", overview.coreMode)
-                    }
+                    AegisStatusChip("Core", overview.coreHealth, modifier = Modifier.fillMaxWidth())
+                    AegisStatusChip("Mode", overview.coreMode, modifier = Modifier.fillMaxWidth())
                     FreshnessLabel(stale = overview.freshnessStale, generatedAtMs = overview.generatedAtMs)
                     Text(if (state.connected) "Connected to ${state.host}:${state.port}" else "Disconnected: ${state.lastError.ifBlank { "waiting" }}", color = AegisTextSecondary)
+                }
+            } else {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(16.dp),
+                ) {
+                    CoreGlyph(mode = overview.coreMode, health = overview.coreHealth, pendingApprovals = overview.pendingApprovals)
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("AEGIS Mobile", color = AegisText, fontWeight = FontWeight.Bold)
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            AegisStatusChip("Core", overview.coreHealth)
+                            AegisStatusChip("Mode", overview.coreMode)
+                        }
+                        FreshnessLabel(stale = overview.freshnessStale, generatedAtMs = overview.generatedAtMs)
+                        Text(if (state.connected) "Connected to ${state.host}:${state.port}" else "Disconnected: ${state.lastError.ifBlank { "waiting" }}", color = AegisTextSecondary)
+                    }
                 }
             }
         }

@@ -38,7 +38,9 @@ _SECRET_TEXT_RE = re.compile(
     r"(?i)(bearer\s+)[A-Za-z0-9._~+/=-]{16,}|(sk-[A-Za-z0-9_-]{20,})|"
     r"((?:token|secret|password|api[_-]?key)\s*[:=]\s*)\S+"
 )
-_TRIVIAL_RESULTS = frozenset({"no new posts", "done", "no memory found", "ok", "no new messages", "no drafts", "no new data"})
+_TRIVIAL_RESULTS = frozenset(
+    {"no new posts", "done", "no memory found", "ok", "no new messages", "no drafts", "no new data"}
+)
 
 
 class AutonomousLoop:
@@ -134,6 +136,12 @@ class AutonomousLoop:
         self._selected_tool_count: int = 0
         self._last_no_action_reason: str = ""
         self._last_candidate_capability_ids: list[str] = []
+        self._last_decision_axes: dict[str, float] = {
+            "user_commitment": 0.0,
+            "system_health": 0.0,
+            "learning": 0.0,
+            "curiosity": 0.0,
+        }
         self._consecutive_no_action: int = 0
         self._health_alert_manager: Any = None
         self._last_health_check_ms: int = 0
@@ -164,6 +172,7 @@ class AutonomousLoop:
                 self._selected_tool_count = data.get("selected_tool_count", 0)
                 self._last_no_action_reason = data.get("last_no_action_reason", "")
                 self._last_candidate_capability_ids = data.get("last_candidate_capability_ids", [])
+                self._last_decision_axes = data.get("last_decision_axes", self._last_decision_axes)
                 self._consecutive_no_action = data.get("consecutive_no_action", 0)
                 logger.info("Loaded autonomous loop state")
             except Exception as e:
@@ -185,6 +194,7 @@ class AutonomousLoop:
             "selected_tool_count": self._selected_tool_count,
             "last_no_action_reason": self._last_no_action_reason,
             "last_candidate_capability_ids": self._last_candidate_capability_ids[-30:],
+            "last_decision_axes": self._last_decision_axes,
             "consecutive_no_action": self._consecutive_no_action,
             "timestamp_ms": int(time.time() * 1000),
         }
@@ -434,7 +444,10 @@ Respond with JSON:
         try:
             result = self._llm.generate(
                 prompt=prompt,
-                system_prompt="You are AEGIS's repetition checker. Review tasks for semantic duplication. Output only JSON.",
+                system_prompt=(
+                    "You are AEGIS's repetition checker. Review tasks for semantic duplication. "
+                    "Output only JSON."
+                ),
                 max_tokens=800,
                 json_mode=True,
             )
@@ -826,6 +839,48 @@ Respond with JSON:
             })
         return guides
 
+    def _build_decision_axes(self, low_desires: list[dict[str, Any]]) -> dict[str, float]:
+        """Summarize operational priorities without adding desire dimensions."""
+        axes = {
+            "user_commitment": 0.0,
+            "system_health": 0.0,
+            "learning": 0.0,
+            "curiosity": 0.0,
+        }
+        desire_to_axis = {
+            "user_support": "user_commitment",
+            "social": "user_commitment",
+            "growth": "learning",
+        }
+        for desire in low_desires:
+            axis = desire_to_axis.get(str(desire.get("name", "")))
+            if axis:
+                pressure = float(desire.get("pressure", desire.get("gap", 0.0)) or 0.0)
+                axes[axis] = max(axes[axis], pressure)
+
+        if self._pending_actionable_observations:
+            axes["system_health"] = 1.0
+        if self._status_manager is not None:
+            try:
+                snapshot = self._status_manager.get_snapshot()
+                statuses = snapshot.values() if isinstance(snapshot, dict) else snapshot
+                unhealthy = sum(
+                    1
+                    for item in statuses
+                    if str(
+                        item.get("status", "")
+                        if isinstance(item, dict)
+                        else getattr(item, "status", "")
+                    ).lower()
+                    not in {"online", "healthy", "ok", "disabled", "unconfigured"}
+                )
+                axes["system_health"] = max(axes["system_health"], float(unhealthy))
+            except Exception:
+                logger.debug("Unable to summarize system health decision axis", exc_info=True)
+        if self._curiosity is not None:
+            axes["curiosity"] = 1.0
+        return axes
+
     def _intrinsic_task_hints(self, valid_cap_ids: set[str]) -> list[dict[str, Any]]:
         if not self._desire:
             return []
@@ -941,6 +996,8 @@ Respond with JSON:
             return []
 
         desire_guides = self._desire_action_guides(low_desires[:self._max_tasks])
+        decision_axes = self._build_decision_axes(low_desires[:self._max_tasks])
+        self._last_decision_axes = decision_axes
         intrinsic_hints = self._intrinsic_task_hints(valid_cap_ids)
         representative_ids = self._representative_capability_ids(
             low_desires[:self._max_tasks],
@@ -1001,7 +1058,10 @@ Intrinsic task candidates:
 {json.dumps(intrinsic_hints, ensure_ascii=False)}
 
 Candidate capability ids:
-{json.dumps(candidate_ids, ensure_ascii=False)}"""
+{json.dumps(candidate_ids, ensure_ascii=False)}
+
+Operational decision axes (prioritization only; not additional desires):
+{json.dumps(decision_axes, ensure_ascii=False)}"""
 
         prompt, memory_meta = self._build_shared_llm_prompt(
             query=retrieval_query,
@@ -1036,6 +1096,7 @@ Candidate capability ids:
                     "source": "task_generation",
                     "candidate_capability_ids": candidate_ids[:50],
                     "desire_guides": desire_guides,
+                    "decision_axes": decision_axes,
                     "intrinsic_hints": intrinsic_hints,
                 },
             )
@@ -1177,7 +1238,7 @@ Candidate capability ids:
         available: set[str] = set()
         for capability in capabilities:
             manifest = catalog.resolve(capability.id) if catalog is not None else None
-            server_id = manifest.server_id if manifest is not None else capability.id.split(".", 1)[0]
+            server_id = getattr(manifest, "server_id", "") or capability.id.split(".", 1)[0]
             if server_id == "ai-server" or snapshot is None:
                 available.add(capability.id)
                 continue
@@ -1233,15 +1294,18 @@ Candidate capability ids:
             if self._workflow and not skill_used:
                 workflow_used = self._workflow.find_matching(action)
 
-            # Search for relevant lessons
-            relevant_lessons = []
-            if self._lesson:
-                relevant_lessons = self._lesson.get_relevant(action, count=3)
-
             if skill_used and trace:
-                self._action_trace.add_step(trace, description=f"Using skill: {skill_used.name}", tool_call="skill_reuse")
+                self._action_trace.add_step(
+                    trace,
+                    description=f"Using skill: {skill_used.name}",
+                    tool_call="skill_reuse",
+                )
             elif workflow_used and trace:
-                self._action_trace.add_step(trace, description=f"Using workflow: {workflow_used.name}", tool_call="workflow_reuse")
+                self._action_trace.add_step(
+                    trace,
+                    description=f"Using workflow: {workflow_used.name}",
+                    tool_call="workflow_reuse",
+                )
 
             # Execute
             start_time = int(time.time() * 1000)
@@ -1252,7 +1316,7 @@ Candidate capability ids:
 
             if capability_id and self._broker:
                 try:
-                    from tool_broker import ToolExecutionRequest, ExecutionSource
+                    from tool_broker import ExecutionSource, ToolExecutionRequest
                     request = ToolExecutionRequest(
                         capability_id=capability_id, arguments=arguments,
                         source=ExecutionSource.AUTONOMOUS,
@@ -1271,7 +1335,12 @@ Candidate capability ids:
                         success = True
                     else:
                         error_details = result.output or {}
-                        stderr = error_details.get("error", {}).get("details", {}).get("stderr", "") if isinstance(error_details.get("error"), dict) else ""
+                        error_payload = error_details.get("error")
+                        stderr = (
+                            error_payload.get("details", {}).get("stderr", "")
+                            if isinstance(error_payload, dict)
+                            else ""
+                        )
                         result_summary = f"Failed: {result.error}"
                         if stderr:
                             result_summary += f"\nstderr: {stderr}"
@@ -1355,14 +1424,18 @@ Candidate capability ids:
                 post_args = post_action.get("arguments", {})
                 if post_cap_id:
                     try:
-                        from tool_broker import ToolExecutionRequest, ExecutionSource
+                        from tool_broker import ExecutionSource, ToolExecutionRequest
                         post_request = ToolExecutionRequest(
                             capability_id=post_cap_id, arguments=post_args,
                             source=ExecutionSource.AUTONOMOUS,
                             reason=f"Post-action for {desire_name}",
                         )
                         post_result = self._broker.execute(post_request)
-                        logger.info("Post-action %s: %s", post_cap_id, "OK" if post_result.success else post_result.error)
+                        logger.info(
+                            "Post-action %s: %s",
+                            post_cap_id,
+                            "OK" if post_result.success else post_result.error,
+                        )
                     except Exception as e:
                         logger.warning("Post-action failed: %s", e)
 
@@ -1378,8 +1451,8 @@ Candidate capability ids:
 
     def _present_autonomous_result(self, task: dict[str, Any], result_record: dict[str, Any]) -> None:
         try:
-            from aegis_ai.runtime import get_runtime
             from aegis_ai.presentation.models import PresentationRequest
+            from aegis_ai.runtime import get_runtime
         except Exception:
             return
 
@@ -1644,7 +1717,7 @@ Rules:
 
         self._desire.apply_decay()
 
-        from aegis_ai.desire.fulfillment import evaluate_task_result, TaskEffect
+        from aegis_ai.desire.fulfillment import TaskEffect, evaluate_task_result
 
         for result in results:
             desire_name = result.get("desire", "")
@@ -1714,7 +1787,7 @@ Rules:
     def _resolve_capability_metadata(self, capability_id: str) -> dict[str, Any]:
         if capability_id in self._capability_metadata_cache:
             return self._capability_metadata_cache[capability_id]
-        
+
         catalog = getattr(self._broker, "_catalog", None) if self._broker is not None else None
         if catalog is None or not capability_id:
             return {}
@@ -1853,7 +1926,6 @@ Rules:
             result_text = str(result.get("result", "")).lower().strip()
             if result_text in _TRIVIAL_RESULTS or (len(result_text) < 20 and result.get("success", False)):
                 continue
-            full_output = result.get("full_output", {})
             desire_name = task.get("desire", "")
 
             if self._experiential:
@@ -2065,6 +2137,7 @@ Rules:
             "results": self._sanitize_for_execution_log(results, key="results"),
             "next_run_ms": self._next_run_ms,
             "candidate_capability_ids": self._last_candidate_capability_ids[-50:],
+            "decision_axes": dict(self._last_decision_axes),
             "selected_tool_count": self._selected_tool_count,
             "last_decision": self._last_decision,
             "last_no_action_reason": self._last_no_action_reason,
@@ -2100,6 +2173,7 @@ Rules:
                 "selected_tool_count": self._selected_tool_count,
                 "last_no_action_reason": self._last_no_action_reason,
                 "candidate_capability_ids": self._last_candidate_capability_ids[-50:],
+                "decision_axes": dict(self._last_decision_axes),
                 "consecutive_no_action": self._consecutive_no_action,
                 "last_skip_reason": self._last_skip_reason,
             }

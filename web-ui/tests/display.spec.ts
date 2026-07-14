@@ -174,6 +174,85 @@ test("display shows offline snapshot and privacy redaction without interactive c
   expect(await page.locator("button, input, textarea, select, a[href], [tabindex]:not([tabindex='-1'])").count()).toBe(0);
 });
 
+test("display visual states match their reduced-motion baselines", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  const scenarios = [
+    { name: "idle", overview: mockOverview("IDLE") },
+    { name: "executing", overview: mockOverview("EXECUTING") },
+    { name: "approval", overview: mockOverview("EXECUTING", { approval: true }) },
+    { name: "degraded", overview: mockOverview("DEGRADED") },
+    { name: "offline", overview: mockOverview("EXECUTING", { offline: true, stale: true }) },
+    { name: "recovery", overview: mockOverview("IDLE", { recovery: true }) },
+  ];
+
+  for (const scenario of scenarios) {
+    await page.unroute("**/display/overview**");
+    await routeOverview(page, scenario.overview);
+    await page.goto("/display");
+    await page.waitForSelector(".core-canvas canvas");
+    if (scenario.name === "recovery") {
+      await page.evaluate(() => {
+        // @ts-expect-error test hook
+        window.__emitAegisUiEvent("status.changed", {
+          event_id: "recovery-visual-1",
+          type: "status.changed",
+          source_type: "status.changed",
+          generated_at: Date.now(),
+          source_updated_at: Date.now(),
+          payload: {},
+          server_id: "browser-server",
+          status: "online",
+          severity: "info",
+          message: "Browser recovered",
+        });
+      });
+      await expect(page.getByText("Browser recovered").first()).toBeVisible();
+    }
+    await expect(page.locator(".display-shell")).toHaveScreenshot(`display-${scenario.name}.png`, {
+      animations: "disabled",
+      maxDiffPixelRatio: 0.02,
+    });
+  }
+});
+
+test("display keeps canvas and event memory bounded for a 72-hour-equivalent stream", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await routeOverview(page, mockOverview("EXECUTING"));
+  await page.goto("/display");
+  await page.waitForSelector(".core-canvas canvas");
+  const result = await page.evaluate(async () => {
+    const canvas = document.querySelector(".core-canvas canvas");
+    const memory = (performance as Performance & { memory?: { usedJSHeapSize: number } }).memory;
+    const beforeBytes = memory?.usedJSHeapSize || 0;
+    // @ts-expect-error test hook
+    const emit = window.__emitAegisUiEvent as ((name: string, payload: unknown) => void) | undefined;
+    if (!emit) throw new Error("Display stream test hook is unavailable");
+    for (let index = 0; index < 8_640; index += 1) {
+      emit("status.changed", {
+        event_id: `soak-${index}`,
+        type: "status.changed",
+        source_type: "status.changed",
+        generated_at: Date.now(),
+        source_updated_at: Date.now(),
+        payload: {},
+        server_id: index % 2 ? "browser-server" : "pc-server",
+        status: "online",
+        severity: "info",
+        message: `Heartbeat ${index}`,
+      });
+      if (index % 240 === 0) await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    return {
+      sameCanvas: canvas === document.querySelector(".core-canvas canvas"),
+      heapGrowthBytes: memory ? memory.usedJSHeapSize - beforeBytes : 0,
+    };
+  });
+  expect(result.sameCanvas).toBe(true);
+  await expect.poll(() => page.locator(".display-events .event-row").count(), { timeout: 10_000 }).toBeLessThanOrEqual(6);
+  expect(result.heapGrowthBytes).toBeLessThan(96 * 1024 * 1024);
+});
+
 async function routeOverview(page: import("@playwright/test").Page, overview: unknown) {
   await page.route("**/display/overview**", async (route) => {
     await route.fulfill({
@@ -196,7 +275,10 @@ function envelope(data: unknown, stale = false) {
   return { generated_at: Date.now(), source_updated_at: Date.now(), status: "ok", stale, error: "", data };
 }
 
-function mockOverview(mode: "IDLE" | "EXECUTING" | "DEGRADED", options: { offline?: boolean; stale?: boolean; privacy?: boolean } = {}) {
+function mockOverview(
+  mode: "IDLE" | "EXECUTING" | "DEGRADED",
+  options: { offline?: boolean; stale?: boolean; privacy?: boolean; approval?: boolean; recovery?: boolean } = {},
+) {
   const degraded = mode === "DEGRADED";
   return {
     schema_version: "ui-overview.v3",
@@ -205,7 +287,7 @@ function mockOverview(mode: "IDLE" | "EXECUTING" | "DEGRADED", options: { offlin
     connection: envelope({ quality: degraded ? "degraded" : "good", online_count: degraded ? 5 : 6, total_count: 6, attention_count: degraded ? 1 : 0 }),
     display_scene: envelope(
       {
-        phase: options.privacy ? "Privacy" : degraded ? "Stabilizing" : mode === "EXECUTING" ? "Executing" : "Idle",
+        phase: options.privacy ? "Privacy" : options.recovery ? "Recovery" : degraded ? "Stabilizing" : mode === "EXECUTING" ? "Executing" : "Idle",
         takeover: { active: false },
         privacy_mode: Boolean(options.privacy),
         offline: Boolean(options.offline),
@@ -243,7 +325,10 @@ function mockOverview(mode: "IDLE" | "EXECUTING" | "DEGRADED", options: { offlin
     mind_summary: envelope({ memory: { episodic: 2, semantic: 3 }, autonomy: { desires: { growth: 4 } } }),
     memory: envelope({ summary: {} }),
     notifications: envelope({ recent: [], unread_count: 0 }),
-    approvals: envelope({ pending: [], pending_count: 0 }),
+    approvals: envelope({
+      pending: options.approval ? [{ approval_id: "approval-visual-1", capability_id: "pc-server.mouse.click", risk: "HIGH", summary: "Approve safe test click", created_at: Date.now() }] : [],
+      pending_count: options.approval ? 1 : 0,
+    }),
     commitments: envelope({ items: [] }),
     usage: envelope({}),
     errors: envelope({ items: [], count: 0 }),

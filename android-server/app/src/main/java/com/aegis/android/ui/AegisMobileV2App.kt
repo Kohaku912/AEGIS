@@ -2,12 +2,28 @@ package com.aegis.android.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.layout.width
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.ChatBubbleOutline
+import androidx.compose.material.icons.outlined.Checklist
+import androidx.compose.material.icons.outlined.Devices
+import androidx.compose.material.icons.outlined.FactCheck
+import androidx.compose.material.icons.outlined.Home
+import androidx.compose.material.icons.outlined.MoreHoriz
+import androidx.compose.material.icons.outlined.Security
+import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationRail
+import androidx.compose.material3.NavigationRailItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -20,6 +36,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -50,17 +68,24 @@ data class MobileUiActions(
     val connect: () -> Unit,
 )
 
-private data class Tab(val route: String, val label: String, val icon: String)
+enum class MobileNavigationMode { BOTTOM, RAIL }
+
+fun mobileNavigationMode(widthDp: Int, fontScale: Float = 1f): MobileNavigationMode =
+    if (widthDp >= 600 && fontScale < 1.5f) MobileNavigationMode.RAIL else MobileNavigationMode.BOTTOM
+
+private data class Tab(val route: String, val label: String, val icon: ImageVector)
 
 private val tabs = listOf(
-    Tab("home", "Home", "⌂"),
-    Tab("chat", "Chat", "✉"),
-    Tab("approvals", "Approvals", "!"),
-    Tab("tasks", "Tasks", "✓"),
-    Tab("devices", "Devices", "◇"),
-    Tab("permissions", "Permissions", "⌁"),
-    Tab("settings", "Settings", "⚙"),
+    Tab("home", "Home", Icons.Outlined.Home),
+    Tab("chat", "Chat", Icons.Outlined.ChatBubbleOutline),
+    Tab("approvals", "Approvals", Icons.Outlined.FactCheck),
+    Tab("tasks", "Tasks", Icons.Outlined.Checklist),
+    Tab("devices", "Devices", Icons.Outlined.Devices),
+    Tab("permissions", "Permissions", Icons.Outlined.Security),
+    Tab("settings", "Settings", Icons.Outlined.Settings),
 )
+
+private val compactTabs = tabs.take(4) + Tab("more", "More", Icons.Outlined.MoreHoriz)
 
 @Composable
 fun AegisMobileV2App(
@@ -82,6 +107,13 @@ fun AegisMobileV2App(
         scope.launch { approvals = client.listPendingApprovals() }
     }
 
+    fun navigate(route: String) {
+        navController.navigate(route) {
+            launchSingleTop = true
+            popUpTo("home")
+        }
+    }
+
     LaunchedEffect(client) {
         while (true) {
             permissions = permissionsProvider()
@@ -92,66 +124,95 @@ fun AegisMobileV2App(
         }
     }
 
+    val content: @Composable (Modifier) -> Unit = { modifier ->
+        Box(modifier = modifier.background(AegisBackground)) {
+            NavHost(navController = navController, startDestination = "home", modifier = Modifier.fillMaxSize()) {
+                composable("home") {
+                    HomeScreen(state = state, overview = overview, permissions = permissions, servers = servers)
+                }
+                composable("chat") { ChatScreen(client = client, messages = messages) }
+                composable("approvals") {
+                    ApprovalsScreen(client = client, approvals = approvals, onRefresh = ::refreshApprovals)
+                }
+                composable("tasks") { TasksScreen(overview = overview) }
+                composable("devices") { DevicesScreen(servers = servers, overview = overview) }
+                composable("permissions") {
+                    PermissionsScreen(snapshot = permissions, onAction = actions.permissionAction)
+                }
+                composable("settings") {
+                    SettingsScreen(config = config, onSave = actions.saveConnection, onConnect = actions.connect)
+                }
+                composable("more") { MoreScreen(onNavigate = ::navigate) }
+            }
+        }
+    }
+
     AegisTheme {
-        Scaffold(
-            containerColor = AegisBackground,
-            bottomBar = {
-                NavigationBar(containerColor = AegisSurface) {
-                    val backStack by navController.currentBackStackEntryAsState()
-                    val currentRoute = backStack?.destination?.route ?: "home"
-                    tabs.forEach { tab ->
-                        NavigationBarItem(
-                            selected = currentRoute == tab.route,
-                            onClick = {
-                                navController.navigate(tab.route) {
-                                    launchSingleTop = true
-                                    popUpTo("home")
-                                }
-                            },
-                            label = { Text(tab.label, color = if (currentRoute == tab.route) AegisText else AegisTextSecondary) },
-                            icon = { NavGlyph(tab.icon, selected = currentRoute == tab.route) },
-                        )
+        BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+            val mode = mobileNavigationMode(maxWidth.value.toInt(), LocalDensity.current.fontScale)
+            val backStack by navController.currentBackStackEntryAsState()
+            val currentRoute = backStack?.destination?.route ?: "home"
+
+            if (mode == MobileNavigationMode.RAIL) {
+                Row(modifier = Modifier.fillMaxSize().background(AegisBackground)) {
+                    NavigationRail(containerColor = AegisSurface, modifier = Modifier.width(104.dp)) {
+                        tabs.forEach { tab ->
+                            NavigationRailItem(
+                                selected = currentRoute == tab.route,
+                                onClick = { navigate(tab.route) },
+                                label = { Text(tab.label, maxLines = 1) },
+                                icon = { NavIcon(tab, currentRoute == tab.route) },
+                            )
+                        }
                     }
+                    content(Modifier.fillMaxSize())
                 }
-            },
-        ) { padding ->
-            Box(modifier = Modifier.fillMaxSize().padding(padding).background(AegisBackground)) {
-                NavHost(navController = navController, startDestination = "home", modifier = Modifier.fillMaxSize()) {
-                    composable("home") {
-                        HomeScreen(state = state, overview = overview, permissions = permissions, servers = servers)
-                    }
-                    composable("chat") {
-                        ChatScreen(client = client, messages = messages)
-                    }
-                    composable("approvals") {
-                        ApprovalsScreen(client = client, approvals = approvals, onRefresh = ::refreshApprovals)
-                    }
-                    composable("tasks") {
-                        TasksScreen(overview = overview)
-                    }
-                    composable("devices") {
-                        DevicesScreen(servers = servers, overview = overview)
-                    }
-                    composable("permissions") {
-                        PermissionsScreen(snapshot = permissions, onAction = actions.permissionAction)
-                    }
-                    composable("settings") {
-                        SettingsScreen(config = config, onSave = actions.saveConnection, onConnect = actions.connect)
-                    }
-                }
+            } else {
+                Scaffold(
+                    containerColor = AegisBackground,
+                    bottomBar = {
+                        NavigationBar(containerColor = AegisSurface) {
+                            compactTabs.forEach { tab ->
+                                val selected = currentRoute == tab.route ||
+                                    (tab.route == "more" && currentRoute in setOf("devices", "permissions", "settings"))
+                                NavigationBarItem(
+                                    selected = selected,
+                                    onClick = { navigate(tab.route) },
+                                    label = { Text(tab.label, maxLines = 1) },
+                                    icon = { NavIcon(tab, selected) },
+                                )
+                            }
+                        }
+                    },
+                ) { padding -> content(Modifier.fillMaxSize().padding(padding)) }
             }
         }
     }
 }
 
 @Composable
-private fun NavGlyph(symbol: String, selected: Boolean) {
-    Box(
-        modifier = Modifier
-            .size(28.dp)
-            .background(if (selected) AegisSurface else AegisBackground, RoundedCornerShape(10.dp)),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(symbol, color = if (selected) AegisText else AegisTextSecondary)
+private fun NavIcon(tab: Tab, selected: Boolean) {
+    Icon(
+        imageVector = tab.icon,
+        contentDescription = tab.label,
+        tint = if (selected) AegisText else AegisTextSecondary,
+    )
+}
+
+@Composable
+private fun MoreScreen(onNavigate: (String) -> Unit) {
+    Box(modifier = Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.TopStart) {
+        Column {
+            Text("More", color = AegisText, style = MaterialTheme.typography.headlineSmall)
+            tabs.drop(4).forEach { tab ->
+                FilledTonalButton(
+                    onClick = { onNavigate(tab.route) },
+                    modifier = Modifier.padding(top = 12.dp),
+                ) {
+                    Icon(tab.icon, contentDescription = null)
+                    Text(tab.label, modifier = Modifier.padding(start = 10.dp))
+                }
+            }
+        }
     }
 }

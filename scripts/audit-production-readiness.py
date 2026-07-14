@@ -154,7 +154,13 @@ def _dashboard_auth_check() -> dict[str, object]:
     code = (ROOT / "ai-server/src/aegis_ai/docker_entrypoint.py").read_text(encoding="utf-8", errors="ignore")
     auth_code = (ROOT / "ai-server/src/aegis_ai/web/auth.py").read_text(encoding="utf-8", errors="ignore")
     if "AEGIS_AUTH_MODE=passkey is required" not in code or "install_passkey_auth" not in auth_code:
-        return _check("dashboard_auth_required", "Passkey auth required in production", "fail", [], "Passkey runtime guard missing")
+        return _check(
+            "dashboard_auth_required",
+            "Passkey auth required in production",
+            "fail",
+            [],
+            "Passkey runtime guard missing",
+        )
     if mode == "production" and not os.environ.get("AEGIS_SESSION_SECRET", "").strip():
         return _check(
             "dashboard_auth_required",
@@ -180,7 +186,13 @@ def _volume_persistence_check() -> dict[str, object]:
     required = ["aegis-data", "aegis-reports"]
     missing = [name for name in required if name not in text]
     if missing:
-        return _check("docker_volume_persistence", "Docker data/report volumes", "fail", [str(compose)], f"Missing volumes: {missing}")
+        return _check(
+            "docker_volume_persistence",
+            "Docker data/report volumes",
+            "fail",
+            [str(compose)],
+            f"Missing volumes: {missing}",
+        )
     return _check("docker_volume_persistence", "Docker data/report volumes", "pass", [str(compose)])
 
 
@@ -204,7 +216,12 @@ def _capability_override_persistence_check() -> dict[str, object]:
             ["data/reports/e2e/latest/manager-risk-override.json"],
             "No stateful E2E evidence for override persistence/effective policy.",
         )
-    return _check("capability_override_persistence", "Capability risk override persistence", "pass", ["data/reports/e2e/latest/manager-risk-override.json"])
+    return _check(
+        "capability_override_persistence",
+        "Capability risk override persistence",
+        "pass",
+        ["data/reports/e2e/latest/manager-risk-override.json"],
+    )
 
 
 def _mock_provider_reject_check() -> dict[str, object]:
@@ -227,13 +244,28 @@ def _mock_provider_reject_check() -> dict[str, object]:
 
 
 def _secrets_check() -> dict[str, object]:
-    production_env = ROOT / ".env.production.example"
-    text = production_env.read_text(encoding="utf-8", errors="ignore") if production_env.exists() else ""
-    bad_markers = ["sk-", "ghp_", "xoxb-", "tatuki9120"]
-    leaked = [marker for marker in bad_markers if marker in text]
-    if leaked:
-        return _check("secrets_not_baked", "Secrets not baked into production config", "fail", [str(production_env)], f"Secret-like marker found: {leaked}")
-    return _check("secrets_not_baked", "Secrets not baked into production config", "pass", [str(production_env)])
+    report = ROOT / "data" / "reports" / "secret_inventory.json"
+    data = _load_json(report)
+    if not data:
+        return _check(
+            "secrets_not_baked",
+            "Secrets not baked into Git/static assets",
+            "fail",
+            [str(report.relative_to(ROOT))],
+            "Secret audit report is missing.",
+        )
+    if str(data.get("status") or "").lower() != "pass":
+        findings = data.get("findings") if isinstance(data.get("findings"), list) else []
+        return _check(
+            "secrets_not_baked",
+            "Secrets not baked into Git/static assets",
+            "fail",
+            [str(report.relative_to(ROOT))],
+            f"Secret audit findings: {len(findings)}",
+        )
+    return _check(
+        "secrets_not_baked", "Secrets not baked into Git/static assets", "pass", [str(report.relative_to(ROOT))]
+    )
 
 
 def _report_pass(path: Path, check_id: str, name: str, required_fields: list[str] | None = None) -> dict[str, object]:
@@ -249,6 +281,67 @@ def _report_pass(path: Path, check_id: str, name: str, required_fields: list[str
     return _check(check_id, name, "pass", [str(path)], report_path=str(path))
 
 
+def _real_device_report_check(
+    path: Path,
+    check_id: str,
+    name: str,
+    *,
+    required_true: list[str],
+    required_check_ids: list[str],
+) -> dict[str, object]:
+    """Require explicit real-device evidence instead of trusting top-level pass."""
+    data = _load_json(path)
+    if not data:
+        return _check(check_id, name, "fail", [str(path)], f"Missing or unreadable {path}")
+    errors: list[str] = []
+    if str(data.get("status") or "").lower() != "pass":
+        errors.append(f"status={data.get('status') or 'unknown'}")
+    errors.extend(f"{field}=false" for field in required_true if data.get(field) is not True)
+    checks = data.get("checks") if isinstance(data.get("checks"), list) else []
+    statuses = {
+        str(item.get("id")): str(item.get("status") or "").lower()
+        for item in checks
+        if isinstance(item, dict) and item.get("id")
+    }
+    errors.extend(
+        f"{item_id}={statuses.get(item_id, 'missing')}"
+        for item_id in required_check_ids
+        if statuses.get(item_id) != "pass"
+    )
+    return _check(
+        check_id,
+        name,
+        "fail" if errors else "pass",
+        [str(path)],
+        "; ".join(errors),
+        str(path),
+    )
+
+
+def _display_soak_check() -> dict[str, object]:
+    path = ROOT / "data/reports/e2e/latest/display_soak_summary.json"
+    data = _load_json(path)
+    duration = int(data.get("duration_seconds") or 0) if data else 0
+    equivalent_duration = int(data.get("equivalent_duration_seconds") or 0) if data else 0
+    failures = int(data.get("failure_count") or 0) if data else 0
+    passed = (
+        str(data.get("status") or "").lower() == "pass"
+        and max(duration, equivalent_duration) >= 72 * 60 * 60
+        and failures == 0
+    )
+    error = (
+        ""
+        if passed
+        else (
+            "72-hour soak incomplete: "
+            f"duration_seconds={duration}, equivalent_duration_seconds={equivalent_duration}, failures={failures}"
+        )
+    )
+    return _check(
+        "display_soak", "Dedicated Display 72-hour soak", "pass" if passed else "fail", [str(path)], error, str(path)
+    )
+
+
 def main() -> int:
     args = parse_args("Audit AEGIS production readiness")
     report_dir = Path(args.report_dir)
@@ -256,77 +349,141 @@ def main() -> int:
     checks: list[dict[str, object]] = []
 
     mock = run_command(["python", "scripts/audit-mocks.py", "--report-dir", str(report_dir), "--json-only"])
-    checks.append({
-        "id": "production_blocker_mock",
-        "name": "production_blocker mock inventory",
-        "status": mock["status"],
-        "duration_ms": mock["duration_ms"],
-        "evidence": [str(report_dir / "production_blockers.json")],
-        "error": mock["stderr"] if mock["status"] != "pass" else "",
-        "report_path": str(report_dir / "production_blockers.json"),
-    })
-    coverage = run_command(["python", "scripts/audit-capability-coverage.py", "--report-dir", str(report_dir), "--json-only"])
-    checks.append({
-        "id": "capability_coverage",
-        "name": "Capability manifest coverage",
-        "status": coverage["status"],
-        "duration_ms": coverage["duration_ms"],
-        "evidence": [str(report_dir / "capability_coverage.json")],
-        "error": coverage["stderr"] if coverage["status"] != "pass" else "",
-        "report_path": str(report_dir / "capability_coverage.json"),
-    })
+    checks.append(
+        {
+            "id": "production_blocker_mock",
+            "name": "production_blocker mock inventory",
+            "status": mock["status"],
+            "duration_ms": mock["duration_ms"],
+            "evidence": [str(report_dir / "production_blockers.json")],
+            "error": mock["stderr"] if mock["status"] != "pass" else "",
+            "report_path": str(report_dir / "production_blockers.json"),
+        }
+    )
+    coverage = run_command(
+        ["python", "scripts/audit-capability-coverage.py", "--report-dir", str(report_dir), "--json-only"]
+    )
+    checks.append(
+        {
+            "id": "capability_coverage",
+            "name": "Capability manifest coverage",
+            "status": coverage["status"],
+            "duration_ms": coverage["duration_ms"],
+            "evidence": [str(report_dir / "capability_coverage.json")],
+            "error": coverage["stderr"] if coverage["status"] != "pass" else "",
+            "report_path": str(report_dir / "capability_coverage.json"),
+        }
+    )
     run_command(["python", "scripts/audit-dead-code.py", "--report-dir", str(report_dir), "--json-only"])
+    secret = run_command(["python", "scripts/audit-secrets.py", "--report-dir", str(report_dir), "--json-only"])
+    checks.append(
+        {
+            "id": "secret_inventory",
+            "name": "Secret inventory audit",
+            "status": secret["status"],
+            "duration_ms": secret["duration_ms"],
+            "evidence": [str(report_dir / "secret_inventory.json")],
+            "error": secret["stderr"] if secret["status"] != "pass" else "",
+            "report_path": str(report_dir / "secret_inventory.json"),
+        }
+    )
     ui = run_command(["python", "scripts/audit-ui-completeness.py"])
-    checks.append({
-        "id": "ui_completeness",
-        "name": "UI completeness audit",
-        "status": ui["status"],
-        "duration_ms": ui["duration_ms"],
-        "evidence": [str(report_dir / "ui_completeness.json")],
-        "error": ui["stderr"] if ui["status"] != "pass" else "",
-        "report_path": str(report_dir / "ui_completeness.json"),
-    })
+    checks.append(
+        {
+            "id": "ui_completeness",
+            "name": "UI completeness audit",
+            "status": ui["status"],
+            "duration_ms": ui["duration_ms"],
+            "evidence": [str(report_dir / "ui_completeness.json")],
+            "error": ui["stderr"] if ui["status"] != "pass" else "",
+            "report_path": str(report_dir / "ui_completeness.json"),
+        }
+    )
     v1 = run_command(["python", "scripts/audit-v1-completion.py", "--report-dir", str(report_dir), "--json-only"])
-    checks.append({
-        "id": "v1_completion",
-        "name": "v1 completion audit",
-        "status": v1["status"],
-        "duration_ms": v1["duration_ms"],
-        "evidence": [str(report_dir / "v1_completion.json")],
-        "error": v1["stderr"] if v1["status"] != "pass" else "",
-        "report_path": str(report_dir / "v1_completion.json"),
-    })
+    checks.append(
+        {
+            "id": "v1_completion",
+            "name": "v1 completion audit",
+            "status": v1["status"],
+            "duration_ms": v1["duration_ms"],
+            "evidence": [str(report_dir / "v1_completion.json")],
+            "error": v1["stderr"] if v1["status"] != "pass" else "",
+            "report_path": str(report_dir / "v1_completion.json"),
+        }
+    )
 
-    checks.extend([
-        _docker_bind_check(),
-        _room_production_scope_check(),
-        _dashboard_auth_check(),
-        _volume_persistence_check(),
-        _capability_override_persistence_check(),
-        _mock_provider_reject_check(),
-        _secrets_check(),
-        _report_pass(report_dir / "mock_inventory.json", "mock_inventory_report", "Mock inventory report"),
-        _report_pass(report_dir / "capability_coverage.json", "capability_coverage_report", "Capability coverage report"),
-        _report_pass(report_dir / "ui_completeness.json", "ui_completeness_report", "UI completeness report"),
-        _report_pass(report_dir / "v1_completion.json", "v1_completion_report", "v1 completion report"),
-        _e2e_check(report_dir, "docker_core", "Docker core E2E"),
-        _e2e_check(report_dir, "manager_e2e", "Stateful Manager E2E"),
-        _e2e_check(report_dir, "pc_real", "PC service observe/action E2E"),
-        _e2e_check(report_dir, "android_real", "Android LAN-outside E2E"),
-        _e2e_check(report_dir, "browser_real", "Browser real E2E"),
-        _e2e_check(report_dir, "dev_real", "Dev server real E2E"),
-        _report_pass(
-            ROOT / "data/reports/e2e/latest/android-real.json",
-            "android_reconnect_metrics",
-            "Android reconnect metrics",
-            ["reconnect_count", "heartbeat_failure_count"],
-        ),
-        _report_pass(ROOT / "data/reports/e2e/latest/pc-real.json", "pc_service_lifecycle", "PC service lifecycle report"),
-        check_file("docs/ubuntu-production.md", "Ubuntu production runbook"),
-        check_file("scripts/e2e/run-all-real.ps1", "Real E2E runner"),
-        check_file("scripts/test-android-real.ps1", "Android real-device test runner"),
-        check_file("scripts/pc/build-portable.ps1", "PC portable package script"),
-    ])
+    checks.extend(
+        [
+            _docker_bind_check(),
+            _room_production_scope_check(),
+            _dashboard_auth_check(),
+            _volume_persistence_check(),
+            _capability_override_persistence_check(),
+            _mock_provider_reject_check(),
+            _secrets_check(),
+            _report_pass(report_dir / "mock_inventory.json", "mock_inventory_report", "Mock inventory report"),
+            _report_pass(
+                report_dir / "capability_coverage.json", "capability_coverage_report", "Capability coverage report"
+            ),
+            _report_pass(report_dir / "ui_completeness.json", "ui_completeness_report", "UI completeness report"),
+            _report_pass(report_dir / "v1_completion.json", "v1_completion_report", "v1 completion report"),
+            _e2e_check(report_dir, "docker_core", "Docker core E2E"),
+            _e2e_check(report_dir, "docker_persistence", "Docker restart/recreate persistence E2E"),
+            _e2e_check(report_dir, "backup_restore", "Docker volume backup/isolated restore E2E"),
+            _e2e_check(report_dir, "manager_e2e", "Stateful Manager E2E"),
+            _real_device_report_check(
+                ROOT / "data/reports/e2e/latest/pc-real.json",
+                "pc_real",
+                "PC service observe/action E2E",
+                required_true=["service_install_tested", "real_actions_tested"],
+                required_check_ids=[
+                    "pc_service_install_start",
+                    "pc_health",
+                    "pc_screenshot",
+                    "pc_active_window",
+                    "pc_show_overlay",
+                    "pc_real_action",
+                    "pc_service_restart",
+                    "pc_service_logs",
+                    "pc_service_uninstall",
+                ],
+            ),
+            _real_device_report_check(
+                ROOT / "data/reports/e2e/latest/android-real.json",
+                "android_real",
+                "Android LAN-outside E2E",
+                required_true=[
+                    "tailscale",
+                    "wifi_off_tested",
+                    "screen_off_tested",
+                    "ai_restart_tested",
+                    "app_restart_tested",
+                ],
+                required_check_ids=[
+                    "adb_device",
+                    "android_app_installed",
+                    "android_online",
+                    "android_screen_off_reconnect",
+                    "android_ai_restart_reconnect",
+                    "android_app_restart_reconnect",
+                    "android_wifi_off_tailscale",
+                ],
+            ),
+            _e2e_check(report_dir, "browser_real", "Browser real E2E"),
+            _e2e_check(report_dir, "dev_real", "Dev server real E2E"),
+            _report_pass(
+                ROOT / "data/reports/e2e/latest/android-real.json",
+                "android_reconnect_metrics",
+                "Android reconnect metrics",
+                ["reconnect_count", "heartbeat_failure_count"],
+            ),
+            _display_soak_check(),
+            check_file("docs/ubuntu-production.md", "Ubuntu production runbook"),
+            check_file("scripts/e2e/run-all-real.ps1", "Real E2E runner"),
+            check_file("scripts/test-android-real.ps1", "Android real-device test runner"),
+            check_file("scripts/pc/build-portable.ps1", "PC portable package script"),
+        ]
+    )
 
     blockers: list[dict[str, object]] = []
     blocker_path = report_dir / "production_blockers.json"

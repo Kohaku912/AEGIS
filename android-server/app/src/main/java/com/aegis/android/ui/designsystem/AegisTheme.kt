@@ -19,6 +19,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Dp
 
 private val AegisScheme = darkColorScheme(
     background = AegisBackground,
@@ -54,6 +55,7 @@ fun CoreGlyph(
     health: String,
     pendingApprovals: Int,
     modifier: Modifier = Modifier,
+    diameter: Dp = 154.dp,
 ) {
     val statusColor = when (health.uppercase()) {
         "ONLINE" -> AegisSuccess
@@ -61,7 +63,7 @@ fun CoreGlyph(
         "OFFLINE" -> AegisCritical
         else -> AegisCyan
     }
-    Canvas(modifier = modifier.size(154.dp)) {
+    Canvas(modifier = modifier.size(diameter)) {
         val center = Offset(size.width / 2f, size.height / 2f)
         val radius = size.minDimension * 0.25f
         drawCircle(color = statusColor.copy(alpha = 0.16f), radius = radius * 1.55f, center = center)

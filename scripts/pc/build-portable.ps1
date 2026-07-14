@@ -1,11 +1,13 @@
 param(
     [string]$OutputDir = "packages/pc-server",
-    [switch]$Release
+    [switch]$Release,
+    [switch]$Debug
 )
 $ErrorActionPreference = "Stop"
-$profile = if ($Release) { "release" } else { "debug" }
+$useRelease = $Release -or -not $Debug
+$profile = if ($useRelease) { "release" } else { "debug" }
 Push-Location pc-server
-if ($Release) { cargo build --release } else { cargo build }
+if ($useRelease) { cargo build --release } else { cargo build }
 Pop-Location
 New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
 $binary = "pc-server/target/$profile/aegis-pc-server.exe"

@@ -64,6 +64,7 @@ def main() -> int:
         check_state_coverage(),
         check_tests(),
         check_legacy_dependency(),
+        check_completion_ledger(),
     ]
     payload = {
         "schema_version": "ui-completeness.v1",
@@ -79,7 +80,7 @@ def main() -> int:
     (REPORT_DIR / "ui_completeness.json").write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
     (REPORT_DIR / "ui_completeness.md").write_text(render_markdown(payload), encoding="utf-8")
     print(f"wrote {REPORT_DIR / 'ui_completeness.md'}")
-    return 0 if payload["overall_status"] != "fail" else 1
+    return 0 if payload["overall_status"] == "pass" else 1
 
 
 def check_files(check_id: str, title: str, paths: list[str]) -> Check:
@@ -193,6 +194,30 @@ def check_legacy_dependency() -> Check:
     if "dashboard_legacy" in shell and "Compatibility shell" not in shell:
         missing.append("dashboard_routes still delegates compatibility to dashboard_legacy")
     return Check("legacy-dependency", "compat", "Legacy UI dependency remaining", "partial" if missing else "pass", ["ai-server/src/aegis_ai/web/routes/ui_v2.py"], missing)
+
+
+def check_completion_ledger() -> Check:
+    path = ROOT / "docs/ui-implementation-checklist.md"
+    text = read_text(path)
+    deferred = text.split("## Deferred", 1)[0]
+    partial = re.findall(r"^- \[~\]\s+(.+)$", deferred, flags=re.MULTILINE)
+    open_items = re.findall(r"^- \[ \]\s+(.+)$", deferred, flags=re.MULTILINE)
+    blockers = re.findall(r"^- \[!\]\s+(.+)$", deferred, flags=re.MULTILINE)
+    missing = [f"partial: {item}" for item in partial]
+    missing.extend(f"open: {item}" for item in open_items)
+    missing.extend(f"blocker: {item}" for item in blockers)
+    status = "pass" if not missing else "partial"
+    if blockers:
+        status = "fail"
+    return Check(
+        "completion-ledger",
+        "acceptance",
+        "UI instruction completion ledger is closed",
+        status,
+        [path.relative_to(ROOT).as_posix()] if path.exists() else [],
+        missing or ([] if path.exists() else ["docs/ui-implementation-checklist.md"]),
+        "high",
+    )
 
 
 def overall(checks: list[Check]) -> str:

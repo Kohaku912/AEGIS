@@ -33,4 +33,21 @@ class AegisMobileUiModelTest {
         assertEquals("Android", server.label)
         assertTrue(server.heartbeatAgeSeconds >= 0L)
     }
+
+    @Test
+    fun navigationUsesBottomBarForPhoneWidths() {
+        assertEquals(MobileNavigationMode.BOTTOM, mobileNavigationMode(360))
+        assertEquals(MobileNavigationMode.BOTTOM, mobileNavigationMode(599))
+    }
+
+    @Test
+    fun navigationUsesRailForTabletWidths() {
+        assertEquals(MobileNavigationMode.RAIL, mobileNavigationMode(600))
+        assertEquals(MobileNavigationMode.RAIL, mobileNavigationMode(840))
+    }
+
+    @Test
+    fun navigationFallsBackToBottomAtTwoHundredPercentFontScale() {
+        assertEquals(MobileNavigationMode.BOTTOM, mobileNavigationMode(840, 2f))
+    }
 }
