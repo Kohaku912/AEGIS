@@ -22,7 +22,7 @@ if ($Rebuild) { $dockerArgs += "-Rebuild" }
 Run-Step "docker" "scripts/e2e/run-docker-core.ps1" $dockerArgs
 Run-Step "managers" "scripts/e2e/run-manager-e2e.ps1" @("-ReportDir", $ReportDir)
 Run-Step "browser" "scripts/e2e/run-browser-real.ps1" @("-ReportDir", $ReportDir)
-Run-Step "dev" "scripts/e2e/run-dev-real.ps1" @("-ReportDir", $ReportDir)
+Run-Step "dev" "scripts/e2e/run-dev-real.ps1" @("-ReportDir", $ReportDir, "-ManageDocker")
 if (-not $SkipPc) {
     $pcArgs = @("-ReportDir", $ReportDir)
     if ($RealPcActions) { $pcArgs += "-RealActions" }

@@ -110,6 +110,16 @@ class AegisRuntime:
                 user_state_manager.stop()
             except Exception:
                 logger.debug("Failed to stop user state manager", exc_info=True)
+        if self.sleep_manager is not None and hasattr(self.sleep_manager, "close"):
+            try:
+                self.sleep_manager.close()
+            except Exception:
+                logger.debug("Failed to stop sleep manager", exc_info=True)
+        if self.audit_log is not None and hasattr(self.audit_log, "close"):
+            try:
+                self.audit_log.close()
+            except Exception:
+                logger.debug("Failed to close audit log", exc_info=True)
 
     @property
     def _legacy_audit_log(self) -> Any:

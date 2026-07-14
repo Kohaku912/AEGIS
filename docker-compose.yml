@@ -1,3 +1,9 @@
+x-aegis-logging: &aegis-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
 services:
   ai-server:
     build:
@@ -54,6 +60,7 @@ services:
       browser-server:
         condition: service_started
     restart: unless-stopped
+    logging: *aegis-logging
 
   browser-server:
     build:
@@ -81,6 +88,7 @@ services:
     tmpfs:
       - /tmp
     restart: unless-stopped
+    logging: *aegis-logging
 
   room-server:
     build:
@@ -97,6 +105,7 @@ services:
       AEGIS_ROOM_IR_PIN: ${AEGIS_ROOM_IR_PIN:-}
       AEGIS_ROOM_DEVICE_ID: ${AEGIS_ROOM_DEVICE_ID:-light-main}
     restart: unless-stopped
+    logging: *aegis-logging
 
   dev-server:
     build:
@@ -113,6 +122,7 @@ services:
       - .:/workspace
     working_dir: /workspace
     restart: unless-stopped
+    logging: *aegis-logging
 
 volumes:
   aegis-data:

@@ -38,6 +38,13 @@ export function Display({ overview: initialOverview }: { overview: UiOverview })
   const activeServerId = String(task.capability_id || "").split(".", 1)[0];
   const phase = missionPhase(overview);
   const director = buildDisplayDirectorState(overview, events, visualEvents);
+  const recentDirectorItems = useMemo(() => {
+    const unique = new Map<string, (typeof director.dock)[number]>();
+    for (const item of [...director.dock, ...director.ambient]) {
+      if (!unique.has(item.id)) unique.set(item.id, item);
+    }
+    return [...unique.values()].slice(0, 6);
+  }, [director.ambient, director.dock]);
 
   return (
     <main
@@ -121,8 +128,8 @@ export function Display({ overview: initialOverview }: { overview: UiOverview })
         </div>
         <div className="display-card display-events" aria-label="Recent Events">
           <span className="display-kicker">Recent Events</span>
-          {director.dock.length || director.ambient.length ? (
-            [...director.dock, ...director.ambient].slice(0, 6).map((item) => (
+          {recentDirectorItems.length ? (
+            recentDirectorItems.map((item) => (
               <div className="event-row" data-severity={item.severity || "info"} data-priority={item.priority} key={item.id}>
                 <span>{item.priority}</span>
                 <strong>{redact(item.message || item.title, director.privacyMode)}</strong>

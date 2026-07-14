@@ -45,12 +45,13 @@
     ]
   },
   "risk": {
-    "level": "safe",
+    "level": "approval_required",
     "side_effects": [
       "physical_device_control",
       "lighting_control"
     ],
-    "requires_approval": false
+    "requires_approval": true,
+    "approval_mode": "explicit"
   },
   "tags": [
     "builtin",

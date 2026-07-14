@@ -200,6 +200,76 @@ describe("display model", () => {
     expect(state.takeover?.visualEvent?.effect).toBe("containment");
   });
 
+  it("reconciles stale disconnect queue items against the current server snapshot", () => {
+    const now = Date.now();
+    const overview = minimalOverview({ generatedAt: now });
+    overview.servers.data.items = [{ server_id: "android-server", status: "ONLINE" }];
+    overview.display_queue = envelope({
+      persisted: true,
+      count: 1,
+      items: [
+        {
+          id: "android-disconnected",
+          priority: "P0",
+          severity: "critical",
+          title: "android.disconnected",
+          message: "android.disconnected",
+          persistence: "until_resolved",
+          affected_servers: ["android-server"],
+          visual_hint: { effect: "disconnect", arc: "android-server" }
+        }
+      ]
+    });
+
+    const state = buildDisplayDirectorState(overview, [], []);
+
+    expect(state.takeover).toBeUndefined();
+    expect(state.dock).toHaveLength(0);
+  });
+
+  it("does not render server-side display queue items that are already resolved", () => {
+    const overview = minimalOverview();
+    overview.display_queue = envelope({
+      persisted: true,
+      count: 1,
+      items: [
+        {
+          id: "android-disconnected",
+          priority: "P0",
+          severity: "critical",
+          title: "android.disconnected",
+          message: "android.disconnected",
+          persistence: "until_resolved",
+          resolved_by: "status.changed:online",
+          visual_hint: { effect: "disconnect" }
+        }
+      ]
+    });
+
+    expect(buildDisplayDirectorState(overview, [], []).takeover).toBeUndefined();
+  });
+
+  it("collapses repeated P2 event messages while retaining the newest event", () => {
+    const now = Date.now();
+    const overview = minimalOverview({ generatedAt: now });
+    const common = {
+      type: "agora.read.completed",
+      source_type: "agora.read.completed",
+      priority: "P2",
+      persistence: "attention_dock",
+      generated_at: now,
+      payload: {},
+      message: "AGORA: No new posts."
+    };
+    const state = buildDisplayDirectorState(overview, [
+      { ...common, event_id: "agora-1", source_updated_at: now },
+      { ...common, event_id: "agora-2", source_updated_at: now + 10 }
+    ]);
+
+    expect(state.dock.filter((item) => item.message === "AGORA: No new posts.")).toHaveLength(1);
+    expect(state.dock.find((item) => item.message === "AGORA: No new posts.")?.id).toBe("agora-2");
+  });
+
   it("surfaces offline, stale, and privacy display modes from display scene", () => {
     const overview = minimalOverview({
       freshnessStale: true,

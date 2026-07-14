@@ -9,6 +9,7 @@ import os
 import sqlite3
 import threading
 import time
+from contextlib import closing
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -275,14 +276,14 @@ class AuditLog:
         return entries[-n:] if n < len(entries) else entries
 
     def read_all(self) -> list[dict[str, Any]]:
-        with sqlite3.connect(str(self._db_path)) as conn:
+        with closing(sqlite3.connect(str(self._db_path))) as conn:
             conn.row_factory = sqlite3.Row
             rows = conn.execute('SELECT * FROM audit ORDER BY id DESC LIMIT 10000').fetchall()
             return [self._row_to_dict(r) for r in rows]
 
     def read_page(self, page: int = 1, per_page: int = 20) -> dict[str, Any]:
         offset = (page - 1) * per_page
-        with sqlite3.connect(str(self._db_path)) as conn:
+        with closing(sqlite3.connect(str(self._db_path))) as conn:
             conn.row_factory = sqlite3.Row
             total = conn.execute('SELECT COUNT(*) FROM audit').fetchone()[0]
             rows = conn.execute('SELECT * FROM audit ORDER BY id DESC LIMIT ? OFFSET ?', (per_page, offset)).fetchall()
@@ -291,7 +292,7 @@ class AuditLog:
             return {'entries': entries, 'page': page, 'per_page': per_page, 'total': total, 'total_pages': total_pages}
 
     def count(self) -> int:
-        with sqlite3.connect(str(self._db_path)) as conn:
+        with closing(sqlite3.connect(str(self._db_path))) as conn:
             return conn.execute('SELECT COUNT(*) FROM audit').fetchone()[0]
 
     def _row_to_dict(self, row: sqlite3.Row) -> dict[str, Any]:

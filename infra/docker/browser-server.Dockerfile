@@ -17,11 +17,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 COPY browser-server/pyproject.toml ./pyproject.toml
+RUN mkdir -p src/aegis_browser \
+    && touch src/aegis_browser/__init__.py \
+    && pip install --no-cache-dir ".[dev]"
+RUN python -m playwright install chromium --with-deps
+
 COPY browser-server/src ./src
 COPY browser-server/config.json* ./
-
-RUN pip install --no-cache-dir -e ".[dev]"
-RUN python -m playwright install chromium --with-deps
+RUN pip install --no-cache-dir --no-deps -e .
 RUN mkdir -p /app/browser-profiles /app/browser-sessions /app/traces
 
 EXPOSE 50053

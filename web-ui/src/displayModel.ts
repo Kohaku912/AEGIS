@@ -82,7 +82,12 @@ export function buildDisplayDirectorState(overview: UiOverview, events: UiEvent[
   const serverQueueItems = displayQueueDirectorItems(overview);
   const attentionItemsForDisplay = attentionItems(overview).map((item) => directorItemFromAttention(item));
   const presentationItems = presentationDirectorItems(overview);
-  const all = [...serverQueueItems, ...eventItems, ...attentionItemsForDisplay, ...presentationItems]
+  const all = dedupeDirectorItems(
+    reconcileDirectorItems(
+      overview,
+      [...serverQueueItems, ...eventItems, ...attentionItemsForDisplay, ...presentationItems]
+    )
+  )
     .filter((item) => !item.expiresAt || item.expiresAt > now || item.persistence === "until_resolved")
     .sort(compareDirectorItems);
   const explicitTakeover = sceneTakeover.active
@@ -291,7 +296,7 @@ function presentationDirectorItems(overview: UiOverview): DisplayDirectorItem[] 
 
 function displayQueueDirectorItems(overview: UiOverview): DisplayDirectorItem[] {
   const items = overview.display_queue?.data?.items || [];
-  return items.map((item) => {
+  return items.filter((item) => !String(asRecord(item).resolved_by || "").trim()).map((item) => {
     const record = asRecord(item);
     const presentation = asRecord(record.presentation_event);
     const priority = String(record.priority || "P3");
@@ -324,14 +329,48 @@ function displayQueueDirectorItems(overview: UiOverview): DisplayDirectorItem[] 
 }
 
 function dedupeDirectorItems(items: DisplayDirectorItem[]): DisplayDirectorItem[] {
-  const seen = new Map<string, DisplayDirectorItem>();
+  const byId = new Map<string, DisplayDirectorItem>();
   for (const item of items) {
-    const previous = seen.get(item.id);
+    const previous = byId.get(item.id);
     if (!previous || item.createdAt >= previous.createdAt || priorityRank(item.priority) < priorityRank(previous.priority)) {
-      seen.set(item.id, item);
+      byId.set(item.id, item);
+    }
+  }
+  const seen = new Map<string, DisplayDirectorItem>();
+  for (const item of byId.values()) {
+    const key = ["P0", "P1"].includes(String(item.priority))
+      ? item.id
+      : directorSemanticKey(item);
+    const previous = seen.get(key);
+    if (!previous || item.createdAt >= previous.createdAt || priorityRank(item.priority) < priorityRank(previous.priority)) {
+      seen.set(key, item);
     }
   }
   return [...seen.values()];
+}
+
+function reconcileDirectorItems(overview: UiOverview, items: DisplayDirectorItem[]): DisplayDirectorItem[] {
+  const serverStatuses = new Map(
+    (overview.servers.data.items || []).map((server) => [server.server_id, normalizeStatus(server.status)])
+  );
+  return items.filter((item) => {
+    if (item.visualEvent?.effect === "disconnect" && item.affectedServers.length) {
+      const recovered = item.affectedServers.every(
+        (serverId) => serverStatuses.get(serverId) === "ONLINE"
+      );
+      if (recovered) return false;
+    }
+    return true;
+  });
+}
+
+function directorSemanticKey(item: DisplayDirectorItem): string {
+  return [
+    item.priority,
+    item.title.trim().toLowerCase(),
+    item.message.trim().toLowerCase(),
+    [...item.affectedServers].sort().join(",")
+  ].join("|");
 }
 
 function compareDirectorItems(a: DisplayDirectorItem, b: DisplayDirectorItem): number {

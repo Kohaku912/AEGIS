@@ -41,6 +41,49 @@ pub struct TaskInfo {
     pub author: String,
 }
 
+/// Launch an executable without invoking a command shell.
+pub fn launch_app(executable: &str) -> Result<u32, String> {
+    let executable = executable.trim();
+    if executable.is_empty() {
+        return Err("Application path or executable name is required".to_string());
+    }
+    Command::new(executable)
+        .spawn()
+        .map(|child| child.id())
+        .map_err(|e| format!("Failed to launch application: {e}"))
+}
+
+/// Activate an existing Windows window by title without interpolating shell text.
+pub fn focus_window(title: &str) -> Result<(), String> {
+    let title = title.trim();
+    if title.is_empty() {
+        return Err("Window title is required".to_string());
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let output = Command::new("powershell")
+            .env("AEGIS_TARGET_WINDOW", title)
+            .args([
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                "$shell = New-Object -ComObject WScript.Shell; if (-not $shell.AppActivate($env:AEGIS_TARGET_WINDOW)) { exit 2 }",
+            ])
+            .output()
+            .map_err(|e| format!("Failed to focus window: {e}"))?;
+        if output.status.success() {
+            Ok(())
+        } else {
+            Err(format!("Window not found or could not be focused: {title}"))
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = title;
+        Err("Window focus is only supported on Windows".to_string())
+    }
+}
+
 /// Execute a shell command
 pub fn execute_shell(command: &str, working_dir: Option<&str>) -> ShellResult {
     let start = std::time::Instant::now();

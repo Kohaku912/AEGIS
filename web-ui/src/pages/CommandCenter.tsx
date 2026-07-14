@@ -73,6 +73,11 @@ export function CommandCenter({ overview, recentEvents }: Props) {
             <span>Verification: <strong>{task.verification_summary || "No data yet"}</strong></span>
             <span>Blocked: <strong>{task.blocked_reason || "No"}</strong></span>
           </div>
+          {task.conversation_id ? (
+            <a className="operation-conversation-link" href={`/chat?conversation_id=${encodeURIComponent(task.conversation_id)}`}>
+              Open related conversation
+            </a>
+          ) : null}
         </article>
 
         <article className="panel command-ai-state command-span-4">

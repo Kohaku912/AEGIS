@@ -17,11 +17,12 @@
     ]
   },
   "risk": {
-    "level": "safe",
+    "level": "approval_required",
     "side_effects": [
       "keyboard_input"
     ],
-    "requires_approval": false
+    "requires_approval": true,
+    "approval_mode": "explicit"
   },
   "tags": [
     "builtin",

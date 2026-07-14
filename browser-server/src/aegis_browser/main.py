@@ -162,6 +162,8 @@ class BrowserHandler(BaseHTTPRequestHandler):
         url = data.get("url", "")
         if not url:
             return {"error": "No URL provided"}
+        selector = str(data.get("selector") or "").strip()
+        expect_text = str(data.get("expect_text") or "").strip()
 
         try:
             from playwright.sync_api import sync_playwright
@@ -169,7 +171,7 @@ class BrowserHandler(BaseHTTPRequestHandler):
             with sync_playwright() as p:
                 browser = p.chromium.launch(headless=True)
                 page = browser.new_page()
-                page.goto(url, timeout=30000)
+                response = page.goto(url, timeout=30000)
                 title = page.title()
                 text = page.evaluate("""
                     (() => {
@@ -181,13 +183,39 @@ class BrowserHandler(BaseHTTPRequestHandler):
                         return (clone.textContent || '').replace(/\\s{3,}/g, '\\n\\n').trim();
                     })()
                 """)
+                selector_found = False
+                selector_text = ""
+                selector_error = ""
+                if selector:
+                    try:
+                        locator = page.locator(selector)
+                        count = locator.count()
+                        selector_found = count > 0
+                        if selector_found:
+                            selector_text = locator.first.text_content(timeout=3000) or ""
+                    except Exception as exc:
+                        selector_error = str(exc)
+                status_code = response.status if response else (200 if url.startswith(("data:", "file:")) else None)
                 browser.close()
 
+            text_found = bool(expect_text) and (
+                expect_text in text or expect_text in selector_text or expect_text in title
+            )
             return {
                 "ok": True,
+                "http_status": status_code,
                 "title": title.encode("utf-8", errors="replace").decode("utf-8"),
                 "text": text[:5000].encode("utf-8", errors="replace").decode("utf-8"),
                 "url": url,
+                "verification": {
+                    "selector": selector,
+                    "selector_found": selector_found,
+                    "selector_text": selector_text[:2000].encode("utf-8", errors="replace").decode("utf-8"),
+                    "selector_error": selector_error,
+                    "expect_text": expect_text,
+                    "text_found": text_found,
+                    "passed": (not selector or selector_found) and (not expect_text or text_found),
+                },
             }
         except Exception as e:
             return {"error": str(e)}

@@ -1,5 +1,20 @@
 # AEGIS Operations Guide
 
+## Retention And Rotation
+
+- Docker service logs use `json-file` rotation at 10 MiB with five files per
+  service, configured in `docker-compose.yml`.
+- Retain audit/event JSONL for 90 days, and longer while an incident, approval,
+  or task investigation remains open.
+- Retain the latest E2E report plus 30 dated readiness runs. Keep failed release
+  evidence for 180 days.
+- Retain successful browser traces/screenshots for 14 days and failed traces
+  for 30 days, subject to earlier privacy deletion.
+- Retain auth events and capability override audit records for one year.
+
+Docker log limits are automatic. File artifact retention is an operator
+maintenance task until the scheduled retention worker is enabled.
+
 > **Status**: Beta
 > **Last Updated**: 2026-06-17
 

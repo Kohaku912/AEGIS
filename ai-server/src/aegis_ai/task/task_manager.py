@@ -93,6 +93,7 @@ class TaskManager:
         self._tasks: dict[str, dict[str, Any]] = {}
         self._lock = threading.RLock()
         self._load()
+        self._recover_interrupted_tasks()
 
     # ── Public API ────────────────────────────────────────────
 
@@ -425,3 +426,41 @@ class TaskManager:
                         self._tasks[task["task_id"]] = task
         except Exception:
             logger.debug("Failed to load tasks", exc_info=True)
+
+    def _recover_interrupted_tasks(self) -> None:
+        """Move non-resumable persisted work to an honest terminal state."""
+        recovered: list[tuple[dict[str, Any], str]] = []
+        now_ms = int(time.time() * 1000)
+        with self._lock:
+            for task in self._tasks.values():
+                if task.get("status") not in {
+                    TaskStatus.PLANNING.value,
+                    TaskStatus.RUNNING.value,
+                }:
+                    continue
+                steps = task.get("steps") or []
+                step_statuses = {str(step.get("status") or "") for step in steps}
+                if steps and step_statuses.issubset({"completed", "skipped"}):
+                    task["status"] = TaskStatus.COMPLETED.value
+                    task["result_summary"] = task.get("result_summary") or (
+                        "Recovered completed steps after AI Server restart."
+                    )
+                    event_type = TaskStatus.COMPLETED.value
+                else:
+                    task["status"] = TaskStatus.FAILED.value
+                    task["error"] = task.get("error") or (
+                        "Execution was interrupted by an AI Server restart. Retry the task."
+                    )
+                    for step in steps:
+                        if step.get("status") == "running":
+                            step["status"] = "failed"
+                            step["error"] = step.get("error") or task["error"]
+                            step["updated_at"] = now_ms
+                    event_type = TaskStatus.FAILED.value
+                task["updated_at"] = now_ms
+                task["completed_at"] = now_ms
+                recovered.append((task, event_type))
+            if recovered:
+                self._save()
+        for task, event_type in recovered:
+            self._notify(task, event_type)

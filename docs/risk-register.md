@@ -1,5 +1,18 @@
 # AEGIS Risk Register
 
+## 2026-07-14 Deployment Truth
+
+- Production auth is passkey-only with CSRF and fresh-auth gates; access tokens
+  are bootstrap/recovery only.
+- Docker services bind privately and rotate logs. Full acceptance still depends
+  on all real E2E checks passing.
+- gRPC TLS is not fully integrated. Plaintext gRPC is permitted only inside
+  Tailscale/private network boundaries and must never be directly published.
+- Room is `UNCONFIGURED/DISABLED` until Orange Pi uses a real provider; mock
+  Room results are rejected as production success.
+- Dashboard/Android/PC/OS notifications exist. LINE, Discord, SMTP, and voice
+  external senders remain disabled and deferred from v1.
+
 > **Last Updated**: 2026-06-12
 
 ## Risk Matrix

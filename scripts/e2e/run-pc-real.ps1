@@ -6,7 +6,8 @@ param(
     [switch]$InstallService,
     [switch]$UninstallAfter,
     [string]$ServiceInstallDir = "$env:ProgramFiles\AEGIS\pc-server",
-    [string]$Bind = "127.0.0.1"
+    [string]$Bind = "127.0.0.1",
+    [string]$AllowedRemoteAddress = ""
 )
 $ErrorActionPreference = "Continue"
 $start = Get-Date
@@ -34,6 +35,7 @@ if ($InstallService) {
     $svcStart = Get-Date
     try {
         $args = @("-ExecutionPolicy", "Bypass", "-File", "scripts/pc/install-service.ps1", "-InstallDir", $ServiceInstallDir, "-Port", "$PcPort", "-Bind", $Bind)
+        if ($AllowedRemoteAddress) { $args += @("-AllowedRemoteAddress", $AllowedRemoteAddress) }
         if ($RealActions -or $env:AEGIS_PC_REAL_ACTIONS_REQUIRED -eq "1") { $args += "-EnableRealPcActions" }
         $output = & powershell.exe @args 2>&1
         $output | Set-Content "$ReportDir/pc-service-install.log" -Encoding utf8
@@ -113,6 +115,7 @@ $result = @{
     service_install_tested = [bool]$InstallService
     real_actions_tested = [bool]($RealActions -or $env:AEGIS_PC_REAL_ACTIONS_REQUIRED -eq "1")
     bind = $Bind
+    allowed_remote_address = $AllowedRemoteAddress
     log_dir = $logDir
     reboot_autostart_manual_check = "After install, reboot Windows and verify Get-Service AegisPcServer is Running, then run this script without -InstallService."
     installer_next_step = "NSIS is the default consumer installer path; MSI/WiX remains the enterprise packaging candidate."

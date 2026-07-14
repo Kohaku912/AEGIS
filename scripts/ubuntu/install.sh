@@ -29,5 +29,20 @@ sudo mkdir -p /etc/aegis
 sudo sed "s#/opt/aegis#$INSTALL_DIR#g" infra/systemd/aegis.service \
   | sudo tee /etc/systemd/system/aegis.service >/dev/null
 sudo systemctl daemon-reload
+
+if [ -n "${AEGIS_KIOSK_USER:-}" ]; then
+  kiosk_home="$(getent passwd "$AEGIS_KIOSK_USER" | cut -d: -f6)"
+  if [ -z "$kiosk_home" ]; then
+    echo "Unknown AEGIS_KIOSK_USER=$AEGIS_KIOSK_USER" >&2
+    exit 1
+  fi
+  sudo install -d -o "$AEGIS_KIOSK_USER" -g "$AEGIS_KIOSK_USER" "$kiosk_home/.config/systemd/user"
+  sudo install -o "$AEGIS_KIOSK_USER" -g "$AEGIS_KIOSK_USER" -m 0644 \
+    infra/systemd/aegis-kiosk.service "$kiosk_home/.config/systemd/user/aegis-kiosk.service"
+  sudo install -o "$AEGIS_KIOSK_USER" -g "$AEGIS_KIOSK_USER" -m 0644 \
+    infra/systemd/aegis-display-power.service "$kiosk_home/.config/systemd/user/aegis-display-power.service"
+  sudo loginctl enable-linger "$AEGIS_KIOSK_USER"
+  echo "Installed kiosk units for $AEGIS_KIOSK_USER. Enable them from that user's graphical session."
+fi
 echo "Install complete. Workdir: $INSTALL_DIR"
 echo "Edit .env, then run: sudo systemctl enable --now aegis && scripts/ubuntu/healthcheck.sh"

@@ -30,7 +30,7 @@ $checks += @{
     error = ($audit -join "`n")
     report_path = $blockerPath
 }
-$required = @("docker_core", "manager_e2e", "pc_real", "android_real", "browser_real", "dev_real", "production_readiness_audit")
+$required = @("docker_core", "docker_persistence", "backup_restore", "manager_e2e", "pc_real", "android_real", "browser_real", "dev_real", "production_readiness_audit")
 $missing = @()
 foreach ($id in $required) {
     if (-not ($checks | Where-Object { $_.id -eq $id })) { $missing += $id }

@@ -1,5 +1,16 @@
 # AEGIS Roadmap
 
+## 2026-07-14 v1 Convergence Status
+
+AEGIS is in production acceptance, not feature expansion. The canonical status
+is `data/reports/production_readiness.json` together with
+`data/reports/e2e/latest/summary.json`; static test totals below are historical.
+Production Docker uses private binds and persistent volumes. Android code is
+complete but real reconnect acceptance is still evidence-gated. Room is
+`UNCONFIGURED/DISABLED` until the Orange Pi has a real provider. Passkey-only
+authentication replaced normal access-token login. gRPC TLS is not fully
+integrated, so v1 gRPC must remain inside Tailscale/private network boundaries.
+
 > **Last Updated**: 2026-06-17
 > **Current Phase**: Beta (real LLM, desire-driven autonomy)
 > **Total Tests**: 157 passed

@@ -1,6 +1,8 @@
 param(
     [string]$ReportDir = "data/reports/e2e/latest",
-    [switch]$Rebuild
+    [switch]$Rebuild,
+    [switch]$IncludeDev,
+    [switch]$IncludeRoom
 )
 $ErrorActionPreference = "Stop"
 $start = Get-Date
@@ -24,12 +26,16 @@ function Wait-HttpOk([string]$Url, [int]$Attempts = 24, [int]$DelaySec = 3) {
 }
 
 try {
-    if ($Rebuild) { docker compose build ai-server browser-server room-server dev-server | Out-File "$ReportDir/docker-build.log" -Encoding utf8 }
-    docker compose up -d ai-server browser-server room-server dev-server | Out-File "$ReportDir/docker-up.log" -Encoding utf8
+    $compose = @("compose", "-f", "docker-compose.yml", "-f", "docker-compose.production.yml")
+    $services = @("ai-server", "browser-server")
+    if ($IncludeDev) { $compose += @("--profile", "dev"); $services += "dev-server" }
+    if ($IncludeRoom) { $compose += @("--profile", "room"); $services += "room-server" }
+    if ($Rebuild) { docker @compose build @services | Out-File "$ReportDir/docker-build.log" -Encoding utf8 }
+    docker @compose up -d @services | Out-File "$ReportDir/docker-up.log" -Encoding utf8
     $evidence += "$ReportDir/docker-up.log"
     $dashboard = Wait-HttpOk "http://127.0.0.1:8090/health"
     $evidence += "http://127.0.0.1:8090/health"
-    docker compose ps --format json | Set-Content "$ReportDir/docker-ps.json" -Encoding utf8
+    docker @compose ps --format json | Set-Content "$ReportDir/docker-ps.json" -Encoding utf8
     $evidence += "$ReportDir/docker-ps.json"
 } catch {
     $status = "fail"

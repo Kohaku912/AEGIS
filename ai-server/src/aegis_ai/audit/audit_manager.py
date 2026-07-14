@@ -17,6 +17,7 @@ import sqlite3
 import threading
 import time
 import uuid
+from contextlib import closing
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
@@ -155,7 +156,7 @@ class AuditManager:
 
     def get_detail(self, entry_id: str) -> dict[str, Any] | None:
         """Get full detail for a single audit entry."""
-        with sqlite3.connect(str(self._log._db_path)) as conn:
+        with closing(sqlite3.connect(str(self._log._db_path))) as conn:
             conn.row_factory = sqlite3.Row
             row = conn.execute('SELECT * FROM audit WHERE entry_id = ?', (entry_id,)).fetchone()
         if row is None:

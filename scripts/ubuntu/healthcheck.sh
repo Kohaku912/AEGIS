@@ -19,9 +19,28 @@ docker compose -f docker-compose.yml -f docker-compose.production.yml ps >/tmp/a
   exit 1
 }
 
-curl -fsS http://127.0.0.1:${AEGIS_DASHBOARD_PORT:-8090}/health >/dev/null
-python3 scripts/audit-production-readiness.py --report-dir data/reports >/tmp/aegis-readiness.log || {
-  cat /tmp/aegis-readiness.log >&2
+dashboard_url="http://127.0.0.1:8090/health"
+dashboard_ready=0
+for _ in $(seq 1 "${AEGIS_HEALTHCHECK_ATTEMPTS:-40}"); do
+  if docker compose \
+    -f docker-compose.yml \
+    -f docker-compose.production.yml \
+    exec -T ai-server \
+    curl -fsS --max-time 5 "$dashboard_url" >/dev/null 2>&1; then
+    dashboard_ready=1
+    break
+  fi
+  sleep "${AEGIS_HEALTHCHECK_DELAY_SECONDS:-3}"
+done
+if [ "$dashboard_ready" != "1" ]; then
+  echo "AI Server did not become healthy from its local container: $dashboard_url" >&2
+  docker compose -f docker-compose.yml -f docker-compose.production.yml ps >&2 || true
   exit 1
-}
+fi
+if [ "${AEGIS_RUN_READINESS_CHECK:-0}" = "1" ]; then
+  python3 scripts/audit-production-readiness.py --report-dir data/reports >/tmp/aegis-readiness.log || {
+    cat /tmp/aegis-readiness.log >&2
+    exit 1
+  }
+fi
 echo "AEGIS healthcheck passed"

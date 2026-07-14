@@ -70,6 +70,10 @@ describe("dashboard v2 pages", () => {
 
     const { unmount } = render(<CommandCenter overview={data} recentEvents={[event()]} />);
     expect(screen.getByText("Inspect desktop")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Open related conversation" })).toHaveAttribute(
+      "href",
+      "/chat?conversation_id=conversation-1",
+    );
     expect(screen.getAllByText("Connection dropped").length).toBeGreaterThan(0);
     expect(screen.getByText("Audit-backed")).toBeInTheDocument();
     unmount();
@@ -180,6 +184,7 @@ function overview(): UiOverview {
       next_action: "Verify output",
       blocked_reason: "",
       capability_id: "pc-server.screenshot.get_screenshot",
+      conversation_id: "conversation-1",
       steps: [
         {
           step_id: "step-1",

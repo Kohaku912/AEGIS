@@ -76,6 +76,7 @@ export type CurrentTask = {
   verification_summary?: string;
   final_output?: string;
   audit_group_id?: string;
+  conversation_id?: string;
   cost_summary?: string;
   capability_id?: string;
   started_at?: number;

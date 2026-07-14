@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host 127.0.0.1 --port 5173",
-    "build": "tsc -b && vite build --outDir ../ai-server/src/aegis_ai/web/static/ui-v2",
+    "build": "tsc -b && vite build --emptyOutDir --outDir ../ai-server/src/aegis_ai/web/static/ui-v2",
     "test": "vitest run",
     "test:watch": "vitest",
     "playwright": "playwright test",

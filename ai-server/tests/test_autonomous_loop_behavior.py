@@ -153,6 +153,26 @@ def test_available_capabilities_use_status_manager_not_localhost(tmp_path) -> No
     assert loop.get_status()["available_capability_count"] == 4
 
 
+def test_decision_axes_keep_four_operational_priorities(tmp_path) -> None:
+    loop = AutonomousLoop(
+        desire_system=_PressureDesire(),
+        status_manager=_StatusManager({"pc-server": "offline", "browser-server": "online"}),
+        curiosity_system=object(),
+        data_dir=str(tmp_path / "autonomous"),
+    )
+
+    axes = loop._build_decision_axes([
+        {"name": "user_support", "pressure": 7.0},
+        {"name": "growth", "pressure": 6.0},
+    ])
+
+    assert set(axes) == {"user_commitment", "system_health", "learning", "curiosity"}
+    assert axes["user_commitment"] == 7.0
+    assert axes["system_health"] == 1.0
+    assert axes["learning"] == 6.0
+    assert axes["curiosity"] == 1.0
+
+
 def test_llm_interval_gate_waits_thirty_minutes_by_default(monkeypatch, tmp_path) -> None:
     monkeypatch.delenv("AEGIS_MIN_LLM_INTERVAL_MS", raising=False)
     desire = _PressureDesire()
