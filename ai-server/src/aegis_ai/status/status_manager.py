@@ -214,6 +214,12 @@ class StatusManager:
                         self._status[server_id]["last_change_ms"] = int(time.time() * 1000)
                         self._publish_change(server_id, old_status, ServerStatus.UNCONFIGURED.value)
                 continue
+
+            if server_id == "android-server":
+                with self._lock:
+                    self._status[server_id]["last_check_ms"] = int(time.time() * 1000)
+                continue
+
             is_up = self._check_port(host, port)
             old_status = self._status.get(server_id, {}).get("status", ServerStatus.UNKNOWN.value)
             new_status = ServerStatus.ONLINE.value if is_up else ServerStatus.OFFLINE.value

@@ -540,21 +540,46 @@ def _freshness(runtime: Any) -> dict[str, Any]:
 
 
 def _server_list(runtime: Any) -> list[dict[str, Any]]:
-    try:
-        from aegis_ai.web.dashboard_routes import _runtime_server_status
+    from aegis_ai.web.dashboard_legacy import _runtime_server_status
 
-        return [_server_projection(item) for item in list(_runtime_server_status(runtime=runtime).get("servers", []))]
-    except Exception:
-        snapshot = _status_snapshot(runtime)
-        return [_server_projection(item) for item in [
-            {
-                "server_id": server_id,
-                "status": str(item.get("status", "unknown")).upper(),
-                "status_detail": item.get("error", ""),
-                "health_checked_at": item.get("updated_at", _now_ms()),
-            }
-            for server_id, item in snapshot.items()
-        ]]
+    result = _runtime_server_status(runtime=runtime)
+    servers = list(result.get("servers", []))
+
+    android_mgr = getattr(runtime, "android_manager", None)
+    if android_mgr is not None:
+        try:
+            android_status = android_mgr.get_status()
+        except Exception:
+            android_status = {}
+        android_online = bool(android_status.get("online"))
+        found = False
+        for item in servers:
+            if item.get("server_id") == "android-server":
+                item["status"] = "ONLINE" if android_online else "OFFLINE"
+                item["mode"] = android_status.get("connection_mode", "offline")
+                item["status_detail"] = "Android device is connected." if android_online else "Android device is not connected."
+                item["dependencies"] = {
+                    "last_seen": android_status.get("last_seen", 0),
+                    "device_model": android_status.get("device_model", ""),
+                    "permission_status": android_status.get("permission_status", {}),
+                    "capability_availability": android_status.get("capability_availability", {}),
+                }
+                found = True
+                break
+        if not found:
+            servers.append({
+                "server_id": "android-server",
+                "status": "ONLINE" if android_online else "OFFLINE",
+                "mode": android_status.get("connection_mode", "offline"),
+                "status_detail": "Android device is connected." if android_online else "Android device is not connected.",
+                "dependencies": {
+                    "last_seen": android_status.get("last_seen", 0),
+                    "device_model": android_status.get("device_model", ""),
+                },
+                "health_checked_at": _now_ms(),
+            })
+
+    return [_server_projection(item) for item in servers]
 
 
 def _server_needs_attention(server: dict[str, Any]) -> bool:
@@ -1182,7 +1207,7 @@ def _event_fields(event_type: str, payload: Any) -> dict[str, Any]:
         return ""
 
     capability_id = str(first("capability_id", "tool_id", "tool_name", "capability") or "")
-    server_id = str(first("server_id", "server") or _server_from_capability_id(capability_id))
+    server_id = str(first("server_id", "server") or _server_from_capability_id(capability_id) or _server_from_event_type(event_type))
     status = str(first("status", "state", "decision") or _status_from_event_type(event_type))
     approval_id = str(first("approval_id", "request_id") or "")
     task_id = str(first("task_id") or "")
@@ -1195,6 +1220,7 @@ def _event_fields(event_type: str, payload: Any) -> dict[str, Any]:
         "approval_id": approval_id,
         "task_id": task_id,
         "severity": severity,
+        "event_type": event_type,
         "message": _truncate_text(message, limit=300),
     }
 
@@ -1204,6 +1230,19 @@ def _server_from_capability_id(capability_id: str) -> str:
     if prefix in {"ai-server", "pc-server", "android-server", "browser-server", "room-server", "dev-server"}:
         return prefix
     return "ai-server" if capability_id else ""
+
+
+def _server_from_event_type(event_type: str) -> str:
+    lowered = event_type.lower()
+    if lowered.startswith("android."):
+        return "android-server"
+    if lowered.startswith("pc."):
+        return "pc-server"
+    if lowered.startswith("browser."):
+        return "browser-server"
+    if lowered.startswith("room."):
+        return "room-server"
+    return ""
 
 
 def _status_from_event_type(event_type: str) -> str:
@@ -1251,11 +1290,14 @@ def _event_id(event: Any, event_type: str, timestamp: int, sequence: int, payloa
 def _event_priority(fields: dict[str, Any]) -> str:
     severity = str(fields.get("severity", "")).lower()
     status = str(fields.get("status", "")).lower()
+    event_type = str(fields.get("event_type", "")).lower()
     if severity == "critical" or status in {"offline", "failed", "error"}:
         return "P0"
-    if str(fields.get("approval_id", "")) or severity == "warning":
+    if str(fields.get("approval_id", "")):
         return "P1"
-    if status in {"degraded", "recovering", "created", "running"}:
+    if severity == "warning" and "permission" not in event_type:
+        return "P1"
+    if severity == "warning" or status in {"degraded", "recovering", "created", "running"}:
         return "P2"
     return "P3"
 

@@ -2,7 +2,7 @@
 
 Collects:
 - Calendar events (if available)
-- Weather data (if available)
+- Weather data (OpenMeteo API, free, no key)
 - Pending tasks
 - Recent notifications
 - System health
@@ -25,6 +25,46 @@ from aegis_ai.llm.memory_context import build_shared_memory_context
 logger = logging.getLogger("aegis_ai.briefing.provider")
 _DATA_DIR = str(Path(__file__).resolve().parent.parent.parent / "data")
 
+# ── Weather codes (WMO) → human-readable descriptions ──────────
+_WEATHER_CODES: dict[int, str] = {
+    0: "Clear sky",
+    1: "Mainly clear",
+    2: "Partly cloudy",
+    3: "Overcast",
+    45: "Fog",
+    48: "Depositing rime fog",
+    51: "Light drizzle",
+    53: "Moderate drizzle",
+    55: "Dense drizzle",
+    56: "Light freezing drizzle",
+    57: "Dense freezing drizzle",
+    61: "Slight rain",
+    63: "Moderate rain",
+    65: "Heavy rain",
+    66: "Light freezing rain",
+    67: "Heavy freezing rain",
+    71: "Slight snow",
+    73: "Moderate snow",
+    75: "Heavy snow",
+    77: "Snow grains",
+    80: "Slight rain showers",
+    81: "Moderate rain showers",
+    82: "Violent rain showers",
+    85: "Slight snow showers",
+    86: "Heavy snow showers",
+    95: "Thunderstorm",
+    96: "Thunderstorm with slight hail",
+    99: "Thunderstorm with heavy hail",
+}
+
+# ── Default location (Tokyo) ────────────────────────────────────
+_DEFAULT_LATITUDE = 35.6762
+_DEFAULT_LONGITUDE = 139.6503
+_DEFAULT_LOCATION_NAME = "Tokyo"
+
+# ── Cache TTL (seconds) ────────────────────────────────────────
+_WEATHER_CACHE_TTL = 300  # 5 minutes
+
 
 @dataclass
 class BriefingSection:
@@ -45,12 +85,7 @@ class DailyBriefing:
 
 
 class DailyBriefingProvider:
-    """Generates daily briefings from available data sources.
-
-    Usage:
-        provider = DailyBriefingProvider(context_builder=ctx)
-        briefing = provider.generate_briefing()
-    """
+    """Generates daily briefings from available data sources."""
 
     def __init__(
         self,
@@ -58,11 +93,15 @@ class DailyBriefingProvider:
         memory: Any = None,
         llm_provider: Any = None,
         notification_store: Any = None,
+        settings_store: Any = None,
     ) -> None:
         self._context = context_builder
         self._memory = memory
         self._llm = llm_provider
         self._notifications = notification_store
+        self._settings = settings_store
+        self._weather_cache: dict[str, Any] = {}
+        self._weather_cache_ts: float = 0.0
 
     def generate_briefing(self) -> DailyBriefing:
         """Generate a daily briefing."""
@@ -165,22 +204,120 @@ class DailyBriefingProvider:
         )
 
     def _get_weather(self) -> BriefingSection:
-        """Get weather data (placeholder)."""
-        return BriefingSection(
-            title="Weather",
-            content="Weather data not available. Configure weather API for live data.",
-            priority="low",
-            source="weather",
-        )
+        """Fetch current weather from OpenMeteo (free, no API key)."""
+        now = time.time()
+        if self._weather_cache and (now - self._weather_cache_ts) < _WEATHER_CACHE_TTL:
+            return self._build_weather_section(self._weather_cache)
+
+        lat, lon, location = self._resolve_location()
+        try:
+            import httpx
+
+            url = "https://api.open-meteo.com/v1/forecast"
+            params = {
+                "latitude": lat,
+                "longitude": lon,
+                "current": "temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m",
+                "timezone": "auto",
+            }
+            resp = httpx.get(url, params=params, timeout=10)
+            resp.raise_for_status()
+            data = resp.json()
+            current = data.get("current", {})
+            weather = {
+                "temperature": current.get("temperature_2m"),
+                "humidity": current.get("relative_humidity_2m"),
+                "weather_code": current.get("weather_code", 0),
+                "wind_speed": current.get("wind_speed_10m"),
+                "location": location,
+                "unit": data.get("current_units", {}).get("temperature_2m", "°C"),
+            }
+            self._weather_cache = weather
+            self._weather_cache_ts = now
+            return self._build_weather_section(weather)
+        except Exception as exc:
+            logger.debug("Weather fetch failed: %s", exc)
+            return BriefingSection(
+                title="Weather",
+                content=f"Weather data unavailable ({exc}).",
+                priority="low",
+                source="weather",
+            )
+
+    def _resolve_location(self) -> tuple[float, float, str]:
+        if self._settings:
+            try:
+                s = self._settings.get()
+                w = getattr(s, "weather", None)
+                if w:
+                    return (
+                        getattr(w, "latitude", _DEFAULT_LATITUDE),
+                        getattr(w, "longitude", _DEFAULT_LONGITUDE),
+                        getattr(w, "location_name", _DEFAULT_LOCATION_NAME),
+                    )
+            except Exception:
+                pass
+        return _DEFAULT_LATITUDE, _DEFAULT_LONGITUDE, _DEFAULT_LOCATION_NAME
+
+    @staticmethod
+    def _build_weather_section(w: dict[str, Any]) -> BriefingSection:
+        code = int(w.get("weather_code", 0))
+        condition = _WEATHER_CODES.get(code, f"Code {code}")
+        temp = w.get("temperature", "?")
+        unit = w.get("unit", "°C")
+        humidity = w.get("humidity", "?")
+        wind = w.get("wind_speed", "?")
+        location = w.get("location", "Unknown")
+        content = f"{condition}, {temp}{unit}, humidity {humidity}%, wind {wind} km/h ({location})"
+        return BriefingSection(title="Weather", content=content, priority="normal", source="weather")
 
     def _get_calendar(self) -> BriefingSection:
-        """Get calendar events (placeholder)."""
-        return BriefingSection(
-            title="Calendar",
-            content="Calendar not connected. Configure calendar integration for events.",
-            priority="low",
-            source="calendar",
-        )
+        """Load today's events from local calendar JSON."""
+        try:
+            from datetime import date, datetime
+            import json
+
+            cal_path = Path(_DATA_DIR).parent / "config" / "calendar.json"
+            if not cal_path.exists():
+                return BriefingSection(
+                    title="Calendar",
+                    content="No calendar configured. Add events to config/calendar.json.",
+                    priority="low",
+                    source="calendar",
+                )
+            with open(cal_path, encoding="utf-8") as f:
+                events = json.load(f)
+            today = date.today().isoformat()
+            today_events = [
+                e for e in events
+                if isinstance(e, dict) and e.get("date") == today
+            ]
+            if not today_events:
+                return BriefingSection(
+                    title="Calendar",
+                    content="No events today.",
+                    priority="low",
+                    source="calendar",
+                )
+            items = []
+            for e in sorted(today_events, key=lambda x: x.get("time", "")):
+                time_str = e.get("time", "All day")
+                title = e.get("title", "Untitled")
+                items.append(f"- {time_str}: {title}")
+            return BriefingSection(
+                title="Calendar",
+                content="\n".join(items),
+                priority="normal",
+                source="calendar",
+            )
+        except Exception as exc:
+            logger.debug("Calendar load failed: %s", exc)
+            return BriefingSection(
+                title="Calendar",
+                content=f"Calendar error: {exc}",
+                priority="low",
+                source="calendar",
+            )
 
     def _generate_summary(self, briefing: DailyBriefing) -> str:
         """Generate summary using LLM."""

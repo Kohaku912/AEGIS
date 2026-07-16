@@ -311,9 +311,9 @@ def test_execute_tasks_accepts_tool_execution_result_object(tmp_path) -> None:
 
 
 def test_representative_capability_is_included_when_retriever_misses(tmp_path) -> None:
-    capability_ids = ["ai-server.memory.search", "room-server.environment.get_environment"]
+    capability_ids = ["browser-server.page.browse", "ai-server.memory.search", "room-server.environment.get_environment"]
     broker = _Broker(capability_ids)
-    tool_name = "ai_server__memory__search"
+    tool_name = "browser_server__page__browse"
     llm = _NoActionThenToolLLM(tool_name)
 
     class _Retriever:
@@ -331,8 +331,8 @@ def test_representative_capability_is_included_when_retriever_misses(tmp_path) -
 
     tasks = loop._generate_tasks([{"name": "user_support", "gap": 5.0}])
 
-    assert tasks[0]["capability_id"] == "ai-server.memory.search"
-    assert "ai-server.memory.search" in loop.get_status()["candidate_capability_ids"]
+    assert tasks[0]["capability_id"] == "browser-server.page.browse"
+    assert "browser-server.page.browse" in loop.get_status()["candidate_capability_ids"]
 
 
 def test_useful_result_reduces_pressure(monkeypatch, tmp_path) -> None:
