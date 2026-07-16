@@ -144,6 +144,29 @@ class EventManager:
                     return e
         return None
 
+    def cleanup_old_events(self, max_age_hours: int = 24) -> int:
+        """Remove events older than max_age_hours. Returns number of removed events."""
+        cutoff_ms = int((time.time() - max_age_hours * 3600) * 1000)
+        with self._lock:
+            before = len(self._persisted_events)
+            self._persisted_events = [
+                e for e in self._persisted_events
+                if e.get("timestamp", 0) >= cutoff_ms
+            ]
+            removed = before - len(self._persisted_events)
+        if removed > 0:
+            self._rewrite_persisted()
+        return removed
+
+    def _rewrite_persisted(self) -> None:
+        """Rewrite the persisted events file with current events."""
+        try:
+            with open(self._persist_path, "w", encoding="utf-8") as f:
+                for entry in self._persisted_events:
+                    f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+        except Exception:
+            logger.debug("Failed to rewrite persisted events", exc_info=True)
+
     def replay(self, from_timestamp_ms: int) -> list[dict[str, Any]]:
         """Replay events from a timestamp."""
         with self._lock:
@@ -232,7 +255,7 @@ class EventManager:
         except Exception:
             logger.debug("Failed to persist dead letter", exc_info=True)
 
-    def _load_persisted(self) -> None:
+    def _load_persisted(self, max_events: int = 500) -> None:
         if not self._persist_path.exists():
             return
         try:
@@ -241,5 +264,8 @@ class EventManager:
                     line = line.strip()
                     if line:
                         self._persisted_events.append(json.loads(line))
+            if len(self._persisted_events) > max_events:
+                self._persisted_events = self._persisted_events[-max_events:]
+            self.cleanup_old_events(max_age_hours=24)
         except Exception:
             logger.debug("Failed to load persisted events", exc_info=True)

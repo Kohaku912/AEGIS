@@ -103,17 +103,37 @@ export function buildDisplayDirectorState(overview: UiOverview, events: UiEvent[
         affectedServers: []
       }
     : undefined;
-  const takeover = explicitTakeover || all.find((item) => ["P0", "P1"].includes(String(item.priority)));
+
+  const isServerOffline = (item: DisplayDirectorItem) => {
+    const title = String(item.title || "").toLowerCase();
+    const message = String(item.message || "").toLowerCase();
+    return title.includes("offline") || message.includes("not connected") || message.includes("offline");
+  };
+
+  const takeover = explicitTakeover || all.find((item) => ["P0", "P1"].includes(String(item.priority)) && !isServerOffline(item));
+
+  const serverOfflineItems = all.filter((item) => isServerOffline(item)).map((item) => ({
+    ...item,
+    priority: "P2",
+    severity: "warning",
+    persistence: "attention_dock"
+  }));
+
+  const warningItems = [
+    ...all.filter((item) => item.id !== takeover?.id && String(item.priority) === "P2"),
+    ...serverOfflineItems
+  ].slice(0, 5);
+
   return {
     sceneMode: String(displayScene.phase || displayScene.mode || missionPhase(overview)),
     privacyMode: Boolean(displayScene.privacy_mode),
     offline: Boolean(displayScene.offline || String(overview.core.data.health || "").toUpperCase() === "OFFLINE"),
     stale: Boolean(overview.freshness.stale || displayScene.stale),
     takeover,
-    overlays: all.filter((item) => item.id !== takeover?.id && String(item.priority) === "P2").slice(0, 3),
-    dock: all.filter((item) => item.id !== takeover?.id && item.persistence !== "ephemeral").slice(0, 6),
+    overlays: warningItems,
+    dock: all.filter((item) => item.id !== takeover?.id && item.persistence !== "ephemeral" && !isServerOffline(item)).slice(0, 6),
     ambient: [
-      ...all.filter((item) => item.id !== takeover?.id && item.persistence === "ephemeral"),
+      ...all.filter((item) => item.id !== takeover?.id && item.persistence === "ephemeral" && !isServerOffline(item)),
       ...visualEvents.map((event) => directorItemFromVisualEvent(event))
     ].slice(0, 8)
   };
@@ -434,4 +454,3 @@ function memoriesUsed(memory: Record<string, unknown>): string {
   }, 0);
   return total > 0 ? String(total) : "No data yet";
 }
-

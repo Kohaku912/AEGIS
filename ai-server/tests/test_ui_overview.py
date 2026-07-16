@@ -320,6 +320,36 @@ def test_core_uses_effective_server_status(monkeypatch):
     assert overview["core"]["data"]["health"] == "ONLINE"
 
 
+def test_display_queue_resolves_android_disconnected():
+    class AndroidEvents(_EventManager):
+        def list_recent(self, limit=50, cursor=None):
+            return {
+                "events": [
+                    {
+                        "event_id": "evt-android-disconnect",
+                        "event_type": "android.disconnected",
+                        "timestamp": 1000,
+                        "payload": {"device_id": "ed96f3f7", "connection_id": "android_abc", "reason": "stream closed"},
+                    },
+                    {
+                        "event_id": "evt-android-connect",
+                        "event_type": "android.connected",
+                        "timestamp": 2000,
+                        "payload": {"device_id": "ed96f3f7", "connection_id": "android_def", "connection_mode": "reverse_stream"},
+                    },
+                ],
+            }
+
+    runtime = _runtime()
+    runtime.event_manager = AndroidEvents()
+    overview = build_ui_overview(runtime)
+
+    items = overview["display_queue"]["data"]["items"]
+    assert all("android.disconnected" not in item.get("title", "") for item in items), (
+        f"android.disconnected should be resolved: {items}"
+    )
+
+
 def test_normalize_ui_event_exposes_visual_fields():
     event = SimpleNamespace(
         event_type="tool.execution.failed",

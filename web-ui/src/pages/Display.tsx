@@ -72,14 +72,24 @@ export function Display({ overview: initialOverview }: { overview: UiOverview })
           <p>{director.privacyMode ? "Private information hidden." : director.takeover.message}</p>
         </section>
       ) : null}
-      {director.overlays.length ? (
-        <aside className="display-overlay-stack" aria-label="Important overlays">
-          {director.overlays.map((item) => (
+      {director.overlays.filter((item) => item.priority === "P0" || item.priority === "P1").length ? (
+        <aside className="display-overlay-stack" aria-label="Critical overlays">
+          {director.overlays.filter((item) => item.priority === "P0" || item.priority === "P1").map((item) => (
             <article className="display-overlay" data-priority={item.priority} data-severity={item.severity} key={item.id}>
               <span>{item.priority}</span>
               <strong>{item.title}</strong>
               <p>{item.message}</p>
             </article>
+          ))}
+        </aside>
+      ) : null}
+      {director.overlays.filter((item) => item.priority === "P2").length ? (
+        <aside className="display-warning-strip" aria-label="Warnings">
+          {director.overlays.filter((item) => item.priority === "P2").map((item) => (
+            <div className="display-warning-item" data-severity={item.severity} key={item.id}>
+              <span className="display-warning-dot" aria-hidden="true" />
+              <strong>{item.title}</strong>
+            </div>
           ))}
         </aside>
       ) : null}
@@ -93,10 +103,10 @@ export function Display({ overview: initialOverview }: { overview: UiOverview })
             <span>{phase}</span>
           </div>
         </section>
-        {attention.length ? (
-          <section className="display-card display-attention" aria-label="Attention">
-            <span className="display-kicker">Attention</span>
-            {attention.slice(0, 4).map((item) => (
+        {attention.filter((item) => item.severity === "critical").length ? (
+          <section className="display-card display-attention" aria-label="Critical Attention">
+            <span className="display-kicker">Critical</span>
+            {attention.filter((item) => item.severity === "critical").slice(0, 3).map((item) => (
               <article className="display-attention__item" data-severity={item.severity} key={item.id}>
                 <strong>{redact(item.title, director.privacyMode)}</strong>
                 <p>{redact(item.message || item.recovery_hint || "Review this signal.", director.privacyMode)}</p>
