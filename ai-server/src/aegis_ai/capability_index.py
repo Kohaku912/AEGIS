@@ -479,7 +479,7 @@ def _priority_score(doc: CapabilityDocument) -> float:
     important = {
         "pc-server.screenshot.get_screenshot",
         "browser-server.page.browse",
-        "pc-server.app.open_url",
+        "pc-server.app.show_url",
         "ai-server.memory.search",
         "ai-server.memory.save",
     }

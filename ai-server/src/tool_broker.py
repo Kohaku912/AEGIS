@@ -903,7 +903,7 @@ class ToolBroker:
         Includes ALLOW, ALLOW_WITH_AUDIT, and ASK_APPROVAL capabilities.
         Excludes DENY and UNAVAILABLE.
         """
-        all_caps = self._registry.list_all()
+        all_caps = self._registry.list_capabilities()
         autonomous_caps = []
         for cap in all_caps:
             policy_result = self._policy.evaluate(cap)

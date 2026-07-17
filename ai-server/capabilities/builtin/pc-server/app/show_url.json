@@ -1,0 +1,47 @@
+{
+  "id": "pc-server.app.show_url",
+  "title": "ウェブサイトをユーザーに見せる",
+  "description": "AEGISが収集・調査したウェブサイトをユーザーのPCブラウザで開いて提示する。ユーザーが見たいサイトやAEGISが調べた結果を表示するための機能。自律的なウェブ調査にはbrowser-server.page.browseを使用すること。",
+  "server_id": "pc-server",
+  "app_id": "app",
+  "action": "show_url",
+  "operation_category": "general",
+  "risk": {
+    "level": "safe",
+    "requires_approval": false
+  },
+  "input": {
+    "type": "object",
+    "properties": {
+      "url": {
+        "type": "string",
+        "description": "URL to show to the user"
+      }
+    },
+    "required": [
+      "url"
+    ]
+  },
+  "tags": [
+    "browser",
+    "url",
+    "show",
+    "user_visible",
+    "presentation"
+  ],
+  "examples": [
+    {
+      "user": "この記事を見せて",
+      "arguments": {
+        "url": "https://example.com/article"
+      }
+    },
+    {
+      "user": "さっき調べたサイトを開いて",
+      "arguments": {
+        "url": "https://example.com"
+      }
+    }
+  ],
+  "tcp_command": "open_url {url}"
+}
