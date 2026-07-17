@@ -107,4 +107,121 @@ def init_autonomous_routes(owner: Any, data_dir: str) -> None:
         except Exception as exc:
             return jsonify({"error": str(exc)})
 
+    @bp.route("/api/autonomous/logs")
+    def autonomous_logs():
+        """Return execution logs grouped by autonomous cycle."""
+        try:
+            log_path = os.path.join(data_dir, "autonomous", "execution_log.jsonl")
+            if not os.path.exists(log_path):
+                return jsonify({"cycles": [], "count": 0})
+
+            cycles = []
+            with open(log_path, encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    entry = json.loads(line)
+                    ts = entry.get("timestamp_ms", 0)
+                    tasks = entry.get("tasks", [])
+                    results = entry.get("results", [])
+                    decision = entry.get("last_decision", "")
+                    skip_reason = entry.get("last_skip_reason", "")
+
+                    actions = []
+                    for i, task in enumerate(tasks):
+                        result = results[i] if i < len(results) else {}
+                        actions.append({
+                            "capability_id": task.get("capability_id", ""),
+                            "action": task.get("action_goal", task.get("action", "")),
+                            "desire": task.get("desire", ""),
+                            "what_was_done": task.get("what_was_done", ""),
+                            "result_summary": task.get("result_summary", result.get("result", "")),
+                            "changed_state": task.get("changed_state", ""),
+                            "success": result.get("success", False),
+                        })
+
+                    cycles.append({
+                        "timestamp_ms": ts,
+                        "decision": decision,
+                        "skip_reason": skip_reason,
+                        "action_count": len(actions),
+                        "actions": actions,
+                        "candidate_capability_ids": entry.get("candidate_capability_ids", []),
+                        "decision_axes": entry.get("decision_axes", {}),
+                    })
+
+            cycles.sort(key=lambda c: c["timestamp_ms"], reverse=True)
+            return jsonify({"cycles": cycles[:50], "count": len(cycles)})
+        except Exception as exc:
+            return jsonify({"error": str(exc)})
+
+    @bp.route("/api/autonomous/logs/<int:timestamp_ms>")
+    def autonomous_log_detail(timestamp_ms: int):
+        """Return detailed log for a specific autonomous cycle."""
+        try:
+            log_path = os.path.join(data_dir, "autonomous", "execution_log.jsonl")
+            if not os.path.exists(log_path):
+                return jsonify({"error": "No execution log found"})
+
+            with open(log_path, encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    entry = json.loads(line)
+                    if abs(entry.get("timestamp_ms", 0) - timestamp_ms) < 1000:
+                        return jsonify(entry)
+
+            return jsonify({"error": "Cycle not found"})
+        except Exception as exc:
+            return jsonify({"error": str(exc)})
+
+    @bp.route("/api/audit/grouped")
+    def audit_grouped():
+        """Return audit entries grouped by autonomous cycle or chat turn."""
+        try:
+            audit_path = os.path.join(data_dir, "audit.jsonl")
+            if not os.path.exists(audit_path):
+                return jsonify({"groups": [], "count": 0})
+
+            entries = []
+            with open(audit_path, encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    entries.append(json.loads(line))
+
+            groups: dict[str, dict[str, Any]] = {}
+            for entry in entries:
+                group_id = entry.get("group_id", "")
+                if not group_id:
+                    group_id = f"ungrouped_{entry.get('timestamp_ms', 0)}"
+
+                if group_id not in groups:
+                    groups[group_id] = {
+                        "group_id": group_id,
+                        "group_type": entry.get("group_type", "unknown"),
+                        "group_title": entry.get("group_title", ""),
+                        "started_at": entry.get("timestamp_ms", 0),
+                        "entries": [],
+                    }
+
+                group = groups[group_id]
+                group["entries"].append({
+                    "action": entry.get("action", ""),
+                    "capability_id": entry.get("capability_id", ""),
+                    "decision": entry.get("decision", ""),
+                    "reason": entry.get("reason", ""),
+                    "timestamp_ms": entry.get("timestamp_ms", 0),
+                    "actor": entry.get("actor", ""),
+                })
+                group["started_at"] = min(group["started_at"], entry.get("timestamp_ms", 0))
+
+            sorted_groups = sorted(groups.values(), key=lambda g: g["started_at"], reverse=True)
+            return jsonify({"groups": sorted_groups[:30], "count": len(groups)})
+        except Exception as exc:
+            return jsonify({"error": str(exc)})
+
     owner.app.register_blueprint(bp)

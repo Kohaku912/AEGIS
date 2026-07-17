@@ -50,6 +50,7 @@ def build_ui_overview(runtime: Any) -> dict[str, Any]:
         "notifications": _section("notifications", lambda: _notifications(runtime), generated_at),
         "approvals": _section("approvals", lambda: _approvals(runtime), generated_at),
         "commitments": _section("commitments", lambda: _commitments(runtime), generated_at),
+        "autonomous_logs": _section("autonomous_logs", lambda: _autonomous_logs(runtime), generated_at),
         "usage": _section("usage", lambda: _usage(runtime), generated_at),
         "errors": _section("errors", lambda: _errors(runtime), generated_at),
         "freshness": _section("freshness", lambda: _freshness(runtime), generated_at),
@@ -507,6 +508,61 @@ def _usage(runtime: Any) -> dict[str, Any]:
     if tracker is not None and hasattr(tracker, "summary"):
         return _usage_projection(tracker.summary())
     return _usage_projection({"summary": "LLM usage is available from the LLM Usage service.", "input_tokens": 0, "output_tokens": 0})
+
+
+def _autonomous_logs(runtime: Any) -> dict[str, Any]:
+    """Group autonomous execution logs by cycle."""
+    import json as _json
+    import os
+
+    loop = getattr(runtime, "autonomous_loop", None)
+    data_dir = getattr(loop, "_data_dir", None) if loop else None
+    if data_dir is None:
+        return {"cycles": [], "count": 0}
+
+    log_path = str(data_dir / "execution_log.jsonl")
+    if not os.path.exists(log_path):
+        return {"cycles": [], "count": 0}
+
+    cycles = []
+    try:
+        with open(log_path, encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                entry = _json.loads(line)
+                ts = entry.get("timestamp_ms", 0)
+                tasks = entry.get("tasks", [])
+                results = entry.get("results", [])
+                decision = entry.get("last_decision", "")
+                skip_reason = entry.get("last_skip_reason", "")
+
+                actions = []
+                for i, task in enumerate(tasks):
+                    result = results[i] if i < len(results) else {}
+                    actions.append({
+                        "capability_id": task.get("capability_id", ""),
+                        "action": task.get("action_goal", task.get("action", "")),
+                        "desire": task.get("desire", ""),
+                        "what_was_done": task.get("what_was_done", ""),
+                        "result_summary": task.get("result_summary", result.get("result", "")),
+                        "changed_state": task.get("changed_state", ""),
+                        "success": result.get("success", False),
+                    })
+
+                cycles.append({
+                    "timestamp_ms": ts,
+                    "decision": decision,
+                    "skip_reason": skip_reason,
+                    "action_count": len(actions),
+                    "actions": actions,
+                })
+    except Exception:
+        return {"cycles": [], "count": 0}
+
+    cycles.sort(key=lambda c: c["timestamp_ms"], reverse=True)
+    return {"cycles": cycles[:20], "count": len(cycles)}
 
 
 def _errors(runtime: Any) -> dict[str, Any]:
