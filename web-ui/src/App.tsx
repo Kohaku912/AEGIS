@@ -1,70 +1,84 @@
-import {
-  Activity,
-  BrainCircuit,
-  ClipboardList,
-  Home,
-  MessageSquare,
-  MonitorCog,
-  Settings as SettingsIcon,
-  ShieldCheck
-} from "lucide-react";
+import { Bell, ChevronDown, ChevronRight, Code2, Command as CommandIcon, MessageSquare, Plus, UserRound } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { fetchOverview } from "./api/client";
+import { fetchOverview, fetchResourceEntity } from "./api/client";
 import { useOverviewStream } from "./api/useOverviewStream";
 import { ChatDrawer } from "./components/ChatDrawer";
-import { Freshness } from "./components/Freshness";
+import { CommandPalette } from "./components/CommandPalette";
+import { GlobalInspector } from "./components/GlobalInspector";
+import { GlobalSearch } from "./components/GlobalSearch";
+import { LiveActivityDrawer } from "./components/LiveActivityDrawer";
 import { StatusBadge } from "./components/StatusBadge";
 import { UiState } from "./components/UiState";
+import { entitiesFromOverview } from "./entityModel";
+import { navigation, pageDefinition, routeState, type DomainId } from "./navigation";
 import { ActivityPage } from "./pages/ActivityPage";
 import { Approvals } from "./pages/Approvals";
+import { CapabilityCatalogPage } from "./pages/CapabilityCatalogPage";
 import { CommandCenter } from "./pages/CommandCenter";
 import { Display } from "./pages/Display";
+import { DomainPage } from "./pages/DomainPage";
 import { MindMemory } from "./pages/MindMemory";
+import { LLMUsagePage } from "./pages/LLMUsagePage";
+import { ModelsPromptsPage } from "./pages/ModelsPromptsPage";
+import { PolicySimulationPage } from "./pages/PolicySimulationPage";
+import { RuleManagementPage } from "./pages/RuleManagementPage";
 import { Settings } from "./pages/Settings";
 import { Systems } from "./pages/Systems";
 import { Work } from "./pages/Work";
-import type { UiEvent, UiOverview } from "./types";
-
-type PageId = "command" | "work" | "approvals" | "systems" | "mind" | "activity" | "settings";
-
-const pages: Array<{ id: PageId; label: string; icon: typeof Home; path: string }> = [
-  { id: "command", label: "Command Center", icon: Home, path: "/dashboard" },
-  { id: "work", label: "Work", icon: ClipboardList, path: "/dashboard/work" },
-  { id: "approvals", label: "Approvals", icon: ShieldCheck, path: "/dashboard/approvals" },
-  { id: "systems", label: "Systems", icon: MonitorCog, path: "/dashboard/systems" },
-  { id: "mind", label: "Mind & Memory", icon: BrainCircuit, path: "/dashboard/mind" },
-  { id: "activity", label: "Activity", icon: Activity, path: "/dashboard/activity" },
-  { id: "settings", label: "Settings", icon: SettingsIcon, path: "/settings" }
-];
+import type { EntitySummary, UiEvent, UiOverview } from "./types";
 
 export function App() {
   const displayMode = window.location.pathname.startsWith("/display");
   const queryClient = useQueryClient();
   const [chatOpen, setChatOpen] = useState(window.location.pathname === "/chat");
   const [recentEvents, setRecentEvents] = useState<UiEvent[]>([]);
-  const selectedPage = useMemo(() => selectedPageFromPath(window.location.pathname), []);
-  const [page, setPage] = useState<PageId>(selectedPage);
+  const [route, setRoute] = useState(() => routeState(window.location.pathname));
+  const [expanded, setExpanded] = useState<DomainId>(route.domain);
+  const [selectedEntity, setSelectedEntity] = useState<EntitySummary>();
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [developerMode, setDeveloperMode] = useState(() => window.localStorage.getItem("aegis.developer-mode") === "1");
+  const [density, setDensity] = useState(() => window.localStorage.getItem("aegis.density") || "standard");
+  const [pinnedEntities, setPinnedEntities] = useState<EntitySummary[]>(() => readPins());
+  const followRelation = useCallback(async (type: string, id: string) => {
+    const resources: Record<string, string> = { task: "tasks", approval: "approvals", capability: "capabilities", server: "servers", event: "events", memory: "memories", conversation: "events" };
+    try { setSelectedEntity(await fetchResourceEntity(resources[type] || `${type}s`, id)); }
+    catch { /* Keep the current entity visible when the related record is no longer retained. */ }
+  }, []);
   const query = useQuery({
     queryKey: ["ui-overview", displayMode ? "display" : "dashboard"],
     queryFn: () => fetchOverview(displayMode ? "display" : "dashboard"),
     refetchInterval: displayMode ? 15_000 : 30_000
   });
   const onEvent = useCallback((event: UiEvent) => {
-    if (!("schema_version" in event)) {
-      setRecentEvents((items) => [event, ...items].slice(0, 10));
-    }
+    if (!("schema_version" in event)) setRecentEvents((items) => [event, ...items.filter((item) => item.event_id !== event.event_id)].slice(0, 40));
     void queryClient.invalidateQueries({ queryKey: ["ui-overview"] });
   }, [queryClient]);
   useOverviewStream(onEvent, !displayMode);
 
+  const navigate = useCallback((path: string) => {
+    window.history.pushState(null, "", path);
+    const next = routeState(path.split("?", 1)[0]);
+    setRoute(next);
+    setExpanded(next.domain);
+  }, []);
+
   useEffect(() => {
     const onPopState = () => {
-      setPage(selectedPageFromPath(window.location.pathname));
+      const next = routeState(window.location.pathname);
+      setRoute(next);
+      setExpanded(next.domain);
       setChatOpen(window.location.pathname === "/chat");
     };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        setPaletteOpen(true);
+      }
+    };
     window.addEventListener("popstate", onPopState);
-    return () => window.removeEventListener("popstate", onPopState);
+    window.addEventListener("keydown", onKeyDown);
+    return () => { window.removeEventListener("popstate", onPopState); window.removeEventListener("keydown", onKeyDown); };
   }, []);
 
   if (query.isLoading) return <LoadingDisplay displayMode={displayMode} />;
@@ -72,101 +86,93 @@ export function App() {
   if (displayMode) return <Display overview={query.data} />;
 
   const overview = query.data;
+  const definition = pageDefinition(route.page);
+  const entities = entitiesFromOverview(overview, recentEvents);
+  const attentionCount = (overview.attention.data.items || []).length;
+  const approvalCount = overview.approvals.data.pending_count || 0;
   return (
-    <div className="app-shell">
-      <aside className="side-nav">
-        <div className="brand">
-          <span className="brand__name">AEGIS</span>
-          <span className="brand__sub">Operational Console</span>
-        </div>
-        <nav className="nav-list" aria-label="Primary">
-          {pages.map((item) => {
-            const Icon = item.icon;
+    <div className="master-shell" data-domain={route.domain} data-developer-mode={developerMode} data-density={density}>
+      <aside className="master-nav">
+        <div className="brand"><span className="brand__name">AEGIS</span><span className="brand__sub">Master Control Plane</span></div>
+        <nav aria-label="AEGIS management domains">
+          {navigation.map((domain, index) => {
+            const Icon = domain.icon;
+            const open = expanded === domain.id;
             return (
-              <button
-                className="nav-button"
-                key={item.id}
-                aria-current={page === item.id ? "page" : undefined}
-                onClick={() => {
-                  setPage(item.id);
-                  window.history.pushState(null, "", item.path);
-                }}
-              >
-                <Icon size={17} aria-hidden="true" />
-                {item.label}
-              </button>
+              <section className="nav-domain" data-open={open} key={domain.id}>
+                <button type="button" aria-expanded={open} aria-current={route.domain === domain.id ? "page" : undefined} onClick={() => setExpanded(open ? route.domain : domain.id)}>
+                  <span className="nav-domain__number">{String(index + 1).padStart(2, "0")}</span><Icon size={16} /><strong>{domain.label}</strong>{open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                </button>
+                {open ? <div className="nav-domain__children">{domain.pages.map((page) => <button type="button" aria-current={route.page === page.id ? "page" : undefined} onClick={() => navigate(page.path)} key={page.id}>{page.label}</button>)}</div> : null}
+              </section>
             );
           })}
         </nav>
+        <footer><span>Passkey session</span><strong>Policy guarded</strong></footer>
       </aside>
-      <main className="content">
-        <header className="top-bar">
-          <div className="page-title">
-            <h1>{pages.find((item) => item.id === page)?.label || "AEGIS"}</h1>
-            <p>Live overview generated by Runtime managers, Policy, Approval, and Status services.</p>
-          </div>
-          <div className="top-actions">
-            <StatusBadge status={String(overview.core.data.health || "ONLINE")} />
-            <Freshness generatedAt={overview.generated_at} sourceUpdatedAt={overview.freshness.source_updated_at} stale={overview.freshness.stale} />
-            <button className="icon-button" onClick={() => setChatOpen(true)} title="Open chat">
-              <MessageSquare size={17} aria-hidden="true" />
-            </button>
-          </div>
+
+      <div className="master-workspace">
+        <header className="master-topbar">
+          <GlobalSearch entities={entities} onSelect={setSelectedEntity} />
+          <button className="palette-trigger" type="button" onClick={() => setPaletteOpen(true)}><CommandIcon size={15} /><span>Commands</span><kbd>Ctrl K</kbd></button>
+          <button className="topbar-command" type="button" onClick={() => navigate("/dashboard/work/tasks?create=1")}><Plus size={15} />Create Task</button>
+          <button className="topbar-signal" type="button" onClick={() => navigate("/dashboard/attention")}><Bell size={15} /><span>{attentionCount}</span></button>
+          <button className="topbar-signal" type="button" onClick={() => navigate("/dashboard/governance/approvals")}><StatusBadge status={approvalCount ? "WAITING" : "READY"} /><span>{approvalCount}</span></button>
+          <button className="icon-button" type="button" onClick={() => setChatOpen(true)} title="Open AEGIS chat"><MessageSquare size={16} /></button>
+          <button className="icon-button developer-toggle" type="button" aria-pressed={developerMode} onClick={() => setDeveloperMode((value) => { const next = !value; window.localStorage.setItem("aegis.developer-mode", next ? "1" : "0"); return next; })} title="Toggle Developer Mode"><Code2 size={16} /></button>
+          <label className="density-control"><span>Density</span><select aria-label="Interface density" value={density} onChange={(event) => { const next = event.currentTarget.value; setDensity(next); window.localStorage.setItem("aegis.density", next); }}><option value="comfortable">Comfortable</option><option value="standard">Standard</option><option value="compact">Compact</option></select></label>
+          <a className="user-chip" href="/dashboard/security/passkeys"><UserRound size={15} /><span>Admin</span></a>
         </header>
-        <Page page={page} overview={overview} recentEvents={recentEvents} />
-      </main>
+        <header className="workspace-heading"><div><span>{definition.domain.label}</span><h1>{definition.page.label}</h1></div><div><StatusBadge status={String(overview.core.data.health || "ONLINE")} /><span className="workspace-heading__freshness">Updated {new Date(overview.generated_at).toLocaleTimeString()}</span></div></header>
+        <main className="master-content">
+          <Page pageId={route.page} overview={overview} recentEvents={recentEvents} onSelect={setSelectedEntity} pinnedEntities={pinnedEntities} />
+        </main>
+      </div>
+
+      <GlobalInspector entity={selectedEntity} onClose={() => setSelectedEntity(undefined)} onFollowRelation={followRelation} pinned={Boolean(selectedEntity && pinnedEntities.some((item) => item.type === selectedEntity.type && item.id === selectedEntity.id))} onTogglePin={(entity) => setPinnedEntities((items) => togglePin(items, entity))} />
+      <LiveActivityDrawer events={recentEvents} />
       <ChatDrawer open={chatOpen} onClose={() => setChatOpen(false)} />
+      <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} navigate={navigate} />
     </div>
   );
 }
 
-function Page({ page, overview, recentEvents }: { page: PageId; overview: UiOverview; recentEvents: UiEvent[] }) {
-  if (page === "work") return <Work overview={overview} />;
-  if (page === "approvals") return <Approvals overview={overview} />;
-  if (page === "systems") return <Systems overview={overview} />;
-  if (page === "mind") return <MindMemory overview={overview} />;
-  if (page === "activity") return <ActivityPage overview={overview} recentEvents={recentEvents} />;
-  if (page === "settings") return <Settings overview={overview} />;
-  return <CommandCenter overview={overview} recentEvents={recentEvents} />;
+function Page({ pageId, overview, recentEvents, onSelect, pinnedEntities }: { pageId: string; overview: UiOverview; recentEvents: UiEvent[]; onSelect: (entity: EntitySummary) => void; pinnedEntities: EntitySummary[] }) {
+  if (pageId === "command-center") return <CommandCenter overview={overview} recentEvents={recentEvents} pinnedEntities={pinnedEntities} onSelect={onSelect} />;
+  if (pageId === "tasks") return <Work overview={overview} />;
+  if (pageId === "approvals") return <Approvals overview={overview} />;
+  if (pageId === "capability-catalog") return <CapabilityCatalogPage />;
+  if (pageId === "servers") return <Systems overview={overview} />;
+  if (pageId === "memory") return <MindMemory overview={overview} />;
+  if (pageId === "activity") return <ActivityPage overview={overview} recentEvents={recentEvents} />;
+  if (pageId === "llm-usage") return <LLMUsagePage overview={overview} />;
+  if (pageId === "policy-simulation") return <PolicySimulationPage />;
+  if (pageId === "models-prompts") return <ModelsPromptsPage />;
+  if (pageId === "schedule") return <RuleManagementPage kind="hooks" />;
+  if (pageId === "delegation") return <RuleManagementPage kind="delegations" />;
+  if (pageId.startsWith("settings-")) return <Settings overview={overview} sectionId={pageId.replace("settings-", "")} />;
+  return <DomainPage pageId={pageId} overview={overview} events={recentEvents} onSelect={onSelect} />;
 }
 
-function selectedPageFromPath(path: string): PageId {
-  if (path.includes("/work")) return "work";
-  if (path.includes("/approvals")) return "approvals";
-  if (path.includes("/systems") || path.includes("/servers")) return "systems";
-  if (path.includes("/mind") || path.includes("/memory")) return "mind";
-  if (path.includes("/activity") || path.includes("/audit")) return "activity";
-  if (path.includes("/settings")) return "settings";
-  return "command";
+function readPins(): EntitySummary[] {
+  try { const value = JSON.parse(window.localStorage.getItem("aegis.pins") || "[]"); return Array.isArray(value) ? value.slice(0, 12) : []; }
+  catch { return []; }
+}
+
+function togglePin(items: EntitySummary[], entity: EntitySummary): EntitySummary[] {
+  const exists = items.some((item) => item.type === entity.type && item.id === entity.id);
+  const next = exists ? items.filter((item) => item.type !== entity.type || item.id !== entity.id) : [...items, { ...entity, data: {} }].slice(-12);
+  window.localStorage.setItem("aegis.pins", JSON.stringify(next));
+  return next;
 }
 
 function LoadingDisplay({ displayMode }: { displayMode: boolean }) {
-  return (
-    <main className={displayMode ? "display-shell center-shell" : "app-shell center-shell"}>
-      <UiState kind="loading" title="Loading AEGIS UI" message="Waiting for the normalized overview service." />
-    </main>
-  );
+  return <main className={displayMode ? "display-shell center-shell" : "master-shell center-shell"}><UiState kind="loading" title="Loading AEGIS" message="Synchronizing Runtime managers and the spatial information model." /></main>;
 }
 
 function ErrorDisplay({ message }: { message: string }) {
   const lower = message.toLowerCase();
-  const kind = lower.includes("401") || lower.includes("unauthorized")
-    ? "unauthorized"
-    : lower.includes("403") || lower.includes("forbidden")
-      ? "permission"
-      : lower.includes("fresh")
-        ? "fresh-auth"
-        : "error";
-  const action = kind === "unauthorized" || kind === "fresh-auth" ? { label: "Open login", href: "/auth/login" } : undefined;
-  return (
-    <main className="display-shell center-shell">
-      <UiState
-        kind={kind}
-        title={kind === "fresh-auth" ? "Fresh passkey authentication required" : "AEGIS UI unavailable"}
-        message={message}
-        actionLabel={action?.label}
-        actionHref={action?.href}
-      />
-    </main>
-  );
+  const kind = lower.includes("401") || lower.includes("unauthorized") ? "unauthorized" : lower.includes("403") || lower.includes("forbidden") ? "permission" : lower.includes("fresh") ? "fresh-auth" : "error";
+  const action = kind === "unauthorized" || kind === "fresh-auth" ? { label: "Authenticate with passkey", href: "/auth/login" } : undefined;
+  return <main className="display-shell center-shell"><UiState kind={kind} title={kind === "fresh-auth" ? "Fresh passkey authentication required" : "AEGIS unavailable"} message={message} actionLabel={action?.label} actionHref={action?.href} /></main>;
 }

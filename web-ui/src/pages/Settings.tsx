@@ -4,12 +4,16 @@ import { fetchSettings, resetSettings, updateSetting } from "../api/client";
 import { settingSections } from "../displayModel";
 import type { UiOverview } from "../types";
 
-export function Settings({ overview }: { overview: UiOverview }) {
+export function Settings({ overview, sectionId }: { overview: UiOverview; sectionId?: string }) {
   const sections = settingSections(overview);
   const [settings, setSettings] = useState<Record<string, unknown>>({});
   const [loading, setLoading] = useState(true);
   const [status, setStatus] = useState("");
-  const editable = useMemo(() => editableSettings(settings), [settings]);
+  const [staged, setStaged] = useState<Record<string, string | number | boolean>>({});
+  const [resetArmed, setResetArmed] = useState(false);
+  const [history, setHistory] = useState<Array<{ key: string; before: unknown; after: unknown; at: number }>>([]);
+  const editable = useMemo(() => editableSettings(settings).filter((item) => !sectionId || settingMatchesSection(item, sectionId)), [settings, sectionId]);
+  const selectedSection = sectionId ? sections.find((section) => section.id === sectionId) : undefined;
 
   useEffect(() => {
     let cancelled = false;
@@ -29,12 +33,22 @@ export function Settings({ overview }: { overview: UiOverview }) {
     };
   }, []);
 
-  const save = async (section: string, key: string, value: unknown) => {
-    setStatus("Saving...");
+  const save = async () => {
+    const changes = Object.entries(staged);
+    if (!changes.length) return;
+    setStatus(`Saving ${changes.length} reviewed change${changes.length === 1 ? "" : "s"}...`);
     try {
-      await updateSetting(section, key, value);
+      for (const [compoundKey, value] of changes) {
+        const separator = compoundKey.indexOf(".");
+        await updateSetting(compoundKey.slice(0, separator), compoundKey.slice(separator + 1), value);
+      }
+      setHistory((items) => [
+        ...changes.map(([key, after]) => ({ key, before: editable.find((item) => `${item.section}.${item.key}` === key)?.value, after, at: Date.now() })),
+        ...items
+      ].slice(0, 12));
       setSettings(await fetchSettings());
-      setStatus("Saved. Effective settings updated through SettingsStore.");
+      setStaged({});
+      setStatus("Saved. Effective settings were updated through SettingsStore and audited.");
     } catch (error) {
       const message = error instanceof Error ? error.message : "Save failed";
       setStatus(message.includes("fresh_passkey_required") ? "Fresh passkey authentication required. Reopen login, authenticate, then retry." : message);
@@ -42,10 +56,13 @@ export function Settings({ overview }: { overview: UiOverview }) {
   };
 
   const reset = async () => {
+    if (!resetArmed) { setResetArmed(true); setStatus("Review reset: this will restore every setting to its default. Select Reset all again to continue."); return; }
     setStatus("Resetting...");
     try {
       await resetSettings();
       setSettings(await fetchSettings());
+      setStaged({});
+      setResetArmed(false);
       setStatus("Settings reset to defaults.");
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Reset failed");
@@ -70,13 +87,13 @@ export function Settings({ overview }: { overview: UiOverview }) {
       <section className="panel">
         <div className="panel__header">
           <div>
-            <h2>Settings</h2>
-            <div className="muted">V2 settings surface. Sensitive changes remain protected by passkey fresh auth and CSRF.</div>
+            <h2>{selectedSection?.label || labelize(sectionId || "Settings")}</h2>
+            <div className="muted">Dedicated configuration surface. Sensitive changes remain protected by passkey fresh auth and CSRF.</div>
           </div>
           <a className="primary-button" href="/dashboard/security/passkeys"><KeyRound size={16} /> Passkeys</a>
         </div>
         <div className="settings-grid">
-          {sections.map((section) => {
+          {sections.filter((section) => !sectionId || section.id === sectionId).map((section) => {
             const Icon = icons[section.id] || SlidersHorizontal;
             return (
               <article className="settings-tile" key={section.id}>
@@ -94,12 +111,12 @@ export function Settings({ overview }: { overview: UiOverview }) {
       <section className="panel">
         <div className="panel__header">
           <div>
-            <h2>Operational Settings</h2>
-            <div className="muted">Loaded from SettingsStore. POST changes use CSRF and fresh passkey protection.</div>
+            <h2>Effective Configuration</h2>
+            <div className="muted">Loaded from SettingsStore. Changes remain drafts until reviewed and saved.</div>
           </div>
           <div className="settings-actions">
             <a className="secondary-button" href="/api/settings/export">Export</a>
-            <button className="danger-button" onClick={reset} type="button">Reset</button>
+            <button className="danger-button" onClick={reset} type="button">{resetArmed ? "Confirm reset all" : "Reset all"}</button>
           </div>
         </div>
         {status ? <div className="attention-item" data-severity={status.includes("required") || status.includes("failed") ? "warning" : "info"}>{status}</div> : null}
@@ -110,29 +127,37 @@ export function Settings({ overview }: { overview: UiOverview }) {
               <span>
                 <strong>{item.label}</strong>
                 <small>{item.section}.{item.key}</small>
+                <small>Source: SettingsStore · Default: managed schema · Validation: typed value · Restart: {restartRequired(item) ? "required" : "not required"}</small>
               </span>
               {typeof item.value === "boolean" ? (
                 <input
                   type="checkbox"
-                  checked={item.value}
-                  onChange={(event) => void save(item.section, item.key, event.currentTarget.checked)}
+                  checked={Boolean(staged[`${item.section}.${item.key}`] ?? item.value)}
+                  onChange={(event) => { const value = event.currentTarget.checked; setStaged((values) => ({ ...values, [`${item.section}.${item.key}`]: value })); }}
                 />
               ) : typeof item.value === "number" ? (
                 <input
                   type="number"
-                  value={item.value}
-                  onChange={(event) => void save(item.section, item.key, Number(event.currentTarget.value))}
+                  value={Number(staged[`${item.section}.${item.key}`] ?? item.value)}
+                  onChange={(event) => { const value = Number(event.currentTarget.value); setStaged((values) => ({ ...values, [`${item.section}.${item.key}`]: value })); }}
                 />
               ) : (
                 <input
-                  value={String(item.value ?? "")}
-                  onChange={(event) => void save(item.section, item.key, event.currentTarget.value)}
+                  value={String(staged[`${item.section}.${item.key}`] ?? item.value ?? "")}
+                  onChange={(event) => { const value = event.currentTarget.value; setStaged((values) => ({ ...values, [`${item.section}.${item.key}`]: value })); }}
                 />
               )}
             </label>
           ))}
           {!editable.length && !loading ? <div className="muted">No simple editable settings were reported.</div> : null}
         </div>
+        {Object.keys(staged).length ? (
+          <section className="settings-review" aria-label="Pending settings changes">
+            <header><div><strong>Review changes</strong><small>{Object.keys(staged).length} unsaved</small></div><div><button className="secondary-button" type="button" onClick={() => { setStaged({}); setStatus("Draft changes discarded."); }}>Cancel</button><button className="primary-button" type="button" onClick={() => void save()}>Save changes</button></div></header>
+            {Object.entries(staged).map(([key, after]) => { const before = editable.find((item) => `${item.section}.${item.key}` === key)?.value; return <div className="settings-diff" key={key}><code>{key}</code><span>{String(before)}</span><span aria-hidden="true">→</span><strong>{String(after)}</strong></div>; })}
+          </section>
+        ) : null}
+        {history.length ? <details className="settings-history"><summary>Recent changes in this session</summary>{history.map((item) => <div key={`${item.key}-${item.at}`}><code>{item.key}</code><span>{String(item.before)} → {String(item.after)}</span><button className="secondary-button" type="button" onClick={() => setStaged((values) => ({ ...values, [item.key]: item.before as string | number | boolean }))}>Rollback draft</button><time>{new Date(item.at).toLocaleTimeString()}</time></div>)}</details> : null}
       </section>
       <section className="panel">
         <div className="panel__header">
@@ -206,5 +231,21 @@ function editableSettings(settings: Record<string, unknown>): Array<{ section: s
 
 function labelize(key: string): string {
   return key.replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function settingMatchesSection(item: { section: string; key: string }, sectionId: string): boolean {
+  const value = `${item.section}.${item.key}`.toLowerCase();
+  const families: Record<string, string[]> = {
+    autonomy: ["autonom", "support_agent", "self_dev"], models: ["model", "provider", "llm"], prompts: ["prompt"], memory: ["memory", "chroma"], context: ["context", "history", "token"],
+    capabilities: ["capabilit", "tool"], permissions: ["permission", "clipboard", "camera", "microphone", "location"], approvals: ["approval", "risk"], servers: ["server", "host", "port"], devices: ["device", "android", "pc_"],
+    notifications: ["notification"], privacy: ["privacy", "redact"], display: ["display", "presentation", "motion"], budgets: ["budget", "cost"], retention: ["retention", "archive", "ttl"], developer: ["developer", "debug", "mock"], backup: ["backup", "restore"]
+  };
+  const tokens = families[sectionId] || [sectionId];
+  return tokens.some((token) => value.includes(token));
+}
+
+function restartRequired(item: { section: string; key: string }): boolean {
+  const value = `${item.section}.${item.key}`.toLowerCase();
+  return ["server", "host", "port", "provider", "database", "tls"].some((token) => value.includes(token));
 }
 

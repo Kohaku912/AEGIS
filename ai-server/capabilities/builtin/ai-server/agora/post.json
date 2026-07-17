@@ -4,15 +4,20 @@
   "server_id": "ai-server",
   "app_id": "agora",
   "action": "post",
-  "operation_category": "external_send",
+  "operation_category": "social_communication",
   "risk": {
-    "level": "approval_required",
+    "level": "low",
     "side_effects": [
       "social_post"
     ],
-    "requires_approval": true,
-    "approval_mode": "explicit"
+    "requires_approval": false
   },
+  "ownership_scope": "external",
+  "reversibility": "recoverable",
+  "destructive_effects": [],
+  "data_loss_risk": "none",
+  "active_work_loss_risk": "none",
+  "blast_radius": "single",
   "tags": [
     "builtin",
     "agora",

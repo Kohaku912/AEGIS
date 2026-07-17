@@ -85,6 +85,9 @@ class _FakeBroker:
     def list_safe_capabilities(self) -> list[object]:
         return [SimpleNamespace(id="ai-server.memory.save")]
 
+    def list_autonomous_capabilities(self) -> list[object]:
+        return [SimpleNamespace(id="ai-server.memory.save")]
+
 
 def test_shared_memory_context_includes_recent_failures_without_query_hits(tmp_path) -> None:
     data_dir = tmp_path / "data"

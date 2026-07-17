@@ -1,7 +1,7 @@
 """Policy Engine — deterministic safety enforcement for all tool invocations.
 
 NOT an LLM. NOT configurable by prompt. This is a structural safety gate that:
-1. Classifies every action as ALLOW / ASK_APPROVAL / DENY
+1. Classifies every action as ALLOW / ALLOW_WITH_AUDIT / ASK_APPROVAL / DENY / UNAVAILABLE
 2. Uses RiskLevel from the capability schema
 3. Supports custom rules for specific capabilities
 4. Cannot be bypassed by any code path in ToolBroker
@@ -18,7 +18,7 @@ import re
 import threading
 import time
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum, auto
 from pathlib import Path
 from typing import Any
@@ -31,8 +31,10 @@ class PolicyDecision(Enum):
     """Outcome of a policy evaluation."""
 
     ALLOW = auto()  # Execute immediately
+    ALLOW_WITH_AUDIT = auto()  # No approval needed, but log details
     ASK_APPROVAL = auto()  # Must present Approval UI to user
     DENY = auto()  # Blocked — never execute
+    UNAVAILABLE = auto()  # Server/device/permission missing
 
 
 @dataclass
@@ -47,6 +49,12 @@ class PolicyResult:
     expires_at_ms: int = 0  # When an approval would expire
     audit_required: bool = True  # Whether to log to audit
     approval_request: ApprovalRequest | None = None  # Created approval (if any)
+    ownership_scope: str = ""  # aegis | user | system | external
+    reversibility: str = ""  # fully_reversible | recoverable | difficult | irreversible
+    destructive_effects: list[str] = field(default_factory=list)
+    data_loss_risk: str = "none"  # none | low | medium | high
+    active_work_loss_risk: str = "none"
+    blast_radius: str = "single"  # single | bounded | bulk | system_wide
 
 
 # Type alias for custom rules
@@ -69,7 +77,7 @@ class PolicyEngine:
     DEFAULT_RISK_MAP: dict[RiskLevel, PolicyDecision] = {
         RiskLevel.UNSPECIFIED: PolicyDecision.DENY,
         RiskLevel.READ_ONLY: PolicyDecision.ALLOW,
-        RiskLevel.SAFE_ACTION: PolicyDecision.ALLOW,
+        RiskLevel.SAFE_ACTION: PolicyDecision.ALLOW_WITH_AUDIT,
         RiskLevel.APPROVAL_REQUIRED: PolicyDecision.ASK_APPROVAL,
         RiskLevel.HIGH_RISK: PolicyDecision.ASK_APPROVAL,
         RiskLevel.FORBIDDEN: PolicyDecision.DENY,
@@ -228,10 +236,6 @@ class PolicyEngine:
         r"android\.type_text$",
         # Self-dev PR and main-related
         r"dev\.create_pull_request$",
-        # AGORA operations (external chat — always approval)
-        r"^agora\.create_post$",
-        r"^agora\.send_message$",
-        r"^agora\.publish$",
     ]
 
     # ── Permissive-owner-allowed patterns (no approval needed) ──
@@ -405,7 +409,7 @@ class PolicyEngine:
             for pattern in self._permissive_signup:
                 if pattern.match(cap_id):
                     return PolicyResult(
-                        decision=PolicyDecision.ALLOW,
+                        decision=PolicyDecision.ALLOW_WITH_AUDIT,
                         reason=f"'{cap_id}' allowed in permissive_owner_assisted (low-risk signup).",
                         capability_id=cap_id,
                         risk_level=RiskLevel.SAFE_ACTION,
@@ -431,6 +435,7 @@ class PolicyEngine:
 
         reason_map = {
             PolicyDecision.ALLOW: f"Risk level {effective_risk.name} — allowed.",
+            PolicyDecision.ALLOW_WITH_AUDIT: f"Risk level {effective_risk.name} — allowed with audit.",
             PolicyDecision.ASK_APPROVAL: f"Risk level {effective_risk.name} — approval required.",
             PolicyDecision.DENY: f"Risk level {effective_risk.name} — denied.",
         }
@@ -454,7 +459,6 @@ class PolicyEngine:
                     risk_level=capability.risk_level,
                     audit_required=True,
                 )
-        return result
         return result
 
     def _create_approval_result(

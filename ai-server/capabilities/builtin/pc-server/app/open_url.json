@@ -1,7 +1,7 @@
 {
   "id": "pc-server.app.open_url",
-  "title": "Open URL",
-  "description": "Open a URL in the default browser",
+  "title": "URLをユーザーに見せる",
+  "description": "URLをユーザーのPC上のブラウザで開く。AEGISが収集した情報をユーザーに提示するために使用する。自律的な情報収集にはbrowser-server.page.browseを使用すること。",
   "server_id": "pc-server",
   "app_id": "app",
   "action": "open_url",
@@ -25,12 +25,9 @@
   "tags": [
     "browser",
     "url",
-    "open"
-  ],
-  "aliases": [
-    "URLを開く",
-    "ブラウザでURLを開く",
-    "ページを開く"
+    "open",
+    "user_visible",
+    "presentation"
   ],
   "examples": [
     {

@@ -87,6 +87,20 @@ systemctl --user daemon-reload
 systemctl --user enable --now aegis-kiosk.service aegis-display-power.service
 ```
 
+Provision one read-only token for both the Core container and kiosk. Keep the
+kiosk-only environment file separate so the browser process never inherits the
+rest of the production secrets:
+
+```bash
+cd /opt/aegis
+token="$(openssl rand -hex 32)"
+sed -i '/^AEGIS_DISPLAY_TOKEN=/d' .env
+printf 'AEGIS_DISPLAY_TOKEN=%s\n' "$token" >> .env
+printf 'AEGIS_DISPLAY_TOKEN=%s\n' "$token" > .env.display
+chmod 600 .env .env.display
+unset token
+```
+
 The kiosk opens only `http://127.0.0.1:8090/display/presentations`. The kiosk
 disables GNOME automatic suspend because the AI Core must remain running.
 `aegis-display-power.service` independently switches the panel off after ten

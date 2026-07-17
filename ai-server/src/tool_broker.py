@@ -492,7 +492,20 @@ class ToolBroker:
             self._record_failure_for_repair(request, result)
             return result
 
-        if self._delegation_policy is not None and policy_result.decision == PolicyDecision.ALLOW:
+        if policy_result.decision == PolicyDecision.UNAVAILABLE:
+            result = ToolExecutionResult(
+                request_id=request.request_id,
+                status=InvokeStatus.UNAVAILABLE,
+                error=policy_result.reason,
+                started_at=request.created_at,
+                finished_at=int(time.time() * 1000),
+                policy_decision="UNAVAILABLE",
+                policy_result=policy_result,
+            )
+            self._record_audit(request, result)
+            return result
+
+        if self._delegation_policy is not None and policy_result.decision in (PolicyDecision.ALLOW, PolicyDecision.ALLOW_WITH_AUDIT):
             delegation = self._delegation_policy.evaluate(
                 cap.id,
                 request.arguments,
@@ -544,7 +557,7 @@ class ToolBroker:
             self._record_audit(request, result)
             return result
 
-        # Execute (only if ALLOW)
+        # Execute (ALLOW or ALLOW_WITH_AUDIT)
         pre_observations = self._collect_completion_observations(manifest, phase="before")
         result = self._invoke_internal(cap, request)
         self._apply_production_mock_guard(request, result)
@@ -883,6 +896,24 @@ class ToolBroker:
 
     def list_safe_capabilities(self) -> list[Capability]:
         return self._registry.get_safe_capabilities()
+
+    def list_autonomous_capabilities(self) -> list[Capability]:
+        """Return capabilities available for autonomous execution.
+
+        Includes ALLOW, ALLOW_WITH_AUDIT, and ASK_APPROVAL capabilities.
+        Excludes DENY and UNAVAILABLE.
+        """
+        all_caps = self._registry.list_all()
+        autonomous_caps = []
+        for cap in all_caps:
+            policy_result = self._policy.evaluate(cap)
+            if policy_result.decision in (
+                PolicyDecision.ALLOW,
+                PolicyDecision.ALLOW_WITH_AUDIT,
+                PolicyDecision.ASK_APPROVAL,
+            ):
+                autonomous_caps.append(cap)
+        return autonomous_caps
 
     def get_pending_approvals(self) -> dict[str, ToolExecutionRequest]:
         with self._lock:

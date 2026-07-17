@@ -2,21 +2,19 @@
 
 from __future__ import annotations
 
-import json
-import textwrap
 from pathlib import Path
 
 import pytest
 import yaml
 
 from aegis_ai.audit import AuditEntry, AuditLog
-from aegis_ai.llm.settings_resolver import LLMSettings, LLMSettingsResolver
-from aegis_ai.llm.prompt_registry import PromptRegistry
 from aegis_ai.llm.gateway import LLMGateway
+from aegis_ai.llm.prompt_registry import PromptRegistry
 from aegis_ai.llm.router import LLMResponse
-
+from aegis_ai.llm.settings_resolver import LLMSettings, LLMSettingsResolver
 
 # ── Fixtures ──────────────────────────────────────────────────
+
 
 @pytest.fixture()
 def llm_yaml(tmp_path: Path) -> Path:
@@ -80,8 +78,8 @@ def prompts_yaml(tmp_path: Path) -> Path:
 
 # ── LLMSettingsResolver ──────────────────────────────────────
 
-class TestLLMSettingsResolver:
 
+class TestLLMSettingsResolver:
     def test_resolve_default_profile(self, llm_yaml: Path) -> None:
         sr = LLMSettingsResolver(str(llm_yaml))
         settings = sr.resolve(profile_id="chat_balanced")
@@ -132,8 +130,8 @@ class TestLLMSettingsResolver:
 
 # ── PromptRegistry ────────────────────────────────────────────
 
-class TestPromptRegistry:
 
+class TestPromptRegistry:
     def test_get_prompt(self, prompts_yaml: Path) -> None:
         pr = PromptRegistry(str(prompts_yaml))
         prompt = pr.get("chat.system")
@@ -181,12 +179,26 @@ class TestPromptRegistry:
         prompt = pr.get("chat.system")
         assert prompt["template"] == "New template for {{user_name}}"
 
+    def test_candidate_validation_revision_history_and_rollback(self, prompts_yaml: Path) -> None:
+        pr = PromptRegistry(str(prompts_yaml))
+        invalid = pr.validate_candidate("chat.system", "Template without required variable")
+        assert invalid["valid"] is False
+        assert invalid["errors"]
+
+        original = pr.get("chat.system")["template"]
+        assert pr.update_prompt("chat.system", "Revised {{user_name}}") is True
+        versions = pr.list_versions("chat.system")
+        assert versions[0]["before_template"] == original
+        assert pr.rollback_prompt("chat.system", versions[0]["revision_id"]) is True
+        assert pr.get("chat.system")["template"] == original
+
     def test_reload_when_no_change(self, prompts_yaml: Path) -> None:
         pr = PromptRegistry(str(prompts_yaml))
         assert pr.reload() is True
 
 
 # ── LLMGateway ───────────────────────────────────────────────
+
 
 class _FakeRouter:
     def route(self, request):
@@ -203,7 +215,6 @@ class _FakeRouter:
 
 
 class TestLLMGateway:
-
     def test_generate_with_profile(self, llm_yaml: Path) -> None:
         sr = LLMSettingsResolver(str(llm_yaml))
         gw = LLMGateway(router=_FakeRouter(), settings_resolver=sr)
@@ -253,8 +264,8 @@ class TestLLMGateway:
 
 # ── AuditEntry ────────────────────────────────────────────────
 
-class TestAuditEntry:
 
+class TestAuditEntry:
     def test_llm_fields_default_empty(self) -> None:
         entry = AuditEntry(action="test")
         assert entry.profile_id == ""
@@ -278,13 +289,15 @@ class TestAuditEntry:
 
     def test_audit_log_serializes_llm_fields(self, tmp_path: Path) -> None:
         log = AuditLog(path=str(tmp_path / "test.jsonl"))
-        log.append(AuditEntry(
-            action="llm_call",
-            profile_id="tool_planning",
-            model="deepseek-v4-flash",
-            max_tokens=2048,
-            tokens_used=50,
-        ))
+        log.append(
+            AuditEntry(
+                action="llm_call",
+                profile_id="tool_planning",
+                model="deepseek-v4-flash",
+                max_tokens=2048,
+                tokens_used=50,
+            )
+        )
         records = log.read_all()
         assert len(records) == 1
         assert records[0]["profile_id"] == "tool_planning"

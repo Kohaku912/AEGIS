@@ -210,7 +210,10 @@ export function approvalBuckets(approvals: ApprovalItem[]): Array<{ id: string; 
     { id: "expiring", label: "Expiring", items: approvals.filter((item) => item.expires_at && item.expires_at - now < 10 * 60 * 1000) },
     { id: "high-risk", label: "High risk", items: approvals.filter((item) => ["HIGH", "CRITICAL", "FORBIDDEN"].includes(String(item.risk || "").toUpperCase())) },
     { id: "resolved", label: "Resolved", items: approvals.filter((item) => ["APPROVED", "RESOLVED"].includes(normalizeApprovalStatus(item))) },
+    { id: "rejected", label: "Rejected", items: approvals.filter((item) => normalizeApprovalStatus(item) === "REJECTED") },
     { id: "expired", label: "Expired", items: approvals.filter((item) => normalizeApprovalStatus(item) === "EXPIRED") },
+    { id: "cancelled", label: "Cancelled", items: approvals.filter((item) => normalizeApprovalStatus(item) === "CANCELLED") },
+    { id: "executed", label: "Executed", items: approvals.filter((item) => ["EXECUTED", "SUPERSEDED"].includes(normalizeApprovalStatus(item))) },
     { id: "failed", label: "Failed after approval", items: approvals.filter((item) => normalizeApprovalStatus(item).includes("FAILED")) }
   ];
 }

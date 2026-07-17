@@ -6,9 +6,9 @@ Routes writes to correct backend by type, searches across all backends.
 
 from __future__ import annotations
 
+import dataclasses
 import logging
 import threading
-import time
 import uuid
 from typing import Any
 
@@ -108,7 +108,9 @@ class MemoryManager:
             elif memory_type == "episodic" and hasattr(backend, "add"):
                 from aegis_ai.memory.episodic import Episode
 
-                backend.add(Episode(summary=content, category="general", detail={"tags": tags, "importance": importance}))
+                backend.add(
+                    Episode(summary=content, category="general", detail={"tags": tags, "importance": importance})
+                )
             elif memory_type == "semantic" and hasattr(backend, "add"):
                 backend.add(content, category=tags[0] if tags else "general")
             elif memory_type in ("skill", "procedural") and hasattr(backend, "add_skill"):
@@ -120,7 +122,22 @@ class MemoryManager:
             elif memory_type == "person" and hasattr(backend, "upsert"):
                 backend.upsert(content)
             elif memory_type == "preference" and self._store is not None:
-                self._store.add_memory(content, memory_type="preference")
+                from aegis_ai.memory.memory_types import MemoryRecord
+
+                stored = self._store.add_memory(
+                    MemoryRecord(
+                        memory_id=memory_id,
+                        memory_type="user_preference",
+                        title=tags[0] if tags else "User preference",
+                        content=content,
+                        source="memory_manager",
+                        related_task_id=source_task_id,
+                        confidence=confidence,
+                        importance=importance,
+                        tags=tags,
+                    )
+                )
+                memory_id = stored.memory_id
             elif hasattr(backend, "add"):
                 backend.add(content)
             elif hasattr(backend, "add_conversation"):
@@ -150,14 +167,15 @@ class MemoryManager:
             if backend is None:
                 continue
             try:
-                if hasattr(backend, "search"):
+                if hasattr(backend, "search_memories"):
+                    store_type = "user_preference" if mem_type == "preference" else mem_type
+                    hits = backend.search_memories(query=query, memory_type=store_type, limit=limit // len(types) + 1)
+                    for h in hits:
+                        results.append(self._normalize_hit(h, mem_type, "search"))
+                elif hasattr(backend, "search"):
                     hits = backend.search(query, limit=limit // len(types) + 1)
                     for h in hits:
-                        results.append({
-                            "type": mem_type,
-                            "content": str(h)[:500],
-                            "source": "search",
-                        })
+                        results.append(self._normalize_hit(h, mem_type, "search"))
             except Exception:
                 logger.debug("Search failed for %s", mem_type, exc_info=True)
 
@@ -223,8 +241,8 @@ class MemoryManager:
                 lessons = self._lesson.get_relevant(task_id)
             if lessons:
                 parts.append("Relevant lessons:")
-                for l in list(lessons)[:3]:
-                    parts.append(f"  - {str(l)[:200]}")
+                for lesson in list(lessons)[:3]:
+                    parts.append(f"  - {str(lesson)[:200]}")
 
         if self._skill and hasattr(self._skill, "find_relevant"):
             try:
@@ -245,8 +263,9 @@ class MemoryManager:
         """Classify content into memory type. Uses LLM if available."""
         if self._llm is not None:
             try:
+                memory_types = "episodic, semantic, skill, lesson, workflow, preference, person"
                 result = self._llm.generate(
-                    prompt=f"Classify this into one of: episodic, semantic, skill, lesson, workflow, preference, person\n\n{content[:500]}",
+                    prompt=f"Classify this into one of: {memory_types}\n\n{content[:500]}",
                     max_tokens=20,
                     temperature=0.0,
                 )
@@ -270,8 +289,36 @@ class MemoryManager:
 
     def forget(self, memory_id: str) -> bool:
         """Mark a memory as forgotten (privacy-safe removal)."""
-        logger.info("Memory forget requested: %s", memory_id)
-        return True
+        if self._store is not None and hasattr(self._store, "forget_memory"):
+            forgotten = bool(self._store.forget_memory(memory_id))
+            if forgotten:
+                self._publish_event("memory.forgotten", memory_id, "store")
+            return forgotten
+        logger.warning("Memory forget unavailable for non-store record: %s", memory_id)
+        return False
+
+    def update_memory(self, memory_id: str, patch: dict[str, Any]) -> dict[str, Any] | None:
+        """Update an editable unified-store record through the Manager."""
+        if self._store is None or not hasattr(self._store, "update_memory"):
+            return None
+        allowed = {"title", "content", "confidence", "importance", "tags", "expires_at", "visibility"}
+        safe_patch = {key: value for key, value in patch.items() if key in allowed}
+        if not safe_patch:
+            return None
+        updated = self._store.update_memory(memory_id, safe_patch)
+        if updated is None:
+            return None
+        self._publish_event("memory.updated", memory_id, str(getattr(updated, "memory_type", "store")))
+        return self._normalize_hit(updated, str(getattr(updated, "memory_type", "store")), "store")
+
+    def get_memory(self, memory_id: str) -> dict[str, Any] | None:
+        """Read an editable unified-store record by stable ID."""
+        if self._store is None or not hasattr(self._store, "get_memory"):
+            return None
+        record = self._store.get_memory(memory_id)
+        if record is None:
+            return None
+        return self._normalize_hit(record, str(getattr(record, "memory_type", "store")), "store")
 
     def get_stats(self) -> dict[str, Any]:
         stats: dict[str, Any] = {}
@@ -328,15 +375,35 @@ class MemoryManager:
         }
         return mapping.get(memory_type)
 
+    @staticmethod
+    def _normalize_hit(hit: Any, memory_type: str, source: str) -> dict[str, Any]:
+        if dataclasses.is_dataclass(hit):
+            data = dataclasses.asdict(hit)
+        elif hasattr(hit, "to_dict"):
+            data = hit.to_dict()
+        elif isinstance(hit, dict):
+            data = dict(hit)
+        else:
+            data = {"content": str(hit)[:500]}
+        data.setdefault("type", memory_type)
+        data.setdefault("memory_type", memory_type)
+        data.setdefault("source", source)
+        if not data.get("content"):
+            data["content"] = str(hit)[:500]
+        return data
+
     def _publish_event(self, event_type: str, memory_id: str, memory_type: str) -> None:
         if self._event_manager is None:
             return
         try:
             from aegis_schema.models import Event
-            self._event_manager.publish(Event(
-                event_type=event_type,
-                source="memory_manager",
-                payload={"memory_id": memory_id, "memory_type": memory_type},
-            ))
+
+            self._event_manager.publish(
+                Event(
+                    event_type=event_type,
+                    source="memory_manager",
+                    payload={"memory_id": memory_id, "memory_type": memory_type},
+                )
+            )
         except Exception:
             pass

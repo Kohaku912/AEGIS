@@ -812,6 +812,7 @@ Respond with JSON:
                 "preferred_capabilities": [
                     "browser-server.page.browse",
                     "ai-server.agora.read_posts",
+                    "ai-server.agora.post",
                     "ai-server.social.list_drafts",
                 ],
             },
@@ -1217,15 +1218,19 @@ Operational decision axes (prioritization only; not additional desires):
         return valid_tasks
 
     def _available_safe_capability_ids(self) -> set[str]:
-        """Return safe capabilities whose owning server is currently usable."""
+        """Return capabilities available for autonomous execution.
+
+        Uses list_autonomous_capabilities() which includes ALLOW, ALLOW_WITH_AUDIT,
+        and ASK_APPROVAL capabilities. Excludes DENY and UNAVAILABLE.
+        """
         if not self._broker:
             self._available_capability_count = 0
             return set()
 
         try:
-            capabilities = self._broker.list_safe_capabilities() or []
+            capabilities = self._broker.list_autonomous_capabilities() or []
         except Exception as exc:
-            logger.warning("Failed to list safe capabilities: %s", exc)
+            logger.warning("Failed to list autonomous capabilities: %s", exc)
             self._available_capability_count = 0
             return set()
 
@@ -1241,11 +1246,22 @@ Operational decision axes (prioritization only; not additional desires):
         for capability in capabilities:
             manifest = catalog.resolve(capability.id) if catalog is not None else None
             server_id = getattr(manifest, "server_id", "") or capability.id.split(".", 1)[0]
-            if server_id == "ai-server" or snapshot is None:
+            if server_id == "ai-server":
                 available.add(capability.id)
                 continue
-            status = str(snapshot.get(server_id, {}).get("status", "unknown")).lower()
-            if status in {"online", "degraded"}:
+            # No snapshot = fail-open (include all)
+            if snapshot is None:
+                available.add(capability.id)
+                continue
+            # Server not in snapshot = assume available
+            server_info = snapshot.get(server_id)
+            if server_info is None:
+                available.add(capability.id)
+                continue
+            status = str(server_info.get("status", "unknown")).lower()
+            # Only exclude explicitly offline servers
+            _OFFLINE_STATUSES = {"offline", "unreachable", "disconnected", "stopped", "error"}
+            if status not in _OFFLINE_STATUSES:
                 available.add(capability.id)
 
         self._available_capability_count = len(available)

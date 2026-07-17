@@ -986,7 +986,7 @@ class DashboardApp:
         init_manager_routes(self._app, runtime)
         if hasattr(runtime, 'prompt_registry') and hasattr(runtime, 'settings_resolver'):
             from aegis_ai.web.llm_config_routes import init_llm_config, llm_config_bp
-            init_llm_config(runtime.prompt_registry, runtime.settings_resolver)
+            init_llm_config(runtime.prompt_registry, runtime.settings_resolver, runtime.audit_log)
             self._app.register_blueprint(llm_config_bp)
         # LLM Usage observability
         try:

@@ -1,4 +1,13 @@
-import type { UiOverview } from "../types";
+import type { EntitySummary, UiOverview } from "../types";
+
+type EntityPage = {
+  items: EntitySummary[];
+  page: number;
+  limit: number;
+  total: number;
+  has_more: boolean;
+  generated_at: string;
+};
 
 export async function fetchOverview(surface: "dashboard" | "display" = "dashboard"): Promise<UiOverview> {
   const endpoint = surface === "display" ? `/display/overview${displayReadQuery()}` : "/api/ui/overview";
@@ -7,6 +16,195 @@ export async function fetchOverview(surface: "dashboard" | "display" = "dashboar
     throw new Error(`Overview request failed: ${response.status}`);
   }
   return response.json();
+}
+
+export async function fetchResourceEntities(
+  resource: string,
+  query = "",
+  options: { page?: number; limit?: number; status?: string; sort?: string; order?: "asc" | "desc" } = {}
+): Promise<EntityPage> {
+  const params = new URLSearchParams({
+    resource,
+    limit: String(options.limit || 100),
+    page: String(options.page || 1),
+    sort: options.sort || "updated_at",
+    order: options.order || "desc"
+  });
+  if (query.trim()) params.set("q", query.trim());
+  if (options.status) params.set("status", options.status);
+  const response = await fetch(`/api/ui/entities?${params}`, { credentials: "include" });
+  if (!response.ok) throw new Error(`Resource request failed: ${response.status}`);
+  const payload = await response.json() as EntityPage;
+  return { ...payload, items: (payload.items || []).map(normalizeEntity) };
+}
+
+export async function fetchResourceEntity(resource: string, entityId: string): Promise<EntitySummary> {
+  const response = await fetch(`/api/ui/entities/${encodeURIComponent(resource)}/${encodeURIComponent(entityId)}`, { credentials: "include" });
+  if (!response.ok) throw new Error(`Related resource request failed: ${response.status}`);
+  return normalizeEntity(await response.json());
+}
+
+export async function searchResources(query: string): Promise<EntitySummary[]> {
+  if (!query.trim()) return [];
+  const params = new URLSearchParams({ q: query.trim(), limit: "40" });
+  const response = await fetch(`/api/ui/search?${params}`, { credentials: "include" });
+  if (!response.ok) throw new Error(`Search request failed: ${response.status}`);
+  const payload = await response.json() as EntityPage;
+  return (payload.items || []).map(normalizeEntity);
+}
+
+export async function updateMemory(memoryId: string, patch: Record<string, unknown>): Promise<EntitySummary> {
+  const csrf = String((await fetchAuthMe()).csrf_token || "");
+  const response = await fetch(`/api/memories/${encodeURIComponent(memoryId)}`, {
+    method: "PATCH", credentials: "include", headers: { "Content-Type": "application/json", "X-CSRF-Token": csrf }, body: JSON.stringify({ patch })
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(String(payload.error || payload.message || response.status));
+  return normalizeEntity(payload);
+}
+
+export async function forgetMemory(memoryId: string): Promise<void> {
+  const csrf = String((await fetchAuthMe()).csrf_token || "");
+  const response = await fetch(`/api/memories/${encodeURIComponent(memoryId)}`, { method: "DELETE", credentials: "include", headers: { "X-CSRF-Token": csrf } });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(String(payload.error || payload.message || response.status));
+}
+
+export async function fetchLlmRequests(period = "24h"): Promise<EntityPage> {
+  const response = await fetch(`/api/llm/requests?${new URLSearchParams({ period, limit: "200" })}`, { credentials: "include" });
+  if (!response.ok) throw new Error(`LLM request history failed: ${response.status}`);
+  const payload = await response.json() as EntityPage;
+  return { ...payload, items: (payload.items || []).map(normalizeEntity) };
+}
+
+export async function fetchCapabilityRisk(capabilityId: string): Promise<Record<string, unknown>> {
+  const response = await fetch(`/api/capabilities/${encodeURIComponent(capabilityId)}/risk`, { credentials: "include" });
+  if (!response.ok) throw new Error(`Capability policy failed: ${response.status}`);
+  return response.json();
+}
+
+export async function updateCapabilityRisk(capabilityId: string, change: Record<string, unknown>): Promise<Record<string, unknown>> {
+  const csrf = String((await fetchAuthMe()).csrf_token || "");
+  const response = await fetch(`/api/capabilities/${encodeURIComponent(capabilityId)}/risk`, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json", "X-CSRF-Token": csrf }, body: JSON.stringify(change) });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(String(payload.error || response.status));
+  return payload;
+}
+
+export async function resetCapabilityRisk(capabilityId: string): Promise<Record<string, unknown>> {
+  const csrf = String((await fetchAuthMe()).csrf_token || "");
+  const response = await fetch(`/api/capabilities/${encodeURIComponent(capabilityId)}/risk/reset`, { method: "POST", credentials: "include", headers: { "X-CSRF-Token": csrf } });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(String(payload.error || response.status));
+  return payload;
+}
+
+export async function runControlAction(action: string, confirmed = false): Promise<Record<string, unknown>> {
+  const csrf = String((await fetchAuthMe()).csrf_token || "");
+  const response = await fetch("/api/ui/control-actions", { method: "POST", credentials: "include", headers: { "Content-Type": "application/json", "X-CSRF-Token": csrf }, body: JSON.stringify({ action, confirmed }) });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok && response.status !== 202) throw new Error(String(payload.error || response.status));
+  return payload;
+}
+
+export async function runTaskAction(taskId: string, action: string, confirmed = false): Promise<Record<string, unknown>> {
+  const csrf = String((await fetchAuthMe()).csrf_token || "");
+  const response = await fetch(`/api/tasks/${encodeURIComponent(taskId)}/actions`, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json", "X-CSRF-Token": csrf }, body: JSON.stringify({ action, confirmed }) });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok && response.status !== 202) throw new Error(String(payload.error || response.status));
+  return payload;
+}
+
+export async function simulatePolicy(input: Record<string, unknown>): Promise<Record<string, unknown>> {
+  const csrf = String((await fetchAuthMe()).csrf_token || "");
+  const response = await fetch("/api/policy/simulate", {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", "X-CSRF-Token": csrf },
+    body: JSON.stringify(input)
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(String(payload.error || response.status));
+  return payload;
+}
+
+async function promptMutation(path: string, method: string, body: Record<string, unknown>): Promise<Record<string, unknown>> {
+  const csrf = String((await fetchAuthMe()).csrf_token || "");
+  const response = await fetch(path, {
+    method,
+    credentials: "include",
+    headers: { "Content-Type": "application/json", "X-CSRF-Token": csrf },
+    body: JSON.stringify(body)
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(String(payload.error || response.status));
+  return payload;
+}
+
+export async function fetchPrompts(): Promise<Array<Record<string, unknown>>> {
+  const response = await fetch("/api/llm/prompts", { credentials: "include" });
+  if (!response.ok) throw new Error(`Prompt registry failed: ${response.status}`);
+  const payload = await response.json();
+  return payload.prompts || [];
+}
+
+export async function fetchPrompt(promptId: string): Promise<Record<string, unknown>> {
+  const response = await fetch(`/api/llm/prompts/${encodeURIComponent(promptId)}`, { credentials: "include" });
+  if (!response.ok) throw new Error(`Prompt detail failed: ${response.status}`);
+  return response.json();
+}
+
+export async function fetchPromptVersions(promptId: string): Promise<Array<Record<string, unknown>>> {
+  const response = await fetch(`/api/llm/prompts/${encodeURIComponent(promptId)}/versions`, { credentials: "include" });
+  if (!response.ok) throw new Error(`Prompt versions failed: ${response.status}`);
+  const payload = await response.json();
+  return payload.versions || [];
+}
+
+export async function validatePrompt(promptId: string, template: string): Promise<Record<string, unknown>> {
+  return promptMutation("/api/llm/regression-test", "POST", { prompt_id: promptId, template });
+}
+
+export async function updatePrompt(promptId: string, template: string): Promise<Record<string, unknown>> {
+  return promptMutation(`/api/llm/prompts/${encodeURIComponent(promptId)}`, "PUT", { template });
+}
+
+export async function rollbackPrompt(promptId: string, revisionId: string): Promise<Record<string, unknown>> {
+  return promptMutation(`/api/llm/prompts/${encodeURIComponent(promptId)}/rollback`, "POST", { revision_id: revisionId });
+}
+
+export async function updateManagedRule(kind: "hooks" | "delegations", id: string, patch: Record<string, unknown>, confirmed = false): Promise<Record<string, unknown>> {
+  const csrf = String((await fetchAuthMe()).csrf_token || "");
+  const response = await fetch(`/api/${kind}/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", "X-CSRF-Token": csrf },
+    body: JSON.stringify({ patch, confirmed })
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok && response.status !== 202) throw new Error(String(payload.error || response.status));
+  return payload;
+}
+
+function normalizeEntity(item: EntitySummary & { related_ids?: string[]; badges?: string[]; detail?: Record<string, unknown>; risk_level?: string }): EntitySummary {
+  const updated = Date.parse(String(item.updated_at || ""));
+  const status = String(item.status || "unknown");
+  const severity = status.toLowerCase().includes("fail") || status.toLowerCase().includes("offline") || status.toLowerCase().includes("error") ? "warning" : "normal";
+  return {
+    id: String(item.id || ""),
+    type: String(item.type || "resource"),
+    title: String(item.title || item.id || "Untitled resource"),
+    subtitle: String(item.subtitle || item.type || ""),
+    status,
+    severity: item.severity || severity,
+    updated_at: Number.isFinite(updated) ? updated : undefined,
+    owner: item.owner || "AEGIS",
+    tags: item.tags || item.badges || [],
+    relations: item.relations || (item.related_ids || []).map((id) => ({ type: "related", id })),
+    available_actions: item.available_actions || [{ id: "inspect", label: "Inspect", level: "view" }],
+    permissions: item.permissions || [],
+    data: item.data || item.detail || {}
+  };
 }
 
 export function displayReadQuery(): string {

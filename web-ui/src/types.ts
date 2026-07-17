@@ -7,6 +7,23 @@ export type FreshnessEnvelope<T> = {
   data: T;
 };
 
+export type EntitySummary = {
+  id: string;
+  type: string;
+  title: string;
+  subtitle: string;
+  status: string;
+  severity: string;
+  created_at?: number;
+  updated_at?: number;
+  owner?: string;
+  tags: string[];
+  relations: Array<{ type: string; id: string; label?: string }>;
+  available_actions: Array<{ id: string; label: string; level: "view" | "safe" | "controlled" | "dangerous" }>;
+  permissions: string[];
+  data?: Record<string, unknown>;
+};
+
 export type AttentionItem = {
   id: string;
   kind: string;

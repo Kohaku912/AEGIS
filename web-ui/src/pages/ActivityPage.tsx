@@ -70,7 +70,7 @@ export function ActivityPage({ overview, recentEvents = [] }: { overview: UiOver
                 </div>
               </div>
               <span className="mono muted">{String(group.server_id || group.capability_id || group.task_id || "event")}</span>
-              <details className="inline-drawer">
+              <details className="inline-drawer developer-only">
                 <summary>Developer trace</summary>
                 <pre>{JSON.stringify(group, null, 2)}</pre>
               </details>
@@ -88,7 +88,7 @@ export function ActivityPage({ overview, recentEvents = [] }: { overview: UiOver
                 <div className="muted">{event.message || event.source_type}</div>
               </div>
               <span className="mono muted">{event.server_id || event.severity || "event"}</span>
-              <details className="inline-drawer">
+              <details className="inline-drawer developer-only">
                 <summary>Developer trace</summary>
                 <pre>{JSON.stringify(event, null, 2)}</pre>
               </details>

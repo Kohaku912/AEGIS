@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { CoreSphere } from "../components/CoreSphere";
+import { CognitiveField } from "../components/cognitive-field/CognitiveField";
 import { StatusBadge } from "../components/StatusBadge";
 import { useOverviewStream } from "../api/useOverviewStream";
 import {
@@ -117,7 +117,7 @@ export function Display({ overview: initialOverview }: { overview: UiOverview })
       </header>
 
       <section className="display-core-stage" aria-label="AEGIS core">
-        <CoreSphere
+        <CognitiveField
           mode={String(core.mode || "IDLE")}
           health={String(core.health || "ONLINE")}
           activityLevel={Number(core.activity_level || 1)}
@@ -127,6 +127,8 @@ export function Display({ overview: initialOverview }: { overview: UiOverview })
           activeServerId={activeServerId}
           nextServerId={nextServerId(task.steps)}
           approvalServerIds={(overview.approvals.data.pending || []).map((approval) => String(approval.capability_id || "").split(".", 1)[0])}
+          currentAction={task.current_action || task.title}
+          nextAction={task.next_action}
         />
       </section>
 

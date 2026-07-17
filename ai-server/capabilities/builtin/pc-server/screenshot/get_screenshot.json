@@ -5,12 +5,26 @@
   "app_id": "screenshot",
   "action": "get_screenshot",
   "operation_category": "read_only",
-  "risk": {"level": "low", "side_effects": [], "requires_approval": false},
-  "tags": ["builtin", "pc", "read", "screenshot"],
-  "aliases": ["画面を見る", "画面を見て", "スクショ", "スクリーンショット", "現在の表示確認"],
+  "risk": {
+    "level": "low",
+    "side_effects": [],
+    "requires_approval": false
+  },
+  "tags": [
+    "builtin",
+    "pc",
+    "read",
+    "screenshot"
+  ],
   "examples": [
-    {"user": "画面を見て", "arguments": {}},
-    {"user": "現在の表示を確認して", "arguments": {}}
+    {
+      "user": "画面を見て",
+      "arguments": {}
+    },
+    {
+      "user": "現在の表示を確認して",
+      "arguments": {}
+    }
   ],
   "only_master": false,
   "tcp_command": "screenshot"

@@ -14,7 +14,6 @@ from aegis_ai.auth.passkey_store import PasskeyStore, now_ms
 from aegis_ai.auth.routes import SESSION_COOKIE, init_auth_routes
 from aegis_ai.auth.session_store import SessionStore
 
-
 FRESH_WINDOW_MS = 15 * 60 * 1000
 
 
@@ -132,6 +131,12 @@ def _fresh_required(path: str) -> bool:
     ):
         return True
     if path.startswith("/api/llm/") or path.startswith("/api/settings"):
+        return True
+    if path.startswith("/api/memories/"):
+        return True
+    if path.startswith("/api/hooks/") or path.startswith("/api/delegations/"):
+        return True
+    if path == "/api/ui/control-actions":
         return True
     if path.startswith("/auth/passkeys/"):
         return True

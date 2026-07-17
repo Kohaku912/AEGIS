@@ -37,11 +37,6 @@
     "guild",
     "approval_required"
   ],
-  "aliases": [
-    "Discordの通話に入る",
-    "Discordサーバーの通話に入る",
-    "memoサーバーの通話に入る"
-  ],
   "examples": [
     {
       "user": "memoサーバーの通話に入って",

@@ -19,12 +19,6 @@
     "ai",
     "automation"
   ],
-  "aliases": [
-    "ブラウザで開いて",
-    "Webページを開く",
-    "サイトを見て",
-    "ページを操作"
-  ],
   "examples": [
     {
       "user": "ブラウザでexample.comを開いて",

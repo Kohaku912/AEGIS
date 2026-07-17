@@ -1,8 +1,19 @@
 ﻿import type { UiOverview } from "../types";
+import { useEffect, useMemo, useState } from "react";
+import { fetchResourceEntities, runTaskAction, sendChat } from "../api/client";
 import { taskBuckets, serverFromCapabilityId, serverLabel } from "../displayModel";
+import type { CurrentTask, EntitySummary } from "../types";
 
 export function Work({ overview }: { overview: UiOverview }) {
-  const task = overview.current_task.data;
+  const overviewTask = overview.current_task.data;
+  const [records, setRecords] = useState<EntitySummary[]>([]);
+  const [selectedId, setSelectedId] = useState("");
+  const [instruction, setInstruction] = useState("");
+  const [preview, setPreview] = useState<{ action: string; detail: Record<string, unknown> }>();
+  const [status, setStatus] = useState("");
+  useEffect(() => { let active = true; fetchResourceEntities("tasks").then((page) => { if (active) setRecords(page.items); }).catch(() => undefined); return () => { active = false; }; }, []);
+  const selectedRecord = useMemo(() => records.find((item) => item.id === selectedId) || records.find((item) => item.id === overviewTask.task_id), [overviewTask.task_id, records, selectedId]);
+  const task = selectedRecord ? taskFromEntity(selectedRecord, overviewTask) : overviewTask;
   const buckets = taskBuckets(overview);
   const steps = task.steps || [];
   const activeCapability = task.capability_id || String(steps.find((step) => String(step.status || "").toLowerCase() === "running")?.capability_id || "");
@@ -11,8 +22,27 @@ export function Work({ overview }: { overview: UiOverview }) {
   const usage = overview.usage.data || {};
   const recentResult = [...steps].reverse().map((step) => resultPreview(step)).find(Boolean);
   const dependencyEdges = task.dependency_edges || [];
+  const createRequested = new URLSearchParams(window.location.search).get("create") === "1";
+  const createTask = async () => {
+    if (!instruction.trim()) return;
+    setStatus("Sending instruction through the LLM task interpretation path...");
+    try { await sendChat(instruction); setInstruction(""); setStatus("Instruction accepted. AEGIS will create and plan the task through its normal LLM path."); }
+    catch (error) { setStatus(error instanceof Error ? error.message : "Task instruction failed"); }
+  };
+  const previewAction = async (action: string) => {
+    if (!task.task_id) return;
+    try { const result = await runTaskAction(task.task_id, action); setPreview({ action, detail: result.preview as Record<string, unknown> }); }
+    catch (error) { setStatus(error instanceof Error ? error.message : "Task action preview failed"); }
+  };
+  const confirmAction = async () => {
+    if (!preview || !task.task_id) return;
+    try { const result = await runTaskAction(task.task_id, preview.action, true); if (result.result) setStatus(`${preview.action} completed and Manager state was re-read.`); else setStatus(`${preview.action} requires its approval/fresh-auth execution workflow.`); setPreview(undefined); }
+    catch (error) { setStatus(error instanceof Error ? error.message : "Task action failed"); }
+  };
   return (
     <div className="grid">
+      {createRequested ? <section className="panel task-create"><div><h2>Create Task</h2><p className="muted">The instruction is interpreted by the LLM; UI code does not classify or route user intent.</p></div><textarea aria-label="Task instruction" value={instruction} onChange={(event) => setInstruction(event.currentTarget.value)} placeholder="Describe the outcome you want AEGIS to achieve" /><footer><a className="secondary-button" href="/dashboard/work/tasks">Cancel</a><button className="primary-button" type="button" onClick={() => void createTask()}>Send to AEGIS</button></footer></section> : null}
+      {status ? <div className="attention-item" data-severity={status.includes("failed") ? "warning" : "info"}>{status}</div> : null}
       <section className="panel">
         <div className="panel__header">
           <div>
@@ -33,15 +63,15 @@ export function Work({ overview }: { overview: UiOverview }) {
         <div className="panel">
           <div className="panel__header"><h2>Task List</h2></div>
           <div className="grid">
-            {task.task_id || task.title ? (
-              <article className="list-row" data-selected="true">
+            {records.length ? records.map((record) => (
+              <button type="button" className="list-row task-list-row" data-selected={record.id === task.task_id} onClick={() => setSelectedId(record.id)} key={record.id}>
                 <div>
-                  <strong>{task.title || "Untitled task"}</strong>
-                  <div className="muted">{task.phase || "unknown"} / {steps.length} step(s)</div>
+                  <strong>{record.title || "Untitled task"}</strong>
+                  <div className="muted">{record.status} / {String(record.data?.priority ?? "normal")} priority</div>
                 </div>
-                <span className="status-badge" data-status={String(task.phase || "ACTIVE").toUpperCase()}>{task.phase || "active"}</span>
-              </article>
-            ) : (
+                <span className="status-badge" data-status={record.status.toUpperCase()}>{record.status}</span>
+              </button>
+            )) : task.task_id || task.title ? <article className="list-row" data-selected="true"><div><strong>{task.title || "Untitled task"}</strong><div className="muted">{task.phase || "unknown"} / {steps.length} step(s)</div></div><span className="status-badge" data-status={String(task.phase || "ACTIVE").toUpperCase()}>{task.phase || "active"}</span></article> : (
               <div className="attention-item" data-severity="normal">No active task. Scheduled and historical queues will appear here when reported by Overview v3.</div>
             )}
           </div>
@@ -113,10 +143,27 @@ export function Work({ overview }: { overview: UiOverview }) {
             ))}
             {!steps.length ? <div className="attention-item" data-severity="normal">No step history reported.</div> : null}
           </div>
+          {task.task_id ? <div className="task-actions"><button className="secondary-button" type="button" onClick={() => void previewAction("pause")}>Pause</button><button className="secondary-button" type="button" onClick={() => void previewAction("resume")}>Resume</button><button className="secondary-button" type="button" onClick={() => void previewAction("retry")}>Retry</button><button className="danger-button" type="button" onClick={() => void previewAction("cancel")}>Cancel</button></div> : null}
+          {preview ? <section className="action-preview"><h3>Review task action</h3><dl>{Object.entries(preview.detail).map(([key, value]) => <div key={key}><dt>{key}</dt><dd>{String(value)}</dd></div>)}</dl><footer><button className="secondary-button" type="button" onClick={() => setPreview(undefined)}>Cancel</button><button className="primary-button" type="button" onClick={() => void confirmAction()}>Confirm {preview.action}</button></footer></section> : null}
         </div>
       </section>
     </div>
   );
+}
+
+function taskFromEntity(entity: EntitySummary, fallback: CurrentTask): CurrentTask {
+  const data = entity.data || {};
+  return {
+    ...fallback,
+    ...(data as Partial<CurrentTask>),
+    task_id: String(data.task_id || entity.id),
+    title: String(data.title || entity.title),
+    phase: String(data.phase || data.status || entity.status),
+    current_action: String(data.current_action || data.current_step_name || "No action reported"),
+    next_action: String(data.next_action || "No next action reported"),
+    blocked_reason: String(data.blocked_reason || data.error || ""),
+    steps: Array.isArray(data.steps) ? data.steps as Array<Record<string, unknown>> : [],
+  };
 }
 
 function resultPreview(step: Record<string, unknown>): string {
