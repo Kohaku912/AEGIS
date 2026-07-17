@@ -1,19 +1,23 @@
 ﻿import { Activity, Brain, Clock, Cpu, Radio, Server, ShieldAlert, UserRound } from "lucide-react";
 import type { ReactNode } from "react";
+import { useState } from "react";
+import { runControlAction } from "../api/client";
 import { AttentionStrip } from "../components/AttentionStrip";
-import { CoreSphere } from "../components/CoreSphere";
+import { CognitiveField } from "../components/cognitive-field/CognitiveField";
 import { Freshness } from "../components/Freshness";
 import { SectionState } from "../components/UiState";
 import { StatusBadge } from "../components/StatusBadge";
 import { missionPhase, serverLabel, serverNeedsDetail, summarizeMemory, summarizeServers } from "../displayModel";
-import type { UiEvent, UiOverview } from "../types";
+import type { EntitySummary, UiEvent, UiOverview } from "../types";
 
 type Props = {
   overview: UiOverview;
   recentEvents: UiEvent[];
+  pinnedEntities?: EntitySummary[];
+  onSelect?: (entity: EntitySummary) => void;
 };
 
-export function CommandCenter({ overview, recentEvents }: Props) {
+export function CommandCenter({ overview, recentEvents, pinnedEntities = [], onSelect }: Props) {
   const core = overview.core.data;
   const servers = overview.servers.data.items || [];
   const task = overview.current_task.data;
@@ -32,6 +36,29 @@ export function CommandCenter({ overview, recentEvents }: Props) {
     ...(overview.activity?.data.recent || []).map((event, index) => ({ id: String(event.event_id || index), title: String(event.title || event.type || "Activity"), message: String(event.message || event.event_type || ""), priority: String(event.priority || "P3") })),
     ...(overview.notifications.data.recent || []).map((item, index) => ({ id: String(item.notification_id || item.id || index), title: String(item.title || "Notification"), message: String(item.message || item.severity || ""), priority: "P3" })),
   ].slice(0, 8);
+  const [control, setControl] = useState<{ action: string; preview: Record<string, unknown> }>();
+  const [controlStatus, setControlStatus] = useState("");
+  const previewControl = async (action: string) => {
+    setControlStatus("Building Manager-backed action preview...");
+    try {
+      const payload = await runControlAction(action);
+      setControl({ action, preview: payload.preview as Record<string, unknown> });
+      setControlStatus("");
+    } catch (error) {
+      setControlStatus(error instanceof Error ? error.message : "Control preview failed");
+    }
+  };
+  const confirmControl = async () => {
+    if (!control) return;
+    setControlStatus("Executing and verifying control action...");
+    try {
+      await runControlAction(control.action, true);
+      setControl(undefined);
+      setControlStatus("Control action verified and audited.");
+    } catch (error) {
+      setControlStatus(error instanceof Error ? error.message : "Control action failed");
+    }
+  };
 
   return (
     <div className="command-center">
@@ -48,6 +75,26 @@ export function CommandCenter({ overview, recentEvents }: Props) {
         <AttentionStrip items={overview.attention.data.items || []} />
         <SectionState stale={overview.attention.stale} error={overview.attention.error} empty={(overview.attention.data.items || []).length === 0 && criticalCount > 0} label="Attention" />
       </section>
+
+      <section className="command-controls" aria-label="Master controls">
+        <a href="/chat"><Brain size={14} />Instruct AEGIS</a>
+        <button type="button" onClick={() => void previewControl("pause-autonomy")}><Activity size={14} />Pause autonomy</button>
+        <button type="button" onClick={() => void previewControl("pause-all-tasks")}><Clock size={14} />Pause all tasks</button>
+        <button type="button" onClick={() => void previewControl("refresh-all-servers")}><Server size={14} />Refresh systems</button>
+        <a href="/settings/privacy"><ShieldAlert size={14} />Privacy mode</a>
+        <a href="/dashboard/communications/presentation-surfaces"><Radio size={14} />Present</a>
+        <button className="command-controls__emergency" type="button" onClick={() => void previewControl("emergency-stop")}><ShieldAlert size={14} />Emergency stop</button>
+      </section>
+      {controlStatus ? <div className="attention-item" data-severity={controlStatus.includes("failed") ? "warning" : "info"}>{controlStatus}</div> : null}
+      {control ? (
+        <section className="action-preview command-control-preview" aria-label="Control action preview">
+          <h3>Review master control action</h3>
+          <dl>{Object.entries(control.preview).map(([key, value]) => <div key={key}><dt>{key}</dt><dd>{String(value)}</dd></div>)}</dl>
+          <footer><button className="secondary-button" type="button" onClick={() => setControl(undefined)}>Cancel</button><button className={control.action === "emergency-stop" ? "danger-button" : "primary-button"} type="button" onClick={() => void confirmControl()}>Confirm action</button></footer>
+        </section>
+      ) : null}
+
+      {pinnedEntities.length ? <section className="command-pins" aria-label="Pinned resources"><span>Pinned</span>{pinnedEntities.map((entity) => <button type="button" onClick={() => onSelect?.(entity)} key={`${entity.type}:${entity.id}`}><strong>{entity.title}</strong><small>{entity.type} / {entity.status}</small></button>)}</section> : null}
 
       <section className="command-grid-12">
         <article className="panel command-operation command-span-8">
@@ -92,7 +139,7 @@ export function CommandCenter({ overview, recentEvents }: Props) {
         </article>
 
         <section className="panel core-card command-span-8">
-          <CoreSphere
+          <CognitiveField
             mode={String(core.mode || "IDLE")}
             health={String(core.health || "ONLINE")}
             activityLevel={Number(core.activity_level || 1)}
@@ -102,6 +149,8 @@ export function CommandCenter({ overview, recentEvents }: Props) {
             activeServerId={String(task.capability_id || "").split(".", 1)[0]}
             nextServerId={nextServerFromTask(task)}
             approvalServerIds={(overview.approvals.data.pending || []).map((approval) => String(approval.capability_id || "").split(".", 1)[0])}
+            currentAction={task.current_action || task.title}
+            nextAction={task.next_action}
           />
         </section>
 

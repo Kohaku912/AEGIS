@@ -33,6 +33,12 @@ test("display shell prioritizes operation and keeps server rail compact", async 
   await expect(page.locator(".core-canvas canvas")).toBeVisible();
   await expect(page.locator(".server-rail")).toBeVisible();
   await expect(page.locator(".server-rail__item[data-expanded='true']")).toHaveCount(1);
+
+  const stage = await page.locator(".display-core-stage").boundingBox();
+  expect(stage).not.toBeNull();
+  expect(stage!.width).toBeGreaterThanOrEqual(1366 * 0.6);
+  expect(Number.parseFloat(await page.locator(".field-label strong").first().evaluate((element) => getComputedStyle(element).fontSize)))
+    .toBeGreaterThanOrEqual(16);
 });
 
 test("display applies approval, degraded, offline, and recovery visual states without recreating canvas", async ({ page }) => {

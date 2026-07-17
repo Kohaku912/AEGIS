@@ -49,6 +49,9 @@ class _Broker:
     def list_safe_capabilities(self):
         return self._capabilities
 
+    def list_autonomous_capabilities(self):
+        return self._capabilities
+
 
 class _ExecutingBroker(_Broker):
     def __init__(self, capability_ids: list[str], output: dict | None = None) -> None:

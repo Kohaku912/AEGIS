@@ -1,13 +1,21 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-URL="${AEGIS_KIOSK_URL:-http://127.0.0.1:8090/display/presentations}"
+BASE_URL="${AEGIS_KIOSK_URL:-http://127.0.0.1:8090/display/presentations}"
+DISPLAY_TOKEN="${AEGIS_DISPLAY_TOKEN:-}"
+URL="$BASE_URL"
+if [[ -n "$DISPLAY_TOKEN" ]]; then
+  separator="?"
+  [[ "$URL" == *"?"* ]] && separator="&"
+  encoded_token="$(python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "$DISPLAY_TOKEN")"
+  URL="${URL}${separator}display_token=${encoded_token}"
+fi
 PROFILE_DIR="${AEGIS_KIOSK_PROFILE:-$HOME/.config/aegis-kiosk-browser}"
 LOG_DIR="${AEGIS_KIOSK_LOG_DIR:-$HOME/.local/state/aegis}"
 mkdir -p "$PROFILE_DIR" "$LOG_DIR"
 exec >>"$LOG_DIR/kiosk.log" 2>&1
 
-echo "[$(date --iso-8601=seconds)] kiosk supervisor starting for $URL DISPLAY=${DISPLAY:-} WAYLAND_DISPLAY=${WAYLAND_DISPLAY:-}"
+echo "[$(date --iso-8601=seconds)] kiosk supervisor starting for $BASE_URL token=$([[ -n "$DISPLAY_TOKEN" ]] && echo enabled || echo disabled) DISPLAY=${DISPLAY:-} WAYLAND_DISPLAY=${WAYLAND_DISPLAY:-}"
 
 # The AI Core must never suspend with the desktop session. Display power is
 # managed independently by aegis-display-power.service.

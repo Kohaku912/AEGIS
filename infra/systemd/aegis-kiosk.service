@@ -1,6 +1,5 @@
 [Unit]
 Description=AEGIS Presentation Display Kiosk
-After=default.target
 
 [Service]
 Type=simple
@@ -9,6 +8,7 @@ Environment=XAUTHORITY=/run/user/1000/gdm/Xauthority
 Environment=DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus
 Environment=XDG_RUNTIME_DIR=/run/user/1000
 Environment=AEGIS_KIOSK_URL=http://127.0.0.1:8090/display/presentations
+EnvironmentFile=-/opt/aegis/.env.display
 ExecStartPre=/bin/sh -c 'for i in $(seq 1 120); do [ -S /tmp/.X11-unix/X0 ] && [ -r /run/user/1000/gdm/Xauthority ] && exit 0; sleep 1; done; exit 1'
 ExecStart=/opt/aegis/scripts/display/aegis-kiosk.sh
 Restart=always

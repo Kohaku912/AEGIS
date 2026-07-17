@@ -11,16 +11,17 @@ import time
 import urllib.request
 from typing import Any
 
-
 OVERVIEW_URL = os.environ.get(
     "AEGIS_DISPLAY_OVERVIEW_URL", "http://127.0.0.1:8090/display/overview"
 )
 IDLE_SECONDS = max(60, int(os.environ.get("AEGIS_DISPLAY_IDLE_SECONDS", "600")))
 POLL_SECONDS = max(2, int(os.environ.get("AEGIS_DISPLAY_POLL_SECONDS", "5")))
+DISPLAY_TOKEN = os.environ.get("AEGIS_DISPLAY_TOKEN", "").strip()
 
 
 def fetch_overview() -> dict[str, Any]:
-    request = urllib.request.Request(OVERVIEW_URL, method="GET")
+    headers = {"X-AEGIS-Display-Token": DISPLAY_TOKEN} if DISPLAY_TOKEN else {}
+    request = urllib.request.Request(OVERVIEW_URL, headers=headers, method="GET")
     with urllib.request.urlopen(request, timeout=4) as response:
         payload = json.load(response)
     return payload if isinstance(payload, dict) else {}

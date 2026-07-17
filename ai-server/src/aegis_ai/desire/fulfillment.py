@@ -165,9 +165,15 @@ def _evaluate_with_llm(
         )
     if not getattr(response, "success", False):
         return None
-    data = extract_json_object(getattr(response, "content", "") or "")
+    content = getattr(response, "content", "") or ""
+    try:
+        data = extract_json_object(content)
+    except Exception as exc:
+        logger.error("LLM desire fulfillment returned non-JSON: %s | content: %s", exc, content[:500])
+        return None
     effect = _parse_effect(data.get("task_effect"))
     if effect is None:
+        logger.error("LLM desire fulfillment returned invalid task_effect: %s | data: %s", data.get("task_effect"), data)
         return None
     summary = str(data.get("summary") or f"LLM classified result as {effect.value}")[:500]
     deltas = _sanitize_deltas(data.get("desire_delta_hint"), desire_name)

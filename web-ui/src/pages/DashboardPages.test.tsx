@@ -1,4 +1,5 @@
 import { cleanup, render, screen, within } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { ActivityPage } from "./ActivityPage";
 import { Approvals } from "./Approvals";
@@ -9,8 +10,8 @@ import { Systems } from "./Systems";
 import { Work } from "./Work";
 import type { UiOverview } from "../types";
 
-vi.mock("../components/CoreSphere", () => ({
-  CoreSphere: () => <div data-testid="core-sphere-mock" />,
+vi.mock("../components/cognitive-field/CognitiveField", () => ({
+  CognitiveField: () => <div data-testid="cognitive-field-mock" />,
 }));
 
 describe("dashboard v2 pages", () => {
@@ -33,7 +34,7 @@ describe("dashboard v2 pages", () => {
   });
 
   it("renders Mind & Memory summary without standard raw JSON", () => {
-    render(<MindMemory overview={overview()} />);
+    renderMindMemory(overview());
     expect(screen.getByText("Mind & Memory")).toBeInTheDocument();
     expect(screen.getByText("Active goal")).toBeInTheDocument();
     const developer = screen.getByText("Developer raw state").closest("details");
@@ -93,7 +94,7 @@ describe("dashboard v2 pages", () => {
     expect(screen.getAllByText(/device\.get_status/).length).toBeGreaterThan(0);
     systems.unmount();
 
-    const mind = render(<MindMemory overview={data} />);
+    const mind = renderMindMemory(data);
     expect(screen.getByText("User is available")).toBeInTheDocument();
     expect(screen.getByText("1 commitment")).toBeInTheDocument();
     expect(screen.getByText("Review UI")).toBeInTheDocument();
@@ -106,6 +107,11 @@ describe("dashboard v2 pages", () => {
     expect(screen.getAllByText("Connection dropped").length).toBeGreaterThan(0);
   });
 });
+
+function renderMindMemory(data: UiOverview) {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(<QueryClientProvider client={client}><MindMemory overview={data} /></QueryClientProvider>);
+}
 
 function envelope<T>(data: T) {
   return { generated_at: 1000, source_updated_at: 1000, status: "ok" as const, stale: false, error: "", data };

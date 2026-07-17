@@ -58,6 +58,13 @@ class CapabilityManifest:
     extra: dict[str, Any] = field(default_factory=dict)
     file_path: str = ""
     loaded_at: int = 0
+    # New policy attributes
+    ownership_scope: str = ""  # aegis | user | system | external
+    reversibility: str = ""  # fully_reversible | recoverable | difficult | irreversible
+    destructive_effects: list[str] = field(default_factory=list)
+    data_loss_risk: str = "none"  # none | low | medium | high
+    active_work_loss_risk: str = "none"
+    blast_radius: str = "single"  # single | bounded | bulk | system_wide
 
     def to_tool_description(self) -> str:
         parts = [self.title or self.capability_id]
@@ -197,6 +204,12 @@ class FolderCapabilityRegistry:
             extra=extra,
             file_path=path,
             loaded_at=int(time.time() * 1000),
+            ownership_scope=str(data.get("ownership_scope", "")),
+            reversibility=str(data.get("reversibility", "")),
+            destructive_effects=data.get("destructive_effects", []),
+            data_loss_risk=str(data.get("data_loss_risk", "none")),
+            active_work_loss_risk=str(data.get("active_work_loss_risk", "none")),
+            blast_radius=str(data.get("blast_radius", "single")),
         )
         if short not in self._short_names:
             self._short_names[short] = cap_id

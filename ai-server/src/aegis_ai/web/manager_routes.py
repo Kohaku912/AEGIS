@@ -29,6 +29,9 @@ def init_manager_routes(app, runtime):
     global _runtime
     _runtime = runtime
     app.register_blueprint(manager_bp)
+    from aegis_ai.web.resource_routes import init_resource_routes
+
+    init_resource_routes(app, runtime)
 
 
 def _get_runtime():

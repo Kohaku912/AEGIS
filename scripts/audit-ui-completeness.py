@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import json
 import re
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -30,35 +30,74 @@ class Check:
 
 def main() -> int:
     checks = [
-        check_files("web-dashboard", "Web Dashboard primary pages", [
-            "web-ui/src/pages/CommandCenter.tsx",
-            "web-ui/src/pages/Work.tsx",
-            "web-ui/src/pages/Approvals.tsx",
-            "web-ui/src/pages/Systems.tsx",
-            "web-ui/src/pages/MindMemory.tsx",
-            "web-ui/src/pages/ActivityPage.tsx",
-            "web-ui/src/pages/Settings.tsx",
-        ]),
-        check_files("display", "Dedicated Display compositor", [
-            "web-ui/src/pages/Display.tsx",
-            "web-ui/src/components/CoreSphere.tsx",
-            "web-ui/src/displayModel.ts",
-        ]),
-        check_files("android", "Android mobile UI surfaces", [
-            "android-server/app/src/main/java/com/aegis/android/ui/AegisMobileV2App.kt",
-            "android-server/app/src/main/java/com/aegis/android/ui/feature/home/HomeScreen.kt",
-            "android-server/app/src/main/java/com/aegis/android/ui/feature/approvals/ApprovalsScreen.kt",
-            "android-server/app/src/main/java/com/aegis/android/ui/feature/tasks/TasksScreen.kt",
-            "android-server/app/src/main/java/com/aegis/android/ui/feature/devices/DevicesScreen.kt",
-            "android-server/app/src/main/java/com/aegis/android/ui/feature/permissions/PermissionsScreen.kt",
-            "android-server/app/src/main/java/com/aegis/android/ui/feature/settings/SettingsScreen.kt",
-        ]),
-        check_files("overview-v3", "Normalized UI overview contract", [
-            "ai-server/src/aegis_ai/web/ui_overview.py",
-            "web-ui/src/types.ts",
-            "android-server/app/src/main/java/com/aegis/android/ui/model/MobileUiModels.kt",
-        ]),
+        check_files(
+            "web-dashboard",
+            "Nine-domain master dashboard",
+            [
+                "DESIGN.md",
+                "web-ui/src/App.tsx",
+                "web-ui/src/navigation.ts",
+                "web-ui/src/pages/DomainPage.tsx",
+                "web-ui/src/components/GlobalSearch.tsx",
+                "web-ui/src/components/GlobalInspector.tsx",
+                "web-ui/src/components/CommandPalette.tsx",
+                "web-ui/src/components/LiveActivityDrawer.tsx",
+                "web-ui/src/pages/CommandCenter.tsx",
+                "web-ui/src/pages/Work.tsx",
+                "web-ui/src/pages/Approvals.tsx",
+                "web-ui/src/pages/Systems.tsx",
+                "web-ui/src/pages/MindMemory.tsx",
+                "web-ui/src/pages/ActivityPage.tsx",
+                "web-ui/src/pages/Settings.tsx",
+                "web-ui/src/pages/CapabilityCatalogPage.tsx",
+                "web-ui/src/pages/LLMUsagePage.tsx",
+                "web-ui/src/pages/PolicySimulationPage.tsx",
+                "web-ui/src/pages/ModelsPromptsPage.tsx",
+                "web-ui/src/pages/RuleManagementPage.tsx",
+            ],
+        ),
+        check_files(
+            "display",
+            "Dedicated Display compositor",
+            [
+                "web-ui/src/pages/Display.tsx",
+                "web-ui/src/components/cognitive-field/CognitiveField.tsx",
+                "web-ui/src/components/cognitive-field/EnvironmentLayer.ts",
+                "web-ui/src/components/cognitive-field/MemoryField.ts",
+                "web-ui/src/components/cognitive-field/SystemTopology.ts",
+                "web-ui/src/components/cognitive-field/MissionFlow.ts",
+                "web-ui/src/components/cognitive-field/EventParticles.ts",
+                "web-ui/src/components/cognitive-field/SceneCamera.ts",
+                "web-ui/src/components/cognitive-field/SceneDirector.ts",
+                "web-ui/src/displayModel.ts",
+            ],
+        ),
+        check_files(
+            "android",
+            "Android mobile UI surfaces",
+            [
+                "android-server/app/src/main/java/com/aegis/android/ui/AegisMobileV2App.kt",
+                "android-server/app/src/main/java/com/aegis/android/ui/feature/home/HomeScreen.kt",
+                "android-server/app/src/main/java/com/aegis/android/ui/feature/approvals/ApprovalsScreen.kt",
+                "android-server/app/src/main/java/com/aegis/android/ui/feature/tasks/TasksScreen.kt",
+                "android-server/app/src/main/java/com/aegis/android/ui/feature/devices/DevicesScreen.kt",
+                "android-server/app/src/main/java/com/aegis/android/ui/feature/permissions/PermissionsScreen.kt",
+                "android-server/app/src/main/java/com/aegis/android/ui/feature/settings/SettingsScreen.kt",
+            ],
+        ),
+        check_files(
+            "overview-v3",
+            "Normalized UI overview contract",
+            [
+                "ai-server/src/aegis_ai/web/ui_overview.py",
+                "web-ui/src/types.ts",
+                "android-server/app/src/main/java/com/aegis/android/ui/model/MobileUiModels.kt",
+            ],
+        ),
         check_presentation_contract(),
+        check_master_navigation(),
+        check_cognitive_field(),
+        check_resource_contract(),
         check_tokens(),
         check_quality_smells(),
         check_state_coverage(),
@@ -77,7 +116,9 @@ def main() -> int:
         "checks": [asdict(check) for check in checks],
     }
     REPORT_DIR.mkdir(parents=True, exist_ok=True)
-    (REPORT_DIR / "ui_completeness.json").write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    (REPORT_DIR / "ui_completeness.json").write_text(
+        json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
     (REPORT_DIR / "ui_completeness.md").write_text(render_markdown(payload), encoding="utf-8")
     print(f"wrote {REPORT_DIR / 'ui_completeness.md'}")
     return 0 if payload["overall_status"] == "pass" else 1
@@ -135,8 +176,88 @@ def check_presentation_contract() -> Check:
     return check
 
 
+def check_master_navigation() -> Check:
+    text = read_text(ROOT / "web-ui/src/navigation.ts")
+    required = [
+        "Command",
+        "Work",
+        "Intelligence",
+        "Capabilities",
+        "Infrastructure",
+        "Communications",
+        "Governance",
+        "Observability",
+        "Configuration",
+    ]
+    missing = [label for label in required if f'label: "{label}"' not in text]
+    return Check(
+        "master-navigation",
+        "architecture",
+        "Nine management domains",
+        "pass" if not missing else "fail",
+        ["web-ui/src/navigation.ts"],
+        missing,
+        "high",
+    )
+
+
+def check_cognitive_field() -> Check:
+    active = "\n".join(read_text(path) for path in (ROOT / "web-ui/src").rglob("*.tsx"))
+    required = [
+        "CognitiveField",
+        "EnvironmentLayer",
+        "MemoryField",
+        "SystemTopology",
+        "MissionFlow",
+        "EventParticles",
+        "SceneCamera",
+        "SceneDirector",
+    ]
+    module_text = "\n".join(read_text(path) for path in (ROOT / "web-ui/src/components/cognitive-field").glob("*.*"))
+    missing = [token for token in required if token not in module_text and token not in active]
+    if 'from "../components/CoreSphere"' in active or 'from "./CoreSphere"' in active:
+        missing.append("active UI still imports deprecated CoreSphere")
+    return Check(
+        "cognitive-field",
+        "spatial",
+        "Layered Cognitive Field replaces central sphere",
+        "pass" if not missing else "fail",
+        ["web-ui/src/components/cognitive-field"],
+        missing,
+        "high",
+    )
+
+
+def check_resource_contract() -> Check:
+    paths = [
+        "ai-server/src/aegis_ai/web/resource_routes.py",
+        "web-ui/src/api/client.ts",
+        "web-ui/src/entityModel.ts",
+        "ai-server/tests/test_resource_routes.py",
+    ]
+    check = check_files("resource-contract", "Manager-backed EntitySummary API", paths)
+    text = "\n".join(read_text(ROOT / path) for path in paths)
+    required = [
+        "/api/ui/entities",
+        "/api/ui/search",
+        "/api/memories",
+        "/api/approvals",
+        "/api/policy/simulate",
+        "/api/hooks/",
+        "/api/delegations/",
+        "EntitySummary",
+    ]
+    missing = [token for token in required if token not in text]
+    if missing:
+        check.status = "fail"
+        check.missing.extend(missing)
+    return check
+
+
 def check_quality_smells() -> Check:
-    files = list((ROOT / "web-ui/src").rglob("*.tsx")) + list((ROOT / "android-server/app/src/main/java/com/aegis/android/ui").rglob("*.kt"))
+    files = list((ROOT / "web-ui/src").rglob("*.tsx")) + list(
+        (ROOT / "android-server/app/src/main/java/com/aegis/android/ui").rglob("*.kt")
+    )
     inline_styles = 0
     not_reported = 0
     raw_standard = 0
@@ -158,21 +279,38 @@ def check_quality_smells() -> Check:
     if raw_standard:
         missing.append("raw JSON appears outside debug/developer context")
     status = "pass" if not missing else "partial"
-    return Check("quality-smells", "quality", "UI polish smell scan", status, [str(p.relative_to(ROOT)) for p in files[:12]], missing)
+    return Check(
+        "quality-smells",
+        "quality",
+        "UI polish smell scan",
+        status,
+        [str(p.relative_to(ROOT)) for p in files[:12]],
+        missing,
+    )
 
 
 def check_state_coverage() -> Check:
     required = ["Loading", "Empty", "Permission", "Degraded", "Disconnected", "Stale", "Unauthorized", "Fresh"]
     haystack = "\n".join(read_text(path) for path in (ROOT / "web-ui/src").rglob("*.tsx"))
     missing = [word for word in required if word.lower() not in haystack.lower()]
-    return Check("state-coverage", "states", "Loading/empty/error/auth/freshness state coverage", "pass" if not missing else "partial", ["web-ui/src"], missing, "high")
+    return Check(
+        "state-coverage",
+        "states",
+        "Loading/empty/error/auth/freshness state coverage",
+        "pass" if not missing else "partial",
+        ["web-ui/src"],
+        missing,
+        "high",
+    )
 
 
 def check_tests() -> Check:
     required = [
         "web-ui/src/pages/DashboardPages.test.tsx",
         "web-ui/tests/display.spec.ts",
+        "web-ui/tests/master-dashboard.spec.ts",
         "ai-server/tests/test_ui_overview.py",
+        "ai-server/tests/test_resource_routes.py",
         "ai-server/tests/test_design_tokens.py",
     ]
     check = check_files("tests", "UI unit/API/Display test coverage", required)
@@ -193,7 +331,14 @@ def check_legacy_dependency() -> Check:
         missing.append("AEGIS_UI_VERSION default is legacy")
     if "dashboard_legacy" in shell and "Compatibility shell" not in shell:
         missing.append("dashboard_routes still delegates compatibility to dashboard_legacy")
-    return Check("legacy-dependency", "compat", "Legacy UI dependency remaining", "partial" if missing else "pass", ["ai-server/src/aegis_ai/web/routes/ui_v2.py"], missing)
+    return Check(
+        "legacy-dependency",
+        "compat",
+        "Legacy UI dependency remaining",
+        "partial" if missing else "pass",
+        ["ai-server/src/aegis_ai/web/routes/ui_v2.py"],
+        missing,
+    )
 
 
 def check_completion_ledger() -> Check:

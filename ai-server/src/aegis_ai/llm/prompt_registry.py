@@ -3,8 +3,12 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
+import re
 import threading
+import time
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -21,6 +25,7 @@ class PromptRegistry:
 
     def __init__(self, prompts_path: str) -> None:
         self._path = Path(prompts_path)
+        self._history_path = self._path.with_suffix(".history.jsonl")
         self._path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
         self._prompts: dict[str, dict[str, Any]] = {}
@@ -176,6 +181,7 @@ class PromptRegistry:
                 )
                 tmp_path.replace(self._path)
                 self._mtime = self._path.stat().st_mtime
+                self._append_revision(prompt_id, original_template, template, action="update")
                 return True
             except Exception as e:
                 prompt["template"] = original_template
@@ -186,6 +192,68 @@ class PromptRegistry:
                         pass
                 logger.error("Failed to save prompts: %s", e)
                 return False
+
+    def validate_candidate(self, prompt_id: str, template: str) -> dict[str, Any]:
+        """Validate a candidate template without changing the registry."""
+        current = self.get(prompt_id)
+        required = set(re.findall(r"\{\{([A-Za-z_][A-Za-z0-9_]*)\}\}", current["template"]))
+        provided = set(re.findall(r"\{\{([A-Za-z_][A-Za-z0-9_]*)\}\}", template))
+        missing = sorted(required - provided)
+        errors: list[str] = []
+        if not template.strip():
+            errors.append("Template must not be empty.")
+        if len(template) > 200_000:
+            errors.append("Template exceeds the 200000 character management limit.")
+        if template.count("{{") != template.count("}}"):
+            errors.append("Template variable braces are unbalanced.")
+        if missing:
+            errors.append(f"Required variables removed: {', '.join(missing)}")
+        return {
+            "valid": not errors,
+            "errors": errors,
+            "required_variables": sorted(required),
+            "candidate_variables": sorted(provided),
+            "current_hash": self.get_metadata(prompt_id)["hash"],
+            "candidate_hash": hashlib.sha256(template.encode("utf-8")).hexdigest()[:16],
+        }
+
+    def list_versions(self, prompt_id: str, limit: int = 50) -> list[dict[str, Any]]:
+        """Return persisted revisions for one prompt, newest first."""
+        self.get(prompt_id)
+        if not self._history_path.exists():
+            return []
+        records: list[dict[str, Any]] = []
+        for line in self._history_path.read_text(encoding="utf-8").splitlines():
+            try:
+                record = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if record.get("prompt_id") == prompt_id:
+                records.append(record)
+        return sorted(records, key=lambda item: int(item.get("created_at", 0)), reverse=True)[: max(1, limit)]
+
+    def rollback_prompt(self, prompt_id: str, revision_id: str) -> bool:
+        """Restore the template captured before a persisted revision."""
+        revision = next(
+            (item for item in self.list_versions(prompt_id, limit=500) if item["revision_id"] == revision_id), None
+        )
+        if revision is None:
+            raise KeyError(f"Revision '{revision_id}' not found")
+        return self.update_prompt(prompt_id, str(revision["before_template"]))
+
+    def _append_revision(self, prompt_id: str, before_template: str, after_template: str, *, action: str) -> None:
+        self._history_path.parent.mkdir(parents=True, exist_ok=True)
+        record = {
+            "revision_id": f"pr_{uuid.uuid4().hex[:12]}",
+            "prompt_id": prompt_id,
+            "action": action,
+            "created_at": int(time.time() * 1000),
+            "before_hash": hashlib.sha256(before_template.encode("utf-8")).hexdigest()[:16],
+            "after_hash": hashlib.sha256(after_template.encode("utf-8")).hexdigest()[:16],
+            "before_template": before_template,
+        }
+        with self._history_path.open("a", encoding="utf-8") as stream:
+            stream.write(json.dumps(record, ensure_ascii=False) + "\n")
 
 
 __all__ = ["PromptRegistry"]

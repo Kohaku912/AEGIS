@@ -9,6 +9,7 @@ Environment=DISPLAY=:0
 Environment=XAUTHORITY=/run/user/1000/gdm/Xauthority
 Environment=AEGIS_DISPLAY_OVERVIEW_URL=http://127.0.0.1:8090/display/overview
 Environment=AEGIS_DISPLAY_IDLE_SECONDS=600
+EnvironmentFile=-/opt/aegis/.env.display
 ExecStart=/usr/bin/python3 /opt/aegis/scripts/display/aegis-display-power-watch.py
 Restart=always
 RestartSec=10s
