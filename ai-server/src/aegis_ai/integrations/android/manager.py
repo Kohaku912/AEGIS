@@ -220,6 +220,14 @@ class AndroidServerManager:
         )
         return not result.get("error")
 
+    def dismiss_approval_notification(self, approval_id: str) -> bool:
+        """Dismiss an approval notification on Android."""
+        session = self._get_active_session()
+        if session is not None:
+            session.send_approval(approval_id, "", "", "dismissed", {})
+            return True
+        return True
+
     def broadcast_chat_update(self, messages: list[dict[str, Any]]) -> int:
         """Push shared chat messages to all active reverse-stream Android clients."""
         delivered = 0

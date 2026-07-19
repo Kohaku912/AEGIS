@@ -4,10 +4,28 @@
 from __future__ import annotations
 
 import ctypes
+import subprocess
 import time
 
 
 def main() -> int:
+    subprocess.run(
+        [
+            "busctl",
+            "--user",
+            "set-property",
+            "org.gnome.Shell",
+            "/org/gnome/Shell",
+            "org.gnome.Shell",
+            "OverviewActive",
+            "b",
+            "false",
+        ],
+        check=False,
+        timeout=5,
+    )
+    time.sleep(0.5)
+
     x11 = ctypes.cdll.LoadLibrary("libX11.so.6")
     xtst = ctypes.cdll.LoadLibrary("libXtst.so.6")
     x11.XOpenDisplay.restype = ctypes.c_void_p

@@ -1987,11 +1987,11 @@ a {
 .field-label strong { font-size: 16px; font-weight: 650; }
 .field-label[data-status="OFFLINE"] { border-left-style: dashed; border-left-color: var(--aegis-critical); opacity: 0.52; }
 .field-label[data-status="DEGRADED"] { border-left-color: var(--aegis-policy); }
-.field-label--browser { left: 8%; top: 22%; }
-.field-label--dev { left: 45%; top: 10%; }
-.field-label--pc { left: 9%; bottom: 19%; }
-.field-label--android { right: 8%; bottom: 18%; }
-.field-label--room { right: 8%; top: 22%; }
+.field-label--browser { left: 14%; top: 24%; }
+.field-label--dev { left: 45%; top: 13%; }
+.field-label--pc { left: 15%; bottom: 21%; }
+.field-label--android { right: 14%; bottom: 20%; }
+.field-label--room { right: 14%; top: 24%; }
 .field-label--ai { left: 50%; top: 48%; transform: translate(-50%, -50%); border-left-color: var(--aegis-violet); }
 
 .mission-depth-labels {
