@@ -77,6 +77,22 @@ reboot:
 AEGIS_RUN_READINESS_CHECK=1 bash scripts/ubuntu/healthcheck.sh
 ```
 
+### Network recovery
+
+The installer also enables **aegis-network-watchdog.timer** and
+**aegis-pcie-performance.service**. The watchdog checks the local gateway every
+minute, retries the saved ASUS_F8_5G profile, falls back to ASUS_F8, and restarts
+Cloudflare Tunnel after connectivity and Core health return. Both Wi-Fi
+profiles use permanent MAC addresses, disabled power saving, and unlimited
+autoconnect retries.
+
+Profile names and the gateway can be changed with AEGIS_PRIMARY_WIFI,
+AEGIS_FALLBACK_WIFI, and AEGIS_NETWORK_GATEWAY in a systemd service override.
+Use systemctl status on the two units and review NetworkManager, cloudflared,
+and aegis-network-watchdog journals when diagnosing a connection loss.
+The Cloudflare drop-in allows 300 seconds for Core health after boot, matching
+the readiness helper instead of terminating it after 15 seconds.
+
 ## Dedicated Display
 
 Install the read-only Display kiosk units for the graphical-session user:

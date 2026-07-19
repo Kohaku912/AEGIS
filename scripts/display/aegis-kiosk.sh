@@ -26,6 +26,7 @@ if command -v gsettings >/dev/null 2>&1; then
 fi
 
 launch_browser() {
+  browser_pid=""
   rm -f "$PROFILE_DIR"/SingletonLock "$PROFILE_DIR"/SingletonSocket "$PROFILE_DIR"/SingletonCookie 2>/dev/null || true
   if command -v chromium-browser >/dev/null 2>&1; then
     chromium-browser --kiosk --no-first-run --disable-session-crashed-bubble --user-data-dir="$PROFILE_DIR" "$URL" &
@@ -39,11 +40,12 @@ launch_browser() {
     echo "No supported browser found for AEGIS kiosk" >&2
     return 127
   fi
-  echo $!
+  browser_pid=$!
 }
 
 while true; do
-  browser_pid="$(launch_browser)" || exit $?
+  browser_pid=""
+  launch_browser || exit $?
   echo "[$(date --iso-8601=seconds)] browser pid=$browser_pid"
   sleep 10
   "$(dirname "$0")/aegis-kiosk-focus.py" || true

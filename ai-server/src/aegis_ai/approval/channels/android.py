@@ -40,6 +40,10 @@ class AndroidApprovalChannel(ApprovalChannel):
             return False
 
         try:
+            # Dismiss notification on terminal states
+            if event.state in ("approved", "rejected", "executed", "failed", "cancelled", "expired"):
+                return self._android_manager.dismiss_approval_notification(event.approval_id)
+
             summary = event.request_summary
             approval_id = event.approval_id
             title = str(

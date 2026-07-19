@@ -41,6 +41,14 @@ class PcOverlayApprovalChannel(ApprovalChannel):
             return False
 
         try:
+            # Dismiss overlay on terminal states
+            if event.state in ("approved", "rejected", "executed", "failed", "cancelled", "expired"):
+                self._executor.execute_capability(
+                    "pc-server.approval.overlay",
+                    {"action": "dismiss"},
+                )
+                return True
+
             summary = event.request_summary
             title = str(
                 summary.get("title")
@@ -52,8 +60,6 @@ class PcOverlayApprovalChannel(ApprovalChannel):
                 or summary.get("approval_reason")
                 or "操作の承認が必要です"
             )
-            if action != "show":
-                body = f"状態: {event.state}\n{body}"
 
             self._executor.execute_capability(
                 "pc-server.approval.overlay",

@@ -1,0 +1,14 @@
+[Unit]
+Description=Use stable PCIe power policy for AEGIS network adapters
+DefaultDependencies=no
+After=systemd-modules-load.service
+Before=network-pre.target
+Wants=network-pre.target
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh -c 'test ! -w /sys/module/pcie_aspm/parameters/policy || echo performance > /sys/module/pcie_aspm/parameters/policy'
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

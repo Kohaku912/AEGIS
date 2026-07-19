@@ -3,11 +3,11 @@ import type { SceneRuntime, TopologyNode } from "./sceneTypes";
 
 export const TOPOLOGY_POSITIONS: Record<string, [number, number, number]> = {
   "ai-server": [0, 0.15, -0.2],
-  "browser-server": [-2.85, 1.2, -1.55],
-  "pc-server": [-2.7, -1.25, 0.65],
-  "android-server": [2.75, -1.0, 0.5],
-  "room-server": [2.9, 1.05, -1.8],
-  "dev-server": [0.15, 2.05, -1.05]
+  "browser-server": [-2.34, 1.01, -1.31],
+  "pc-server": [-2.22, -1.0, 0.5],
+  "android-server": [2.26, -0.79, 0.37],
+  "room-server": [2.38, 0.89, -1.51],
+  "dev-server": [0.12, 1.71, -0.9]
 };
 
 export function createSystemTopology(): { group: THREE.Group; nodes: Map<string, TopologyNode>; cognition: THREE.Points } {

@@ -1,0 +1,10 @@
+[Unit]
+Description=AEGIS network and Cloudflare recovery check
+After=NetworkManager.service docker.service
+Wants=NetworkManager.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/aegis/scripts/ubuntu/aegis-network-watchdog.sh
+Nice=10
+

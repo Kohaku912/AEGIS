@@ -28,7 +28,19 @@ fi
 sudo mkdir -p /etc/aegis
 sudo sed "s#/opt/aegis#$INSTALL_DIR#g" infra/systemd/aegis.service \
   | sudo tee /etc/systemd/system/aegis.service >/dev/null
+sudo sed "s#/opt/aegis#$INSTALL_DIR#g" infra/systemd/aegis-network-watchdog.service \
+  | sudo tee /etc/systemd/system/aegis-network-watchdog.service >/dev/null
+sudo install -m 0644 infra/systemd/aegis-network-watchdog.timer \
+  /etc/systemd/system/aegis-network-watchdog.timer
+sudo install -m 0644 infra/systemd/aegis-pcie-performance.service \
+  /etc/systemd/system/aegis-pcie-performance.service
+if systemctl list-unit-files cloudflared.service >/dev/null 2>&1; then
+  sudo install -d /etc/systemd/system/cloudflared.service.d
+  sudo install -m 0644 infra/systemd/cloudflared-aegis.conf \
+    /etc/systemd/system/cloudflared.service.d/aegis-readiness.conf
+fi
 sudo systemctl daemon-reload
+sudo systemctl enable aegis-network-watchdog.timer aegis-pcie-performance.service
 
 if [ -n "${AEGIS_KIOSK_USER:-}" ]; then
   kiosk_home="$(getent passwd "$AEGIS_KIOSK_USER" | cut -d: -f6)"

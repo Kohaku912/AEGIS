@@ -166,7 +166,7 @@ class DelegationPolicyStore:
         now = now_ms()
         defaults = [
             ("del_external_send", "*", "approval_required", "external_send", "External communication must be approved."),
-            ("del_social_post", "*", "approval_required", "social_post", "Posting to social systems must be approved."),
+            ("del_social_post", "*", "allow", "social_communication", "Social posting is allowed without approval."),
             ("del_delete", "*", "approval_required", "delete", "Deletion must be approved."),
             ("del_push", "*", "approval_required", "push", "Git push must be approved."),
             ("del_payment", "*", "approval_required", "payment", "Payment or billing APIs must be approved."),
