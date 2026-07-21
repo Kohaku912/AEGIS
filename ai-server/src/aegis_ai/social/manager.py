@@ -44,6 +44,7 @@ from aegis_ai.social.adapters import (
 )
 from aegis_ai.social.inbox import SocialInboxStore
 from aegis_ai.social.models import (
+    RETRYABLE_SOCIAL_STATUSES,
     TERMINAL_SOCIAL_STATUSES,
     SocialInboxItem,
     SocialInboxStatus,
@@ -61,12 +62,16 @@ class SocialManager:
         tool_broker: Any = None,
         event_manager: Any = None,
         audit_manager: Any = None,
+        self_author_ids: set[int] | None = None,
+        self_author_names: set[str] | None = None,
     ) -> None:
         self._store = SocialInboxStore(data_dir)
         self._llm = llm
         self._broker = tool_broker
         self._events = event_manager
         self._audit = audit_manager
+        self._self_author_ids = self_author_ids or set()
+        self._self_author_names = self_author_names or set()
         self._cursor_updaters: dict[str, Callable[[int], Any]] = {}
         self._relationship_provider: Callable[[SocialInboxItem], dict[str, Any]] | None = None
         self._adapters: dict[str, SocialReplyAdapter] = {
@@ -90,6 +95,26 @@ class SocialManager:
     ) -> None:
         self._relationship_provider = provider
 
+    def set_self_authors(
+        self,
+        author_ids: set[int] | None = None,
+        author_names: set[str] | None = None,
+    ) -> None:
+        if author_ids is not None:
+            self._self_author_ids = author_ids
+        if author_names is not None:
+            self._self_author_names = author_names
+
+    def retry_pending_items(self) -> list[SocialInboxItem]:
+        """Retry all items in RETRY_PENDING status."""
+        pending = [
+            item for item in self._store.list(limit=10000)
+            if item.status == SocialInboxStatus.RETRY_PENDING
+        ]
+        if not pending:
+            return []
+        return self.process_new_items(pending)
+
     def ingest(self, channel: str, messages: list[Any]) -> list[SocialInboxItem]:
         created: list[SocialInboxItem] = []
         now = int(time.time() * 1000)
@@ -97,6 +122,16 @@ class SocialManager:
             raw = asdict(message) if is_dataclass(message) else dict(message)
             external_id = str(raw.get("id") or raw.get("message_id") or raw.get("external_message_id") or "")
             if not external_id:
+                continue
+            author_raw = raw.get("author") or raw.get("author_name") or raw.get("username")
+            author_name = _parse_author(author_raw)
+            author_id = 0
+            if isinstance(author_raw, dict):
+                try:
+                    author_id = int(author_raw.get("id") or 0)
+                except (TypeError, ValueError):
+                    pass
+            if self._is_own_post(author_name, author_id):
                 continue
             thread_id = str(raw.get("thread_id") or "")
             recent_thread = [
@@ -109,7 +144,7 @@ class SocialManager:
                 channel=channel,
                 external_message_id=external_id,
                 thread_id=thread_id,
-                author=_parse_author(raw.get("author") or raw.get("author_name") or raw.get("username")),
+                author=author_name,
                 body=str(raw.get("body") or raw.get("content") or raw.get("text") or ""),
                 received_at=_parse_timestamp(raw.get("created_at") or raw.get("timestamp")),
                 updated_at=now,
@@ -124,7 +159,7 @@ class SocialManager:
                         for existing in reversed(recent_thread)
                     ]
                 },
-                metadata={"source": channel},
+                metadata={"source": channel, "own_post": False},
             )
             stored = self._store.upsert(item)
             if stored.item_id == item.item_id:
@@ -132,15 +167,21 @@ class SocialManager:
                 self._publish("social.inbox.received", stored)
         return created
 
+    def _is_own_post(self, author_name: str, author_id: int) -> bool:
+        if author_id and author_id in self._self_author_ids:
+            return True
+        if author_name and author_name in self._self_author_names:
+            return True
+        return False
+
     def triage(self, item_id: str, *, relationship: dict[str, Any] | None = None) -> SocialInboxItem:
         item = self._require(item_id)
         item.relationship = relationship or item.relationship
         if self._llm is None:
-            item.status = SocialInboxStatus.FAILED
+            item.status = SocialInboxStatus.RETRY_PENDING
             item.decision = "observe_more"
-            item.decision_reason = "LLM unavailable; social intent was not guessed."
+            item.decision_reason = "LLM unavailable; will retry on next cycle."
             saved = self._save(item)
-            self._advance_processed_cursor(item.channel)
             return saved
 
         prompt = f"""Decide how AEGIS should respond to this social inbox item.
@@ -210,12 +251,10 @@ Return:
                 current = self._store.get(item.item_id)
                 if current is None:
                     continue
-                current.status = SocialInboxStatus.FAILED
+                current.status = SocialInboxStatus.RETRY_PENDING
                 current.decision = current.decision or "observe_more"
-                current.decision_reason = f"Social processing failed: {exc}"
+                current.decision_reason = f"Social processing failed (will retry): {exc}"
                 processed.append(self._save(current))
-                self._publish("social.inbox.failed", current)
-                self._advance_processed_cursor(current.channel)
         return processed
 
     def propose_reply(self, item_id: str) -> SocialInboxItem:

@@ -16,6 +16,7 @@ class SocialInboxStatus(StrEnum):
     ACKNOWLEDGED = "acknowledged"
     SKIPPED = "skipped"
     FAILED = "failed"
+    RETRY_PENDING = "retry_pending"
 
 
 TERMINAL_SOCIAL_STATUSES = {
@@ -23,6 +24,10 @@ TERMINAL_SOCIAL_STATUSES = {
     SocialInboxStatus.ACKNOWLEDGED,
     SocialInboxStatus.SKIPPED,
     SocialInboxStatus.FAILED,
+}
+# Transient statuses that should NOT advance the cursor
+RETRYABLE_SOCIAL_STATUSES = {
+    SocialInboxStatus.RETRY_PENDING,
 }
 
 
