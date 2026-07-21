@@ -8,7 +8,7 @@ from typing import Any
 
 from flask import abort, jsonify, request, send_from_directory
 
-from aegis_ai.web.ui_overview import build_ui_overview
+from aegis_ai.web.ui_overview import build_display_power_state, build_ui_overview
 
 _LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
 
@@ -39,6 +39,11 @@ def init_ui_v2_routes(owner: Any) -> None:
     def display_overview():
         _require_display_read()
         return jsonify(build_ui_overview(owner._runtime))
+
+    @app.route("/display/power-state")
+    def display_power_state():
+        _require_display_read()
+        return jsonify(build_display_power_state(owner._runtime))
 
     @app.route("/assets/<path:filename>")
     def ui_v2_assets(filename: str):

@@ -16,7 +16,6 @@ import os
 import tempfile
 import threading
 import time
-from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
@@ -49,7 +48,6 @@ def approval_manager(approval_queue, audit_log):
 
 def _make_tool_request(cap_id="pc-server.screenshot.get_screenshot", risk=None):
     from tool_broker import ToolExecutionRequest, ExecutionSource
-    from aegis_schema.models import RiskLevel
     return ToolExecutionRequest(
         request_id="req_test_001",
         task_id="task_001",
@@ -292,6 +290,11 @@ class TestApprovalFanout:
         from aegis_ai.approval.fanout import ApprovalEvent
 
         executor = MagicMock()
+        executor.execute_capability.return_value = {
+            "ok": True,
+            "shown": True,
+            "delivery_id": "pc_overlay_1",
+        }
         channel = PcOverlayApprovalChannel(server_executor=executor)
         event = ApprovalEvent(
             approval_id="appr_001",
@@ -308,10 +311,10 @@ class TestApprovalFanout:
         assert _run_async(channel.deliver(event)) is True
         executor.execute_capability.assert_called_once()
         capability_id, args = executor.execute_capability.call_args.args
-        assert capability_id == "pc-server.approval.overlay"
-        assert "action" in args
+        assert capability_id == "pc-server.overlay.show_rich"
+        assert "body" in args
         assert "command" not in args
-        assert "joining voice changes Discord state" in args["action"]
+        assert "joining voice changes Discord state" in args["body"]
 
     def test_android_channel_sends_body_with_reason(self):
         from aegis_ai.approval.channels.android import AndroidApprovalChannel
@@ -445,7 +448,6 @@ class TestToolBrokerApproval:
         from tool_broker import ToolBroker, ToolExecutionRequest, ExecutionSource, InvokeStatus
         from policy_engine import PolicyEngine
         from tool_registry import ToolRegistry
-        from aegis_ai.folder_registry import FolderCapabilityRegistry
         from aegis_schema.models import RiskLevel
 
         policy = PolicyEngine()
@@ -492,7 +494,7 @@ class TestToolBrokerApproval:
         assert len(approval_manager.list_pending()) == 1
 
     def test_execute_approved_prevents_double_execution(self, approval_manager, audit_log, tmp_dir):
-        from tool_broker import ToolBroker, ToolExecutionRequest, ExecutionSource, InvokeStatus
+        from tool_broker import ToolBroker, InvokeStatus
         from policy_engine import PolicyEngine
         from tool_registry import ToolRegistry
 

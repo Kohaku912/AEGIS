@@ -185,8 +185,6 @@ def verify_tool_result(request: ToolExecutionRequest, result: ToolExecutionResul
     - Other: structural presence of output
     """
     vr = VerificationResult(request_id=request.request_id)
-    cap_id = request.capability_id
-
     if result.status != InvokeStatus.SUCCESS:
         vr.status = "skipped"
         vr.details.append(f"Skipped: status={result.status.value}")
@@ -200,23 +198,6 @@ def verify_tool_result(request: ToolExecutionRequest, result: ToolExecutionResul
 
     vr.checks_passed = 1
     vr.details.append("Output present")
-
-    if "file" in cap_id.lower() or "write" in cap_id.lower():
-        if "path" in result.output or "file_path" in result.output:
-            vr.checks_passed += 1
-            vr.details.append("File path in output")
-        else:
-            vr.checks_failed += 1
-            vr.details.append("Missing file path in output")
-
-    if "http" in cap_id.lower() or "request" in cap_id.lower():
-        code = result.output.get("status_code", result.output.get("code", 0))
-        if 200 <= code < 400:
-            vr.checks_passed += 1
-            vr.details.append(f"HTTP status {code} OK")
-        elif code > 0:
-            vr.checks_failed += 1
-            vr.details.append(f"HTTP status {code} not OK")
 
     vr.status = "passed" if vr.checks_failed == 0 else "failed"
     return vr
@@ -269,21 +250,6 @@ def _mask_string(s: str) -> str:
 # ═══════════════════════════════════════════════════════════════
 # Retry classification
 # ═══════════════════════════════════════════════════════════════
-
-_NO_RETRY_CAPS = {
-    "send_sns", "post_sns", "send_dm", "send_message", "send_email",
-    "delete_file", "delete_all", "rm_", "wipe_", "purchase",
-    "upload_", "transmit_", "deploy", "push_main", "merge_to_main",
-}
-
-
-def _is_retryable(capability_id: str) -> bool:
-    """Check if a capability's failure is retryable."""
-    for pattern in _NO_RETRY_CAPS:
-        if pattern in capability_id:
-            return False
-    return True
-
 
 # ═══════════════════════════════════════════════════════════════
 # Invoke Result (backward-compatible)
@@ -354,6 +320,7 @@ class ToolBroker:
         self._delegation_policy = delegation_policy
         self._repair_manager = repair_manager
         self._event_manager = event_manager
+        self._continuation_manager: Any = None
 
         if self._catalog is not None and self._server_executor is not None:
             self._server_executor.set_catalog(self._catalog)
@@ -375,6 +342,10 @@ class ToolBroker:
     def set_repair_manager(self, repair_manager: Any) -> None:
         """Attach repair manager after runtime construction."""
         self._repair_manager = repair_manager
+
+    def set_continuation_manager(self, continuation_manager: Any) -> None:
+        """Attach durable continuation tracking after runtime construction."""
+        self._continuation_manager = continuation_manager
 
     # ── Public API — the ONLY way to invoke tools ──────────────
 
@@ -474,6 +445,7 @@ class ToolBroker:
 
         request.tool_name = cap.name
         request.risk_level = cap.risk_level
+        continuation_id = self._ensure_continuation(request)
 
         # Policy check — MANDATORY
         policy_result = self._policy.evaluate(cap, request.arguments)
@@ -554,11 +526,20 @@ class ToolBroker:
                 policy_result=policy_result,
                 approval_id=approval_id,
             )
+            self._advance_continuation(
+                continuation_id,
+                stage="awaiting_approval",
+                state="open",
+                reason=policy_result.reason,
+                approval_id=approval_id,
+                waiting_for="user",
+            )
             self._record_audit(request, result)
             return result
 
         # Execute (ALLOW or ALLOW_WITH_AUDIT)
         pre_observations = self._collect_completion_observations(manifest, phase="before")
+        self._advance_continuation(continuation_id, stage="executing", state="open")
         result = self._invoke_internal(cap, request)
         self._apply_production_mock_guard(request, result)
         result.policy_result = policy_result
@@ -570,7 +551,11 @@ class ToolBroker:
 
         # Verification
         verification = self._verify_completion_or_default(request, result, manifest, pre_observations)
-        if verification.status == "failed" and result.success and _is_retryable(request.capability_id):
+        if (
+            verification.status == "failed"
+            and result.success
+            and self._completion_retry_count(manifest) > 0
+        ):
             max_retries = self._completion_retry_count(manifest)
             for attempt in range(max_retries):
                 delay_ms = self._completion_retry_delay_ms(manifest)
@@ -589,6 +574,8 @@ class ToolBroker:
                     break
         result.verification = verification
         result.verification_status = verification.status
+        if continuation_id:
+            result.output.setdefault("continuation_id", continuation_id)
         if verification.status == "failed" and result.success and self._manifest_has_completion(manifest):
             result.status = InvokeStatus.EXECUTION_ERROR
             result.error = "Completion verification failed: " + "; ".join(verification.details)
@@ -598,6 +585,29 @@ class ToolBroker:
                 "repair_hint": verification.repair_hint,
             })
 
+        if result.success and verification.status == "passed":
+            self._advance_continuation(
+                continuation_id,
+                stage="verified",
+                state="completed",
+                reason="Execution and completion verification passed.",
+                waiting_for="",
+            )
+        elif verification.status in {"pending", "requires_observation"}:
+            self._advance_continuation(
+                continuation_id,
+                stage="observing",
+                state="open",
+                reason="Additional observation is required.",
+                waiting_for="external",
+            )
+        else:
+            self._advance_continuation(
+                continuation_id,
+                stage="failed",
+                state="failed",
+                reason=result.error or "; ".join(verification.details),
+            )
         self._record_audit(request, result)
         if not result.success:
             self._record_failure_for_repair(request, result)
@@ -820,7 +830,9 @@ class ToolBroker:
             reason=f"Approved: {appr.approval_reason}",
             source_desire=appr.source_desire,
             frustration=appr.frustration,
-            metadata={"approval_id": approval_id, "approved_execution": True},
+            origin_channel=appr.origin_channel,
+            conversation_id=appr.conversation_id,
+            metadata={**dict(appr.metadata or {}), "approval_id": approval_id, "approved_execution": True},
         )
 
         pre_observations = self._collect_completion_observations(manifest, phase="before")
@@ -829,7 +841,11 @@ class ToolBroker:
         result.policy_result = policy_result
         result.approval_id = approval_id
         verification = self._verify_completion_or_default(request, result, manifest, pre_observations)
-        if verification.status == "failed" and result.success and _is_retryable(request.capability_id):
+        if (
+            verification.status == "failed"
+            and result.success
+            and self._completion_retry_count(manifest) > 0
+        ):
             for attempt in range(self._completion_retry_count(manifest)):
                 delay_ms = self._completion_retry_delay_ms(manifest)
                 if delay_ms > 0:
@@ -854,6 +870,33 @@ class ToolBroker:
                 "repair_hint": verification.repair_hint,
             })
 
+        continuation_id = str(request.metadata.get("continuation_id") or "")
+        if continuation_id:
+            result.output.setdefault("continuation_id", continuation_id)
+        if result.success and verification.status == "passed":
+            self._advance_continuation(
+                continuation_id,
+                stage="verified",
+                state="completed",
+                reason="Approved execution and completion verification passed.",
+                waiting_for="",
+            )
+        elif result.success:
+            self._advance_continuation(
+                continuation_id,
+                stage="observing",
+                state="open",
+                reason="Approved execution requires additional observation.",
+                waiting_for="external",
+            )
+        else:
+            self._advance_continuation(
+                continuation_id,
+                stage="failed",
+                state="failed",
+                reason=result.error or "; ".join(verification.details),
+            )
+
         if result.success:
             if manager is not None:
                 manager.mark_executed(approval_id, result)
@@ -867,6 +910,55 @@ class ToolBroker:
 
         self._record_audit(request, result)
         return result
+
+    def _ensure_continuation(self, request: ToolExecutionRequest) -> str:
+        continuation_id = str(request.metadata.get("continuation_id") or "")
+        if continuation_id or self._continuation_manager is None:
+            return continuation_id
+        try:
+            record = self._continuation_manager.create(
+                goal=request.reason or request.tool_name or request.capability_id,
+                trigger=request.source.value,
+                task_id=request.task_id,
+                step_id=request.step_id,
+                request_id=request.request_id,
+                capability_id=request.capability_id,
+                arguments=dict(request.arguments),
+                purpose=request.reason,
+                source_desire=request.source_desire,
+                conversation_id=request.conversation_id,
+                stage="selected",
+                success_condition=str(request.metadata.get("success_condition") or ""),
+                stop_condition=str(request.metadata.get("stop_condition") or ""),
+                rationale=request.reason,
+            )
+            continuation_id = record.continuation_id
+            request.metadata["continuation_id"] = continuation_id
+        except Exception:
+            logger.debug("Failed to create continuation", exc_info=True)
+        return continuation_id
+
+    def _advance_continuation(
+        self,
+        continuation_id: str,
+        *,
+        stage: str,
+        state: str,
+        reason: str = "",
+        **updates: Any,
+    ) -> None:
+        if not continuation_id or self._continuation_manager is None:
+            return
+        try:
+            self._continuation_manager.advance(
+                continuation_id,
+                stage=stage,
+                state=state,
+                reason=reason,
+                **updates,
+            )
+        except Exception:
+            logger.debug("Failed to advance continuation %s", continuation_id, exc_info=True)
 
     def find_capability(self, capability_id: str) -> Capability | None:
         return self._registry.get_capability(capability_id)
@@ -914,6 +1006,49 @@ class ToolBroker:
             ):
                 autonomous_caps.append(cap)
         return autonomous_caps
+
+    def list_autonomous_capability_options(self) -> list[Any]:
+        """Return every capability with its policy-aware autonomy disposition.
+
+        This is descriptive only. Execution still goes through ``execute`` and
+        PolicyEngine. Including denied and unavailable options lets the LLM
+        explain non-action without accidentally invoking them.
+        """
+        from aegis_ai.autonomous.models import (
+            AutonomousCapabilityOption,
+            CapabilityDisposition,
+        )
+
+        options: list[AutonomousCapabilityOption] = []
+        catalog = self._catalog
+        for capability in self._registry.list_capabilities():
+            manifest = catalog.resolve(capability.id) if catalog is not None else None
+            enabled = bool(getattr(manifest, "enabled", True))
+            result = self._policy.evaluate(capability)
+            if not enabled:
+                disposition = CapabilityDisposition.UNAVAILABLE
+            elif result.decision in (PolicyDecision.ALLOW, PolicyDecision.ALLOW_WITH_AUDIT):
+                disposition = CapabilityDisposition.EXECUTE_SAFE
+            elif result.decision == PolicyDecision.ASK_APPROVAL:
+                disposition = CapabilityDisposition.PROPOSE_FOR_APPROVAL
+            elif result.decision == PolicyDecision.UNAVAILABLE:
+                disposition = CapabilityDisposition.UNAVAILABLE
+            else:
+                disposition = CapabilityDisposition.FORBIDDEN
+            options.append(
+                AutonomousCapabilityOption(
+                    capability_id=capability.id,
+                    disposition=disposition,
+                    policy_decision=result.decision.name,
+                    policy_reason=result.reason,
+                    risk_level=result.risk_level.name,
+                    requires_approval=disposition == CapabilityDisposition.PROPOSE_FOR_APPROVAL,
+                    enabled=enabled,
+                    available=enabled and disposition != CapabilityDisposition.UNAVAILABLE,
+                    server_id=capability.id.split(".", 1)[0],
+                )
+            )
+        return options
 
     def get_pending_approvals(self) -> dict[str, ToolExecutionRequest]:
         with self._lock:
@@ -1064,7 +1199,12 @@ class ToolBroker:
         if check_type == "output_field":
             field_name = str(check.get("field") or "")
             expected = check.get("equals")
-            value = result.output.get(field_name)
+            value: Any = result.output
+            for part in field_name.split("."):
+                if not isinstance(value, dict):
+                    value = None
+                    break
+                value = value.get(part)
             ok = value == expected if "equals" in check else bool(value)
             return ok, f"output {field_name}={value!r}"
         return False, f"unsupported completion check type={check_type}"

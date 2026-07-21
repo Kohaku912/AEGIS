@@ -165,7 +165,11 @@ class MotivationArbiter:
             min_importance=0.5,
             limit=3,
         )
-        rejected = [r for r in approval_lessons if "rejected" in r.content.lower()]
+        rejected = [
+            record
+            for record in approval_lessons
+            if str(record.structured_data.get("decision") or "") == "rejected"
+        ]
         if rejected:
             penalty += 0.2 * len(rejected)
             reasons.append(f"{len(rejected)} past rejections for {source_desire}")

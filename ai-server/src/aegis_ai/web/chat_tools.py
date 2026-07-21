@@ -9,7 +9,6 @@ from __future__ import annotations
 import inspect
 import json
 import logging
-import os
 import re
 from pathlib import Path
 from typing import Any
@@ -963,18 +962,23 @@ def call_llm_with_tools(
     if catalog is None:
         catalog = runtime.capability_catalog if runtime is not None else get_catalog()
 
+    selection_runtime = (
+        runtime
+        if runtime is not None and getattr(runtime, "capability_catalog", None) is catalog
+        else None
+    )
     selection = get_capability_selection(
         catalog,
         user_message=user_message,
         session_context=context_meta,
-        runtime=runtime,
+        runtime=selection_runtime,
     )
     lightweight_catalog = selection.lightweight_catalog if selection is not None else []
     tools = selection.tools if selection is not None else get_tools_for_chat(
         catalog,
         user_message=user_message,
         session_context=context_meta,
-        runtime=runtime,
+        runtime=selection_runtime,
     )
     if runtime is not None and getattr(runtime, "presentation_manager", None) is not None:
         tools = list(tools)

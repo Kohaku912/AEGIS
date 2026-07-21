@@ -131,7 +131,7 @@ def test_new_manifests_load_from_catalog() -> None:
         assert cap_id in registry_ids
     agora_post = catalog.resolve("ai-server.agora.post")
     assert agora_post is not None
-    assert agora_post.requires_approval is False
+    assert agora_post.requires_approval is True
 
 
 class FakeMemoryManager:
@@ -227,7 +227,7 @@ def test_memory_sleep_already_running_is_not_unsupported(tmp_path: Path) -> None
     assert "Unsupported" not in result["result"]
 
 
-def test_agora_read_posts_uses_unread_cursor_and_updates_once(tmp_path: Path) -> None:
+def test_agora_read_posts_keeps_cursor_until_social_processing_finishes(tmp_path: Path) -> None:
     client, _ = _client(tmp_path)
     fake = FakeAgora()
     client._agora = fake
@@ -237,8 +237,10 @@ def test_agora_read_posts_uses_unread_cursor_and_updates_once(tmp_path: Path) ->
     assert result["ok"] is True
     assert result["read_mode"] == "unread"
     assert result["cursor_before"] == 10
-    assert result["cursor_after"] == 11
-    assert fake.cursor_updates == [11]
+    assert result["cursor_after"] == 10
+    assert result["retrieved_through"] == 11
+    assert result["processing_pending"] is True
+    assert fake.cursor_updates == []
     assert result["posts"][0]["id"] == 11
 
 

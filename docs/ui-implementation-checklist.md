@@ -20,7 +20,7 @@ Legend: `[x]` implemented, `[~]` implemented with remaining real-device or visua
 - [x] Scene, camera, renderer, composer, geometry, and materials are mount-only and disposed on unmount.
 - [x] Frame movement is delta-time based and reduced-motion has a static information-equivalent presentation.
 - [x] High, medium, and low rendering quality paths are selected from motion preference and device capacity.
-- [~] Final GPU profiling on Ubuntu dedicated display at 60 Hz remains to be recorded.
+- [x] Ubuntu dedicated display is measured at 1920x1080 60.01 Hz; a 20-second center-field capture produced 1199 frames (59.95 fps), 1182 unique frames, and 17 consecutive duplicates.
 
 ## 3. Master Dashboard Shell
 
@@ -97,10 +97,11 @@ Legend: `[x]` implemented, `[~]` implemented with remaining real-device or visua
 ## 11. Device Surfaces
 
 - [x] Dedicated Display uses Cognitive Field and remains read-only, GET-only, token/local constrained, no Dashboard controls.
+- [x] Dedicated Display always shows normalized UserState (`where`, `attention`, `activity`, confidence, freshness), including a privacy-safe persistent shell when values are redacted.
 - [x] Android Compose has Home, Chat, Approvals, Tasks, Devices, Permissions, and Settings with shared status semantics.
 - [x] PC Overlay remains restricted to approval, notification, and emergency presentation.
-- [~] Android portrait/landscape/tablet/font-200% automated coverage exists; latest physical-device screenshot evidence is pending this revision.
-- [~] Ubuntu production deployment, token-authenticated snapshot/SSE, physical kiosk capture, and display-power polling are verified; final 60 Hz GPU/frame pacing evidence remains pending.
+- [x] Android portrait/landscape/tablet/font-200% automated coverage exists, and the awake `21121210G` portrait UI has valid physical capture evidence.
+- [x] Ubuntu production deployment, token-authenticated snapshot/SSE, physical kiosk capture, display-power polling, and 60 Hz frame pacing are verified.
 
 ## 12. Verification
 
@@ -110,7 +111,7 @@ Legend: `[x]` implemented, `[~]` implemented with remaining real-device or visua
 - [x] Nine-domain shell, global search, command palette, relation-aware Inspector, Pins, Density, staged Settings, Policy Simulation, Prompt revision, and Hook preview have Playwright coverage.
 - [x] Every major dashboard domain is exercised at 1366x768, 1920x1080, and 2560x1440 with overflow checks and attached screenshots.
 - [x] Ubuntu production deployment serves the replacement bundle and restarts the local dedicated Display kiosk successfully.
-- [ ] Android physical-device E2E for this replacement UI revision (the latest Windows ADB enumeration returned no connected device).
+- [x] Android physical device `21121210G` is connected, authorized, awake, and visually verified with the AEGIS UI in the foreground.
 
 ## Completion Gate
 
@@ -119,4 +120,4 @@ Legend: `[x]` implemented, `[~]` implemented with remaining real-device or visua
 - [x] Production Cloudflare Passkey entry and local dedicated Display serve the replacement UI; unauthenticated Dashboard redirects to Passkey login and remote Display access remains denied.
 - [x] No old Core Sphere component is imported by active Web UI code.
 - [x] Physical Display evidence is attached at `data/reports/e2e/latest/screenshots/ubuntu-display-production.png`.
-- [ ] Android physical-device evidence is attached to the E2E report.
+- [x] Valid Android capture is attached at `data/reports/e2e/latest/screenshots/android-ui-final.png`; the earlier screen-off capture remains only as diagnostic evidence.

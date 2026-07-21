@@ -29,8 +29,8 @@ Legend:
 - [x] Room Server mock provider is never treated as production-online.
 - [x] Voice, LINE, Discord, Email, and external send stubs are disabled/blocker-marked in production.
 - [x] Production Docker bind scope avoids unnecessary `0.0.0.0` exposure.
-- [ ] Cloudflare Tunnel recovery and systemd autostart are verified.
-- [ ] Ubuntu reboot restores AI Server, Cloudflare Tunnel, and Display kiosk.
+- [x] Cloudflare Tunnel recovery and systemd autostart are verified.
+- [x] Ubuntu reboot restores AI Server, Cloudflare Tunnel, and Display kiosk.
 - [x] `.env`, data volume, auth DB, capability overrides, audit, memory, and reports persist across restart/rebuild.
 - [x] Readiness Gate uses real E2E evidence, not file existence alone.
 
@@ -52,17 +52,17 @@ Legend:
 - [~] Windows PC Server service install/start/health/screenshot/active_window/overlay is verified.
 - [ ] PC real click/type/hotkey is verified only after approval on a safe test surface.
 - [~] PC Server firewall script restricts access to Private/Tailscale and an explicit remote address; applying the rule still requires an elevated Windows session.
-- [~] Android connects to AI gRPC over stable LAN or Tailscale.
-- [~] `/api/android/status` reports online, reverse_stream, and model `21121210G`.
-- [~] Android permissions/accessibility/current_app/ui_tree/notifications are verified.
-- [ ] Android Wi-Fi OFF/ON, screen off, AI restart, and app restart reconnect are verified.
-- [ ] Android reconnect_count and heartbeat_failure_count are measured.
+- [x] Android connects to AI gRPC over stable LAN or Tailscale.
+- [x] Android runtime status reports online, reverse_stream, and model `21121210G`.
+- [x] Android permissions/accessibility/current_app/ui_tree/notifications are verified on `21121210G` through the Ubuntu reverse stream.
+- [~] Android reconnects after screen-off, app restart, and AI restart; Wi-Fi OFF/ON over Tailscale remains.
+- [x] Android reconnect_count and heartbeat_failure_count are measured from the device and exposed by Core (`15` and `0` in the latest real run).
 - [x] Orange Pi Room Server candidate is recorded with SSH/Wi-Fi/MAC/IP inventory.
 - [x] Room Server remains UNCONFIGURED/DISABLED until a real Orange Pi provider is installed.
 
 ## 4. P1 UI Completion
 
-- [~] `UI_Instruction.md` is mapped to the UI checklist and audit output; Android approval/reconnect real-device acceptance remains open.
+- [x] `UI_Instruction.md` is mapped to the UI checklist and the UI completeness audit passes; Android approval/reconnect remains tracked under real-device E2E.
 - [x] UI completeness audit is included in production readiness.
 - [x] Web pages handle Loading, Empty, Error, Stale, Unauthorized, and Fresh-auth-required states.
 - [x] Command Center prioritizes Current Operation, Attention, AI State, and LLM budget.
@@ -122,10 +122,10 @@ Legend:
 - [ ] PC Server service install/uninstall is verified on Windows.
 - [x] PC Server logs/config/firewall paths are documented.
 - [x] NSIS installer plan is documented.
-- [ ] Ubuntu install/start/healthcheck/systemd are verified on real host.
+- [x] Ubuntu install/start/healthcheck/systemd are verified on real host.
 - [x] AI dedicated Display opens only Presentation/Display surfaces.
-- [ ] Display backlight turns off when idle and wakes on relevant events.
-- [~] Device IP/MAC/role inventory exists locally on the working machine; copy to each device during real-host maintenance.
+- [x] Display backlight automatically turns off after idle and wakes when the compact operational signature changes; DPMS Off/On was verified on Ubuntu.
+- [~] Device IP/MAC/role inventory is current locally and copied to Ubuntu with matching SHA-256; Windows `ProgramData` and Orange Pi still require elevated/SSH maintenance.
 - [x] `.aegis-local/` is gitignored and checked for accidental commits.
 - [x] Logs/reports/audit retention and rotation are defined.
 
@@ -154,7 +154,7 @@ Legend:
 - [x] Browser/Dev real checks pass.
 - [x] Docker restart/rebuild persistence passes.
 - [x] Cloudflare login and Dashboard auth redirect pass.
-- [ ] Dedicated Display kiosk recovers after reboot.
+- [x] Dedicated Display kiosk recovers after reboot.
 - [ ] `scripts/e2e/run-readiness-report.ps1` reports `overall_status: pass`.
 - [x] Production blocker mock/stub count is zero, or all remaining items are v1-scope excluded.
 - [x] 72-hour-equivalent Display/server soak shows no memory/SSE/UI degradation.

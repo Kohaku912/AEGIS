@@ -13,6 +13,10 @@ ExecStartPre=/bin/sh -c 'for i in $(seq 1 120); do [ -S /tmp/.X11-unix/X0 ] && [
 ExecStart=/opt/aegis/scripts/display/aegis-kiosk.sh
 Restart=always
 RestartSec=5s
+MemoryHigh=1G
+MemoryMax=1536M
+TasksMax=512
+OOMPolicy=stop
 
 [Install]
 WantedBy=default.target

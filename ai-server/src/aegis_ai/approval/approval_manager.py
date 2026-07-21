@@ -87,6 +87,12 @@ class ApprovalManager:
         """Return non-expired pending requests."""
         return self._queue.list_pending()
 
+    def list_all(self, limit: int = 200) -> list[ApprovalRequest]:
+        """Return recent approval history through the Manager boundary."""
+        requests = self._queue.get_all()
+        requests.sort(key=lambda item: int(getattr(item, "created_at", 0) or 0), reverse=True)
+        return requests[: max(1, limit)]
+
     def get(self, approval_id: str) -> ApprovalRequest | None:
         """Get an approval request by ID."""
         return self._queue.get(approval_id)
@@ -185,7 +191,19 @@ class ApprovalManager:
             req = self._queue.get(approval_id)
             if req is None:
                 return
+            now_ms = int(time.time() * 1000)
             req.surface_delivery.update(results)
+            for surface, delivered in results.items():
+                previous = req.surface_delivery_evidence.get(surface, {})
+                req.surface_delivery_evidence[surface] = {
+                    "attempted": True,
+                    "delivered": bool(delivered),
+                    "acknowledged": bool(delivered and surface == "pc_overlay"),
+                    "failed": not bool(delivered),
+                    "last_error": "" if delivered else previous.get("last_error", "delivery failed"),
+                    "last_attempt_at": now_ms,
+                    "last_real_device_check": now_ms if surface in {"pc_overlay", "android", "room"} else 0,
+                }
             if hasattr(self._queue, "_save"):
                 self._queue._save()
 

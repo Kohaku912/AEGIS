@@ -31,7 +31,7 @@ class PcOverlayApprovalChannel(ApprovalChannel):
             return False
         try:
             result = self._executor.execute_capability("pc-server.system.health_check", {})
-            return result is not None
+            return self._successful_result(result, require_shown=False)
         except Exception:
             return False
 
@@ -41,13 +41,19 @@ class PcOverlayApprovalChannel(ApprovalChannel):
             return False
 
         try:
-            # Dismiss overlay on terminal states
+            # Terminal updates replace the pending notice briefly. The PC
+            # overlay protocol has no remote window handle to dismiss safely.
             if event.state in ("approved", "rejected", "executed", "failed", "cancelled", "expired"):
-                self._executor.execute_capability(
-                    "pc-server.approval.overlay",
-                    {"action": "dismiss"},
+                result = self._executor.execute_capability(
+                    "pc-server.overlay.show_rich",
+                    {
+                        "title": f"Approval {event.state}",
+                        "body": f"{event.approval_id}: {event.state}",
+                        "duration_seconds": 2,
+                        "style": "info" if event.state in {"approved", "executed"} else "warning",
+                    },
                 )
-                return True
+                return self._successful_result(result)
 
             summary = event.request_summary
             title = str(
@@ -61,11 +67,28 @@ class PcOverlayApprovalChannel(ApprovalChannel):
                 or "操作の承認が必要です"
             )
 
-            self._executor.execute_capability(
-                "pc-server.approval.overlay",
-                {"action": f"{title}\n\n{body}"},
+            result = self._executor.execute_capability(
+                "pc-server.overlay.show_rich",
+                {
+                    "title": title.replace("\n", " "),
+                    "body": body,
+                    "duration_seconds": 30,
+                    "style": "approval",
+                },
             )
-            return True
+            return self._successful_result(result)
         except Exception:
             logger.exception("PC overlay delivery failed for %s", event.approval_id)
             return False
+
+    @staticmethod
+    def _successful_result(result: Any, *, require_shown: bool = True) -> bool:
+        if not isinstance(result, dict) or result.get("error"):
+            return False
+        if result.get("ok") is False:
+            return False
+        if require_shown and result.get("shown") is not True:
+            return False
+        if require_shown and not str(result.get("delivery_id") or ""):
+            return False
+        return True

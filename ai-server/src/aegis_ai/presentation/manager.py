@@ -61,6 +61,7 @@ class PresentationManager:
         audit_manager: Any = None,
         notification_manager: Any = None,
         interruption_controller: Any = None,
+        conditional_preference_store: Any = None,
         data_dir: str = "data",
     ) -> None:
         self._store = object_store or PresentationObjectStore(data_dir=data_dir)
@@ -69,6 +70,7 @@ class PresentationManager:
         self._audit_manager = audit_manager
         self._notification_manager = notification_manager
         self._interruption_controller = interruption_controller
+        self._conditional_preferences = conditional_preference_store
         self._preferences = PresentationPreferences(data_dir=data_dir)
         self._sweeper_stop = threading.Event()
         self._sweeper_thread: threading.Thread | None = None
@@ -225,6 +227,7 @@ class PresentationManager:
                 logger.debug("Failed to dismiss presentation notification", exc_info=True)
         self._publish_event("presentation.dismissed", spec)
         self._audit("dismiss", spec)
+        self._record_conditional_feedback("dismissed", spec)
         return {"ok": True, "presentation": spec.to_dict()}
 
     def list_active(self, limit: int = 100) -> list[dict[str, Any]]:
@@ -275,6 +278,18 @@ class PresentationManager:
         spec.updated_at_ms = int(time.time() * 1000)
         self._store.put(spec)
         self._preferences.record_interaction(spec.modality.value, spec.placement.zone, action.get("type", "unknown"))
+        feedback = {
+            "open": "opened",
+            "opened": "opened",
+            "edit": "edited",
+            "edited": "edited",
+            "ignore": "ignored",
+            "ignored": "ignored",
+            "dismiss": "dismissed",
+            "dismissed": "dismissed",
+        }.get(str(action.get("type") or ""))
+        if feedback:
+            self._record_conditional_feedback(feedback, spec, action)
         self._publish_event("presentation.user_action", spec, extra={"action": action_record})
         self._audit("user_action", spec, action_record)
         return {"ok": True, "presentation": spec.to_dict()}
@@ -315,6 +330,31 @@ class PresentationManager:
     def get_preferences(self) -> dict[str, Any]:
         """Return current presentation preference scores."""
         return self._preferences.get_scores()
+
+    def _record_conditional_feedback(
+        self,
+        feedback: str,
+        spec: PresentationSpec,
+        action: dict[str, Any] | None = None,
+    ) -> None:
+        store = self._conditional_preferences
+        if store is None:
+            return
+        try:
+            store.record(
+                feedback,
+                target=spec.intent,
+                content_type=spec.modality.value,
+                risk_level=spec.importance.value,
+                surface=spec.placement.zone,
+                context={
+                    "presentation_id": spec.presentation_id,
+                    "source": spec.source,
+                    "action": dict(action or {}),
+                },
+            )
+        except Exception:
+            logger.debug("Failed to record conditional presentation feedback", exc_info=True)
 
     # ── Internal helpers ─────────────────────────────────────────
 

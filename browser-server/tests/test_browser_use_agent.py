@@ -2,20 +2,21 @@
 
 from __future__ import annotations
 
-from aegis_browser.browser_use_agent import BrowserUseAgent, SafetyStop
+import asyncio
+import os
+
+import aegis_browser.main as browser_main
+from aegis_browser.browser_use_agent import BrowserUseAgent
 from aegis_browser.config import Config
 from aegis_browser.main import get_runtime_health
 from aegis_browser.session import BrowserSession
 from aegis_browser.task_models import (
-    BrowserTask,
-    BrowserTaskResult,
     DRAFT_TASK,
     READONLY_TASK,
     SIGNUP_TASK,
-    TaskStatus,
+    BrowserTask,
 )
 from aegis_browser.trace import BrowserTrace
-
 
 # ═══════════════════════════════════════════════════════════════
 # 1. BrowserTask Models
@@ -69,7 +70,7 @@ class TestBrowserSafetyBoundary:
             forbidden_actions=["solve_captcha"],
         )
         boundary = BrowserSafetyBoundary(task)
-        result = boundary.check_page_content("Please solve the CAPTCHA to continue")
+        result = boundary.check_page_observation({"boundary": "captcha"})
         assert result.should_stop is True
 
     def test_payment_detected(self):
@@ -82,7 +83,7 @@ class TestBrowserSafetyBoundary:
             forbidden_actions=["purchase", "paid_subscription"],
         )
         boundary = BrowserSafetyBoundary(task)
-        result = boundary.check_page_content("Payment required: $9.99/month")
+        result = boundary.check_page_observation({"boundary": "payment"})
         assert result.should_stop is True
 
     def test_identity_verification_detected(self):
@@ -95,7 +96,7 @@ class TestBrowserSafetyBoundary:
             forbidden_actions=["upload_identity_document"],
         )
         boundary = BrowserSafetyBoundary(task)
-        result = boundary.check_page_content("Please upload ID or passport for verification")
+        result = boundary.check_page_observation({"boundary": "identity_verification"})
         assert result.should_stop is True
 
     def test_publish_detected(self):
@@ -108,7 +109,7 @@ class TestBrowserSafetyBoundary:
             forbidden_actions=["publish"],
         )
         boundary = BrowserSafetyBoundary(task)
-        result = boundary.check_page_content("Publish this post to your blog")
+        result = boundary.check_page_observation({"boundary": "publish"})
         assert result.needs_approval is True
 
     def test_password_detected(self):
@@ -121,7 +122,7 @@ class TestBrowserSafetyBoundary:
             forbidden_actions=["enter_password_without_user"],
         )
         boundary = BrowserSafetyBoundary(task)
-        result = boundary.check_page_content("Enter your password to continue")
+        result = boundary.check_page_observation({"boundary": "credentials"})
         assert result.needs_user_input is True
 
     def test_normal_content_allowed(self):
@@ -130,7 +131,7 @@ class TestBrowserSafetyBoundary:
 
         task = BrowserTask(task_id="test", natural_language_goal="Test")
         boundary = BrowserSafetyBoundary(task)
-        result = boundary.check_page_content("Welcome to example.com. This is a normal page.")
+        result = boundary.check_page_observation({"boundary": "none"})
         assert result.allowed is True
 
     def test_forbidden_action_blocked(self):
@@ -209,6 +210,41 @@ class TestBrowserUseAgent:
         agent.stop()
         assert agent.is_running() is False
 
+    def test_browser_session_cleanup_awaits_stop(self):
+        calls = []
+
+        class Session:
+            async def stop(self):
+                calls.append("stop")
+
+        trace = BrowserTrace(task_id="cleanup")
+        asyncio.run(BrowserUseAgent._close_browser_session(Session(), trace))
+
+        assert calls == ["stop"]
+        assert trace.get_entries()[-1].action == "browser_session_closed"
+
+    def test_browser_session_cleanup_falls_back_after_stop_failure(self):
+        calls = []
+
+        class Session:
+            async def stop(self):
+                calls.append("stop")
+                raise RuntimeError("stop failed")
+
+            async def close(self):
+                calls.append("close")
+
+        asyncio.run(BrowserUseAgent._close_browser_session(Session()))
+
+        assert calls == ["stop", "close"]
+
+    def test_browser_child_reaper_collects_all_exited_children(self, monkeypatch):
+        children = iter([(101, 0), (102, 0), (0, 0)])
+        monkeypatch.setattr(os, "waitpid", lambda _pid, _flags: next(children))
+        monkeypatch.setattr(os, "WNOHANG", 1, raising=False)
+
+        assert BrowserUseAgent._reap_exited_children() == 2
+
 
 class TestBrowserRuntimeHealth:
     """Runtime health exposes dependency and profile state."""
@@ -232,6 +268,19 @@ class TestBrowserRuntimeHealth:
         assert health["profile_name"] == "owner"
         assert health["profile_dir"].endswith("owner")
         assert "browser-use" in health["degraded_reason"]
+
+    def test_runtime_health_reports_critical_cgroup_pressure(self, monkeypatch):
+        monkeypatch.setattr(browser_main, "_module_available", lambda _name: True)
+        monkeypatch.setattr(
+            browser_main,
+            "_cgroup_resource_snapshot",
+            lambda: {"status": "critical", "memory_ratio": 0.95, "pids_ratio": 0.2},
+        )
+
+        health = get_runtime_health(Config())
+
+        assert health["status"] == "critical"
+        assert health["resources"]["memory_ratio"] == 0.95
 
     def test_browser_session_profile_directory_is_stable(self, tmp_path):
         session = BrowserSession(

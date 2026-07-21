@@ -18,7 +18,7 @@ object AegisConfig {
     private const val KEY_PAIRING_TOKEN = "pairing_token"
     private const val KEY_DEVICE_ID = "device_id"
 
-    private const val DEFAULT_HOST = "192.168.50.175"
+    private const val DEFAULT_HOST = "192.168.50.41"
     private const val DEFAULT_PORT = 50051
 
     fun load(context: Context): AegisConnectionConfig {

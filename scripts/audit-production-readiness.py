@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 import time
 from pathlib import Path
 
@@ -348,7 +349,8 @@ def main() -> int:
     start = time.time()
     checks: list[dict[str, object]] = []
 
-    mock = run_command(["python", "scripts/audit-mocks.py", "--report-dir", str(report_dir), "--json-only"])
+    python = sys.executable
+    mock = run_command([python, "scripts/audit-mocks.py", "--report-dir", str(report_dir), "--json-only"])
     checks.append(
         {
             "id": "production_blocker_mock",
@@ -361,7 +363,7 @@ def main() -> int:
         }
     )
     coverage = run_command(
-        ["python", "scripts/audit-capability-coverage.py", "--report-dir", str(report_dir), "--json-only"]
+        [python, "scripts/audit-capability-coverage.py", "--report-dir", str(report_dir), "--json-only"]
     )
     checks.append(
         {
@@ -374,8 +376,8 @@ def main() -> int:
             "report_path": str(report_dir / "capability_coverage.json"),
         }
     )
-    run_command(["python", "scripts/audit-dead-code.py", "--report-dir", str(report_dir), "--json-only"])
-    secret = run_command(["python", "scripts/audit-secrets.py", "--report-dir", str(report_dir), "--json-only"])
+    run_command([python, "scripts/audit-dead-code.py", "--report-dir", str(report_dir), "--json-only"])
+    secret = run_command([python, "scripts/audit-secrets.py", "--report-dir", str(report_dir), "--json-only"])
     checks.append(
         {
             "id": "secret_inventory",
@@ -387,7 +389,7 @@ def main() -> int:
             "report_path": str(report_dir / "secret_inventory.json"),
         }
     )
-    ui = run_command(["python", "scripts/audit-ui-completeness.py"])
+    ui = run_command([python, "scripts/audit-ui-completeness.py", "--report-dir", str(report_dir), "--json-only"])
     checks.append(
         {
             "id": "ui_completeness",
@@ -399,7 +401,7 @@ def main() -> int:
             "report_path": str(report_dir / "ui_completeness.json"),
         }
     )
-    v1 = run_command(["python", "scripts/audit-v1-completion.py", "--report-dir", str(report_dir), "--json-only"])
+    v1 = run_command([python, "scripts/audit-v1-completion.py", "--report-dir", str(report_dir), "--json-only"])
     checks.append(
         {
             "id": "v1_completion",

@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from flask import Flask
 
 from aegis_ai.web.routes.ui import init_ui_routes
+from aegis_ai.web.routes.ui_v2 import init_ui_v2_routes
 from aegis_ai.web.ui_overview import build_ui_overview, normalize_ui_event
 
 
@@ -123,6 +124,16 @@ class _PresentationManager:
         ]
 
 
+class _UserStateManager:
+    def get_current_user_state(self):
+        return {
+            "where": {"label": "home", "confidence": 0.9},
+            "attention": {"device": "pc", "label": "focused", "confidence": 0.8},
+            "activity": {"label": "coding", "confidence": 0.7},
+            "updated_at_ms": 1234,
+        }
+
+
 def _runtime():
     return SimpleNamespace(
         status_manager=_StatusManager(),
@@ -132,6 +143,7 @@ def _runtime():
         memory_manager=_MemoryManager(),
         event_manager=_EventManager(),
         presentation_manager=_PresentationManager(),
+        user_state_manager=_UserStateManager(),
     )
 
 
@@ -178,6 +190,7 @@ def test_ui_overview_sections_have_freshness_envelope():
     assert overview["display_queue"]["data"]["persisted"] is True
     assert overview["display_queue"]["data"]["items"]
     assert overview["attention"]["data"]["items"]
+    assert overview["user_state"]["data"]["activity"]["label"] == "coding"
 
 
 def test_ui_overview_route_returns_normalized_contract():
@@ -191,6 +204,60 @@ def test_ui_overview_route_returns_normalized_contract():
     assert payload["schema_version"] == "ui-overview.v3"
     assert payload["servers"]["data"]["items"]
     assert payload["tasks"]["data"]["primary"]["task_id"] == "task-1"
+
+
+def test_display_power_state_route_is_compact_and_runtime_backed():
+    app = Flask(__name__)
+    owner = SimpleNamespace(app=app, _runtime=_runtime())
+    init_ui_v2_routes(owner)
+
+    response = app.test_client().get(
+        "/display/power-state",
+        headers={"Host": "127.0.0.1:8090"},
+        environ_overrides={"REMOTE_ADDR": "127.0.0.1"},
+    )
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["schema_version"] == "display-power-state.v1"
+    assert payload["current_task"]["task_id"] == "task-1"
+    assert payload["approvals"] == {"pending_count": 1, "ids": ["approval-1"]}
+    assert payload["keep_awake"] is True
+    assert {server["server_id"] for server in payload["servers"]} == {
+        "ai-server",
+        "pc-server",
+    }
+
+
+def test_display_power_state_ignores_autonomous_planning_without_operation():
+    runtime = _runtime()
+    runtime.approval_manager = SimpleNamespace(list_pending=lambda: [])
+    runtime.task_manager = SimpleNamespace(
+        list_running=lambda: [
+            {
+                "task_id": "task-background",
+                "source": "autonomous",
+                "status": "running",
+                "title": "Plan next maintenance cycle",
+                "steps": [],
+            }
+        ],
+        list_waiting_approval=lambda: [],
+    )
+    app = Flask(__name__)
+    owner = SimpleNamespace(app=app, _runtime=runtime)
+    init_ui_v2_routes(owner)
+
+    response = app.test_client().get(
+        "/display/power-state",
+        headers={"Host": "127.0.0.1:8090"},
+        environ_overrides={"REMOTE_ADDR": "127.0.0.1"},
+    )
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["keep_awake"] is False
+    assert not any(payload["current_task"].values())
 
 
 def test_ui_stream_replays_events_after_last_event_id():
@@ -318,6 +385,32 @@ def test_core_uses_effective_server_status(monkeypatch):
 
     assert "android-server" not in overview["core"]["data"]["offline_servers"]
     assert overview["core"]["data"]["health"] == "ONLINE"
+
+
+def test_android_connection_metrics_are_in_server_dependencies(monkeypatch):
+    from aegis_ai.web import dashboard_legacy, ui_overview
+
+    runtime = _runtime()
+    runtime.android_manager = SimpleNamespace(
+        get_status=lambda: {
+            "online": True,
+            "connection_mode": "reverse_stream",
+            "device_model": "21121210G",
+            "reconnect_count": 3,
+            "heartbeat_failure_count": 1,
+        }
+    )
+    monkeypatch.setattr(
+        dashboard_legacy,
+        "_runtime_server_status",
+        lambda runtime: {"servers": [{"server_id": "android-server", "status": "OFFLINE"}]},
+    )
+
+    servers = ui_overview._server_list(runtime)
+    android = next(item for item in servers if item["server_id"] == "android-server")
+
+    assert android["dependencies"]["reconnect_count"] == 3
+    assert android["dependencies"]["heartbeat_failure_count"] == 1
 
 
 def test_display_queue_resolves_android_disconnected():

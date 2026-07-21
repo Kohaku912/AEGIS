@@ -46,7 +46,7 @@ Analyze the user's message and produce a structured task plan.
       "step_id": "step_1",
       "description": "What this step does",
       "action_type": "browser_open|browser_read|tool_invoke|llm_analyze|llm_summarize",
-      "capability_id": "browser.open_page|...",
+      "capability_id": "Use one canonical ID from Available Capabilities",
       "params": {{{{}}}},
       "risk_category": "READ|DRAFT|OBSERVE|EXTERNAL_SEND|DEVICE_ACTION|PAYMENT|BLOCKED",
       "requires_approval": false,
@@ -78,6 +78,9 @@ Analyze the user's message and produce a structured task plan.
 - Reading user-owned accounts (SNS, email, notifications) is READ, not EXTERNAL_SEND
 - Creating drafts (not sending) is DRAFT
 - If uncertain about risk, use the safer category
+- Browser steps must use a purpose-specific canonical browser-server capability.
+- Browser arguments must declare viewer, purpose, success_condition, and stop_condition.
+- Use pc-server.app.show_url only for a declared user-visible handoff, never for agent-private research.
 - If capability doesn't exist, note it in assumptions
 - Respond with ONLY the JSON, no markdown fences"""
 
@@ -205,19 +208,20 @@ class LLMTaskInterpreter:
             return RiskCategory.READ
 
     def _validate_safety(self, plan: TaskPlan) -> None:
-        """Validate and adjust safety classifications."""
-        blocked_patterns = ["captcha", "bypass", "stealth", "proxy", "purchase", "pay"]
-
+        """Validate the LLM plan against manifest-backed capability policy."""
         for step in plan.steps:
-            check_text = f"{step.description} {step.action_type} {step.capability_id}".lower()
-
-            # Check for blocked patterns
-            for pattern in blocked_patterns:
-                if pattern in check_text:
+            capability = self._catalog.resolve(step.capability_id) if self._catalog and step.capability_id else None
+            if capability is not None:
+                risk = str(getattr(capability, "risk_level", "low")).lower()
+                requires_approval = bool(getattr(capability, "requires_approval", False))
+                enabled = bool(getattr(capability, "enabled", True))
+                if not enabled or risk in {"forbidden", "blocked"}:
                     step.risk_category = RiskCategory.BLOCKED
                     step.requires_approval = True
-                    plan.risk_notes.append(f"Blocked: {pattern} detected in step {step.step_id}")
-                    break
+                    plan.risk_notes.append(f"Policy blocks {step.capability_id}")
+                elif requires_approval or risk in {"approval_required", "high", "critical"}:
+                    step.requires_approval = True
+                    plan.approval_needed = True
 
             # External send always needs approval
             if step.risk_category == RiskCategory.EXTERNAL_SEND:

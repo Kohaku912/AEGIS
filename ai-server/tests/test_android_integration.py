@@ -52,3 +52,25 @@ def test_android_ui_input_manifests_require_approval() -> None:
         manifest = json.loads((manifest_dir / filename).read_text(encoding="utf-8"))
         assert manifest["risk"]["level"] == "approval_required"
         assert manifest["risk"]["requires_approval"] is True
+
+
+def test_android_status_reports_persisted_connection_metrics(tmp_path) -> None:
+    from aegis_ai.integrations.android.manager import AndroidServerManager
+
+    manager = AndroidServerManager(
+        data_dir=str(tmp_path),
+        host="127.0.0.1",
+        port=9,
+        pairing_token="test-pairing-token",
+    )
+    manager.device_registry.verify_and_authorize(
+        device_id="phone",
+        pairing_token="test-pairing-token",
+        metadata={"reconnect_count": "4", "heartbeat_failure_count": "2"},
+    )
+    manager._connection_metrics.update({"reconnect_count": 5, "heartbeat_failure_count": 1})
+
+    status = manager.get_status()
+
+    assert status["reconnect_count"] == 5
+    assert status["heartbeat_failure_count"] == 2

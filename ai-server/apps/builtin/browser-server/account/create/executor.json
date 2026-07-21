@@ -1,0 +1,1 @@
+{"type":"http","endpoint":"http://localhost:50053/capability/account/create","method":"POST","timeout_ms":120000,"stdin":"json","stdout":"json"}

@@ -1,7 +1,7 @@
 {
   "id": "pc-server.app.show_url",
   "title": "ウェブサイトをユーザーに見せる",
-  "description": "AEGISが収集・調査したウェブサイトをユーザーのPCブラウザで開いて提示する。ユーザーが見たいサイトやAEGISが調べた結果を表示するための機能。自律的なウェブ調査にはbrowser-server.page.browseを使用すること。",
+  "description": "Open a URL on the user's PC only for an explicit user-visible or shared handoff. Agent-private research uses a purpose-specific browser-server read capability.",
   "server_id": "pc-server",
   "app_id": "app",
   "action": "show_url",
@@ -16,10 +16,29 @@
       "url": {
         "type": "string",
         "description": "URL to show to the user"
+      },
+      "viewer": {
+        "type": "string",
+        "enum": [
+          "user_visible",
+          "shared"
+        ],
+        "description": "Who must see the page"
+      },
+      "purpose": {
+        "type": "string",
+        "enum": [
+          "present_to_user",
+          "request_manual_action",
+          "collaborative_review"
+        ],
+        "description": "Why the page is being handed to the user"
       }
     },
     "required": [
-      "url"
+      "url",
+      "viewer",
+      "purpose"
     ]
   },
   "tags": [

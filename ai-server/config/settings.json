@@ -23,7 +23,18 @@
     "daily_briefing_enabled": true,
     "max_autonomous_runs_per_hour": 20,
     "max_autonomous_runs_per_day": 100,
-    "cooldown_seconds": 60
+    "cooldown_seconds": 60,
+    "evaluation_interval_seconds": 60,
+    "min_action_interval_seconds": 60,
+    "max_actions_per_hour": 20,
+    "max_tasks_per_cycle": 3,
+    "min_llm_interval_seconds": 1800,
+    "social_poll_interval_seconds": 60,
+    "browser_exploration_budget_per_day": 10,
+    "normal_interruption_budget_per_hour": 4,
+    "quiet_hours": "22:00-08:00",
+    "approval_proposal_limit": 3,
+    "follow_up_timeout": 3600
   },
   "memory": {
     "episodic_retention_days": 90,

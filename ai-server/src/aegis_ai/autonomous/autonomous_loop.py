@@ -149,6 +149,8 @@ class AutonomousLoop:
         self._last_skip_reason: str = ""
         self._lock = threading.RLock()
         self._capability_metadata_cache: dict[str, dict[str, Any]] = {}
+        self._initiative_engine: Any = None
+        self._continuation_manager: Any = None
 
         # Load state
         self._load()
@@ -739,7 +741,11 @@ Respond with JSON:
         if failure_lessons:
             penalty += 0.3 * len(failure_lessons)
             reasons.append(f"{len(failure_lessons)} past failure lesson(s) for {source_desire}")
-        rejected = [record for record in approval_lessons if "rejected" in record.content.lower()]
+        rejected = [
+            record
+            for record in approval_lessons
+            if str(record.structured_data.get("decision") or "") == "rejected"
+        ]
         if rejected:
             penalty += 0.2 * len(rejected)
             reasons.append(f"{len(rejected)} approval rejection lesson(s) for {source_desire}")
@@ -799,27 +805,38 @@ Respond with JSON:
     def _desire_action_guides(self, low_desires: list[dict[str, Any]]) -> list[dict[str, Any]]:
         guide_map = {
             "user_support": {
-                "goal": "Take concrete action to help the user. Browse the web to find useful information, check news, research topics, or automate web tasks.",
+                "goal": (
+                    "Advance a current commitment or resolve a concrete user need "
+                    "with the least disruptive suitable action."
+                ),
                 "preferred_capabilities": [
-                    "browser-server.page.browse",
+                    "browser-server.search.query",
+                    "browser-server.page.read",
                     "ai-server.commitment.list",
                     "ai-server.situation.get",
                     "pc-server.screenshot.get_screenshot",
                 ],
             },
             "social": {
-                "goal": "Browse social media, news sites, or community platforms to stay informed and engaged. Use the browser to actively explore the web.",
+                "goal": (
+                    "Review durable social obligations and respond only when "
+                    "reciprocity or user value warrants it."
+                ),
                 "preferred_capabilities": [
-                    "browser-server.page.browse",
+                    "browser-server.feed.monitor",
                     "ai-server.agora.read_posts",
                     "ai-server.agora.post",
                     "ai-server.social.list_drafts",
                 ],
             },
             "growth": {
-                "goal": "Explore the web to learn new things, research topics, read articles, or discover interesting content. Use the browser actively.",
+                "goal": (
+                    "Investigate a grounded open question linked to a project, "
+                    "commitment, failure, or prior conversation."
+                ),
                 "preferred_capabilities": [
-                    "browser-server.page.browse",
+                    "browser-server.search.query",
+                    "browser-server.page.summarize",
                     "ai-server.memory.search",
                     "ai-server.workspace.list_files",
                     "dev-server.repo.status",
@@ -946,17 +963,16 @@ Respond with JSON:
         retry: bool = False,
     ) -> Any:
         system_prompt = (
-            "You are AEGIS autonomous agent. Desire pressure is above threshold, so you MUST take action. "
-            "Choose at least one tool to execute. Prefer browser-server.page.browse for web exploration, "
-            "news reading, social media browsing, or research. You are an active agent - browse the web, "
-            "explore content, and take concrete actions. Do NOT return empty responses. "
-            "Use the provided function calling mechanism."
+            "You are AEGIS's initiative evaluator. Consider continuity, expected user value, social "
+            "obligation, urgency, uncertainty, risk, repetition, and interruption cost. Select a tool only "
+            "when acting now is justified. Approval-required tools may be selected as proposals and are not "
+            "executed before approval. When non-action is more appropriate, return a concise reason. Use "
+            "purpose-specific browser capabilities and keep agent-private research off the user's display."
         )
         if retry:
             system_prompt += (
-                " Your previous response did not call a tool. This is a MANDATORY retry: you MUST select "
-                "one concrete tool now. Prefer browser-server.page.browse to browse the web, read news, "
-                "or explore social media. Take action - do not return empty."
+                " Re-evaluate once for a missed useful action. It is valid to choose non-action again, but "
+                "state the concrete reason instead of returning an empty response."
             )
         return self._llm.generate_with_tools(
             prompt=prompt,
@@ -984,7 +1000,12 @@ Respond with JSON:
                 )
             self._pending_actionable_observations = []
 
-        valid_cap_ids = self._available_safe_capability_ids()
+        capability_options = self._available_capability_options()
+        valid_cap_ids = {
+            cap_id
+            for cap_id, option in capability_options.items()
+            if option["disposition"] in {"execute_safe", "propose_for_approval"}
+        }
 
         if not valid_cap_ids:
             logger.error("No valid capabilities available — cannot generate tasks")
@@ -1038,6 +1059,7 @@ Respond with JSON:
             tools = catalog.list_for_tools(valid_cap_ids)
             candidate_ids = list(valid_cap_ids)
         tools = self._merge_tool_sets(catalog, tools, representative_ids)
+        tools = self._annotate_tools_with_policy(tools, catalog, capability_options)
         candidate_ids = list(dict.fromkeys([*representative_ids, *candidate_ids]))[:10]
         self._last_candidate_capability_ids = candidate_ids
         if not tools:
@@ -1052,7 +1074,7 @@ Recent: {action_history}
 
 Select up to {self._max_tasks} capabilities to address the low desires.
 Do NOT repeat recent actions by purpose.
-Pressure is above threshold, so choose at least one safe/read-only action if any listed tool can help.
+Choose an action only if its expected value exceeds risk, interruption, repetition, cost, and uncertainty.
 
 Desire action guides:
 {json.dumps(desire_guides, ensure_ascii=False)}
@@ -1062,6 +1084,9 @@ Intrinsic task candidates:
 
 Candidate capability ids:
 {json.dumps(candidate_ids, ensure_ascii=False)}
+
+Capability policy (approval proposals are valid selections but are not executed until approved):
+{json.dumps({cap_id: capability_options.get(cap_id, {}) for cap_id in candidate_ids}, ensure_ascii=False)}
 
 Operational decision axes (prioritization only; not additional desires):
 {json.dumps(decision_axes, ensure_ascii=False)}"""
@@ -1168,6 +1193,55 @@ Operational decision axes (prioritization only; not additional desires):
             if missing:
                 logger.warning("LLM task missing required args for %s: %s", cap_id, missing)
                 continue
+            option = capability_options.get(cap_id, {})
+            initiative_decision = "execute_now"
+            initiative_reason = "InitiativeEngine is not configured."
+            if self._initiative_engine is not None:
+                from aegis_ai.autonomous.models import ActionCandidate, CapabilityDisposition
+
+                pressure = float(
+                    low_desires[i].get("pressure", 5.0)
+                    if i < len(low_desires)
+                    else low_desires[0].get("pressure", 5.0) if low_desires else 5.0
+                )
+                risk_name = str(option.get("risk_level") or "").lower()
+                risk_cost = {
+                    "read_only": 0.0,
+                    "safe_action": 0.1,
+                    "approval_required": 0.35,
+                    "high_risk": 0.7,
+                }.get(risk_name, 0.2)
+                candidate = ActionCandidate(
+                    candidate_id=f"candidate_{int(time.time() * 1000)}_{i}",
+                    goal=f"Advance the {desire} objective with {cap_id}",
+                    why_now=f"{desire} pressure is {pressure:.1f}",
+                    trigger="homeostatic",
+                    expected_benefit=min(1.0, pressure / 10.0),
+                    urgency=min(1.0, pressure / 10.0),
+                    relevance=0.5,
+                    continuity_value=0.3 if pending_observations else 0.0,
+                    risk=risk_cost,
+                    uncertainty=0.2,
+                    interruption_cost=0.1,
+                    repetition=0.0,
+                    candidate_capabilities=[cap_id],
+                    visibility=str(args.get("viewer") or "agent_private"),
+                    requires_approval=bool(option.get("requires_approval", False)),
+                    success_condition={"manifest_completion": bool(getattr(manifest, "completion", {}))},
+                    stop_condition={"bounded_by_manifest": True},
+                )
+                disposition = CapabilityDisposition(str(option.get("disposition") or "unavailable"))
+                decision, initiative_reason = self._initiative_engine.evaluate(candidate, disposition)
+                initiative_decision = decision.value
+                if initiative_decision not in {"execute_now", "propose_approval"}:
+                    self._log_audit_event(
+                        action="autonomous_initiative_no_action",
+                        capability_id=cap_id,
+                        decision=initiative_decision.upper(),
+                        reason=initiative_reason,
+                        detail={"candidate": candidate.to_dict()},
+                    )
+                    continue
             penalty, penalty_reason = self._recent_failure_penalty(desire)
             if penalty >= 1.0:
                 logger.info("Skipping %s due to memory penalty: %s", cap_id, penalty_reason)
@@ -1188,6 +1262,8 @@ Operational decision axes (prioritization only; not additional desires):
                 "memory_penalty": penalty,
                 "memory_penalty_reason": penalty_reason,
                 "why_this_is_not_repeating": "",
+                "initiative_decision": initiative_decision,
+                "initiative_reason": initiative_reason,
             })
 
         if not valid_tasks:
@@ -1217,22 +1293,37 @@ Operational decision axes (prioritization only; not additional desires):
             )
         return valid_tasks
 
-    def _available_safe_capability_ids(self) -> set[str]:
-        """Return capabilities available for autonomous execution.
-
-        Uses list_autonomous_capabilities() which includes ALLOW, ALLOW_WITH_AUDIT,
-        and ASK_APPROVAL capabilities. Excludes DENY and UNAVAILABLE.
-        """
+    def _available_capability_options(self) -> dict[str, dict[str, Any]]:
+        """Return policy and server availability for every autonomous option."""
         if not self._broker:
             self._available_capability_count = 0
-            return set()
+            return {}
 
         try:
-            capabilities = self._broker.list_autonomous_capabilities() or []
+            if hasattr(self._broker, "list_autonomous_capability_options"):
+                raw_options = self._broker.list_autonomous_capability_options() or []
+            else:
+                raw_options = []
+                for capability in self._broker.list_autonomous_capabilities() or []:
+                    requires_approval = bool(getattr(capability, "requires_approval", False))
+                    raw_options.append(
+                        {
+                            "capability_id": capability.id,
+                            "disposition": (
+                                "propose_for_approval" if requires_approval else "execute_safe"
+                            ),
+                            "policy_decision": "ASK_APPROVAL" if requires_approval else "ALLOW",
+                            "policy_reason": "Legacy broker option",
+                            "risk_level": getattr(getattr(capability, "risk_level", None), "name", ""),
+                            "requires_approval": requires_approval,
+                            "enabled": True,
+                            "server_id": capability.id.split(".", 1)[0],
+                        }
+                    )
         except Exception as exc:
-            logger.warning("Failed to list autonomous capabilities: %s", exc)
+            logger.warning("Failed to list autonomous capability options: %s", exc)
             self._available_capability_count = 0
-            return set()
+            return {}
 
         snapshot: dict[str, dict[str, Any]] | None = None
         if self._status_manager is not None:
@@ -1242,30 +1333,76 @@ Operational decision axes (prioritization only; not additional desires):
                 logger.warning("Failed to read server status snapshot: %s", exc)
 
         catalog = getattr(self._broker, "_catalog", None)
-        available: set[str] = set()
-        for capability in capabilities:
-            manifest = catalog.resolve(capability.id) if catalog is not None else None
-            server_id = getattr(manifest, "server_id", "") or capability.id.split(".", 1)[0]
-            if server_id == "ai-server":
-                available.add(capability.id)
+        offline_statuses = {"offline", "unreachable", "disconnected", "stopped", "error"}
+        options: dict[str, dict[str, Any]] = {}
+        for raw in raw_options:
+            data = raw.to_dict() if hasattr(raw, "to_dict") else dict(raw)
+            cap_id = str(data.get("capability_id") or "")
+            if not cap_id:
                 continue
-            # No snapshot = fail-open (include all)
-            if snapshot is None:
-                available.add(capability.id)
-                continue
-            # Server not in snapshot = assume available
-            server_info = snapshot.get(server_id)
-            if server_info is None:
-                available.add(capability.id)
-                continue
-            status = str(server_info.get("status", "unknown")).lower()
-            # Only exclude explicitly offline servers
-            _OFFLINE_STATUSES = {"offline", "unreachable", "disconnected", "stopped", "error"}
-            if status not in _OFFLINE_STATUSES:
-                available.add(capability.id)
+            manifest = catalog.resolve(cap_id) if catalog is not None else None
+            server_id = str(getattr(manifest, "server_id", "") or data.get("server_id") or cap_id.split(".", 1)[0])
+            disposition = str(data.get("disposition") or "unavailable")
+            available = bool(data.get("enabled", True))
+            if server_id != "ai-server" and snapshot is not None:
+                server_info = snapshot.get(server_id)
+                if server_info is not None:
+                    status = str(server_info.get("status", "unknown")).lower()
+                    available = available and status not in offline_statuses
+            if not available and disposition != "forbidden":
+                disposition = "unavailable"
+            options[cap_id] = {
+                "disposition": disposition,
+                "policy_decision": str(data.get("policy_decision") or ""),
+                "policy_reason": str(data.get("policy_reason") or ""),
+                "risk_level": str(data.get("risk_level") or ""),
+                "requires_approval": bool(data.get("requires_approval", False)),
+                "available": available,
+                "server_id": server_id,
+            }
 
-        self._available_capability_count = len(available)
-        return available
+        self._available_capability_count = sum(
+            1
+            for option in options.values()
+            if option["disposition"] in {"execute_safe", "propose_for_approval"}
+        )
+        return options
+
+    def _available_capability_ids(self) -> set[str]:
+        """Return capabilities that may execute or create an approval proposal."""
+        return {
+            cap_id
+            for cap_id, option in self._available_capability_options().items()
+            if option["disposition"] in {"execute_safe", "propose_for_approval"}
+        }
+
+    def _available_safe_capability_ids(self) -> set[str]:
+        """Deprecated compatibility alias for the former misleading name."""
+        return self._available_capability_ids()
+
+    @staticmethod
+    def _annotate_tools_with_policy(
+        tools: list[dict[str, Any]],
+        catalog: Any,
+        options: dict[str, dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        annotated: list[dict[str, Any]] = []
+        for tool in tools:
+            copy = {**tool, "function": dict(tool.get("function", {}))}
+            function = copy["function"]
+            cap_id = catalog.tool_name_to_cap_id(str(function.get("name") or ""))
+            option = options.get(cap_id, {})
+            disposition = str(option.get("disposition") or "unavailable")
+            note = (
+                "Selection creates a user approval proposal; it is not executed before approval."
+                if disposition == "propose_for_approval"
+                else "Selection may execute immediately through ToolBroker."
+            )
+            function["description"] = (
+                f"[Autonomy policy: {disposition}] {note} {function.get('description', '')}"
+            ).strip()
+            annotated.append(copy)
+        return annotated
 
     def _execute_tasks(self, tasks: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Execute tasks with skill/workflow reuse and action tracing."""
@@ -1336,9 +1473,17 @@ Operational decision axes (prioritization only; not additional desires):
                 try:
                     from tool_broker import ExecutionSource, ToolExecutionRequest
                     request = ToolExecutionRequest(
-                        capability_id=capability_id, arguments=arguments,
+                        task_id=task_id,
+                        capability_id=capability_id,
+                        arguments=arguments,
                         source=ExecutionSource.AUTONOMOUS,
                         reason=f"Autonomous desire-driven task: {desire_name}",
+                        source_desire=desire_name,
+                        metadata={
+                            "action_state": "selected",
+                            "goal": action,
+                            "continuation": task.get("continuation", {}),
+                        },
                     )
                     result = self._broker.execute(request)
 
@@ -1351,6 +1496,28 @@ Operational decision axes (prioritization only; not additional desires):
                             if image_b64:
                                 result_summary = self._analyze_screenshot(image_b64, desire_name)
                         success = True
+                        if self._initiative_engine is not None:
+                            self._initiative_engine.record_stage(
+                                "actions_executed",
+                                {"task_id": task_id, "capability_id": capability_id},
+                            )
+                            if str(getattr(result, "verification_status", "")) == "passed":
+                                self._initiative_engine.record_stage(
+                                    "actions_verified",
+                                    {"task_id": task_id, "capability_id": capability_id},
+                                )
+                    elif result.status.name == "APPROVAL_NEEDED":
+                        result_summary = f"Awaiting approval: {result.approval_id}"
+                        full_output = {
+                            "approval_id": result.approval_id,
+                            "request_id": result.request_id,
+                            "action_state": "awaiting_approval",
+                        }
+                        if task_id and self._task_manager:
+                            self._task_manager.wait_for_approval(
+                                task_id,
+                                approval_id=result.approval_id,
+                            )
                     else:
                         error_details = result.output or {}
                         error_payload = error_details.get("error")
@@ -1413,7 +1580,7 @@ Operational decision axes (prioritization only; not additional desires):
                 try:
                     if success:
                         self._task_manager.complete_task(task_id, result_summary=result_summary[:200])
-                    else:
+                    elif full_output.get("action_state") != "awaiting_approval":
                         self._task_manager.fail_task(task_id, error=failure_reason[:200])
                 except Exception:
                     pass
@@ -1470,6 +1637,10 @@ Operational decision axes (prioritization only; not additional desires):
     def _present_autonomous_result(self, task: dict[str, Any], result_record: dict[str, Any]) -> None:
         try:
             from aegis_ai.presentation.models import PresentationRequest
+            from aegis_ai.presentation.routing_policy import (
+                PresentationRoutingContext,
+                PresentationRoutingPolicy,
+            )
             from aegis_ai.runtime import get_runtime
         except Exception:
             return
@@ -1480,6 +1651,7 @@ Operational decision axes (prioritization only; not additional desires):
             return
 
         output = result_record.get("full_output", {})
+        continuation_id = str(output.get("continuation_id") or "") if isinstance(output, dict) else ""
         modality = "text_card"
         if isinstance(output, dict):
             if output.get("image_base64") or output.get("image_data"):
@@ -1493,10 +1665,34 @@ Operational decision axes (prioritization only; not additional desires):
         if not summary:
             return
 
+        situation: dict[str, Any] = {}
+        situation_model = getattr(rt, "situation_model", None)
+        if situation_model is not None and hasattr(situation_model, "get_state"):
+            try:
+                situation = situation_model.get_state() or {}
+            except Exception:
+                logger.debug("Unable to read situation for presentation routing", exc_info=True)
+        attention = situation.get("attention", {}) if isinstance(situation.get("attention"), dict) else {}
+        device = situation.get("active_device", {})
+        if isinstance(device, dict):
+            device = device.get("label") or device.get("device") or "unknown"
+        routing_context = PresentationRoutingContext(
+            importance=str(task.get("importance") or "high"),
+            urgency=str(task.get("urgency") or "normal"),
+            requires_action=bool(task.get("requires_user_action", False)),
+            user_presence=str(situation.get("presence") or situation.get("state") or "unknown"),
+            active_device=str(device or "unknown"),
+            user_attention=str(attention.get("label") or situation.get("attention_state") or "unknown"),
+            privacy=str(task.get("privacy") or "normal"),
+            expected_usefulness=float(task.get("expected_usefulness", 0.5) or 0.5),
+            interruption_cost=float(task.get("interruption_cost", 0.5) or 0.5),
+        )
+        routing = PresentationRoutingPolicy().decide(routing_context)
+
         request = PresentationRequest(
             source="autonomous_loop",
             intent=f"autonomous_{str(task.get('desire', 'task') or 'task')}",
-            importance="high",
+            importance=routing_context.importance,
             modality=modality,
             title=str(task.get("action") or task.get("capability_id") or "Autonomous result"),
             summary=summary,
@@ -1504,12 +1700,45 @@ Operational decision axes (prioritization only; not additional desires):
                 "desire": task.get("desire", ""),
                 "action": task.get("action", ""),
                 "capability_id": task.get("capability_id", ""),
+                "continuation_id": continuation_id,
                 "result": summary,
                 "output": output,
+            },
+            targets=list(routing.targets),
+            metadata={
+                "routing_reason": routing.reason,
+                "interrupt": routing.interrupt,
+                "display_eligible": routing.display_eligible,
+                "continuation_id": continuation_id,
+                "routing_context": {
+                    "urgency": routing_context.urgency,
+                    "requires_action": routing_context.requires_action,
+                    "user_presence": routing_context.user_presence,
+                    "active_device": routing_context.active_device,
+                    "user_attention": routing_context.user_attention,
+                    "privacy": routing_context.privacy,
+                    "expected_usefulness": routing_context.expected_usefulness,
+                    "interruption_cost": routing_context.interruption_cost,
+                },
             },
         )
         try:
             presentation_manager.present(request)
+            if continuation_id and self._continuation_manager is not None:
+                self._continuation_manager.advance(
+                    continuation_id,
+                    stage="presented",
+                    state="completed",
+                    reason="Verified autonomous result was presented.",
+                )
+            if self._initiative_engine is not None:
+                self._initiative_engine.record_stage(
+                    "results_presented",
+                    {
+                        "capability_id": str(task.get("capability_id") or ""),
+                        "targets": list(routing.targets),
+                    },
+                )
         except Exception:
             logger.debug("Failed to present autonomous result", exc_info=True)
 
@@ -1580,7 +1809,7 @@ Operational decision axes (prioritization only; not additional desires):
         if not catalog:
             return []
 
-        valid_cap_ids = self._available_safe_capability_ids()
+        valid_cap_ids = self._available_capability_ids()
 
         follow_up_query = "; ".join(
             part
@@ -1945,6 +2174,7 @@ Rules:
             if result_text in _TRIVIAL_RESULTS or (len(result_text) < 20 and result.get("success", False)):
                 continue
             desire_name = task.get("desire", "")
+            learning_recorded = False
 
             if self._experiential:
                 try:
@@ -1955,6 +2185,7 @@ Rules:
                         related_desire=desire_name,
                         outcome_success=success,
                     )
+                    learning_recorded = True
                 except Exception as e:
                     logger.warning("Failed to record experience: %s", e)
 
@@ -1964,6 +2195,7 @@ Rules:
                     detail = f"Capability: {capability_id}, Result: {observation[:100]}"
                     bot_msg = f"{detail}. Success: {success}"
                     self._memory.add_conversation(user_msg, bot_msg)
+                    learning_recorded = True
                 except Exception as e:
                     logger.warning("Failed to record to AdvancedMemory: %s", e)
 
@@ -1983,6 +2215,7 @@ Rules:
                         trace, success=success,
                         result_summary=observation[:200],
                     )
+                    learning_recorded = True
                 except Exception as e:
                     logger.warning("Failed to record action trace: %s", e)
 
@@ -1994,8 +2227,22 @@ Rules:
                         success=success,
                         desire_name=desire_name,
                     )
+                    learning_recorded = True
                 except Exception as e:
                     logger.warning("Failed to appraise emotion: %s", e)
+
+            output = result.get("full_output", {})
+            continuation_id = str(output.get("continuation_id") or "") if isinstance(output, dict) else ""
+            if learning_recorded and continuation_id and self._continuation_manager is not None:
+                try:
+                    self._continuation_manager.advance(
+                        continuation_id,
+                        stage="learned",
+                        state="completed",
+                        reason="Autonomous outcome was recorded as experience.",
+                    )
+                except (KeyError, TypeError, ValueError):
+                    logger.debug("Unable to advance learned continuation %s", continuation_id, exc_info=True)
 
     def _decide_next_interval(self, results: list[dict[str, Any]]) -> int:
         """Decide when to run next using pressure-based logic (no LLM)."""
@@ -2213,3 +2460,53 @@ Rules:
         logger.info("Self-call trigger requested: %s", reason)
         self._execute_cycle()
         return self.get_status()
+
+    def evaluate_event(self, event_type: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Evaluate a structured event immediately without bypassing the LLM interval gate."""
+        detail = dict(payload or {})
+        self._pending_actionable_observations.append(
+            {
+                "source": event_type,
+                "description": str(detail.get("safe_message") or event_type),
+                "context": detail,
+                "created_at_ms": int(time.time() * 1000),
+            }
+        )
+        decision = "observe_more"
+        reason = "Event was captured for the next bounded reasoning cycle."
+        if self._initiative_engine is not None:
+            from aegis_ai.autonomous.models import ActionCandidate, CapabilityDisposition
+
+            capability_id = str(detail.get("capability_id") or "")
+            disposition = CapabilityDisposition.DEFER
+            if capability_id:
+                option = self._available_capability_options().get(capability_id, {})
+                try:
+                    disposition = CapabilityDisposition(str(option.get("disposition") or "unavailable"))
+                except ValueError:
+                    disposition = CapabilityDisposition.UNAVAILABLE
+            candidate = ActionCandidate(
+                candidate_id=f"event_{int(time.time() * 1000)}",
+                goal=str(detail.get("goal") or event_type),
+                why_now=event_type,
+                trigger=event_type,
+                related_task=str(detail.get("task_id") or ""),
+                related_conversation=str(detail.get("conversation_id") or ""),
+                expected_benefit=float(detail.get("expected_benefit", 0.4) or 0.4),
+                social_obligation=float(detail.get("social_obligation", 0.0) or 0.0),
+                urgency=float(detail.get("urgency", 0.5) or 0.5),
+                relevance=float(detail.get("relevance", 0.5) or 0.5),
+                continuity_value=0.5,
+                risk=float(detail.get("risk", 0.1) or 0.1),
+                uncertainty=float(detail.get("uncertainty", 0.3) or 0.3),
+                interruption_cost=float(detail.get("interruption_cost", 0.2) or 0.2),
+                candidate_capabilities=[capability_id] if capability_id else [],
+                requires_approval=bool(detail.get("requires_approval", False)),
+            )
+            evaluated, reason = self._initiative_engine.evaluate(candidate, disposition)
+            decision = evaluated.value
+        self._last_decision = f"event_{decision}"
+        self._last_decision_ms = int(time.time() * 1000)
+        self._last_no_action_reason = reason if decision not in {"execute_now", "propose_approval"} else ""
+        self._save()
+        return {"event_type": event_type, "decision": decision, "reason": reason, "queued": True}

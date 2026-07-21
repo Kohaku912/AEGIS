@@ -49,14 +49,29 @@ pytest -m real_pc_host -v
 .\scripts\test-android-real.ps1 -TryUsbReverse
 
 # If the device rejects adb reverse, use the PC LAN address.
-.\scripts\test-android-real.ps1 -HostAddress 192.168.50.175
+.\scripts\test-android-real.ps1 -HostAddress 192.168.50.41
 
 # Run opt-in pytest checks.
 cd ai-server
 $env:AEGIS_ANDROID_LOCAL = "1"
-$env:AEGIS_ANDROID_TEST_HOST = "192.168.50.175"
+$env:AEGIS_ANDROID_TEST_HOST = "192.168.50.41"
 uv run pytest -m android_local -q
 ```
+
+For a production Core whose authenticated Dashboard API is not directly
+reachable, pass the read-only Display overview URL through an SSH tunnel or a
+display-token protected endpoint. The runner derives Android online state and
+device-reported reconnect metrics from that contract:
+
+```powershell
+.\scripts\test-android-real.ps1 `
+  -HostAddress 192.168.50.41 `
+  -StatusUrl http://127.0.0.1:18090/display/overview `
+  -RequireOnline -ScreenOff -RestartAndroidApp
+```
+
+Use `-TestWifiOff` only together with `-TailscaleHost`. Cutting the only LAN
+route is not a valid LAN-outside reconnect test.
 
 ### Full E2E
 

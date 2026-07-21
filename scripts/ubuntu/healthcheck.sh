@@ -23,6 +23,19 @@ docker compose -f docker-compose.yml -f docker-compose.production.yml ps >"$comp
   exit 1
 }
 
+if [ "${AEGIS_SKIP_RESOURCE_LIMIT_CHECK:-0}" != "1" ]; then
+  for container in aegis-ai-server-1 aegis-browser-server-1; do
+    limits="$(docker inspect --format '{{.HostConfig.Memory}} {{.HostConfig.PidsLimit}}' "$container" 2>/dev/null || true)"
+    memory_limit="${limits%% *}"
+    pids_limit="${limits#* }"
+    if [ -z "$limits" ] || [ "${memory_limit:-0}" = "0" ] \
+      || [ "${pids_limit:-<nil>}" = "<nil>" ] || [ "${pids_limit:-0}" = "0" ]; then
+      echo "$container is missing its production memory/PID limit: ${limits:-not found}" >&2
+      exit 1
+    fi
+  done
+fi
+
 dashboard_url="http://127.0.0.1:8090/health"
 dashboard_ready=0
 for _ in $(seq 1 "${AEGIS_HEALTHCHECK_ATTEMPTS:-40}"); do
@@ -41,6 +54,15 @@ if [ "$dashboard_ready" != "1" ]; then
   docker compose -f docker-compose.yml -f docker-compose.production.yml ps >&2 || true
   exit 1
 fi
+
+docker compose \
+  -f docker-compose.yml \
+  -f docker-compose.production.yml \
+  exec -T browser-server \
+  curl -fsS --max-time 5 http://127.0.0.1:50053/health >/dev/null || {
+    echo "Browser Server health or cgroup resource guard failed" >&2
+    exit 1
+  }
 if [ "${AEGIS_RUN_READINESS_CHECK:-0}" = "1" ]; then
   python3 scripts/audit-production-readiness.py --report-dir data/reports >"$readiness_log" || {
     cat "$readiness_log" >&2

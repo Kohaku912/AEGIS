@@ -4,17 +4,15 @@
 from aegis_browser.observe import (
     extract_page_text,
 )
-from aegis_browser.safety import CAPABILITIES, SafetyLevel
+from aegis_browser.safety import SUPPORTED_OPERATIONS
 
 
 class TestCapabilityDefinitions:
-    def test_browser_browse_capability_is_canonical(self):
-        cap_id = "browser-server.page.browse"
-        assert cap_id in CAPABILITIES
-        cap = CAPABILITIES[cap_id]
-        assert cap["safety_level"] == SafetyLevel.LEVEL_1_SAFE_ACT
-        assert cap["requires_approval"] is False
-        assert "browser" in cap["tags"]
+    def test_browser_runtime_exposes_split_operations(self):
+        assert "page.read" in SUPPORTED_OPERATIONS
+        assert "form.submit" in SUPPORTED_OPERATIONS
+        assert "social.post" in SUPPORTED_OPERATIONS
+        assert "page.browse" not in SUPPORTED_OPERATIONS
 
 
 class TestExtractPageText:

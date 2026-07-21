@@ -241,12 +241,18 @@ def _runtime_server_status(settings: Any = None, runtime: Any = None) -> dict[st
             status = "UNCONFIGURED"
             mode = mode if mode != "unavailable" else "disabled"
         ok = status in ("ONLINE", "DEGRADED")
+        if not expected:
+            status_detail = "Server is disabled or not configured for this deployment."
+            recovery = "Enable and configure this server when it enters the deployment scope."
+        else:
+            status_detail = status_detail_ok if ok else status_detail_fail
+            recovery = "" if ok else recovery_hint
         return _server_entry(
             server_id=server_id, server_type=server_type, host="localhost", port=port, expected=expected,
             status=status, registered_capabilities=registered_capabilities, version=version, mode=mode,
-            status_detail=status_detail_ok if ok else status_detail_fail,
+            status_detail=status_detail,
             degraded_reason=s.get("error", "") if status == "DEGRADED" else "",
-            recovery_hint="" if ok else recovery_hint,
+            recovery_hint=recovery,
             dependencies=dependencies,
         )
 

@@ -57,11 +57,16 @@ class AegisForegroundService : Service() {
 
         scope.launch {
             var delayIndex = 0
+            var attemptedConnection = false
             while (isActive) {
                 try {
                     if (!grpcClient.isConnected()) {
                         val waitMs = RECONNECT_DELAYS_MS[delayIndex.coerceAtMost(RECONNECT_DELAYS_MS.lastIndex)]
                         grpcClient.setNextRetry(System.currentTimeMillis())
+                        if (attemptedConnection) {
+                            grpcClient.recordReconnectAttempt()
+                        }
+                        attemptedConnection = true
                         val success = grpcClient.connect()
                         if (success) {
                             delayIndex = 0

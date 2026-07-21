@@ -27,6 +27,7 @@ logger = logging.getLogger("aegis_ai.event.event_manager")
 _PERSIST_EVENT_TYPES = {
     "task.created", "task.updated", "task.completed", "task.failed", "task.cancelled",
     "approval.created", "approval.approved", "approval.rejected", "approval.expired",
+    "approval.cancelled", "approval.executing", "approval.executed", "approval.failed",
     "memory.sleep.started", "memory.sleep.completed",
     "status.changed",
     "notification.sent",
@@ -56,6 +57,10 @@ _PERSIST_EVENT_TYPES = {
     "self_call",
     "social.webhook.received",
     "social.email.received",
+    "social.inbox.received",
+    "social.inbox.triaged",
+    "social.inbox.failed",
+    "social.reply.proposed",
     "hook.matched",
     "commitment.due",
 }

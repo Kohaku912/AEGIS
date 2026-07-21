@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import time
 import hashlib
+import time
 from dataclasses import asdict, is_dataclass
 from typing import Any
 
@@ -56,6 +56,79 @@ def build_ui_overview(runtime: Any) -> dict[str, Any]:
         "freshness": _section("freshness", lambda: _freshness(runtime), generated_at),
     }
     return {"schema_version": "ui-overview.v3", "generated_at": generated_at, **sections}
+
+
+def build_display_power_state(runtime: Any) -> dict[str, Any]:
+    """Build the compact state used by the dedicated display power watcher.
+
+    This intentionally avoids the full Overview projection, audit/event history,
+    memory, and capability catalog.  It is safe to poll frequently without
+    competing with the Dashboard or Android command paths.
+    """
+
+    generated_at = _now_ms()
+    task = _current_task(runtime)
+    background_autonomous = (
+        str(task.get("source") or "").lower() == "autonomous"
+        and not task.get("capability_id")
+        and not task.get("current_action")
+    )
+    power_task = {} if background_autonomous else task
+    pending = _pending_approvals(runtime)
+    servers = []
+    for server_id, raw in _status_snapshot(runtime).items():
+        item = _to_plain(raw)
+        if not isinstance(item, dict):
+            item = {"status": str(item)}
+        servers.append(
+            {
+                "server_id": str(server_id),
+                "status": str(item.get("status") or "unknown"),
+                "updated_at": int(item.get("updated_at") or item.get("last_seen") or 0),
+                "permission_missing": item.get("permission_missing") or [],
+                "recovery_state": str(item.get("recovery_state") or ""),
+            }
+        )
+
+    presentation_items: list[dict[str, Any]] = []
+    manager = getattr(runtime, "presentation_manager", None)
+    if manager is not None and hasattr(manager, "list_active"):
+        presentation_items = [
+            _presentation_projection(item) for item in manager.list_active(limit=3)
+        ]
+
+    task_status = str(power_task.get("phase") or "").lower()
+    keep_awake = task_status in {"running", "executing", "verifying"} or bool(pending)
+    return {
+        "schema_version": "display-power-state.v1",
+        "generated_at": generated_at,
+        "keep_awake": keep_awake,
+        "current_task": {
+            key: power_task.get(key)
+            for key in (
+                "task_id",
+                "source",
+                "phase",
+                "capability_id",
+                "current_action",
+                "updated_at",
+            )
+        },
+        "approvals": {
+            "pending_count": len(pending),
+            "ids": [
+                str(_get(_to_plain(item), "approval_id", "")) for item in pending[:8]
+            ],
+        },
+        "servers": sorted(servers, key=lambda item: item["server_id"]),
+        "presentations": [
+            {
+                key: item.get(key)
+                for key in ("presentation_id", "id", "status", "surface_role", "updated_at")
+            }
+            for item in presentation_items
+        ],
+    }
 
 
 def normalize_ui_event(event: Any) -> dict[str, Any]:
@@ -207,6 +280,7 @@ def _current_task(runtime: Any) -> dict[str, Any]:
             "task_id": "",
             "title": "No active task",
             "phase": "idle",
+            "source": "",
             "original_instruction": "",
             "plan_summary": "",
             "dependency_edges": [],
@@ -226,6 +300,7 @@ def _current_task(runtime: Any) -> dict[str, Any]:
         "task_id": _get(task, "task_id", ""),
         "title": _get(task, "title", "") or _get(task, "goal", "") or "Task",
         "phase": _get(task, "status", ""),
+        "source": _get(task, "source", ""),
         "original_instruction": _task_original_instruction(task),
         "plan_summary": _task_plan_summary(task, raw_steps),
         "dependency_edges": _task_dependency_edges(raw_steps),
@@ -448,6 +523,8 @@ def _user_state(runtime: Any) -> dict[str, Any]:
         return {"available": False, "summary": "User state manager is not configured."}
     if hasattr(manager, "get_summary"):
         return manager.get_summary()
+    if hasattr(manager, "get_current_user_state"):
+        return manager.get_current_user_state()
     if hasattr(manager, "get_current_state"):
         return manager.get_current_state()
     return {"available": True, "summary": "User state manager is online."}
@@ -619,6 +696,8 @@ def _server_list(runtime: Any) -> list[dict[str, Any]]:
                     "device_model": android_status.get("device_model", ""),
                     "permission_status": android_status.get("permission_status", {}),
                     "capability_availability": android_status.get("capability_availability", {}),
+                    "reconnect_count": int(android_status.get("reconnect_count", 0) or 0),
+                    "heartbeat_failure_count": int(android_status.get("heartbeat_failure_count", 0) or 0),
                 }
                 found = True
                 break
@@ -631,6 +710,8 @@ def _server_list(runtime: Any) -> list[dict[str, Any]]:
                 "dependencies": {
                     "last_seen": android_status.get("last_seen", 0),
                     "device_model": android_status.get("device_model", ""),
+                    "reconnect_count": int(android_status.get("reconnect_count", 0) or 0),
+                    "heartbeat_failure_count": int(android_status.get("heartbeat_failure_count", 0) or 0),
                 },
                 "health_checked_at": _now_ms(),
             })

@@ -25,6 +25,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from aegis_ai.llm.json_utils import extract_json_object
+
 logger = logging.getLogger("aegis_ai.social.intelligence")
 
 
@@ -426,16 +428,26 @@ class SocialIntelligenceSystem:
         return 0.0
 
     def _extract_topics(self, text: str) -> list[str]:
-        """Extract topics from text."""
-        topics = []
-        keywords = ["質問", "質問です", "教えて", "どう", "なぜ", "いつ", "どこ",
-                     "help", "question", "how", "why", "when", "where",
-                     "バグ", "エラー", "改善", "提案", "議論", "雑談"]
-        text_lower = text.lower()
-        for kw in keywords:
-            if kw in text_lower:
-                topics.append(kw)
-        return topics[:5]
+        """Extract semantic topics through the LLM."""
+        if not self._llm:
+            return []
+        try:
+            result = self._llm.generate(
+                prompt=(
+                    "Extract up to five concise semantic topics from this social message. "
+                    f"Return JSON with a topics array.\n\nMessage: {text[:1000]}"
+                ),
+                system_prompt="Extract social topics from full context without keyword rules.",
+                max_tokens=160,
+                json_mode=True,
+            )
+            if getattr(result, "success", False):
+                topics = extract_json_object(str(result.content)).get("topics", [])
+                if isinstance(topics, list):
+                    return [str(topic)[:80] for topic in topics if str(topic).strip()][:5]
+        except Exception:
+            logger.debug("Social topic extraction failed", exc_info=True)
+        return []
 
     # ── Relationship ─────────────────────────────────────────────
 
@@ -557,14 +569,10 @@ class SocialIntelligenceSystem:
 
     def find_social_skill(self, skill_type: str, context: str = "") -> SocialSkill | None:
         """Find a social skill by type and context."""
+        del context
         candidates = [s for s in self._skills.values() if s.active and s.skill_type == skill_type]
         if not candidates:
             return None
-        if context:
-            # Try to match context
-            for s in candidates:
-                if context.lower() in s.activation_conditions.lower():
-                    return s
         return max(candidates, key=lambda s: s.success_rate)
 
     def record_skill_result(self, skill_id: str, success: bool) -> None:
@@ -618,26 +626,41 @@ class SocialIntelligenceSystem:
         context["norms"] = [n.to_dict() for n in self.get_norms()[:3]]
 
         # Applicable social skill
-        purpose = self._detect_conversation_purpose(message)
+        purpose = self._classify_conversation_purpose(message, context)
         skill = self.find_social_skill(purpose, message)
         if skill:
             context["suggested_skill"] = skill.to_dict()
 
         return context
 
-    def _detect_conversation_purpose(self, message: str) -> str:
-        """Detect the purpose of a message."""
-        msg_lower = message.lower()
-        if any(w in msg_lower for w in ["こんにちは", "hello", "hi", "おはよう", "hey"]):
-            return "greeting"
-        if any(w in msg_lower for w in ["教えて", "どう", "質問", "help", "question"]):
-            return "consultation"
-        if any(w in msg_lower for w in ["ありがとう", "thank", "助かる"]):
-            return "gratitude"
-        if any(w in msg_lower for w in ["すみません", "sorry", "ごめん"]):
-            return "apology"
-        if any(w in msg_lower for w in ["議論", "思う", "意見", "opinion", "think"]):
-            return "discussion"
+    def _classify_conversation_purpose(
+        self,
+        message: str,
+        social_context: dict[str, Any],
+    ) -> str:
+        """Let the LLM classify social purpose from the complete context."""
+        if not self._llm:
+            return "general"
+        allowed = {"greeting", "consultation", "gratitude", "apology", "discussion", "general"}
+        prompt = (
+            "Classify the social purpose of this message from its complete context. "
+            "Return JSON with purpose and reason.\n\n"
+            f"Message: {message}\n"
+            f"Context: {json.dumps(social_context, ensure_ascii=False, default=str)[:3000]}"
+        )
+        try:
+            result = self._llm.generate(
+                prompt=prompt,
+                system_prompt="Classify social conversation purpose without keyword rules.",
+                max_tokens=150,
+                json_mode=True,
+            )
+            if getattr(result, "success", False):
+                purpose = str(extract_json_object(str(result.content)).get("purpose") or "general")
+                if purpose in allowed:
+                    return purpose
+        except Exception:
+            logger.debug("Conversation-purpose classification failed", exc_info=True)
         return "general"
 
     # ── Internal Simulation ──────────────────────────────────────
@@ -651,7 +674,6 @@ class SocialIntelligenceSystem:
             return {"assessment": "Cannot simulate without LLM", "risk": "unknown"}
 
         # Get social context
-        rep = self._reputations.get(target_author)
         rel = self.get_relationship(target_author, "AEGIS")
         norms = self.get_norms()[:3]
 
@@ -677,17 +699,7 @@ Assess this reply. Respond with JSON:
                 max_tokens=200,
             )
             if result.success:
-                import re
-                clean = result.content.strip()
-                if clean.startswith("```"):
-                    lines = clean.split("\n")
-                    clean = "\n".join(lines[1:])
-                    if clean.endswith("```"):
-                        clean = clean[:-3]
-                    clean = clean.strip()
-                match = re.search(r'\{.*\}', clean, re.DOTALL)
-                if match:
-                    return json.loads(match.group(0))
+                return extract_json_object(str(result.content))
         except Exception as e:
             logger.warning("Reply simulation failed: %s", e)
 

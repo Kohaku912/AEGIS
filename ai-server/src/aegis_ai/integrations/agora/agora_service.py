@@ -102,47 +102,16 @@ class AgoraService:
         )
 
     def detect_task(self, post: AgoraPost, my_account_id: int = 0) -> AgoraTaskDetection:
-        is_mentioned = any(m.id == my_account_id for m in post.mentions)
-        body_lower = post.body.lower()
-        is_calling = any(kw in body_lower for kw in ["aegis", "イージス", "eg"])
-        is_question = "?" in post.body or "？" in post.body
-        is_request = any(kw in body_lower for kw in ["して", "お願い", "確認", "テスト", "please", "check", "test"])
-        is_greeting = any(kw in body_lower for kw in ["こんにちは", "hello", "hi", "おはよう", "good morning"])
-
+        """Return transport facts only; SocialManager performs LLM triage."""
         if post.author.id == my_account_id:
             return AgoraTaskDetection(is_task_request=False, reason="Own post.")
-
-        if is_greeting and not is_request:
-            return AgoraTaskDetection(
-                is_task_request=False,
-                requires_reply=True,
-                confidence=0.3,
-                reason="Greeting detected. Low priority reply.",
-            )
-
-        if is_mentioned or is_calling:
-            confidence = 0.8 if is_request else 0.5
-            urgency = "high" if is_request else "normal"
-            return AgoraTaskDetection(
-                is_task_request=is_request,
-                task_title=f"AGORA request from {post.author.name}",
-                task_description=post.body[:200],
-                urgency=urgency,
-                requires_reply=True,
-                reply_to=post.id,
-                confidence=confidence,
-                reason=f"{'Mentioned' if is_mentioned else 'Called'} by {post.author.name}.",
-            )
-
-        if is_question:
-            return AgoraTaskDetection(
-                is_task_request=False,
-                requires_reply=False,
-                confidence=0.3,
-                reason="Question detected but not directed at AEGIS.",
-            )
-
-        return AgoraTaskDetection(is_task_request=False, reason="Not a task request.")
+        return AgoraTaskDetection(
+            is_task_request=False,
+            requires_reply=False,
+            reply_to=post.id,
+            confidence=0.0,
+            reason="Pending LLM triage in SocialManager.",
+        )
 
 
 def check_cooldown() -> dict[str, Any]:

@@ -7,11 +7,11 @@ If a forbidden action is detected, the task is stopped immediately.
 from __future__ import annotations
 
 import logging
-import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
+from urllib.parse import urlparse
 
-from aegis_browser.task_models import BrowserTask, TaskStatus
+from aegis_browser.task_models import BrowserTask
 
 logger = logging.getLogger("aegis_browser.safety_boundary")
 
@@ -35,124 +35,74 @@ class BrowserSafetyBoundary:
         result = boundary.check_action("click", {"element": "submit_button"})
     """
 
-    # Patterns that always trigger stop
-    STOP_PATTERNS = [
-        (r"captcha", "CAPTCHA detected"),
-        (r"recaptcha", "reCAPTCHA detected"),
-        (r"hcaptcha", "hCAPTCHA detected"),
-        (r"bot\s*detection", "Bot detection detected"),
-        (r"verify\s*you\s*are\s*human", "Human verification required"),
-    ]
-
-    # Patterns that require approval
-    APPROVAL_PATTERNS = [
-        (r"publish", "Publish action detected"),
-        (r"post\s*(to|on|public)", "Public post detected"),
-        (r"send\s*(message|email|dm)", "Send action detected"),
-        (r"submit\s*(form|post)", "Form submission detected"),
-        (r"share\s*(to|with|public)", "Share action detected"),
-    ]
-
-    # Patterns that require user input
-    USER_INPUT_PATTERNS = [
-        (r"password", "Password field detected"),
-        (r"2fa|two.factor|authenticator", "2FA field detected"),
-        (r"otp|one.time.pass", "OTP field detected"),
-        (r"credit.card|card.number", "Payment field detected"),
-    ]
-
-    # Patterns that indicate payment requirement
-    PAYMENT_PATTERNS = [
-        (r"pay\s*now|payment\s*required", "Payment required"),
-        (r"subscribe|subscription", "Subscription required"),
-        (r"\$\d+|\d+\s*(USD|EUR|JPY)", "Price detected"),
-        (r"credit.card|debit.card|paypal", "Payment method required"),
-    ]
-
-    # Patterns that indicate identity verification
-    IDENTITY_PATTERNS = [
-        (r"upload\s*(id|passport|license)", "Identity document upload required"),
-        (r"verify\s*identity", "Identity verification required"),
-        (r"age\s*verification", "Age verification required"),
-        (r"kyc|know.your.customer", "KYC verification required"),
-    ]
+    STOP_BOUNDARIES = {
+        "captcha": "CAPTCHA detected",
+        "bot_detection": "Bot detection detected",
+        "payment": "Payment or purchase boundary detected",
+        "contract": "Contract acceptance boundary detected",
+        "identity_verification": "Identity verification boundary detected",
+    }
+    USER_INPUT_BOUNDARIES = {
+        "credentials": "Credential input required",
+        "two_factor": "Two-factor authentication required",
+        "one_time_password": "One-time password required",
+    }
+    APPROVAL_BOUNDARIES = {
+        "publish": "Publish action requires approval",
+        "submit": "Submission requires approval",
+        "upload": "Upload requires approval",
+        "account_creation": "Account creation requires approval",
+    }
 
     def __init__(self, task: BrowserTask) -> None:
         self._task = task
         self._actions_taken: list[str] = []
 
-    def check_page_content(self, content: str) -> SafetyCheckResult:
-        """Check page content for safety violations."""
-        content_lower = content.lower()
-
-        # Check for CAPTCHA
-        for pattern, reason in self.STOP_PATTERNS:
-            if re.search(pattern, content_lower):
-                logger.warning("Safety stop: %s", reason)
-                return SafetyCheckResult(
-                    allowed=False,
-                    reason=reason,
-                    risk_level="BLOCKED",
-                    should_stop=True,
-                )
-
-        # Check for payment
-        for pattern, reason in self.PAYMENT_PATTERNS:
-            if re.search(pattern, content_lower):
-                if "purchase" in self._task.forbidden_actions or "paid_subscription" in self._task.forbidden_actions:
-                    logger.warning("Safety stop: %s", reason)
-                    return SafetyCheckResult(
-                        allowed=False,
-                        reason=reason,
-                        risk_level="BLOCKED",
-                        should_stop=True,
-                    )
-
-        # Check for identity verification
-        for pattern, reason in self.IDENTITY_PATTERNS:
-            if re.search(pattern, content_lower):
-                if "upload_identity_document" in self._task.forbidden_actions:
-                    logger.warning("Safety stop: %s", reason)
-                    return SafetyCheckResult(
-                        allowed=False,
-                        reason=reason,
-                        risk_level="BLOCKED",
-                        should_stop=True,
-                    )
-
-        # Check for approval boundaries
-        for pattern, reason in self.APPROVAL_PATTERNS:
-            if re.search(pattern, content_lower):
-                logger.info("Approval needed: %s", reason)
-                return SafetyCheckResult(
-                    allowed=False,
-                    reason=reason,
-                    risk_level="APPROVAL",
-                    needs_approval=True,
-                )
-
-        # Check for user input requirements
-        for pattern, reason in self.USER_INPUT_PATTERNS:
-            if re.search(pattern, content_lower):
-                if "enter_password_without_user" in self._task.forbidden_actions:
-                    logger.info("User input needed: %s", reason)
-                    return SafetyCheckResult(
-                        allowed=False,
-                        reason=reason,
-                        risk_level="USER_INPUT",
-                        needs_user_input=True,
-                    )
-
+    def check_page_observation(self, observation: dict[str, Any]) -> SafetyCheckResult:
+        """Apply runtime boundaries to a structured browser observation."""
+        boundary = str(observation.get("boundary") or "none")
+        if boundary in self.STOP_BOUNDARIES:
+            reason = self.STOP_BOUNDARIES[boundary]
+            logger.warning("Safety stop: %s", reason)
+            return SafetyCheckResult(
+                allowed=False,
+                reason=reason,
+                risk_level="BLOCKED",
+                should_stop=True,
+            )
+        if boundary in self.APPROVAL_BOUNDARIES:
+            return SafetyCheckResult(
+                allowed=False,
+                reason=self.APPROVAL_BOUNDARIES[boundary],
+                risk_level="APPROVAL",
+                needs_approval=True,
+            )
+        if boundary in self.USER_INPUT_BOUNDARIES:
+            return SafetyCheckResult(
+                allowed=False,
+                reason=self.USER_INPUT_BOUNDARIES[boundary],
+                risk_level="USER_INPUT",
+                needs_user_input=True,
+            )
         return SafetyCheckResult(allowed=True)
+
+    def check_page_content(self, content: str) -> SafetyCheckResult:
+        """Reject policy inference from unstructured page prose."""
+        del content
+        return SafetyCheckResult(
+            allowed=False,
+            reason="Structured browser observation is required for safety evaluation",
+            risk_level="UNVERIFIED",
+            needs_user_input=True,
+        )
 
     def check_action(self, action: str, params: dict[str, Any] | None = None) -> SafetyCheckResult:
         """Check if an action is allowed."""
-        action_lower = action.lower()
         params = params or {}
 
         # Check against forbidden actions
         for forbidden in self._task.forbidden_actions:
-            if forbidden.lower() in action_lower:
+            if forbidden == action:
                 return SafetyCheckResult(
                     allowed=False,
                     reason=f"Forbidden action: {forbidden}",
@@ -161,7 +111,7 @@ class BrowserSafetyBoundary:
 
         # Check against allowed actions
         if self._task.allowed_actions:
-            allowed = any(a.lower() in action_lower for a in self._task.allowed_actions)
+            allowed = action in self._task.allowed_actions
             if not allowed:
                 return SafetyCheckResult(
                     allowed=False,
@@ -176,8 +126,10 @@ class BrowserSafetyBoundary:
         if not self._task.target_domains:
             return SafetyCheckResult(allowed=True)
 
+        hostname = (urlparse(url).hostname or "").lower()
         for domain in self._task.target_domains:
-            if domain in url:
+            expected = domain.lower().lstrip(".")
+            if hostname == expected or hostname.endswith(f".{expected}"):
                 return SafetyCheckResult(allowed=True)
 
         return SafetyCheckResult(

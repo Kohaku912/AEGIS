@@ -478,7 +478,8 @@ def _tag_score(query: str, doc: CapabilityDocument) -> float:
 def _priority_score(doc: CapabilityDocument) -> float:
     important = {
         "pc-server.screenshot.get_screenshot",
-        "browser-server.page.browse",
+        "browser-server.page.read",
+        "browser-server.search.query",
         "pc-server.app.show_url",
         "ai-server.memory.search",
         "ai-server.memory.save",

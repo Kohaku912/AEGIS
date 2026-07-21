@@ -65,6 +65,17 @@ class AutonomousSettings(BaseModel):
     max_autonomous_runs_per_hour: int = Field(default=20, ge=1, le=100)
     max_autonomous_runs_per_day: int = Field(default=100, ge=1, le=1000)
     cooldown_seconds: int = Field(default=60, ge=0, le=3600)
+    evaluation_interval_seconds: int = Field(default=60, ge=1, le=3600)
+    min_action_interval_seconds: int = Field(default=60, ge=0, le=86400)
+    max_actions_per_hour: int = Field(default=20, ge=1, le=100)
+    max_tasks_per_cycle: int = Field(default=3, ge=1, le=10)
+    min_llm_interval_seconds: int = Field(default=1800, ge=0, le=86400)
+    social_poll_interval_seconds: int = Field(default=60, ge=5, le=86400)
+    browser_exploration_budget_per_day: int = Field(default=10, ge=0, le=1000)
+    normal_interruption_budget_per_hour: int = Field(default=4, ge=0, le=100)
+    quiet_hours: str = Field(default="22:00-08:00")
+    approval_proposal_limit: int = Field(default=3, ge=0, le=20)
+    follow_up_timeout: int = Field(default=3600, ge=30, le=604800)
 
 
 class MemorySettings(BaseModel):

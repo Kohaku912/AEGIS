@@ -73,6 +73,14 @@ class AegisRuntime:
     situation_model: Any = None
     delegation_policy: Any = None
     social_proxy: Any = None
+    social_manager: Any = None
+    initiative_engine: Any = None
+    continuation_manager: Any = None
+    exploration_agenda: Any = None
+    preference_store: Any = None
+    identity: Any = None
+    daily_planning_manager: Any = None
+    behavioral_evaluation: Any = None
     interruption_controller: Any = None
     repair_manager: Any = None
     presentation_manager: Any = None
@@ -92,6 +100,12 @@ class AegisRuntime:
 
     def stop(self) -> None:
         """Stop owned background runtime components."""
+        subscription = getattr(self, "_initiative_event_subscription", "")
+        if subscription and self.event_manager is not None:
+            try:
+                self.event_manager.unsubscribe(subscription)
+            except Exception:
+                logger.debug("Failed to unsubscribe initiative event handler", exc_info=True)
         loop = self.autonomous_loop
         if loop is not None:
             try:
@@ -226,6 +240,21 @@ def _build_runtime(config: Config) -> AegisRuntime:
                     approval_manager.record_surface_delivery(req.approval_id, results)
             finally:
                 loop.close()
+            if event_manager is not None:
+                from aegis_schema.models import Event
+
+                event_manager.publish(
+                    Event(
+                        event_type=f"approval.{event_dict.get('event_type', 'updated')}",
+                        source="approval_manager",
+                        payload={
+                            "approval_id": getattr(req, "approval_id", ""),
+                            "capability_id": getattr(req, "capability_id", ""),
+                            "task_id": getattr(req, "task_id", ""),
+                            "state": getattr(req, "status", ""),
+                        },
+                    )
+                )
         except Exception:
             logger.debug("Approval fanout failed", exc_info=True)
 
@@ -299,8 +328,10 @@ def _build_runtime(config: Config) -> AegisRuntime:
     )
 
     from aegis_ai.user_model import UserModelStore
+    from aegis_ai.mind.identity import Identity
 
     user_model_store = UserModelStore(data_dir=os.path.join(data_dir, "user_model"))
+    identity = Identity(path=os.path.join(data_dir, "mind_identity.jsonl"))
 
     context_builder = ContextBuilder(
         event_bus=event_bus,
@@ -309,6 +340,7 @@ def _build_runtime(config: Config) -> AegisRuntime:
         capability_retriever=capability_retriever,
         settings_resolver=settings_resolver,
         user_model_store=user_model_store,
+        identity=identity,
     )
     session_manager = SessionManager()
     interaction_router = InteractionRouter(
@@ -338,8 +370,6 @@ def _build_runtime(config: Config) -> AegisRuntime:
     from aegis_ai.memory.workflow_memory import WorkflowMemory
     from aegis_ai.memory.experiential import ExperientialMemory
     from aegis_ai.memory.person_memory import PersonMemory
-    from aegis_ai.memory.action_trace import ActionTraceMemory
-    from aegis_ai.memory.association_memory import AssociationMemory
 
     memory_dir = os.path.join(data_dir, "memory")
     advanced_memory = AdvancedMemory(data_dir=memory_dir, llm_provider=llm_gateway)
@@ -401,6 +431,78 @@ def _build_runtime(config: Config) -> AegisRuntime:
     )
     notification_manager.set_interruption_controller(interruption_controller)
     social_proxy = SocialProxy(data_dir=personal_dir, event_manager=event_manager, audit_manager=audit_manager)
+    from aegis_ai.social.manager import SocialManager
+
+    social_manager = SocialManager(
+        data_dir=os.path.join(data_dir, "social"),
+        llm=llm_gateway,
+        tool_broker=tool_broker,
+        event_manager=event_manager,
+        audit_manager=audit_manager,
+    )
+
+    def _social_relationship_context(item: Any) -> dict[str, Any]:
+        person = person_memory.resolve(str(getattr(item, "author", "") or ""))
+        if person is None:
+            return {}
+        return {
+            "person_id": person.person_id,
+            "name": person.name,
+            "role": person.role,
+            "relationship": person.relationship,
+            "trust_level": person.trust_level,
+            "interaction_count": person.interaction_count,
+            "preferences": dict(person.preferences),
+            "topics": list(person.topics),
+            "last_context": person.last_context,
+        }
+
+    social_manager.set_relationship_provider(_social_relationship_context)
+    from aegis_ai.autonomous.continuation_manager import ContinuationManager
+    from aegis_ai.autonomous.exploration_agenda import ExplorationAgenda
+    from aegis_ai.autonomous.initiative_engine import InitiativeEngine
+    from aegis_ai.personal_ai.preference_learning import ConditionalPreferenceStore
+    from aegis_ai.personal_ai.daily_planning import DailyPlanningManager
+    from aegis_ai.evaluation.behavioral import BehavioralEvaluation
+
+    initiative_engine = InitiativeEngine(os.path.join(data_dir, "autonomous"))
+    continuation_manager = ContinuationManager(os.path.join(data_dir, "autonomous"))
+    exploration_agenda = ExplorationAgenda(os.path.join(data_dir, "autonomous"))
+    preference_store = ConditionalPreferenceStore(personal_dir)
+    daily_planning_manager = DailyPlanningManager(
+        personal_dir,
+        llm=llm_gateway,
+        commitment_manager=commitment_manager,
+        continuation_manager=continuation_manager,
+    )
+    behavioral_evaluation = BehavioralEvaluation(
+        initiative_engine=initiative_engine,
+        continuation_manager=continuation_manager,
+        social_manager=social_manager,
+    )
+    tool_broker.set_continuation_manager(continuation_manager)
+    approval_manager.on_state_change(social_manager.handle_approval_event)
+    approval_manager.on_state_change(continuation_manager.handle_approval_event)
+    approval_manager.on_state_change(preference_store.handle_approval_event)
+
+    def _record_initiative_approval_stage(event: dict[str, Any]) -> None:
+        event_type = str(event.get("event_type") or "")
+        request = event.get("request")
+        detail = {
+            "approval_id": str(event.get("approval_id") or ""),
+            "capability_id": str(getattr(request, "capability_id", "") or ""),
+            "channel": str(event.get("channel") or ""),
+        }
+        if event_type in {"approved", "rejected", "surface_rejected"}:
+            initiative_engine.record_stage("user_acknowledged", detail)
+        if event_type == "executed":
+            initiative_engine.record_stage("actions_executed", detail)
+            metadata = getattr(request, "metadata", {}) if request is not None else {}
+            result = metadata.get("execution_result", {}) if isinstance(metadata, dict) else {}
+            if str(result.get("verification_status") or "") == "passed":
+                initiative_engine.record_stage("actions_verified", detail)
+
+    approval_manager.on_state_change(_record_initiative_approval_stage)
     context_builder._situation_model = situation_model
     context_builder._user_state_manager = user_state_manager
     context_builder._delegation_policy = delegation_policy
@@ -439,6 +541,7 @@ def _build_runtime(config: Config) -> AegisRuntime:
                 "user_state_manager": user_state_manager,
                 "interruption_controller": interruption_controller,
                 "social_proxy": social_proxy,
+                "social_manager": social_manager,
                 "llm_provider": llm_gateway,
             },
         ),
@@ -527,6 +630,7 @@ def _build_runtime(config: Config) -> AegisRuntime:
         audit_manager=audit_manager,
         notification_manager=notification_manager,
         interruption_controller=interruption_controller,
+        conditional_preference_store=preference_store,
         data_dir=data_dir,
     )
     if core_client is not None and hasattr(core_client, "_personal"):
@@ -583,12 +687,50 @@ def _build_runtime(config: Config) -> AegisRuntime:
         situation_model=situation_model,
         delegation_policy=delegation_policy,
         social_proxy=social_proxy,
+        social_manager=social_manager,
+        initiative_engine=initiative_engine,
+        continuation_manager=continuation_manager,
+        exploration_agenda=exploration_agenda,
+        preference_store=preference_store,
+        identity=identity,
+        daily_planning_manager=daily_planning_manager,
+        behavioral_evaluation=behavioral_evaluation,
         interruption_controller=interruption_controller,
         repair_manager=repair_manager,
         presentation_manager=presentation_manager,
         _lock=threading.RLock(),
     )
     runtime_ref["runtime"] = runtime
+
+    immediate_event_types = {
+        "social.inbox.received",
+        "approval.approved",
+        "approval.rejected",
+        "task.completed",
+        "task.failed",
+        "status.changed",
+        "commitment.due",
+        "browser.discovery",
+        "android.permission.changed",
+        "android.user_activity.changed",
+        "android.foreground_app.changed",
+    }
+
+    def _evaluate_immediate_event(event):
+        event_type = str(getattr(event, "event_type", "") or "")
+        if event_type not in immediate_event_types:
+            return
+        payload = getattr(event, "payload", {})
+        detail = dict(payload) if isinstance(payload, dict) else {}
+        initiative_engine.record_trigger(event_type, detail)
+        loop = getattr(runtime_ref.get("runtime"), "autonomous_loop", None)
+        if loop is not None and hasattr(loop, "evaluate_event"):
+            loop.evaluate_event(event_type, detail)
+
+    runtime._initiative_event_subscription = event_manager.subscribe(  # type: ignore[attr-defined]
+        _evaluate_immediate_event,
+        lambda event: str(getattr(event, "event_type", "") or "") in immediate_event_types,
+    )
     runtime._dashboard_approval_channel = dashboard_approval_channel
     runtime._approval_fanout = approval_fanout
     status_manager.start_background_checks()
@@ -645,11 +787,14 @@ def _create_autonomous_loop(runtime: AegisRuntime) -> Any:
         settings_resolver=runtime.settings_resolver,
         data_dir=os.path.join(data_dir, "autonomous"),
         desire_threshold=4.0,
-        max_tasks_per_cycle=max(1, min(4, settings.autonomous.max_autonomous_runs_per_hour)),
-        fallback_interval_seconds=max(1, settings.autonomous.cooldown_seconds),
+        max_tasks_per_cycle=max(1, settings.autonomous.max_tasks_per_cycle),
+        fallback_interval_seconds=max(1, settings.autonomous.evaluation_interval_seconds),
     )
     loop._capability_retriever = runtime.capability_retriever
-    loop._min_execution_interval_ms = max(1, settings.autonomous.cooldown_seconds) * 1000
+    loop._min_execution_interval_ms = max(1, settings.autonomous.min_action_interval_seconds) * 1000
+    loop._min_llm_interval_ms = max(1, settings.autonomous.min_llm_interval_seconds) * 1000
+    loop._initiative_engine = runtime.initiative_engine
+    loop._continuation_manager = runtime.continuation_manager
 
     loop.set_observation_system(
         SpontaneousObservationSystem(
@@ -664,8 +809,7 @@ def _create_autonomous_loop(runtime: AegisRuntime) -> Any:
             data_dir=os.path.join(data_dir, "autonomous"),
         )
     )
-    loop.set_curiosity_system(
-        CuriosityDrivenExplorationSystem(
+    curiosity_system = CuriosityDrivenExplorationSystem(
             llm=runtime.llm_gateway,
             desire_system=desire,
             episodic_memory=episodic_mem,
@@ -673,9 +817,11 @@ def _create_autonomous_loop(runtime: AegisRuntime) -> Any:
             association_memory=association_mem,
             action_trace=action_trace,
             person_memory=person_mem,
+            tool_broker=runtime.tool_broker,
             data_dir=os.path.join(data_dir, "autonomous"),
-        )
     )
+    curiosity_system._agenda = runtime.exploration_agenda
+    loop.set_curiosity_system(curiosity_system)
     from aegis_ai.health.alert_manager import HealthAlertManager
 
     loop.set_health_alert_manager(
