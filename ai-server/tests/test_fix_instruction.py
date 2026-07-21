@@ -254,7 +254,7 @@ def test_social_inbox_approval_to_verified_reply(tmp_path: Path) -> None:
     assert cursors == [41]
 
 
-def test_social_terminal_failure_advances_cursor(tmp_path: Path) -> None:
+def test_social_transient_failure_retries_without_advancing_cursor(tmp_path: Path) -> None:
     from aegis_ai.social.manager import SocialManager
 
     cursors: list[int] = []
@@ -265,11 +265,11 @@ def test_social_terminal_failure_advances_cursor(tmp_path: Path) -> None:
         [{"id": 42, "thread_id": 3, "author": "Kai", "body": "A message"}],
     )
 
-    failed = manager.process_new_items(items)
+    result = manager.process_new_items(items)
 
-    assert failed[0].status.value == "failed"
-    assert failed[0].decision_reason == "LLM unavailable; social intent was not guessed."
-    assert cursors == [42]
+    assert result[0].status.value == "retry_pending"
+    assert "will retry" in result[0].decision_reason
+    assert cursors == []
     status = manager.get_status()
     assert status["channels"]["agora"]["available"] is True
     assert status["channels"]["discord"]["available"] is False
