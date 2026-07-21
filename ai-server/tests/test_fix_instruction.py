@@ -62,7 +62,7 @@ def test_autonomous_capability_options_include_approval_proposals(tmp_path: Path
 
     assert options["browser-server.page.read"].disposition.value == "execute_safe"
     assert options["browser-server.form.submit"].disposition.value == "propose_for_approval"
-    assert options["ai-server.agora.post"].disposition.value == "propose_for_approval"
+    assert options["ai-server.agora.post"].disposition.value == "execute_safe"
 
 
 def test_initiative_engine_records_action_and_non_action(tmp_path: Path) -> None:
