@@ -7,7 +7,34 @@ import time
 import uuid
 from collections.abc import Callable
 from dataclasses import asdict, is_dataclass
+from datetime import datetime, timezone
 from typing import Any
+
+
+def _parse_timestamp(value: Any) -> int:
+    """Parse a timestamp from int (ms), float, or ISO 8601 string to int (ms)."""
+    if value is None:
+        return int(time.time() * 1000)
+    if isinstance(value, (int, float)):
+        return int(value)
+    if isinstance(value, str):
+        try:
+            return int(value)
+        except ValueError:
+            pass
+        try:
+            dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+            return int(dt.timestamp() * 1000)
+        except (ValueError, OSError):
+            pass
+    return int(time.time() * 1000)
+
+
+def _parse_author(value: Any) -> str:
+    """Parse author from string or dict format, returning the display name."""
+    if isinstance(value, dict):
+        return str(value.get("name") or value.get("username") or value.get("id") or "")
+    return str(value or "")
 
 from aegis_ai.llm.json_utils import extract_json_object
 from aegis_ai.social.adapters import (
@@ -82,9 +109,9 @@ class SocialManager:
                 channel=channel,
                 external_message_id=external_id,
                 thread_id=thread_id,
-                author=str(raw.get("author") or raw.get("author_name") or raw.get("username") or ""),
+                author=_parse_author(raw.get("author") or raw.get("author_name") or raw.get("username")),
                 body=str(raw.get("body") or raw.get("content") or raw.get("text") or ""),
-                received_at=int(raw.get("created_at") or raw.get("timestamp") or now),
+                received_at=_parse_timestamp(raw.get("created_at") or raw.get("timestamp")),
                 updated_at=now,
                 conversation_context={
                     "recent_items": [

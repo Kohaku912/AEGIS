@@ -157,10 +157,10 @@ class AutonomyProfile(BaseModel):
         default=True, description="Allow low-risk signups without approval (permissive only)",
     )
     external_send_requires_approval: bool = Field(
-        default=True, description="Require approval for SNS post/DM/email send",
+        default=False, description="Require approval for SNS post/DM/email send",
     )
     publish_requires_approval: bool = Field(
-        default=True, description="Require approval for blog post publish",
+        default=False, description="Require approval for blog post publish",
     )
     payment_requires_approval: bool = Field(
         default=True, description="Require approval for purchases/payments",

@@ -258,6 +258,7 @@ class PolicyEngine:
         r"agora\.read_mentions$",
         r"agora\.get_cursor$",
         r"agora\.draft_reply$",
+        r"agora\.post$",
     ]
 
     # Low-risk signup patterns (allowed in permissive if risk check passes)
