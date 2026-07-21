@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildDisplayDirectorState, mapUiEventToVisualEvent, serverNeedsDetail, summarizeMemory, summarizeServers } from "./displayModel";
+import { buildDisplayDirectorState, mapUiEventToVisualEvent, serverNeedsDetail, summarizeMemory, summarizeServers, summarizeUserState } from "./displayModel";
 import type { ServerItem, UiOverview } from "./types";
 
 function envelope<T>(data: T) {
@@ -70,6 +70,31 @@ describe("display model", () => {
     } satisfies UiOverview;
     expect(summarizeMemory(overview)["Dominant desire"]).toBe("growth");
     expect(summarizeMemory(overview)["Memories used"]).toBe("5");
+  });
+
+  it("summarizes the persistent display user state with freshness", () => {
+    const overview = minimalOverview();
+    overview.user_state = {
+      ...overview.user_state,
+      stale: true,
+      data: {
+        where: { label: "home", confidence: 0.91 },
+        attention: { device: "pc", label: "focused", confidence: 0.82 },
+        activity: { label: "coding", confidence: 0.73 },
+        updated_at_ms: 1234
+      }
+    };
+
+    expect(summarizeUserState(overview)).toEqual({
+      where: "home",
+      whereConfidence: "91%",
+      attention: "pc / focused",
+      attentionConfidence: "82%",
+      activity: "coding",
+      activityConfidence: "73%",
+      freshness: "STALE",
+      updatedAt: 1234
+    });
   });
 
   it("builds display director takeover from approval and dedupes events", () => {

@@ -30,6 +30,8 @@ test("display shell prioritizes operation and keeps server rail compact", async 
   await page.goto("/display");
   await expect(page.getByText("Current Operation")).toBeVisible();
   await expect(page.getByText("Mission Phase")).toBeVisible();
+  await expect(page.getByRole("region", { name: "User State" })).toBeVisible();
+  await expect(page.getByRole("region", { name: "User State" }).getByText("pc / focused")).toBeVisible();
   await expect(page.locator(".core-canvas canvas")).toBeVisible();
   await expect(page.locator(".server-rail")).toBeVisible();
   await expect(page.locator(".server-rail__item[data-expanded='true']")).toHaveCount(1);
@@ -175,6 +177,8 @@ test("display shows offline snapshot and privacy redaction without interactive c
   await expect(page.locator(".display-shell")).toHaveAttribute("data-privacy", "true");
   await expect(page.getByText("OFFLINE SNAPSHOT")).toBeVisible();
   await expect(page.getByText("PRIVACY MODE")).toBeVisible();
+  await expect(page.getByRole("region", { name: "User State" })).toBeVisible();
+  await expect(page.getByRole("region", { name: "User State" }).getByText("Hidden")).toHaveCount(3);
   await expect(page.getByText("Private information hidden").first()).toBeVisible();
   await expect(page.getByText("Inspect current desktop")).toHaveCount(0);
   expect(await page.locator("button, input, textarea, select, a[href], [tabindex]:not([tabindex='-1'])").count()).toBe(0);
@@ -326,7 +330,12 @@ function mockOverview(
     }),
     capabilities: envelope({ items: [], count: 0 }),
     user_situation: envelope({}),
-    user_state: envelope({}),
+    user_state: envelope({
+      where: { label: "home", confidence: 0.91 },
+      attention: { device: "pc", label: "focused", confidence: 0.82 },
+      activity: { label: "coding", confidence: 0.73 },
+      updated_at_ms: Date.now()
+    }),
     mind: envelope({}),
     mind_summary: envelope({ memory: { episodic: 2, semantic: 3 }, autonomy: { desires: { growth: 4 } } }),
     memory: envelope({ summary: {} }),

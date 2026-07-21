@@ -6,11 +6,11 @@
   "action": "post",
   "operation_category": "social_communication",
   "risk": {
-    "level": "low",
+    "level": "approval_required",
     "side_effects": [
       "social_post"
     ],
-    "requires_approval": false
+    "requires_approval": true
   },
   "ownership_scope": "external",
   "reversibility": "recoverable",
@@ -35,6 +35,11 @@
       "reply_to": {
         "type": "integer",
         "description": "Post ID to reply to (optional)"
+      },
+      "thread_id": {
+        "type": "integer",
+        "description": "AGORA thread ID",
+        "default": 1
       }
     },
     "required": [
@@ -42,7 +47,7 @@
     ]
   },
   "completion": {
-    "mode": "any",
+    "mode": "all",
     "retry": {
       "max_attempts": 0,
       "delay_ms": 0
@@ -56,10 +61,10 @@
         "equals": true
       },
       {
-        "name": "success_true",
+        "name": "post_id_present",
         "type": "output_field",
-        "field": "success",
-        "equals": true
+        "field": "post.id",
+        "exists": true
       }
     ]
   }

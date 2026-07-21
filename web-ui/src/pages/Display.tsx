@@ -9,7 +9,8 @@ import {
   missionPhase,
   normalizeStatus,
   serverLabel,
-  serverNeedsDetail
+  serverNeedsDetail,
+  summarizeUserState
 } from "../displayModel";
 import type { ServerItem, UiEvent, UiOverview, VisualEvent } from "../types";
 
@@ -37,6 +38,7 @@ export function Display({ overview: initialOverview }: { overview: UiOverview })
   const attention = attentionItems(overview);
   const activeServerId = String(task.capability_id || "").split(".", 1)[0];
   const phase = missionPhase(overview);
+  const userState = summarizeUserState(overview);
   const director = buildDisplayDirectorState(overview, events, visualEvents);
   const recentDirectorItems = useMemo(() => {
     const unique = new Map<string, (typeof director.dock)[number]>();
@@ -103,17 +105,30 @@ export function Display({ overview: initialOverview }: { overview: UiOverview })
             <span>{phase}</span>
           </div>
         </section>
-        {attention.filter((item) => item.severity === "critical").length ? (
-          <section className="display-card display-attention" aria-label="Critical Attention">
-            <span className="display-kicker">Critical</span>
-            {attention.filter((item) => item.severity === "critical").slice(0, 3).map((item) => (
-              <article className="display-attention__item" data-severity={item.severity} key={item.id}>
-                <strong>{redact(item.title, director.privacyMode)}</strong>
-                <p>{redact(item.message || item.recovery_hint || "Review this signal.", director.privacyMode)}</p>
-              </article>
-            ))}
+        <div className="display-side-stack">
+          <section className="display-card display-user-state" aria-label="User State" data-stale={userState.freshness === "STALE"}>
+            <div className="display-user-state__heading">
+              <span className="display-kicker">User State</span>
+              <span className="display-user-state__freshness">{userState.freshness}</span>
+            </div>
+            <dl>
+              <UserStateMetric label="Where" value={director.privacyMode ? "Hidden" : userState.where} confidence={userState.whereConfidence} />
+              <UserStateMetric label="Attention" value={director.privacyMode ? "Hidden" : userState.attention} confidence={userState.attentionConfidence} />
+              <UserStateMetric label="Activity" value={director.privacyMode ? "Hidden" : userState.activity} confidence={userState.activityConfidence} />
+            </dl>
           </section>
-        ) : null}
+          {attention.filter((item) => item.severity === "critical").length ? (
+            <section className="display-card display-attention" aria-label="Critical Attention">
+              <span className="display-kicker">Critical</span>
+              {attention.filter((item) => item.severity === "critical").slice(0, 3).map((item) => (
+                <article className="display-attention__item" data-severity={item.severity} key={item.id}>
+                  <strong>{redact(item.title, director.privacyMode)}</strong>
+                  <p>{redact(item.message || item.recovery_hint || "Review this signal.", director.privacyMode)}</p>
+                </article>
+              ))}
+            </section>
+          ) : null}
+        </div>
       </header>
 
       <section className="display-core-stage" aria-label="AEGIS core">
@@ -158,6 +173,16 @@ export function Display({ overview: initialOverview }: { overview: UiOverview })
 
       <ServerRail servers={servers} activeServerId={activeServerId} />
     </main>
+  );
+}
+
+function UserStateMetric({ label, value, confidence }: { label: string; value: string; confidence: string }) {
+  return (
+    <div>
+      <dt>{label}</dt>
+      <dd>{value}</dd>
+      <small>{confidence}</small>
+    </div>
   );
 }
 

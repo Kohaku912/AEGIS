@@ -12,7 +12,6 @@ import pytest
 
 from generated.aegis import ai_server_pb2_grpc, common_pb2
 
-
 pytestmark = [
     pytest.mark.android_local,
     pytest.mark.skipif(
@@ -25,7 +24,7 @@ pytestmark = [
 ADB = os.getenv("ADB", "adb")
 CORE_HTTP = os.getenv("AEGIS_CORE_HTTP", "http://127.0.0.1:8090")
 CORE_GRPC = os.getenv("AEGIS_CORE_GRPC", "127.0.0.1:50051")
-ANDROID_HOST = os.getenv("AEGIS_ANDROID_TEST_HOST", "192.168.50.175")
+ANDROID_HOST = os.getenv("AEGIS_ANDROID_TEST_HOST", "192.168.50.41")
 ANDROID_PORT = int(os.getenv("AEGIS_ANDROID_TEST_PORT", "50051"))
 
 
@@ -114,6 +113,7 @@ def test_android_observe_capabilities_return_real_device_data() -> None:
         "android-server.device.get_status",
         "android-server.permissions.get_status",
         "android-server.accessibility.get_status",
+        "android-server.screen.get_current_app",
         "android-server.notification.get_notifications",
     ]
     results = {cap: _invoke(cap) for cap in required}
@@ -122,6 +122,9 @@ def test_android_observe_capabilities_return_real_device_data() -> None:
     assert results["android-server.device.get_status"]["output"].get("connection_mode") == "reverse_stream"
     assert results["android-server.permissions.get_status"]["status_code"] == 0
     assert results["android-server.accessibility.get_status"]["status_code"] == 0
+    current_app = results["android-server.screen.get_current_app"]
+    assert current_app["status_code"] == 0
+    assert "package_name" in current_app["output"]
     notification = results["android-server.notification.get_notifications"]
     if notification["status_code"] != 0:
         assert notification["output"].get("code") in {"ANDROID_PERMISSION_MISSING", "ANDROID_SCREEN_LOCKED"}

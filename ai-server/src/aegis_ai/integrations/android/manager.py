@@ -44,6 +44,10 @@ class AndroidServerManager:
         self._device_to_connection: dict[str, str] = {}
         self._permission_status: dict[str, bool] = {}
         self._last_device_status: dict[str, Any] = {}
+        self._connection_metrics = {
+            "reconnect_count": 0,
+            "heartbeat_failure_count": 0,
+        }
         self._last_connection_mode = "unavailable"
 
     def invoke_capability(self, capability_id: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -244,6 +248,13 @@ class AndroidServerManager:
         online = session is not None or self._lan_client.is_available()
         devices = self.device_registry.list_devices()
         current_device = devices[-1] if devices else {}
+        metadata = current_device.get("metadata", {}) if isinstance(current_device, dict) else {}
+        metrics = dict(self._connection_metrics)
+        for key in metrics:
+            try:
+                metrics[key] = max(metrics[key], int(metadata.get(key, 0) or 0))
+            except (TypeError, ValueError):
+                continue
         active_approvals = []
         if self._approval_manager is not None:
             active_approvals = [req.to_dict() for req in self._approval_manager.list_pending()]
@@ -258,6 +269,7 @@ class AndroidServerManager:
             "capability_availability": self.mapper.availability(self._permission_status),
             "active_approvals": active_approvals,
             "pairing_configured": self.device_registry.pairing_configured,
+            **metrics,
         }
 
     def _handle_stream_message(self, message: Any, session: AndroidStreamSession) -> None:
@@ -387,6 +399,15 @@ class AndroidServerManager:
             payload = {"raw": event.payload_json}
         payload.setdefault("device_id", device_id)
         payload.setdefault("connection_id", connection_id)
+        if event.event_type in {"android.connected", "android.heartbeat"}:
+            for key in self._connection_metrics:
+                try:
+                    self._connection_metrics[key] = max(
+                        self._connection_metrics[key],
+                        int(payload.get(key, 0) or 0),
+                    )
+                except (TypeError, ValueError):
+                    continue
         self._publish_android_event(
             event.event_type or "android.event",
             device_id=device_id,

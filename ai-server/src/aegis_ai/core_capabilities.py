@@ -28,6 +28,9 @@ class AegisCoreCapabilityClient:
         self._server_executor = server_executor
         self._personal = personal_managers or {}
         self._agora = AgoraService()
+        social_manager = self._personal.get("social_manager")
+        if social_manager is not None:
+            social_manager.set_cursor_updater("agora", self._agora.update_cursor)
 
     @property
     def workspace_dir(self) -> Path:
@@ -156,14 +159,16 @@ class AegisCoreCapabilityClient:
                 return {"ok": False, **result}
             posts = result.posts if isinstance(result, AgoraFetchResult) else []
             if posts:
+                social_manager = self._personal.get("social_manager")
+                inbox_items = social_manager.ingest("agora", posts) if social_manager is not None else []
+                processed_items = social_manager.process_new_items(inbox_items) if social_manager is not None else []
                 sync = sync_agora_posts_to_memory(
                     posts=posts,
                     data_dir=str(self._data_dir),
                     llm_provider=self._personal.get("llm_provider"),
                 )
                 payload = sync.to_dict()
-                if requested_since_id <= 0 and result.max_post_id > cursor_before:
-                    self._agora.update_cursor(result.max_post_id)
+                payload["social_inbox_items"] = [item.to_dict() for item in processed_items or inbox_items]
             else:
                 payload = {
                     "ok": True,
@@ -184,7 +189,15 @@ class AegisCoreCapabilityClient:
                     "max_post_id": result.max_post_id,
                     "unread_count": len(posts),
                     "cursor_before": cursor_before,
-                    "cursor_after": result.max_post_id if requested_since_id <= 0 and posts else cursor_before,
+                    "cursor_after": cursor_before,
+                    "retrieved_through": result.max_post_id,
+                    "processing_pending": bool(posts) and (
+                        social_manager is None
+                        or any(
+                            item.status.value not in {"replied", "acknowledged", "skipped", "failed"}
+                            for item in processed_items
+                        )
+                    ),
                     "read_mode": "history" if requested_since_id > 0 else "unread",
                     "fallback_recent": False,
                 }

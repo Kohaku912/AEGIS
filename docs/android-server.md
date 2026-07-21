@@ -138,13 +138,13 @@ cd android-server && ./gradlew test
 
 ## gRPC Connection
 
-Default connection in source: `192.168.50.175:50051` for the current local PC.
+Current production Core connection: `192.168.50.41:50051` on the Ubuntu AI Server.
 For an emulator, use `10.0.2.2:50051`.
 
 For a real device, use the app settings or start it with intent extras:
 
 ```powershell
-adb shell am start -n com.aegis.android/.MainActivity --es host 192.168.50.175 --ei port 50051 --ez auto_connect true
+adb shell am start -n com.aegis.android/.MainActivity --es host 192.168.50.41 --ei port 50051 --ez auto_connect true
 ```
 
 If USB reverse is supported:

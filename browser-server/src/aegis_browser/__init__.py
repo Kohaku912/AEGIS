@@ -18,4 +18,4 @@ Dangerous operations (SNS, purchases, CAPTCHA bypass) are structurally blocked.
 """
 
 from aegis_browser.config import Config  # noqa: F401
-from aegis_browser.safety import SafetyLevel  # noqa: F401
+from aegis_browser.safety import BLOCKED_ACTIONS, SUPPORTED_OPERATIONS  # noqa: F401

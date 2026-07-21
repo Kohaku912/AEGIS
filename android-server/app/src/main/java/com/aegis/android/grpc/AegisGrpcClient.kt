@@ -45,6 +45,8 @@ data class AegisConnectionState(
     val port: Int = 0,
     val coreVersion: String = "",
     val chatRpcAvailable: Boolean = false,
+    val reconnectCount: Long = 0L,
+    val heartbeatFailureCount: Long = 0L,
 )
 
 data class ChatReply(
@@ -141,9 +143,17 @@ class AegisGrpcClient private constructor(
     private var dashboardRefreshJob: Job? = null
     private var connected = false
     private var lastHeartbeatMs = 0L
+    private val metricsPreferences = context.getSharedPreferences("aegis_connection_metrics", Context.MODE_PRIVATE)
+    private var reconnectCount = metricsPreferences.getLong("reconnect_count", 0L)
+    private var heartbeatFailureCount = metricsPreferences.getLong("heartbeat_failure_count", 0L)
     private var connectionId = "android_${UUID.randomUUID().toString().replace("-", "").take(10)}"
     private val _state = MutableStateFlow(
-        AegisConnectionState(host = config.host, port = config.port)
+        AegisConnectionState(
+            host = config.host,
+            port = config.port,
+            reconnectCount = reconnectCount,
+            heartbeatFailureCount = heartbeatFailureCount,
+        )
     )
     val state: StateFlow<AegisConnectionState> = _state.asStateFlow()
     private val _serverStatuses = MutableStateFlow<List<MobileServerStatus>>(emptyList())
@@ -227,6 +237,12 @@ class AegisGrpcClient private constructor(
     fun isConnected(): Boolean = connected
 
     fun lastHeartbeatMs(): Long = lastHeartbeatMs
+
+    fun recordReconnectAttempt() {
+        reconnectCount += 1L
+        metricsPreferences.edit().putLong("reconnect_count", reconnectCount).apply()
+        updateState(reconnectCount = reconnectCount)
+    }
 
     fun currentConfig(): AegisConnectionConfig = config
 
@@ -518,7 +534,11 @@ class AegisGrpcClient private constructor(
         }
         sendEvent(
             eventType = "android.connected",
-            payloadJson = """{"connection_mode":"reverse_stream"}""",
+            payloadJson = JSONObject()
+                .put("connection_mode", "reverse_stream")
+                .put("reconnect_count", reconnectCount)
+                .put("heartbeat_failure_count", heartbeatFailureCount)
+                .toString(),
             dedupeKey = "android.connected:${config.deviceId}:$connectionId",
         )
         sendHeartbeat()
@@ -653,6 +673,8 @@ class AegisGrpcClient private constructor(
             outbound?.send(message)
             true
         }.getOrElse {
+            heartbeatFailureCount += 1L
+            metricsPreferences.edit().putLong("heartbeat_failure_count", heartbeatFailureCount).apply()
             updateState(connected = false, lastError = it.message ?: "Heartbeat failed")
             false
         }
@@ -697,6 +719,8 @@ class AegisGrpcClient private constructor(
                     .addAllCapabilityIds(AndroidCapabilityDispatcher.CAPABILITY_IDS)
                     .putMetadata("sdk_version", Build.VERSION.SDK_INT.toString())
                     .putMetadata("screen_on", device.screenOn.toString())
+                    .putMetadata("reconnect_count", reconnectCount.toString())
+                    .putMetadata("heartbeat_failure_count", heartbeatFailureCount.toString())
                     .build(),
             )
             .build()
@@ -896,6 +920,8 @@ class AegisGrpcClient private constructor(
         nextRetryMs: Long = _state.value.nextRetryMs,
         coreVersion: String = _state.value.coreVersion,
         chatRpcAvailable: Boolean = _state.value.chatRpcAvailable,
+        reconnectCount: Long = _state.value.reconnectCount,
+        heartbeatFailureCount: Long = _state.value.heartbeatFailureCount,
     ) {
         _state.value = AegisConnectionState(
             connected = connected,
@@ -907,6 +933,8 @@ class AegisGrpcClient private constructor(
             port = config.port,
             coreVersion = coreVersion,
             chatRpcAvailable = chatRpcAvailable,
+            reconnectCount = reconnectCount,
+            heartbeatFailureCount = heartbeatFailureCount,
         )
     }
 }

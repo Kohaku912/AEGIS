@@ -116,6 +116,7 @@ class ApprovalRequest:
     expires_at: int = 0
     status: str = "pending"
     surface_delivery: dict[str, bool] = field(default_factory=dict)
+    surface_delivery_evidence: dict[str, dict[str, Any]] = field(default_factory=dict)
     surface_decisions: dict[str, dict[str, Any]] = field(default_factory=dict)
     approved_by_surface: str = ""
     origin_channel: str = ""
@@ -151,6 +152,7 @@ class ApprovalRequest:
             "expires_at": self.expires_at,
             "status": self.status,
             "surface_delivery": self.surface_delivery,
+            "surface_delivery_evidence": self.surface_delivery_evidence,
             "surface_decisions": self.surface_decisions,
             "approved_by_surface": self.approved_by_surface,
             "origin_channel": self.origin_channel,

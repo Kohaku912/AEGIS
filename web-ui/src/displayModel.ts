@@ -183,6 +183,38 @@ export function summarizeMemory(overview: UiOverview): Record<string, string> {
   };
 }
 
+export interface DisplayUserState {
+  where: string;
+  whereConfidence: string;
+  attention: string;
+  attentionConfidence: string;
+  activity: string;
+  activityConfidence: string;
+  freshness: "LIVE" | "STALE";
+  updatedAt: number;
+}
+
+export function summarizeUserState(overview: UiOverview): DisplayUserState {
+  const state = asRecord(overview.user_state.data);
+  const where = asRecord(state.where);
+  const attention = asRecord(state.attention);
+  const activity = asRecord(state.activity);
+  const attentionLabel = [attention.device, attention.label]
+    .map((value) => String(value || "").trim())
+    .filter(Boolean)
+    .join(" / ");
+  return {
+    where: String(where.label || "Not reported"),
+    whereConfidence: formatConfidence(where.confidence),
+    attention: attentionLabel || "Not reported",
+    attentionConfidence: formatConfidence(attention.confidence),
+    activity: String(activity.label || "Not reported"),
+    activityConfidence: formatConfidence(activity.confidence),
+    freshness: overview.user_state.stale ? "STALE" : "LIVE",
+    updatedAt: Number(state.updated_at_ms || overview.user_state.source_updated_at || 0)
+  };
+}
+
 export function taskBuckets(overview: UiOverview): Array<{ id: string; label: string; count: number; items: Array<Record<string, unknown>> }> {
   const task = overview.current_task.data;
   const tasks = overview.tasks?.data;
@@ -456,4 +488,9 @@ function memoriesUsed(memory: Record<string, unknown>): string {
     return Number.isFinite(value) ? sum + value : sum;
   }, 0);
   return total > 0 ? String(total) : "No data yet";
+}
+
+function formatConfidence(value: unknown): string {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? `${Math.round(Math.max(0, Math.min(1, numeric)) * 100)}%` : "--";
 }

@@ -4,7 +4,7 @@ param(
     [switch]$SkipPc,
     [switch]$SkipAndroid,
     [switch]$RealPcActions,
-    [string]$AndroidHost = "192.168.50.175",
+    [string]$AndroidHost = "192.168.50.41",
     [string]$AndroidTailscaleHost = ""
 )
 $ErrorActionPreference = "Continue"

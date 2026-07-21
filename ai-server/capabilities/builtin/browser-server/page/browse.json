@@ -1,17 +1,17 @@
 {
   "title": "Browse with AI",
-  "description": "Use AI agent to browse websites and perform complex multi-step tasks. Navigate pages, fill forms, create accounts, click buttons, handle multi-page flows. The agent can handle tasks like: 'Go to https://accounts.google.com/signup and create an account with first name Taro, last name Yamada, username taro.test.2026, password Str0ngP@ss!'",
+  "description": "Legacy unspecialized browser automation. Prefer a split browser-server capability. Because intent is ambiguous, this compatibility capability requires approval.",
   "server_id": "browser-server",
   "app_id": "page",
   "action": "browse",
   "operation_category": "external_send",
   "risk": {
-    "level": "safe",
+    "level": "approval_required",
     "side_effects": [
       "sends HTTP request",
       "executes page JavaScript"
     ],
-    "requires_approval": false
+    "requires_approval": true
   },
   "tags": [
     "browser",

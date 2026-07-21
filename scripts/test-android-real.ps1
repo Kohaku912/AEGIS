@@ -1,8 +1,10 @@
 param(
-    [string]$HostAddress = "192.168.50.175",
+    [string]$HostAddress = "192.168.50.41",
     [int]$Port = 50051,
     [switch]$TryUsbReverse,
     [string]$TailscaleHost = "",
+    [string]$DashboardBaseUrl = "http://127.0.0.1:8090",
+    [string]$StatusUrl = "",
     [string]$ReportDir = "data/reports/e2e/latest",
     [switch]$RequireOnline,
     [switch]$TestWifiOff,
@@ -12,12 +14,17 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+if ($TestWifiOff -and -not $TailscaleHost) {
+    throw "-TestWifiOff requires -TailscaleHost so the test validates a real LAN-outside route."
+}
 New-Item -ItemType Directory -Force -Path $ReportDir | Out-Null
 $start = Get-Date
 $checks = @()
 $wifiWasDisabled = $false
 $reconnectCount = 0
 $heartbeatFailureCount = 0
+$reportedReconnectCount = 0
+$reportedHeartbeatFailureCount = 0
 $wasOnline = $false
 $statusSamples = @()
 
@@ -45,10 +52,29 @@ function Get-NetworkType {
 
 function Get-AndroidStatusObject {
     try {
-        $raw = curl.exe -s http://127.0.0.1:8090/api/android/status
+        $requestUrl = if ($StatusUrl) { $StatusUrl } else { "$($DashboardBaseUrl.TrimEnd('/'))/api/android/status" }
+        $raw = curl.exe --fail --silent --show-error --max-time 15 $requestUrl 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            return @{ raw = ($raw | Out-String); online = $false; error = "Android status request failed"; status_url = $requestUrl }
+        }
         if (-not $raw) { return @{ raw = ""; online = $false; error = "empty status" } }
         $obj = $raw | ConvertFrom-Json
+        if ($obj.servers -and $obj.servers.data -and $obj.servers.data.items) {
+            $server = @($obj.servers.data.items | Where-Object { $_.server_id -eq "android-server" }) | Select-Object -First 1
+            if (-not $server) {
+                return @{ raw = $raw; online = $false; error = "android-server missing from display overview"; status_url = $requestUrl }
+            }
+            $obj = [pscustomobject]@{
+                online = $server.status -eq "ONLINE"
+                connection_mode = $server.mode
+                last_seen = $server.dependencies.last_seen
+                device_model = $server.dependencies.device_model
+                reconnect_count = [long]($server.dependencies.reconnect_count)
+                heartbeat_failure_count = [long]($server.dependencies.heartbeat_failure_count)
+            }
+        }
         $obj | Add-Member -NotePropertyName raw -NotePropertyValue $raw -Force
+        $obj | Add-Member -NotePropertyName status_url -NotePropertyValue $requestUrl -Force
         return $obj
     } catch {
         return @{ raw = ""; online = $false; error = $_.Exception.Message }
@@ -63,6 +89,15 @@ function Poll-AndroidOnline([string]$Phase, [int]$Attempts = 15, [int]$DelaySec 
         $status = Get-AndroidStatusObject
         $last = $status
         $isOnline = [bool]$status.online
+        if ($null -ne $status.reconnect_count) {
+            $script:reportedReconnectCount = [Math]::Max($script:reportedReconnectCount, [long]$status.reconnect_count)
+        }
+        if ($null -ne $status.heartbeat_failure_count) {
+            $script:reportedHeartbeatFailureCount = [Math]::Max(
+                $script:reportedHeartbeatFailureCount,
+                [long]$status.heartbeat_failure_count
+            )
+        }
         $script:statusSamples += @{
             phase = $Phase
             attempt = $i
@@ -83,12 +118,24 @@ function Poll-AndroidOnline([string]$Phase, [int]$Attempts = 15, [int]$DelaySec 
 }
 
 Write-Host "== ADB device =="
-adb devices -l
-Add-Check "adb_device" "ADB device visible" "pass" "adb devices -l"
+$adbDevices = @(adb devices -l | Select-Object -Skip 1 | Where-Object { $_ -match "\sdevice\s" })
+$adbDevices | Out-Host
+if ($adbDevices.Count -gt 0) {
+    Add-Check "adb_device" "ADB device visible" "pass" ($adbDevices -join "`n")
+} else {
+    Add-Check "adb_device" "ADB device visible" "fail" "adb devices -l" "No authorized Android device is connected"
+    throw "No authorized Android device is connected"
+}
 
 Write-Host "`n== Installed AEGIS app =="
-adb shell pm list packages | Select-String -Pattern "aegis" -CaseSensitive:$false
-Add-Check "android_app_installed" "AEGIS app installed" "pass" "pm list packages"
+$installedPackage = adb shell pm path com.aegis.android 2>&1
+if ($LASTEXITCODE -eq 0 -and $installedPackage) {
+    $installedPackage | Out-Host
+    Add-Check "android_app_installed" "AEGIS app installed" "pass" ($installedPackage | Out-String)
+} else {
+    Add-Check "android_app_installed" "AEGIS app installed" "fail" "pm path com.aegis.android" "com.aegis.android is not installed"
+    throw "com.aegis.android is not installed"
+}
 
 if ($TryUsbReverse) {
     Write-Host "`n== USB reverse =="
@@ -102,7 +149,21 @@ if ($TailscaleHost) {
 $network = Get-NetworkType
 $network | ConvertTo-Json -Depth 6 | Set-Content "$ReportDir/android-network.json" -Encoding utf8
 
+Write-Host "`n== Device to Core route =="
+if ($TryUsbReverse) {
+    $reverseList = adb reverse --list
+    $routeEvidence = $reverseList | Out-String
+    $routeReady = [bool]($reverseList | Where-Object { $_ -like "*tcp:$Port*tcp:$Port*" })
+} else {
+    $routeOutput = adb shell ping -c 1 -W 2 $HostAddress 2>&1
+    $routeEvidence = $routeOutput | Out-String
+    $routeReady = $LASTEXITCODE -eq 0
+}
+$routeEvidence | Set-Content "$ReportDir/android-core-route.txt" -Encoding utf8
+Add-Check "android_core_route" "Android can route to AEGIS Core host" $(if ($routeReady) { "pass" } elseif ($RequireOnline) { "fail" } else { "warn" }) "$ReportDir/android-core-route.txt" $(if ($routeReady) { "" } else { "The device cannot reach $HostAddress" })
+
 Write-Host "`n== Launch Android app =="
+adb logcat -c
 adb shell am force-stop com.aegis.android
 adb shell am start -n com.aegis.android/.MainActivity --es host $HostAddress --ei port $Port --ez auto_connect true
 
@@ -111,6 +172,14 @@ $poll = Poll-AndroidOnline "initial" 15 3
 $online = $poll.online
 $lastStatus = if ($poll.last -and $poll.last.raw) { $poll.last.raw } else { ($poll.last | ConvertTo-Json -Depth 10) }
 Set-Content "$ReportDir/android-status.json" -Value $lastStatus -Encoding utf8
+$connectedAfterPoll = @(adb devices | Select-Object -Skip 1 | Where-Object { $_ -match "\sdevice$" })
+if ($connectedAfterPoll.Count -gt 0) {
+    $grpcLog = adb logcat -d -v time -s AegisGrpcClient:I AegisMainActivity:I AegisAccessibility:I '*:S'
+} else {
+    $grpcLog = "ADB device disconnected before gRPC log collection."
+    Add-Check "adb_connection_retained" "ADB remains connected during test" "fail" "$ReportDir/android-grpc.log" "The Android device disconnected during the test"
+}
+$grpcLog | Set-Content "$ReportDir/android-grpc.log" -Encoding utf8
 if ($online) {
     Add-Check "android_online" "Android Dashboard online" "pass" "$ReportDir/android-status.json"
 } else {
@@ -142,7 +211,7 @@ try {
         Add-Check "android_app_restart_reconnect" "Android reconnects after app restart" $(if ($poll.online) { "pass" } elseif ($RequireOnline) { "fail" } else { "warn" }) "$ReportDir/android-status-samples.json" $(if ($poll.online) { "" } else { "Android not online after app restart" })
     }
 
-    if ($TestWifiOff -or $TailscaleHost) {
+    if ($TestWifiOff) {
         Write-Host "`n== Wi-Fi OFF reconnect check =="
         adb shell svc wifi disable
         $wifiWasDisabled = $true
@@ -178,9 +247,9 @@ $summary = @{
     port = $Port
     usb_reverse = [bool]$TryUsbReverse
     tailscale = [bool]$TailscaleHost
-    reconnect_count = $reconnectCount
-    heartbeat_failure_count = $heartbeatFailureCount
-    wifi_off_tested = [bool]($TestWifiOff -or $TailscaleHost)
+    reconnect_count = [Math]::Max($reconnectCount, $reportedReconnectCount)
+    heartbeat_failure_count = [Math]::Max($heartbeatFailureCount, $reportedHeartbeatFailureCount)
+    wifi_off_tested = [bool]$TestWifiOff
     screen_off_tested = [bool]$ScreenOff
     ai_restart_tested = [bool]$RestartAiServer
     app_restart_tested = [bool]$RestartAndroidApp

@@ -38,6 +38,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from aegis_ai.llm.json_utils import extract_json_object
+
 logger = logging.getLogger("aegis_ai.autonomous.curiosity_exploration")
 
 
@@ -55,6 +57,8 @@ class ExplorationCandidate:
     risk: float = 0.1             # 0.0 (safe) to 1.0 (risky)
     related_desire: str = ""
     tags: list[str] = field(default_factory=list)
+    grounding: dict[str, Any] = field(default_factory=dict)
+    agenda_id: str = ""
 
     @property
     def priority_score(self) -> float:
@@ -75,6 +79,7 @@ class ExplorationCandidate:
             "usefulness": self.usefulness, "interest": self.interest,
             "risk": self.risk, "related_desire": self.related_desire,
             "tags": self.tags, "priority_score": self.priority_score,
+            "grounding": self.grounding, "agenda_id": self.agenda_id,
         }
 
 
@@ -90,6 +95,12 @@ class ExplorationResult:
     success: bool = True
     duration_ms: int = 0
     tags: list[str] = field(default_factory=list)
+    sources: list[str] = field(default_factory=list)
+    stop_reason: str = ""
+    verification: dict[str, Any] = field(default_factory=dict)
+    handoff: dict[str, Any] = field(default_factory=dict)
+    source_quality: dict[str, Any] = field(default_factory=dict)
+    budgets: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -97,6 +108,12 @@ class ExplorationResult:
             "topic": self.topic, "findings": self.findings[:500],
             "new_questions": self.new_questions, "new_knowledge": self.new_knowledge,
             "success": self.success, "duration_ms": self.duration_ms, "tags": self.tags,
+            "sources": self.sources,
+            "stop_reason": self.stop_reason,
+            "verification": self.verification,
+            "handoff": self.handoff,
+            "source_quality": self.source_quality,
+            "budgets": self.budgets,
         }
 
 
@@ -121,6 +138,7 @@ class CuriosityDrivenExplorationSystem:
         association_memory: Any = None,
         action_trace: Any = None,
         person_memory: Any = None,
+        tool_broker: Any = None,
         curiosity_threshold: float = 6.0,
         data_dir: str = "data/autonomous",
     ) -> None:
@@ -131,10 +149,12 @@ class CuriosityDrivenExplorationSystem:
         self._association = association_memory
         self._action_trace = action_trace
         self._person = person_memory
+        self._broker = tool_broker
         self._curiosity_threshold = curiosity_threshold
         self._data_dir = Path(data_dir)
         self._data_dir.mkdir(parents=True, exist_ok=True)
         self._exploration_history: list[dict[str, Any]] = []
+        self._agenda: Any = None
 
     @property
     def curiosity_level(self) -> float:
@@ -180,6 +200,7 @@ class CuriosityDrivenExplorationSystem:
 
         # Sort by priority
         unique.sort(key=lambda c: c.priority_score, reverse=True)
+        self._sync_agenda(unique)
         return unique[:10]
 
     def _candidates_from_questions(self) -> list[ExplorationCandidate]:
@@ -189,7 +210,7 @@ class CuriosityDrivenExplorationSystem:
         # Search semantic memory for questions
         if self._semantic:
             try:
-                entries = self._semantic.search("?", category="knowledge")
+                entries = self._semantic.get_by_category("question")
                 for entry in entries[:3]:
                     candidates.append(ExplorationCandidate(
                         candidate_id=f"cand_{os.urandom(4).hex()}",
@@ -198,6 +219,7 @@ class CuriosityDrivenExplorationSystem:
                         source="question", importance=entry.importance,
                         novelty=0.7, usefulness=0.6, interest=0.7,
                         tags=["question", "knowledge"],
+                        grounding={"question": entry.content},
                     ))
             except Exception:
                 pass
@@ -207,7 +229,7 @@ class CuriosityDrivenExplorationSystem:
             try:
                 recent = self._episodic.recall_recent(20)
                 for ep in recent:
-                    if "?" in ep.observation or "unknown" in ep.observation.lower():
+                    if "open_question" in ep.tags:
                         candidates.append(ExplorationCandidate(
                             candidate_id=f"cand_{os.urandom(4).hex()}",
                             topic=ep.action[:60],
@@ -215,6 +237,7 @@ class CuriosityDrivenExplorationSystem:
                             source="episode", importance=ep.importance,
                             novelty=0.6, usefulness=0.5, interest=0.6,
                             tags=["question", "episode"],
+                            grounding={"related_conversation": ep.episode_id, "question": ep.observation},
                         ))
             except Exception:
                 pass
@@ -237,6 +260,7 @@ class CuriosityDrivenExplorationSystem:
                     source="failure", importance=0.7,
                     novelty=0.5, usefulness=0.8, interest=0.5,
                     tags=["failure", "analysis"],
+                    grounding={"related_failure": trace.trace_id},
                 ))
         except Exception:
             pass
@@ -260,6 +284,7 @@ class CuriosityDrivenExplorationSystem:
                         source="concept", importance=0.5,
                         novelty=0.8, usefulness=0.5, interest=0.7,
                         tags=["concept", "unknown"],
+                        grounding={"question": f"What evidence would raise confidence in {entry.content[:60]}?"},
                     ))
             except Exception:
                 pass
@@ -283,6 +308,7 @@ class CuriosityDrivenExplorationSystem:
                         source="improvement", importance=0.6,
                         novelty=0.4, usefulness=0.8, interest=0.5,
                         tags=["improvement", "skill"],
+                        grounding={"related_failure": skill.skill_id},
                     ))
         except Exception:
             pass
@@ -316,8 +342,8 @@ class CuriosityDrivenExplorationSystem:
 Current state:
 {context}
 
-For each topic, provide JSON:
-{{"topics": [{{"topic": "...", "reason": "...", "importance": 0.5, "novelty": 0.5, "usefulness": 0.5, "interest": 0.5}}]}}
+Return a topics array. Each topic needs topic, reason, importance, novelty,
+usefulness, and interest fields.
 
 Topics should be:
 - Specific and actionable
@@ -332,17 +358,8 @@ Topics should be:
                 max_tokens=300,
             )
             if result.success:
-                import re
-                clean = result.content.strip()
-                if clean.startswith("```"):
-                    lines = clean.split("\n")
-                    clean = "\n".join(lines[1:])
-                    if clean.endswith("```"):
-                        clean = clean[:-3]
-                    clean = clean.strip()
-                match = re.search(r'\{.*\}', clean, re.DOTALL)
-                if match:
-                    data = json.loads(match.group(0))
+                data = extract_json_object(result.content)
+                if data:
                     candidates = []
                     for t in data.get("topics", []):
                         candidates.append(ExplorationCandidate(
@@ -389,6 +406,33 @@ Topics should be:
             result.success = False
             return result
 
+        browser_evidence = self._collect_browser_evidence(candidate)
+        if candidate.agenda_id and browser_evidence is None:
+            result.findings = "Browser research capability is unavailable; no source comparison was claimed."
+            result.success = False
+            result.stop_reason = "browser_unavailable"
+            result.verification = {"passed": False, "reason": result.findings}
+            result.duration_ms = int(time.time() * 1000) - start_time
+            self._record_agenda_result(candidate, result)
+            self._save_exploration_result(candidate, result)
+            self._exploration_history.append(result.to_dict())
+            return result
+        if browser_evidence is not None:
+            result.sources = browser_evidence["sources"]
+            result.stop_reason = browser_evidence["stop_reason"]
+            result.verification = browser_evidence["verification"]
+            result.handoff = browser_evidence["handoff"]
+            result.source_quality = browser_evidence["source_quality"]
+            result.budgets = browser_evidence["budgets"]
+            if not result.verification.get("passed"):
+                result.findings = str(result.verification.get("reason") or "Browser evidence was insufficient.")
+                result.success = False
+                result.duration_ms = int(time.time() * 1000) - start_time
+                self._record_agenda_result(candidate, result)
+                self._save_exploration_result(candidate, result)
+                self._exploration_history.append(result.to_dict())
+                return result
+
         # Build exploration prompt
         context = self._build_exploration_context(candidate)
 
@@ -400,6 +444,9 @@ Source: {candidate.source}
 
 Context:
 {context}
+
+Verified browser evidence:
+{json.dumps(browser_evidence or {}, ensure_ascii=False, default=str)[:6000]}
 
 Investigate this topic by:
 1. Analyzing what you already know
@@ -424,17 +471,8 @@ Be specific and actionable. Focus on what's useful to remember."""
                 max_tokens=500,
             )
             if llm_result.success:
-                import re
-                clean = llm_result.content.strip()
-                if clean.startswith("```"):
-                    lines = clean.split("\n")
-                    clean = "\n".join(lines[1:])
-                    if clean.endswith("```"):
-                        clean = clean[:-3]
-                    clean = clean.strip()
-                match = re.search(r'\{.*\}', clean, re.DOTALL)
-                if match:
-                    data = json.loads(match.group(0))
+                data = extract_json_object(llm_result.content)
+                if data:
                     result.findings = data.get("findings", "")
                     result.new_knowledge = data.get("new_knowledge", [])
                     result.new_questions = data.get("new_questions", [])
@@ -451,6 +489,8 @@ Be specific and actionable. Focus on what's useful to remember."""
 
         result.duration_ms = int(time.time() * 1000) - start_time
 
+        self._record_agenda_result(candidate, result)
+
         # Save results to memory systems
         self._save_exploration_result(candidate, result)
 
@@ -459,13 +499,167 @@ Be specific and actionable. Focus on what's useful to remember."""
             try:
                 curiosity = self._desire.get_desire("curiosity")
                 if curiosity and curiosity.value < curiosity.expected_value:
-                    self._desire.update_value("curiosity", min(10.0, curiosity.value + 0.5), reason=f"Explored: {candidate.topic[:50]}")
+                    self._desire.update_value(
+                        "curiosity",
+                        min(10.0, curiosity.value + 0.5),
+                        reason=f"Explored: {candidate.topic[:50]}",
+                    )
                     self._desire.save()
             except Exception:
                 pass
 
         self._exploration_history.append(result.to_dict())
         return result
+
+    def _collect_browser_evidence(
+        self,
+        candidate: ExplorationCandidate,
+    ) -> dict[str, Any] | None:
+        if self._broker is None:
+            return None
+        catalog = getattr(self._broker, "_catalog", None)
+        if catalog is None:
+            return None
+        manifests = [
+            manifest
+            for manifest in catalog.list_all()
+            if manifest.server_id == "browser-server"
+            and manifest.app_id == "search"
+            and manifest.enabled
+            and not manifest.side_effects
+        ]
+        if not manifests:
+            return None
+        manifest = sorted(manifests, key=lambda item: item.capability_id)[0]
+
+        from tool_broker import ExecutionSource, ToolExecutionRequest
+
+        max_steps = 12
+        request = ToolExecutionRequest(
+            capability_id=manifest.capability_id,
+            arguments={
+                "task": (
+                    f"Investigate this grounded question and compare independent sources: "
+                    f"{candidate.topic}"
+                ),
+                "viewer": "agent_private",
+                "purpose": "research",
+                "success_condition": "Two to five independent source records with findings are returned",
+                "stop_condition": "Stop after five sources or when evidence repeats",
+                "max_steps": max_steps,
+            },
+            source=ExecutionSource.AUTONOMOUS,
+            reason=f"Grounded exploration agenda: {candidate.agenda_id or candidate.candidate_id}",
+            source_desire="growth",
+            metadata={
+                "agenda_id": candidate.agenda_id,
+                "viewer": "agent_private",
+                "purpose": "research",
+            },
+        )
+        started = int(time.time() * 1000)
+        execution = self._broker.execute(request)
+        output = dict(getattr(execution, "output", {}) or {})
+        data = output.get("data") if isinstance(output.get("data"), dict) else {}
+        raw_sources = data.get("sources") or output.get("sources") or []
+        sources: list[str] = []
+        if isinstance(raw_sources, list):
+            for raw in raw_sources:
+                source = (
+                    str(raw.get("url") or raw.get("source") or raw.get("id") or "")
+                    if isinstance(raw, dict)
+                    else str(raw)
+                )
+                if source and source not in sources:
+                    sources.append(source)
+        sources = sources[:5]
+        passed = bool(getattr(execution, "success", False)) and 2 <= len(sources) <= 5
+        reason = (
+            "Browser returned two to five independently identifiable sources."
+            if passed
+            else "Browser research did not return two independently identifiable sources."
+        )
+        return {
+            "sources": sources,
+            "source_quality": data.get("source_quality", {}),
+            "findings": data.get("findings", output.get("result", "")),
+            "stop_reason": str(
+                data.get("stop_reason")
+                or ("success_condition_met" if passed else "insufficient_sources")
+            ),
+            "verification": {
+                "passed": passed,
+                "reason": reason,
+                "verification_status": str(getattr(execution, "verification_status", "")),
+            },
+            "handoff": dict(output.get("handoff") or {}),
+            "budgets": {
+                "max_steps": max_steps,
+                "duration_ms": int(time.time() * 1000) - started,
+                "source_limit": 5,
+            },
+        }
+
+    def _record_agenda_result(
+        self,
+        candidate: ExplorationCandidate,
+        result: ExplorationResult,
+    ) -> None:
+        if self._agenda is None or not candidate.agenda_id:
+            return
+        try:
+            if result.success and result.verification.get("passed") and 2 <= len(result.sources) <= 5:
+                self._agenda.record_result(
+                    candidate.agenda_id,
+                    sources=result.sources,
+                    what_was_learned=result.findings,
+                    source_quality=result.source_quality,
+                    what_changed=result.findings,
+                    next_question=result.new_questions[0] if result.new_questions else "",
+                    stop_reason=result.stop_reason,
+                    verification=result.verification,
+                    budgets=result.budgets,
+                    handoff=result.handoff or None,
+                )
+            else:
+                self._agenda.record_attempt(
+                    candidate.agenda_id,
+                    sources=result.sources,
+                    stop_reason=result.stop_reason,
+                    verification=result.verification,
+                    budgets=result.budgets,
+                    handoff=result.handoff or None,
+                )
+        except (KeyError, ValueError):
+            logger.debug("Unable to persist exploration agenda result", exc_info=True)
+
+    def _sync_agenda(self, candidates: list[ExplorationCandidate]) -> None:
+        if self._agenda is None:
+            return
+        source_map = {
+            "question": "question",
+            "episode": "conversation",
+            "failure": "failure",
+            "concept": "prior_finding",
+            "improvement": "capability_improvement",
+        }
+        for candidate in candidates:
+            source = source_map.get(candidate.source)
+            if not source or not candidate.grounding:
+                continue
+            try:
+                item = self._agenda.add(
+                    candidate.topic,
+                    source,
+                    expected_value=candidate.usefulness,
+                    novelty=candidate.novelty,
+                    why_now=candidate.description,
+                    what_was_unknown=candidate.topic,
+                    **candidate.grounding,
+                )
+                candidate.agenda_id = item.agenda_id
+            except ValueError:
+                continue
 
     def _build_exploration_context(self, candidate: ExplorationCandidate) -> str:
         """Build context for exploration."""
@@ -569,8 +763,11 @@ Be specific and actionable. Focus on what's useful to remember."""
             pass
 
     def get_exploration_stats(self) -> dict[str, Any]:
-        return {
+        stats = {
             "total_explorations": len(self._exploration_history),
             "curiosity_level": self.curiosity_level,
             "should_explore": self.should_explore,
         }
+        if self._agenda is not None:
+            stats["agenda"] = self._agenda.diagnostics()
+        return stats

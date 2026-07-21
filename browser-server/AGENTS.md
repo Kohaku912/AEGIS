@@ -76,7 +76,11 @@ The runtime is HTTP-first; proto definitions exist for the shared contract, but 
 
 ## Capability
 
-Single capability: `browser-server.page.browse`
+Capabilities are split by operation. Read-only operations include `browser-server.search.query`,
+`browser-server.page.read`, and `browser-server.page.summarize`. Side-effect operations such as
+`browser-server.form.submit`, `browser-server.file.upload`, and `browser-server.social.post` require
+approval through the AI Server manifests. The legacy `browser-server.page.browse` endpoint is a
+compatibility path and is approval-required.
 
 Accepts natural language task descriptions and executes them using browser-use.
 

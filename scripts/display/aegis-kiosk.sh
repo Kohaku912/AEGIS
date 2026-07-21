@@ -4,11 +4,15 @@ set -euo pipefail
 BASE_URL="${AEGIS_KIOSK_URL:-http://127.0.0.1:8090/display/presentations}"
 DISPLAY_TOKEN="${AEGIS_DISPLAY_TOKEN:-}"
 URL="$BASE_URL"
-if [[ -n "$DISPLAY_TOKEN" ]]; then
+IS_LOOPBACK="$(python3 -c 'import sys, urllib.parse; print("1" if (urllib.parse.urlparse(sys.argv[1]).hostname or "").lower() in {"127.0.0.1", "localhost", "::1"} else "0")' "$BASE_URL")"
+if [[ -n "$DISPLAY_TOKEN" && "$IS_LOOPBACK" != "1" ]]; then
   separator="?"
   [[ "$URL" == *"?"* ]] && separator="&"
   encoded_token="$(python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "$DISPLAY_TOKEN")"
   URL="${URL}${separator}display_token=${encoded_token}"
+elif [[ "$IS_LOOPBACK" == "1" ]]; then
+  unset AEGIS_DISPLAY_TOKEN AEGIS_DISPLAY_READ_TOKEN
+  DISPLAY_TOKEN=""
 fi
 PROFILE_DIR="${AEGIS_KIOSK_PROFILE:-$HOME/.config/aegis-kiosk-browser}"
 LOG_DIR="${AEGIS_KIOSK_LOG_DIR:-$HOME/.local/state/aegis}"

@@ -5,6 +5,22 @@ $ErrorActionPreference = "Continue"
 New-Item -ItemType Directory -Force -Path $ReportDir | Out-Null
 $start = Get-Date
 $checks = @()
+
+function Resolve-AegisPython {
+    $candidates = @(
+        (Join-Path $PWD ".venv\Scripts\python.exe"),
+        (Join-Path $PWD ".venv/bin/python"),
+        (Join-Path $PWD "ai-server\.venv\Scripts\python.exe")
+    )
+    foreach ($candidate in $candidates) {
+        if (Test-Path -LiteralPath $candidate) {
+            return (Resolve-Path -LiteralPath $candidate).Path
+        }
+    }
+    return (Get-Command python -ErrorAction Stop).Source
+}
+
+$python = Resolve-AegisPython
 foreach ($file in Get-ChildItem -Path $ReportDir -Filter "*.json" -File -ErrorAction SilentlyContinue) {
     if ($file.Name -eq "summary.json") { continue }
     try {
@@ -14,7 +30,7 @@ foreach ($file in Get-ChildItem -Path $ReportDir -Filter "*.json" -File -ErrorAc
         }
     } catch {}
 }
-$audit = & python scripts/audit-production-readiness.py --report-dir data/reports 2>&1
+$audit = & $python scripts/audit-production-readiness.py --report-dir data/reports 2>&1
 $auditExit = $LASTEXITCODE
 $blockerPath = "data/reports/production_blockers.json"
 $blockers = @()

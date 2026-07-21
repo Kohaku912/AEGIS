@@ -13,8 +13,6 @@ Provides:
 from __future__ import annotations
 
 import logging
-from typing import Any
-
 from flask import Blueprint, jsonify, request
 
 logger = logging.getLogger("aegis_ai.web.manager_routes")
@@ -501,6 +499,65 @@ def interruption():
         return jsonify({"error": str(e)}), 500
 
 
+@manager_bp.route("/api/autonomous/diagnostics", methods=["GET"])
+def autonomous_diagnostics():
+    """Return initiative funnel, continuations, social outcomes, and delivery evidence."""
+    try:
+        rt = _get_runtime()
+        approvals = rt.approval_manager.list_all(limit=200)
+        surfaces = {
+            request.approval_id: request.surface_delivery_evidence
+            for request in approvals
+            if request.surface_delivery_evidence
+        }
+        return jsonify(
+            {
+                "initiative": rt.initiative_engine.diagnostics(),
+                "continuations": rt.continuation_manager.diagnostics(),
+                "social": rt.social_manager.get_status(),
+                "browser": rt.exploration_agenda.diagnostics(),
+                "preferences": {"recent": rt.preference_store.list(limit=50)},
+                "daily_plan": rt.daily_planning_manager.get(),
+                "behavioral_evaluation": rt.behavioral_evaluation.snapshot(),
+                "approval_surfaces": surfaces,
+            }
+        )
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@manager_bp.route("/api/social/inbox", methods=["GET"])
+def social_inbox():
+    try:
+        rt = _get_runtime()
+        status = str(request.args.get("status") or "")
+        limit = min(500, max(1, int(request.args.get("limit", 200))))
+        return jsonify({"items": rt.social_manager.list_items(status=status, limit=limit)})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@manager_bp.route("/api/continuations", methods=["GET"])
+def continuations():
+    try:
+        rt = _get_runtime()
+        return jsonify(rt.continuation_manager.diagnostics())
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@manager_bp.route("/api/autonomous/daily-plan", methods=["GET", "POST"])
+def autonomous_daily_plan():
+    try:
+        rt = _get_runtime()
+        if request.method == "POST":
+            payload = request.get_json(silent=True) or {}
+            return jsonify(rt.daily_planning_manager.generate(date=payload.get("date")))
+        return jsonify({"plan": rt.daily_planning_manager.get(date=request.args.get("date"))})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @manager_bp.route("/api/interruption/flush", methods=["POST"])
 def interruption_flush():
     try:
@@ -625,8 +682,6 @@ def presentation_dismiss(presentation_id):
 def presentation_stream():
     """SSE endpoint for live presentation updates."""
     import queue
-    import threading
-
     q: queue.Queue = queue.Queue()
 
     def _on_event(event_type: str, payload: dict) -> None:

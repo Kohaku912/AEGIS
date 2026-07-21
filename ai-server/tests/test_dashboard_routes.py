@@ -313,6 +313,9 @@ def test_server_status_reports_degraded_and_unconfigured(monkeypatch, tmp_path) 
     assert by_id["android-server"]["status"] == "UNCONFIGURED"
     assert by_id["room-server"]["status"] == "UNCONFIGURED"
     assert by_id["dev-server"]["status"] == "UNCONFIGURED"
+    assert "not configured" in by_id["room-server"]["status_detail"]
+    assert "not reachable" not in by_id["room-server"]["status_detail"]
+    assert "deployment scope" in by_id["dev-server"]["recovery_hint"]
     assert payload["summary"]["degraded_servers"] == 1
     assert payload["summary"]["unconfigured_servers"] == 3
 

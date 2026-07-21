@@ -322,7 +322,7 @@ class AutonomousController:
         caps = set(task.required_capabilities)
         if "notify_user" in caps:
             return ActionType.NOTIFY
-        if "web_search" in caps:
+        if "browser-server.search.query" in caps:
             return ActionType.RESEARCH
         return ActionType.SELF_DEV
 

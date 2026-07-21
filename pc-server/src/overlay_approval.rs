@@ -63,6 +63,15 @@ pub struct RichDisplayRequest {
 pub struct DisplayResult {
     pub shown: bool,
     pub response: String,
+    pub delivery_id: String,
+}
+
+fn new_delivery_id() -> String {
+    let millis = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis();
+    format!("pc_overlay_{millis}")
 }
 
 #[cfg(target_os = "windows")]
@@ -304,6 +313,7 @@ pub fn show_display_overlay(request: DisplayRequest) -> DisplayResult {
                 return DisplayResult {
                     shown: false,
                     response: "Failed to create overlay".to_string(),
+                    delivery_id: new_delivery_id(),
                 };
             }
 
@@ -326,6 +336,7 @@ pub fn show_display_overlay(request: DisplayRequest) -> DisplayResult {
                     return DisplayResult {
                         shown: true,
                         response: "Displayed".to_string(),
+                        delivery_id: new_delivery_id(),
                     };
                 }
 
@@ -344,6 +355,7 @@ pub fn show_display_overlay(request: DisplayRequest) -> DisplayResult {
                     return DisplayResult {
                         shown: true,
                         response: "Dismissed with ESC".to_string(),
+                        delivery_id: new_delivery_id(),
                     };
                 }
 
@@ -357,6 +369,7 @@ pub fn show_display_overlay(request: DisplayRequest) -> DisplayResult {
         DisplayResult {
             shown: false,
             response: "Overlay only supported on Windows".to_string(),
+            delivery_id: new_delivery_id(),
         }
     }
 }
@@ -392,6 +405,7 @@ pub fn show_rich_display_overlay(request: RichDisplayRequest) -> DisplayResult {
                         return DisplayResult {
                             shown: false,
                             response: format!("Failed to decode image: {e}"),
+                            delivery_id: new_delivery_id(),
                         };
                     }
                 },
@@ -399,6 +413,7 @@ pub fn show_rich_display_overlay(request: RichDisplayRequest) -> DisplayResult {
                     return DisplayResult {
                         shown: false,
                         response: format!("Invalid image_base64: {e}"),
+                        delivery_id: new_delivery_id(),
                     };
                 }
             }
@@ -466,6 +481,7 @@ pub fn show_rich_display_overlay(request: RichDisplayRequest) -> DisplayResult {
                 return DisplayResult {
                     shown: false,
                     response: "Failed to create overlay".to_string(),
+                    delivery_id: new_delivery_id(),
                 };
             }
             SetLayeredWindowAttributes(hwnd, 0, 235, LWA_ALPHA);
@@ -485,6 +501,7 @@ pub fn show_rich_display_overlay(request: RichDisplayRequest) -> DisplayResult {
                     return DisplayResult {
                         shown: true,
                         response: "Displayed".to_string(),
+                        delivery_id: new_delivery_id(),
                     };
                 }
                 let mut msg: MSG = std::mem::zeroed();
@@ -501,6 +518,7 @@ pub fn show_rich_display_overlay(request: RichDisplayRequest) -> DisplayResult {
                     return DisplayResult {
                         shown: true,
                         response: "Dismissed with ESC".to_string(),
+                        delivery_id: new_delivery_id(),
                     };
                 }
                 std::thread::sleep(std::time::Duration::from_millis(50));
@@ -514,6 +532,7 @@ pub fn show_rich_display_overlay(request: RichDisplayRequest) -> DisplayResult {
         DisplayResult {
             shown: false,
             response: "Overlay only supported on Windows".to_string(),
+            delivery_id: new_delivery_id(),
         }
     }
 }

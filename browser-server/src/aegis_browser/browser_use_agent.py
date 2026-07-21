@@ -22,7 +22,7 @@ import time
 from typing import Any
 
 from aegis_browser.config import Config
-from aegis_browser.safety_boundary import BrowserSafetyBoundary, SafetyCheckResult
+from aegis_browser.safety_boundary import BrowserSafetyBoundary
 from aegis_browser.session import BrowserSession as AegisBrowserSession
 from aegis_browser.task_models import BrowserTask, BrowserTaskResult, TaskStatus
 from aegis_browser.trace import BrowserTrace
@@ -311,7 +311,7 @@ class BrowserUseAgent:
             for constraint in task.privacy_constraints:
                 parts.append(f"  - {constraint}")
 
-        parts.append("\nIMPORTANT: If you encounter payment or identity verification, STOP and report what you found. CAPTCHA solving is allowed.")
+        parts.append("\nIMPORTANT: Stop on CAPTCHA, payment, contract acceptance, credentials, or identity verification and report the boundary.")
 
         return "\n".join(parts)
 
@@ -367,7 +367,10 @@ class BrowserUseAgent:
         from browser_use import BrowserProfile, BrowserSession
 
         profile = BrowserProfile(
-            keep_alive=True,
+            # Each HTTP task owns exactly one browser process tree.  Keeping a
+            # session alive here leaked Chrome and reconnect workers after the
+            # asyncio loop closed, eventually exhausting the Ubuntu host.
+            keep_alive=False,
             headless=self._config.browser_headless,
             channel=self._config.browser_channel,
             user_data_dir=str(self._session.profile_dir),
@@ -380,53 +383,89 @@ class BrowserUseAgent:
 
         full_task = self._build_task_with_safety(task)
 
-        agent = Agent(
-            task=full_task,
-            llm=llm,
-            max_actions_per_step=5,
-            browser_session=session,
-            use_vision=True,
-            enable_planning=True,
-        )
-        result = await agent.run(max_steps=task.max_steps)
+        try:
+            agent = Agent(
+                task=full_task,
+                llm=llm,
+                max_actions_per_step=5,
+                browser_session=session,
+                use_vision=True,
+                enable_planning=True,
+            )
+            result = await agent.run(max_steps=task.max_steps)
 
-        trace.record("browser_use_complete", f"Result: {str(result)[:200]}")
-        self._session.record_page_visit(task.natural_language_goal[:200])
-        self._session.save_state()
+            trace.record("browser_use_complete", f"Result: {str(result)[:200]}")
+            self._session.record_page_visit(task.natural_language_goal[:200])
+            self._session.save_state()
 
-        result_text = str(result)
-        needs_user_input = False
-        user_input_reason = ""
-        completed_without_user_input = self._completed_without_user_input(result, result_text)
+            result_text = str(result)
+            needs_user_input, user_input_reason = self._structured_user_input_state(result)
 
-        verification_patterns = [
-            "verify your identity",
-            "verify your phone",
-            "phone verification",
-            "scan the qr code",
-            "scan qr",
-            "verification code",
-            "enter the code",
-            "two-factor",
-            "2fa",
-            "captcha",
-            "prove you are human",
-            "verify you are human",
-        ]
-        result_lower = result_text.lower()
-        if not completed_without_user_input:
-            for pattern in verification_patterns:
-                if pattern in result_lower:
-                    needs_user_input = True
-                    user_input_reason = f"Verification required: {pattern}"
-                    break
+            return {
+                "text": result_text,
+                "data": {},
+                "needs_user_input": needs_user_input,
+                "user_input_reason": user_input_reason,
+            }
+        finally:
+            await self._close_browser_session(session, trace)
 
-        return {
-            "text": result_text,
-            "data": {},
-            "needs_user_input": needs_user_input,
-            "user_input_reason": user_input_reason,
-        }
+    @staticmethod
+    async def _close_browser_session(session: Any, trace: BrowserTrace | None = None) -> None:
+        """Stop a browser-use session and its reconnect workers deterministically."""
+
+        errors: list[str] = []
+        closed_with = ""
+        for method_name in ("stop", "close", "kill"):
+            method = getattr(session, method_name, None)
+            if not callable(method):
+                continue
+            try:
+                result = method()
+                if hasattr(result, "__await__"):
+                    timeout = max(
+                        1.0,
+                        float(os.getenv("AEGIS_BROWSER_CLEANUP_TIMEOUT_SECONDS", "10")),
+                    )
+                    await asyncio.wait_for(result, timeout=timeout)
+                if trace is not None:
+                    trace.record("browser_session_closed", method_name)
+                closed_with = method_name
+                break
+            except Exception as exc:
+                errors.append(f"{method_name}: {exc}")
+        if not closed_with and errors:
+            message = "; ".join(errors)
+            logger.warning("Browser session cleanup failed: %s", message)
+            if trace is not None:
+                trace.record("browser_session_cleanup_failed", message)
+
+        reaped = 0
+        for attempt in range(5):
+            if attempt:
+                await asyncio.sleep(0.1)
+            reaped += BrowserUseAgent._reap_exited_children()
+        if reaped and trace is not None:
+            trace.record("browser_children_reaped", str(reaped))
+
+    @staticmethod
+    def _reap_exited_children() -> int:
+        """Reap exited browser processes parented directly to the server."""
+
+        waitpid = getattr(os, "waitpid", None)
+        nohang = getattr(os, "WNOHANG", None)
+        if not callable(waitpid) or nohang is None:
+            return 0
+        reaped = 0
+        while True:
+            try:
+                pid, _ = waitpid(-1, nohang)
+            except (ChildProcessError, OSError):
+                break
+            if pid <= 0:
+                break
+            reaped += 1
+        return reaped
 
     @staticmethod
     def _completed_without_user_input(result: Any, result_text: str = "") -> bool:
@@ -438,7 +477,21 @@ class BrowserUseAgent:
                 return False
             judgement = getattr(final, "judgement", None)
             return getattr(judgement, "reached_captcha", False) is False
-        return "success=True" in result_text and "reached_captcha=False" in result_text
+        return False
+
+    @staticmethod
+    def _structured_user_input_state(result: Any) -> tuple[bool, str]:
+        """Read browser-use's structured judgement without classifying result prose."""
+        all_results = getattr(result, "all_results", None) or []
+        if not all_results:
+            return False, ""
+        final = all_results[-1]
+        judgement = getattr(final, "judgement", None)
+        if getattr(judgement, "reached_captcha", False):
+            return True, "Human verification is required."
+        if getattr(final, "success", None) is not True and getattr(final, "is_done", False):
+            return True, "The browser task stopped at a user-controlled boundary."
+        return False, ""
 
     def stop(self) -> None:
         """Stop current task execution."""

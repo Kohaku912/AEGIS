@@ -199,7 +199,11 @@ class TaskExecutionEngine:
 
     def _execute_step(self, task_id: str, step: PlanStep, plan: TaskPlan) -> str:
         if step.action_type.startswith('browser_'):
-            return self._execute_tool_step(task_id, step, capability_override='browser-server.page.browse')
+            if not step.capability_id:
+                step.status = StepStatus.FAILED
+                step.error = 'Browser step is missing a canonical capability_id'
+                return f'[FAIL] {step.description}: {step.error}'
+            return self._execute_tool_step(task_id, step)
         if step.action_type == 'tool_invoke' and step.capability_id:
             return self._execute_tool_step(task_id, step)
         if step.action_type.startswith('llm_'):
@@ -212,10 +216,6 @@ class TaskExecutionEngine:
             return f'[INFO] {step.description} (ToolBroker not available)'
         cap_id = capability_override or step.capability_id
         args = dict(step.params)
-        if capability_override and step.params.get('url'):
-            args = {'task': f'Go to {step.params["url"]} and {step.description}'}
-        elif capability_override:
-            args = {'task': step.description}
         request = ToolExecutionRequest(
             task_id=task_id,
             step_id=step.step_id,
@@ -337,6 +337,17 @@ class TaskExecutionEngine:
                 self._task_manager.update_step_status(task_id, step_id, 'failed', error=result.error)
                 self._task_manager.fail_task(task_id, error=f'Step {step_id} failed after approval: {result.error}')
                 return ExecutionResponse(text=f'[FAIL] Step {step_id} failed: {result.error}', task_id=task_id)
+        if task_id:
+            if result.success:
+                self._task_manager.complete_task(
+                    task_id,
+                    result_summary=f"Approved capability completed: {request.capability_id}",
+                )
+            else:
+                self._task_manager.fail_task(
+                    task_id,
+                    error=result.error or "Approved capability execution failed",
+                )
         return ExecutionResponse(text=f'[OK] Approval {approval_id} executed', task_id=task_id)
 
     def _continue_after_step(self, task_id: str, completed_step_id: str) -> ExecutionResponse:

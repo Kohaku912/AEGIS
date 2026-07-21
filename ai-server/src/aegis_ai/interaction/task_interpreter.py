@@ -91,7 +91,7 @@ Output JSON with this structure:
       "description": "What this action does",
       "params": {},
       "risk_level": "READ|DRAFT|EXTERNAL_SEND|PAYMENT|BLOCKED",
-      "capability_id": "browser.open_page|browser.read_owned_account_page|..."
+      "capability_id": "Use one canonical ID from the supplied capability catalog"
     }
   ],
   "constraints": ["List of safety constraints"],
@@ -192,16 +192,10 @@ Respond with ONLY the JSON object, no markdown fences."""
         return plan
 
     def _validate_safety(self, plan: TaskPlan) -> None:
-        """Validate that the plan doesn't violate safety rules."""
-        blocked_patterns = ["captcha", "bypass", "stealth", "proxy", "purchase"]
-
+        """Preserve structured LLM risk labels for downstream PolicyEngine checks."""
         for action in plan.actions:
-            action_lower = action.description.lower() + " " + action.action_type.lower()
-            for pattern in blocked_patterns:
-                if pattern in action_lower:
-                    action.risk_level = RiskLevel.BLOCKED
-                    action.requires_approval = True
-                    logger.warning("Blocked action detected: %s", action.description)
+            if action.risk_level in (RiskLevel.EXTERNAL_SEND, RiskLevel.PAYMENT, RiskLevel.BLOCKED):
+                action.requires_approval = True
 
     def _fallback_plan(self, user_message: str) -> TaskPlan:
         """Create a fallback plan when LLM is not available."""

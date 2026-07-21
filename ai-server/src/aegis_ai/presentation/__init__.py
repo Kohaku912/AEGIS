@@ -17,6 +17,11 @@ from aegis_ai.presentation.models import (
     PresentationSpec,
     PresentationStatus,
 )
+from aegis_ai.presentation.routing_policy import (
+    PresentationRoutingContext,
+    PresentationRoutingDecision,
+    PresentationRoutingPolicy,
+)
 
 __all__ = [
     "DeliverySpec",
@@ -26,4 +31,7 @@ __all__ = [
     "PresentationManager",
     "PresentationSpec",
     "PresentationStatus",
+    "PresentationRoutingContext",
+    "PresentationRoutingDecision",
+    "PresentationRoutingPolicy",
 ]

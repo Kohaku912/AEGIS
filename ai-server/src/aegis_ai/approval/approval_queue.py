@@ -202,6 +202,15 @@ class ApprovalQueue:
             if req is None:
                 return
             req.status = "executed"
+            output = getattr(result, "output", {}) if result is not None else {}
+            if isinstance(output, dict):
+                post = output.get("post") if isinstance(output.get("post"), dict) else {}
+                req.metadata["execution_result"] = {
+                    "ok": bool(output.get("ok", getattr(result, "success", False))),
+                    "post_id": post.get("id") or output.get("post_id") or "",
+                    "post": {"id": post.get("id")} if post.get("id") else {},
+                    "verification_status": getattr(result, "verification_status", ""),
+                }
             self._executed.add(approval_id)
             self._save()
         if self._audit is not None:

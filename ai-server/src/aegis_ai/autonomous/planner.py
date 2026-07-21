@@ -167,14 +167,14 @@ Current world state:
 {world_context}
 
 Available capabilities (examples):
-- agora.read_posts, agora.read_mentions, agora.create_post
+- ai-server.agora.read_posts, ai-server.agora.post
 - memory.save, memory.search
 - pc.get_screenshot, pc.get_active_window
 
 Rules:
 - Each subtask must have a capability_id or be an observation/reflection step
 - Mark dependencies between subtasks
-- External sends (agora.create_post, email.send) require approval
+- External sends (ai-server.agora.post and channel send capabilities) require approval
 - Never include destructive actions without explicit user request
 - If a goal is unsafe or impossible, return {{"cancel": true, "reason": "..."}}
 
@@ -183,7 +183,7 @@ Respond with JSON:
   "subtasks": [
     {{
       "description": "what to do",
-      "capability_id": "agora.read_posts or empty for internal",
+      "capability_id": "canonical server_id.app_id.action ID or empty for internal",
       "arguments": {{}},
       "depends_on": []
     }}
