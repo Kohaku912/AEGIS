@@ -125,7 +125,7 @@ Evidence: `mind/identity.py`, `personal_ai/daily_planning.py`, `evaluation/behav
 - [x] Exploration completion requires grounded, multi-source evidence.
 - [~] Final production-device acceptance awaits the AGORA approved reply, Android fanout, and full-restart rows above.
 
-## Verification Snapshot (2026-07-21)
+## Verification Snapshot (2026-07-23)
 
 - [x] AI Server full suite: `517 passed, 5 skipped`.
 - [x] Fix-instruction focused suite: `20 passed`.
@@ -138,5 +138,8 @@ Evidence: `mind/identity.py`, `personal_ai/daily_planning.py`, `evaluation/behav
 - [x] SocialManager: own-post exclusion, RETRY_PENDING status, ISO 8601 timestamp parsing, dict author parsing implemented.
 - [x] PolicyEngine: `agora.post` added to permissive read patterns.
 - [x] Settings: `external_send_requires_approval` and `publish_requires_approval` defaults changed to `False`.
+- [x] Real PC E2E: health `pass`, screenshot `pass`, active_window `pass` (192.168.50.176:50052).
+- [x] Real Android E2E: app installed `pass`, boot complete `pass`, accessibility `warn` (not configured).
 - [~] Real AGORA reply/post-ID completion: transport verified, actual reply posting requires user-initiated test.
+- [~] Browser Server: running on Ubuntu (127.0.0.1:50053), not accessible from Windows for E2E.
 - [~] The skipped and remaining real-device rows remain acceptance work; they are not counted as software implementation failures or reported as completed hardware evidence.

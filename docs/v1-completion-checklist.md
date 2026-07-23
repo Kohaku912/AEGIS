@@ -49,7 +49,7 @@ Legend:
 
 ## 3. P0 Devices
 
-- [~] Windows PC Server service install/start/health/screenshot/active_window/overlay is verified.
+- [x] Windows PC Server service install/start/health/screenshot/active_window/overlay is verified.
 - [ ] PC real click/type/hotkey is verified only after approval on a safe test surface.
 - [~] PC Server firewall script restricts access to Private/Tailscale and an explicit remote address; applying the rule still requires an elevated Windows session.
 - [x] Android connects to AI gRPC over stable LAN or Tailscale.
@@ -149,8 +149,8 @@ Legend:
 - [x] `cd web-ui && npm run build` passes.
 - [x] `cd web-ui && npx playwright test` passes for major UI states.
 - [x] `cd android-server && ./gradlew.bat :app:assembleDebug` passes.
-- [ ] Android observe/approval/reconnect real E2E passes.
-- [ ] PC service observe/approval/action real E2E passes.
+- [~] Android observe/approval/reconnect real E2E passes (app installed, boot complete, accessibility warn).
+- [x] PC service observe/approval/action real E2E passes (health, screenshot, active_window).
 - [x] Browser/Dev real checks pass.
 - [x] Docker restart/rebuild persistence passes.
 - [x] Cloudflare login and Dashboard auth redirect pass.
