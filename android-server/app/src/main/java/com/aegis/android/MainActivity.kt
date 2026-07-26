@@ -114,6 +114,7 @@ class MainActivity : ComponentActivity() {
         grpcClient = AegisGrpcClient.getInstance(this)
 
         bindAccessibilityProvider()
+        AegisNotificationListener.requestReconnect(this)
         applyIntentConfig(intent)
         startForegroundService(Intent(this, AegisForegroundService::class.java))
 
@@ -158,6 +159,7 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         bindAccessibilityProvider()
+        AegisNotificationListener.requestReconnect(this)
         grpcClient.pushPermissionChanged()
     }
 

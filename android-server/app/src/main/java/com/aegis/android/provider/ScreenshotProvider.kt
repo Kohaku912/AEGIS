@@ -32,10 +32,11 @@ class ScreenshotProvider(private val context: Context) {
         private const val TAG = "ScreenshotProvider"
         private const val VIRTUAL_DISPLAY_NAME = "AEGIS_Screenshot"
         private var mediaProjection: MediaProjection? = null
+        private var projectionCallback: MediaProjection.Callback? = null
+        private var virtualDisplay: VirtualDisplay? = null
+        private var imageReader: ImageReader? = null
+        private var lastScreenshot: ScreenshotResult? = null
     }
-
-    private var virtualDisplay: VirtualDisplay? = null
-    private var imageReader: ImageReader? = null
 
     /**
      * Set the MediaProjection result from Activity.
@@ -43,10 +44,29 @@ class ScreenshotProvider(private val context: Context) {
      * Note: Must start ScreenshotService (foreground service with mediaProjection type) first.
      */
     fun setMediaProjectionResult(resultCode: Int, data: Intent) {
+        virtualDisplay?.release()
+        imageReader?.close()
+        virtualDisplay = null
+        imageReader = null
         val projectionManager = context.getSystemService(
             Context.MEDIA_PROJECTION_SERVICE
         ) as MediaProjectionManager
-        mediaProjection = projectionManager.getMediaProjection(resultCode, data)
+        val projection = projectionManager.getMediaProjection(resultCode, data)
+        val callback = object : MediaProjection.Callback() {
+            override fun onStop() {
+                virtualDisplay?.release()
+                imageReader?.close()
+                virtualDisplay = null
+                imageReader = null
+                mediaProjection = null
+                projectionCallback = null
+                lastScreenshot = null
+                Log.i(TAG, "MediaProjection stopped")
+            }
+        }
+        projection.registerCallback(callback, Handler(Looper.getMainLooper()))
+        mediaProjection = projection
+        projectionCallback = callback
         Log.i(TAG, "MediaProjection initialized")
     }
 
@@ -61,6 +81,7 @@ class ScreenshotProvider(private val context: Context) {
      * Capture a screenshot and return as base64.
      * Returns null if MediaProjection is not available.
      */
+    @Synchronized
     fun captureScreenshot(): ScreenshotResult? {
         val projection = mediaProjection ?: run {
             Log.w(TAG, "MediaProjection not available")
@@ -77,38 +98,44 @@ class ScreenshotProvider(private val context: Context) {
             val height = metrics.heightPixels
             val density = metrics.densityDpi
 
-            imageReader = ImageReader.newInstance(width, height, PixelFormat.RGBA_8888, 1)
+            if (virtualDisplay == null || imageReader == null) {
+                imageReader = ImageReader.newInstance(
+                    width,
+                    height,
+                    PixelFormat.RGBA_8888,
+                    2,
+                )
+                virtualDisplay = projection.createVirtualDisplay(
+                    VIRTUAL_DISPLAY_NAME,
+                    width, height, density,
+                    DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
+                    imageReader!!.surface,
+                    null, Handler(Looper.getMainLooper())
+                )
+            }
 
-            virtualDisplay = projection.createVirtualDisplay(
-                VIRTUAL_DISPLAY_NAME,
-                width, height, density,
-                DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
-                imageReader!!.surface,
-                null, Handler(Looper.getMainLooper())
-            )
-
-            // Wait for image to be available
-            Thread.sleep(500)
-
-            val image = imageReader?.acquireLatestImage()
+            var image: Image? = null
+            repeat(20) {
+                if (image == null) {
+                    Thread.sleep(100)
+                    image = imageReader?.acquireLatestImage()
+                }
+            }
             if (image == null) {
-                Log.w(TAG, "No image available")
-                virtualDisplay?.release()
-                imageReader?.close()
-                virtualDisplay = null
-                imageReader = null
+                val cached = lastScreenshot
+                if (cached != null) {
+                    Log.i(TAG, "No changed frame; returning the latest captured frame")
+                    return cached.copy(capturedAtMs = System.currentTimeMillis())
+                }
+                Log.w(TAG, "No image available and no captured frame is cached")
                 return null
             }
 
-            val bitmap = imageToBitmap(image, width, height)
-            image.close()
+            val bitmap = imageToBitmap(image!!, width, height)
+            image!!.close()
 
             val base64 = bitmapToBase64(bitmap)
             bitmap.recycle()
-
-            // Clean up
-            virtualDisplay?.release()
-            imageReader?.close()
 
             return ScreenshotResult(
                 width = width,
@@ -116,7 +143,7 @@ class ScreenshotProvider(private val context: Context) {
                 imageBase64 = base64,
                 format = "png",
                 capturedAtMs = System.currentTimeMillis()
-            )
+            ).also { lastScreenshot = it }
 
         } catch (e: Exception) {
             Log.e(TAG, "Screenshot failed", e)
@@ -124,7 +151,6 @@ class ScreenshotProvider(private val context: Context) {
             imageReader?.close()
             virtualDisplay = null
             imageReader = null
-            mediaProjection = null
             return null
         }
     }
@@ -136,13 +162,19 @@ class ScreenshotProvider(private val context: Context) {
         val rowStride = plane.rowStride
         val rowPadding = rowStride - pixelStride * width
 
-        val bitmap = android.graphics.Bitmap.createBitmap(
+        val paddedBitmap = android.graphics.Bitmap.createBitmap(
             width + rowPadding / pixelStride,
             height,
             android.graphics.Bitmap.Config.ARGB_8888
         )
-        bitmap.copyPixelsFromBuffer(buffer)
-        return android.graphics.Bitmap.createBitmap(bitmap, 0, 0, width, height)
+        paddedBitmap.copyPixelsFromBuffer(buffer)
+        return android.graphics.Bitmap.createBitmap(
+            paddedBitmap,
+            0,
+            0,
+            width,
+            height,
+        ).also { paddedBitmap.recycle() }
     }
 
     private fun bitmapToBase64(bitmap: android.graphics.Bitmap): String {

@@ -31,7 +31,7 @@ def _handle_stop(signum, frame) -> None:
 def _start_grpc(runtime) -> None:
     from aegis_ai.grpc_server import serve
 
-    serve(config=runtime.config, runtime=runtime)
+    serve(config=runtime.config, runtime=runtime, stop_event=_STOP)
 
 
 def _start_dashboard(runtime) -> None:
@@ -100,6 +100,7 @@ def main() -> None:
     while not _STOP.is_set():
         time.sleep(1)
 
+    threads[0].join(timeout=6)
     runtime.stop()
 
 

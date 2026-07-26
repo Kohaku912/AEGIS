@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
 import time
 import uuid
 from concurrent import futures
@@ -248,8 +249,8 @@ class AegisAIServicer(ai_server_pb2_grpc.AIServerServicer):
         )
 
     def SendChat(self, request, context):
-        from aegis_ai.web.chat_service import execute_chat_message, tool_results_json
         from aegis_ai.web.chat_history import ChatHistoryStore, entry_to_mobile_messages
+        from aegis_ai.web.chat_service import execute_chat_message, tool_results_json
 
         auth_ok, device_id, auth_message = self._validate_android_direct_rpc_auth(
             request,
@@ -524,7 +525,11 @@ class AegisAIServicer(ai_server_pb2_grpc.AIServerServicer):
         return ok, device_id, message
 
 
-def serve(config: Config | None = None, runtime: AegisRuntime | None = None) -> None:
+def serve(
+    config: Config | None = None,
+    runtime: AegisRuntime | None = None,
+    stop_event: threading.Event | None = None,
+) -> None:
     """Start the gRPC server. Blocks until shutdown."""
     global _SERVER_START_MS
     _SERVER_START_MS = int(time.time() * 1000)
@@ -545,10 +550,14 @@ def serve(config: Config | None = None, runtime: AegisRuntime | None = None) -> 
     logger.info("gRPC server listening on %s", address)
 
     try:
-        server.wait_for_termination()
+        if stop_event is None:
+            server.wait_for_termination()
+        else:
+            stop_event.wait()
     except KeyboardInterrupt:
         logger.info("Stopping gRPC server...")
-        server.stop(grace=5)
+    finally:
+        server.stop(grace=5).wait(timeout=5)
 
 
 def _risk_from_safety(safety_level: int) -> RiskLevel:

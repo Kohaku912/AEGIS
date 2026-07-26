@@ -43,6 +43,13 @@ class AegisNotificationListener : NotificationListenerService() {
             return flat.split(":").any { it == component }
         }
 
+        fun requestReconnect(context: Context) {
+            if (!isEnabled(context)) return
+            val component = ComponentName(context, AegisNotificationListener::class.java)
+            runCatching { requestRebind(component) }
+                .onFailure { Log.w(TAG, "NotificationListener rebind request failed", it) }
+        }
+
         fun recentNotifications(maxCount: Int): List<NotificationItem> {
             synchronized(recent) {
                 return recent.take(maxCount)

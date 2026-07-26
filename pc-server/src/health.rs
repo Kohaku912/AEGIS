@@ -384,7 +384,7 @@ fn handle_command(cmd: &str) -> String {
             if request.style.trim().is_empty() {
                 request.style = "info".to_string();
             }
-            let result = overlay_approval::show_rich_display_overlay(request);
+            let result = overlay_approval::schedule_rich_display_overlay(request);
             serde_json::to_string(&result).unwrap_or_else(|_| "{\"error\":\"json\"}".into())
         }
         "execute_shell" => {
