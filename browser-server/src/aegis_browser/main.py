@@ -12,6 +12,8 @@ import importlib.util
 import json
 import logging
 import os
+import shutil
+import tempfile
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -86,6 +88,16 @@ def get_runtime_health(config: Config | None = None) -> dict[str, Any]:
     status = "critical" if resource_status == "critical" else "ok" if mode == "full" else "degraded"
     if status == "ok" and resource_status == "degraded":
         status = "degraded"
+    reasons: list[str] = []
+    if missing:
+        reasons.append("Missing dependencies: " + ", ".join(missing))
+    if resource_status != "ok":
+        reasons.append(
+            "Browser resource pressure: "
+            f"memory={resources.get('memory_ratio')}, "
+            f"pids={resources.get('pids_ratio')}, "
+            f"temp={resources.get('temp_ratio')}"
+        )
     return {
         "status": status,
         "server": "browser-server",
@@ -100,10 +112,12 @@ def get_runtime_health(config: Config | None = None) -> dict[str, Any]:
         "headless": config.browser_headless,
         "browser_channel": config.browser_channel,
         "resources": resources,
-        "degraded_reason": "Missing dependencies: " + ", ".join(missing) if missing else "",
+        "degraded_reason": "; ".join(reasons),
         "recovery_hint": (
             "Install browser dependencies: python -m pip install -e . && python -m playwright install chromium"
             if missing
+            else "Restart Browser Server to reclaim browser-owned temporary files."
+            if resource_status != "ok"
             else ""
         ),
     }
@@ -118,11 +132,13 @@ def _cgroup_resource_snapshot() -> dict[str, Any]:
     pids_max = _read_cgroup_number("/sys/fs/cgroup/pids.max")
     events = _read_cgroup_events("/sys/fs/cgroup/memory.events")
     zombie_processes = _zombie_process_count()
+    temp_total, temp_used, temp_free = _disk_usage(tempfile.gettempdir())
     memory_ratio = _ratio(memory_current, memory_max)
     pids_ratio = _ratio(pids_current, pids_max)
+    temp_ratio = _ratio(temp_used, temp_total)
     critical_ratio = float(os.getenv("AEGIS_BROWSER_RESOURCE_CRITICAL_RATIO", "0.9"))
     degraded_ratio = float(os.getenv("AEGIS_BROWSER_RESOURCE_DEGRADED_RATIO", "0.75"))
-    highest = max(memory_ratio or 0.0, pids_ratio or 0.0)
+    highest = max(memory_ratio or 0.0, pids_ratio or 0.0, temp_ratio or 0.0)
     zombie_critical = int(os.getenv("AEGIS_BROWSER_ZOMBIE_CRITICAL", "64"))
     zombie_degraded = int(os.getenv("AEGIS_BROWSER_ZOMBIE_DEGRADED", "8"))
     status = "critical" if highest >= critical_ratio else "degraded" if highest >= degraded_ratio else "ok"
@@ -138,10 +154,22 @@ def _cgroup_resource_snapshot() -> dict[str, Any]:
         "pids_current": pids_current,
         "pids_max": pids_max,
         "pids_ratio": pids_ratio,
+        "temp_total_bytes": temp_total,
+        "temp_used_bytes": temp_used,
+        "temp_free_bytes": temp_free,
+        "temp_ratio": temp_ratio,
         "oom_events": int(events.get("oom", 0)),
         "oom_kill_events": int(events.get("oom_kill", 0)),
         "zombie_processes": zombie_processes,
     }
+
+
+def _disk_usage(path: str) -> tuple[int | None, int | None, int | None]:
+    try:
+        usage = shutil.disk_usage(path)
+        return usage.total, usage.used, usage.free
+    except OSError:
+        return None, None, None
 
 
 def _zombie_process_count() -> int:
@@ -170,9 +198,7 @@ def _read_cgroup_events(path: str) -> dict[str, int]:
         return {
             key: int(value)
             for key, value in (
-                line.split(maxsplit=1)
-                for line in Path(path).read_text(encoding="utf-8").splitlines()
-                if " " in line
+                line.split(maxsplit=1) for line in Path(path).read_text(encoding="utf-8").splitlines() if " " in line
             )
         }
     except (OSError, ValueError):
@@ -189,6 +215,7 @@ def get_browser_agent():
     global _browser_agent
     if _browser_agent is None:
         from aegis_browser.browser_use_agent import BrowserUseAgent
+
         _browser_agent = BrowserUseAgent()
     return _browser_agent
 
@@ -281,6 +308,7 @@ class BrowserHandler(BaseHTTPRequestHandler):
 
         try:
             from aegis_browser.task_models import BrowserTask
+
             task = BrowserTask(
                 task_id=f"task_{int(time.time() * 1000)}",
                 natural_language_goal=task_text,
@@ -398,6 +426,11 @@ class BrowserHandler(BaseHTTPRequestHandler):
 
 def main() -> None:
     config = Config()
+    from aegis_browser.browser_use_agent import BrowserUseAgent
+
+    removed_temp_dirs = BrowserUseAgent._cleanup_browser_temp_dirs()
+    if removed_temp_dirs:
+        logger.info("Removed %d stale browser temporary directories", removed_temp_dirs)
     logger.info("AEGIS Browser Server v0.2.0")
     logger.info("HTTP: %s:%d", config.grpc_host, config.grpc_port)
     logger.info("Headless: %s", config.browser_headless)

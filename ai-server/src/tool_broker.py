@@ -16,9 +16,9 @@ All public invocation APIs funnel through it, and it ALWAYS calls PolicyEngine f
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import re
-import hashlib
 import threading
 import time
 import uuid
@@ -80,6 +80,7 @@ def _capability_from_manifest(manifest: Any) -> Capability:
 # Execution Source — where the tool invocation originated
 # ═══════════════════════════════════════════════════════════════
 
+
 class ExecutionSource(Enum):
     USER_EXPLICIT = "user_explicit"
     SCHEDULED = "scheduled"
@@ -92,6 +93,7 @@ class ExecutionSource(Enum):
 # ═══════════════════════════════════════════════════════════════
 # Invoke Status — execution outcome
 # ═══════════════════════════════════════════════════════════════
+
 
 class InvokeStatus(Enum):
     SUCCESS = "success"
@@ -110,6 +112,7 @@ class InvokeStatus(Enum):
 # ═══════════════════════════════════════════════════════════════
 # Tool Execution Request / Result
 # ═══════════════════════════════════════════════════════════════
+
 
 @dataclass
 class ToolExecutionRequest:
@@ -158,6 +161,7 @@ class ToolExecutionResult:
 # ═══════════════════════════════════════════════════════════════
 # Verification
 # ═══════════════════════════════════════════════════════════════
+
 
 @dataclass
 class VerificationRequest:
@@ -247,6 +251,61 @@ def _mask_string(s: str) -> str:
     return s
 
 
+def _compact_audit_value(value: Any, *, depth: int = 0) -> Any:
+    """Bound audit detail size without changing the tool result itself."""
+
+    if depth >= 8:
+        return {"omitted": True, "reason": "max_depth"}
+    if isinstance(value, str):
+        masked = _mask_string(value)
+        encoded = masked.encode("utf-8", errors="replace")
+        if len(encoded) <= 8_192:
+            return masked
+        return {
+            "omitted": True,
+            "type": "string",
+            "length": len(encoded),
+            "sha256": hashlib.sha256(encoded).hexdigest(),
+        }
+    if isinstance(value, bytes):
+        return {
+            "omitted": True,
+            "type": "bytes",
+            "length": len(value),
+            "sha256": hashlib.sha256(value).hexdigest(),
+        }
+    if isinstance(value, dict):
+        compact: dict[str, Any] = {}
+        items = list(value.items())
+        for key, item in items[:100]:
+            key_text = str(key)
+            if any(
+                sensitive in key_text.lower()
+                for sensitive in (
+                    "key",
+                    "token",
+                    "password",
+                    "secret",
+                    "cookie",
+                    "auth",
+                )
+            ):
+                compact[key_text] = "***MASKED***"
+            else:
+                compact[key_text] = _compact_audit_value(item, depth=depth + 1)
+        if len(items) > 100:
+            compact["_omitted_items"] = len(items) - 100
+        return compact
+    if isinstance(value, (list, tuple)):
+        compact_list = [_compact_audit_value(item, depth=depth + 1) for item in value[:100]]
+        if len(value) > 100:
+            compact_list.append({"omitted_items": len(value) - 100})
+        return compact_list
+    if value is None or isinstance(value, (bool, int, float)):
+        return value
+    return _compact_audit_value(str(value), depth=depth + 1)
+
+
 # ═══════════════════════════════════════════════════════════════
 # Retry classification
 # ═══════════════════════════════════════════════════════════════
@@ -255,9 +314,11 @@ def _mask_string(s: str) -> str:
 # Invoke Result (backward-compatible)
 # ═══════════════════════════════════════════════════════════════
 
+
 @dataclass
 class InvokeResult:
     """Result of invoking a capability through the ToolBroker."""
+
     status: InvokeStatus = InvokeStatus.UNAVAILABLE
     capability_id: str = ""
     output: dict[str, Any] = field(default_factory=dict)
@@ -284,6 +345,7 @@ MockExecutorFunc = Callable[[Capability, dict[str, Any]], dict[str, Any]]
 # ═══════════════════════════════════════════════════════════════
 # Tool Broker
 # ═══════════════════════════════════════════════════════════════
+
 
 class ToolBroker:
     """Central capability dispatch with mandatory safety enforcement.
@@ -365,7 +427,9 @@ class ToolBroker:
 
         logger.info(
             "Capability call: cap=%s source=%s args=%s",
-            request.capability_id, request.source.value, str(request.arguments)[:200],
+            request.capability_id,
+            request.source.value,
+            str(request.arguments)[:200],
         )
 
         # Dry run check
@@ -477,20 +541,17 @@ class ToolBroker:
             self._record_audit(request, result)
             return result
 
-        if self._delegation_policy is not None and policy_result.decision in (PolicyDecision.ALLOW, PolicyDecision.ALLOW_WITH_AUDIT):
+        if self._delegation_policy is not None and policy_result.decision in (
+            PolicyDecision.ALLOW,
+            PolicyDecision.ALLOW_WITH_AUDIT,
+        ):
             manifest = self._catalog.resolve(cap.id) if self._catalog is not None else None
             declared_context = dict(request.metadata.get("delegation_context") or {})
             if manifest is not None:
-                operation_category = str(
-                    getattr(manifest, "operation_category", "") or ""
-                )
-                ownership_scope = str(
-                    getattr(manifest, "ownership_scope", "") or ""
-                )
+                operation_category = str(getattr(manifest, "operation_category", "") or "")
+                ownership_scope = str(getattr(manifest, "ownership_scope", "") or "")
                 if operation_category:
-                    declared_context.setdefault(
-                        "operation_category", operation_category
-                    )
+                    declared_context.setdefault("operation_category", operation_category)
                 if ownership_scope:
                     declared_context.setdefault("scope", ownership_scope)
             delegation = self._delegation_policy.evaluate(
@@ -567,11 +628,7 @@ class ToolBroker:
 
         # Verification
         verification = self._verify_completion_or_default(request, result, manifest, pre_observations)
-        if (
-            verification.status == "failed"
-            and result.success
-            and self._completion_retry_count(manifest) > 0
-        ):
+        if verification.status == "failed" and result.success and self._completion_retry_count(manifest) > 0:
             max_retries = self._completion_retry_count(manifest)
             for attempt in range(max_retries):
                 delay_ms = self._completion_retry_delay_ms(manifest)
@@ -595,11 +652,14 @@ class ToolBroker:
         if verification.status == "failed" and result.success and self._manifest_has_completion(manifest):
             result.status = InvokeStatus.EXECUTION_ERROR
             result.error = "Completion verification failed: " + "; ".join(verification.details)
-            result.output.setdefault("completion_verification", {
-                "status": verification.status,
-                "details": list(verification.details),
-                "repair_hint": verification.repair_hint,
-            })
+            result.output.setdefault(
+                "completion_verification",
+                {
+                    "status": verification.status,
+                    "details": list(verification.details),
+                    "repair_hint": verification.repair_hint,
+                },
+            )
 
         if result.success and verification.status == "passed":
             self._advance_continuation(
@@ -665,7 +725,10 @@ class ToolBroker:
     ) -> InvokeResult:
         """Invoke AFTER user approval. DEPRECATED: use execute_approved(approval_id) instead."""
         import warnings
-        warnings.warn("invoke_tool_approved is deprecated. Use execute_approved instead.", DeprecationWarning, stacklevel=2)
+
+        warnings.warn(
+            "invoke_tool_approved is deprecated. Use execute_approved instead.", DeprecationWarning, stacklevel=2
+        )
         params = params or {}
 
         manifest = self._resolve_manifest(capability_id)
@@ -857,11 +920,7 @@ class ToolBroker:
         result.policy_result = policy_result
         result.approval_id = approval_id
         verification = self._verify_completion_or_default(request, result, manifest, pre_observations)
-        if (
-            verification.status == "failed"
-            and result.success
-            and self._completion_retry_count(manifest) > 0
-        ):
+        if verification.status == "failed" and result.success and self._completion_retry_count(manifest) > 0:
             for attempt in range(self._completion_retry_count(manifest)):
                 delay_ms = self._completion_retry_delay_ms(manifest)
                 if delay_ms > 0:
@@ -880,11 +939,14 @@ class ToolBroker:
         if verification.status == "failed" and result.success and self._manifest_has_completion(manifest):
             result.status = InvokeStatus.EXECUTION_ERROR
             result.error = "Completion verification failed: " + "; ".join(verification.details)
-            result.output.setdefault("completion_verification", {
-                "status": verification.status,
-                "details": list(verification.details),
-                "repair_hint": verification.repair_hint,
-            })
+            result.output.setdefault(
+                "completion_verification",
+                {
+                    "status": verification.status,
+                    "details": list(verification.details),
+                    "repair_hint": verification.repair_hint,
+                },
+            )
 
         continuation_id = str(request.metadata.get("continuation_id") or "")
         if continuation_id:
@@ -1326,18 +1388,18 @@ class ToolBroker:
             "source": request.source.value,
             "capability_id": request.capability_id,
             "tool_name": request.tool_name,
-            "arguments_summary": str(masked_args),
+            "arguments_summary": str(_compact_audit_value(masked_args))[:16_384],
             "policy_decision": result.policy_decision,
             "execution_status": result.status.value,
             "error": result.error if result.error else "",
-            "output": result.output,
+            "output": _compact_audit_value(result.output),
             "duration_ms": result.duration_ms,
             "verification_status": result.verification_status,
             "verification": {
                 "status": result.verification.status if result.verification else result.verification_status,
                 "checks_passed": result.verification.checks_passed if result.verification else 0,
                 "checks_failed": result.verification.checks_failed if result.verification else 0,
-                "details": result.verification.details if result.verification else [],
+                "details": _compact_audit_value(result.verification.details if result.verification else []),
                 "repair_hint": result.verification.repair_hint if result.verification else "",
             },
             "reason": request.reason,
@@ -1351,6 +1413,7 @@ class ToolBroker:
         if self._audit is not None:
             try:
                 from aegis_ai.audit import AuditEntry
+
                 audit_entry = AuditEntry(
                     action="tool_execution",
                     actor=request.source.value,
@@ -1366,7 +1429,10 @@ class ToolBroker:
 
         logger.info(
             "Tool execution: cap=%s status=%s source=%s duration=%.1fms",
-            request.capability_id, result.status.value, request.source.value, result.duration_ms,
+            request.capability_id,
+            result.status.value,
+            request.source.value,
+            result.duration_ms,
         )
 
     def _apply_production_mock_guard(
@@ -1379,10 +1445,7 @@ class ToolBroker:
         if not is_mock_like_output(result.output):
             return
         result.status = InvokeStatus.EXECUTION_ERROR
-        result.error = (
-            "Production mode rejected mock/stub output for "
-            f"capability '{request.capability_id}'."
-        )
+        result.error = f"Production mode rejected mock/stub output for capability '{request.capability_id}'."
         result.output.setdefault("production_blocker", True)
         result.output.setdefault("production_blocker_reason", result.error)
         result.verification_status = "failed"

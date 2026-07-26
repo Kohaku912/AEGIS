@@ -73,10 +73,7 @@ class _StatusManager:
         self._statuses = statuses
 
     def get_snapshot(self):
-        return {
-            server_id: {"server_id": server_id, "status": status}
-            for server_id, status in self._statuses.items()
-        }
+        return {server_id: {"server_id": server_id, "status": status} for server_id, status in self._statuses.items()}
 
 
 class _PressureDesire:
@@ -124,21 +121,25 @@ class _PressureDesire:
 
 
 def test_available_capabilities_use_status_manager_not_localhost(tmp_path) -> None:
-    broker = _Broker([
-        "ai-server.memory.search",
-        "browser-server.page.browse",
-        "room-server.environment.get_environment",
-        "dev-server.repo.status",
-        "pc-server.screenshot.get_screenshot",
-        "android-server.device.get_status",
-    ])
-    status_manager = _StatusManager({
-        "browser-server": "online",
-        "room-server": "degraded",
-        "dev-server": "online",
-        "pc-server": "offline",
-        "android-server": "offline",
-    })
+    broker = _Broker(
+        [
+            "ai-server.memory.search",
+            "browser-server.page.browse",
+            "room-server.environment.get_environment",
+            "dev-server.repo.status",
+            "pc-server.screenshot.get_screenshot",
+            "android-server.device.get_status",
+        ]
+    )
+    status_manager = _StatusManager(
+        {
+            "browser-server": "online",
+            "room-server": "degraded",
+            "dev-server": "online",
+            "pc-server": "offline",
+            "android-server": "offline",
+        }
+    )
     loop = AutonomousLoop(
         tool_broker=broker,
         status_manager=status_manager,
@@ -164,10 +165,12 @@ def test_decision_axes_keep_four_operational_priorities(tmp_path) -> None:
         data_dir=str(tmp_path / "autonomous"),
     )
 
-    axes = loop._build_decision_axes([
-        {"name": "user_support", "pressure": 7.0},
-        {"name": "growth", "pressure": 6.0},
-    ])
+    axes = loop._build_decision_axes(
+        [
+            {"name": "user_support", "pressure": 7.0},
+            {"name": "growth", "pressure": 6.0},
+        ]
+    )
 
     assert set(axes) == {"user_commitment", "system_health", "learning", "curiosity"}
     assert axes["user_commitment"] == 7.0
@@ -294,25 +297,31 @@ def test_execute_tasks_accepts_tool_execution_result_object(tmp_path) -> None:
         data_dir=str(tmp_path / "autonomous"),
     )
 
-    results = loop._execute_tasks([{
-        "desire": "growth",
-        "action": "Search memory",
-        "capability_id": capability_id,
-        "arguments": {},
-    }])
+    results = loop._execute_tasks(
+        [
+            {
+                "desire": "growth",
+                "action": "Search memory",
+                "capability_id": capability_id,
+                "arguments": {},
+            }
+        ]
+    )
 
-    assert results == [{
-        "desire": "growth",
-        "action": "Search memory",
-        "capability_id": capability_id,
-        "result": "ordinary successful result from broker",
-        "success": True,
-        "full_output": {"result": "ordinary successful result from broker"},
-        "skill_used": None,
-        "workflow_used": None,
-        "goal_status": "",
-        "verification_status": "pending",
-    }]
+    assert results == [
+        {
+            "desire": "growth",
+            "action": "Search memory",
+            "capability_id": capability_id,
+            "result": "ordinary successful result from broker",
+            "success": True,
+            "full_output": {"result": "ordinary successful result from broker"},
+            "skill_used": None,
+            "workflow_used": None,
+            "goal_status": "",
+            "verification_status": "pending",
+        }
+    ]
 
 
 def test_representative_capability_is_included_when_retriever_misses(tmp_path) -> None:
@@ -362,12 +371,16 @@ def test_useful_result_reduces_pressure(monkeypatch, tmp_path) -> None:
         ),
     )
 
-    loop._update_desires([{
-        "desire": "growth",
-        "capability_id": "browser-server.page.browse",
-        "success": True,
-        "full_output": {"result": "Useful result"},
-    }])
+    loop._update_desires(
+        [
+            {
+                "desire": "growth",
+                "capability_id": "browser-server.page.browse",
+                "success": True,
+                "full_output": {"result": "Useful result"},
+            }
+        ]
+    )
 
     assert desire.reductions == [("growth", 0.7)]
     assert desire.dimension.value == 2.5
@@ -391,12 +404,16 @@ def test_pressure_reduction_comes_from_llm_result(monkeypatch, tmp_path) -> None
         ),
     )
 
-    loop._update_desires([{
-        "desire": "growth",
-        "capability_id": "browser-server.page.browse",
-        "success": True,
-        "full_output": {"result": "Partial result"},
-    }])
+    loop._update_desires(
+        [
+            {
+                "desire": "growth",
+                "capability_id": "browser-server.page.browse",
+                "success": True,
+                "full_output": {"result": "Partial result"},
+            }
+        ]
+    )
 
     assert desire.reductions == [("growth", 0.25)]
 
@@ -417,12 +434,16 @@ def test_no_effect_does_not_reduce_pressure(monkeypatch, tmp_path) -> None:
         ),
     )
 
-    loop._update_desires([{
-        "desire": "growth",
-        "capability_id": "ai-server.agora.read_posts",
-        "success": True,
-        "full_output": {"result": "AGORA: No new posts."},
-    }])
+    loop._update_desires(
+        [
+            {
+                "desire": "growth",
+                "capability_id": "ai-server.agora.read_posts",
+                "success": True,
+                "full_output": {"result": "AGORA: No new posts."},
+            }
+        ]
+    )
 
     assert desire.reductions == []
 
@@ -434,9 +455,7 @@ def test_successful_result_is_sent_to_llm_followup_decision(tmp_path) -> None:
         data_dir=str(tmp_path / "autonomous"),
     )
     followup_calls = []
-    loop._generate_follow_up_tasks = (
-        lambda tasks, results: followup_calls.append((tasks, results)) or []
-    )
+    loop._generate_follow_up_tasks = lambda tasks, results: followup_calls.append((tasks, results)) or []
     tasks = [{"capability_id": "ai-server.agora.read_posts"}]
     results = [{"success": True, "result": "ordinary successful result"}]
 
@@ -444,11 +463,9 @@ def test_successful_result_is_sent_to_llm_followup_decision(tmp_path) -> None:
     assert followup_calls == [(tasks, results)]
 
 
-def test_execution_log_stores_image_artifact_instead_of_base64(tmp_path) -> None:
+def test_execution_log_stores_image_digest_instead_of_base64(tmp_path) -> None:
     loop = AutonomousLoop(data_dir=str(tmp_path / "autonomous"))
-    image_base64 = (
-        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADElEQVR42mP8z8BQDwAFgwJ/luzG8QAAAABJRU5ErkJggg=="
-    )
+    image_base64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADElEQVR42mP8z8BQDwAFgwJ/luzG8QAAAABJRU5ErkJggg=="
 
     loop._log_execution(
         [{"desire": "growth", "action": "look", "capability_id": "pc-server.screenshot.get_screenshot"}],
@@ -457,5 +474,6 @@ def test_execution_log_stores_image_artifact_instead_of_base64(tmp_path) -> None
 
     log_text = (tmp_path / "autonomous" / "execution_log.jsonl").read_text(encoding="utf-8")
     assert image_base64 not in log_text
-    assert "image_artifact" in log_text
-    assert any((tmp_path / "autonomous" / "artifacts").iterdir())
+    assert "image_payload" in log_text
+    assert "payload_omitted" in log_text
+    assert not any((tmp_path / "autonomous" / "artifacts").iterdir())

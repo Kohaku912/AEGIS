@@ -338,6 +338,21 @@ class TestObjectStore:
         assert store.count() == 0
         assert store.delete("nonexistent") is False
 
+    def test_large_payload_is_compacted_in_v2_journal(self, tmp_path):
+        store = PresentationObjectStore(data_dir=str(tmp_path))
+        spec = plan_presentation(_make_request())
+        spec.content["image_base64"] = "A" * 1_000_000
+
+        store.put(spec)
+
+        persisted = store.get(spec.presentation_id)
+        assert persisted is not None
+        assert persisted.content["image_base64"]["omitted"] is True
+        assert persisted.content["image_base64"]["length"] == 1_000_000
+        journal = tmp_path / "presentations" / "presentations-v2.jsonl"
+        assert journal.stat().st_size < 20_000
+        assert spec.content["image_base64"] == "A" * 1_000_000
+
 
 # ── Device router ────────────────────────────────────────────────
 
@@ -582,13 +597,15 @@ class TestPresentationManager:
         result = mgr.present(_make_request(importance=Importance.HIGH).to_dict())
 
         assert result["ok"] is True
-        assert calls == [{
-            "title": "Hello",
-            "body": "World",
-            "severity": "warning",
-            "category": "presentation",
-            "channels": ["dashboard"],
-        }]
+        assert calls == [
+            {
+                "title": "Hello",
+                "body": "World",
+                "severity": "warning",
+                "category": "presentation",
+                "channels": ["dashboard"],
+            }
+        ]
         assert result["presentation"]["metadata"]["notification_id"] == "notif_123"
 
     def test_dismiss(self, tmp_path):
@@ -1055,10 +1072,13 @@ class TestCapabilityClient:
             server_executor=SimpleNamespace(),
             personal_managers={"presentation_manager": mgr},
         )
-        result = client.invoke_capability("ai-server.presentation.present", {
-            "title": "Test",
-            "content": {"text": "hello"},
-        })
+        result = client.invoke_capability(
+            "ai-server.presentation.present",
+            {
+                "title": "Test",
+                "content": {"text": "hello"},
+            },
+        )
         assert result["ok"] is True
         assert "presentation" in result
 
@@ -1108,8 +1128,11 @@ class TestCapabilityClient:
             server_executor=SimpleNamespace(),
             personal_managers={"presentation_manager": mgr},
         )
-        result = client.invoke_capability("ai-server.presentation.action", {
-            "presentation_id": pid,
-            "action": {"type": "click", "button": "ok"},
-        })
+        result = client.invoke_capability(
+            "ai-server.presentation.action",
+            {
+                "presentation_id": pid,
+                "action": {"type": "click", "button": "ok"},
+            },
+        )
         assert result["ok"] is True

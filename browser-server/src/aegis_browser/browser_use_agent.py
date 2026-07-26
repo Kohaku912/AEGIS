@@ -18,7 +18,10 @@ import asyncio
 import json
 import logging
 import os
+import shutil
+import tempfile
 import time
+from pathlib import Path
 from typing import Any
 
 from aegis_browser.config import Config
@@ -45,10 +48,17 @@ def _patch_browser_use_models():
     import json as _json
 
     _ACTION_KEYS_TO_NORMALIZE = {
-        "click", "input", "scroll", "upload_file",
-        "get_dropdown_options", "select_dropdown_option",
-        "find_elements", "find_text", "read_file",
-        "write_file", "replace_file",
+        "click",
+        "input",
+        "scroll",
+        "upload_file",
+        "get_dropdown_options",
+        "select_dropdown_option",
+        "find_elements",
+        "find_text",
+        "read_file",
+        "write_file",
+        "replace_file",
     }
 
     def _normalize_action(json_obj):
@@ -117,7 +127,10 @@ def _patch_browser_use_models():
     original_model_validate_json = None
     try:
         from pydantic import BaseModel
-        original_model_validate_json = BaseModel.model_validate_json.__func__ if hasattr(BaseModel.model_validate_json, '__func__') else None
+
+        original_model_validate_json = (
+            BaseModel.model_validate_json.__func__ if hasattr(BaseModel.model_validate_json, "__func__") else None
+        )
     except Exception:
         pass
 
@@ -129,6 +142,7 @@ def _patch_browser_use_models():
         return cls.__pydantic_validator__.validate_json(json_data)
 
     from pydantic import BaseModel
+
     BaseModel.model_validate_json = classmethod(_patched_model_validate_json)
 
     original_ainvoke = openai_chat.ChatOpenAI.ainvoke
@@ -142,6 +156,7 @@ def _patch_browser_use_models():
                 normalized = _normalize_json(completion)
                 if normalized != completion:
                     from browser_use.llm.views import ChatInvokeCompletion
+
                     try:
                         parsed = output_format.model_validate_json(normalized)
                         return ChatInvokeCompletion(
@@ -311,7 +326,9 @@ class BrowserUseAgent:
             for constraint in task.privacy_constraints:
                 parts.append(f"  - {constraint}")
 
-        parts.append("\nIMPORTANT: Stop on CAPTCHA, payment, contract acceptance, credentials, or identity verification and report the boundary.")
+        parts.append(
+            "\nIMPORTANT: Stop on CAPTCHA, payment, contract acceptance, credentials, or identity verification and report the boundary."
+        )
 
         return "\n".join(parts)
 
@@ -349,7 +366,10 @@ class BrowserUseAgent:
         model = os.environ.get("LLM_MODEL") or llm_config.get("model", "deepseek-v4-flash")
 
         if not api_key:
-            return {"text": "Error: No API key configured. Set OPENAI_API_KEY or edit browser-server/config.json", "data": {}}
+            return {
+                "text": "Error: No API key configured. Set OPENAI_API_KEY or edit browser-server/config.json",
+                "data": {},
+            }
 
         base_llm = ChatOpenAI(
             model=model,
@@ -383,6 +403,7 @@ class BrowserUseAgent:
 
         full_task = self._build_task_with_safety(task)
 
+        temp_dirs_before = self._browser_temp_dirs()
         try:
             agent = Agent(
                 task=full_task,
@@ -409,6 +430,9 @@ class BrowserUseAgent:
             }
         finally:
             await self._close_browser_session(session, trace)
+            removed = self._cleanup_browser_temp_dirs(candidates=self._browser_temp_dirs() - temp_dirs_before)
+            if removed:
+                trace.record("browser_temp_dirs_removed", str(removed))
 
     @staticmethod
     async def _close_browser_session(session: Any, trace: BrowserTrace | None = None) -> None:
@@ -468,6 +492,44 @@ class BrowserUseAgent:
         return reaped
 
     @staticmethod
+    def _browser_temp_dirs() -> set[Path]:
+        """List browser-owned temporary directories only."""
+
+        root = Path(tempfile.gettempdir()).resolve()
+        prefixes = (
+            "browser-use-user-data-dir-",
+            "browser_use_agent_",
+            "playwright_chromiumdev_profile-",
+            "org.chromium.Chromium.",
+        )
+        found: set[Path] = set()
+        for prefix in prefixes:
+            for path in root.glob(f"{prefix}*"):
+                try:
+                    resolved = path.resolve()
+                    resolved.relative_to(root)
+                except (OSError, ValueError):
+                    continue
+                if resolved.is_dir():
+                    found.add(resolved)
+        return found
+
+    @staticmethod
+    def _cleanup_browser_temp_dirs(candidates: set[Path] | None = None) -> int:
+        """Remove browser-owned temp directories when no task uses them."""
+
+        removed = 0
+        for path in candidates if candidates is not None else BrowserUseAgent._browser_temp_dirs():
+            try:
+                shutil.rmtree(path)
+                removed += 1
+            except FileNotFoundError:
+                continue
+            except OSError:
+                logger.warning("Failed to remove browser temp directory: %s", path)
+        return removed
+
+    @staticmethod
     def _completed_without_user_input(result: Any, result_text: str = "") -> bool:
         """Return True when browser-use reports successful completion."""
         all_results = getattr(result, "all_results", None) or []
@@ -509,14 +571,17 @@ class BrowserUseAgent:
 
 class SafetyStop(Exception):
     """Raised when safety boundary detects a stop condition."""
+
     pass
 
 
 class ApprovalBoundary(Exception):
     """Raised when an approval boundary is hit."""
+
     pass
 
 
 class UserInputNeeded(Exception):
     """Raised when user input is needed (password, 2FA)."""
+
     pass
