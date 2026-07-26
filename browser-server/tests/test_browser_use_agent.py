@@ -245,6 +245,20 @@ class TestBrowserUseAgent:
 
         assert BrowserUseAgent._reap_exited_children() == 2
 
+    def test_browser_temp_cleanup_removes_only_owned_directories(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(
+            "aegis_browser.browser_use_agent.tempfile.gettempdir",
+            lambda: str(tmp_path),
+        )
+        owned = tmp_path / "browser-use-user-data-dir-test"
+        unrelated = tmp_path / "user-data"
+        owned.mkdir()
+        unrelated.mkdir()
+
+        assert BrowserUseAgent._cleanup_browser_temp_dirs() == 1
+        assert not owned.exists()
+        assert unrelated.exists()
+
 
 class TestBrowserRuntimeHealth:
     """Runtime health exposes dependency and profile state."""
@@ -257,6 +271,11 @@ class TestBrowserRuntimeHealth:
         )
 
         monkeypatch.setattr("aegis_browser.main._module_available", lambda name: name == "playwright")
+        monkeypatch.setattr(
+            browser_main,
+            "_cgroup_resource_snapshot",
+            lambda: {"status": "ok"},
+        )
 
         health = get_runtime_health(config)
 
@@ -281,6 +300,27 @@ class TestBrowserRuntimeHealth:
 
         assert health["status"] == "critical"
         assert health["resources"]["memory_ratio"] == 0.95
+
+    def test_runtime_health_reports_critical_temp_pressure(self, monkeypatch):
+        monkeypatch.setattr(browser_main, "_module_available", lambda _name: True)
+        monkeypatch.setattr(
+            browser_main,
+            "_disk_usage",
+            lambda _path: (1_000, 990, 10),
+        )
+        monkeypatch.setattr(
+            browser_main,
+            "_read_cgroup_number",
+            lambda path: 100 if path.endswith("current") else 1_000,
+        )
+        monkeypatch.setattr(browser_main, "_read_cgroup_events", lambda _path: {})
+        monkeypatch.setattr(browser_main, "_zombie_process_count", lambda: 0)
+
+        health = get_runtime_health(Config())
+
+        assert health["status"] == "critical"
+        assert health["resources"]["temp_ratio"] == 0.99
+        assert "temp=0.99" in health["degraded_reason"]
 
     def test_browser_session_profile_directory_is_stable(self, tmp_path):
         session = BrowserSession(

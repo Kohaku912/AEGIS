@@ -93,9 +93,7 @@ def build_display_power_state(runtime: Any) -> dict[str, Any]:
     presentation_items: list[dict[str, Any]] = []
     manager = getattr(runtime, "presentation_manager", None)
     if manager is not None and hasattr(manager, "list_active"):
-        presentation_items = [
-            _presentation_projection(item) for item in manager.list_active(limit=3)
-        ]
+        presentation_items = [_presentation_projection(item) for item in manager.list_active(limit=3)]
 
     task_status = str(power_task.get("phase") or "").lower()
     keep_awake = task_status in {"running", "executing", "verifying"} or bool(pending)
@@ -116,16 +114,11 @@ def build_display_power_state(runtime: Any) -> dict[str, Any]:
         },
         "approvals": {
             "pending_count": len(pending),
-            "ids": [
-                str(_get(_to_plain(item), "approval_id", "")) for item in pending[:8]
-            ],
+            "ids": [str(_get(_to_plain(item), "approval_id", "")) for item in pending[:8]],
         },
         "servers": sorted(servers, key=lambda item: item["server_id"]),
         "presentations": [
-            {
-                key: item.get(key)
-                for key in ("presentation_id", "id", "status", "surface_role", "updated_at")
-            }
+            {key: item.get(key) for key in ("presentation_id", "id", "status", "surface_role", "updated_at")}
             for item in presentation_items
         ],
     }
@@ -422,7 +415,10 @@ def _display_queue(runtime: Any) -> dict[str, Any]:
         if not key:
             continue
         active[key] = _display_queue_item(event)
-    items = sorted(active.values(), key=lambda item: (_priority_rank(item.get("priority", "P3")), -int(item.get("created_at", 0) or 0)))
+    items = sorted(
+        active.values(),
+        key=lambda item: (_priority_rank(item.get("priority", "P3")), -int(item.get("created_at", 0) or 0)),
+    )
     return {
         "items": items[:30],
         "count": len(items),
@@ -448,7 +444,9 @@ def _activity(runtime: Any) -> dict[str, Any]:
                 "task_id": event.get("task_id", ""),
                 "approval_id": event.get("approval_id", ""),
                 "operation_type": _activity_operation_type(event),
-                "actor": event.get("payload", {}).get("actor", "aegis") if isinstance(event.get("payload", {}), dict) else "aegis",
+                "actor": event.get("payload", {}).get("actor", "aegis")
+                if isinstance(event.get("payload", {}), dict)
+                else "aegis",
                 "source_manager": _activity_source_manager(event),
                 "started_at": event.get("occurred_at", 0),
                 "updated_at": event.get("occurred_at", 0),
@@ -584,7 +582,9 @@ def _usage(runtime: Any) -> dict[str, Any]:
         return _usage_projection(tracker.get_summary())
     if tracker is not None and hasattr(tracker, "summary"):
         return _usage_projection(tracker.summary())
-    return _usage_projection({"summary": "LLM usage is available from the LLM Usage service.", "input_tokens": 0, "output_tokens": 0})
+    return _usage_projection(
+        {"summary": "LLM usage is available from the LLM Usage service.", "input_tokens": 0, "output_tokens": 0}
+    )
 
 
 def _autonomous_logs(runtime: Any) -> dict[str, Any]:
@@ -603,22 +603,32 @@ def _autonomous_logs(runtime: Any) -> dict[str, Any]:
 
     cycles = []
     try:
-        with open(log_path, encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                entry = _json.loads(line)
-                ts = entry.get("timestamp_ms", 0)
-                tasks = entry.get("tasks", [])
-                results = entry.get("results", [])
-                decision = entry.get("last_decision", "")
-                skip_reason = entry.get("last_skip_reason", "")
+        with open(log_path, "rb") as f:
+            size = os.path.getsize(log_path)
+            max_bytes = 4 * 1024 * 1024
+            offset = max(0, size - max_bytes)
+            f.seek(offset)
+            payload = f.read(max_bytes)
+        if offset:
+            newline = payload.find(b"\n")
+            payload = payload[newline + 1 :] if newline >= 0 else b""
+        lines = payload.splitlines()[-100:]
+        for raw_line in lines:
+            line = raw_line.decode("utf-8", errors="replace").strip()
+            if not line:
+                continue
+            entry = _json.loads(line)
+            ts = entry.get("timestamp_ms", 0)
+            tasks = entry.get("tasks", [])
+            results = entry.get("results", [])
+            decision = entry.get("last_decision", "")
+            skip_reason = entry.get("last_skip_reason", "")
 
-                actions = []
-                for i, task in enumerate(tasks):
-                    result = results[i] if i < len(results) else {}
-                    actions.append({
+            actions = []
+            for i, task in enumerate(tasks):
+                result = results[i] if i < len(results) else {}
+                actions.append(
+                    {
                         "capability_id": task.get("capability_id", ""),
                         "action": task.get("action_goal", task.get("action", "")),
                         "desire": task.get("desire", ""),
@@ -626,20 +636,27 @@ def _autonomous_logs(runtime: Any) -> dict[str, Any]:
                         "result_summary": task.get("result_summary", result.get("result", "")),
                         "changed_state": task.get("changed_state", ""),
                         "success": result.get("success", False),
-                    })
+                    }
+                )
 
-                cycles.append({
+            cycles.append(
+                {
                     "timestamp_ms": ts,
                     "decision": decision,
                     "skip_reason": skip_reason,
                     "action_count": len(actions),
                     "actions": actions,
-                })
+                }
+            )
     except Exception:
         return {"cycles": [], "count": 0}
 
     cycles.sort(key=lambda c: c["timestamp_ms"], reverse=True)
-    return {"cycles": cycles[:20], "count": len(cycles)}
+    return {
+        "cycles": cycles[:20],
+        "count": len(cycles),
+        "count_is_recent_window": True,
+    }
 
 
 def _errors(runtime: Any) -> dict[str, Any]:
@@ -690,7 +707,9 @@ def _server_list(runtime: Any) -> list[dict[str, Any]]:
             if item.get("server_id") == "android-server":
                 item["status"] = "ONLINE" if android_online else "OFFLINE"
                 item["mode"] = android_status.get("connection_mode", "offline")
-                item["status_detail"] = "Android device is connected." if android_online else "Android device is not connected."
+                item["status_detail"] = (
+                    "Android device is connected." if android_online else "Android device is not connected."
+                )
                 item["dependencies"] = {
                     "last_seen": android_status.get("last_seen", 0),
                     "device_model": android_status.get("device_model", ""),
@@ -702,19 +721,23 @@ def _server_list(runtime: Any) -> list[dict[str, Any]]:
                 found = True
                 break
         if not found:
-            servers.append({
-                "server_id": "android-server",
-                "status": "ONLINE" if android_online else "OFFLINE",
-                "mode": android_status.get("connection_mode", "offline"),
-                "status_detail": "Android device is connected." if android_online else "Android device is not connected.",
-                "dependencies": {
-                    "last_seen": android_status.get("last_seen", 0),
-                    "device_model": android_status.get("device_model", ""),
-                    "reconnect_count": int(android_status.get("reconnect_count", 0) or 0),
-                    "heartbeat_failure_count": int(android_status.get("heartbeat_failure_count", 0) or 0),
-                },
-                "health_checked_at": _now_ms(),
-            })
+            servers.append(
+                {
+                    "server_id": "android-server",
+                    "status": "ONLINE" if android_online else "OFFLINE",
+                    "mode": android_status.get("connection_mode", "offline"),
+                    "status_detail": "Android device is connected."
+                    if android_online
+                    else "Android device is not connected.",
+                    "dependencies": {
+                        "last_seen": android_status.get("last_seen", 0),
+                        "device_model": android_status.get("device_model", ""),
+                        "reconnect_count": int(android_status.get("reconnect_count", 0) or 0),
+                        "heartbeat_failure_count": int(android_status.get("heartbeat_failure_count", 0) or 0),
+                    },
+                    "health_checked_at": _now_ms(),
+                }
+            )
 
     return [_server_projection(item) for item in servers]
 
@@ -852,9 +875,14 @@ def _dedupe_presentation_events(items: list[dict[str, Any]]) -> list[dict[str, A
         if not key:
             continue
         current = seen.get(key)
-        if current is None or _priority_rank(item.get("priority", "P3")) < _priority_rank(current.get("priority", "P3")):
+        if current is None or _priority_rank(item.get("priority", "P3")) < _priority_rank(
+            current.get("priority", "P3")
+        ):
             seen[key] = item
-    return sorted(seen.values(), key=lambda item: (_priority_rank(item.get("priority", "P3")), -int(item.get("expires_at", 0) or 0)))
+    return sorted(
+        seen.values(),
+        key=lambda item: (_priority_rank(item.get("priority", "P3")), -int(item.get("expires_at", 0) or 0)),
+    )
 
 
 def _compact_presentation_event(event: dict[str, Any]) -> dict[str, Any]:
@@ -866,11 +894,15 @@ def _compact_presentation_event(event: dict[str, Any]) -> dict[str, Any]:
         "source": event.get("source", ""),
         "title": _truncate_text(event.get("title", ""), limit=120),
         "summary": _truncate_text(event.get("summary", ""), limit=180),
-        "affected_entities": event.get("affected_entities", [])[:6] if isinstance(event.get("affected_entities"), list) else [],
+        "affected_entities": event.get("affected_entities", [])[:6]
+        if isinstance(event.get("affected_entities"), list)
+        else [],
         "task_id": event.get("task_id", ""),
         "approval_id": event.get("approval_id", ""),
         "privacy_class": event.get("privacy_class", "normal"),
-        "recommended_surfaces": event.get("recommended_surfaces", [])[:5] if isinstance(event.get("recommended_surfaces"), list) else [],
+        "recommended_surfaces": event.get("recommended_surfaces", [])[:5]
+        if isinstance(event.get("recommended_surfaces"), list)
+        else [],
         "visual_hint": event.get("visual_hint", {}),
     }
 
@@ -892,7 +924,9 @@ def _activity_event_projection(event: dict[str, Any]) -> dict[str, Any]:
         "task_id": event.get("task_id", ""),
         "approval_id": event.get("approval_id", ""),
         "operation_type": _activity_operation_type(event),
-        "actor": event.get("payload", {}).get("actor", "aegis") if isinstance(event.get("payload", {}), dict) else "aegis",
+        "actor": event.get("payload", {}).get("actor", "aegis")
+        if isinstance(event.get("payload", {}), dict)
+        else "aegis",
         "source_manager": _activity_source_manager(event),
         "related": {
             "task_id": event.get("task_id", ""),
@@ -965,16 +999,25 @@ def _server_projection(server: Any) -> dict[str, Any]:
     dependencies = data.get("dependencies", {}) if isinstance(data.get("dependencies", {}), dict) else {}
     status = str(data.get("status", "")).upper()
     permission_missing = bool(data.get("permission_missing") or dependencies.get("permission_missing"))
-    capability_health = data.get("capability_health") or dependencies.get("capability_health") or dependencies.get("capability_availability", {})
+    capability_health = (
+        data.get("capability_health")
+        or dependencies.get("capability_health")
+        or dependencies.get("capability_availability", {})
+    )
     return {
         **data,
         "status": status,
         "latency_ms": _number(data.get("latency_ms", dependencies.get("latency_ms", -1)), -1),
-        "last_healthy_at": data.get("last_healthy_at") or dependencies.get("last_healthy_at") or dependencies.get("last_seen") or data.get("health_checked_at", 0),
+        "last_healthy_at": data.get("last_healthy_at")
+        or dependencies.get("last_healthy_at")
+        or dependencies.get("last_seen")
+        or data.get("health_checked_at", 0),
         "active_task_id": data.get("active_task_id", dependencies.get("active_task_id", "")),
         "permission_missing": permission_missing,
         "capability_health": _bound_for_ui(capability_health, max_depth=3, max_dict_items=40),
-        "recovery_state": "attention" if status in {"OFFLINE", "DEGRADED", "CRITICAL"} or permission_missing else "stable",
+        "recovery_state": "attention"
+        if status in {"OFFLINE", "DEGRADED", "CRITICAL"} or permission_missing
+        else "stable",
     }
 
 
@@ -1021,7 +1064,10 @@ def _task_plan_summary(task: Any, steps: list[Any]) -> str:
         if isinstance(value, list) and value:
             return _truncate_text("; ".join(str(item) for item in value[:6]), limit=700)
     if steps:
-        labels = [_get(step, "description", "") or _get(step, "capability_id", "") or _get(step, "name", "") for step in steps[:6]]
+        labels = [
+            _get(step, "description", "") or _get(step, "capability_id", "") or _get(step, "name", "")
+            for step in steps[:6]
+        ]
         return _truncate_text(" -> ".join(str(label) for label in labels if label), limit=700)
     return ""
 
@@ -1045,11 +1091,19 @@ def _task_dependency_edges(steps: list[Any]) -> list[dict[str, Any]]:
 
 def _verification_summary(steps: list[Any]) -> str:
     for step in reversed(steps):
-        verification = _get(step, "verification", None) or _get(step, "verification_result", None) or _get(step, "completion", None)
+        verification = (
+            _get(step, "verification", None)
+            or _get(step, "verification_result", None)
+            or _get(step, "completion", None)
+        )
         if verification:
             if isinstance(verification, str):
                 return _truncate_text(verification, limit=360)
-            status = _get(verification, "status", "") or _get(verification, "summary", "") or _get(verification, "message", "")
+            status = (
+                _get(verification, "status", "")
+                or _get(verification, "summary", "")
+                or _get(verification, "message", "")
+            )
             return _truncate_text(status or _json_preview(_to_plain(verification)), limit=360)
     return ""
 
@@ -1065,7 +1119,11 @@ def _final_output_summary(task: Any, steps: list[Any]) -> str:
             summary = _summarize_step_result(result)
             if summary.get("message") or summary.get("status"):
                 return _truncate_text(summary.get("message") or summary.get("status") or "", limit=360)
-            keys = ", ".join(str(key) for key in summary.get("keys", [])[:6]) if isinstance(summary.get("keys"), list) else ""
+            keys = (
+                ", ".join(str(key) for key in summary.get("keys", [])[:6])
+                if isinstance(summary.get("keys"), list)
+                else ""
+            )
             size = summary.get("size_chars")
             return _truncate_text(f"Step result available ({size} chars){f'; keys: {keys}' if keys else ''}", limit=360)
     return ""
@@ -1186,8 +1244,15 @@ def _task_step_projection(step: Any) -> dict[str, Any]:
         "updated_at": _get(step, "updated_at", 0),
         "error": _truncate_text(error),
         "result": _summarize_step_result(result),
-        "verification": _bound_for_ui(_get(step, "verification", None) or _get(step, "verification_result", None) or _get(step, "completion", None), max_depth=3),
-        "completion_condition": _bound_for_ui(_get(step, "completion_condition", None) or _get(step, "postcondition", None), max_depth=3),
+        "verification": _bound_for_ui(
+            _get(step, "verification", None)
+            or _get(step, "verification_result", None)
+            or _get(step, "completion", None),
+            max_depth=3,
+        ),
+        "completion_condition": _bound_for_ui(
+            _get(step, "completion_condition", None) or _get(step, "postcondition", None), max_depth=3
+        ),
         "cost_summary": _cost_summary(step),
     }
 
@@ -1252,7 +1317,9 @@ def _error_projection(entry: Any) -> dict[str, Any]:
         "id": data.get("id", "") or data.get("entry_id", ""),
         "action": data.get("action", ""),
         "source": data.get("source", ""),
-        "message": _truncate_text(detail.get("error", "") or data.get("error", "") or data.get("message", ""), limit=320),
+        "message": _truncate_text(
+            detail.get("error", "") or data.get("error", "") or data.get("message", ""), limit=320
+        ),
         "timestamp_ms": data.get("timestamp_ms", 0) or data.get("created_at", 0),
         "severity": "critical" if str(data.get("action", "")).endswith("_failed") else "warning",
     }
@@ -1344,7 +1411,9 @@ def _event_fields(event_type: str, payload: Any) -> dict[str, Any]:
         return ""
 
     capability_id = str(first("capability_id", "tool_id", "tool_name", "capability") or "")
-    server_id = str(first("server_id", "server") or _server_from_capability_id(capability_id) or _server_from_event_type(event_type))
+    server_id = str(
+        first("server_id", "server") or _server_from_capability_id(capability_id) or _server_from_event_type(event_type)
+    )
     status = str(first("status", "state", "decision") or _status_from_event_type(event_type))
     approval_id = str(first("approval_id", "request_id") or "")
     task_id = str(first("task_id") or "")

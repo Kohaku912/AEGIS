@@ -14,8 +14,7 @@ Usage:
 
 from __future__ import annotations
 
-import base64
-import io
+import hashlib
 import json
 import logging
 import os
@@ -327,19 +326,25 @@ class AutonomousLoop:
             if desire.hidden:
                 continue
             if desire.pressure >= self._pressure_threshold:
-                pressured.append({
-                    "name": name,
-                    "value": desire.value,
-                    "pressure": desire.pressure,
-                    "drift_rate": desire.drift_rate,
-                })
+                pressured.append(
+                    {
+                        "name": name,
+                        "value": desire.value,
+                        "pressure": desire.pressure,
+                        "drift_rate": desire.drift_rate,
+                    }
+                )
 
         if pressured:
             pressured.sort(key=lambda d: d["pressure"], reverse=True)
             top = pressured[0]
             logger.info(
                 "Pressure check: %d pressured. Top: %s=%.1f (pressure=%.1f, threshold=%.1f)",
-                len(pressured), top["name"], top["value"], top["pressure"], self._pressure_threshold,
+                len(pressured),
+                top["name"],
+                top["value"],
+                top["pressure"],
+                self._pressure_threshold,
             )
             return True
 
@@ -384,10 +389,7 @@ class AutonomousLoop:
         if agent_state is None:
             return []
         try:
-            return [
-                item.to_dict()
-                for item in agent_state.snapshot("autonomous priority").obligations
-            ]
+            return [item.to_dict() for item in agent_state.snapshot("autonomous priority").obligations]
         except Exception:
             return []
 
@@ -426,7 +428,7 @@ class AutonomousLoop:
         task_descriptions = []
         for i, t in enumerate(tasks):
             task_descriptions.append(
-                f"Task {i+1}: {t.get('action', '')} (capability: {t.get('capability_id', '')})\n"
+                f"Task {i + 1}: {t.get('action', '')} (capability: {t.get('capability_id', '')})\n"
                 f"  Purpose: {t.get('desire', '')} desire\n"
                 f"  Args: {json.dumps(t.get('arguments', {}), ensure_ascii=False)[:100]}"
             )
@@ -461,8 +463,7 @@ Respond with JSON:
             result = self._llm.generate(
                 prompt=prompt,
                 system_prompt=(
-                    "You are AEGIS's repetition checker. Review tasks for semantic duplication. "
-                    "Output only JSON."
+                    "You are AEGIS's repetition checker. Review tasks for semantic duplication. Output only JSON."
                 ),
                 max_tokens=800,
                 json_mode=True,
@@ -559,13 +560,15 @@ Respond with JSON:
         low_desires = self._get_low_desires()
         if not low_desires:
             if self._pending_actionable_observations or self._priority_obligations():
-                low_desires = [{
-                    "name": "user_support",
-                    "value": 0.0,
-                    "expected": 1.0,
-                    "pressure": 5.0,
-                    "gap": 1.0,
-                }]
+                low_desires = [
+                    {
+                        "name": "user_support",
+                        "value": 0.0,
+                        "expected": 1.0,
+                        "pressure": 5.0,
+                        "gap": 1.0,
+                    }
+                ]
             else:
                 logger.info("All desires above threshold, scheduling normal interval")
                 self._schedule_next(self._fallback_interval)
@@ -602,18 +605,21 @@ Respond with JSON:
             self._last_skip_reason = ""
 
         if self._reflection is not None:
-            failed_tasks = [(i, t, results[i]) for i, t in enumerate(tasks)
-                           if i < len(results) and not results[i].get("success")]
+            failed_tasks = [
+                (i, t, results[i]) for i, t in enumerate(tasks) if i < len(results) and not results[i].get("success")
+            ]
             for i, task, task_result in failed_tasks[:2]:
                 try:
                     reflection = self._reflection.reflect(
                         task_id=f"auto_{int(time.time() * 1000)}_{i}",
                         task_description=task.get("action", ""),
-                        tool_results=[{
-                            "status": "failed",
-                            "capability_id": "autonomous_task",
-                            "error": task_result.get("result", "")[:200],
-                        }],
+                        tool_results=[
+                            {
+                                "status": "failed",
+                                "capability_id": "autonomous_task",
+                                "error": task_result.get("result", "")[:200],
+                            }
+                        ],
                         source_desire=task.get("desire", ""),
                         frustration=task.get("expected_impact", 0.0),
                         desire_before=desire_before,
@@ -635,14 +641,16 @@ Respond with JSON:
             if desire.hidden:
                 continue
             if desire.pressure >= self._pressure_threshold:
-                low.append({
-                    "name": name,
-                    "value": desire.value,
-                    "expected": desire.expected_value,
-                    "pressure": desire.pressure,
-                    "drift_rate": desire.drift_rate,
-                    "gap": desire.pressure,
-                })
+                low.append(
+                    {
+                        "name": name,
+                        "value": desire.value,
+                        "expected": desire.expected_value,
+                        "pressure": desire.pressure,
+                        "drift_rate": desire.drift_rate,
+                        "gap": desire.pressure,
+                    }
+                )
         return sorted(low, key=lambda d: d["gap"], reverse=True)
 
     def _memory_root(self) -> Path:
@@ -720,19 +728,21 @@ Respond with JSON:
             from aegis_ai.memory.memory_types import MemoryRecord, MemorySource, MemoryType, Sensitivity, Visibility
 
             store = MemoryStore(data_dir=str(self._memory_root() / "memory_store"))
-            store.add_memory(MemoryRecord(
-                memory_type=MemoryType.FAILURE_LESSON.value,
-                title=title[:120],
-                content=content[:500],
-                source=MemorySource.SYSTEM_OBSERVATION.value,
-                related_task_id=related_task_id,
-                related_desire=related_desire,
-                structured_data={"failure_type": failure_type} if failure_type else {},
-                confidence=0.8,
-                importance=0.8,
-                visibility=Visibility.LLM_VISIBLE.value,
-                sensitivity=Sensitivity.NORMAL.value,
-            ))
+            store.add_memory(
+                MemoryRecord(
+                    memory_type=MemoryType.FAILURE_LESSON.value,
+                    title=title[:120],
+                    content=content[:500],
+                    source=MemorySource.SYSTEM_OBSERVATION.value,
+                    related_task_id=related_task_id,
+                    related_desire=related_desire,
+                    structured_data={"failure_type": failure_type} if failure_type else {},
+                    confidence=0.8,
+                    importance=0.8,
+                    visibility=Visibility.LLM_VISIBLE.value,
+                    sensitivity=Sensitivity.NORMAL.value,
+                )
+            )
         except Exception:
             logger.debug("Failed to record autonomous failure lesson", exc_info=True)
 
@@ -765,9 +775,7 @@ Respond with JSON:
             penalty += 0.3 * len(failure_lessons)
             reasons.append(f"{len(failure_lessons)} past failure lesson(s) for {source_desire}")
         rejected = [
-            record
-            for record in approval_lessons
-            if str(record.structured_data.get("decision") or "") == "rejected"
+            record for record in approval_lessons if str(record.structured_data.get("decision") or "") == "rejected"
         ]
         if rejected:
             penalty += 0.2 * len(rejected)
@@ -842,8 +850,7 @@ Respond with JSON:
             },
             "social": {
                 "goal": (
-                    "Review durable social obligations and respond only when "
-                    "reciprocity or user value warrants it."
+                    "Review durable social obligations and respond only when reciprocity or user value warrants it."
                 ),
                 "preferred_capabilities": [
                     "browser-server.feed.monitor",
@@ -872,12 +879,14 @@ Respond with JSON:
             meta = guide_map.get(name)
             if not meta:
                 continue
-            guides.append({
-                "desire": name,
-                "pressure": desire.get("pressure", 0.0),
-                "goal": meta["goal"],
-                "preferred_capabilities": list(meta["preferred_capabilities"]),
-            })
+            guides.append(
+                {
+                    "desire": name,
+                    "pressure": desire.get("pressure", 0.0),
+                    "goal": meta["goal"],
+                    "preferred_capabilities": list(meta["preferred_capabilities"]),
+                }
+            )
         return guides
 
     def _build_decision_axes(self, low_desires: list[dict[str, Any]]) -> dict[str, float]:
@@ -908,11 +917,7 @@ Respond with JSON:
                 unhealthy = sum(
                     1
                     for item in statuses
-                    if str(
-                        item.get("status", "")
-                        if isinstance(item, dict)
-                        else getattr(item, "status", "")
-                    ).lower()
+                    if str(item.get("status", "") if isinstance(item, dict) else getattr(item, "status", "")).lower()
                     not in {"online", "healthy", "ok", "disabled", "unconfigured"}
                 )
                 axes["system_health"] = max(axes["system_health"], float(unhealthy))
@@ -934,15 +939,17 @@ Respond with JSON:
             )
             hints = []
             for task in generator.generate(self._desire.create_snapshot())[:8]:
-                hints.append({
-                    "desire": task.source_desire,
-                    "title": task.title,
-                    "description": task.description,
-                    "required_capabilities": [
-                        cap_id for cap_id in task.required_capabilities if cap_id in valid_cap_ids
-                    ],
-                    "expected_desire_effects": task.expected_desire_effects,
-                })
+                hints.append(
+                    {
+                        "desire": task.source_desire,
+                        "title": task.title,
+                        "description": task.description,
+                        "required_capabilities": [
+                            cap_id for cap_id in task.required_capabilities if cap_id in valid_cap_ids
+                        ],
+                        "expected_desire_effects": task.expected_desire_effects,
+                    }
+                )
             return hints
         except Exception:
             logger.debug("Failed to build intrinsic task hints", exc_info=True)
@@ -1017,7 +1024,7 @@ Respond with JSON:
                 "Resolve these real obligations before optional desire work: "
                 + json.dumps(priority_obligations, ensure_ascii=False)
             )
-        for d in low_desires[:self._max_tasks]:
+        for d in low_desires[: self._max_tasks]:
             desire_context.append(f"{d['name']}:gap={d['gap']:.1f}")
         pending_observations = list(self._pending_actionable_observations[:5])
         if pending_observations:
@@ -1041,19 +1048,19 @@ Respond with JSON:
             return []
 
         catalog = None
-        if self._broker and hasattr(self._broker, '_catalog') and self._broker._catalog:
+        if self._broker and hasattr(self._broker, "_catalog") and self._broker._catalog:
             catalog = self._broker._catalog
 
         if not catalog:
             logger.error("No capability catalog available — cannot generate tasks")
             return []
 
-        desire_guides = self._desire_action_guides(low_desires[:self._max_tasks])
-        decision_axes = self._build_decision_axes(low_desires[:self._max_tasks])
+        desire_guides = self._desire_action_guides(low_desires[: self._max_tasks])
+        decision_axes = self._build_decision_axes(low_desires[: self._max_tasks])
         self._last_decision_axes = decision_axes
         intrinsic_hints = self._intrinsic_task_hints(valid_cap_ids)
         representative_ids = self._representative_capability_ids(
-            low_desires[:self._max_tasks],
+            low_desires[: self._max_tasks],
             valid_cap_ids,
             intrinsic_hints,
         )
@@ -1065,11 +1072,7 @@ Respond with JSON:
         for hint in intrinsic_hints:
             query_parts.append(f"{hint['title']}: {hint['description']}")
             query_parts.extend(hint.get("required_capabilities", []))
-        query_parts.extend(
-            obs.get("description", "")
-            for obs in pending_observations
-            if obs.get("description")
-        )
+        query_parts.extend(obs.get("description", "") for obs in pending_observations if obs.get("description"))
         retrieval_query = "; ".join(part for part in query_parts if part)
 
         action_history = self._build_action_history_summary(max_entries=10)
@@ -1206,7 +1209,7 @@ Operational decision axes (prioritization only; not additional desires):
 
         valid_tasks = []
         top_desire = low_desires[0]["name"] if low_desires else ""
-        for i, tc in enumerate(result.tool_calls[:self._max_tasks]):
+        for i, tc in enumerate(result.tool_calls[: self._max_tasks]):
             desire = low_desires[i]["name"] if i < len(low_desires) else top_desire
             normalized = self._normalize_tool_call(
                 catalog=catalog,
@@ -1233,7 +1236,9 @@ Operational decision axes (prioritization only; not additional desires):
                 pressure = float(
                     low_desires[i].get("pressure", 5.0)
                     if i < len(low_desires)
-                    else low_desires[0].get("pressure", 5.0) if low_desires else 5.0
+                    else low_desires[0].get("pressure", 5.0)
+                    if low_desires
+                    else 5.0
                 )
                 risk_name = str(option.get("risk_level") or "").lower()
                 risk_cost = {
@@ -1284,17 +1289,9 @@ Operational decision axes (prioritization only; not additional desires):
                     detail={"source": "task_generation", "desire": desire, "penalty": penalty},
                 )
                 continue
-            obligation = (
-                priority_obligations[i]
-                if i < len(priority_obligations)
-                else None
-            )
+            obligation = priority_obligations[i] if i < len(priority_obligations) else None
             guide = next(
-                (
-                    item
-                    for item in desire_guides
-                    if item.get("desire") == desire
-                ),
+                (item for item in desire_guides if item.get("desire") == desire),
                 {},
             )
             goal = (
@@ -1311,52 +1308,38 @@ Operational decision axes (prioritization only; not additional desires):
                     if manifest_completion
                     else "Independent verification demonstrates the autonomous outcome."
                 )
-            valid_tasks.append({
-                "desire": desire,
-                "action": f"Advance goal with {cap_id}",
-                "goal": goal,
-                "success_condition": success_condition,
-                "obligation_ids": (
-                    [str(obligation.get("obligation_id") or "")]
-                    if obligation and obligation.get("obligation_id")
-                    else []
-                ),
-                "presentation": {
-                    "report_when": "terminal",
-                    "audience": (
-                        "agent_private"
-                        if str(args.get("viewer") or "") == "agent_private"
-                        else "user"
+            valid_tasks.append(
+                {
+                    "desire": desire,
+                    "action": f"Advance goal with {cap_id}",
+                    "goal": goal,
+                    "success_condition": success_condition,
+                    "obligation_ids": (
+                        [str(obligation.get("obligation_id") or "")]
+                        if obligation and obligation.get("obligation_id")
+                        else []
                     ),
-                },
-                "delegation_context": {
-                    "operation_category": str(
-                        getattr(manifest, "operation_category", "") or "general"
-                    ),
-                    "scope": str(
-                        getattr(manifest, "ownership_scope", "") or "aegis"
-                    ),
-                    "audience": (
-                        "private"
-                        if str(args.get("viewer") or "") == "agent_private"
-                        else "user"
-                    ),
-                    "content_sensitivity": str(
-                        getattr(manifest, "content_sensitivity", "") or "normal"
-                    ),
-                    "reversibility": str(
-                        getattr(manifest, "reversibility", "") or "reversible"
-                    ),
-                },
-                "capability_id": cap_id,
-                "arguments": args,
-                "expected_impact": max(0.1, 0.5 - min(penalty, 0.4)),
-                "memory_penalty": penalty,
-                "memory_penalty_reason": penalty_reason,
-                "why_this_is_not_repeating": "",
-                "initiative_decision": initiative_decision,
-                "initiative_reason": initiative_reason,
-            })
+                    "presentation": {
+                        "report_when": "terminal",
+                        "audience": ("agent_private" if str(args.get("viewer") or "") == "agent_private" else "user"),
+                    },
+                    "delegation_context": {
+                        "operation_category": str(getattr(manifest, "operation_category", "") or "general"),
+                        "scope": str(getattr(manifest, "ownership_scope", "") or "aegis"),
+                        "audience": ("private" if str(args.get("viewer") or "") == "agent_private" else "user"),
+                        "content_sensitivity": str(getattr(manifest, "content_sensitivity", "") or "normal"),
+                        "reversibility": str(getattr(manifest, "reversibility", "") or "reversible"),
+                    },
+                    "capability_id": cap_id,
+                    "arguments": args,
+                    "expected_impact": max(0.1, 0.5 - min(penalty, 0.4)),
+                    "memory_penalty": penalty,
+                    "memory_penalty_reason": penalty_reason,
+                    "why_this_is_not_repeating": "",
+                    "initiative_decision": initiative_decision,
+                    "initiative_reason": initiative_reason,
+                }
+            )
 
         if not valid_tasks:
             logger.warning("LLM returned no valid tasks")
@@ -1401,9 +1384,7 @@ Operational decision axes (prioritization only; not additional desires):
                     raw_options.append(
                         {
                             "capability_id": capability.id,
-                            "disposition": (
-                                "propose_for_approval" if requires_approval else "execute_safe"
-                            ),
+                            "disposition": ("propose_for_approval" if requires_approval else "execute_safe"),
                             "policy_decision": "ASK_APPROVAL" if requires_approval else "ALLOW",
                             "policy_reason": "Legacy broker option",
                             "risk_level": getattr(getattr(capability, "risk_level", None), "name", ""),
@@ -1454,9 +1435,7 @@ Operational decision axes (prioritization only; not additional desires):
             }
 
         self._available_capability_count = sum(
-            1
-            for option in options.values()
-            if option["disposition"] in {"execute_safe", "propose_for_approval"}
+            1 for option in options.values() if option["disposition"] in {"execute_safe", "propose_for_approval"}
         )
         return options
 
@@ -1519,17 +1498,11 @@ Operational decision axes (prioritization only; not additional desires):
                             goal,
                             source="autonomous",
                             title=action[:100],
-                            success_condition=str(
-                                task.get("success_condition") or ""
-                            ),
-                            value_to_user=(
-                                "A real obligation or grounded autonomous objective is advanced."
-                            ),
+                            success_condition=str(task.get("success_condition") or ""),
+                            value_to_user=("A real obligation or grounded autonomous objective is advanced."),
                             obligation_ids=list(task.get("obligation_ids") or []),
                             presentation=dict(task.get("presentation") or {}),
-                            verification_criterion=(
-                                "Manifest-backed verification independently confirms the outcome."
-                            ),
+                            verification_criterion=("Manifest-backed verification independently confirms the outcome."),
                             priority=int(task.get("priority") or 0),
                         )
                     else:
@@ -1549,7 +1522,8 @@ Operational decision axes (prioritization only; not additional desires):
             trace = None
             if self._action_trace:
                 trace = self._action_trace.begin_trace(
-                    goal=action, context=f"desire:{desire_name}",
+                    goal=action,
+                    context=f"desire:{desire_name}",
                     desire_name=desire_name,
                 )
 
@@ -1589,6 +1563,7 @@ Operational decision axes (prioritization only; not additional desires):
             if capability_id and self._broker:
                 try:
                     from tool_broker import ExecutionSource, ToolExecutionRequest
+
                     request = ToolExecutionRequest(
                         task_id=task_id,
                         capability_id=capability_id,
@@ -1599,16 +1574,12 @@ Operational decision axes (prioritization only; not additional desires):
                         metadata={
                             "action_state": "selected",
                             "goal": goal,
-                            "delegation_context": dict(
-                                task.get("delegation_context") or {}
-                            ),
+                            "delegation_context": dict(task.get("delegation_context") or {}),
                             "continuation": task.get("continuation", {}),
                         },
                     )
                     result = self._broker.execute(request)
-                    raw_verification_status = getattr(
-                        result, "verification_status", ""
-                    )
+                    raw_verification_status = getattr(result, "verification_status", "")
                     verification_status = str(
                         getattr(
                             raw_verification_status,
@@ -1621,9 +1592,7 @@ Operational decision axes (prioritization only; not additional desires):
                     verification_evidence = [
                         str(item)
                         for item in (
-                            getattr(verification, "evidence", None)
-                            or getattr(verification, "details", None)
-                            or []
+                            getattr(verification, "evidence", None) or getattr(verification, "details", None) or []
                         )
                     ]
 
@@ -1673,20 +1642,30 @@ Operational decision axes (prioritization only; not additional desires):
                         full_output = error_details
 
                     if trace:
-                        self._action_trace.add_step(trace, description=action, tool_call=capability_id,
-                                                     tool_args=arguments, tool_result=result_summary[:200],
-                                                     success=success, error=failure_reason)
+                        self._action_trace.add_step(
+                            trace,
+                            description=action,
+                            tool_call=capability_id,
+                            tool_args=arguments,
+                            tool_result=result_summary[:200],
+                            success=success,
+                            error=failure_reason,
+                        )
                 except Exception as e:
                     result_summary = f"Error: {str(e)}"[:200]
                     failure_reason = str(e)
                     if trace:
-                        self._action_trace.add_step(trace, description=action, tool_call=capability_id,
-                                                     success=False, error=failure_reason)
+                        self._action_trace.add_step(
+                            trace, description=action, tool_call=capability_id, success=False, error=failure_reason
+                        )
             else:
                 from aegis_ai.autonomous.planner import AutonomousPlanner
+
                 planner = AutonomousPlanner(
-                    llm_provider=self._llm, tool_broker=self._broker,
-                    world_state_store=self._world, memory_store=self._memory,
+                    llm_provider=self._llm,
+                    tool_broker=self._broker,
+                    world_state_store=self._world,
+                    memory_store=self._memory,
                     policy_engine=self._policy,
                     data_dir=str(self._data_dir / "plans"),
                 )
@@ -1712,17 +1691,16 @@ Operational decision axes (prioritization only; not additional desires):
             # Complete action trace
             if trace:
                 self._action_trace.complete_trace(
-                    trace, success=success, result_summary=result_summary[:200],
+                    trace,
+                    success=success,
+                    result_summary=result_summary[:200],
                     failure_reason=failure_reason[:200],
                 )
 
             if task_id and self._task_manager:
                 try:
                     goal_service = getattr(self, "_goal_service", None)
-                    if (
-                        goal_service is not None
-                        and full_output.get("action_state") != "awaiting_approval"
-                    ):
+                    if goal_service is not None and full_output.get("action_state") != "awaiting_approval":
                         from aegis_ai.agency import GoalEvaluation
 
                         if success and verification_status == "passed":
@@ -1742,9 +1720,7 @@ Operational decision axes (prioritization only; not additional desires):
                                     "The capability returned successfully, but independent "
                                     "outcome verification did not pass."
                                 ),
-                                evidence=[
-                                    f"verification_status:{verification_status or 'unavailable'}"
-                                ],
+                                evidence=[f"verification_status:{verification_status or 'unavailable'}"],
                             )
                         else:
                             goal_evaluation = GoalEvaluation(
@@ -1758,24 +1734,22 @@ Operational decision axes (prioritization only; not additional desires):
                             response=result_summary[:200],
                         )
                     elif success:
-                        self._task_manager.complete_task(
-                            task_id, result_summary=result_summary[:200]
-                        )
+                        self._task_manager.complete_task(task_id, result_summary=result_summary[:200])
                     elif full_output.get("action_state") != "awaiting_approval":
                         self._task_manager.fail_task(task_id, error=failure_reason[:200])
                 except Exception:
                     pass
 
             result_record = {
-                "desire": desire_name, "action": action,
+                "desire": desire_name,
+                "action": action,
                 "capability_id": capability_id,
-                "result": result_summary[:200], "success": success,
+                "result": result_summary[:200],
+                "success": success,
                 "full_output": full_output,
                 "skill_used": skill_used.skill_id if skill_used else None,
                 "workflow_used": workflow_used.workflow_id if workflow_used else None,
-                "goal_status": (
-                    goal_evaluation.status if goal_evaluation is not None else ""
-                ),
+                "goal_status": (goal_evaluation.status if goal_evaluation is not None else ""),
                 "verification_status": verification_status,
             }
             results.append(result_record)
@@ -1795,8 +1769,10 @@ Operational decision axes (prioritization only; not additional desires):
                 if post_cap_id:
                     try:
                         from tool_broker import ExecutionSource, ToolExecutionRequest
+
                         post_request = ToolExecutionRequest(
-                            capability_id=post_cap_id, arguments=post_args,
+                            capability_id=post_cap_id,
+                            arguments=post_args,
                             source=ExecutionSource.AUTONOMOUS,
                             reason=f"Post-action for {desire_name}",
                         )
@@ -1967,8 +1943,8 @@ Operational decision axes (prioritization only; not additional desires):
         # Skip follow-up when all tasks succeeded with trivial results
         if len(previous_tasks) == len(previous_results):
             all_trivial = all(
-                r.get("success", False) and
-                (str(r.get("result", "")).lower().strip() in _TRIVIAL_RESULTS or len(str(r.get("result", ""))) < 20)
+                r.get("success", False)
+                and (str(r.get("result", "")).lower().strip() in _TRIVIAL_RESULTS or len(str(r.get("result", ""))) < 20)
                 for r in previous_results
             )
             if all_trivial:
@@ -1976,11 +1952,9 @@ Operational decision axes (prioritization only; not additional desires):
 
         context_parts = []
         for i, (task, result) in enumerate(zip(previous_tasks, previous_results)):
-            structured_output = json.dumps(
-                result.get("full_output", {}), ensure_ascii=False, default=str
-            )[:1500]
+            structured_output = json.dumps(result.get("full_output", {}), ensure_ascii=False, default=str)[:1500]
             context_parts.append(
-                f"Task {i+1}: {task.get('action', '')[:100]}\n"
+                f"Task {i + 1}: {task.get('action', '')[:100]}\n"
                 f"Result: {result.get('result', '')[:200]}\n"
                 f"Structured result: {structured_output}\n"
                 f"Success: {result.get('success', False)}\n"
@@ -1988,7 +1962,7 @@ Operational decision axes (prioritization only; not additional desires):
             )
 
         catalog = None
-        if self._broker and hasattr(self._broker, '_catalog') and self._broker._catalog:
+        if self._broker and hasattr(self._broker, "_catalog") and self._broker._catalog:
             catalog = self._broker._catalog
 
         if not catalog:
@@ -2083,15 +2057,17 @@ Rules:
                         detail={"source": "follow_up_generation", "desire": desire, "penalty": penalty},
                     )
                     continue
-                valid_tasks.append({
-                    "desire": desire,
-                    "action": f"Follow-up: {cap_id}",
-                    "capability_id": cap_id,
-                    "arguments": args,
-                    "expected_impact": max(0.1, 0.3 - min(penalty, 0.2)),
-                    "memory_penalty": penalty,
-                    "memory_penalty_reason": penalty_reason,
-                })
+                valid_tasks.append(
+                    {
+                        "desire": desire,
+                        "action": f"Follow-up: {cap_id}",
+                        "capability_id": cap_id,
+                        "arguments": args,
+                        "expected_impact": max(0.1, 0.3 - min(penalty, 0.2)),
+                        "memory_penalty": penalty,
+                        "memory_penalty_reason": penalty_reason,
+                    }
+                )
             return valid_tasks
         except Exception as e:
             logger.debug("Follow-up generation failed: %s", e)
@@ -2113,7 +2089,7 @@ Rules:
             except Exception:
                 vision_llm = self._llm
 
-        if not hasattr(vision_llm, 'generate_with_image'):
+        if not hasattr(vision_llm, "generate_with_image"):
             return "Screenshot captured (LLM does not support vision)"
 
         try:
@@ -2177,7 +2153,9 @@ Rules:
 
             logger.info(
                 "Task evaluation: cap=%s effect=%s deltas=%s",
-                capability_id, task_result.task_effect.value, task_result.desire_delta_hint,
+                capability_id,
+                task_result.task_effect.value,
+                task_result.desire_delta_hint,
             )
             self._log_audit_event(
                 action="autonomous_fulfillment_evaluated",
@@ -2209,7 +2187,8 @@ Rules:
                         old_val = current.value
                         new_val = max(0.0, min(10.0, old_val + delta))
                         self._desire.update_value(
-                            d_name, new_val,
+                            d_name,
+                            new_val,
                             reason=f"{task_result.summary} ({capability_id})",
                         )
                         logger.info("Desire %s: %.1f -> %.1f (delta=%.1f)", d_name, old_val, new_val, delta)
@@ -2246,9 +2225,19 @@ Rules:
         if not log_path.exists():
             return []
         try:
-            lines = log_path.read_text(encoding="utf-8").strip().split("\n")
+            max_bytes = 4 * 1024 * 1024
+            with log_path.open("rb") as fh:
+                size = log_path.stat().st_size
+                offset = max(0, size - max_bytes)
+                fh.seek(offset)
+                payload = fh.read(max_bytes)
+            if offset:
+                newline = payload.find(b"\n")
+                payload = payload[newline + 1 :] if newline >= 0 else b""
+            lines = payload.decode("utf-8", errors="replace").strip().split("\n")
             entries = []
             import json as _json
+
             for line in lines[-max_entries:]:
                 if line.strip():
                     entries.append(_json.loads(line))
@@ -2374,7 +2363,7 @@ Rules:
                 except Exception as e:
                     logger.warning("Failed to record experience: %s", e)
 
-            if self._memory and hasattr(self._memory, 'add_conversation'):
+            if self._memory and hasattr(self._memory, "add_conversation"):
                 try:
                     user_msg = f"[Autonomous] {action}"
                     detail = f"Capability: {capability_id}, Result: {observation[:100]}"
@@ -2387,17 +2376,20 @@ Rules:
             if self._action_trace:
                 try:
                     trace = self._action_trace.begin_trace(
-                        goal=action, context=f"autonomous_record:{desire_name}",
+                        goal=action,
+                        context=f"autonomous_record:{desire_name}",
                         desire_name=desire_name,
                     )
                     self._action_trace.add_step(
-                        trace, description=action,
+                        trace,
+                        description=action,
                         tool_call="autonomous_task",
                         tool_result=observation[:200],
                         success=success,
                     )
                     self._action_trace.complete_trace(
-                        trace, success=success,
+                        trace,
+                        success=success,
                         result_summary=observation[:200],
                     )
                     learning_recorded = True
@@ -2475,48 +2467,16 @@ Rules:
             self._next_run_ms = int(time.time() * 1000) + (interval_seconds * 1000)
         logger.info("Next autonomous run scheduled in %d seconds", interval_seconds)
 
-    def _store_image_artifact(self, image_base64: str, *, mime: str = "", hint: str = "image") -> dict[str, Any]:
-        raw = base64.b64decode(image_base64, validate=False)
-        timestamp = int(time.time() * 1000)
-        safe_hint = re.sub(r"[^A-Za-z0-9_.-]+", "_", hint)[:40] or "image"
-        ext = ".png"
-        if mime == "image/jpeg":
-            ext = ".jpg"
-        elif mime == "image/webp":
-            ext = ".webp"
-        elif mime == "image/gif":
-            ext = ".gif"
-        elif raw.startswith(b"BM"):
-            ext = ".bmp"
+    @staticmethod
+    def _summarize_image_payload(image_base64: str, *, mime: str = "") -> dict[str, Any]:
+        """Record image identity without duplicating the binary on disk."""
 
-        try:
-            from PIL import Image  # type: ignore
-
-            with Image.open(io.BytesIO(raw)) as img:
-                if img.mode in {"RGBA", "LA"} or "transparency" in img.info:
-                    out_path = self._artifact_dir / f"{timestamp}_{safe_hint}.png"
-                    img.save(out_path, format="PNG", optimize=True)
-                    out_mime = "image/png"
-                else:
-                    out_path = self._artifact_dir / f"{timestamp}_{safe_hint}.jpg"
-                    img.convert("RGB").save(out_path, format="JPEG", quality=72, optimize=True)
-                    out_mime = "image/jpeg"
-                return {
-                    "artifact_path": str(out_path),
-                    "mime": out_mime,
-                    "size_bytes": out_path.stat().st_size,
-                    "original_size_bytes": len(raw),
-                }
-        except Exception:
-            pass
-
-        out_path = self._artifact_dir / f"{timestamp}_{safe_hint}{ext}"
-        out_path.write_bytes(raw)
+        encoded = image_base64.encode("ascii", errors="replace")
         return {
-            "artifact_path": str(out_path),
+            "payload_omitted": True,
             "mime": mime or "application/octet-stream",
-            "size_bytes": out_path.stat().st_size,
-            "original_size_bytes": len(raw),
+            "encoded_length": len(encoded),
+            "sha256": hashlib.sha256(encoded).hexdigest(),
         }
 
     def _sanitize_for_execution_log(self, value: Any, *, key: str = "", depth: int = 0) -> Any:
@@ -2525,10 +2485,7 @@ Rules:
         if _SENSITIVE_KEY_RE.search(key):
             return "***MASKED***"
         if key in {"image_base64", "image_data"} and isinstance(value, str) and value:
-            try:
-                return self._store_image_artifact(value, hint=key)
-            except Exception as exc:
-                return {"artifact_error": str(exc), "original_length": len(value)}
+            return self._summarize_image_payload(value)
         if isinstance(value, dict):
             mime = str(value.get("image_mime") or value.get("mime") or "")
             if isinstance(value.get("image_base64"), str):
@@ -2538,19 +2495,15 @@ Rules:
                         for k, v in value.items()
                         if k != "image_base64"
                     }
-                    compact["image_artifact"] = self._store_image_artifact(
+                    compact["image_payload"] = self._summarize_image_payload(
                         str(value["image_base64"]),
                         mime=mime,
-                        hint=key or "image",
                     )
                     return compact
                 except Exception:
                     pass
             items = list(value.items())[:_LOG_DICT_LIMIT]
-            compact = {
-                str(k): self._sanitize_for_execution_log(v, key=str(k), depth=depth + 1)
-                for k, v in items
-            }
+            compact = {str(k): self._sanitize_for_execution_log(v, key=str(k), depth=depth + 1) for k, v in items}
             if len(value) > _LOG_DICT_LIMIT:
                 compact["_truncated_keys"] = len(value) - _LOG_DICT_LIMIT
             return compact
@@ -2636,12 +2589,14 @@ Rules:
 
     def trigger(self, reason: str = "", context: dict[str, Any] | None = None) -> dict[str, Any]:
         """Trigger an autonomous cycle from HookEngine or another manager."""
-        self._pending_actionable_observations.append({
-            "source": "self_call",
-            "reason": reason,
-            "context": context or {},
-            "created_at_ms": int(time.time() * 1000),
-        })
+        self._pending_actionable_observations.append(
+            {
+                "source": "self_call",
+                "reason": reason,
+                "context": context or {},
+                "created_at_ms": int(time.time() * 1000),
+            }
+        )
         logger.info("Self-call trigger requested: %s", reason)
         self._execute_cycle()
         return self.get_status()

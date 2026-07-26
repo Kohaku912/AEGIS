@@ -93,6 +93,24 @@ class CapabilitySelection:
 class _HashEmbeddingFunction:
     """Deterministic local embedding for Chroma without external downloads."""
 
+    @staticmethod
+    def name() -> str:
+        """Return the stable Chroma embedding-function identifier."""
+
+        return "aegis_hash_128"
+
+    @staticmethod
+    def build_from_config(config: dict[str, Any]) -> _HashEmbeddingFunction:
+        """Recreate the stateless function from Chroma configuration."""
+
+        del config
+        return _HashEmbeddingFunction()
+
+    def get_config(self) -> dict[str, Any]:
+        """Return serializable Chroma configuration."""
+
+        return {"dimension": _EMBEDDING_DIM}
+
     def __call__(self, input: list[str]) -> list[list[float]]:  # noqa: A002 - Chroma requires this name.
         return [_hash_embedding(text) for text in input]
 
@@ -120,13 +138,7 @@ class CapabilityIndex:
     def reindex(self) -> None:
         """Reload searchable documents from the current catalog state."""
 
-        docs = {
-            doc.id: doc
-            for doc in (
-                _document_from_manifest(manifest)
-                for manifest in self._catalog.list_all()
-            )
-        }
+        docs = {doc.id: doc for doc in (_document_from_manifest(manifest) for manifest in self._catalog.list_all())}
         with self._lock:
             self._documents = docs
             self._rebuild_chroma_locked()
@@ -147,11 +159,7 @@ class CapabilityIndex:
         allowed_ids: set[str] | None = None,
     ) -> list[CapabilitySearchResult]:
         with self._lock:
-            docs = [
-                doc
-                for doc in self._documents.values()
-                if allowed_ids is None or doc.id in allowed_ids
-            ]
+            docs = [doc for doc in self._documents.values() if allowed_ids is None or doc.id in allowed_ids]
             vector_scores = self._vector_scores_locked(query, top_k=max(top_k * 3, top_k), allowed_ids=allowed_ids)
 
         results: list[CapabilitySearchResult] = []
@@ -160,12 +168,7 @@ class CapabilityIndex:
             keyword_score = _keyword_score(query, doc)
             tag_score = _tag_score(query, doc)
             priority_score = _priority_score(doc)
-            combined = (
-                0.45 * vector_score
-                + 0.35 * keyword_score
-                + 0.10 * tag_score
-                + 0.10 * priority_score
-            )
+            combined = 0.45 * vector_score + 0.35 * keyword_score + 0.10 * tag_score + 0.10 * priority_score
             results.append(
                 CapabilitySearchResult(
                     document=doc,
@@ -376,7 +379,11 @@ def build_always_direct_tools() -> list[dict[str, Any]]:
                     "type": "object",
                     "properties": {
                         "query": {"type": "string", "description": "Natural language capability search query."},
-                        "top_k": {"type": "integer", "description": "Maximum number of summaries to return.", "default": 10},
+                        "top_k": {
+                            "type": "integer",
+                            "description": "Maximum number of summaries to return.",
+                            "default": 10,
+                        },
                     },
                     "required": ["query"],
                 },
