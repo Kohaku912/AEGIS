@@ -1,10 +1,13 @@
 package com.aegis.android.grpc
 
 import android.Manifest
+import android.app.ActivityOptions
+import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import android.provider.Settings
 import androidx.core.content.ContextCompat
 import aegis.AndroidServerOuterClass
@@ -249,7 +252,29 @@ class AndroidCapabilityDispatcher(
                 Intent.FLAG_ACTIVITY_SINGLE_TOP,
         )
         return try {
-            context.startActivity(intent)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                val pendingIntent = PendingIntent.getActivity(
+                    context,
+                    packageName.hashCode(),
+                    intent,
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+                )
+                val options = ActivityOptions.makeBasic().apply {
+                    pendingIntentBackgroundActivityStartMode =
+                        ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED
+                }
+                pendingIntent.send(
+                    context,
+                    0,
+                    null,
+                    null,
+                    null,
+                    null,
+                    options.toBundle(),
+                )
+            } else {
+                context.startActivity(intent)
+            }
             ok(JSONObject().put("opened", true).put("package_name", packageName))
         } catch (exc: Exception) {
             error("ANDROID_COMMAND_FAILED", "Open app failed: ${exc.message}")

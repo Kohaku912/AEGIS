@@ -107,7 +107,7 @@ def test_run_loads_env_and_returns_explicit_since_posts(monkeypatch) -> None:
     assert [post["id"] for post in result["posts"]] == [212, 213, 214]
 
 
-def test_default_run_advances_cursor_once_and_next_read_is_empty(monkeypatch) -> None:
+def test_default_run_keeps_cursor_until_social_processing_finishes(monkeypatch) -> None:
     executor = _load_executor_module()
     monkeypatch.setenv("AGORA_TOKEN", "test-token")
     monkeypatch.setattr(executor, "_load_env_files", lambda: None)
@@ -151,9 +151,10 @@ def test_default_run_advances_cursor_once_and_next_read_is_empty(monkeypatch) ->
 
     assert first["read_mode"] == "unread"
     assert first["unread_count"] == 2
-    assert first["cursor_after"] == 225
-    assert second["message"] == "AGORA: No new posts."
-    assert second["posts"] == []
-    assert second["unread_count"] == 0
-    assert client.cursor_updates == [225]
-    assert len(sync_calls) == 1
+    assert first["cursor_after"] == 223
+    assert first["retrieved_through"] == 225
+    assert first["processing_pending"] is True
+    assert second["unread_count"] == 2
+    assert second["cursor_after"] == 223
+    assert client.cursor_updates == []
+    assert len(sync_calls) == 2

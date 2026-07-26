@@ -133,15 +133,11 @@ def run(payload: dict[str, Any]) -> dict[str, Any]:
         return _error_payload(str(result.get("message", result.get("error", "AGORA read failed"))), agora_error=result)
 
     posts = result.posts
+    # Reading is not acknowledgement. The runtime SocialManager owns the
+    # durable inbox lifecycle and advances the shared cursor only after each
+    # item reaches a terminal state (replied, dismissed, or failed). This
+    # fallback executor therefore leaves the remote cursor untouched.
     cursor_after = meta["cursor"]
-    if since_id == 0 and posts and result.max_post_id > 0:
-        updated_cursor = client.update_cursor(result.max_post_id)
-        if isinstance(updated_cursor, dict) and updated_cursor.get("error"):
-            return _error_payload(
-                str(updated_cursor.get("message", updated_cursor.get("error", "AGORA cursor update failed"))),
-                cursor_error=updated_cursor,
-            )
-        cursor_after = _cursor_value(updated_cursor) or result.max_post_id
 
     if posts:
         sync_result = sync_agora_posts_to_memory(
@@ -173,7 +169,9 @@ def run(payload: dict[str, Any]) -> dict[str, Any]:
         "unread_count": len(posts) if meta["read_mode"] == "unread" else 0,
         "fetched_count": len(posts),
         "max_post_id": result.max_post_id,
+        "retrieved_through": result.max_post_id,
         "cursor_after": cursor_after,
+        "processing_pending": bool(posts and meta["read_mode"] == "unread"),
     })
     return payload_out
 

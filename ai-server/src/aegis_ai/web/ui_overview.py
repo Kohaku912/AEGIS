@@ -1653,10 +1653,12 @@ def _bound_for_ui(
     max_list_items: int = _MAX_UI_LIST_ITEMS,
     max_dict_items: int = _MAX_UI_DICT_ITEMS,
 ) -> Any:
-    if max_depth <= 0:
-        return _truncate_text(_json_preview(value), limit=max_string_chars)
     if isinstance(value, str):
         return _truncate_text(value, limit=max_string_chars)
+    if value is None or isinstance(value, (bool, int, float)):
+        return value
+    if max_depth <= 0:
+        return _truncate_text(_json_preview(value), limit=max_string_chars)
     if isinstance(value, dict):
         items = list(value.items())
         bounded = {

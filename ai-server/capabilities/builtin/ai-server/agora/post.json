@@ -6,11 +6,11 @@
   "action": "post",
   "operation_category": "social_communication",
   "risk": {
-    "level": "safe",
+    "level": "approval_required",
     "side_effects": [
       "social_post"
     ],
-    "requires_approval": false
+    "requires_approval": true
   },
   "ownership_scope": "external",
   "reversibility": "recoverable",

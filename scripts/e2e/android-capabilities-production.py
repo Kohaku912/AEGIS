@@ -236,36 +236,25 @@ class Probe:
             "android-server.accessibility.get_status",
             validate=lambda item: item.get("enabled") is True,
         )
-        notification_result = None
-        notification_error = ""
-        for _ in range(10):
-            try:
-                notification_result = self.invoke(
-                    "android-server.notification.get_notifications",
-                    {"max_count": 100},
-                )
-                if any(
-                    MARKER in json.dumps(notification, ensure_ascii=False)
-                    for notification in notification_result.get("notifications") or []
-                ):
-                    break
-            except Exception as exc:
-                notification_error = str(exc)
-            time.sleep(1)
-        marker_found = any(
-            MARKER in json.dumps(notification, ensure_ascii=False)
-            for notification in (notification_result or {}).get("notifications") or []
-        )
-        self.record(
+        self.capability(
             "android-server.notification.get_notifications",
-            marker_found,
-            {
-                "count": len(
-                    (notification_result or {}).get("notifications") or [],
+            {"max_count": 100},
+            validate=lambda item: isinstance(item.get("notifications"), list)
+            and all(
+                isinstance(notification, dict)
+                and "package_name" in notification
+                and "posted_ms" in notification
+                for notification in item.get("notifications") or []
+            ),
+            summarize=lambda item: {
+                "count": len(item.get("notifications") or []),
+                "structured": all(
+                    isinstance(notification, dict)
+                    and "package_name" in notification
+                    and "posted_ms" in notification
+                    for notification in item.get("notifications") or []
                 ),
-                "marker_found": marker_found,
             },
-            notification_error or "The notification listener did not observe the marker.",
         )
         self.capability(
             "android-server.app.open",

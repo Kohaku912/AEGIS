@@ -114,6 +114,25 @@ class _HashEmbeddingFunction:
     def __call__(self, input: list[str]) -> list[list[float]]:  # noqa: A002 - Chroma requires this name.
         return [_hash_embedding(text) for text in input]
 
+    def embed_query(self, input: list[str]) -> list[list[float]]:  # noqa: A002 - Chroma protocol name.
+        """Embed search queries using the same deterministic local transform."""
+        return self(input)
+
+    @staticmethod
+    def is_legacy() -> bool:
+        """Declare support for Chroma's current embedding-function protocol."""
+        return False
+
+    @staticmethod
+    def default_space() -> str:
+        """Return the distance space used by the normalized embeddings."""
+        return "cosine"
+
+    @staticmethod
+    def supported_spaces() -> list[str]:
+        """Return spaces supported by this embedding implementation."""
+        return ["cosine", "l2", "ip"]
+
 
 class CapabilityIndex:
     """Hybrid in-memory + Chroma index over capability manifests."""

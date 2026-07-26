@@ -6,11 +6,13 @@ Background health checks with cached snapshots for non-blocking reads.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import socket
 import threading
 import time
+import urllib.request
 from enum import Enum
 from typing import Any
 
@@ -220,17 +222,27 @@ class StatusManager:
                     self._status[server_id]["last_check_ms"] = int(time.time() * 1000)
                 continue
 
-            is_up = self._check_port(host, port)
             old_status = self._status.get(server_id, {}).get("status", ServerStatus.UNKNOWN.value)
-            new_status = ServerStatus.ONLINE.value if is_up else ServerStatus.OFFLINE.value
+            details: dict[str, Any] = {}
+            if server_id == "browser-server":
+                new_status, details = self._check_browser_health(host, port)
+                is_up = new_status in {ServerStatus.ONLINE.value, ServerStatus.DEGRADED.value}
+            else:
+                is_up = self._check_port(host, port)
+                new_status = ServerStatus.ONLINE.value if is_up else ServerStatus.OFFLINE.value
 
             with self._lock:
                 self._status[server_id]["last_check_ms"] = int(time.time() * 1000)
-                self._status[server_id]["mode"] = "enabled"
+                self._status[server_id]["mode"] = str(details.get("mode") or "enabled")
+                self._status[server_id].update(details)
+                self._status[server_id]["error"] = (
+                    str(details.get("degraded_reason") or "") or None
+                    if is_up
+                    else str(details.get("error") or f"Port {port} unreachable")
+                )
                 if self._status[server_id]["status"] != new_status:
                     self._status[server_id]["status"] = new_status
                     self._status[server_id]["last_change_ms"] = int(time.time() * 1000)
-                    self._status[server_id]["error"] = None if is_up else f"Port {port} unreachable"
                     self._publish_change(server_id, old_status, new_status)
 
     def _check_port(self, host: str, port: int) -> bool:
@@ -242,6 +254,34 @@ class StatusManager:
             return True
         except Exception:
             return False
+
+    def _check_browser_health(self, host: str, port: int) -> tuple[str, dict[str, Any]]:
+        """Read Browser Server's structured health instead of inferring health from an open port."""
+        try:
+            with urllib.request.urlopen(f"http://{host}:{port}/health", timeout=self._timeout) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+            health = str(payload.get("status") or "").lower()
+            status = ServerStatus.DEGRADED.value if health == "degraded" else ServerStatus.ONLINE.value
+            return status, {
+                "capabilities": int(payload.get("capabilities", 0) or 0),
+                "version": str(payload.get("version") or ""),
+                "mode": str(payload.get("mode") or "enabled"),
+                "browser_use_available": bool(payload.get("browser_use_available", False)),
+                "playwright_available": bool(payload.get("playwright_available", False)),
+                "profile_root": str(payload.get("profile_root") or ""),
+                "profile_name": str(payload.get("profile_name") or ""),
+                "headless": bool(payload.get("headless", True)),
+                "resources": dict(payload.get("resources") or {}),
+                "degraded_reason": str(payload.get("degraded_reason") or ""),
+                "recovery_hint": str(payload.get("recovery_hint") or ""),
+            }
+        except Exception as exc:
+            if self._check_port(host, port):
+                return ServerStatus.DEGRADED.value, {
+                    "degraded_reason": f"Browser health endpoint failed: {exc}",
+                    "recovery_hint": "Inspect Browser Server health and logs.",
+                }
+            return ServerStatus.OFFLINE.value, {"error": f"Port {port} unreachable"}
 
     def _update_status(self, server_id: str, status: ServerStatus, error: str = "") -> None:
         with self._lock:
