@@ -12,7 +12,6 @@ import re
 import secrets
 import threading
 import time
-from dataclasses import dataclass
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Any
@@ -74,6 +73,26 @@ def _safe_int(value: Any, default: int = 0) -> int:
         return default
 
 
+def _iter_lines_reverse(path: Path, chunk_size: int = 64 * 1024):
+    """Yield UTF-8 JSONL records newest-first without loading the file."""
+    with path.open("rb") as stream:
+        stream.seek(0, os.SEEK_END)
+        position = stream.tell()
+        remainder = b""
+        while position > 0:
+            read_size = min(chunk_size, position)
+            position -= read_size
+            stream.seek(position)
+            block = stream.read(read_size) + remainder
+            lines = block.split(b"\n")
+            remainder = lines[0]
+            for line in reversed(lines[1:]):
+                if line.strip():
+                    yield line.decode("utf-8")
+        if remainder.strip():
+            yield remainder.decode("utf-8")
+
+
 class TimelineStore:
     """Append-only daily JSONL storage for normalized user-state events."""
 
@@ -95,8 +114,14 @@ class TimelineStore:
     def query_recent(self, *, limit: int = 100, source: str | None = None, since_ms: int | None = None) -> list[dict[str, Any]]:
         limit = max(1, min(5000, int(limit or 100)))
         events: list[dict[str, Any]] = []
+        oldest_day = _day_from_ms(since_ms) if since_ms is not None else None
         for path in sorted(self._dir.glob("*.jsonl"), reverse=True):
-            for line in reversed(path.read_text(encoding="utf-8").splitlines()):
+            # Daily files and their event timestamps use the same JST boundary.
+            # Once a file predates the requested day, every remaining file is
+            # out of range; continuing used to rescan the entire archive.
+            if oldest_day is not None and path.stem < oldest_day:
+                break
+            for line in _iter_lines_reverse(path):
                 if not line.strip():
                     continue
                 try:
