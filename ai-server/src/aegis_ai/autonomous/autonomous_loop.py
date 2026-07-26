@@ -537,6 +537,26 @@ Respond with JSON:
             self._save()
             return
 
+        # The LLM interval is an invariant for the whole autonomous cycle.
+        # Check it before audit-history usage accounting and context building,
+        # both of which can be expensive even though no LLM call is allowed.
+        now_llm = int(time.time() * 1000)
+        if now_llm - self._last_llm_call_ms < self._min_llm_interval_ms:
+            remaining = (
+                self._min_llm_interval_ms
+                - (now_llm - self._last_llm_call_ms)
+            ) // 1000
+            logger.info(
+                "LLM interval gate: %ds remaining until next LLM call",
+                remaining,
+            )
+            self._last_skip_reason = (
+                f"llm_interval_gate ({remaining}s remaining)"
+            )
+            self._schedule_next(max(1, min(60, remaining)))
+            self._save()
+            return
+
         should_proceed, preflight_reason = self._preflight_check()
         if not should_proceed:
             logger.info("Preflight blocked: %s", preflight_reason)
@@ -574,15 +594,6 @@ Respond with JSON:
                 self._schedule_next(self._fallback_interval)
                 self._save()
                 return
-
-        now_llm = int(time.time() * 1000)
-        if now_llm - self._last_llm_call_ms < self._min_llm_interval_ms:
-            remaining = (self._min_llm_interval_ms - (now_llm - self._last_llm_call_ms)) // 1000
-            logger.info("LLM interval gate: %ds remaining until next LLM call", remaining)
-            self._last_skip_reason = f"llm_interval_gate ({remaining}s remaining)"
-            self._schedule_next(max(1, min(60, remaining)))
-            self._save()
-            return
 
         self._last_pressure_signature = self._desire.get_pressure_signature()
 

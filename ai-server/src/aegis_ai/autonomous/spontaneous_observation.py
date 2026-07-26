@@ -118,6 +118,7 @@ class SpontaneousObservationSystem:
         self._observation_history: list[dict[str, Any]] = []
         self._observed_server_states: dict[str, str] = {}
         self._observed_desire_bands: dict[str, str] = {}
+        self._observed_failure_signature: tuple[str, ...] | None = None
         self._last_data_size_check_ms = 0
         self._last_data_size_bytes: int | None = None
 
@@ -237,7 +238,17 @@ class SpontaneousObservationSystem:
         if self._action_trace:
             try:
                 recent_failed = self._action_trace.get_failed(count=10)
-                if len(recent_failed) >= 3:
+                failure_signature = tuple(
+                    str(trace.trace_id)
+                    for trace in recent_failed
+                    if getattr(trace, "trace_id", "")
+                )
+                previous_signature = self._observed_failure_signature
+                self._observed_failure_signature = failure_signature
+                if (
+                    len(recent_failed) >= 3
+                    and previous_signature != failure_signature
+                ):
                     goals = [t.goal[:40] for t in recent_failed[:3]]
                     obs.append(Observation(
                         observation_id=f"obs_{os.urandom(4).hex()}",
@@ -346,7 +357,11 @@ class SpontaneousObservationSystem:
             status = str(state.get("status") or "unknown").lower()
             previous_status = self._observed_server_states.get(server_id)
             self._observed_server_states[server_id] = status
-            if previous_status == status or status not in {"offline", "degraded"}:
+            if (
+                previous_status is None
+                or previous_status == status
+                or status not in {"offline", "degraded"}
+            ):
                 continue
             obs.append(
                 Observation(
