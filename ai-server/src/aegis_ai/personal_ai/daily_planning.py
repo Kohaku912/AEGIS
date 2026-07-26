@@ -25,11 +25,21 @@ class DailyPlanningManager:
         self._llm = llm
         self._commitments = commitment_manager
         self._continuations = continuation_manager
+        self._agent_state: Any = None
+
+    def set_agent_state(self, agent_state: Any) -> None:
+        """Use the process-wide state facade for planning context."""
+        self._agent_state = agent_state
 
     def generate(self, date: str | None = None) -> dict[str, Any]:
         day = date or dt.date.today().isoformat()
         commitments = self._commitments.list_commitments(status="open") if self._commitments else []
         open_loops = self._continuations.list_open() if self._continuations else []
+        decision_context = (
+            self._agent_state.snapshot(f"daily plan for {day}").to_dict()
+            if self._agent_state is not None
+            else {}
+        )
         if self._llm is None:
             plan = {
                 "date": day,
@@ -50,6 +60,9 @@ Commitments:
 
 Open loops:
 {json.dumps(open_loops, ensure_ascii=False)}
+
+Shared AgentState:
+{json.dumps(decision_context, ensure_ascii=False)}
 
 Return JSON with a summary and an items array. Each item must contain goal,
 why_today, source_id, next_action, requires_approval, success_condition, and

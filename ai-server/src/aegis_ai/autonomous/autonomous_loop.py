@@ -365,7 +365,8 @@ class AutonomousLoop:
         pressure_state = self._desire.get_pressure_state()
         max_pressure = max((d["pressure"] for d in pressure_state.values()), default=0.0)
 
-        if max_pressure < self._pressure_threshold:
+        has_obligations = bool(self._priority_obligations())
+        if max_pressure < self._pressure_threshold and not has_obligations:
             return False, f"all_pressure_below_threshold (max={max_pressure:.1f} < {self._pressure_threshold:.1f})"
 
         if not self._llm:
@@ -375,7 +376,20 @@ class AutonomousLoop:
         if high_usage:
             return False, usage_reason
 
-        return True, "ok"
+        return True, "priority_obligation" if has_obligations else "ok"
+
+    def _priority_obligations(self) -> list[dict[str, Any]]:
+        """Return unresolved duties from the shared AgentState."""
+        agent_state = getattr(self, "_agent_state", None)
+        if agent_state is None:
+            return []
+        try:
+            return [
+                item.to_dict()
+                for item in agent_state.snapshot("autonomous priority").obligations
+            ]
+        except Exception:
+            return []
 
     def _llm_usage_high(self) -> tuple[bool, str]:
         if self._llm_usage_token_limit <= 0 or self._audit_log is None:
@@ -544,7 +558,7 @@ Respond with JSON:
 
         low_desires = self._get_low_desires()
         if not low_desires:
-            if self._pending_actionable_observations:
+            if self._pending_actionable_observations or self._priority_obligations():
                 low_desires = [{
                     "name": "user_support",
                     "value": 0.0,
@@ -648,10 +662,19 @@ Respond with JSON:
             profile=profile,
             has_social_actions=has_social_actions,
         )
+        agent_state = getattr(self, "_agent_state", None)
+        decision_text = ""
+        if agent_state is not None:
+            try:
+                decision_text = agent_state.snapshot(query).to_context_string()
+            except Exception:
+                decision_text = ""
         if memory_context.text:
             prompt = f"Shared memory context:\n{memory_context.text}\n\n{base_prompt}"
         else:
             prompt = base_prompt
+        if decision_text:
+            prompt = f"Shared AgentState:\n{decision_text}\n\n{prompt}"
         return prompt, memory_context.audit_detail()
 
     def _has_social_actions(self, valid_cap_ids: set[str]) -> bool:
@@ -988,6 +1011,12 @@ Respond with JSON:
             return []
 
         desire_context = []
+        priority_obligations = self._priority_obligations()[:12]
+        if priority_obligations:
+            desire_context.append(
+                "Resolve these real obligations before optional desire work: "
+                + json.dumps(priority_obligations, ensure_ascii=False)
+            )
         for d in low_desires[:self._max_tasks]:
             desire_context.append(f"{d['name']}:gap={d['gap']:.1f}")
         pending_observations = list(self._pending_actionable_observations[:5])
@@ -1072,7 +1101,9 @@ Respond with JSON:
 
 Recent: {action_history}
 
-Select up to {self._max_tasks} capabilities to address the low desires.
+Select up to {self._max_tasks} capabilities to advance an explicit outcome.
+Resolve supplied incidents, commitments, and social obligations before optional desire work.
+It is valid to select no capability when action is unnecessary or cannot advance a verified outcome.
 Do NOT repeat recent actions by purpose.
 Choose an action only if its expected value exceeds risk, interruption, repetition, cost, and uncertainty.
 

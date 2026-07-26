@@ -44,6 +44,20 @@ logger = logging.getLogger("aegis_ai.web.dashboard")
 def _call_llm_with_runtime(call_llm_with_tools, llm, text, system_prompt, *, catalog, context_meta, runtime):
     """Call chat_tools while preserving older test fakes."""
 
+    agent_state = getattr(runtime, "agent_state", None)
+    if agent_state is not None:
+        try:
+            decision = agent_state.snapshot(text)
+            system_prompt = (
+                f"{system_prompt}\n\nShared AgentState:\n"
+                f"{decision.to_context_string()}"
+            )
+            context_meta = dict(context_meta)
+            context_meta["decision_context_id"] = decision.context_id
+            context_meta["mission_contract_version"] = decision.mission_version
+        except Exception:
+            logger.debug("Failed to attach shared AgentState", exc_info=True)
+
     try:
         parameters = inspect.signature(call_llm_with_tools).parameters
     except (TypeError, ValueError):
@@ -2642,13 +2656,17 @@ class DashboardApp:
             task_id = ""
             if hasattr(self._runtime, "task_manager") and self._runtime.task_manager:
                 try:
-                    task = self._runtime.task_manager.create_task(
-                        title=f"Chat: {text[:50]}",
-                        goal=text,
-                        source="chat",
-                    )
+                    goal_service = getattr(self._runtime, "goal_service", None)
+                    if goal_service is not None:
+                        task = goal_service.create_chat_task(text, source="chat")
+                    else:
+                        task = self._runtime.task_manager.create_task(
+                            title=f"Chat: {text[:50]}",
+                            goal=text,
+                            source="chat",
+                        )
+                        self._runtime.task_manager.start_task(task["task_id"])
                     task_id = task.get("task_id", "")
-                    self._runtime.task_manager.start_task(task_id)
                 except Exception:
                     logger.debug("Failed to create streaming chat task", exc_info=True)
 
@@ -2696,8 +2714,28 @@ class DashboardApp:
 
                     _save_chat(text, response_text)
                     if task_id and not result.get("approval_needed"):
-                        self._runtime.task_manager.complete_task(task_id, result_summary=response_text[:200])
-                    yield f"data: {j.dumps({'type': 'done'})}\n\n"
+                        goal_service = getattr(self._runtime, "goal_service", None)
+                        if goal_service is not None:
+                            evaluation = goal_service.finalize_chat_task(
+                                task_id,
+                                user_goal=text,
+                                response=response_text,
+                                tool_results=list(result.get("tool_results") or []),
+                            )
+                            done_payload = {
+                                "type": "done",
+                                "goal_status": evaluation.status,
+                                "goal_reason": evaluation.reason,
+                            }
+                        else:
+                            self._runtime.task_manager.complete_task(
+                                task_id,
+                                result_summary=response_text[:200],
+                            )
+                            done_payload = {"type": "done"}
+                    else:
+                        done_payload = {"type": "done"}
+                    yield f"data: {j.dumps(done_payload)}\n\n"
 
                 except Exception as e:
                     if task_id:
@@ -2723,13 +2761,17 @@ class DashboardApp:
             try:
                 # Create TaskManager task for chat
                 if hasattr(self._runtime, 'task_manager') and self._runtime.task_manager:
-                    task = self._runtime.task_manager.create_task(
-                        title=f"Chat: {text[:50]}",
-                        goal=text,
-                        source="chat",
-                    )
+                    goal_service = getattr(self._runtime, "goal_service", None)
+                    if goal_service is not None:
+                        task = goal_service.create_chat_task(text, source="chat")
+                    else:
+                        task = self._runtime.task_manager.create_task(
+                            title=f"Chat: {text[:50]}",
+                            goal=text,
+                            source="chat",
+                        )
+                        self._runtime.task_manager.start_task(task["task_id"])
                     task_id = task.get("task_id") if isinstance(task, dict) else task
-                    self._runtime.task_manager.start_task(task_id)
 
                 from aegis_ai.web.chat_tools import call_llm_with_tools
                 llm = self._runtime.llm_gateway
@@ -2799,7 +2841,21 @@ class DashboardApp:
 
                 # Complete TaskManager task
                 if task_id and not result.get("approval_needed"):
-                    self._runtime.task_manager.complete_task(task_id, result_summary=response_text[:200])
+                    goal_service = getattr(self._runtime, "goal_service", None)
+                    if goal_service is not None:
+                        evaluation = goal_service.finalize_chat_task(
+                            task_id,
+                            user_goal=text,
+                            response=response_text,
+                            tool_results=list(tool_results or []),
+                        )
+                        resp["goal_status"] = evaluation.status
+                        resp["goal_reason"] = evaluation.reason
+                    else:
+                        self._runtime.task_manager.complete_task(
+                            task_id,
+                            result_summary=response_text[:200],
+                        )
 
                 return jsonify(resp)
 

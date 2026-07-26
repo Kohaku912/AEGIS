@@ -13,20 +13,24 @@ from dataclasses import dataclass, field
 from enum import Enum, auto
 from typing import Any
 
+from aegis_ai.agency.goal_graph import GoalGraph
+
 
 class RiskCategory(Enum):
     """Risk categories for task actions."""
-    READ = auto()              # Read-only, no side effects
-    DRAFT = auto()             # Create content locally, no external send
-    OBSERVE = auto()           # Device observation (screenshot, window list)
-    EXTERNAL_SEND = auto()     # Send/post/publish externally
-    DEVICE_ACTION = auto()     # Physical device control
-    PAYMENT = auto()           # Financial operations
-    BLOCKED = auto()           # Always blocked
+
+    READ = auto()  # Read-only, no side effects
+    DRAFT = auto()  # Create content locally, no external send
+    OBSERVE = auto()  # Device observation (screenshot, window list)
+    EXTERNAL_SEND = auto()  # Send/post/publish externally
+    DEVICE_ACTION = auto()  # Physical device control
+    PAYMENT = auto()  # Financial operations
+    BLOCKED = auto()  # Always blocked
 
 
 class StepStatus(Enum):
     """Execution status of a plan step."""
+
     PENDING = auto()
     APPROVED = auto()
     RUNNING = auto()
@@ -41,15 +45,17 @@ class StepStatus(Enum):
 @dataclass
 class PlanStep:
     """A single step in a TaskPlan."""
+
     step_id: str = ""
     description: str = ""
-    action_type: str = ""                  # "browser_open", "browser_read", "tool_invoke", etc.
-    capability_id: str = ""                # For ToolBroker
+    action_type: str = ""  # "browser_open", "browser_read", "tool_invoke", etc.
+    capability_id: str = ""  # For ToolBroker
     params: dict[str, Any] = field(default_factory=dict)
     risk_category: RiskCategory = RiskCategory.READ
     requires_approval: bool = False
     expected_result: str = ""
     depends_on: list[str] = field(default_factory=list)
+    delegation_context: dict[str, str] = field(default_factory=dict)
     status: StepStatus = StepStatus.PENDING
     result: Any = None
     error: str = ""
@@ -65,6 +71,7 @@ class PlanStep:
             "requires_approval": self.requires_approval,
             "expected_result": self.expected_result,
             "depends_on": self.depends_on,
+            "delegation_context": dict(self.delegation_context),
             "status": self.status.name,
             "result": self.result,
             "error": self.error,
@@ -92,6 +99,9 @@ class PlanStep:
             requires_approval=data.get("requires_approval", False),
             expected_result=data.get("expected_result", ""),
             depends_on=data.get("depends_on", []),
+            delegation_context={
+                str(key): str(value) for key, value in dict(data.get("delegation_context") or {}).items()
+            },
             status=status,
             result=data.get("result"),
             error=data.get("error", ""),
@@ -106,7 +116,9 @@ class TaskPlan:
     The LLM interprets user intent and produces this plan.
     Planner validates it. ToolBroker executes it.
     """
+
     plan_id: str = ""
+    goal_graph: GoalGraph | None = None
 
     # What the user wants
     user_goal: str = ""
@@ -169,6 +181,7 @@ class TaskPlan:
     def to_dict(self) -> dict[str, Any]:
         return {
             "plan_id": self.plan_id,
+            "goal_graph": self.goal_graph.to_dict() if self.goal_graph else None,
             "user_goal": self.user_goal,
             "interpreted_request": self.interpreted_request,
             "assumptions": self.assumptions,
@@ -187,8 +200,10 @@ class TaskPlan:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> TaskPlan:
+        graph_data = data.get("goal_graph")
         plan = cls(
             plan_id=data.get("plan_id", ""),
+            goal_graph=GoalGraph.from_dict(graph_data) if isinstance(graph_data, dict) else None,
             user_goal=data.get("user_goal", ""),
             interpreted_request=data.get("interpreted_request", ""),
             assumptions=data.get("assumptions", []),

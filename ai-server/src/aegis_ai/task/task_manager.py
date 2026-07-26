@@ -104,6 +104,7 @@ class TaskManager:
         source: str = "system",
         priority: int = 0,
         parent_task_id: str = "",
+        goal_graph: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Create a new task."""
         task_id = f"task_{uuid.uuid4().hex[:10]}"
@@ -113,6 +114,7 @@ class TaskManager:
             "source": source,
             "title": title,
             "goal": goal,
+            "goal_graph": dict(goal_graph or {}),
             "status": TaskStatus.CREATED.value,
             "created_at": now_ms,
             "updated_at": now_ms,
@@ -196,6 +198,17 @@ class TaskManager:
             task["result_summary"] = result_summary
             task["completed_at"] = int(time.time() * 1000)
         return self._transition(task_id, TaskStatus.COMPLETED)
+
+    def save_goal_graph(self, task_id: str, goal_graph: dict[str, Any]) -> bool:
+        """Persist the outcome contract that owns a task's execution."""
+        with self._lock:
+            task = self._tasks.get(task_id)
+            if task is None:
+                return False
+            task["goal_graph"] = dict(goal_graph)
+            task["updated_at"] = int(time.time() * 1000)
+            self._save()
+        return True
 
     def fail_task(self, task_id: str, error: str = "") -> dict[str, Any] | None:
         """Fail a task."""

@@ -29,6 +29,11 @@ class RepairManager:
         self._memory_manager = memory_manager
         self._status = self._state.load()
         self._rollback_strategies: dict[str, dict[str, Any]] = dict(self._status.get("rollback_strategies", {}))
+        self._agent_state: Any = None
+
+    def set_agent_state(self, agent_state: Any) -> None:
+        """Use the shared state when selecting a recovery strategy."""
+        self._agent_state = agent_state
 
     def classify_failure(self, *, error: str = "", status: str = "", capability_id: str = "") -> str:
         text = f"{error} {status} {capability_id}".lower()
@@ -78,7 +83,11 @@ class RepairManager:
             entry["final_result"] = "not_retryable"
             return entry
         strategy = self.plan_strategy(request, result)
-        for attempt in range(1, max_attempts + 1):
+        entry["strategy"] = strategy
+        attempts_allowed = min(max_attempts, 1)
+        if strategy["method"] == "rollback_or_escalate":
+            attempts_allowed = 0
+        for attempt in range(1, attempts_allowed + 1):
             delay = min(8, 2 ** (attempt - 1))
             if delay > 0:
                 time.sleep(min(delay, 0.05))
@@ -94,13 +103,18 @@ class RepairManager:
             if attempt_entry["success"]:
                 entry["final_result"] = "recovered"
                 break
-        append_jsonl(self._history, entry)
         self._audit("repair_attempted", entry)
         if entry["final_result"] != "recovered":
             rollback = self.rollback(request, result, reason=f"Retry failed: {strategy.get('category')}")
             if rollback.get("attempted"):
                 entry["rollback"] = rollback
+                entry["final_result"] = (
+                    "rolled_back" if rollback.get("success") else "rollback_failed"
+                )
+            elif strategy["method"] == "rollback_or_escalate":
+                entry["final_result"] = "needs_followup"
             self._record_lesson(entry)
+        append_jsonl(self._history, entry)
         return entry
 
     def execute_with_repair(self, request: Any, *, max_attempts: int = 2) -> dict[str, Any]:
@@ -120,13 +134,31 @@ class RepairManager:
             capability_id=getattr(request, "capability_id", ""),
         )
         retryable = self._is_safe_retry(request, result)
+        capability_id = str(getattr(request, "capability_id", "") or "")
+        prior_matches = {
+            str(item.get("repair_id") or "")
+            for item in self.list_history(limit=100)
+            if str(item.get("capability_id") or "") == capability_id
+            and str(item.get("category") or "") == category
+            and str(item.get("final_result") or "") not in {"recovered", "rolled_back"}
+        }
+        method = "rollback_or_escalate" if len(prior_matches) > 1 else "retry_once"
         metadata = dict(getattr(request, "metadata", {}) or {})
         rollback_capability = metadata.get("rollback_capability_id") or self._rollback_strategies.get(getattr(request, "capability_id", ""), {}).get("capability_id", "")
         return {
             "category": category,
             "retryable": retryable,
+            "method": method,
+            "prior_matching_failures": max(0, len(prior_matches) - 1),
             "rollback_capability_id": rollback_capability,
             "requires_approval_for_rollback": bool(rollback_capability),
+            "decision_context_id": (
+                self._agent_state.snapshot(
+                    f"repair {getattr(request, 'capability_id', '')}"
+                ).context_id
+                if self._agent_state is not None
+                else ""
+            ),
         }
 
     def register_rollback_strategy(self, capability_id: str, rollback_capability_id: str, rollback_arguments: dict[str, Any] | None = None) -> dict[str, Any]:

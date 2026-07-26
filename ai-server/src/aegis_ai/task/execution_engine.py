@@ -1,9 +1,8 @@
-# -*- coding: utf-8 -*-
-'''Task Execution Engine - canonical execution path.
+"""Task Execution Engine - canonical execution path.
 
 Single source of truth for all step execution.
 Completion is only allowed when ALL steps are in terminal state.
-'''
+"""
 
 from __future__ import annotations
 
@@ -12,25 +11,26 @@ import logging
 from enum import Enum
 from typing import Any
 
+from aegis_ai.agency.mission import DEFAULT_MISSION_CONTRACT
 from aegis_ai.task.task_manager import TaskManager
 from aegis_ai.task_plan import PlanStep, StepStatus, TaskPlan
 
-logger = logging.getLogger('aegis_ai.task.execution_engine')
+logger = logging.getLogger("aegis_ai.task.execution_engine")
 
 
 class TaskFinalState(Enum):
-    ALL_COMPLETED = 'all_completed'
-    HAS_FAILED = 'has_failed'
-    HAS_REQUIRES_OBSERVATION = 'has_requires_observation'
-    HAS_NEEDS_APPROVAL = 'has_needs_approval'
-    HAS_PENDING = 'has_pending'
-    HAS_RUNNING = 'has_running'
-    HAS_WAITING_DEPENDENCY = 'has_waiting_dependency'
-    EMPTY = 'empty'
+    ALL_COMPLETED = "all_completed"
+    HAS_FAILED = "has_failed"
+    HAS_REQUIRES_OBSERVATION = "has_requires_observation"
+    HAS_NEEDS_APPROVAL = "has_needs_approval"
+    HAS_PENDING = "has_pending"
+    HAS_RUNNING = "has_running"
+    HAS_WAITING_DEPENDENCY = "has_waiting_dependency"
+    EMPTY = "empty"
 
 
 class ExecutionResponse:
-    def __init__(self, text: str = '', task_id: str = '') -> None:
+    def __init__(self, text: str = "", task_id: str = "") -> None:
         self.text = text
         self.task_id = task_id
 
@@ -93,7 +93,12 @@ class TaskExecutionEngine:
         return TaskFinalState.HAS_PENDING
 
     def can_complete_task(self, plan: TaskPlan) -> bool:
-        return self.evaluate_plan_state(plan) == TaskFinalState.ALL_COMPLETED
+        if self.evaluate_plan_state(plan) != TaskFinalState.ALL_COMPLETED:
+            return False
+        if plan.goal_graph is None:
+            return True
+        plan.goal_graph.sync_step_evidence(plan.steps)
+        return not DEFAULT_MISSION_CONTRACT.validate_goal_graph(plan.goal_graph) and plan.goal_graph.is_verified()
 
     def has_pending_executable_steps(self, plan: TaskPlan) -> bool:
         for step in plan.steps:
@@ -127,15 +132,15 @@ class TaskExecutionEngine:
         task = self._task_manager.get_task(task_id)
         if not task:
             return
-        current = task['status']
+        current = task["status"]
         if state == TaskFinalState.HAS_NEEDS_APPROVAL:
-            if current != 'waiting_approval':
+            if current != "waiting_approval":
                 self._task_manager.wait_for_approval(task_id)
         elif state == TaskFinalState.HAS_FAILED:
-            if current not in ('failed',):
-                self._task_manager.fail_task(task_id, error='Step(s) failed')
+            if current not in ("failed",):
+                self._task_manager.fail_task(task_id, error="Step(s) failed")
         elif state == TaskFinalState.HAS_REQUIRES_OBSERVATION:
-            if current not in ('paused',):
+            if current not in ("paused",):
                 try:
                     self._task_manager.pause_task(task_id)
                 except (AttributeError, Exception):
@@ -143,7 +148,7 @@ class TaskExecutionEngine:
         elif state == TaskFinalState.HAS_RUNNING:
             pass
         elif state == TaskFinalState.HAS_WAITING_DEPENDENCY:
-            if current not in ('paused',):
+            if current not in ("paused",):
                 try:
                     self._task_manager.pause_task(task_id)
                 except (AttributeError, Exception):
@@ -151,7 +156,27 @@ class TaskExecutionEngine:
         elif state == TaskFinalState.HAS_PENDING:
             pass
         elif state == TaskFinalState.ALL_COMPLETED:
-            if current not in ('completed',):
+            if current not in ("completed",):
+                if plan.goal_graph is not None:
+                    plan.goal_graph.sync_step_evidence(plan.steps)
+                    self._task_manager.save_goal_graph(task_id, plan.goal_graph.to_dict())
+                    violations = DEFAULT_MISSION_CONTRACT.validate_goal_graph(plan.goal_graph)
+                    if violations:
+                        self._task_manager.fail_task(
+                            task_id,
+                            error="Mission contract violation: " + "; ".join(violations),
+                        )
+                        return
+                    if not plan.goal_graph.is_verified():
+                        try:
+                            self._task_manager.pause_task(task_id)
+                        except Exception:
+                            logger.debug(
+                                "Failed to pause unverified goal %s",
+                                task_id,
+                                exc_info=True,
+                            )
+                        return
                 result_summary = self._build_task_result_summary(task_id, plan)
                 self._task_manager.complete_task(task_id, result_summary=result_summary)
                 self._present_task_completion(task_id)
@@ -160,6 +185,8 @@ class TaskExecutionEngine:
         self._plans[task_id] = plan
         plan_json = json.dumps(plan.to_dict(), ensure_ascii=False)
         self._task_manager.save_plan(task_id, plan_json)
+        if plan.goal_graph is not None:
+            self._task_manager.save_goal_graph(task_id, plan.goal_graph.to_dict())
         results: list[str] = []
 
         for step in plan.steps:
@@ -173,47 +200,48 @@ class TaskExecutionEngine:
                 if not deps_met:
                     continue
             self._task_manager.add_step(task_id, step.step_id, step.description[:50], step.capability_id)
-            self._task_manager.update_step_status(task_id, step.step_id, 'running')
+            self._task_manager.update_step_status(task_id, step.step_id, "running")
             self._task_manager.set_current_step(task_id, step.step_id)
             step_result = self._execute_step(task_id, step, plan)
             results.append(step_result)
             if step.status == StepStatus.NEEDS_APPROVAL:
                 self.apply_task_state(task_id, plan)
-                return ExecutionResponse(text='\n'.join(results), task_id=task_id)
+                return ExecutionResponse(text="\n".join(results), task_id=task_id)
             elif step.status == StepStatus.FAILED:
-                self._task_manager.update_step_status(task_id, step.step_id, 'failed', error=step.error)
+                self._task_manager.update_step_status(task_id, step.step_id, "failed", error=step.error)
                 self.apply_task_state(task_id, plan)
-                return ExecutionResponse(text='\n'.join(results), task_id=task_id)
+                return ExecutionResponse(text="\n".join(results), task_id=task_id)
             elif step.status == StepStatus.REQUIRES_OBSERVATION:
-                self._task_manager.update_step_status(task_id, step.step_id, 'requires_observation', error=step.error)
+                self._task_manager.update_step_status(task_id, step.step_id, "requires_observation", error=step.error)
                 self.apply_task_state(task_id, plan)
-                return ExecutionResponse(text='\n'.join(results), task_id=task_id)
+                return ExecutionResponse(text="\n".join(results), task_id=task_id)
             elif step.status == StepStatus.COMPLETED:
-                self._task_manager.update_step_status(task_id, step.step_id, 'completed', result=step.result)
+                self._task_manager.update_step_status(task_id, step.step_id, "completed", result=step.result)
         self._sync_plan_from_task_manager(task_id, plan)
         self.apply_task_state(task_id, plan)
         return ExecutionResponse(
-            text='\n'.join(results) or plan.expected_result or 'No actions to execute.',
+            text="\n".join(results) or plan.expected_result or "No actions to execute.",
             task_id=task_id,
         )
 
     def _execute_step(self, task_id: str, step: PlanStep, plan: TaskPlan) -> str:
-        if step.action_type.startswith('browser_'):
+        if step.action_type.startswith("browser_"):
             if not step.capability_id:
                 step.status = StepStatus.FAILED
-                step.error = 'Browser step is missing a canonical capability_id'
-                return f'[FAIL] {step.description}: {step.error}'
+                step.error = "Browser step is missing a canonical capability_id"
+                return f"[FAIL] {step.description}: {step.error}"
             return self._execute_tool_step(task_id, step)
-        if step.action_type == 'tool_invoke' and step.capability_id:
+        if step.action_type == "tool_invoke" and step.capability_id:
             return self._execute_tool_step(task_id, step)
-        if step.action_type.startswith('llm_'):
+        if step.action_type.startswith("llm_"):
             return self._execute_llm_step(task_id, step, plan)
-        return f'[INFO] {step.description}'
+        return f"[INFO] {step.description}"
 
-    def _execute_tool_step(self, task_id: str, step: PlanStep, capability_override: str = '') -> str:
+    def _execute_tool_step(self, task_id: str, step: PlanStep, capability_override: str = "") -> str:
         from tool_broker import ExecutionSource, InvokeStatus, ToolExecutionRequest
+
         if not self._tool_broker:
-            return f'[INFO] {step.description} (ToolBroker not available)'
+            return f"[INFO] {step.description} (ToolBroker not available)"
         cap_id = capability_override or step.capability_id
         args = dict(step.params)
         request = ToolExecutionRequest(
@@ -222,7 +250,8 @@ class TaskExecutionEngine:
             capability_id=cap_id,
             arguments=args,
             source=ExecutionSource.USER_EXPLICIT,
-            reason=f'Step {step.step_id}: {step.description[:80]}',
+            reason=f"Step {step.step_id}: {step.description[:80]}",
+            metadata={"delegation_context": dict(step.delegation_context)},
         )
         result = self._tool_broker.execute(request)
         if result.success:
@@ -231,81 +260,86 @@ class TaskExecutionEngine:
                 step.status = StepStatus.REQUIRES_OBSERVATION
                 step.error = self._completion_failure_message(result)
                 self._record_failure_for_repair(request, result)
-                return f'[OBSERVE] {step.description}: {step.error}'
+                return f"[OBSERVE] {step.description}: {step.error}"
             if not self._completion_verified(result):
                 step.status = StepStatus.FAILED
                 step.error = self._completion_failure_message(result)
                 self._record_failure_for_repair(request, result)
-                return f'[VERIFY] {step.description}: {step.error}'
+                return f"[VERIFY] {step.description}: {step.error}"
             step.status = StepStatus.COMPLETED
             step.result = self._tool_result_with_verification(result)
-            return f'[OK] {step.description}'
+            return f"[OK] {step.description}"
         elif result.status == InvokeStatus.APPROVAL_NEEDED:
             step.status = StepStatus.NEEDS_APPROVAL
             approval_id = result.approval_id
             self._task_manager.wait_for_approval(task_id, step.step_id, approval_id)
             self._task_manager.set_waiting_approval(task_id, step.step_id, approval_id)
-            return f'[APPROVAL] {step.description} -- approval_id={approval_id}'
+            return f"[APPROVAL] {step.description} -- approval_id={approval_id}"
         else:
             step.status = StepStatus.FAILED
             step.error = result.error
             self._record_failure_for_repair(request, result)
-            return f'[FAIL] {step.description}: {result.error}'
+            return f"[FAIL] {step.description}: {result.error}"
 
     def _execute_llm_step(self, task_id: str, step: PlanStep, plan: TaskPlan) -> str:
         if not self._llm_gateway:
-            return f'[INFO] {step.description} (LLM not available)'
+            return f"[INFO] {step.description} (LLM not available)"
         try:
-            system_prompt = self._get_system_prompt('interaction.llm_step', 'You are AEGIS. Perform the requested analysis concisely.')
+            system_prompt = self._get_system_prompt(
+                "interaction.llm_step", "You are AEGIS. Perform the requested analysis concisely."
+            )
             prompt = step.description
-            if step.params.get('content'):
-                prompt = f'{step.description}\n\nContent:\n{step.params["content"]}'
-            settings = self._resolve_settings('task_analysis')
+            if step.params.get("content"):
+                prompt = f"{step.description}\n\nContent:\n{step.params['content']}"
+            settings = self._resolve_settings("task_analysis")
             response = self._llm_gateway.generate(
                 prompt=prompt,
                 system_prompt=system_prompt,
                 max_tokens=settings.max_tokens,
                 temperature=settings.temperature,
             )
-            if hasattr(response, 'success') and response.success:
+            if hasattr(response, "success") and response.success:
                 step.status = StepStatus.COMPLETED
                 step.result = response.content
                 return response.content
-            elif hasattr(response, 'content'):
+            elif hasattr(response, "content"):
                 step.status = StepStatus.COMPLETED
                 step.result = response.content
                 return response.content
             else:
                 step.status = StepStatus.FAILED
-                error = getattr(response, 'error', 'Unknown LLM error')
-                return f'[FAIL] {step.description}: {error}'
+                error = getattr(response, "error", "Unknown LLM error")
+                return f"[FAIL] {step.description}: {error}"
         except Exception as e:
             step.status = StepStatus.FAILED
-            return f'[ERROR] LLM step: {e}'
+            return f"[ERROR] LLM step: {e}"
 
     def pause_for_approval(self, task_id: str, step_id: str, approval_id: str) -> dict[str, Any] | None:
         return self._task_manager.wait_for_approval(task_id, step_id, approval_id)
 
     def resume_after_approval(self, approval_id: str) -> ExecutionResponse:
         if not self._approval_manager:
-            return ExecutionResponse(text='ApprovalManager not available')
+            return ExecutionResponse(text="ApprovalManager not available")
         request = self._approval_manager.get(approval_id)
         if request is None:
-            return ExecutionResponse(text=f'Approval {approval_id} not found')
-        if request.status not in ('approved', 'modified'):
-            return ExecutionResponse(text=f'Approval {approval_id} not approved (status={request.status})')
+            return ExecutionResponse(text=f"Approval {approval_id} not found")
+        if request.status not in ("approved", "modified"):
+            return ExecutionResponse(text=f"Approval {approval_id} not approved (status={request.status})")
         task_id = request.task_id
         step_id = request.step_id
         if not self._tool_broker:
-            return ExecutionResponse(text='ToolBroker not available', task_id=task_id)
+            return ExecutionResponse(text="ToolBroker not available", task_id=task_id)
         if request.tool_args_hash and request.arguments:
             from aegis_ai.approval.approval_types import compute_args_hash
+
             current_hash = compute_args_hash(request.arguments)
             if current_hash != request.tool_args_hash:
-                self._approval_manager.mark_failed(approval_id, 'Arguments tampered after approval')
+                self._approval_manager.mark_failed(approval_id, "Arguments tampered after approval")
                 if task_id:
-                    self._task_manager.fail_task(task_id, error='Approval arguments tampered')
-                return ExecutionResponse(text=f'[DENIED] Approval {approval_id}: arguments were tampered', task_id=task_id)
+                    self._task_manager.fail_task(task_id, error="Approval arguments tampered")
+                return ExecutionResponse(
+                    text=f"[DENIED] Approval {approval_id}: arguments were tampered", task_id=task_id
+                )
         result = self._tool_broker.execute_approved(approval_id)
         if task_id and step_id:
             if result.success:
@@ -314,29 +348,29 @@ class TaskExecutionEngine:
                 result = self._ensure_completion_verification(tool_request, result, plan_step)
                 if self._requires_observation(result):
                     error = self._completion_failure_message(result)
-                    self._task_manager.update_step_status(task_id, step_id, 'requires_observation', error=error)
+                    self._task_manager.update_step_status(task_id, step_id, "requires_observation", error=error)
                     self._task_manager.pause_task(task_id)
                     self._record_failure_for_repair(tool_request, result)
-                    return ExecutionResponse(text=f'[OBSERVE] Step {step_id}: {error}', task_id=task_id)
+                    return ExecutionResponse(text=f"[OBSERVE] Step {step_id}: {error}", task_id=task_id)
                 if not self._completion_verified(result):
                     error = self._completion_failure_message(result)
-                    self._task_manager.update_step_status(task_id, step_id, 'failed', error=error)
-                    self._task_manager.fail_task(task_id, error=f'Step {step_id} failed verification: {error}')
+                    self._task_manager.update_step_status(task_id, step_id, "failed", error=error)
+                    self._task_manager.fail_task(task_id, error=f"Step {step_id} failed verification: {error}")
                     self._record_failure_for_repair(tool_request, result)
-                    return ExecutionResponse(text=f'[VERIFY] Step {step_id}: {error}', task_id=task_id)
+                    return ExecutionResponse(text=f"[VERIFY] Step {step_id}: {error}", task_id=task_id)
                 self._task_manager.resume_after_approval(task_id, step_id)
                 self._task_manager.update_step_status(
                     task_id,
                     step_id,
-                    'completed',
+                    "completed",
                     result=self._tool_result_with_verification(result),
                 )
-                self._task_manager.set_waiting_approval(task_id, '', '')
+                self._task_manager.set_waiting_approval(task_id, "", "")
                 return self._continue_after_step(task_id, step_id)
             else:
-                self._task_manager.update_step_status(task_id, step_id, 'failed', error=result.error)
-                self._task_manager.fail_task(task_id, error=f'Step {step_id} failed after approval: {result.error}')
-                return ExecutionResponse(text=f'[FAIL] Step {step_id} failed: {result.error}', task_id=task_id)
+                self._task_manager.update_step_status(task_id, step_id, "failed", error=result.error)
+                self._task_manager.fail_task(task_id, error=f"Step {step_id} failed after approval: {result.error}")
+                return ExecutionResponse(text=f"[FAIL] Step {step_id} failed: {result.error}", task_id=task_id)
         if task_id:
             if result.success:
                 self._task_manager.complete_task(
@@ -348,12 +382,12 @@ class TaskExecutionEngine:
                     task_id,
                     error=result.error or "Approved capability execution failed",
                 )
-        return ExecutionResponse(text=f'[OK] Approval {approval_id} executed', task_id=task_id)
+        return ExecutionResponse(text=f"[OK] Approval {approval_id} executed", task_id=task_id)
 
     def _continue_after_step(self, task_id: str, completed_step_id: str) -> ExecutionResponse:
         plan = self._plans.get(task_id)
         if plan is None:
-            return ExecutionResponse(text=f'[OK] Step {completed_step_id} completed', task_id=task_id)
+            return ExecutionResponse(text=f"[OK] Step {completed_step_id} completed", task_id=task_id)
         results: list[str] = []
         found_completed = False
         for step in plan.steps:
@@ -372,33 +406,33 @@ class TaskExecutionEngine:
                 if not deps_met:
                     continue
             self._task_manager.add_step(task_id, step.step_id, step.description[:50], step.capability_id)
-            self._task_manager.update_step_status(task_id, step.step_id, 'running')
+            self._task_manager.update_step_status(task_id, step.step_id, "running")
             self._task_manager.set_current_step(task_id, step.step_id)
             step_result = self._execute_step(task_id, step, plan)
             results.append(step_result)
             if step.status == StepStatus.NEEDS_APPROVAL:
                 self.apply_task_state(task_id, plan)
-                return ExecutionResponse(text='\n'.join(results), task_id=task_id)
+                return ExecutionResponse(text="\n".join(results), task_id=task_id)
             elif step.status == StepStatus.FAILED:
-                self._task_manager.update_step_status(task_id, step.step_id, 'failed', error=step.error)
+                self._task_manager.update_step_status(task_id, step.step_id, "failed", error=step.error)
                 self.apply_task_state(task_id, plan)
-                return ExecutionResponse(text='\n'.join(results), task_id=task_id)
+                return ExecutionResponse(text="\n".join(results), task_id=task_id)
             elif step.status == StepStatus.REQUIRES_OBSERVATION:
-                self._task_manager.update_step_status(task_id, step.step_id, 'requires_observation', error=step.error)
+                self._task_manager.update_step_status(task_id, step.step_id, "requires_observation", error=step.error)
                 self.apply_task_state(task_id, plan)
-                return ExecutionResponse(text='\n'.join(results), task_id=task_id)
+                return ExecutionResponse(text="\n".join(results), task_id=task_id)
             elif step.status == StepStatus.COMPLETED:
-                self._task_manager.update_step_status(task_id, step.step_id, 'completed', result=step.result)
+                self._task_manager.update_step_status(task_id, step.step_id, "completed", result=step.result)
         self._sync_plan_from_task_manager(task_id, plan)
         self.apply_task_state(task_id, plan)
-        return ExecutionResponse(text='\n'.join(results) or f'Step {completed_step_id} completed', task_id=task_id)
+        return ExecutionResponse(text="\n".join(results) or f"Step {completed_step_id} completed", task_id=task_id)
 
     def continue_task(self, task_id: str) -> ExecutionResponse:
         task = self._task_manager.get_task(task_id)
         if task is None:
-            return ExecutionResponse(text=f'Task {task_id} not found')
-        if task['status'] not in ('running', 'waiting_approval', 'paused'):
-            return ExecutionResponse(text=f'Task {task_id} not in executable state (status={task["status"]})')
+            return ExecutionResponse(text=f"Task {task_id} not found")
+        if task["status"] not in ("running", "waiting_approval", "paused"):
+            return ExecutionResponse(text=f"Task {task_id} not in executable state (status={task['status']})")
         plan = self._plans.get(task_id)
         if plan is None:
             plan_json = self._task_manager.get_plan_json(task_id)
@@ -407,26 +441,26 @@ class TaskExecutionEngine:
                 plan = TaskPlan.from_dict(data)
                 self._plans[task_id] = plan
         if plan is None:
-            return ExecutionResponse(text='No plan found for task')
+            return ExecutionResponse(text="No plan found for task")
         for step in plan.steps:
             ts = self._task_manager.get_step(task_id, step.step_id)
             if ts:
                 status_map = {
-                    'completed': StepStatus.COMPLETED,
-                    'failed': StepStatus.FAILED,
-                    'requires_observation': StepStatus.REQUIRES_OBSERVATION,
-                    'needs_approval': StepStatus.NEEDS_APPROVAL,
-                    'running': StepStatus.RUNNING,
-                    'cancelled': StepStatus.SKIPPED,
-                    'pending': StepStatus.PENDING,
+                    "completed": StepStatus.COMPLETED,
+                    "failed": StepStatus.FAILED,
+                    "requires_observation": StepStatus.REQUIRES_OBSERVATION,
+                    "needs_approval": StepStatus.NEEDS_APPROVAL,
+                    "running": StepStatus.RUNNING,
+                    "cancelled": StepStatus.SKIPPED,
+                    "pending": StepStatus.PENDING,
                 }
-                step.status = status_map.get(ts['status'], StepStatus.PENDING)
-                if ts.get('result') is not None:
-                    step.result = ts['result']
-                if ts.get('error'):
-                    step.error = ts['error']
+                step.status = status_map.get(ts["status"], StepStatus.PENDING)
+                if ts.get("result") is not None:
+                    step.result = ts["result"]
+                if ts.get("error"):
+                    step.error = ts["error"]
         if self.has_pending_executable_steps(plan):
-            last_completed = ''
+            last_completed = ""
             for step in reversed(plan.steps):
                 if step.status == StepStatus.COMPLETED:
                     last_completed = step.step_id
@@ -436,23 +470,23 @@ class TaskExecutionEngine:
             return self.execute_task(task_id, plan)
         self.apply_task_state(task_id, plan)
         state = self.evaluate_plan_state(plan)
-        return ExecutionResponse(text=f'Task state: {state.value}', task_id=task_id)
+        return ExecutionResponse(text=f"Task state: {state.value}", task_id=task_id)
 
-    def cancel_task(self, task_id: str, reason: str = '') -> dict[str, Any] | None:
+    def cancel_task(self, task_id: str, reason: str = "") -> dict[str, Any] | None:
         task = self._task_manager.get_task(task_id)
         if task:
-            for step in task.get('steps', []):
-                if step.get('status') in ('running', 'pending', 'needs_approval'):
-                    self._task_manager.update_step_status(task_id, step['step_id'], 'cancelled')
+            for step in task.get("steps", []):
+                if step.get("status") in ("running", "pending", "needs_approval"):
+                    self._task_manager.update_step_status(task_id, step["step_id"], "cancelled")
         return self._task_manager.cancel_task(task_id, reason)
 
     def retry_step(self, task_id: str, step_id: str) -> str:
         step = self._task_manager.get_step(task_id, step_id)
         if step is None:
-            return f'Step {step_id} not found'
-        if step.get('status') not in ('failed', 'requires_observation'):
-            return f'Step {step_id} is not in failed/requires_observation state (status={step.get("status")})'
-        self._task_manager.update_step_status(task_id, step_id, 'pending')
+            return f"Step {step_id} not found"
+        if step.get("status") not in ("failed", "requires_observation"):
+            return f"Step {step_id} is not in failed/requires_observation state (status={step.get('status')})"
+        self._task_manager.update_step_status(task_id, step_id, "pending")
         plan = self._plans.get(task_id)
         if plan:
             for ps in plan.steps:
@@ -462,17 +496,17 @@ class TaskExecutionEngine:
             return self.execute_task(task_id, plan)
         plan_step = PlanStep(
             step_id=step_id,
-            description=step.get('name', ''),
-            capability_id=step.get('capability_id', ''),
-            action_type='tool_invoke' if step.get('capability_id') else 'info',
+            description=step.get("name", ""),
+            capability_id=step.get("capability_id", ""),
+            action_type="tool_invoke" if step.get("capability_id") else "info",
         )
         result = self._execute_step(task_id, plan_step, TaskPlan(steps=[plan_step]))
         if plan_step.status == StepStatus.COMPLETED:
-            self._task_manager.update_step_status(task_id, step_id, 'completed', result=plan_step.result)
+            self._task_manager.update_step_status(task_id, step_id, "completed", result=plan_step.result)
         elif plan_step.status == StepStatus.FAILED:
-            self._task_manager.update_step_status(task_id, step_id, 'failed', error=plan_step.error)
+            self._task_manager.update_step_status(task_id, step_id, "failed", error=plan_step.error)
         elif plan_step.status == StepStatus.REQUIRES_OBSERVATION:
-            self._task_manager.update_step_status(task_id, step_id, 'requires_observation', error=plan_step.error)
+            self._task_manager.update_step_status(task_id, step_id, "requires_observation", error=plan_step.error)
         return result
 
     def _sync_plan_from_task_manager(self, task_id: str, plan: TaskPlan) -> None:
@@ -480,28 +514,28 @@ class TaskExecutionEngine:
             ts = self._task_manager.get_step(task_id, step.step_id)
             if ts:
                 status_map = {
-                    'completed': StepStatus.COMPLETED,
-                    'failed': StepStatus.FAILED,
-                    'requires_observation': StepStatus.REQUIRES_OBSERVATION,
-                    'needs_approval': StepStatus.NEEDS_APPROVAL,
-                    'running': StepStatus.RUNNING,
-                    'cancelled': StepStatus.SKIPPED,
-                    'pending': StepStatus.PENDING,
+                    "completed": StepStatus.COMPLETED,
+                    "failed": StepStatus.FAILED,
+                    "requires_observation": StepStatus.REQUIRES_OBSERVATION,
+                    "needs_approval": StepStatus.NEEDS_APPROVAL,
+                    "running": StepStatus.RUNNING,
+                    "cancelled": StepStatus.SKIPPED,
+                    "pending": StepStatus.PENDING,
                 }
-                step.status = status_map.get(ts['status'], step.status)
-                if ts.get('result') is not None:
-                    step.result = ts['result']
-                if ts.get('error'):
-                    step.error = ts['error']
+                step.status = status_map.get(ts["status"], step.status)
+                if ts.get("result") is not None:
+                    step.result = ts["result"]
+                if ts.get("error"):
+                    step.error = ts["error"]
 
     def _build_task_result_summary(self, task_id: str, plan: TaskPlan) -> str:
         task = self._task_manager.get_task(task_id) or {}
-        summary = str(task.get('result_summary') or '').strip()
+        summary = str(task.get("result_summary") or "").strip()
         if summary:
             return summary
         if plan.expected_result:
             return str(plan.expected_result).strip()
-        return 'All steps completed'
+        return "All steps completed"
 
     def _ensure_completion_verification(self, request: Any, result: Any, step: PlanStep | None = None) -> Any:
         if self._has_decisive_verification(result) or self._verification_service is None:
@@ -514,7 +548,7 @@ class TaskExecutionEngine:
             verification = self._verification_service.verify(verification_request)
             self._verification_service.record_verification(verification_request, verification)
             result.verification = verification
-            result.verification_status = self._status_value(getattr(verification, 'status', ''))
+            result.verification_status = self._status_value(getattr(verification, "status", ""))
             self._record_verification_event(verification_request, verification)
         except Exception as exc:
             logger.debug("Task verification failed", exc_info=True)
@@ -539,10 +573,9 @@ class TaskExecutionEngine:
             return
         try:
             from aegis_ai.verification import CompletionCondition
+
             verification_request.completion_conditions = [
-                CompletionCondition.from_manifest(check)
-                for check in checks
-                if isinstance(check, dict)
+                CompletionCondition.from_manifest(check) for check in checks if isinstance(check, dict)
             ]
         except Exception:
             logger.debug("Failed to attach completion conditions", exc_info=True)
@@ -553,11 +586,7 @@ class TaskExecutionEngine:
 
     def _verification_status(self, result: Any) -> str:
         verification = getattr(result, "verification", None)
-        raw_status = (
-            getattr(verification, "status", "")
-            or getattr(result, "verification_status", "")
-            or ""
-        )
+        raw_status = getattr(verification, "status", "") or getattr(result, "verification_status", "") or ""
         status = self._status_value(raw_status)
         if "magicmock" in status:
             return ""
@@ -600,21 +629,23 @@ class TaskExecutionEngine:
         try:
             from aegis_schema.models import Event, EventPriority
 
-            self._event_manager.publish(Event(
-                event_type="verification.completed",
-                source="task_execution_engine",
-                priority=EventPriority.NORMAL,
-                payload={
-                    "verification_id": getattr(verification, "verification_id", ""),
-                    "request_id": getattr(verification_request, "request_id", ""),
-                    "task_id": getattr(verification_request, "task_id", ""),
-                    "capability_id": getattr(verification_request, "capability_id", ""),
-                    "strategy": self._status_value(getattr(verification_request, "verification_strategy", "")),
-                    "status": self._status_value(getattr(verification, "status", "")),
-                    "confidence": getattr(verification, "confidence", 0.0),
-                    "suggested_recovery": getattr(verification, "suggested_recovery", ""),
-                },
-            ))
+            self._event_manager.publish(
+                Event(
+                    event_type="verification.completed",
+                    source="task_execution_engine",
+                    priority=EventPriority.NORMAL,
+                    payload={
+                        "verification_id": getattr(verification, "verification_id", ""),
+                        "request_id": getattr(verification_request, "request_id", ""),
+                        "task_id": getattr(verification_request, "task_id", ""),
+                        "capability_id": getattr(verification_request, "capability_id", ""),
+                        "strategy": self._status_value(getattr(verification_request, "verification_strategy", "")),
+                        "status": self._status_value(getattr(verification, "status", "")),
+                        "confidence": getattr(verification, "confidence", 0.0),
+                        "suggested_recovery": getattr(verification, "suggested_recovery", ""),
+                    },
+                )
+            )
         except Exception:
             logger.debug("Failed to publish verification event", exc_info=True)
 
@@ -624,9 +655,7 @@ class TaskExecutionEngine:
         try:
             verification = getattr(result, "verification", None)
             suggested = (
-                getattr(verification, "suggested_recovery", "")
-                or getattr(verification, "repair_hint", "")
-                or ""
+                getattr(verification, "suggested_recovery", "") or getattr(verification, "repair_hint", "") or ""
             )
             error = self._completion_failure_message(result) if suggested else getattr(result, "error", "")
             self._repair_manager.record_failure(
@@ -665,73 +694,74 @@ class TaskExecutionEngine:
                 status = str(getattr(verification, "status", "") or "")
                 status = self._status_value(getattr(verification, "status", status))
                 if status and "MagicMock" not in status:
-                    output.setdefault("completion_verification", {
-                        "status": status,
-                        "checks_passed": int(getattr(verification, "checks_passed", 0) or 0),
-                        "checks_failed": int(getattr(verification, "checks_failed", 0) or 0),
-                        "details": list(
-                            getattr(verification, "details", None)
-                            or getattr(verification, "evidence", None)
-                            or []
-                        ),
-                        "repair_hint": str(
-                            getattr(verification, "repair_hint", "")
-                            or getattr(verification, "suggested_recovery", "")
-                            or ""
-                        ),
-                    })
+                    output.setdefault(
+                        "completion_verification",
+                        {
+                            "status": status,
+                            "checks_passed": int(getattr(verification, "checks_passed", 0) or 0),
+                            "checks_failed": int(getattr(verification, "checks_failed", 0) or 0),
+                            "details": list(
+                                getattr(verification, "details", None) or getattr(verification, "evidence", None) or []
+                            ),
+                            "repair_hint": str(
+                                getattr(verification, "repair_hint", "")
+                                or getattr(verification, "suggested_recovery", "")
+                                or ""
+                            ),
+                        },
+                    )
             except Exception:
                 logger.debug("Failed to attach completion verification payload", exc_info=True)
         return output
 
     def _present_task_completion(self, task_id: str) -> None:
         try:
-            from aegis_ai.runtime import get_runtime
             from aegis_ai.presentation.models import PresentationRequest
+            from aegis_ai.runtime import get_runtime
         except Exception:
             return
 
         rt = get_runtime()
-        presentation_manager = getattr(rt, 'presentation_manager', None) if rt is not None else None
-        if not hasattr(rt, 'presentation_manager') or presentation_manager is None:
+        presentation_manager = getattr(rt, "presentation_manager", None) if rt is not None else None
+        if not hasattr(rt, "presentation_manager") or presentation_manager is None:
             return
 
         task = self._task_manager.get_task(task_id)
         if not task:
             return
 
-        result_summary = str(task.get('result_summary') or '').strip()
+        result_summary = str(task.get("result_summary") or "").strip()
         if not result_summary:
             return
 
         request = PresentationRequest(
-            source='task_execution_engine',
-            intent='task_completed',
-            importance=self._importance_from_priority(int(task.get('priority', 0) or 0)),
-            modality='text_card',
-            title=str(task.get('title') or task_id),
+            source="task_execution_engine",
+            intent="task_completed",
+            importance=self._importance_from_priority(int(task.get("priority", 0) or 0)),
+            modality="text_card",
+            title=str(task.get("title") or task_id),
             summary=result_summary,
             content={
-                'task_id': task_id,
-                'task_title': str(task.get('title') or ''),
-                'result_summary': result_summary,
+                "task_id": task_id,
+                "task_title": str(task.get("title") or ""),
+                "result_summary": result_summary,
             },
         )
         try:
             presentation_manager.present(request)
         except Exception:
-            logger.debug('Failed to present completed task %s', task_id, exc_info=True)
+            logger.debug("Failed to present completed task %s", task_id, exc_info=True)
 
     def _importance_from_priority(self, priority: int) -> str:
         if priority >= 7:
-            return 'critical'
+            return "critical"
         if priority >= 4:
-            return 'high'
+            return "high"
         if priority >= 2:
-            return 'normal'
-        return 'low'
+            return "normal"
+        return "low"
 
-    def _get_system_prompt(self, prompt_id: str, default: str = '') -> str:
+    def _get_system_prompt(self, prompt_id: str, default: str = "") -> str:
         if self._prompt_registry:
             try:
                 return self._prompt_registry.render(prompt_id)
@@ -745,7 +775,9 @@ class TaskExecutionEngine:
                 return self._settings_resolver.resolve(profile_id=profile)
             except KeyError:
                 pass
+
         class _Defaults:
             max_tokens = 2048
             temperature = 0.3
+
         return _Defaults()

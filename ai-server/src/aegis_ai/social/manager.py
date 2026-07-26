@@ -74,6 +74,7 @@ class SocialManager:
         self._self_author_names = self_author_names or set()
         self._cursor_updaters: dict[str, Callable[[int], Any]] = {}
         self._relationship_provider: Callable[[SocialInboxItem], dict[str, Any]] | None = None
+        self._agent_state: Any = None
         self._adapters: dict[str, SocialReplyAdapter] = {
             "agora": AgoraReplyAdapter(),
             "discord": UnavailableReplyAdapter("discord", "Discord adapter is not configured"),
@@ -94,6 +95,10 @@ class SocialManager:
         provider: Callable[[SocialInboxItem], dict[str, Any]],
     ) -> None:
         self._relationship_provider = provider
+
+    def set_agent_state(self, agent_state: Any) -> None:
+        """Use the same state snapshot as conversation and autonomy."""
+        self._agent_state = agent_state
 
     def set_self_authors(
         self,
@@ -192,6 +197,9 @@ Message:
 
 Relationship context:
 {json.dumps(relationship or item.relationship, ensure_ascii=False)}
+
+Shared AgentState:
+{json.dumps(self._agent_state.snapshot(item.body).to_dict() if self._agent_state else {}, ensure_ascii=False)}
 
 Return:
 {{
