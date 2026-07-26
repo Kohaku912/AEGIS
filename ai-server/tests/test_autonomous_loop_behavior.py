@@ -310,6 +310,8 @@ def test_execute_tasks_accepts_tool_execution_result_object(tmp_path) -> None:
         "full_output": {"result": "ordinary successful result from broker"},
         "skill_used": None,
         "workflow_used": None,
+        "goal_status": "",
+        "verification_status": "pending",
     }]
 
 

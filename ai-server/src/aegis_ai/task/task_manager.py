@@ -129,6 +129,7 @@ class TaskManager:
             "parent_task_id": parent_task_id,
             "child_task_ids": [],
             "retry_count": 0,
+            "incident_status": "",
             "priority": priority,
             "plan_json": "",
             "current_step_id": "",
@@ -197,6 +198,7 @@ class TaskManager:
                 return None
             task["result_summary"] = result_summary
             task["completed_at"] = int(time.time() * 1000)
+            task["incident_status"] = "resolved"
         return self._transition(task_id, TaskStatus.COMPLETED)
 
     def save_goal_graph(self, task_id: str, goal_graph: dict[str, Any]) -> bool:
@@ -217,6 +219,7 @@ class TaskManager:
             if task is None:
                 return None
             task["error"] = error
+            task["incident_status"] = "open"
         return self._transition(task_id, TaskStatus.FAILED)
 
     def cancel_task(self, task_id: str, reason: str = "") -> dict[str, Any] | None:
@@ -226,6 +229,19 @@ class TaskManager:
     def pause_task(self, task_id: str) -> dict[str, Any] | None:
         """Pause a task (e.g., waiting for dependencies)."""
         return self._transition(task_id, TaskStatus.PAUSED)
+
+    def resolve_incident(self, task_id: str, resolution: str = "") -> bool:
+        """Mark a failed-task incident resolved after repair or explicit handling."""
+        with self._lock:
+            task = self._tasks.get(task_id)
+            if task is None:
+                return False
+            task["incident_status"] = "resolved"
+            if resolution:
+                task["incident_resolution"] = resolution
+            task["updated_at"] = int(time.time() * 1000)
+            self._save()
+        return True
 
     def list_tasks(self, status: str | None = None, source: str | None = None, limit: int = 100) -> list[dict[str, Any]]:
         """List tasks with optional filters."""
@@ -436,6 +452,12 @@ class TaskManager:
                     line = line.strip()
                     if line:
                         task = json.loads(line)
+                        task.setdefault(
+                            "incident_status",
+                            "open"
+                            if task.get("status") == TaskStatus.FAILED.value
+                            else "",
+                        )
                         self._tasks[task["task_id"]] = task
         except Exception:
             logger.debug("Failed to load tasks", exc_info=True)
@@ -453,17 +475,30 @@ class TaskManager:
                     continue
                 steps = task.get("steps") or []
                 step_statuses = {str(step.get("status") or "") for step in steps}
-                if steps and step_statuses.issubset({"completed", "skipped"}):
+                goal_checks = list(
+                    dict(task.get("goal_graph") or {}).get("verification") or []
+                )
+                goal_verified = bool(goal_checks) and all(
+                    str(item.get("status") or "") == "passed"
+                    for item in goal_checks
+                )
+                if (
+                    steps
+                    and step_statuses.issubset({"completed", "skipped"})
+                    and (not task.get("goal_graph") or goal_verified)
+                ):
                     task["status"] = TaskStatus.COMPLETED.value
                     task["result_summary"] = task.get("result_summary") or (
                         "Recovered completed steps after AI Server restart."
                     )
+                    task["incident_status"] = "resolved"
                     event_type = TaskStatus.COMPLETED.value
                 else:
                     task["status"] = TaskStatus.FAILED.value
                     task["error"] = task.get("error") or (
                         "Execution was interrupted by an AI Server restart. Retry the task."
                     )
+                    task["incident_status"] = "open"
                     for step in steps:
                         if step.get("status") == "running":
                             step["status"] = "failed"

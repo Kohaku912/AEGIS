@@ -13,6 +13,7 @@ from aegis_ai.agency.goal_graph import (
     GoalVerification,
     VerificationStatus,
 )
+from aegis_ai.agency.mission import DEFAULT_MISSION_CONTRACT
 from aegis_ai.llm.json_utils import extract_json_object
 
 
@@ -32,35 +33,68 @@ class GoalLifecycleService:
         self._tasks = task_manager
         self._llm = llm_gateway
 
-    def create_chat_task(self, user_goal: str, *, source: str = "chat") -> dict[str, Any]:
-        """Create a chat task with an explicit outcome and verification contract."""
+    def create_goal_task(
+        self,
+        user_goal: str,
+        *,
+        source: str,
+        title: str = "",
+        success_condition: str = "",
+        value_to_user: str = "",
+        obligation_ids: list[str] | None = None,
+        presentation: dict[str, Any] | None = None,
+        verification_criterion: str = "",
+        priority: int = 0,
+    ) -> dict[str, Any]:
+        """Create a Task owned by an explicit outcome and verification contract."""
         goal_id = f"goal_{uuid.uuid4().hex[:10]}"
         graph = GoalGraph(
             goal_id=goal_id,
             outcome=GoalOutcome(
                 description=user_goal,
-                success_condition=(
-                    "The final response resolves the user's requested outcome, and every required tool action succeeds."
-                ),
-                value_to_user="The user's current request is resolved rather than merely answered.",
+                success_condition=success_condition
+                or "The reported evidence demonstrates that the requested outcome exists.",
+                value_to_user=value_to_user
+                or "The requested outcome is resolved rather than merely attempted.",
             ),
             source=source,
+            priority=priority,
+            obligation_ids=list(obligation_ids or []),
             verification=[
                 GoalVerification(
                     verification_id=f"verify_{uuid.uuid4().hex[:8]}",
-                    criterion="An LLM verifies the final result against the original user goal.",
+                    criterion=verification_criterion
+                    or "Independent evidence verifies the final result against the intended outcome.",
                 )
             ],
-            presentation={"report_when": "terminal", "audience": "user"},
+            presentation=dict(
+                presentation or {"report_when": "terminal", "audience": "user"}
+            ),
         )
         task = self._tasks.create_task(
-            title=f"Chat: {user_goal[:50]}",
+            title=title or f"Goal: {user_goal[:50]}",
             goal=user_goal,
             source=source,
+            priority=priority,
             goal_graph=graph.to_dict(),
         )
         self._tasks.start_task(task["task_id"])
         return task
+
+    def create_chat_task(self, user_goal: str, *, source: str = "chat") -> dict[str, Any]:
+        """Create a chat task with an explicit outcome and verification contract."""
+        return self.create_goal_task(
+            user_goal,
+            source=source,
+            title=f"Chat: {user_goal[:50]}",
+            success_condition=(
+                "The final response resolves the user's requested outcome, and every required tool action succeeds."
+            ),
+            value_to_user="The user's current request is resolved rather than merely answered.",
+            verification_criterion=(
+                "An LLM verifies the final result against the original user goal."
+            ),
+        )
 
     def finalize_chat_task(
         self,
@@ -71,17 +105,49 @@ class GoalLifecycleService:
         tool_results: list[dict[str, Any]] | None = None,
     ) -> GoalEvaluation:
         """Evaluate user value and transition the owning task honestly."""
+        return self.finalize_task(
+            task_id,
+            user_goal=user_goal,
+            response=response,
+            tool_results=tool_results,
+        )
+
+    def finalize_task(
+        self,
+        task_id: str,
+        *,
+        user_goal: str,
+        response: str,
+        tool_results: list[dict[str, Any]] | None = None,
+    ) -> GoalEvaluation:
+        """Verify and transition any Goal-owned Task."""
         evaluation = self.evaluate(
             user_goal=user_goal,
             response=response,
             tool_results=tool_results or [],
         )
+        return self.finalize_with_evaluation(task_id, evaluation, response=response)
+
+    def finalize_with_evaluation(
+        self,
+        task_id: str,
+        evaluation: GoalEvaluation,
+        *,
+        response: str = "",
+    ) -> GoalEvaluation:
+        """Persist independent evidence and transition a Goal-owned Task."""
         task = self._tasks.get_task(task_id)
         if task is None:
             return evaluation
         graph = GoalGraph.from_dict(dict(task.get("goal_graph") or {}))
-        if graph.verification:
-            check = graph.verification[0]
+        violations = DEFAULT_MISSION_CONTRACT.validate_goal_graph(graph)
+        if violations:
+            evaluation = GoalEvaluation(
+                status="failed",
+                reason="Mission contract violation: " + "; ".join(violations),
+                evidence=list(evaluation.evidence),
+            )
+        for check in graph.verification:
             check.evidence = list(evaluation.evidence)
             if evaluation.status == "achieved":
                 check.status = VerificationStatus.PASSED
@@ -91,11 +157,24 @@ class GoalLifecycleService:
                 check.status = VerificationStatus.BLOCKED
         self._tasks.save_goal_graph(task_id, graph.to_dict())
 
-        if evaluation.status == "achieved":
+        current_status = str(task.get("status") or "")
+        if evaluation.status == "achieved" and current_status not in {
+            "completed",
+            "failed",
+            "cancelled",
+            "expired",
+        }:
+            if current_status == "paused":
+                self._tasks.start_task(task_id)
             self._tasks.complete_task(task_id, result_summary=response[:200])
-        elif evaluation.status == "failed":
+        elif evaluation.status == "failed" and current_status not in {
+            "completed",
+            "failed",
+            "cancelled",
+            "expired",
+        }:
             self._tasks.fail_task(task_id, error=evaluation.reason)
-        else:
+        elif current_status == "running":
             self._tasks.pause_task(task_id)
         return evaluation
 
@@ -115,6 +194,7 @@ class GoalLifecycleService:
             )
         prompt = f"""Evaluate whether this AEGIS interaction achieved the user's goal.
 Judge the outcome, not response fluency or whether a tool merely ran.
+Tool success is supporting evidence only and is never sufficient by itself.
 Return JSON only.
 
 User goal:

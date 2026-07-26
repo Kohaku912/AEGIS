@@ -374,6 +374,10 @@ Only extract meaningful information. If nothing noteworthy, return empty arrays.
         """Get all facts."""
         return list(self._facts.values())
 
+    def get_recent_conversations(self, limit: int = 10) -> list[ConversationEntry]:
+        """Return recent conversations without interpreting user text in code."""
+        return list(self._conversations[-limit:])
+
     def delete_entity(self, name: str) -> bool:
         """Delete an entity by name."""
         for eid, entity in list(self._entities.items()):

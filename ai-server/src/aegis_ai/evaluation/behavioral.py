@@ -13,11 +13,17 @@ class BehavioralEvaluation:
         continuation_manager: Any,
         social_manager: Any,
         task_manager: Any = None,
+        memory_manager: Any = None,
     ) -> None:
         self._initiative = initiative_engine
         self._continuations = continuation_manager
         self._social = social_manager
         self._tasks = task_manager
+        self._memory = memory_manager
+
+    def set_memory_manager(self, memory_manager: Any) -> None:
+        """Attach MemoryManager after runtime construction order resolves."""
+        self._memory = memory_manager
 
     def snapshot(self) -> dict[str, Any]:
         initiative = self._initiative.diagnostics()
@@ -47,9 +53,7 @@ class BehavioralEvaluation:
             for item in goal_tasks
             if item.get("status") in {"completed", "failed", "cancelled", "expired"}
         ]
-        achieved_goals = [
-            item for item in terminal_goal_tasks if item.get("status") == "completed"
-        ]
+        achieved_goals = [item for item in goal_tasks if item.get("status") == "completed"]
         verified_goals = [
             item
             for item in achieved_goals
@@ -60,8 +64,10 @@ class BehavioralEvaluation:
             "follow_through": terminal / max(1, len(records)),
             "restraint": filtered / max(1, selected + filtered),
             "social_reciprocity": social_terminal / max(1, int(social.get("total", 0) or 0)),
-            "goal_achievement": len(achieved_goals) / max(1, len(terminal_goal_tasks)),
+            "goal_achievement": len(achieved_goals) / max(1, len(goal_tasks)),
+            "goal_terminal_rate": len(terminal_goal_tasks) / max(1, len(goal_tasks)),
             "goal_verification": len(verified_goals) / max(1, len(achieved_goals)),
+            "correction_reflection": self._correction_reflection(),
             "evidence": {
                 "continuations": len(records),
                 "terminal_continuations": terminal,
@@ -72,8 +78,42 @@ class BehavioralEvaluation:
                 "terminal_goal_tasks": len(terminal_goal_tasks),
                 "achieved_goals": len(achieved_goals),
                 "verified_goals": len(verified_goals),
+                **self._correction_evidence(),
             },
         }
+
+    def _correction_records(self) -> list[Any]:
+        if self._memory is None or not hasattr(self._memory, "get_backend"):
+            return []
+        store = self._memory.get_backend("store")
+        if store is None or not hasattr(store, "list_recent"):
+            return []
+        try:
+            records = store.list_recent(limit=5000)
+        except Exception:
+            return []
+        return [
+            item
+            for item in records
+            if str(getattr(item, "source", "")) == "user_correction"
+            or "correction" in list(getattr(item, "tags", []) or [])
+        ]
+
+    def _correction_evidence(self) -> dict[str, int]:
+        records = self._correction_records()
+        applied = sum(
+            1
+            for item in records
+            if int(dict(getattr(item, "structured_data", {}) or {}).get("applied_count", 0) or 0) > 0
+        )
+        return {
+            "active_corrections": len(records),
+            "corrections_reflected": applied,
+        }
+
+    def _correction_reflection(self) -> float:
+        evidence = self._correction_evidence()
+        return evidence["corrections_reflected"] / max(1, evidence["active_corrections"])
 
     @staticmethod
     def _goal_graph_verified(graph: dict[str, Any]) -> bool:

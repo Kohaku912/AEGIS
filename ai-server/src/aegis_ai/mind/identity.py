@@ -116,6 +116,14 @@ class Identity:
             self._config.learned_opinions = self._config.learned_opinions[-50:]
             self._persist()
 
+    def get_recent_learning(self, limit: int = 20) -> list[dict[str, str]]:
+        """Return durable learning that must influence later decisions."""
+        return [dict(item) for item in self._config.recent_learning[-limit:]]
+
+    def get_learned_opinions(self, limit: int = 50) -> list[dict[str, str]]:
+        """Return evidence-linked opinions for consistent later decisions."""
+        return [dict(item) for item in self._config.learned_opinions[-limit:]]
+
     def _persist(self) -> None:
         record = {
             "name": self._config.name,

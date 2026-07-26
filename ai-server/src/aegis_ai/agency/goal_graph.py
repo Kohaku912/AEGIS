@@ -86,7 +86,7 @@ class GoalGraph:
         return bool(self.verification) and all(item.status == VerificationStatus.PASSED for item in self.verification)
 
     def sync_step_evidence(self, steps: list[Any]) -> None:
-        """Update linked criteria from terminal step evidence."""
+        """Attach step evidence without treating activity as outcome success."""
         by_id = {str(getattr(step, "step_id", "")): step for step in steps}
         for check in self.verification:
             if not check.linked_step_ids:
@@ -99,8 +99,16 @@ class GoalGraph:
                 check.status = VerificationStatus.FAILED
                 check.evidence = ["A linked execution step failed."]
             elif names and names.issubset({"completed", "skipped"}):
-                check.status = VerificationStatus.PASSED
-                check.evidence = [f"step:{getattr(step, 'step_id', '')}" for step in linked if step is not None]
+                step_evidence = [
+                    {
+                        "step_id": str(getattr(step, "step_id", "")),
+                        "capability_id": str(getattr(step, "capability_id", "")),
+                        "result": getattr(step, "result", None),
+                    }
+                    for step in linked
+                    if step is not None
+                ]
+                check.evidence = [f"execution_evidence:{item}" for item in step_evidence]
 
     def to_dict(self) -> dict[str, Any]:
         return {

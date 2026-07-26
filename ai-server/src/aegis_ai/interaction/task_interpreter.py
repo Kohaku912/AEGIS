@@ -41,7 +41,7 @@ class RiskLevel(Enum):
     READ = auto()              # Read-only, no side effects
     DRAFT = auto()             # Create content locally, no external send
     EXTERNAL_SEND = auto()     # Send/post/publish externally (needs approval)
-    PAYMENT = auto()           # Financial operations (blocked or approval)
+    PAYMENT = auto()           # Financial operations (explicit approval)
     BLOCKED = auto()           # Always blocked (CAPTCHA bypass, etc.)
 
 
@@ -105,7 +105,7 @@ Output JSON with this structure:
 Safety rules (ALWAYS apply):
 - CAPTCHA bypass, bot evasion, stealth, proxy abuse → BLOCKED
 - Spam, bulk signup, bulk DM → BLOCKED
-- Payment, purchase, paid subscription → BLOCKED or requires approval
+- Payment, purchase, paid subscription → requires explicit approval
 - Password/2FA entry → requires user action or explicit approval
 - SNS post, DM send, email send, blog publish → requires approval (EXTERNAL_SEND)
 - Reading user-owned accounts (SNS, email, notifications) → READ (allowed)
