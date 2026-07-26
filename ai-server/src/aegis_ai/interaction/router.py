@@ -110,6 +110,7 @@ class InteractionRouter:
                     title=f'Router: {plan.interpreted_request[:50]}',
                     source="router",
                     goal=plan.interpreted_request,
+                    goal_graph=plan.goal_graph.to_dict() if plan.goal_graph else None,
                 )
                 task_id = task["task_id"]
                 self._task_manager.start_task(task_id)

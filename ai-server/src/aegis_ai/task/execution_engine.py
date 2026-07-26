@@ -8,9 +8,11 @@ from __future__ import annotations
 
 import json
 import logging
+import uuid
 from enum import Enum
 from typing import Any
 
+from aegis_ai.agency.goal_graph import GoalGraph, GoalOutcome, GoalVerification
 from aegis_ai.agency.mission import DEFAULT_MISSION_CONTRACT
 from aegis_ai.task.task_manager import TaskManager
 from aegis_ai.task_plan import PlanStep, StepStatus, TaskPlan
@@ -48,6 +50,7 @@ class TaskExecutionEngine:
         event_manager: Any = None,
         audit_manager: Any = None,
         repair_manager: Any = None,
+        goal_service: Any = None,
     ) -> None:
         self._task_manager = task_manager
         self._tool_broker = tool_broker
@@ -59,6 +62,7 @@ class TaskExecutionEngine:
         self._event_manager = event_manager
         self._audit_manager = audit_manager
         self._repair_manager = repair_manager
+        self._goal_service = goal_service
         self._plans: dict[str, TaskPlan] = {}
 
     def evaluate_plan_state(self, plan: TaskPlan) -> TaskFinalState:
@@ -97,7 +101,6 @@ class TaskExecutionEngine:
             return False
         if plan.goal_graph is None:
             return True
-        plan.goal_graph.sync_step_evidence(plan.steps)
         return not DEFAULT_MISSION_CONTRACT.validate_goal_graph(plan.goal_graph) and plan.goal_graph.is_verified()
 
     def has_pending_executable_steps(self, plan: TaskPlan) -> bool:
@@ -157,6 +160,7 @@ class TaskExecutionEngine:
             pass
         elif state == TaskFinalState.ALL_COMPLETED:
             if current not in ("completed",):
+                result_summary = self._build_task_result_summary(task_id, plan)
                 if plan.goal_graph is not None:
                     plan.goal_graph.sync_step_evidence(plan.steps)
                     self._task_manager.save_goal_graph(task_id, plan.goal_graph.to_dict())
@@ -166,6 +170,18 @@ class TaskExecutionEngine:
                             task_id,
                             error="Mission contract violation: " + "; ".join(violations),
                         )
+                        return
+                    if self._goal_service is not None:
+                        evaluation = self._goal_service.finalize_task(
+                            task_id,
+                            user_goal=plan.user_goal
+                            or plan.interpreted_request
+                            or str(task.get("goal") or ""),
+                            response=result_summary,
+                            tool_results=self._goal_tool_results(plan),
+                        )
+                        if evaluation.status == "achieved":
+                            self._present_task_completion(task_id)
                         return
                     if not plan.goal_graph.is_verified():
                         try:
@@ -177,11 +193,11 @@ class TaskExecutionEngine:
                                 exc_info=True,
                             )
                         return
-                result_summary = self._build_task_result_summary(task_id, plan)
                 self._task_manager.complete_task(task_id, result_summary=result_summary)
                 self._present_task_completion(task_id)
 
     def execute_task(self, task_id: str, plan: TaskPlan) -> ExecutionResponse:
+        self._ensure_goal_graph(plan)
         self._plans[task_id] = plan
         plan_json = json.dumps(plan.to_dict(), ensure_ascii=False)
         self._task_manager.save_plan(task_id, plan_json)
@@ -223,6 +239,52 @@ class TaskExecutionEngine:
             text="\n".join(results) or plan.expected_result or "No actions to execute.",
             task_id=task_id,
         )
+
+    def _ensure_goal_graph(self, plan: TaskPlan) -> None:
+        """Create an outcome contract for every meaningful TaskPlan."""
+        if plan.goal_graph is not None:
+            return
+        user_goal = plan.user_goal or plan.interpreted_request
+        if not user_goal:
+            return
+        linked_steps = [step.step_id for step in plan.steps if step.step_id]
+        plan.goal_graph = GoalGraph(
+            goal_id=f"goal_{uuid.uuid4().hex[:10]}",
+            outcome=GoalOutcome(
+                description=user_goal,
+                success_condition=plan.verification_plan
+                or plan.expected_result
+                or "Independent evidence demonstrates that the requested outcome exists.",
+                value_to_user="The requested outcome is completed and verified.",
+            ),
+            source="user",
+            verification=[
+                GoalVerification(
+                    verification_id=f"verify_{uuid.uuid4().hex[:8]}",
+                    criterion=plan.verification_plan
+                    or "An independent outcome verifier evaluates the completed result.",
+                    linked_step_ids=linked_steps,
+                )
+            ],
+            presentation={"report_when": "terminal", "audience": "user"},
+            stop_conditions=list(plan.stop_conditions),
+        )
+
+    @staticmethod
+    def _goal_tool_results(plan: TaskPlan) -> list[dict[str, Any]]:
+        """Return structured execution evidence for independent goal verification."""
+        return [
+            {
+                "step_id": step.step_id,
+                "capability_id": step.capability_id,
+                "success": step.status == StepStatus.COMPLETED,
+                "status": step.status.name.lower(),
+                "expected_result": step.expected_result,
+                "result": step.result,
+                "error": step.error,
+            }
+            for step in plan.steps
+        ]
 
     def _execute_step(self, task_id: str, step: PlanStep, plan: TaskPlan) -> str:
         if step.action_type.startswith("browser_"):
@@ -729,6 +791,10 @@ class TaskExecutionEngine:
         task = self._task_manager.get_task(task_id)
         if not task:
             return
+        goal_graph = dict(task.get("goal_graph") or {})
+        presentation = dict(goal_graph.get("presentation") or {})
+        if presentation and str(presentation.get("report_when") or "") != "terminal":
+            return
 
         result_summary = str(task.get("result_summary") or "").strip()
         if not result_summary:
@@ -745,6 +811,9 @@ class TaskExecutionEngine:
                 "task_id": task_id,
                 "task_title": str(task.get("title") or ""),
                 "result_summary": result_summary,
+                "goal_id": str(goal_graph.get("goal_id") or ""),
+                "audience": str(presentation.get("audience") or "user"),
+                "presentation_contract": presentation,
             },
         )
         try:

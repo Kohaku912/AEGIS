@@ -29,8 +29,26 @@ def mock_approval_manager():
 
 @pytest.fixture
 def engine(task_manager, mock_broker, mock_approval_manager):
+    from aegis_ai.agency.goal_service import GoalLifecycleService
     from aegis_ai.task.execution_engine import TaskExecutionEngine
-    return TaskExecutionEngine(task_manager=task_manager, tool_broker=mock_broker, approval_manager=mock_approval_manager)
+    verifier = MagicMock()
+    verifier.generate.return_value = MagicMock(
+        success=True,
+        content=json.dumps({
+            "status": "achieved",
+            "reason": "Independent test evidence confirms the outcome.",
+            "evidence": ["all planned steps produced successful results"],
+        }),
+    )
+    return TaskExecutionEngine(
+        task_manager=task_manager,
+        tool_broker=mock_broker,
+        approval_manager=mock_approval_manager,
+        goal_service=GoalLifecycleService(
+            task_manager=task_manager,
+            llm_gateway=verifier,
+        ),
+    )
 
 
 def _success():

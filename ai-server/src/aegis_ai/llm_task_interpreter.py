@@ -64,6 +64,7 @@ Analyze the user's message and produce a structured task plan.
       "expected_result": "What should happen",
       "depends_on": [],
       "delegation_context": {{{{
+        "operation_category": "general|external_send|social_communication|payment|physical_device|system_change",
         "scope": "aegis|user|system|external",
         "audience": "private|shared|public|third_party",
         "content_sensitivity": "normal|personal|confidential|secret",
@@ -98,7 +99,7 @@ Analyze the user's message and produce a structured task plan.
 - OBSERVE operations (screenshot, window list) -> allowed, no approval
 - EXTERNAL_SEND (post, DM, email, publish) -> requires approval
 - DEVICE_ACTION (mouse, keyboard, physical control) -> requires approval
-- PAYMENT (purchase, subscribe) -> blocked or requires approval
+- PAYMENT (purchase, subscribe) -> requires explicit approval
 - CAPTCHA bypass, bot evasion, stealth -> BLOCKED
 - Spam, bulk operations -> BLOCKED
 
@@ -282,6 +283,22 @@ class LLMTaskInterpreter:
                     step.requires_approval = True
                     plan.approval_needed = True
 
+            delegation = dict(step.delegation_context or {})
+            if (
+                str(delegation.get("scope") or "") in {"user", "system", "external"}
+                or str(delegation.get("audience") or "") in {
+                    "shared",
+                    "public",
+                    "third_party",
+                }
+                or str(delegation.get("content_sensitivity") or "")
+                in {"personal", "confidential", "secret"}
+                or str(delegation.get("reversibility") or "")
+                in {"difficult", "irreversible"}
+            ):
+                step.requires_approval = True
+                plan.approval_needed = True
+
             # External send always needs approval
             if step.risk_category == RiskCategory.EXTERNAL_SEND:
                 step.requires_approval = True
@@ -292,10 +309,10 @@ class LLMTaskInterpreter:
                 step.requires_approval = True
                 plan.approval_needed = True
 
-            # Payment is blocked
+            # Payment always requires explicit approval; it is not a permanent deny.
             if step.risk_category == RiskCategory.PAYMENT:
-                step.risk_category = RiskCategory.BLOCKED
                 step.requires_approval = True
+                plan.approval_needed = True
 
     def _build_context(self) -> str:
         """Build context string from ContextBuilder."""

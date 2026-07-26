@@ -610,7 +610,10 @@ def _build_runtime(config: Config) -> AegisRuntime:
         delegation_policy=delegation_policy,
         daily_planning_manager=daily_planning_manager,
         person_memory=person_memory,
+        memory_manager=memory_manager,
+        preference_store=preference_store,
     )
+    behavioral_evaluation.set_memory_manager(memory_manager)
     context_builder._agent_state = agent_state
     social_manager.set_agent_state(agent_state)
     daily_planning_manager.set_agent_state(agent_state)
@@ -619,6 +622,7 @@ def _build_runtime(config: Config) -> AegisRuntime:
         task_manager=task_manager,
         llm_gateway=llm_gateway,
     )
+    execution_engine._goal_service = goal_service
     core_client = server_executor._clients.get("ai-server")
     if core_client is not None and hasattr(core_client, "_personal"):
         core_client._personal["memory_manager"] = memory_manager
@@ -822,6 +826,7 @@ def _create_autonomous_loop(runtime: AegisRuntime) -> Any:
     loop._initiative_engine = runtime.initiative_engine
     loop._continuation_manager = runtime.continuation_manager
     loop._agent_state = runtime.agent_state
+    loop._goal_service = runtime.goal_service
 
     loop.set_observation_system(
         SpontaneousObservationSystem(

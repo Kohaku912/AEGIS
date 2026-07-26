@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+import uuid
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -48,6 +49,12 @@ class DecisionContext:
     identity: str = ""
     situation: dict[str, Any] = field(default_factory=dict)
     relationships: list[dict[str, Any]] = field(default_factory=list)
+    learnings: list[dict[str, Any]] = field(default_factory=list)
+    opinions: list[dict[str, Any]] = field(default_factory=list)
+    preferences: list[dict[str, Any]] = field(default_factory=list)
+    conversations: list[dict[str, Any]] = field(default_factory=list)
+    corrections: list[dict[str, Any]] = field(default_factory=list)
+    decision_evidence: list[dict[str, Any]] = field(default_factory=list)
     obligations: list[Obligation] = field(default_factory=list)
     active_tasks: list[dict[str, Any]] = field(default_factory=list)
     daily_plan: dict[str, Any] = field(default_factory=dict)
@@ -63,6 +70,12 @@ class DecisionContext:
             "identity": self.identity,
             "situation": dict(self.situation),
             "relationships": list(self.relationships),
+            "learnings": list(self.learnings),
+            "opinions": list(self.opinions),
+            "preferences": list(self.preferences),
+            "conversations": list(self.conversations),
+            "corrections": list(self.corrections),
+            "decision_evidence": list(self.decision_evidence),
             "obligations": [item.to_dict() for item in self.obligations],
             "active_tasks": list(self.active_tasks),
             "daily_plan": dict(self.daily_plan),
@@ -81,6 +94,39 @@ class DecisionContext:
             lines.append("Recent incidents must affect method selection:")
             lines.extend(
                 f"- {item.get('category', 'failure')}: {item.get('error', '')}" for item in self.repair_history[-5:]
+            )
+        if self.corrections:
+            lines.append("User corrections that supersede earlier information:")
+            lines.extend(
+                f"- {item.get('title', 'Correction')}: {item.get('content', '')}"
+                for item in self.corrections[:10]
+            )
+        if self.learnings:
+            lines.append("Relevant durable learning:")
+            lines.extend(
+                f"- {item.get('title', item.get('topic', 'Learning'))}: "
+                f"{item.get('content', item.get('summary', ''))}"
+                for item in self.learnings[:10]
+            )
+        if self.opinions:
+            lines.append("Evidence-linked AEGIS opinions:")
+            lines.extend(
+                f"- {item.get('topic', '')}: {item.get('position', '')} "
+                f"(evidence: {item.get('evidence', '')})"
+                for item in self.opinions[:10]
+            )
+        if self.preferences:
+            lines.append("Conditional user preference evidence:")
+            lines.extend(
+                f"- {item.get('feedback', '')}: {item.get('conditions', {})}"
+                for item in self.preferences[:10]
+            )
+        if self.conversations:
+            lines.append("Recent relationship and conversation continuity:")
+            lines.extend(
+                f"- User: {item.get('user_msg', item.get('content', ''))}; "
+                f"AEGIS: {item.get('bot_msg', '')}"
+                for item in self.conversations[:5]
             )
         return "\n".join(lines)
 
@@ -101,6 +147,8 @@ class AgentState:
         delegation_policy: Any = None,
         daily_planning_manager: Any = None,
         person_memory: Any = None,
+        memory_manager: Any = None,
+        preference_store: Any = None,
     ) -> None:
         self.mission_contract = mission_contract
         self._identity = identity
@@ -112,25 +160,66 @@ class AgentState:
         self._delegation = delegation_policy
         self._daily = daily_planning_manager
         self._persons = person_memory
+        self._memory = memory_manager
+        self._preferences = preference_store
 
     def snapshot(self, triggering_query: str = "") -> DecisionContext:
         """Build one coherent snapshot without interpreting the query in code."""
         now = int(time.time() * 1000)
+        context_id = f"decision_{uuid.uuid4().hex[:12]}"
+        memory = self._memory_context()
+        identity_learning = self._safe_call(self._identity, "get_recent_learning", [], limit=20)
+        opinions = self._safe_call(self._identity, "get_learned_opinions", [], limit=50)
+        learnings = [*identity_learning, *memory["learnings"]]
+        correction_ids = [
+            str(item.get("memory_id") or "") for item in memory["corrections"] if item.get("memory_id")
+        ]
         context = DecisionContext(
-            context_id=f"decision_{now}",
+            context_id=context_id,
             built_at_ms=now,
             triggering_query=triggering_query,
             mission_version=self.mission_contract.version,
             identity=self._identity_text(),
             situation=self._safe_call(self._situation, "get_state", {}),
             relationships=self._relationships(),
+            learnings=learnings[:30],
+            opinions=opinions[:50],
+            preferences=self._safe_call(self._preferences, "list", [], limit=50),
+            conversations=memory["conversations"][:20],
+            corrections=memory["corrections"][:20],
+            decision_evidence=[
+                {
+                    "kind": "correction_applied",
+                    "memory_id": memory_id,
+                    "context_id": context_id,
+                }
+                for memory_id in correction_ids
+            ],
             obligations=self._obligations(now),
             active_tasks=self._active_tasks(),
             daily_plan=self._safe_call(self._daily, "get", {}) or {},
             delegation=self._safe_call(self._delegation, "get_summary", {}),
             repair_history=self._safe_call(self._repair, "list_history", [], limit=20),
         )
+        if correction_ids and self._memory is not None:
+            self._safe_call(
+                self._memory,
+                "mark_corrections_applied",
+                None,
+                memory_ids=correction_ids,
+                context_id=context_id,
+            )
         return context
+
+    def _memory_context(self) -> dict[str, list[dict[str, Any]]]:
+        default = {"conversations": [], "corrections": [], "learnings": []}
+        result = self._safe_call(self._memory, "get_decision_context_memory", default, limit=20)
+        if not isinstance(result, dict):
+            return default
+        return {
+            key: list(result.get(key, []) or [])
+            for key in ("conversations", "corrections", "learnings")
+        }
 
     def _obligations(self, now_ms: int) -> list[Obligation]:
         items: list[Obligation] = []
@@ -179,6 +268,24 @@ class AgentState:
                     priority=10,
                     due_at_ms=int(item.get("timestamp") or now_ms),
                     source="repair_manager",
+                    evidence=dict(item),
+                )
+            )
+        task_items = self._safe_call(self._tasks, "list_tasks", [], limit=200)
+        for item in task_items:
+            if (
+                str(item.get("status") or "") != "failed"
+                or str(item.get("incident_status") or "") != "open"
+            ):
+                continue
+            items.append(
+                Obligation(
+                    obligation_id=str(item.get("task_id") or ""),
+                    kind="incident",
+                    summary=str(item.get("error") or item.get("goal") or "Failed task"),
+                    priority=max(8, int(item.get("priority") or 0)),
+                    due_at_ms=int(item.get("updated_at") or now_ms),
+                    source="task_manager",
                     evidence=dict(item),
                 )
             )

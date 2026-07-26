@@ -358,6 +358,67 @@ class MemoryManager:
         }
         return mapping.get(name)
 
+    def get_decision_context_memory(self, limit: int = 20) -> dict[str, list[dict[str, Any]]]:
+        """Return durable memory classes that every DecisionContext must consider."""
+        conversations: list[dict[str, Any]] = []
+        if self._advanced is not None and hasattr(self._advanced, "get_recent_conversations"):
+            try:
+                conversations = [
+                    self._normalize_hit(item, "conversation", "advanced")
+                    for item in self._advanced.get_recent_conversations(limit)
+                ]
+            except Exception:
+                logger.debug("Recent conversation lookup failed", exc_info=True)
+
+        records: list[Any] = []
+        if self._store is not None and hasattr(self._store, "list_recent"):
+            try:
+                records = list(self._store.list_recent(limit=limit * 5))
+            except Exception:
+                logger.debug("Decision memory lookup failed", exc_info=True)
+        corrections = [
+            self._normalize_hit(item, str(getattr(item, "memory_type", "correction")), "store")
+            for item in records
+            if str(getattr(item, "source", "")) == "user_correction"
+            or "correction" in list(getattr(item, "tags", []) or [])
+        ][:limit]
+        learnings = [
+            self._normalize_hit(item, str(getattr(item, "memory_type", "learning")), "store")
+            for item in records
+            if str(getattr(item, "memory_type", "")) in {
+                "lesson",
+                "failure_lesson",
+                "safety_lesson",
+                "approval_lesson",
+                "desire_lesson",
+            }
+            or str(getattr(item, "source", "")) == "reflection"
+        ][:limit]
+        return {
+            "conversations": conversations[-limit:],
+            "corrections": corrections,
+            "learnings": learnings,
+        }
+
+    def mark_corrections_applied(self, memory_ids: list[str], context_id: str) -> None:
+        """Record that corrections were surfaced in a concrete DecisionContext."""
+        if self._store is None or not hasattr(self._store, "get_memory"):
+            return
+        for memory_id in dict.fromkeys(memory_ids):
+            try:
+                record = self._store.get_memory(memory_id)
+                if record is None:
+                    continue
+                structured = dict(getattr(record, "structured_data", {}) or {})
+                contexts = [str(item) for item in structured.get("decision_context_ids", [])]
+                if context_id not in contexts:
+                    contexts.append(context_id)
+                structured["decision_context_ids"] = contexts[-50:]
+                structured["applied_count"] = len(contexts)
+                self._store.update_memory(memory_id, {"structured_data": structured})
+            except Exception:
+                logger.debug("Failed to record correction application", exc_info=True)
+
     # ── Internal ──────────────────────────────────────────────
 
     def _select_backend(self, memory_type: str) -> Any:

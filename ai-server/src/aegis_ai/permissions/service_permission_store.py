@@ -102,7 +102,8 @@ _DEFAULT_POLICIES: list[dict[str, Any]] = [
     {"service": "browser", "operation": "draft", "allowed": True, "risk_level": "low"},
     {"service": "browser", "operation": "send", "allowed": False, "requires_approval": True, "risk_level": "high"},
     {"service": "browser", "operation": "publish", "allowed": False, "requires_approval": True, "risk_level": "high"},
-    {"service": "browser", "operation": "purchase", "allowed": False, "risk_level": "critical"},
+    {"service": "browser", "operation": "purchase", "allowed": False,
+     "requires_approval": True, "risk_level": "critical"},
     {"service": "browser", "operation": "login", "allowed": False, "requires_approval": True, "risk_level": "high"},
     # File System
     {"service": "file_system", "operation": "read", "allowed": True, "risk_level": "low"},
@@ -132,10 +133,13 @@ _DEFAULT_POLICIES: list[dict[str, Any]] = [
     # External API
     {"service": "external_api", "operation": "read", "allowed": True, "risk_level": "low"},
     {"service": "external_api", "operation": "send", "allowed": False, "requires_approval": True, "risk_level": "high"},
-    {"service": "external_api", "operation": "purchase", "allowed": False, "risk_level": "critical"},
+    {"service": "external_api", "operation": "purchase", "allowed": False,
+     "requires_approval": True, "risk_level": "critical"},
     # Financial/Universal
-    {"service": "*", "operation": "purchase", "allowed": False, "risk_level": "critical"},
-    {"service": "*", "operation": "payment", "allowed": False, "risk_level": "critical"},
+    {"service": "*", "operation": "purchase", "allowed": False,
+     "requires_approval": True, "risk_level": "critical"},
+    {"service": "*", "operation": "payment", "allowed": False,
+     "requires_approval": True, "risk_level": "critical"},
     {"service": "*", "operation": "credential_access", "allowed": False, "risk_level": "critical"},
     {"service": "*", "operation": "admin", "allowed": False, "risk_level": "critical"},
 ]
@@ -304,6 +308,7 @@ class ServicePermissionStore:
             return
         try:
             data = json.loads(self._path.read_text(encoding="utf-8"))
+            migrated = False
             for item in data:
                 scope = ServicePermissionScope(
                     scope_id=item.get("scope_id", ""),
@@ -323,8 +328,17 @@ class ServicePermissionStore:
                     updated_at=item.get("updated_at", 0),
                     reason=item.get("reason", ""),
                 )
+                if (
+                    scope.scope_id.startswith("default_")
+                    and scope.operation in {"purchase", "payment"}
+                    and not scope.requires_approval
+                ):
+                    scope.requires_approval = True
+                    migrated = True
                 key = f"{scope.service}:{scope.operation}:{scope.resource_pattern}"
                 self._scopes[key] = scope
+            if migrated:
+                self._save()
         except Exception as exc:
             logger.warning("Failed to load service permissions: %s — loading defaults", exc)
             self.load_defaults()
@@ -344,5 +358,5 @@ def _category_default(cat: OperationCategory) -> str:
         OperationCategory.MEDIUM_RISK_WRITE: "ask_approval",
         OperationCategory.HIGH_RISK_EXTERNAL_EFFECT: "ask_approval",
         OperationCategory.DESTRUCTIVE: "ask_approval",
-        OperationCategory.FINANCIAL_OR_LEGAL: "deny",
+        OperationCategory.FINANCIAL_OR_LEGAL: "ask_approval",
     }.get(cat, "ask_approval")

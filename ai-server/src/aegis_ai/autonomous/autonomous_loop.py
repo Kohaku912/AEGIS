@@ -1284,9 +1284,70 @@ Operational decision axes (prioritization only; not additional desires):
                     detail={"source": "task_generation", "desire": desire, "penalty": penalty},
                 )
                 continue
+            obligation = (
+                priority_obligations[i]
+                if i < len(priority_obligations)
+                else None
+            )
+            guide = next(
+                (
+                    item
+                    for item in desire_guides
+                    if item.get("desire") == desire
+                ),
+                {},
+            )
+            goal = (
+                str(obligation.get("summary") or "")
+                if obligation
+                else str(guide.get("goal") or f"Advance the {desire} objective")
+            )
+            manifest_completion = dict(getattr(manifest, "completion", {}) or {})
+            success_condition = str(args.get("success_condition") or "")
+            if not success_condition:
+                success_condition = (
+                    "The capability's manifest completion checks pass and its result "
+                    "provides evidence for the autonomous outcome."
+                    if manifest_completion
+                    else "Independent verification demonstrates the autonomous outcome."
+                )
             valid_tasks.append({
                 "desire": desire,
-                "action": f"Execute {cap_id}",
+                "action": f"Advance goal with {cap_id}",
+                "goal": goal,
+                "success_condition": success_condition,
+                "obligation_ids": (
+                    [str(obligation.get("obligation_id") or "")]
+                    if obligation and obligation.get("obligation_id")
+                    else []
+                ),
+                "presentation": {
+                    "report_when": "terminal",
+                    "audience": (
+                        "agent_private"
+                        if str(args.get("viewer") or "") == "agent_private"
+                        else "user"
+                    ),
+                },
+                "delegation_context": {
+                    "operation_category": str(
+                        getattr(manifest, "operation_category", "") or "general"
+                    ),
+                    "scope": str(
+                        getattr(manifest, "ownership_scope", "") or "aegis"
+                    ),
+                    "audience": (
+                        "private"
+                        if str(args.get("viewer") or "") == "agent_private"
+                        else "user"
+                    ),
+                    "content_sensitivity": str(
+                        getattr(manifest, "content_sensitivity", "") or "normal"
+                    ),
+                    "reversibility": str(
+                        getattr(manifest, "reversibility", "") or "reversible"
+                    ),
+                },
                 "capability_id": cap_id,
                 "arguments": args,
                 "expected_impact": max(0.1, 0.5 - min(penalty, 0.4)),
@@ -1444,6 +1505,7 @@ Operational decision axes (prioritization only; not additional desires):
             action = task.get("action", "Unknown task")
             capability_id = task.get("capability_id", "")
             arguments = task.get("arguments", {})
+            goal = str(task.get("goal") or action)
 
             logger.info("Executing task: %s (for %s)", action[:50], desire_name)
 
@@ -1451,14 +1513,35 @@ Operational decision axes (prioritization only; not additional desires):
             task_id = ""
             if self._task_manager:
                 try:
-                    task_obj = self._task_manager.create_task(
-                        title=action[:100],
-                        goal=action,
-                        source="autonomous",
-                        priority=0,
-                    )
+                    goal_service = getattr(self, "_goal_service", None)
+                    if goal_service is not None:
+                        task_obj = goal_service.create_goal_task(
+                            goal,
+                            source="autonomous",
+                            title=action[:100],
+                            success_condition=str(
+                                task.get("success_condition") or ""
+                            ),
+                            value_to_user=(
+                                "A real obligation or grounded autonomous objective is advanced."
+                            ),
+                            obligation_ids=list(task.get("obligation_ids") or []),
+                            presentation=dict(task.get("presentation") or {}),
+                            verification_criterion=(
+                                "Manifest-backed verification independently confirms the outcome."
+                            ),
+                            priority=int(task.get("priority") or 0),
+                        )
+                    else:
+                        task_obj = self._task_manager.create_task(
+                            title=action[:100],
+                            goal=goal,
+                            source="autonomous",
+                            priority=0,
+                        )
                     task_id = task_obj.get("task_id", "")
-                    self._task_manager.start_task(task_id)
+                    if goal_service is None:
+                        self._task_manager.start_task(task_id)
                 except Exception:
                     pass
 
@@ -1499,6 +1582,9 @@ Operational decision axes (prioritization only; not additional desires):
             result_summary = ""
             failure_reason = ""
             full_output = {}
+            goal_evaluation = None
+            verification_status = ""
+            verification_evidence: list[str] = []
 
             if capability_id and self._broker:
                 try:
@@ -1512,11 +1598,34 @@ Operational decision axes (prioritization only; not additional desires):
                         source_desire=desire_name,
                         metadata={
                             "action_state": "selected",
-                            "goal": action,
+                            "goal": goal,
+                            "delegation_context": dict(
+                                task.get("delegation_context") or {}
+                            ),
                             "continuation": task.get("continuation", {}),
                         },
                     )
                     result = self._broker.execute(request)
+                    raw_verification_status = getattr(
+                        result, "verification_status", ""
+                    )
+                    verification_status = str(
+                        getattr(
+                            raw_verification_status,
+                            "value",
+                            raw_verification_status,
+                        )
+                        or ""
+                    ).lower()
+                    verification = getattr(result, "verification", None)
+                    verification_evidence = [
+                        str(item)
+                        for item in (
+                            getattr(verification, "evidence", None)
+                            or getattr(verification, "details", None)
+                            or []
+                        )
+                    ]
 
                     if result.success:
                         output = result.output or {}
@@ -1532,7 +1641,7 @@ Operational decision axes (prioritization only; not additional desires):
                                 "actions_executed",
                                 {"task_id": task_id, "capability_id": capability_id},
                             )
-                            if str(getattr(result, "verification_status", "")) == "passed":
+                            if verification_status == "passed":
                                 self._initiative_engine.record_stage(
                                     "actions_verified",
                                     {"task_id": task_id, "capability_id": capability_id},
@@ -1609,8 +1718,49 @@ Operational decision axes (prioritization only; not additional desires):
 
             if task_id and self._task_manager:
                 try:
-                    if success:
-                        self._task_manager.complete_task(task_id, result_summary=result_summary[:200])
+                    goal_service = getattr(self, "_goal_service", None)
+                    if (
+                        goal_service is not None
+                        and full_output.get("action_state") != "awaiting_approval"
+                    ):
+                        from aegis_ai.agency import GoalEvaluation
+
+                        if success and verification_status == "passed":
+                            goal_evaluation = GoalEvaluation(
+                                status="achieved",
+                                reason="Manifest-backed verification passed.",
+                                evidence=verification_evidence
+                                or [
+                                    f"verification_status:{verification_status}",
+                                    result_summary[:200],
+                                ],
+                            )
+                        elif success:
+                            goal_evaluation = GoalEvaluation(
+                                status="needs_followup",
+                                reason=(
+                                    "The capability returned successfully, but independent "
+                                    "outcome verification did not pass."
+                                ),
+                                evidence=[
+                                    f"verification_status:{verification_status or 'unavailable'}"
+                                ],
+                            )
+                        else:
+                            goal_evaluation = GoalEvaluation(
+                                status="failed",
+                                reason=failure_reason or "Capability execution failed.",
+                                evidence=[result_summary[:200]],
+                            )
+                        goal_service.finalize_with_evaluation(
+                            task_id,
+                            goal_evaluation,
+                            response=result_summary[:200],
+                        )
+                    elif success:
+                        self._task_manager.complete_task(
+                            task_id, result_summary=result_summary[:200]
+                        )
                     elif full_output.get("action_state") != "awaiting_approval":
                         self._task_manager.fail_task(task_id, error=failure_reason[:200])
                 except Exception:
@@ -1623,6 +1773,10 @@ Operational decision axes (prioritization only; not additional desires):
                 "full_output": full_output,
                 "skill_used": skill_used.skill_id if skill_used else None,
                 "workflow_used": workflow_used.workflow_id if workflow_used else None,
+                "goal_status": (
+                    goal_evaluation.status if goal_evaluation is not None else ""
+                ),
+                "verification_status": verification_status,
             }
             results.append(result_record)
 
