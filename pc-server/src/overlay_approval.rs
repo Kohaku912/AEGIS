@@ -4,6 +4,8 @@
 //! Display overlay: Shows arbitrary text, auto-dismisses or ESC to close.
 
 use serde::{Deserialize, Serialize};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Mutex;
 
 // COLORREF is 0x00bbggrr. These values mirror design-tokens/tokens.json.
 #[cfg(target_os = "windows")]
@@ -73,6 +75,9 @@ fn new_delivery_id() -> String {
         .as_millis();
     format!("pc_overlay_{millis}")
 }
+
+static RICH_DISPLAY_GENERATION: AtomicU64 = AtomicU64::new(0);
+static RICH_DISPLAY_LOCK: Mutex<()> = Mutex::new(());
 
 #[cfg(target_os = "windows")]
 struct OverlayData {
@@ -374,7 +379,29 @@ pub fn show_display_overlay(request: DisplayRequest) -> DisplayResult {
     }
 }
 
-pub fn show_rich_display_overlay(request: RichDisplayRequest) -> DisplayResult {
+/// Schedule a rich overlay without blocking the capability response for the
+/// full display duration. A newer overlay supersedes the currently displayed
+/// one, so approval state updates cannot queue stale windows.
+pub fn schedule_rich_display_overlay(request: RichDisplayRequest) -> DisplayResult {
+    let generation = RICH_DISPLAY_GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
+    let delivery_id = new_delivery_id();
+    std::thread::spawn(move || {
+        let _ = show_rich_display_overlay_generation(request, generation);
+    });
+    DisplayResult {
+        shown: true,
+        response: "Scheduled".to_string(),
+        delivery_id,
+    }
+}
+
+fn show_rich_display_overlay_generation(
+    request: RichDisplayRequest,
+    generation: u64,
+) -> DisplayResult {
+    let _display_guard = RICH_DISPLAY_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     #[cfg(target_os = "windows")]
     {
         use base64::Engine;
@@ -495,6 +522,15 @@ pub fn show_rich_display_overlay(request: RichDisplayRequest) -> DisplayResult {
             };
             let timeout = std::time::Duration::from_secs(duration as u64);
             loop {
+                if RICH_DISPLAY_GENERATION.load(Ordering::SeqCst) != generation {
+                    DestroyWindow(hwnd);
+                    RICH_DISPLAY_DATA = None;
+                    return DisplayResult {
+                        shown: true,
+                        response: "Replaced by a newer overlay".to_string(),
+                        delivery_id: new_delivery_id(),
+                    };
+                }
                 if start.elapsed() > timeout {
                     DestroyWindow(hwnd);
                     RICH_DISPLAY_DATA = None;
@@ -528,7 +564,7 @@ pub fn show_rich_display_overlay(request: RichDisplayRequest) -> DisplayResult {
 
     #[cfg(not(target_os = "windows"))]
     {
-        let _ = request;
+        let _ = (request, generation);
         DisplayResult {
             shown: false,
             response: "Overlay only supported on Windows".to_string(),

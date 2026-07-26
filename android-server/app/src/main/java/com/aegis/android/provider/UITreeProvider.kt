@@ -134,14 +134,32 @@ class UITreeProvider(private val context: Context) {
     fun typeText(text: String): Boolean {
         val service = getService() ?: return false
         try {
-            val focusedNode = service.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
-            if (focusedNode != null) {
-                val arguments = android.os.Bundle()
-                arguments.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text)
-                focusedNode.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, arguments)
-                return true
+            val focusedNode = findFocusedEditableNode(service) ?: run {
+                Log.w(TAG, "No focused editable node is available")
+                return false
             }
-            return false
+            val arguments = android.os.Bundle().apply {
+                putCharSequence(
+                    AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,
+                    text,
+                )
+            }
+            var changed = focusedNode.performAction(
+                AccessibilityNodeInfo.ACTION_SET_TEXT,
+                arguments,
+            )
+            if (!changed && focusedNode.refresh()) {
+                changed = focusedNode.performAction(
+                    AccessibilityNodeInfo.ACTION_SET_TEXT,
+                    arguments,
+                )
+            }
+            Log.i(
+                TAG,
+                "Set text on ${focusedNode.className}: $changed",
+            )
+            focusedNode.recycle()
+            return changed
         } catch (e: Exception) {
             Log.e(TAG, "Type text failed", e)
             return false
@@ -173,6 +191,42 @@ class UITreeProvider(private val context: Context) {
 
     private fun getService(): AccessibilityService? {
         return accessibilityService ?: AegisAccessibilityService.instance
+    }
+
+    private fun findFocusedEditableNode(
+        service: AccessibilityService,
+    ): AccessibilityNodeInfo? {
+        service.windows.forEach { window ->
+            val root = window.root ?: return@forEach
+            val found = findFocusedEditableNode(root)
+            if (found != null) {
+                return found
+            }
+            root.recycle()
+        }
+        val focused = service.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
+        if (focused != null && focused.isEditable && !focused.isPassword) {
+            return focused
+        }
+        focused?.recycle()
+        return null
+    }
+
+    private fun findFocusedEditableNode(
+        node: AccessibilityNodeInfo,
+    ): AccessibilityNodeInfo? {
+        if (node.isFocused && node.isEditable && !node.isPassword) {
+            return node
+        }
+        for (index in 0 until node.childCount) {
+            val child = node.getChild(index) ?: continue
+            val found = findFocusedEditableNode(child)
+            if (found != null) {
+                return found
+            }
+            child.recycle()
+        }
+        return null
     }
 
     private fun buildUINode(node: AccessibilityNodeInfo): UINode {

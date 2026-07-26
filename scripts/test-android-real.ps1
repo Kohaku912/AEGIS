@@ -164,7 +164,9 @@ Add-Check "android_core_route" "Android can route to AEGIS Core host" $(if ($rou
 
 Write-Host "`n== Launch Android app =="
 adb logcat -c
-adb shell am force-stop com.aegis.android
+# Do not force-stop here. On some Android/MIUI builds force-stop disables the
+# AccessibilityService and always invalidates the process-bound
+# MediaProjection token, making a connectivity test break later capabilities.
 adb shell am start -n com.aegis.android/.MainActivity --es host $HostAddress --ei port $Port --ez auto_connect true
 
 Write-Host "`n== Poll Android status =="

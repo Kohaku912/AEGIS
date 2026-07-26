@@ -123,7 +123,7 @@ class UserActivityCollector(private val context: Context) {
     fun collect(): JSONObject {
         val device = deviceProvider.getDeviceInfo()
         val wifi = wifiInfo()
-        val location = locationProvider.getCurrentLocation()
+        val location = locationProvider.getLastKnownLocation()
         val payload = JSONObject()
             .put("event_type", "android.user_activity.changed")
             .put("timestamp_ms", System.currentTimeMillis())

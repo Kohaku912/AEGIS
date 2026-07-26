@@ -243,7 +243,11 @@ class AndroidCapabilityDispatcher(
         if (packageName.isBlank()) return error("INVALID_ARGUMENT", "package_name is required")
         val intent = context.packageManager.getLaunchIntentForPackage(packageName)
             ?: Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName"))
-        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        intent.addFlags(
+            Intent.FLAG_ACTIVITY_NEW_TASK or
+                Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                Intent.FLAG_ACTIVITY_SINGLE_TOP,
+        )
         return try {
             context.startActivity(intent)
             ok(JSONObject().put("opened", true).put("package_name", packageName))
