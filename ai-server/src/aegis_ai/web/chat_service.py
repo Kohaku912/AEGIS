@@ -7,8 +7,8 @@ import logging
 import time
 from typing import Any
 
-from aegis_ai.web.dashboard_routes import _build_chat_system_prompt, _call_llm_with_runtime
 from aegis_ai.web.chat_tools import call_llm_with_tools
+from aegis_ai.web.dashboard_routes import _build_chat_system_prompt, _call_llm_with_runtime
 
 logger = logging.getLogger("aegis_ai.web.chat_service")
 
@@ -36,15 +36,19 @@ def execute_chat_message(
     conversation_id = conversation_id or f"chat_{int(time.time() * 1000)}"
     task_id = ""
     task_manager = getattr(runtime, "task_manager", None)
+    goal_service = getattr(runtime, "goal_service", None)
     if task_manager is not None:
         try:
-            task = task_manager.create_task(
-                title=f"Chat: {clean_text[:50]}",
-                goal=clean_text,
-                source=task_source,
-            )
+            if goal_service is not None:
+                task = goal_service.create_chat_task(clean_text, source=task_source)
+            else:
+                task = task_manager.create_task(
+                    title=f"Chat: {clean_text[:50]}",
+                    goal=clean_text,
+                    source=task_source,
+                )
+                task_manager.start_task(task["task_id"])
             task_id = task.get("task_id") if isinstance(task, dict) else str(task)
-            task_manager.start_task(task_id)
         except Exception:
             logger.debug("Failed to create chat task", exc_info=True)
 
@@ -76,7 +80,17 @@ def execute_chat_message(
         )
         response_text = result.get("response", "")
         if task_id and not result.get("approval_needed") and not result.get("needs_user_input"):
-            task_manager.complete_task(task_id, result_summary=response_text[:200])
+            if goal_service is not None:
+                evaluation = goal_service.finalize_chat_task(
+                    task_id,
+                    user_goal=clean_text,
+                    response=response_text,
+                    tool_results=list(result.get("tool_results") or []),
+                )
+                result["goal_status"] = evaluation.status
+                result["goal_reason"] = evaluation.reason
+            else:
+                task_manager.complete_task(task_id, result_summary=response_text[:200])
         return {
             **result,
             "conversation_id": conversation_id,

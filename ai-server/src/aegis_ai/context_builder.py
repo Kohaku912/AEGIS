@@ -84,6 +84,7 @@ class Context:
     memory_budget_tokens: int = 0
     memory_top_k: int = 0
     memory_reason: str = ""
+    decision_context: dict[str, Any] = field(default_factory=dict)
 
     def usage_meta(self) -> dict[str, Any]:
         """Return LLM Usage metadata for audit records."""
@@ -119,6 +120,7 @@ class ContextBuilder:
         situation_model: Any = None,
         delegation_policy: Any = None,
         commitment_manager: Any = None,
+        agent_state: Any = None,
         memory_store: Any = None,
         world_state_store: Any = None,
         multimodal_llm: Any = None,
@@ -141,6 +143,7 @@ class ContextBuilder:
         self._situation_model = situation_model
         self._delegation_policy = delegation_policy
         self._commitment_manager = commitment_manager
+        self._agent_state = agent_state
         self._memory_store = memory_store
         self._world_state_store = world_state_store
         self._capability_retriever = capability_retriever
@@ -277,6 +280,13 @@ class ContextBuilder:
                 due = self._commitment_manager.due_commitments()
                 if due:
                     policy_lines.append("Due commitments: " + ", ".join(str(c.get("title", "")) for c in due[:3]))
+            except Exception:
+                pass
+        if self._agent_state:
+            try:
+                decision = self._agent_state.snapshot(triggering_query)
+                ctx.decision_context = decision.to_dict()
+                policy_lines.append(decision.to_context_string())
             except Exception:
                 pass
         if policy_lines:

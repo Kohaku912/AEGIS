@@ -217,6 +217,10 @@ class PersonMemory:
                     return person
         return None
 
+    def list_all(self) -> list[PersonRecord]:
+        """Return all known relationships for shared decision context."""
+        return list(self._persons.values())
+
     def has_authority(self, person: PersonRecord | None, required_level: int) -> bool:
         """Check if a person has sufficient authority level."""
         if person is None:

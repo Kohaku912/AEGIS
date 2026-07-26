@@ -478,10 +478,26 @@ class ToolBroker:
             return result
 
         if self._delegation_policy is not None and policy_result.decision in (PolicyDecision.ALLOW, PolicyDecision.ALLOW_WITH_AUDIT):
+            manifest = self._catalog.resolve(cap.id) if self._catalog is not None else None
+            declared_context = dict(request.metadata.get("delegation_context") or {})
+            if manifest is not None:
+                operation_category = str(
+                    getattr(manifest, "operation_category", "") or ""
+                )
+                ownership_scope = str(
+                    getattr(manifest, "ownership_scope", "") or ""
+                )
+                if operation_category:
+                    declared_context.setdefault(
+                        "operation_category", operation_category
+                    )
+                if ownership_scope:
+                    declared_context.setdefault("scope", ownership_scope)
             delegation = self._delegation_policy.evaluate(
                 cap.id,
                 request.arguments,
                 side_effects=list(getattr(cap, "side_effects", []) or []),
+                operation_context=declared_context,
             )
             if delegation.decision == "forbidden":
                 result = ToolExecutionResult(

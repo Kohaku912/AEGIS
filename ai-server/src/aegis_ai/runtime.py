@@ -84,6 +84,8 @@ class AegisRuntime:
     interruption_controller: Any = None
     repair_manager: Any = None
     presentation_manager: Any = None
+    agent_state: Any = None
+    goal_service: Any = None
     _lock: threading.RLock | None = None
 
     def start_autonomous_if_enabled(self) -> None:
@@ -479,6 +481,7 @@ def _build_runtime(config: Config) -> AegisRuntime:
         initiative_engine=initiative_engine,
         continuation_manager=continuation_manager,
         social_manager=social_manager,
+        task_manager=task_manager,
     )
     tool_broker.set_continuation_manager(continuation_manager)
     approval_manager.on_state_change(social_manager.handle_approval_event)
@@ -595,6 +598,27 @@ def _build_runtime(config: Config) -> AegisRuntime:
         audit_manager=audit_manager,
         memory_manager=memory_manager,
     )
+    from aegis_ai.agency import AgentState, GoalLifecycleService
+
+    agent_state = AgentState(
+        identity=identity,
+        situation_model=situation_model,
+        commitment_manager=commitment_manager,
+        social_manager=social_manager,
+        task_manager=task_manager,
+        repair_manager=repair_manager,
+        delegation_policy=delegation_policy,
+        daily_planning_manager=daily_planning_manager,
+        person_memory=person_memory,
+    )
+    context_builder._agent_state = agent_state
+    social_manager.set_agent_state(agent_state)
+    daily_planning_manager.set_agent_state(agent_state)
+    repair_manager.set_agent_state(agent_state)
+    goal_service = GoalLifecycleService(
+        task_manager=task_manager,
+        llm_gateway=llm_gateway,
+    )
     core_client = server_executor._clients.get("ai-server")
     if core_client is not None and hasattr(core_client, "_personal"):
         core_client._personal["memory_manager"] = memory_manager
@@ -698,6 +722,8 @@ def _build_runtime(config: Config) -> AegisRuntime:
         interruption_controller=interruption_controller,
         repair_manager=repair_manager,
         presentation_manager=presentation_manager,
+        agent_state=agent_state,
+        goal_service=goal_service,
         _lock=threading.RLock(),
     )
     runtime_ref["runtime"] = runtime
@@ -795,6 +821,7 @@ def _create_autonomous_loop(runtime: AegisRuntime) -> Any:
     loop._min_llm_interval_ms = max(1, settings.autonomous.min_llm_interval_seconds) * 1000
     loop._initiative_engine = runtime.initiative_engine
     loop._continuation_manager = runtime.continuation_manager
+    loop._agent_state = runtime.agent_state
 
     loop.set_observation_system(
         SpontaneousObservationSystem(

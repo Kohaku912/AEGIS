@@ -15,6 +15,11 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+from aegis_ai.agency.goal_graph import (
+    GoalGraph,
+    GoalOutcome,
+    GoalVerification,
+)
 from aegis_ai.llm.json_utils import extract_json_object
 from aegis_ai.llm.memory_context import build_shared_memory_context
 from aegis_ai.task_plan import PlanStep, RiskCategory, TaskPlan
@@ -38,6 +43,12 @@ Analyze the user's message and produce a structured task plan.
 ## Output Format (JSON)
 {{{{
   "user_goal": "What the user wants to accomplish",
+  "outcome": {{{{
+    "description": "Observable user-facing outcome",
+    "success_condition": "Condition that proves the goal is achieved",
+    "value_to_user": "Why this outcome matters"
+  }}}},
+  "obligation_ids": ["Commitment, incident, or social obligation IDs from context"],
   "interpreted_request": "Clear description of what to do",
   "assumptions": ["List of assumptions made"],
   "required_context": ["What context is needed"],
@@ -51,7 +62,13 @@ Analyze the user's message and produce a structured task plan.
       "risk_category": "READ|DRAFT|OBSERVE|EXTERNAL_SEND|DEVICE_ACTION|PAYMENT|BLOCKED",
       "requires_approval": false,
       "expected_result": "What should happen",
-      "depends_on": []
+      "depends_on": [],
+      "delegation_context": {{{{
+        "scope": "aegis|user|system|external",
+        "audience": "private|shared|public|third_party",
+        "content_sensitivity": "normal|personal|confidential|secret",
+        "reversibility": "reversible|difficult|irreversible"
+      }}}}
     }}}}
   ],
   "required_capabilities": ["List of capability IDs needed"],
@@ -60,6 +77,17 @@ Analyze the user's message and produce a structured task plan.
   "stop_conditions": ["When to stop"],
   "expected_result": "Overall expected outcome",
   "verification_plan": "How to verify success",
+  "verification": [
+    {{{{
+      "verification_id": "verify_1",
+      "criterion": "Observable completion criterion",
+      "linked_step_ids": ["step_1"]
+    }}}}
+  ],
+  "presentation": {{{{
+    "report_when": "terminal",
+    "audience": "user"
+  }}}},
   "needs_browser": true,
   "needs_device": false
 }}}}
@@ -195,9 +223,40 @@ class LLMTaskInterpreter:
                 requires_approval=step_data.get("requires_approval", False),
                 expected_result=step_data.get("expected_result", ""),
                 depends_on=step_data.get("depends_on", []),
+                delegation_context={
+                    str(key): str(value)
+                    for key, value in dict(
+                        step_data.get("delegation_context") or {}
+                    ).items()
+                },
             )
             plan.steps.append(step)
 
+        outcome_data = dict(data.get("outcome") or {})
+        verification_data = list(data.get("verification") or [])
+        if not verification_data and plan.steps:
+            verification_data = [
+                {
+                    "verification_id": "verify_outcome",
+                    "criterion": plan.verification_plan or plan.expected_result,
+                    "linked_step_ids": [step.step_id for step in plan.steps],
+                }
+            ]
+        plan.goal_graph = GoalGraph(
+            goal_id=f"goal_{plan.plan_id}",
+            outcome=GoalOutcome(
+                description=str(outcome_data.get("description") or plan.expected_result or plan.user_goal),
+                success_condition=str(
+                    outcome_data.get("success_condition") or plan.verification_plan or plan.expected_result
+                ),
+                value_to_user=str(outcome_data.get("value_to_user") or ""),
+            ),
+            source="user",
+            obligation_ids=[str(item) for item in data.get("obligation_ids", [])],
+            verification=[GoalVerification.from_dict(item) for item in verification_data if isinstance(item, dict)],
+            presentation=dict(data.get("presentation") or {"report_when": "terminal", "audience": "user"}),
+            stop_conditions=list(plan.stop_conditions),
+        )
         return plan
 
     def _parse_risk(self, risk_str: str) -> RiskCategory:
@@ -253,10 +312,10 @@ class LLMTaskInterpreter:
             if ctx.recent_events:
                 parts.append(f"Recent events: {len(ctx.recent_events)} events")
             if ctx.recent_media_summaries:
-                parts.append(
-                    "Recent media: "
-                    + "; ".join(ctx.recent_media_summaries[:2])
-                )
+                parts.append("Recent media: " + "; ".join(ctx.recent_media_summaries[:2]))
+            if ctx.decision_context:
+                obligations = ctx.decision_context.get("obligations", [])
+                parts.append("Shared AgentState obligations: " + json.dumps(obligations[:12], ensure_ascii=False))
             return "\n".join(parts) if parts else "Context available but empty"
         except Exception:
             return "Context unavailable"

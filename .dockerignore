@@ -17,7 +17,9 @@ node_modules
 
 ai-server/data
 ai-server/.pytest-run-*
+ai-server/.pytest-*
 ai-server/.tmp_*
+ai-server/.tmp-*
 ai-server/tmp_*.py
 ai-server/debug_*.txt
 
@@ -41,4 +43,3 @@ pc-server/target
 .env
 .env.*
 !.env.example
-

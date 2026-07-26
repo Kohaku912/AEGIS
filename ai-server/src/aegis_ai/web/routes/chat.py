@@ -25,11 +25,13 @@ def init_chat_routes(owner: Any) -> None:
 
         system_prompt, memory_meta, _ = _build_chat_system_prompt(text)
         memory_meta = dict(memory_meta)
-        memory_meta.update({
-            "origin_channel": "dashboard_chat",
-            "conversation_id": f"chat_{int(time.time() * 1000)}",
-            "original_message": original_message or text,
-        })
+        memory_meta.update(
+            {
+                "origin_channel": "dashboard_chat",
+                "conversation_id": f"chat_{int(time.time() * 1000)}",
+                "original_message": original_message or text,
+            }
+        )
         if task_id:
             memory_meta["chat_task_id"] = task_id
         catalog = owner._runtime.tool_broker._catalog
@@ -47,13 +49,46 @@ def init_chat_routes(owner: Any) -> None:
         if not hasattr(owner._runtime, "task_manager") or not owner._runtime.task_manager:
             return ""
         try:
-            task = owner._runtime.task_manager.create_task(title=f"Chat: {text[:50]}", goal=text, source="chat")
+            goal_service = getattr(owner._runtime, "goal_service", None)
+            if goal_service is not None:
+                task = goal_service.create_chat_task(text, source="chat")
+            else:
+                task = owner._runtime.task_manager.create_task(
+                    title=f"Chat: {text[:50]}",
+                    goal=text,
+                    source="chat",
+                )
+                owner._runtime.task_manager.start_task(task["task_id"])
             task_id = task.get("task_id", "") if isinstance(task, dict) else str(task)
-            owner._runtime.task_manager.start_task(task_id)
             return task_id
         except Exception:
             logger.debug("Failed to create chat task", exc_info=True)
             return ""
+
+    def _finalize_chat_task(
+        task_id: str,
+        user_goal: str,
+        result: dict[str, Any],
+    ) -> dict[str, str]:
+        if not task_id:
+            return {}
+        goal_service = getattr(owner._runtime, "goal_service", None)
+        if goal_service is None:
+            owner._runtime.task_manager.complete_task(
+                task_id,
+                result_summary=str(result.get("response") or "")[:200],
+            )
+            return {"goal_status": "achieved"}
+        evaluation = goal_service.finalize_chat_task(
+            task_id,
+            user_goal=user_goal,
+            response=str(result.get("response") or ""),
+            tool_results=list(result.get("tool_results") or []),
+        )
+        return {
+            "goal_status": evaluation.status,
+            "goal_reason": evaluation.reason,
+        }
 
     def _save_chat(user_msg: str, bot_msg: str, image: str = "") -> None:
         owner._append_chat_history(user_msg, bot_msg, image)
@@ -79,7 +114,7 @@ def init_chat_routes(owner: Any) -> None:
                         data = q.get(timeout=15)
                         yield f"data: {data}\n\n"
                     except queue.Empty:
-                        yield "data: {\"type\":\"heartbeat\"}\n\n"
+                        yield 'data: {"type":"heartbeat"}\n\n'
             finally:
                 owner._unregister_chat_client(client_id)
 
@@ -96,26 +131,37 @@ def init_chat_routes(owner: Any) -> None:
             result = _run_chat(text, task_id=task_id)
             if result.get("needs_user_input"):
                 pending = result.get("pending_context", {})
-                return jsonify({
-                    "needs_user_input": True,
-                    "question": result.get("question", ""),
-                    "options": result.get("options", []),
-                    "pending_context": {
-                        "original_message": text,
-                        "browser_task": pending.get("browser_task", ""),
-                    },
-                })
+                if task_id:
+                    owner._runtime.task_manager.pause_task(task_id)
+                return jsonify(
+                    {
+                        "needs_user_input": True,
+                        "question": result.get("question", ""),
+                        "options": result.get("options", []),
+                        "pending_context": {
+                            "original_message": text,
+                            "browser_task": pending.get("browser_task", ""),
+                            "task_id": task_id,
+                        },
+                    }
+                )
             response_text = result["response"]
             _save_chat(text, response_text)
             if task_id and not result.get("approval_needed"):
-                owner._runtime.task_manager.complete_task(task_id, result_summary=response_text[:200])
-            payload = {"response": response_text}
+                goal_meta = _finalize_chat_task(task_id, text, result)
+            else:
+                goal_meta = {}
+            payload = {"response": response_text, **goal_meta}
             if result.get("approval_needed"):
                 payload["approval_needed"] = True
                 payload["approval_id"] = result.get("approval_id", "")
             if result.get("tool_results"):
                 payload["tool_results"] = [
-                    {"function": tr.get("function", ""), "success": tr.get("success", False), "result": tr.get("result", "")[:500]}
+                    {
+                        "function": tr.get("function", ""),
+                        "success": tr.get("success", False),
+                        "result": tr.get("result", "")[:500],
+                    }
                     for tr in result["tool_results"]
                 ]
             return jsonify(payload)
@@ -135,14 +181,32 @@ def init_chat_routes(owner: Any) -> None:
             return jsonify({"error": "No response provided"}), 400
         original_message = pending_context.get("original_message", "")
         browser_task = pending_context.get("browser_task", "")
+        task_id = pending_context.get("task_id", "")
         follow_up = f"{original_message}\n\nUser answered: {user_response}"
         if browser_task:
-            follow_up = f"Previous task: {original_message}\n\nUser answered: {user_response}\nContinue the browser task: {browser_task}"
+            follow_up = (
+                f"Previous task: {original_message}\n\n"
+                f"User answered: {user_response}\n"
+                f"Continue the browser task: {browser_task}"
+            )
         try:
-            result = _run_chat(follow_up, original_message=original_message or follow_up)
+            if task_id:
+                owner._runtime.task_manager.start_task(task_id)
+            result = _run_chat(
+                follow_up,
+                task_id=task_id,
+                original_message=original_message or follow_up,
+            )
             response_text = result["response"]
             _save_chat(follow_up, response_text)
-            payload = {"response": response_text}
+            goal_meta = {}
+            if task_id and not result.get("approval_needed") and not result.get("needs_user_input"):
+                goal_meta = _finalize_chat_task(
+                    task_id,
+                    original_message or follow_up,
+                    result,
+                )
+            payload = {"response": response_text, **goal_meta}
             if result.get("approval_needed"):
                 payload["approval_needed"] = True
                 payload["approval_id"] = result.get("approval_id", "")
@@ -163,11 +227,13 @@ def init_chat_routes(owner: Any) -> None:
                 result = _run_chat(text, task_id=task_id)
                 response_text = result["response"]
                 for i in range(0, len(response_text), 10):
-                    yield f"data: {json.dumps({'type': 'text', 'content': response_text[i:i + 10]})}\n\n"
+                    yield f"data: {json.dumps({'type': 'text', 'content': response_text[i : i + 10]})}\n\n"
                 _save_chat(text, response_text)
                 if task_id and not result.get("approval_needed"):
-                    owner._runtime.task_manager.complete_task(task_id, result_summary=response_text[:200])
-                yield f"data: {json.dumps({'type': 'done'})}\n\n"
+                    goal_meta = _finalize_chat_task(task_id, text, result)
+                else:
+                    goal_meta = {}
+                yield f"data: {json.dumps({'type': 'done', **goal_meta})}\n\n"
             except Exception as exc:
                 if task_id:
                     owner._runtime.task_manager.fail_task(task_id, error=str(exc))

@@ -16,6 +16,21 @@ class DelegationDecision:
     decision: str = "no_match"  # auto_allowed | approval_required | forbidden | no_match
     reason: str = ""
     rule_id: str = ""
+    dimensions: dict[str, str] = field(default_factory=dict)
+
+
+@dataclass
+class DelegationContext:
+    """Explicit delegation dimensions supplied by planning or manifests."""
+
+    operation_category: str = "general"
+    scope: str = "aegis"
+    audience: str = "private"
+    content_sensitivity: str = "normal"
+    reversibility: str = "reversible"
+
+    def to_dict(self) -> dict[str, str]:
+        return self.__dict__.copy()
 
 
 @dataclass
@@ -24,6 +39,10 @@ class DelegationRule:
     capability_pattern: str
     decision: str
     operation_category: str = ""
+    scope: str = ""
+    audience: str = ""
+    content_sensitivity: str = ""
+    reversibility: str = ""
     description: str = ""
     enabled: bool = True
     created_at: int = 0
@@ -33,12 +52,16 @@ class DelegationRule:
         return self.__dict__.copy()
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "DelegationRule":
+    def from_dict(cls, data: dict[str, Any]) -> DelegationRule:
         return cls(
             rule_id=str(data.get("rule_id") or f"del_{uuid.uuid4().hex[:10]}"),
             capability_pattern=str(data.get("capability_pattern") or "*"),
             decision=str(data.get("decision") or "approval_required"),
             operation_category=str(data.get("operation_category") or ""),
+            scope=str(data.get("scope") or ""),
+            audience=str(data.get("audience") or ""),
+            content_sensitivity=str(data.get("content_sensitivity") or ""),
+            reversibility=str(data.get("reversibility") or ""),
             description=str(data.get("description") or ""),
             enabled=bool(data.get("enabled", True)),
             created_at=int(data.get("created_at") or 0),
@@ -62,7 +85,9 @@ class DelegationPolicyStore:
         "system_change",
     }
 
-    def __init__(self, data_dir: str = "data/personal_ai", audit_manager: Any = None, user_model_store: Any = None) -> None:
+    def __init__(
+        self, data_dir: str = "data/personal_ai", audit_manager: Any = None, user_model_store: Any = None
+    ) -> None:
         self._state = JsonStateFile(Path(data_dir) / "delegation_policy.json", {"rules": []})
         self._audit_manager = audit_manager
         self._user_model_store = user_model_store
@@ -70,6 +95,8 @@ class DelegationPolicyStore:
         self._load()
         if not self._rules:
             self._install_defaults()
+        else:
+            self._migrate_builtin_rules()
 
     def list_rules(self) -> list[dict[str, Any]]:
         return [r.to_dict() for r in self._rules]
@@ -87,7 +114,17 @@ class DelegationPolicyStore:
                 updated_at=now,
             )
             self._rules.append(rule)
-        for key in ("capability_pattern", "decision", "operation_category", "description", "enabled"):
+        for key in (
+            "capability_pattern",
+            "decision",
+            "operation_category",
+            "scope",
+            "audience",
+            "content_sensitivity",
+            "reversibility",
+            "description",
+            "enabled",
+        ):
             if key in patch:
                 setattr(rule, key, bool(patch[key]) if key == "enabled" else str(patch[key]))
         rule.updated_at = now
@@ -104,27 +141,55 @@ class DelegationPolicyStore:
             self._audit("delegation_policy_deleted", {"rule_id": rule_id})
         return changed
 
-    def evaluate(self, capability_id: str, params: dict[str, Any] | None = None, side_effects: list[str] | None = None) -> DelegationDecision:
-        side_effects = [str(s).lower() for s in (side_effects or [])]
-        category = self._infer_category(capability_id, side_effects)
+    def evaluate(
+        self,
+        capability_id: str,
+        params: dict[str, Any] | None = None,
+        side_effects: list[str] | None = None,
+        operation_context: DelegationContext | dict[str, Any] | None = None,
+    ) -> DelegationDecision:
+        """Evaluate an operation from declared dimensions, never message text."""
+        context = self._normalize_context(
+            params=params,
+            side_effects=side_effects,
+            operation_context=operation_context,
+        )
         for rule in self._rules:
             if not rule.enabled:
                 continue
-            if rule.operation_category and rule.operation_category != category:
+            if rule.operation_category and rule.operation_category != context.operation_category:
+                continue
+            if rule.scope and rule.scope != context.scope:
+                continue
+            if rule.audience and rule.audience != context.audience:
+                continue
+            if rule.content_sensitivity and rule.content_sensitivity != context.content_sensitivity:
+                continue
+            if rule.reversibility and rule.reversibility != context.reversibility:
                 continue
             if fnmatch.fnmatchcase(capability_id, rule.capability_pattern):
                 return DelegationDecision(
                     decision=rule.decision,
                     reason=rule.description or f"Delegation policy matched {rule.capability_pattern}.",
                     rule_id=rule.rule_id,
+                    dimensions=context.to_dict(),
                 )
-        if category in self.APPROVAL_CATEGORIES:
+        if (
+            context.operation_category in self.APPROVAL_CATEGORIES
+            or context.scope in {"user", "external", "system"}
+            or context.audience in {"shared", "public", "third_party"}
+            or context.content_sensitivity in {"personal", "confidential", "secret"}
+            or context.reversibility in {"difficult", "irreversible"}
+        ):
             return DelegationDecision(
                 decision="approval_required",
-                reason=f"Delegation policy requires approval for {category}.",
-                rule_id="default_external_safety",
+                reason=(
+                    "Delegation contract requires approval for the declared scope, audience, content, or reversibility."
+                ),
+                rule_id="default_delegation_contract",
+                dimensions=context.to_dict(),
             )
-        return DelegationDecision()
+        return DelegationDecision(dimensions=context.to_dict())
 
     def get_summary(self) -> dict[str, Any]:
         counts: dict[str, int] = {}
@@ -138,45 +203,97 @@ class DelegationPolicyStore:
             return "Delegation policy: no personal overrides."
         lines = ["Delegation policy:"]
         for rule in active:
-            lines.append(f"- {rule.capability_pattern}: {rule.decision} ({rule.operation_category or 'any'})")
+            dimensions = "/".join(
+                value
+                for value in (
+                    rule.operation_category,
+                    rule.scope,
+                    rule.audience,
+                    rule.content_sensitivity,
+                    rule.reversibility,
+                )
+                if value
+            )
+            lines.append(f"- {rule.capability_pattern}: {rule.decision} ({dimensions or 'any'})")
         return "\n".join(lines)
 
-    def _infer_category(self, capability_id: str, side_effects: list[str]) -> str:
-        cid = capability_id.lower()
-        text = " ".join([cid, *side_effects])
-        if any(s in text for s in ("external_send", "send_email", "webhook.send", "send_dm", "send_message")):
-            return "external_send"
-        if any(s in text for s in ("social_post", "agora.post", "post_message", "tweet")):
-            return "social_post"
-        if any(s in text for s in ("delete", "remove", "rm_file")):
-            return "delete"
-        if any(s in text for s in ("git_push", ".push", "push_code")):
-            return "push"
-        if any(s in text for s in ("payment", "billing", "charge", "purchase")):
-            return "payment"
-        if any(s in text for s in ("physical", "lighting_control", "room-server.light", "device_control")):
-            return "physical_device"
-        if any(s in text for s in ("install", "update_package", "system_change")):
-            return "system_change"
-        if any(s in text for s in ("draft", "read", "get_", "list", "search")):
-            return "read_or_draft"
-        return "general"
+    def _normalize_context(
+        self,
+        *,
+        params: dict[str, Any] | None,
+        side_effects: list[str] | None,
+        operation_context: DelegationContext | dict[str, Any] | None,
+    ) -> DelegationContext:
+        if isinstance(operation_context, DelegationContext):
+            return operation_context
+        declared = dict(operation_context or {})
+        argument_context = dict((params or {}).get("_delegation_context") or {})
+        for key, value in argument_context.items():
+            declared.setdefault(key, value)
+        effects = [str(item) for item in (side_effects or [])]
+        category = str(declared.get("operation_category") or "")
+        if not category:
+            category = next(
+                (item for item in effects if item in self.APPROVAL_CATEGORIES),
+                "general",
+            )
+        return DelegationContext(
+            operation_category=category,
+            scope=str(declared.get("scope") or "aegis"),
+            audience=str(declared.get("audience") or "private"),
+            content_sensitivity=str(declared.get("content_sensitivity") or "normal"),
+            reversibility=str(declared.get("reversibility") or "reversible"),
+        )
 
     def _install_defaults(self) -> None:
         now = now_ms()
         defaults = [
-            ("del_external_send", "*", "approval_required", "external_send", "External communication must be approved."),
-            ("del_social_post", "*", "allow", "social_communication", "Social posting is allowed without approval."),
+            (
+                "del_external_send",
+                "*",
+                "approval_required",
+                "external_send",
+                "External communication must be approved.",
+            ),
+            (
+                "del_social_post",
+                "*",
+                "approval_required",
+                "social_communication",
+                "Social posting requires an audience-aware approval.",
+            ),
             ("del_delete", "*", "approval_required", "delete", "Deletion must be approved."),
             ("del_push", "*", "approval_required", "push", "Git push must be approved."),
             ("del_payment", "*", "approval_required", "payment", "Payment or billing APIs must be approved."),
             ("del_physical", "*", "approval_required", "physical_device", "Physical device control must be approved."),
         ]
         self._rules = [
-            DelegationRule(rule_id=rid, capability_pattern=pattern, decision=decision, operation_category=cat, description=desc, created_at=now, updated_at=now)
+            DelegationRule(
+                rule_id=rid,
+                capability_pattern=pattern,
+                decision=decision,
+                operation_category=cat,
+                description=desc,
+                created_at=now,
+                updated_at=now,
+            )
             for rid, pattern, decision, cat, desc in defaults
         ]
         self._save()
+
+    def _migrate_builtin_rules(self) -> None:
+        """Keep shipped safety rules current without changing user rules."""
+        changed = False
+        for rule in self._rules:
+            if rule.rule_id == "del_social_post" and rule.decision == "allow":
+                rule.decision = "approval_required"
+                rule.description = (
+                    "Social posting requires an audience-aware approval."
+                )
+                rule.updated_at = now_ms()
+                changed = True
+        if changed:
+            self._save()
 
     def _load(self) -> None:
         data = self._state.load()
@@ -189,6 +306,8 @@ class DelegationPolicyStore:
         if self._audit_manager is None:
             return
         try:
-            self._audit_manager.log_decision(action=action, actor="delegation_policy", decision="success", reason=action, detail=detail)
+            self._audit_manager.log_decision(
+                action=action, actor="delegation_policy", decision="success", reason=action, detail=detail
+            )
         except Exception:
             pass
