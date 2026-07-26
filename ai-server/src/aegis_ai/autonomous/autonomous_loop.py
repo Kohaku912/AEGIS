@@ -1158,7 +1158,7 @@ Operational decision axes (prioritization only; not additional desires):
             self._last_skip_reason = f"llm_error: {getattr(result, 'error', 'unknown')}"
             return []
 
-        if not result.tool_calls:
+        if not result.tool_calls and not str(getattr(result, "content", "") or "").strip():
             reason = result.content[:200] if result.content else "LLM returned no tool calls"
             self._log_audit_event(
                 action="autonomous_llm_retry",
@@ -1199,7 +1199,7 @@ Operational decision axes (prioritization only; not additional desires):
             self._log_audit_event(
                 action="autonomous_no_action",
                 capability_id="none",
-                decision="FAIL",
+                decision="IGNORE_WITH_REASON",
                 reason=reason,
                 detail={
                     "source": "task_generation",
@@ -1207,15 +1207,15 @@ Operational decision axes (prioritization only; not additional desires):
                     "candidate_capability_ids": candidate_ids[:50],
                 },
             )
-            self._record_failure_lesson(
-                title="Autonomous LLM returned no action",
-                content=(
-                    "Desire pressure was above threshold, but the LLM returned no executable tool "
-                    f"after retry. Reason: {reason}"
-                ),
-                related_desire=low_desires[0]["name"] if low_desires else "",
-                failure_type="llm_no_action",
-            )
+            if self._initiative_engine is not None:
+                self._initiative_engine.record_non_action(
+                    reason,
+                    {
+                        "source": "task_generation",
+                        "candidate_capability_ids": candidate_ids[:50],
+                        "decision_axes": decision_axes,
+                    },
+                )
             return []
 
         valid_tasks = []
@@ -1457,10 +1457,6 @@ Operational decision axes (prioritization only; not additional desires):
             for cap_id, option in self._available_capability_options().items()
             if option["disposition"] in {"execute_safe", "propose_for_approval"}
         }
-
-    def _available_safe_capability_ids(self) -> set[str]:
-        """Deprecated compatibility alias for the former misleading name."""
-        return self._available_capability_ids()
 
     @staticmethod
     def _annotate_tools_with_policy(

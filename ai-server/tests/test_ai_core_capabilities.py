@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import base64
+import threading
 from pathlib import Path
 
+import aegis_ai.core_capabilities as core_capabilities
 from aegis_ai.capability_catalog import CapabilityCatalog
 from aegis_ai.core_capabilities import AegisCoreCapabilityClient
 from aegis_ai.integrations.agora.agora_types import AgoraAuthor, AgoraCursor, AgoraFetchResult, AgoraPost
@@ -131,7 +133,7 @@ def test_new_manifests_load_from_catalog() -> None:
         assert cap_id in registry_ids
     agora_post = catalog.resolve("ai-server.agora.post")
     assert agora_post is not None
-    assert agora_post.requires_approval is False
+    assert agora_post.requires_approval is True
 
 
 class FakeMemoryManager:
@@ -242,6 +244,32 @@ def test_agora_read_posts_keeps_cursor_until_social_processing_finishes(tmp_path
     assert result["processing_pending"] is True
     assert fake.cursor_updates == []
     assert result["posts"][0]["id"] == 11
+
+
+def test_agora_read_posts_does_not_wait_for_llm_memory_enrichment(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    started = threading.Event()
+    release = threading.Event()
+
+    def blocking_sync(**_kwargs) -> dict:
+        started.set()
+        release.wait(timeout=5)
+        return {}
+
+    monkeypatch.setattr(core_capabilities, "sync_agora_posts_to_memory", blocking_sync)
+    client, _ = _client(tmp_path)
+    client._agora = FakeAgora()
+
+    try:
+        result = client.invoke_capability("ai-server.agora.read_posts", {"limit": 20})
+        assert started.wait(timeout=1)
+        assert result["ok"] is True
+        assert result["memory_sync_pending"] is True
+        assert result["posts"][0]["id"] == 11
+    finally:
+        release.set()
 
 
 def test_agora_explicit_since_id_does_not_advance_cursor(tmp_path: Path) -> None:

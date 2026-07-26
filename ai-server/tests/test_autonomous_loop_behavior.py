@@ -146,7 +146,7 @@ def test_available_capabilities_use_status_manager_not_localhost(tmp_path) -> No
         data_dir=str(tmp_path / "autonomous"),
     )
 
-    available = loop._available_safe_capability_ids()
+    available = loop._available_capability_ids()
 
     assert "ai-server.memory.search" in available
     assert "browser-server.page.browse" in available
@@ -231,7 +231,7 @@ class _NoActionThenToolLLM:
     def generate_with_tools(self, **kwargs):
         self.calls += 1
         if self.calls == 1:
-            return SimpleNamespace(success=True, content="I am unsure what to do.", tool_calls=[])
+            return SimpleNamespace(success=True, content="", tool_calls=[])
         return SimpleNamespace(
             success=True,
             content="",
@@ -278,12 +278,14 @@ def test_repeated_no_action_does_not_select_or_clear_pressure(tmp_path) -> None:
         data_dir=str(tmp_path / "autonomous"),
     )
     loop._log_audit_event = lambda **kwargs: None
-    loop._record_failure_lesson = lambda **kwargs: None
+    failure_lessons = []
+    loop._record_failure_lesson = lambda **kwargs: failure_lessons.append(kwargs)
 
     tasks = loop._generate_tasks([{"name": "user_support", "gap": 5.0}])
 
     assert tasks == []
-    assert llm.calls == 2
+    assert llm.calls == 1
+    assert failure_lessons == []
     status = loop.get_status()
     assert status["selected_tool_count"] == 0
     assert status["last_decision"] == "no_action"

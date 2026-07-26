@@ -11,7 +11,7 @@
   "input_schema": {
     "type": "object",
     "properties": {
-      "since_id": {"type": "integer", "description": "Read posts after this ID without advancing the shared cursor. Default 0 reads only unread posts and advances the cursor.", "default": 0},
+      "since_id": {"type": "integer", "description": "Read posts after this ID without advancing the shared cursor. Default 0 reads unread posts; the cursor advances only after Social Inbox processing reaches a terminal state.", "default": 0},
       "limit": {"type": "integer", "description": "Max posts to read", "default": 20}
     }
   }

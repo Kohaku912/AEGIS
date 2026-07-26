@@ -29,8 +29,23 @@ def am():
 
 @pytest.fixture
 def engine(tm, broker, am):
+    from aegis_ai.agency.goal_service import GoalLifecycleService
     from aegis_ai.task.execution_engine import TaskExecutionEngine
-    return TaskExecutionEngine(task_manager=tm, tool_broker=broker, approval_manager=am)
+    verifier = MagicMock()
+    verifier.generate.return_value = MagicMock(
+        success=True,
+        content=json.dumps({
+            "status": "achieved",
+            "reason": "Independent test evidence confirms the outcome.",
+            "evidence": ["all planned steps produced successful results"],
+        }),
+    )
+    return TaskExecutionEngine(
+        task_manager=tm,
+        tool_broker=broker,
+        approval_manager=am,
+        goal_service=GoalLifecycleService(task_manager=tm, llm_gateway=verifier),
+    )
 
 
 def _ok():

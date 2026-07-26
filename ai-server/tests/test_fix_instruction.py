@@ -5,6 +5,8 @@ import importlib
 import importlib.util
 import json
 import sys
+import threading
+import time
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock
@@ -62,7 +64,45 @@ def test_autonomous_capability_options_include_approval_proposals(tmp_path: Path
 
     assert options["browser-server.page.read"].disposition.value == "execute_safe"
     assert options["browser-server.form.submit"].disposition.value == "propose_for_approval"
-    assert options["ai-server.agora.post"].disposition.value == "execute_safe"
+    agora_post = options["ai-server.agora.post"]
+    assert agora_post.disposition.value == "propose_for_approval"
+    assert agora_post.requires_approval is True
+
+
+def test_agora_post_cannot_execute_before_explicit_approval(tmp_path: Path) -> None:
+    from aegis_ai.approval.approval_manager import ApprovalManager
+    from aegis_ai.approval.approval_queue import ApprovalQueue
+    from aegis_ai.capability_catalog import CapabilityCatalog
+    from policy_engine import PolicyEngine
+    from tool_broker import ExecutionSource, InvokeStatus, ToolBroker, ToolExecutionRequest
+    from tool_registry import ToolRegistry
+
+    catalog = CapabilityCatalog("capabilities", "apps", data_dir=str(tmp_path))
+    registry = ToolRegistry()
+    for capability in catalog.to_tool_registry_capabilities():
+        registry.register_capability(capability)
+    executor = MagicMock()
+    broker = ToolBroker(
+        registry=registry,
+        policy_engine=PolicyEngine(data_dir=str(tmp_path)),
+        approval_manager=ApprovalManager(ApprovalQueue(data_dir=str(tmp_path / "approvals"))),
+        server_executor=executor,
+        catalog=catalog,
+        folder_registry=catalog._cap_reg,
+    )
+
+    result = broker.execute(
+        ToolExecutionRequest(
+            capability_id="ai-server.agora.post",
+            arguments={"body": "approval regression test"},
+            source=ExecutionSource.AUTONOMOUS,
+        )
+    )
+
+    assert result.status == InvokeStatus.APPROVAL_NEEDED
+    assert result.approval_id.startswith("appr_")
+    executor.execute.assert_not_called()
+    executor.execute_capability.assert_not_called()
 
 
 def test_initiative_engine_records_action_and_non_action(tmp_path: Path) -> None:
@@ -99,6 +139,59 @@ def test_initiative_engine_records_action_and_non_action(tmp_path: Path) -> None
     diagnostics = InitiativeEngine(str(tmp_path)).diagnostics()
     assert diagnostics["funnel"]["approval_proposals_selected"] == 1
     assert diagnostics["no_action_reasons"]
+
+
+def test_deliberate_llm_non_action_is_not_learned_as_failure(tmp_path: Path) -> None:
+    from aegis_ai.autonomous.autonomous_loop import AutonomousLoop
+
+    capability_id = "ai-server.memory.search"
+    catalog = SimpleNamespace(
+        resolve=lambda _capability_id: SimpleNamespace(
+            server_id="ai-server",
+            input_schema={"type": "object", "properties": {}, "required": []},
+            operation_category="read",
+            risk_level="read_only",
+            side_effects=[],
+            title=capability_id,
+        ),
+        list_for_tools=lambda _ids: [
+            {
+                "type": "function",
+                "function": {
+                    "name": "ai_server__memory__search",
+                    "description": capability_id,
+                    "parameters": {"type": "object", "properties": {}},
+                },
+            }
+        ],
+        tool_name_to_cap_id=lambda _name: capability_id,
+    )
+    broker = SimpleNamespace(
+        _catalog=catalog,
+        list_autonomous_capabilities=lambda: [SimpleNamespace(id=capability_id, requires_approval=False)],
+    )
+    llm = SimpleNamespace(
+        generate_with_tools=lambda **_kwargs: SimpleNamespace(
+            success=True,
+            content="No current obligation or useful bounded action justifies interruption.",
+            tool_calls=[],
+        )
+    )
+    loop = AutonomousLoop(
+        llm_provider=llm,
+        tool_broker=broker,
+        data_dir=str(tmp_path / "autonomous"),
+    )
+    lessons: list[dict[str, object]] = []
+    audits: list[dict[str, object]] = []
+    loop._record_failure_lesson = lambda **kwargs: lessons.append(kwargs)
+    loop._log_audit_event = lambda **kwargs: audits.append(kwargs)
+
+    tasks = loop._generate_tasks([{"name": "user_support", "gap": 5.0}])
+
+    assert tasks == []
+    assert lessons == []
+    assert audits[-1]["decision"] == "IGNORE_WITH_REASON"
 
 
 def test_immediate_event_is_evaluated_without_calling_llm(tmp_path: Path) -> None:
@@ -275,6 +368,96 @@ def test_social_transient_failure_retries_without_advancing_cursor(tmp_path: Pat
     assert status["channels"]["discord"]["available"] is False
 
 
+def test_social_json_repair_retries_once_and_keeps_reason(tmp_path: Path) -> None:
+    from aegis_ai.social.manager import SocialManager
+
+    responses = iter(
+        [
+            SimpleNamespace(success=True, content='{"decision": "skip"'),
+            SimpleNamespace(
+                success=True,
+                content=json.dumps(
+                    {
+                        "decision": "skip",
+                        "reason": "This update is not directed to AEGIS.",
+                        "directed_to_aegis": False,
+                        "mentions_user": False,
+                        "question_detected": False,
+                        "reply_expected": False,
+                        "relevance": 0.1,
+                        "urgency": 0.0,
+                        "sentiment": "neutral",
+                        "draft_body": "",
+                    }
+                ),
+            ),
+        ]
+    )
+    manager = SocialManager(
+        data_dir=str(tmp_path),
+        llm=SimpleNamespace(generate=lambda **_kwargs: next(responses)),
+    )
+    item = manager.ingest(
+        "agora",
+        [{"id": 7, "thread_id": 1, "author": {"id": 2, "name": "peer"}, "body": "A general update."}],
+    )[0]
+
+    processed = manager.process_new_items([item])
+
+    assert processed[0].status.value == "skipped"
+    assert processed[0].decision_reason == "This update is not directed to AEGIS."
+
+
+def test_social_retrieval_can_queue_slow_llm_triage_without_blocking(tmp_path: Path) -> None:
+    from aegis_ai.social.manager import SocialManager
+
+    started = threading.Event()
+    release = threading.Event()
+
+    def generate(**_kwargs):
+        started.set()
+        release.wait(timeout=2)
+        return SimpleNamespace(
+            success=True,
+            content=json.dumps(
+                {
+                    "decision": "skip",
+                    "reason": "No reply is expected.",
+                    "directed_to_aegis": False,
+                    "mentions_user": False,
+                    "question_detected": False,
+                    "reply_expected": False,
+                    "relevance": 0.1,
+                    "urgency": 0.0,
+                    "sentiment": "neutral",
+                    "draft_body": "",
+                }
+            ),
+        )
+
+    manager = SocialManager(
+        data_dir=str(tmp_path),
+        llm=SimpleNamespace(generate=generate),
+    )
+    item = manager.ingest(
+        "agora",
+        [{"id": 8, "thread_id": 1, "author": {"id": 2, "name": "peer"}, "body": "Another update."}],
+    )[0]
+
+    started_at = time.monotonic()
+    manager.enqueue_processing([item])
+    elapsed = time.monotonic() - started_at
+
+    assert elapsed < 0.2
+    assert started.wait(timeout=1)
+    assert manager.list_items()[0]["decision_reason"] == "Queued for LLM social triage."
+    release.set()
+    deadline = time.monotonic() + 2
+    while manager.list_items()[0]["status"] != "skipped" and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert manager.list_items()[0]["status"] == "skipped"
+
+
 def test_social_inbox_preserves_thread_and_relationship_context(tmp_path: Path) -> None:
     from aegis_ai.social.manager import SocialManager
 
@@ -387,6 +570,21 @@ def test_pc_overlay_requires_real_delivery_ack() -> None:
         "delivery_id": "delivery_1",
     }
     assert asyncio.run(channel.deliver(event)) is True
+
+
+def test_ui_depth_limit_does_not_json_quote_android_permission_names() -> None:
+    from aegis_ai.web.ui_overview import _bound_for_ui
+
+    capability_health = {
+        "android-server.overlay.show": {
+            "available": True,
+            "required_permissions": ["overlay"],
+        }
+    }
+
+    bounded = _bound_for_ui(capability_health, max_depth=3)
+
+    assert bounded["android-server.overlay.show"]["required_permissions"] == ["overlay"]
 
 
 def test_approval_surface_delivery_evidence_is_persisted(tmp_path: Path) -> None:

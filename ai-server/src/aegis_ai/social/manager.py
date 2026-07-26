@@ -3,12 +3,30 @@
 from __future__ import annotations
 
 import json
+import logging
+import threading
 import time
 import uuid
 from collections.abc import Callable
 from dataclasses import asdict, is_dataclass
 from datetime import datetime, timezone
 from typing import Any
+
+from aegis_ai.llm.json_utils import extract_json_object
+from aegis_ai.social.adapters import (
+    AgoraReplyAdapter,
+    SocialReplyAdapter,
+    UnavailableReplyAdapter,
+)
+from aegis_ai.social.inbox import SocialInboxStore
+from aegis_ai.social.models import (
+    RETRYABLE_SOCIAL_STATUSES,
+    TERMINAL_SOCIAL_STATUSES,
+    SocialInboxItem,
+    SocialInboxStatus,
+)
+
+logger = logging.getLogger("aegis_ai.social.manager")
 
 
 def _parse_timestamp(value: Any) -> int:
@@ -36,20 +54,6 @@ def _parse_author(value: Any) -> str:
         return str(value.get("name") or value.get("username") or value.get("id") or "")
     return str(value or "")
 
-from aegis_ai.llm.json_utils import extract_json_object
-from aegis_ai.social.adapters import (
-    AgoraReplyAdapter,
-    SocialReplyAdapter,
-    UnavailableReplyAdapter,
-)
-from aegis_ai.social.inbox import SocialInboxStore
-from aegis_ai.social.models import (
-    RETRYABLE_SOCIAL_STATUSES,
-    TERMINAL_SOCIAL_STATUSES,
-    SocialInboxItem,
-    SocialInboxStatus,
-)
-
 
 class SocialManager:
     """Owns social inbox state; adapters only retrieve or deliver messages."""
@@ -75,6 +79,8 @@ class SocialManager:
         self._cursor_updaters: dict[str, Callable[[int], Any]] = {}
         self._relationship_provider: Callable[[SocialInboxItem], dict[str, Any]] | None = None
         self._agent_state: Any = None
+        self._processing_lock = threading.RLock()
+        self._processing_ids: set[str] = set()
         self._adapters: dict[str, SocialReplyAdapter] = {
             "agora": AgoraReplyAdapter(),
             "discord": UnavailableReplyAdapter("discord", "Discord adapter is not configured"),
@@ -120,6 +126,42 @@ class SocialManager:
             return []
         return self.process_new_items(pending)
 
+    def enqueue_processing(self, items: list[SocialInboxItem]) -> list[SocialInboxItem]:
+        """Process inbox items asynchronously so retrieval RPCs remain bounded."""
+        with self._processing_lock:
+            selected = [item for item in items if item.item_id not in self._processing_ids]
+            self._processing_ids.update(item.item_id for item in selected)
+        if not selected:
+            return items
+
+        worker = threading.Thread(
+            target=self._process_queued_items,
+            args=(selected,),
+            daemon=True,
+            name="social-inbox-triage",
+        )
+        worker.start()
+        return items
+
+    def resume_pending_processing(self) -> list[SocialInboxItem]:
+        """Resume unfinished inbox obligations after a runtime restart."""
+        pending = [
+            item
+            for item in self._store.list(limit=10000)
+            if item.status in {SocialInboxStatus.UNTRIAGED, SocialInboxStatus.RETRY_PENDING}
+        ]
+        self.enqueue_processing(pending)
+        return pending
+
+    def _process_queued_items(self, items: list[SocialInboxItem]) -> None:
+        try:
+            self.process_new_items(items)
+        except Exception:
+            logger.exception("Queued social inbox processing failed")
+        finally:
+            with self._processing_lock:
+                self._processing_ids.difference_update(item.item_id for item in items)
+
     def ingest(self, channel: str, messages: list[Any]) -> list[SocialInboxItem]:
         created: list[SocialInboxItem] = []
         now = int(time.time() * 1000)
@@ -151,6 +193,8 @@ class SocialManager:
                 thread_id=thread_id,
                 author=author_name,
                 body=str(raw.get("body") or raw.get("content") or raw.get("text") or ""),
+                decision="observe_more",
+                decision_reason="Queued for LLM social triage.",
                 received_at=_parse_timestamp(raw.get("created_at") or raw.get("timestamp")),
                 updated_at=now,
                 conversation_context={
@@ -396,15 +440,28 @@ Return:
             updater(max(terminal_ids))
 
     def _generate_json(self, prompt: str) -> dict[str, Any]:
-        result = self._llm.generate(
-            prompt=prompt,
-            system_prompt="You are AEGIS SocialManager. Make a reasoned social decision and return JSON only.",
-            max_tokens=600,
-            json_mode=True,
-        )
-        if not getattr(result, "success", False):
-            raise RuntimeError(getattr(result, "error", "Social triage LLM failed"))
-        return extract_json_object(str(getattr(result, "content", "")))
+        last_error = ""
+        current_prompt = prompt
+        for attempt in range(2):
+            result = self._llm.generate(
+                prompt=current_prompt,
+                system_prompt="You are AEGIS SocialManager. Make a reasoned social decision and return JSON only.",
+                max_tokens=600,
+                json_mode=True,
+            )
+            if not getattr(result, "success", False):
+                last_error = str(getattr(result, "error", "Social triage LLM failed"))
+            else:
+                try:
+                    return extract_json_object(str(getattr(result, "content", "")))
+                except (TypeError, ValueError, json.JSONDecodeError) as exc:
+                    last_error = f"{type(exc).__name__}: {exc}"
+            if attempt == 0:
+                current_prompt = (
+                    f"{prompt}\n\nYour previous response was invalid ({last_error}). "
+                    "Return one complete JSON object only, with every requested field."
+                )
+        raise RuntimeError(last_error or "Social triage LLM returned invalid JSON")
 
     def _require(self, item_id: str) -> SocialInboxItem:
         item = self._store.get(item_id)

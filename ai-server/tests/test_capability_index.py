@@ -122,3 +122,17 @@ def test_keyword_fallback_works_without_chroma(tmp_path: Path) -> None:
     results = index.search("スクショ", top_k=3)
 
     assert any(result.document.id == "pc-server.screenshot.get_screenshot" for result in results)
+
+
+def test_chroma_query_uses_current_embedding_protocol(tmp_path: Path) -> None:
+    catalog = _catalog_with_many_caps(tmp_path, count=12)
+    index = CapabilityIndex(
+        catalog,
+        chroma_path=str(tmp_path / "chroma"),
+        enable_chroma=True,
+    )
+
+    results = index.search("Capture a screenshot of the desktop", top_k=3)
+
+    assert results
+    assert any(result.vector_score > 0 for result in results)

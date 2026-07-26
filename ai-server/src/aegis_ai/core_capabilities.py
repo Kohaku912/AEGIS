@@ -3,14 +3,18 @@
 from __future__ import annotations
 
 import base64
+import logging
 import mimetypes
 import os
+import threading
 from pathlib import Path
 from typing import Any
 
 from aegis_ai.integrations.agora.agora_service import AgoraService
 from aegis_ai.integrations.agora.agora_types import AgoraFetchResult, AgoraPost
 from aegis_ai.memory.memory_ingest import save_memory_payload, sync_agora_posts_to_memory
+
+logger = logging.getLogger("aegis_ai.core_capabilities")
 
 
 class AegisCoreCapabilityClient:
@@ -28,6 +32,8 @@ class AegisCoreCapabilityClient:
         self._server_executor = server_executor
         self._personal = personal_managers or {}
         self._agora = AgoraService()
+        self._agora_memory_lock = threading.RLock()
+        self._agora_memory_inflight: set[int] = set()
         social_manager = self._personal.get("social_manager")
         if social_manager is not None:
             social_manager.set_cursor_updater("agora", self._agora.update_cursor)
@@ -161,13 +167,36 @@ class AegisCoreCapabilityClient:
             if posts:
                 social_manager = self._personal.get("social_manager")
                 inbox_items = social_manager.ingest("agora", posts) if social_manager is not None else []
-                processed_items = social_manager.process_new_items(inbox_items) if social_manager is not None else []
-                sync = sync_agora_posts_to_memory(
-                    posts=posts,
-                    data_dir=str(self._data_dir),
-                    llm_provider=self._personal.get("llm_provider"),
+                new_external_ids = {
+                    int(item.external_message_id)
+                    for item in inbox_items
+                    if str(item.external_message_id).isdigit()
+                }
+                posts_to_process = (
+                    [post for post in posts if int(getattr(post, "id", 0) or 0) in new_external_ids]
+                    if social_manager is not None
+                    else posts
                 )
-                payload = sync.to_dict()
+                if social_manager is not None and hasattr(social_manager, "enqueue_processing"):
+                    social_manager.enqueue_processing(inbox_items)
+                    processed_items = []
+                else:
+                    processed_items = social_manager.process_new_items(inbox_items) if social_manager is not None else []
+                pending_items = processed_items or inbox_items
+                self._enqueue_agora_memory_sync(posts_to_process)
+                payload = {
+                    "ok": True,
+                    "message": f"AGORA: Retrieved {len(posts)} post(s); durable processing is queued.",
+                    "result": f"AGORA: Retrieved {len(posts)} post(s); durable processing is queued.",
+                    "summary": f"AGORA: Retrieved {len(posts)} post(s); durable processing is queued.",
+                    "posts": [self._dataclass_to_dict(post) for post in posts],
+                    "mentions": [],
+                    "saved_people": [],
+                    "social_observations": 0,
+                    "social_episodes": 0,
+                    "advanced_conversations": 0,
+                    "memory_sync_pending": bool(posts_to_process),
+                }
                 payload["social_inbox_items"] = [item.to_dict() for item in processed_items or inbox_items]
             else:
                 payload = {
@@ -195,7 +224,7 @@ class AegisCoreCapabilityClient:
                         social_manager is None
                         or any(
                             item.status.value not in {"replied", "acknowledged", "skipped", "failed"}
-                            for item in processed_items
+                            for item in pending_items
                         )
                     ),
                     "read_mode": "history" if requested_since_id > 0 else "unread",
@@ -218,6 +247,39 @@ class AegisCoreCapabilityClient:
                 return {"ok": True, "post": self._dataclass_to_dict(result), "result": f"Posted to AGORA as #{result.id}."}
             return {"ok": True, "result": str(result)}
         return {"ok": False, "error": "Unsupported AGORA capability", "code": "UNSUPPORTED_CAPABILITY"}
+
+    def _enqueue_agora_memory_sync(self, posts: list[Any]) -> None:
+        """Queue LLM-backed memory enrichment outside the retrieval RPC."""
+        with self._agora_memory_lock:
+            selected = [
+                post
+                for post in posts
+                if int(getattr(post, "id", 0) or 0) not in self._agora_memory_inflight
+            ]
+            self._agora_memory_inflight.update(int(getattr(post, "id", 0) or 0) for post in selected)
+        if not selected:
+            return
+        threading.Thread(
+            target=self._sync_agora_memory,
+            args=(selected,),
+            daemon=True,
+            name="agora-memory-sync",
+        ).start()
+
+    def _sync_agora_memory(self, posts: list[Any]) -> None:
+        try:
+            sync_agora_posts_to_memory(
+                posts=posts,
+                data_dir=str(self._data_dir),
+                llm_provider=self._personal.get("llm_provider"),
+            )
+        except Exception:
+            logger.exception("Queued AGORA memory sync failed")
+        finally:
+            with self._agora_memory_lock:
+                self._agora_memory_inflight.difference_update(
+                    int(getattr(post, "id", 0) or 0) for post in posts
+                )
 
     def _resolve_workspace_path(self, raw_path: str, *, must_exist: bool = False) -> Path:
         if not raw_path or not str(raw_path).strip():

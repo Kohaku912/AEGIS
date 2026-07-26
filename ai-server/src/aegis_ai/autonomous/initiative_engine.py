@@ -111,12 +111,25 @@ class InitiativeEngine:
             }
         )
 
+    def record_non_action(self, reason: str, detail: dict[str, Any] | None = None) -> None:
+        """Persist a deliberate non-action without classifying it as a failure."""
+        self._increment("candidates_filtered")
+        self._append(
+            {
+                "record_type": "non_action",
+                "decision": InitiativeDecision.IGNORE_WITH_REASON.value,
+                "reason": reason or "No action was justified.",
+                "detail": detail or {},
+                "created_at": now_ms(),
+            }
+        )
+
     def diagnostics(self) -> dict[str, Any]:
         records = list(self._state.get("records", []))
         reasons = Counter(
             str(item.get("reason") or "unspecified")
             for item in records
-            if item.get("record_type") == "candidate_decision"
+            if item.get("record_type") in {"candidate_decision", "non_action"}
             and item.get("decision") != InitiativeDecision.EXECUTE_NOW.value
         )
         return {

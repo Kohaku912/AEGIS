@@ -206,6 +206,9 @@ class PolicyEngine:
         r"browser\.publish_post$",
         r"browser\.send_message$",
         r"browser\.send_email$",
+        # AGORA is an external social channel. Reading/drafting is safe, but
+        # publishing must always remain behind an explicit approval.
+        r"(?:ai-server\.)?agora\.post$",
         # Browser signup (non-permissive profiles)
         r"browser\.submit_signup$",
         # PC operations
@@ -258,7 +261,6 @@ class PolicyEngine:
         r"agora\.read_mentions$",
         r"agora\.get_cursor$",
         r"agora\.draft_reply$",
-        r"agora\.post$",
     ]
 
     # Low-risk signup patterns (allowed in permissive if risk check passes)

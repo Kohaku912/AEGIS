@@ -765,6 +765,7 @@ def _build_runtime(config: Config) -> AegisRuntime:
     runtime._approval_fanout = approval_fanout
     status_manager.start_background_checks()
     hook_engine.start()
+    social_manager.resume_pending_processing()
     return runtime
 
 
