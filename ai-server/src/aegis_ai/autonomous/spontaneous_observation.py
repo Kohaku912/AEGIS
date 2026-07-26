@@ -100,6 +100,7 @@ class SpontaneousObservationSystem:
         semantic_memory: Any = None,
         person_memory: Any = None,
         action_trace: Any = None,
+        status_manager: Any = None,
         data_dir: str = "data/autonomous",
     ) -> None:
         self._llm = llm
@@ -110,10 +111,15 @@ class SpontaneousObservationSystem:
         self._semantic = semantic_memory
         self._person = person_memory
         self._action_trace = action_trace
+        self._status_manager = status_manager
         self._data_dir = Path(data_dir)
         self._data_dir.mkdir(parents=True, exist_ok=True)
         self._last_observations: list[Observation] = []
         self._observation_history: list[dict[str, Any]] = []
+        self._observed_server_states: dict[str, str] = {}
+        self._observed_desire_bands: dict[str, str] = {}
+        self._last_data_size_check_ms = 0
+        self._last_data_size_bytes: int | None = None
 
     def observe(self) -> list[Observation]:
         """Run a full observation cycle.
@@ -180,42 +186,46 @@ class SpontaneousObservationSystem:
         except Exception:
             pass
 
-        # Check recent errors in logs
-        try:
-            log_dir = self._data_dir.parent / "logs"
-            if log_dir.exists():
-                for log_file in log_dir.glob("*.log"):
-                    try:
-                        content = log_file.read_text(encoding="utf-8", errors="ignore")
-                        error_count = content.lower().count("error")
-                        if error_count > 10:
-                            obs.append(Observation(
-                                observation_id=f"obs_{os.urandom(4).hex()}",
-                                timestamp_ms=int(time.time() * 1000),
-                                observation_type="warning", source="system",
-                                description=f"High error count in {log_file.name}: {error_count} errors",
-                                importance=0.7, novelty=0.4,
-                                tags=["logs", "errors"],
-                            ))
-                    except Exception:
-                        pass
-        except Exception:
-            pass
-
-        # Check data directory size
-        try:
-            data_size = sum(f.stat().st_size for f in self._data_dir.rglob("*") if f.is_file())
-            if data_size > 100 * 1024 * 1024:  # > 100MB
-                obs.append(Observation(
-                    observation_id=f"obs_{os.urandom(4).hex()}",
-                    timestamp_ms=int(time.time() * 1000),
-                    observation_type="warning", source="system",
-                    description=f"Data directory large: {data_size // (1024*1024)}MB",
-                    importance=0.4, novelty=0.2,
-                    tags=["storage"],
-                ))
-        except Exception:
-            pass
+        # Storage is a change signal, not a reason to rescan and re-emit the
+        # same warning every minute. HealthAlertManager owns absolute limits.
+        now_ms = int(time.time() * 1000)
+        if now_ms - self._last_data_size_check_ms >= 15 * 60 * 1000:
+            self._last_data_size_check_ms = now_ms
+            try:
+                data_size = sum(
+                    item.stat().st_size
+                    for item in self._data_dir.rglob("*")
+                    if item.is_file()
+                )
+                previous_size = self._last_data_size_bytes
+                self._last_data_size_bytes = data_size
+                growth_threshold = max(
+                    100 * 1024 * 1024,
+                    int((previous_size or 0) * 0.1),
+                )
+                if (
+                    previous_size is not None
+                    and data_size - previous_size >= growth_threshold
+                ):
+                    obs.append(
+                        Observation(
+                            observation_id=f"obs_{os.urandom(4).hex()}",
+                            timestamp_ms=now_ms,
+                            observation_type="change",
+                            source="system",
+                            description=(
+                                "Autonomous data grew by "
+                                f"{(data_size - previous_size) // (1024 * 1024)}MB"
+                            ),
+                            importance=0.7,
+                            novelty=0.8,
+                            actionable=True,
+                            suggested_action="Inspect the growth source and bound retention.",
+                            tags=["storage", "growth"],
+                        )
+                    )
+            except Exception:
+                pass
 
         return obs
 
@@ -270,6 +280,11 @@ class SpontaneousObservationSystem:
         try:
             for name, desire in self._desire.get_all_desires().items():
                 frustration = max(0, desire.expected_value - desire.value)
+                band = "high" if frustration > 4.0 else "normal"
+                previous_band = self._observed_desire_bands.get(name)
+                self._observed_desire_bands[name] = band
+                if previous_band == band:
+                    continue
                 if frustration > 4.0:
                     obs.append(Observation(
                         observation_id=f"obs_{os.urandom(4).hex()}",
@@ -321,34 +336,32 @@ class SpontaneousObservationSystem:
 
     def _observe_capabilities(self) -> list[Observation]:
         obs: list[Observation] = []
-
-        import socket
-        def check_port(host: str, port: int, timeout: float = 2.0) -> bool:
-            try:
-                s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                s.settimeout(timeout)
-                s.connect((host, port))
-                s.close()
-                return True
-            except Exception:
-                return False
-
-        servers = [
-            ("PC Server", "localhost", 50052),
-            ("Browser Server", "localhost", 50053),
-            ("Android Server", "localhost", 50054),
-            ("Room Server", "localhost", 50055),
-        ]
-        for name, host, port in servers:
-            if not check_port(host, port):
-                obs.append(Observation(
+        if self._status_manager is None:
+            return obs
+        try:
+            snapshot = self._status_manager.get_snapshot()
+        except Exception:
+            return obs
+        for server_id, state in snapshot.items():
+            status = str(state.get("status") or "unknown").lower()
+            previous_status = self._observed_server_states.get(server_id)
+            self._observed_server_states[server_id] = status
+            if previous_status == status or status not in {"offline", "degraded"}:
+                continue
+            obs.append(
+                Observation(
                     observation_id=f"obs_{os.urandom(4).hex()}",
                     timestamp_ms=int(time.time() * 1000),
-                    observation_type="warning", source="capability",
-                    description=f"{name} unreachable ({host}:{port})",
-                    importance=0.7, novelty=0.3,
-                    tags=["capability", name.lower().replace(" ", "_")],
-                ))
+                    observation_type="warning",
+                    source="capability",
+                    description=f"{server_id} status changed to {status}",
+                    importance=0.8,
+                    novelty=0.8,
+                    actionable=True,
+                    suggested_action="Inspect the shared server status and repair the connection.",
+                    tags=["capability", server_id, status],
+                )
+            )
 
         return obs
 

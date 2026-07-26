@@ -838,6 +838,7 @@ def _create_autonomous_loop(runtime: AegisRuntime) -> Any:
             semantic_memory=semantic_mem,
             person_memory=person_mem,
             action_trace=action_trace,
+            status_manager=runtime.status_manager,
             data_dir=os.path.join(data_dir, "autonomous"),
         )
     )
