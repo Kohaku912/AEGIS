@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import time
-from types import SimpleNamespace
+from datetime import datetime, timedelta, timezone
 
 from aegis_ai.context_builder import ContextBuilder
 from aegis_ai.personal_ai.hooks import Hook, HookEngine
@@ -148,6 +148,45 @@ def test_pc_poller_skips_unchanged_idle_snapshots_but_keeps_input(tmp_path) -> N
     assert manager._should_save_pc_snapshot(idle) is False
     assert manager._should_save_pc_snapshot({**idle, "keyboard_count": 1}) is True
     assert manager._should_save_pc_snapshot({**idle, "mouse_count": 1}) is True
+
+
+def test_recent_query_does_not_scan_days_older_than_since(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    manager = UserStateManager(data_dir=str(tmp_path / "user_state"))
+    current_ms = int(time.time() * 1000)
+    manager.ingest_event(
+        "pc-server",
+        {
+            "event_type": "pc.user_activity.snapshot",
+            "timestamp_ms": current_ms,
+            "process_name": "Code.exe",
+        },
+    )
+    old_day = datetime.fromtimestamp(
+        (current_ms - 3 * 24 * 3_600_000) / 1000,
+        tz=timezone(timedelta(hours=9)),
+    ).strftime("%Y-%m-%d")
+    old_path = tmp_path / "user_state" / "timeline" / f"{old_day}.jsonl"
+    old_path.write_text('{"timestamp_ms": 1}\n', encoding="utf-8")
+
+    original = old_path.__class__.open
+
+    def guarded_open(path, *args, **kwargs):
+        if path == old_path:
+            raise AssertionError("out-of-range daily file was scanned")
+        return original(path, *args, **kwargs)
+
+    monkeypatch.setattr(old_path.__class__, "open", guarded_open)
+
+    events = manager._store.query_recent(
+        limit=10,
+        since_ms=current_ms - 24 * 3_600_000,
+    )
+
+    assert len(events) == 1
+    assert events[0]["timestamp_ms"] == current_ms
 
 
 def test_pc_poller_keeps_active_fullscreen_snapshots_every_ten_seconds(tmp_path) -> None:
