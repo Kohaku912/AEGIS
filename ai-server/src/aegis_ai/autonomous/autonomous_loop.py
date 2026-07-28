@@ -400,10 +400,12 @@ class AutonomousLoop:
             from aegis_ai.observability.llm_usage.audit_extractor import extract_traces
 
             if hasattr(self._audit_log, "read_all"):
-                entries = self._audit_log.read_all()[-5000:]
+                entries = self._audit_log.read_all()[-200:]
             elif hasattr(self._audit_log, "list_recent"):
-                raw_entries = self._audit_log.list_recent(5000)
+                raw_entries = self._audit_log.list_recent(200)
                 entries = [getattr(entry, "__dict__", entry) for entry in raw_entries]
+            elif hasattr(self._audit_log, "read_recent_for_dashboard"):
+                entries = self._audit_log.read_recent_for_dashboard(200)
             else:
                 return False, ""
             now_ms = int(time.time() * 1000)
@@ -1033,7 +1035,7 @@ Respond with JSON:
         if priority_obligations:
             desire_context.append(
                 "Resolve these real obligations before optional desire work: "
-                + json.dumps(priority_obligations, ensure_ascii=False)
+                + json.dumps(priority_obligations, ensure_ascii=False)[:2000]
             )
         for d in low_desires[: self._max_tasks]:
             desire_context.append(f"{d['name']}:gap={d['gap']:.1f}")
@@ -1606,7 +1608,16 @@ Operational decision axes (prioritization only; not additional desires):
                     if result.success:
                         output = result.output or {}
                         full_output = output
-                        result_summary = str(output.get("result", output.get("count", "Done")))
+                        posts = output.get("posts")
+                        if isinstance(posts, list) and posts:
+                            try:
+                                from aegis_ai.memory.memory_ingest import build_agora_posts_text
+
+                                result_summary = build_agora_posts_text(posts, header=str(output.get("result") or ""))
+                            except Exception:
+                                result_summary = str(output.get("result", output.get("count", "Done")))
+                        else:
+                            result_summary = str(output.get("result", output.get("count", "Done")))
                         if self._llm:
                             image_b64 = output.get("image_base64") or output.get("image_data") or ""
                             if image_b64:

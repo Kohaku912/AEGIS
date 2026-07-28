@@ -79,6 +79,7 @@ class LLMSettingsResolver:
         "chat_balanced": "local_chat",
         "tool_planning": "local_tool_planning",
         "json_generation": "local_json_generation",
+        "decision": "local_decision",
         "long_answer": "local_long_answer",
         "self_development": "local_chat",
         "task_analysis": "local_tool_planning",

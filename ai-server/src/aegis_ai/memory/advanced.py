@@ -121,16 +121,31 @@ class AdvancedMemory:
                     except Exception:
                         pass
 
-        # Load conversations
+        # Load conversations (hot window only; file remains append-only)
         conv_path = self._data_dir / "conversations.jsonl"
         if conv_path.exists():
-            with open(conv_path, "r", encoding="utf-8") as f:
-                for line in f:
+            try:
+                from aegis_ai.jsonl_tail import read_jsonl_tail
+
+                hot = int(os.environ.get("AEGIS_HOT_CONVERSATIONS", "100"))
+                for data in read_jsonl_tail(conv_path, hot, max_bytes=hot * 8_000):
                     try:
-                        data = json.loads(line.strip())
                         self._conversations.append(ConversationEntry(**data))
                     except Exception:
                         pass
+                if len(self._conversations) > hot:
+                    self._conversations = self._conversations[-hot:]
+            except Exception:
+                with open(conv_path, "r", encoding="utf-8") as f:
+                    for line in f:
+                        try:
+                            data = json.loads(line.strip())
+                            self._conversations.append(ConversationEntry(**data))
+                        except Exception:
+                            pass
+                    hot = int(os.environ.get("AEGIS_HOT_CONVERSATIONS", "100"))
+                    if len(self._conversations) > hot:
+                        self._conversations = self._conversations[-hot:]
 
     def _save_entity(self, entity: Entity) -> None:
         """Save entity to disk."""
@@ -235,6 +250,9 @@ class AdvancedMemory:
         )
         self._conversations.append(entry)
         self._save_conversation(entry)
+        hot = int(os.environ.get("AEGIS_HOT_CONVERSATIONS", "100"))
+        if len(self._conversations) > hot:
+            self._conversations = self._conversations[-hot:]
 
         logger.info("Processed conversation: %d entities, %d facts", len(entity_ids), len(fact_ids))
 

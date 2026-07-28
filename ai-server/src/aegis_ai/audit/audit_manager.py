@@ -122,9 +122,10 @@ class AuditManager:
         per_page: int = 20,
         group_type: str | None = None,
         errors_only: bool = False,
+        max_entries: int = 400,
     ) -> dict[str, Any]:
         """List logical audit groups, newest first."""
-        entries = self._read_recent_entries(5000)
+        entries = self._read_recent_entries(max(50, min(int(max_entries or 400), 1000)))
         groups = self._build_groups(entries)
         if group_type:
             groups = [g for g in groups if g.get("group_type") == group_type]
@@ -149,7 +150,7 @@ class AuditManager:
         """Return one logical audit group with its raw entries."""
         if not group_id:
             return None
-        for group in self._build_groups(self._read_recent_entries(5000)):
+        for group in self._build_groups(self._read_recent_entries(1000)):
             if group.get("group_id") == group_id:
                 return group
         return None
@@ -167,6 +168,10 @@ class AuditManager:
             d['detail'] = json.loads(detail_json) if detail_json else {}
         except Exception:
             d['detail'] = {}
+        # Still bound single-entry responses for UI safety.
+        from aegis_ai.audit.audit_log import sanitize_audit_detail
+
+        d['detail'] = sanitize_audit_detail(d.get('detail'))
         d.pop('id', None)
         return d
 
@@ -178,7 +183,7 @@ class AuditManager:
         """Search audit entries."""
         query_lower = query.lower()
         results: list[dict[str, Any]] = []
-        for e in self._read_recent_entries(5000):
+        for e in self._read_recent_entries(1000):
             text = json.dumps(e, ensure_ascii=False).lower()
             if query_lower in text:
                 results.append(self._to_summary(e))
@@ -189,7 +194,7 @@ class AuditManager:
     def summarize(self, period_hours: int = 24) -> dict[str, Any]:
         """Summarize audit activity for a period."""
         cutoff_ms = int(time.time() * 1000) - (period_hours * 3_600_000)
-        recent = [e for e in self._read_recent_entries(5000) if e.get("timestamp_ms", 0) >= cutoff_ms]
+        recent = [e for e in self._read_recent_entries(1000) if e.get("timestamp_ms", 0) >= cutoff_ms]
 
         action_counts: dict[str, int] = {}
         error_count = 0
@@ -213,8 +218,8 @@ class AuditManager:
         """
         return self._read_recent_entries(max_entries)
 
-    def read_recent_for_dashboard(self, max_entries: int = 5000) -> list[dict[str, Any]]:
-        """Read recent entries for dashboard summaries."""
+    def read_recent_for_dashboard(self, max_entries: int = 400) -> list[dict[str, Any]]:
+        """Read recent entries for dashboard summaries (hot window only)."""
         return self._read_recent_entries(max_entries)
 
     # ── Rotation ──────────────────────────────────────────────
@@ -400,13 +405,18 @@ class AuditManager:
         action = str(item.get("action") or "")
         item["time_str"] = self._format_ts(item.get("timestamp_ms", 0))
         item["detail_summary"] = self._detail_summary(detail, action)
-        try:
-            item["detail_pretty"] = json.dumps(detail, indent=2, ensure_ascii=False) if detail else "{}"
-        except Exception:
-            item["detail_pretty"] = "{}"
+        # Never materialize full pretty JSON for group lists — that OOM'd the dashboard path.
+        item["detail_pretty"] = ""
         item["audit_group_id"] = self._entry_group_id(item)
         item["audit_group_type"] = self._entry_group_type(item)
         item["audit_group_title"] = self._entry_group_title(item, item["audit_group_id"])
+        # Drop bulky nested detail after summary is computed.
+        if isinstance(detail, dict) and detail:
+            item["detail"] = {
+                key: detail.get(key)
+                for key in ("error", "status", "execution_status", "capability_id", "model", "tokens")
+                if key in detail
+            }
         return item
 
     def _entry_group_id(self, entry: dict[str, Any]) -> str:

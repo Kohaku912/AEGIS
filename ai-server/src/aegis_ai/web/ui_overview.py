@@ -431,6 +431,8 @@ def _activity(runtime: Any) -> dict[str, Any]:
     events = _recent_ui_events(runtime, limit=120)
     groups: dict[str, dict[str, Any]] = {}
     for event in events:
+        if _is_activity_noise_event(event):
+            continue
         group_id = _activity_group_id(event)
         group = groups.setdefault(
             group_id,
@@ -450,21 +452,283 @@ def _activity(runtime: Any) -> dict[str, Any]:
                 "source_manager": _activity_source_manager(event),
                 "started_at": event.get("occurred_at", 0),
                 "updated_at": event.get("occurred_at", 0),
+                "summary": "",
                 "events": [],
             },
         )
         group["updated_at"] = max(int(group.get("updated_at", 0) or 0), int(event.get("occurred_at", 0) or 0))
         group["severity"] = _max_severity(str(group.get("severity", "info")), str(event.get("severity", "info")))
         group["status"] = event.get("status") or group.get("status", "")
+        message = event.get("safe_message") or event.get("message") or event.get("safe_title") or ""
+        if message:
+            group["summary"] = _truncate_text(message, limit=220)
         if len(group["events"]) < 8:
             group["events"].append(_activity_group_event_projection(event))
     ordered_groups = sorted(groups.values(), key=lambda item: int(item.get("updated_at", 0) or 0), reverse=True)
+    display_groups = [group for group in ordered_groups if group.get("operation_type") != "system"]
+    if len(display_groups) < 6:
+        display_groups = ordered_groups
+    operations = _operations(runtime)
+    aegis_recent = [
+        _activity_event_projection(event)
+        for event in events
+        if not _is_activity_noise_event(event)
+    ][:40]
     return {
-        "recent": [_activity_event_projection(event) for event in events[:40]],
-        "groups": ordered_groups[:24],
-        "count": len(events),
-        "source": "event_manager",
+        "recent": aegis_recent,
+        "groups": display_groups[:24],
+        "operations": operations,
+        "count": len(aegis_recent),
+        "source": "audit_manager+event_manager" if operations else "event_manager",
     }
+
+
+_OPERATION_KIND_LABELS = {
+    "chat": "User instruction",
+    "autonomous": "Autonomous run",
+    "task": "Task",
+    "approval": "Approval",
+    "system": "System",
+}
+
+_ACTIVITY_NOISE_EVENT_TYPES = {
+    "status.changed",
+    "status.updated",
+    "connection.updated",
+    "connection.changed",
+    "server.heartbeat",
+    "health.updated",
+    "device.telemetry",
+}
+
+
+def _operations(runtime: Any) -> list[dict[str, Any]]:
+    """Build AEGIS-centric operation timeline (one chat turn / autonomous cycle / task)."""
+    ops: list[dict[str, Any]] = []
+    seen: set[str] = set()
+
+    audit = getattr(runtime, "audit_manager", None)
+    if audit is not None and hasattr(audit, "list_groups"):
+        try:
+            result = audit.list_groups(page=1, per_page=40, max_entries=300)
+            groups = result.get("groups", []) if isinstance(result, dict) else []
+        except Exception:
+            groups = []
+        for group in groups:
+            op = _operation_from_audit_group(group)
+            if op is None:
+                continue
+            operation_id = str(op.get("operation_id") or "")
+            if not operation_id or operation_id in seen:
+                continue
+            seen.add(operation_id)
+            ops.append(op)
+
+    for cycle in (_autonomous_logs(runtime).get("cycles") or [])[:12]:
+        timestamp_ms = int(cycle.get("timestamp_ms") or 0)
+        operation_id = f"autonomous-cycle:{timestamp_ms}"
+        if operation_id in seen:
+            continue
+        if _has_nearby_operation(ops, timestamp_ms, kind="autonomous", window_ms=120_000):
+            continue
+        if not cycle.get("actions") and not cycle.get("decision") and not cycle.get("skip_reason"):
+            continue
+        seen.add(operation_id)
+        ops.append(_operation_from_autonomous_cycle(cycle))
+
+    ops.sort(key=lambda item: int(item.get("updated_at") or 0), reverse=True)
+    return ops[:24]
+
+
+def _operation_from_audit_group(group: dict[str, Any]) -> dict[str, Any] | None:
+    kind = str(group.get("group_type") or "system")
+    tool_count = int(group.get("tool_count") or 0)
+    approval_count = int(group.get("approval_count") or 0)
+    error_count = int(group.get("error_count") or 0)
+    if kind == "system" and not (tool_count or approval_count):
+        return None
+    if kind == "system" and tool_count:
+        kind = "task"
+
+    steps: list[dict[str, Any]] = []
+    for entry in group.get("entries") or []:
+        if not isinstance(entry, dict) or _is_operation_noise_entry(entry):
+            continue
+        action = str(entry.get("action") or "")
+        capability_id = str(entry.get("capability_id") or "")
+        summary = str(entry.get("detail_summary") or entry.get("reason") or "")
+        if not (action or capability_id or summary):
+            continue
+        failed = bool(
+            action.endswith("_failed")
+            or str(entry.get("decision") or "").lower() in {"error", "failed", "deny", "denied"}
+            or (isinstance(entry.get("detail"), dict) and entry.get("detail", {}).get("error"))
+        )
+        steps.append(
+            {
+                "action": action,
+                "capability_id": capability_id,
+                "summary": _truncate_text(summary, limit=160),
+                "decision": str(entry.get("decision") or ""),
+                "timestamp_ms": int(entry.get("timestamp_ms") or 0),
+                "status": "failed" if failed else "ok",
+            }
+        )
+        if len(steps) >= 12:
+            break
+
+    if kind == "system" and not steps:
+        return None
+
+    title = str(group.get("title") or kind)[:160]
+    summary = str(group.get("summary") or "")[:220]
+    what_happened = _what_happened_from_steps(steps, summary)
+    return {
+        "operation_id": str(group.get("group_id") or ""),
+        "kind": kind,
+        "kind_label": _OPERATION_KIND_LABELS.get(kind, kind.title()),
+        "title": title,
+        "summary": summary,
+        "what_happened": what_happened,
+        "status": str(group.get("status") or "success"),
+        "started_at": int(group.get("start_ms") or 0),
+        "updated_at": int(group.get("end_ms") or 0),
+        "tool_count": tool_count,
+        "error_count": error_count,
+        "approval_count": approval_count,
+        "entry_count": int(group.get("entry_count") or len(steps)),
+        "steps": steps,
+        "priority": "P1" if error_count else ("P2" if kind in {"chat", "approval"} else "P3"),
+    }
+
+
+def _operation_from_autonomous_cycle(cycle: dict[str, Any]) -> dict[str, Any]:
+    actions = cycle.get("actions") if isinstance(cycle.get("actions"), list) else []
+    steps: list[dict[str, Any]] = []
+    what_parts: list[str] = []
+    for action in actions[:12]:
+        if not isinstance(action, dict):
+            continue
+        capability_id = str(action.get("capability_id") or "")
+        done = str(action.get("what_was_done") or action.get("action") or "")
+        result_summary = str(action.get("result_summary") or "")
+        summary = result_summary or done
+        steps.append(
+            {
+                "action": done,
+                "capability_id": capability_id,
+                "summary": _truncate_text(summary, limit=160),
+                "decision": "",
+                "timestamp_ms": int(cycle.get("timestamp_ms") or 0),
+                "status": "ok" if action.get("success") else "failed",
+            }
+        )
+        label = done or capability_id
+        if label:
+            what_parts.append(label)
+
+    if not what_parts and cycle.get("skip_reason"):
+        what_parts.append(f"Skipped: {cycle.get('skip_reason')}")
+    if not what_parts and cycle.get("decision"):
+        what_parts.append(str(cycle.get("decision")))
+
+    failures = sum(1 for step in steps if step.get("status") == "failed")
+    status = "success"
+    if steps and failures == len(steps):
+        status = "failed"
+    elif failures:
+        status = "mixed"
+    elif not steps and cycle.get("skip_reason"):
+        status = "skipped"
+
+    timestamp_ms = int(cycle.get("timestamp_ms") or 0)
+    title = str(cycle.get("decision") or "Autonomous cycle")[:160]
+    summary = _truncate_text(" · ".join(what_parts), limit=220)
+    return {
+        "operation_id": f"autonomous-cycle:{timestamp_ms}",
+        "kind": "autonomous",
+        "kind_label": _OPERATION_KIND_LABELS["autonomous"],
+        "title": title,
+        "summary": summary,
+        "what_happened": _truncate_text(" → ".join(what_parts) if what_parts else "No actions this cycle.", limit=280),
+        "status": status,
+        "started_at": timestamp_ms,
+        "updated_at": timestamp_ms,
+        "tool_count": len(steps),
+        "error_count": failures,
+        "approval_count": 0,
+        "entry_count": len(steps),
+        "steps": steps,
+        "priority": "P1" if failures else "P3",
+    }
+
+
+def _what_happened_from_steps(steps: list[dict[str, Any]], fallback: str = "") -> str:
+    if not steps:
+        return _truncate_text(fallback or "No detailed steps recorded.", limit=280)
+    preferred = [
+        step
+        for step in steps
+        if step.get("capability_id")
+        or str(step.get("action") or "") in {"tool_execution", "tool_invoked"}
+        or str(step.get("action") or "").startswith("tool.")
+    ] or steps
+    parts: list[str] = []
+    for step in preferred[:5]:
+        capability_id = str(step.get("capability_id") or "")
+        summary = str(step.get("summary") or "")
+        action = str(step.get("action") or "")
+        if capability_id and summary:
+            parts.append(f"{capability_id}: {summary}")
+        elif capability_id:
+            parts.append(capability_id)
+        elif summary and action:
+            parts.append(f"{action}: {summary}")
+        elif summary:
+            parts.append(summary)
+        elif action:
+            parts.append(action)
+    return _truncate_text(" → ".join(parts) if parts else fallback or "No detailed steps recorded.", limit=280)
+
+
+def _has_nearby_operation(
+    ops: list[dict[str, Any]],
+    timestamp_ms: int,
+    *,
+    kind: str,
+    window_ms: int,
+) -> bool:
+    if not timestamp_ms:
+        return False
+    for op in ops:
+        if str(op.get("kind") or "") != kind:
+            continue
+        updated_at = int(op.get("updated_at") or op.get("started_at") or 0)
+        if abs(updated_at - timestamp_ms) <= window_ms:
+            return True
+    return False
+
+
+def _is_activity_noise_event(event: dict[str, Any]) -> bool:
+    event_type = str(event.get("event_type") or event.get("type") or "").lower()
+    if event_type in _ACTIVITY_NOISE_EVENT_TYPES:
+        return True
+    if "heartbeat" in event_type or "telemetry" in event_type:
+        return True
+    operation_type = _activity_operation_type(event)
+    if operation_type != "system":
+        return False
+    # Pure server status without task/approval/capability is device noise for Recent Operations.
+    return not (event.get("task_id") or event.get("approval_id") or event.get("capability_id"))
+
+
+def _is_operation_noise_entry(entry: dict[str, Any]) -> bool:
+    action = str(entry.get("action") or "").lower()
+    if action in {"status_changed", "status.changed", "connection.updated", "health_check", "server_heartbeat"}:
+        return True
+    if "heartbeat" in action or "telemetry" in action:
+        return True
+    return False
 
 
 def _tasks(runtime: Any) -> dict[str, Any]:
@@ -963,10 +1227,14 @@ def _activity_group_event_projection(event: dict[str, Any]) -> dict[str, Any]:
 
 
 def _activity_group_id(event: dict[str, Any]) -> str:
-    for key in ("task_id", "approval_id", "capability_id", "server_id"):
+    for key in ("task_id", "approval_id"):
         value = str(event.get(key) or "")
         if value:
             return f"{key}:{value}"
+    capability_id = str(event.get("capability_id") or "")
+    if capability_id:
+        return f"capability_id:{capability_id}"
+    # Do not bucket all device/status noise under server_id (e.g. "android-server activity").
     return str(event.get("dedupe_key") or event.get("event_id") or event.get("type") or "activity")
 
 
@@ -977,8 +1245,6 @@ def _activity_group_title(event: dict[str, Any]) -> str:
         return "Approval lifecycle"
     if event.get("capability_id"):
         return str(event.get("capability_id"))
-    if event.get("server_id"):
-        return f"{event.get('server_id')} activity"
     return str(event.get("safe_title") or event.get("type") or "Activity")
 
 
