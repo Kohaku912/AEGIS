@@ -16,6 +16,9 @@ from openai import OpenAI
 
 logger = logging.getLogger("aegis_ai.llm.providers.openai")
 
+_AUDIT_PREVIEW_CHARS = int(os.getenv("AEGIS_LLM_AUDIT_PREVIEW_CHARS", "500"))
+_MAX_PROMPT_CHARS = int(os.getenv("AEGIS_MAX_PROMPT_CHARS", "48000"))
+
 
 @dataclass
 class LLMResponse:
@@ -68,6 +71,24 @@ class OpenAIProvider:
             client_kwargs["base_url"] = self._base_url
 
         self._client = OpenAI(**client_kwargs)
+
+    @staticmethod
+    def _preview_text(text: str, limit: int = _AUDIT_PREVIEW_CHARS) -> str:
+        value = str(text or "")
+        if len(value) <= limit:
+            return value
+        return value[: max(0, limit - 3)] + "..."
+
+    def _clamp_prompt(self, prompt: str) -> str:
+        value = str(prompt or "")
+        if len(value) <= _MAX_PROMPT_CHARS:
+            return value
+        logger.warning(
+            "Truncating oversized LLM prompt: %d -> %d chars",
+            len(value),
+            _MAX_PROMPT_CHARS,
+        )
+        return value[: max(0, _MAX_PROMPT_CHARS - 3)] + "..."
 
     def _supports_vision(self) -> bool:
         """Return True when the configured backend is likely to accept image inputs."""
@@ -122,6 +143,7 @@ class OpenAIProvider:
         json_mode: bool = False,
     ) -> LLMResponse:
         """Generate a response from the LLM."""
+        prompt = self._clamp_prompt(prompt)
         logger.info("LLM call: model=%s max_tokens=%d prompt_len=%d", self._model, max_tokens, len(prompt))
         messages = []
         if system_prompt:
@@ -163,8 +185,9 @@ class OpenAIProvider:
                 decision="success",
                 detail={
                     "model": self._model,
-                    "prompt_preview": prompt,
-                    "response_preview": content,
+                    "prompt_preview": self._preview_text(prompt),
+                    "prompt_chars": len(prompt),
+                    "response_preview": self._preview_text(content),
                     "tokens": tokens,
                     **usage_detail,
                     "duration_ms": round(duration_ms, 1),
@@ -194,7 +217,8 @@ class OpenAIProvider:
                 decision="error",
                 detail={
                     "model": self._model,
-                    "prompt_preview": prompt,
+                    "prompt_preview": self._preview_text(prompt),
+                    "prompt_chars": len(prompt),
                     "error": str(e),
                     "duration_ms": round(duration_ms, 1),
                     **(context_meta or {}),
@@ -228,6 +252,7 @@ class OpenAIProvider:
         Returns:
             LLMResponse with tool_calls populated if the model chose tools
         """
+        prompt = self._clamp_prompt(prompt)
         logger.info("LLM tool call: model=%s tools=%d prompt_len=%d", self._model, len(tools), len(prompt))
         messages = []
         if system_prompt:
@@ -276,9 +301,11 @@ class OpenAIProvider:
                 decision="success",
                 detail={
                     "model": self._model,
-                    "prompt_preview": prompt,
-                    "response_preview": content,
+                    "prompt_preview": self._preview_text(prompt),
+                    "prompt_chars": len(prompt),
+                    "response_preview": self._preview_text(content),
                     "tool_calls": tool_calls,
+                    "tool_count": len(tools),
                     "tokens": tokens,
                     **usage_detail,
                     "duration_ms": round(duration_ms, 1),
@@ -308,7 +335,8 @@ class OpenAIProvider:
                 decision="error",
                 detail={
                     "model": self._model,
-                    "prompt_preview": prompt,
+                    "prompt_preview": self._preview_text(prompt),
+                    "prompt_chars": len(prompt),
                     "error": str(e),
                     "duration_ms": round(duration_ms, 1),
                     **(context_meta or {}),
@@ -431,8 +459,9 @@ class OpenAIProvider:
                 decision="success",
                 detail={
                     "model": self._model,
-                    "prompt_preview": prompt,
-                    "response_preview": content,
+                    "prompt_preview": self._preview_text(prompt),
+                    "prompt_chars": len(prompt),
+                    "response_preview": self._preview_text(content),
                     "tokens": tokens,
                     **usage_detail,
                     "duration_ms": round(duration_ms, 1),
@@ -478,7 +507,8 @@ class OpenAIProvider:
                 decision="error",
                 detail={
                     "model": self._model,
-                    "prompt_preview": prompt,
+                    "prompt_preview": self._preview_text(prompt),
+                    "prompt_chars": len(prompt),
                     "error": str(e),
                     "duration_ms": round(duration_ms, 1),
                     "media_kind": media_kind,

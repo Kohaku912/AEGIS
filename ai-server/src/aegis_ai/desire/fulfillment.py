@@ -150,7 +150,7 @@ def _evaluate_with_llm(
         response = llm_provider.generate(
             prompt=prompt_text,
             system_prompt="You are AEGIS desire fulfillment evaluator. Return compact JSON only.",
-            max_tokens=300,
+            max_tokens=1024,
             temperature=0.0,
             json_mode=True,
             profile="decision",
@@ -160,7 +160,7 @@ def _evaluate_with_llm(
         response = llm_provider.generate(
             prompt=prompt_text,
             system_prompt="You are AEGIS desire fulfillment evaluator. Return compact JSON only.",
-            max_tokens=300,
+            max_tokens=1024,
             temperature=0.0,
         )
     if not getattr(response, "success", False):

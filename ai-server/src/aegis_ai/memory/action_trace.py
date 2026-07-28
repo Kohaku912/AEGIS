@@ -164,9 +164,11 @@ class ActionTraceMemory:
 
     Central to the learning pipeline:
     ActionTrace → (consolidation) → Lesson / Workflow / Skill
+
+    Full history is append-only on disk. Only a hot window is kept in memory.
     """
 
-    MAX_TRACES = 500
+    MAX_TRACES = 500  # hard ceiling for in-memory hot set
 
     def __init__(self, path: str = "data/memory/action_traces.jsonl") -> None:
         self._path = Path(path)
@@ -175,23 +177,44 @@ class ActionTraceMemory:
         self._active: dict[str, ActionTrace] = {}  # Currently running
         self._load()
 
+    def _hot_limit(self) -> int:
+        hot = int(os.environ.get("AEGIS_HOT_ACTION_TRACES", "120"))
+        return max(20, min(self.MAX_TRACES, hot)) if hot >= 20 else max(1, min(self.MAX_TRACES, hot))
+
     def _load(self) -> None:
         if not self._path.exists():
             return
         try:
-            for line in self._path.read_text(encoding="utf-8").strip().split("\n"):
-                if line.strip():
-                    trace = ActionTrace.from_dict(json.loads(line))
-                    self._traces[trace.trace_id] = trace
-                    if trace.status == TraceStatus.RUNNING:
-                        self._active[trace.trace_id] = trace
-            logger.info("Loaded %d action traces", len(self._traces))
+            from aegis_ai.jsonl_tail import read_jsonl_tail
+
+            hot_limit = self._hot_limit()
+            rows = read_jsonl_tail(self._path, hot_limit * 3, max_bytes=max(64_000, hot_limit * 12_000))
+            # Keep newest unique traces only (jsonl may contain older duplicates).
+            for data in rows[-hot_limit * 3 :]:
+                try:
+                    trace = ActionTrace.from_dict(data)
+                except Exception:
+                    continue
+                self._traces[trace.trace_id] = trace
+                if trace.status == TraceStatus.RUNNING:
+                    self._active[trace.trace_id] = trace
+            if len(self._traces) > hot_limit:
+                keep = sorted(self._traces.values(), key=lambda t: t.started_at_ms)[-hot_limit:]
+                self._traces = {t.trace_id: t for t in keep}
+                self._active = {
+                    tid: tr for tid, tr in self._active.items() if tid in self._traces
+                }
+            logger.info(
+                "Loaded %d action traces into hot memory (append-only history retained on disk)",
+                len(self._traces),
+            )
         except Exception as e:
             logger.warning("Failed to load action traces: %s", e)
 
     def _persist(self, trace: ActionTrace) -> None:
-        with open(self._path, "a", encoding="utf-8") as f:
-            f.write(json.dumps(trace.to_dict(), ensure_ascii=False) + "\n")
+        from aegis_ai.jsonl_tail import append_jsonl
+
+        append_jsonl(self._path, trace.to_dict())
 
     def begin_trace(
         self,
@@ -258,9 +281,10 @@ class ActionTraceMemory:
         self._active.pop(trace.trace_id, None)
         self._persist(trace)
 
-        # Trim old traces
-        if len(self._traces) > self.MAX_TRACES:
-            oldest = sorted(self._traces.values(), key=lambda t: t.started_at_ms)[:len(self._traces) - self.MAX_TRACES]
+        # Trim in-memory hot set only — disk history is never rewritten.
+        hot_limit = self._hot_limit()
+        if len(self._traces) > hot_limit:
+            oldest = sorted(self._traces.values(), key=lambda t: t.started_at_ms)[: len(self._traces) - hot_limit]
             for t in oldest:
                 self._traces.pop(t.trace_id, None)
 
@@ -306,6 +330,8 @@ class ActionTraceMemory:
         completed = [t for t in self._traces.values() if t.status in (TraceStatus.COMPLETED, TraceStatus.FAILED)]
         return {
             "total_traces": total,
+            "hot_in_memory": total,
+            "persisted_append_only": True,
             "active": len(self._active),
             "completed": sum(1 for t in completed if t.success),
             "failed": sum(1 for t in completed if not t.success),

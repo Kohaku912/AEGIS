@@ -12,12 +12,12 @@ import type { EntitySummary, UiEvent, UiOverview } from "../types";
 
 type Props = {
   overview: UiOverview;
-  recentEvents: UiEvent[];
+  recentEvents?: UiEvent[];
   pinnedEntities?: EntitySummary[];
   onSelect?: (entity: EntitySummary) => void;
 };
 
-export function CommandCenter({ overview, recentEvents, pinnedEntities = [], onSelect }: Props) {
+export function CommandCenter({ overview, pinnedEntities = [], onSelect }: Props) {
   const core = overview.core.data;
   const servers = overview.servers.data.items || [];
   const task = overview.current_task.data;
@@ -31,11 +31,28 @@ export function CommandCenter({ overview, recentEvents, pinnedEntities = [], onS
   const problemServers = servers.filter((server) => serverNeedsDetail(server));
   const phase = missionPhase(overview);
   const criticalCount = [...(overview.attention.data.items || []), ...errors].filter((item) => String(item.severity || "").toLowerCase() === "critical").length;
-  const timeline = [
-    ...recentEvents.map((event) => ({ id: event.event_id || `${event.type}-${event.source_updated_at}`, title: event.safe_title || event.type, message: event.safe_message || event.message || event.source_type, priority: event.priority || "P3" })),
-    ...(overview.activity?.data.recent || []).map((event, index) => ({ id: String(event.event_id || index), title: String(event.title || event.type || "Activity"), message: String(event.message || event.event_type || ""), priority: String(event.priority || "P3") })),
-    ...(overview.notifications.data.recent || []).map((item, index) => ({ id: String(item.notification_id || item.id || index), title: String(item.title || "Notification"), message: String(item.message || item.severity || ""), priority: "P3" })),
-  ].slice(0, 8);
+  const operations = overview.activity?.data.operations || [];
+  const timeline = (
+    operations.length
+      ? operations.map((op) => ({
+          id: String(op.operation_id || op.title || "operation"),
+          title: `${op.kind_label || op.kind || "Operation"}: ${op.title || "Untitled"}`,
+          message: String(op.what_happened || op.summary || ""),
+          priority: String(op.priority || (op.error_count ? "P1" : "P3")),
+          status: String(op.status || ""),
+          steps: op.steps || [],
+        }))
+      : (overview.activity?.data.groups || [])
+          .filter((group) => String(group.operation_type || "") !== "system")
+          .map((group, index) => ({
+            id: String(group.group_id || index),
+            title: String(group.title || "Activity"),
+            message: String(group.summary || `${Number((group.events as unknown[])?.length || 0)} event(s)`),
+            priority: String(group.severity || "P3") === "critical" ? "P1" : "P3",
+            status: String(group.status || ""),
+            steps: [],
+          }))
+  ).slice(0, 8);
   const [control, setControl] = useState<{ action: string; preview: Record<string, unknown> }>();
   const [controlStatus, setControlStatus] = useState("");
   const previewControl = async (action: string) => {
@@ -197,9 +214,13 @@ export function CommandCenter({ overview, recentEvents, pinnedEntities = [], onS
             {timeline.length ? timeline.map((item) => (
               <div className="timeline-item" data-priority={item.priority} key={item.id}>
                 <span>{item.priority}</span>
-                <div><strong>{item.title}</strong><p>{item.message}</p></div>
+                <div>
+                  <strong>{item.title}</strong>
+                  <p>{item.message}</p>
+                  {item.status ? <small className="muted">{item.status}{item.steps.length ? ` · ${item.steps.length} step(s)` : ""}</small> : null}
+                </div>
               </div>
-            )) : <p className="muted">No recent events reported.</p>}
+            )) : <p className="muted">No recent AEGIS operations reported.</p>}
           </div>
         </section>
       </section>

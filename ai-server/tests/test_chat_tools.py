@@ -282,6 +282,28 @@ def test_android_screenshot_image_data_is_normalized_for_vision() -> None:
     assert output["format"] == "png"
 
 
+def test_stringify_tool_output_preserves_agora_post_bodies() -> None:
+    text = chat_tools._stringify_tool_output(
+        {
+            "result": "AGORA: Retrieved 1 post(s); durable processing is queued.",
+            "posts": [
+                {
+                    "id": 42,
+                    "author": {"id": 7, "name": "kohaku"},
+                    "body": "この投稿の本文は必ずLLMへ渡す",
+                    "reply_to": None,
+                }
+            ],
+            "read_mode": "history",
+            "cursor_before": 40,
+        }
+    )
+
+    assert "この投稿の本文は必ずLLMへ渡す" in text
+    assert "[42] kohaku:" in text
+    assert "read_mode=history" in text
+
+
 def _write_chat_cap(root: Path, index: int) -> None:
     app_id = f"dummy{index}"
     path = root / "builtin" / "ai-server" / app_id / "run.json"

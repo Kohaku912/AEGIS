@@ -50,23 +50,15 @@ def _truncate(text: str, limit: int = 220) -> str:
 def _load_jsonl_records(path: Path, limit: int | None = None) -> list[dict[str, Any]]:
     if not path.exists():
         return []
-    records: list[dict[str, Any]] = []
+    if limit is None:
+        limit = 50
     try:
-        with open(path, encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    records.append(json.loads(line))
-                except Exception:
-                    continue
+        from aegis_ai.jsonl_tail import read_jsonl_tail
+
+        return read_jsonl_tail(path, limit)
     except Exception as exc:
         logger.debug("Failed to load JSONL %s: %s", path, exc)
         return []
-    if limit is not None:
-        return records[-limit:]
-    return records
 
 
 def _recent_execution_lines(data_dir: Path, limit: int = 6) -> tuple[list[str], int, list[str]]:

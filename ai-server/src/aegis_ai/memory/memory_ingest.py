@@ -84,18 +84,47 @@ def _post_to_dict(post: AgoraPost) -> dict[str, Any]:
     }
 
 
-def _build_post_summary(posts: list[AgoraPost]) -> str:
+def _build_post_summary(posts: list[AgoraPost], *, body_limit: int = 80, max_posts: int = 5) -> str:
     if not posts:
         return "AGORA: No new posts."
     lines = [f"AGORA: {len(posts)} new post(s)."]
-    for post in posts[:5]:
+    for post in posts[:max_posts]:
         reply_info = f" (reply to #{post.reply_to})" if post.reply_to else ""
         mention_info = ""
         if post.mentions:
             mention_info = " mentions=" + ", ".join(m.name for m in post.mentions[:3] if m.name)
-        lines.append(f"  [{post.id}] {post.author.name}: {_truncate(post.body, 80)}{reply_info}{mention_info}")
-    if len(posts) > 5:
-        lines.append(f"  ... and {len(posts) - 5} more.")
+        lines.append(
+            f"  [{post.id}] {post.author.name}: {_truncate(post.body, body_limit)}{reply_info}{mention_info}"
+        )
+    if len(posts) > max_posts:
+        lines.append(f"  ... and {len(posts) - max_posts} more.")
+    return "\n".join(lines)
+
+
+def build_agora_posts_text(
+    posts: list[Any],
+    *,
+    body_limit: int = 2000,
+    max_posts: int = 50,
+    header: str | None = None,
+) -> str:
+    """Build LLM-facing AGORA text that preserves post bodies.
+
+    Capability payloads often set ``result`` to a count-only status string while
+    the real bodies live under ``posts``. Callers that feed tool output back to
+    an LLM should prefer this helper (or ``posts`` itself) over the opaque
+    status string alone.
+    """
+    normalized = _normalise_posts(posts)
+    if not normalized:
+        return header or "AGORA: No new posts."
+    lines = [header or f"AGORA: {len(normalized)} post(s)."]
+    for post in normalized[:max_posts]:
+        reply_info = f" (reply to #{post.reply_to})" if post.reply_to else ""
+        body = post.body if len(post.body) <= body_limit else _truncate(post.body, body_limit)
+        lines.append(f"[{post.id}] {post.author.name}: {body}{reply_info}")
+    if len(normalized) > max_posts:
+        lines.append(f"... and {len(normalized) - max_posts} more.")
     return "\n".join(lines)
 
 

@@ -170,6 +170,23 @@ export type UiOverview = {
   activity?: FreshnessEnvelope<{
     recent?: Array<Record<string, unknown>>;
     groups?: Array<Record<string, unknown>>;
+    operations?: Array<{
+      operation_id?: string;
+      kind?: string;
+      kind_label?: string;
+      title?: string;
+      summary?: string;
+      what_happened?: string;
+      status?: string;
+      started_at?: number;
+      updated_at?: number;
+      tool_count?: number;
+      error_count?: number;
+      approval_count?: number;
+      entry_count?: number;
+      priority?: string;
+      steps?: Array<Record<string, unknown>>;
+    }>;
     count?: number;
     source?: string;
   }>;

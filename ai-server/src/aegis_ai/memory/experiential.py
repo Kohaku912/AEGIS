@@ -95,7 +95,9 @@ class ExperientialMemory:
         self._data_dir = Path(data_dir)
         self._data_dir.mkdir(parents=True, exist_ok=True)
         self._llm = llm_provider
-        self._max_entries = max_entries
+        # Hot in-memory window. Full history remains append-only on disk.
+        env_hot = int(os.environ.get("AEGIS_HOT_EXPERIENCES", "100"))
+        self._max_entries = max(1, min(int(max_entries), env_hot))
 
         self._experiences: list[Experience] = []
         self._load()
@@ -104,28 +106,36 @@ class ExperientialMemory:
         return self._data_dir / "experiences.jsonl"
 
     def _load(self) -> None:
-        """Load experiences from disk."""
+        """Load a hot window of experiences from disk (append-only file)."""
         path = self._state_path()
         if not path.exists():
             return
         try:
-            for line in path.read_text(encoding="utf-8").strip().split("\n"):
-                if line.strip():
-                    data = json.loads(line)
+            from aegis_ai.jsonl_tail import read_jsonl_tail
+
+            rows = read_jsonl_tail(path, self._max_entries, max_bytes=self._max_entries * 8_000)
+            for data in rows:
+                try:
                     self._experiences.append(Experience(**data))
-            logger.info("Loaded %d experiences", len(self._experiences))
+                except Exception:
+                    continue
+            if len(self._experiences) > self._max_entries:
+                self._experiences = self._experiences[-self._max_entries :]
+            logger.info(
+                "Loaded %d experiences into hot memory (append-only history retained on disk)",
+                len(self._experiences),
+            )
         except Exception as exc:
             logger.warning("Failed to load experiences: %s", exc)
 
-    def _save(self) -> None:
-        """Persist experiences to disk."""
-        path = self._state_path()
+    def _append(self, exp: Experience) -> None:
+        """Persist one experience without rewriting historical rows."""
+        from aegis_ai.jsonl_tail import append_jsonl
+
         try:
-            with open(path, "w", encoding="utf-8") as f:
-                for exp in self._experiences[-self._max_entries:]:
-                    f.write(json.dumps(self._to_dict(exp), ensure_ascii=False) + "\n")
+            append_jsonl(self._state_path(), self._to_dict(exp))
         except Exception as exc:
-            logger.warning("Failed to save experiences: %s", exc)
+            logger.warning("Failed to append experience: %s", exc)
 
     def _to_dict(self, exp: Experience) -> dict[str, Any]:
         return {
@@ -157,7 +167,7 @@ class ExperientialMemory:
         This is the main entry point. It:
         1. Creates the experience record
         2. Uses LLM to evaluate emotion and extract learning
-        3. Persists to disk
+        3. Appends to disk (full history) and keeps a hot window in memory
         """
         exp = Experience(
             experience_id=f"exp_{uuid.uuid4().hex[:10]}",
@@ -173,7 +183,9 @@ class ExperientialMemory:
             self._evaluate_experience(exp)
 
         self._experiences.append(exp)
-        self._save()
+        if len(self._experiences) > self._max_entries:
+            self._experiences = self._experiences[-self._max_entries :]
+        self._append(exp)
 
         logger.info(
             "Recorded experience: %s [%s] valence=%.1f",

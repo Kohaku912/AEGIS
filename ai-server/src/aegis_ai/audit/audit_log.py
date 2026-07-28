@@ -18,6 +18,77 @@ from aegis_ai.audit.context import get_audit_group
 
 logger = logging.getLogger('aegis_ai.audit.audit_log')
 
+# Keep audit rows small. Full prompts historically ballooned audit.db to multi-GB
+# and caused AI-server OOM (exit 137) → Cloudflare/nginx 502.
+_AUDIT_PREVIEW_KEYS = {
+    'prompt_preview',
+    'response_preview',
+    'prompt',
+    'messages',
+    'system_prompt',
+    'html',
+    'image',
+    'screenshot',
+    'image_base64',
+    'content',
+}
+_AUDIT_MAX_STRING_CHARS = int(os.getenv('AEGIS_AUDIT_MAX_STRING_CHARS', '2000'))
+_AUDIT_MAX_DETAIL_BYTES = int(os.getenv('AEGIS_AUDIT_MAX_DETAIL_BYTES', '32000'))
+
+
+def sanitize_audit_detail(detail: Any) -> dict[str, Any]:
+    """Bound audit detail payloads so SQLite rows stay memory-safe."""
+    if not isinstance(detail, dict):
+        text = str(detail or '')
+        if len(text) > _AUDIT_MAX_STRING_CHARS:
+            return {'value': text[: _AUDIT_MAX_STRING_CHARS - 3] + '...', 'truncated': True}
+        return {'value': text} if text else {}
+
+    compact: dict[str, Any] = {}
+    for key, value in detail.items():
+        key_s = str(key)
+        if key_s in _AUDIT_PREVIEW_KEYS or key_s.endswith('_preview') or key_s.endswith('_base64'):
+            text = str(value or '')
+            limit = min(500, _AUDIT_MAX_STRING_CHARS)
+            compact[key_s] = text if len(text) <= limit else text[: limit - 3] + '...'
+            if len(text) > limit:
+                compact[f'{key_s}_chars'] = len(text)
+            continue
+        if isinstance(value, str):
+            compact[key_s] = (
+                value if len(value) <= _AUDIT_MAX_STRING_CHARS else value[: _AUDIT_MAX_STRING_CHARS - 3] + '...'
+            )
+            continue
+        if isinstance(value, (int, float, bool)) or value is None:
+            compact[key_s] = value
+            continue
+        try:
+            encoded = json.dumps(value, ensure_ascii=False)
+        except Exception:
+            encoded = str(value)
+        if len(encoded) > _AUDIT_MAX_STRING_CHARS:
+            compact[key_s] = encoded[: _AUDIT_MAX_STRING_CHARS - 3] + '...'
+            compact[f'{key_s}_truncated'] = True
+        else:
+            compact[key_s] = value
+
+    try:
+        encoded = json.dumps(compact, ensure_ascii=False)
+    except Exception:
+        return {'error': 'audit_detail_not_serializable'}
+    if len(encoded.encode('utf-8', errors='replace')) <= _AUDIT_MAX_DETAIL_BYTES:
+        return compact
+    # Hard ceiling: keep only scalar/short fields.
+    slim: dict[str, Any] = {'_truncated': True, '_original_bytes': len(encoded)}
+    for key, value in compact.items():
+        if isinstance(value, (int, float, bool)) or value is None:
+            slim[key] = value
+        elif isinstance(value, str):
+            slim[key] = value[:240]
+        if len(json.dumps(slim, ensure_ascii=False).encode('utf-8', errors='replace')) > _AUDIT_MAX_DETAIL_BYTES:
+            break
+    return slim
+
 
 @dataclass
 class AuditEntry:
@@ -221,6 +292,7 @@ class AuditLog:
             entry.entry_id = f'audit_{int(time.time() * 1000)}_{os.urandom(4).hex()}'
         if not entry.timestamp_ms:
             entry.timestamp_ms = int(time.time() * 1000)
+        entry.detail = sanitize_audit_detail(entry.detail)
         record = {
             'entry_id': entry.entry_id, 'timestamp_ms': entry.timestamp_ms,
             'action': entry.action, 'actor': entry.actor,
@@ -298,10 +370,20 @@ class AuditLog:
     def _row_to_dict(self, row: sqlite3.Row) -> dict[str, Any]:
         d = dict(row)
         detail_json = d.pop('detail_json', '{}')
+        # Avoid loading multi-MB prompt blobs into process memory for list/group views.
+        if isinstance(detail_json, str) and len(detail_json) > _AUDIT_MAX_DETAIL_BYTES * 4:
+            d['detail'] = {
+                '_truncated': True,
+                '_detail_chars': len(detail_json),
+                'note': 'oversized audit detail omitted from list view',
+            }
+            d.pop('id', None)
+            return d
         try:
-            d['detail'] = json.loads(detail_json) if detail_json else {}
+            detail = json.loads(detail_json) if detail_json else {}
         except Exception:
-            d['detail'] = {}
+            detail = {}
+        d['detail'] = sanitize_audit_detail(detail)
         d.pop('id', None)
         return d
 

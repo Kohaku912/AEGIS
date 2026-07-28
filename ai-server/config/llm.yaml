@@ -78,6 +78,17 @@ profiles:
     timeout_seconds: 30
     max_tool_rounds: 3
 
+  decision:
+    provider: "openai"
+    model: "deepseek-v4-flash"
+    api_key_env: "LLM_API_KEY"
+    base_url: "https://api.deepseek.com"
+    max_tokens: 2048
+    temperature: 0.0
+    reasoning_level: "low"
+    timeout_seconds: 30
+    max_tool_rounds: 1
+
   local_chat:
     provider: "openai"
     model: "qwen2.5:3b"
@@ -107,6 +118,16 @@ profiles:
     reasoning_level: "medium"
     timeout_seconds: 60
     max_tool_rounds: 3
+
+  local_decision:
+    provider: "openai"
+    model: "qwen2.5:3b"
+    base_url: "http://localhost:11434/v1"
+    max_tokens: 1024
+    temperature: 0.0
+    reasoning_level: "low"
+    timeout_seconds: 60
+    max_tool_rounds: 1
 
   local_long_answer:
     provider: "openai"

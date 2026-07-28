@@ -1926,7 +1926,7 @@ class DashboardApp:
                 total = result.get("total", 0)
                 total_pages = group_result.get("total_pages", 1) if view != "raw" else result.get("total_pages", 1)
                 if hasattr(audit_manager, "read_recent_for_dashboard"):
-                    all_entries = audit_manager.read_recent_for_dashboard(max_entries=5000)
+                    all_entries = audit_manager.read_recent_for_dashboard(max_entries=400)
                 else:
                     all_entries = entries
             else:

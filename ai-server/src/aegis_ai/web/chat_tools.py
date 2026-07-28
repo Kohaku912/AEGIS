@@ -386,9 +386,53 @@ def _execute_tool_call(
     return execute_tool_call(catalog, function_name, arguments, **kwargs)
 
 
+def _format_posts_for_llm(output: dict[str, Any]) -> str:
+    """Preserve AGORA/social post bodies when feeding tool output back to an LLM."""
+    posts = output.get("posts")
+    if not isinstance(posts, list) or not posts:
+        return ""
+    try:
+        from aegis_ai.memory.memory_ingest import build_agora_posts_text
+
+        header = None
+        for key in ("result", "summary", "message"):
+            value = output.get(key)
+            if isinstance(value, str) and value.strip():
+                # Prefer a body-bearing render over count-only status strings.
+                if "durable processing is queued" in value.lower() or value.strip().endswith("post(s)."):
+                    header = None
+                else:
+                    header = value
+                break
+        text = build_agora_posts_text(posts, header=header)
+        meta_parts = []
+        for key in ("read_mode", "cursor_before", "cursor_after", "read_since_id", "unread_count", "fetched_count"):
+            if key in output and output[key] not in (None, ""):
+                meta_parts.append(f"{key}={output[key]}")
+        if meta_parts:
+            text = f"{text}\nmeta: {', '.join(meta_parts)}"
+        return text
+    except Exception:
+        # Fallback: include raw posts JSON so bodies are not dropped.
+        try:
+            return json.dumps(
+                {
+                    "result": output.get("result"),
+                    "posts": posts,
+                    "read_mode": output.get("read_mode"),
+                },
+                ensure_ascii=False,
+            )
+        except TypeError:
+            return str(posts)
+
+
 def _stringify_tool_output(output: dict[str, Any]) -> str:
     if "root" in output and isinstance(output.get("root"), dict):
         return _summarize_ui_tree(output["root"])
+    posts_text = _format_posts_for_llm(output)
+    if posts_text:
+        return posts_text
     if "result" in output and output["result"] not in (None, ""):
         return str(output["result"])
     if "content" in output and output["content"] not in (None, ""):

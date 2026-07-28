@@ -101,10 +101,10 @@ describe("dashboard v2 pages", () => {
     mind.unmount();
 
     render(<ActivityPage overview={data} recentEvents={[event()]} />);
-    expect(screen.getByText("Operational Replay")).toBeInTheDocument();
-    expect(screen.getByText("shared approval")).toBeInTheDocument();
-    expect(screen.getByText("connection.changed")).toBeInTheDocument();
-    expect(screen.getAllByText("Connection dropped").length).toBeGreaterThan(0);
+    expect(screen.getByText("AEGIS Operations")).toBeInTheDocument();
+    expect(screen.getByText("User instruction: Inspect desktop")).toBeInTheDocument();
+    expect(screen.getAllByText("pc-server.screenshot.get_screenshot: Captured screenshot").length).toBeGreaterThan(0);
+    expect(screen.getByText("Task task-1")).toBeInTheDocument();
   });
 });
 
@@ -217,6 +217,45 @@ function overview(): UiOverview {
     commitments: envelope({ items: [{ title: "Review UI" }], summary: "1 commitment" }),
     usage: envelope({ summary: "Audit-backed" }),
     errors: envelope({ items: [{ message: "Connection dropped", severity: "warning" }], count: 1 }),
+    activity: envelope({
+      source: "audit_manager+event_manager",
+      count: 1,
+      operations: [
+        {
+          operation_id: "req-chat-1",
+          kind: "chat",
+          kind_label: "User instruction",
+          title: "Inspect desktop",
+          summary: "Captured screenshot",
+          what_happened: "pc-server.screenshot.get_screenshot: Captured screenshot",
+          status: "success",
+          started_at: 1000,
+          updated_at: 2000,
+          tool_count: 1,
+          error_count: 0,
+          priority: "P2",
+          steps: [
+            {
+              action: "tool_execution",
+              capability_id: "pc-server.screenshot.get_screenshot",
+              summary: "Captured screenshot",
+              status: "ok",
+            },
+          ],
+        },
+      ],
+      groups: [
+        {
+          group_id: "task:task-1",
+          title: "Task task-1",
+          summary: "Capture screen",
+          status: "running",
+          operation_type: "capability",
+          events: [{ title: "Capture screen" }],
+        },
+      ],
+      recent: [],
+    }),
     freshness: envelope({})
   };
 }

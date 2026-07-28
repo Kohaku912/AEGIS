@@ -319,7 +319,9 @@ def test_display_queue_resolves_persistent_server_items():
     items = overview["display_queue"]["data"]["items"]
     assert all(item["event_id"] != "evt-offline" for item in items)
     assert any(item["event_id"] == "evt-approval" for item in items)
-    assert overview["activity"]["data"]["count"] == 3
+    # Pure status/heartbeat noise is excluded from AEGIS operation activity.
+    assert overview["activity"]["data"]["count"] == 1
+    assert overview["activity"]["data"]["recent"][0]["event_id"] == "evt-approval"
 
 
 def test_ui_overview_compacts_large_step_results():
@@ -474,3 +476,67 @@ def test_normalize_ui_event_exposes_visual_fields():
     assert "presentation_event" in normalized
     assert "dedicated_display" in normalized["presentation_event"]["recommended_surfaces"]
     assert "mobile_app" in normalized["presentation_event"]["recommended_surfaces"]
+
+
+def test_activity_operations_prefer_aegis_audit_groups():
+    class AuditManager:
+        def list_groups(self, page=1, per_page=20, group_type=None, errors_only=False, max_entries=400):
+            return {
+                "groups": [
+                    {
+                        "group_id": "req-chat-1",
+                        "group_type": "chat",
+                        "title": "Check AGORA posts",
+                        "start_ms": 1000,
+                        "end_ms": 2000,
+                        "status": "success",
+                        "entry_count": 2,
+                        "tool_count": 1,
+                        "approval_count": 0,
+                        "error_count": 0,
+                        "summary": "Retrieved 3 posts",
+                        "entries": [
+                            {
+                                "action": "tool_execution",
+                                "capability_id": "ai-server.agora.get_posts",
+                                "detail_summary": "Retrieved 3 posts",
+                                "decision": "allow",
+                                "timestamp_ms": 1500,
+                            },
+                            {
+                                "action": "status_changed",
+                                "capability_id": "",
+                                "detail_summary": "android online",
+                                "timestamp_ms": 1600,
+                            },
+                        ],
+                    },
+                    {
+                        "group_id": "sys-noise",
+                        "group_type": "system",
+                        "title": "android heartbeat",
+                        "start_ms": 3000,
+                        "end_ms": 3000,
+                        "status": "success",
+                        "entry_count": 1,
+                        "tool_count": 0,
+                        "approval_count": 0,
+                        "error_count": 0,
+                        "summary": "heartbeat",
+                        "entries": [{"action": "server_heartbeat", "timestamp_ms": 3000}],
+                    },
+                ]
+            }
+
+    runtime = _runtime()
+    runtime.audit_manager = AuditManager()
+    overview = build_ui_overview(runtime)
+    operations = overview["activity"]["data"]["operations"]
+
+    assert len(operations) == 1
+    op = operations[0]
+    assert op["kind"] == "chat"
+    assert op["kind_label"] == "User instruction"
+    assert op["title"] == "Check AGORA posts"
+    assert "ai-server.agora.get_posts" in op["what_happened"]
+    assert all(step.get("action") != "status_changed" for step in op["steps"])

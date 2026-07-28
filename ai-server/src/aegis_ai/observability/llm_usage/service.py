@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import dataclasses
 import logging
+import os
 import time
 import threading
 from typing import Any
@@ -103,7 +104,7 @@ class LLMUsageService:
         now_ms = int(now * 1000)
         cutoff_ms = now_ms - period_ms
 
-        raw = self._read_audit(limit=5000)
+        raw = self._read_audit(limit=int(os.environ.get("AEGIS_LLM_USAGE_AUDIT_LIMIT", "500")))
         traces = extract_traces(raw)
         traces = [t for t in traces if t.timestamp_ms >= cutoff_ms]
         traces = self._apply_filters(traces, **filters)
@@ -116,12 +117,12 @@ class LLMUsageService:
         period_ms = _PERIOD_MS.get(period, 24 * 3_600_000)
         cutoff_ms = int(time.time() * 1000) - period_ms
         entries = [
-            e for e in self._read_audit(limit=5000)
+            e for e in self._read_audit(limit=int(os.environ.get("AEGIS_LLM_USAGE_AUDIT_LIMIT", "500")))
             if int(e.get("timestamp_ms") or 0) >= cutoff_ms
         ]
         return self._apply_raw_filters(entries, **filters)
 
-    def _read_audit(self, limit: int = 5000) -> list[dict[str, Any]]:
+    def _read_audit(self, limit: int = 500) -> list[dict[str, Any]]:
         if self._audit is None:
             return []
         try:

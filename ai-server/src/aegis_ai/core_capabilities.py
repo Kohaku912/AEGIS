@@ -12,7 +12,11 @@ from typing import Any
 
 from aegis_ai.integrations.agora.agora_service import AgoraService
 from aegis_ai.integrations.agora.agora_types import AgoraFetchResult, AgoraPost
-from aegis_ai.memory.memory_ingest import save_memory_payload, sync_agora_posts_to_memory
+from aegis_ai.memory.memory_ingest import (
+    build_agora_posts_text,
+    save_memory_payload,
+    sync_agora_posts_to_memory,
+)
 
 logger = logging.getLogger("aegis_ai.core_capabilities")
 
@@ -184,11 +188,17 @@ class AegisCoreCapabilityClient:
                     processed_items = social_manager.process_new_items(inbox_items) if social_manager is not None else []
                 pending_items = processed_items or inbox_items
                 self._enqueue_agora_memory_sync(posts_to_process)
+                posts_text = build_agora_posts_text(
+                    posts,
+                    header=(
+                        f"AGORA: Retrieved {len(posts)} post(s); durable processing is queued."
+                    ),
+                )
                 payload = {
                     "ok": True,
-                    "message": f"AGORA: Retrieved {len(posts)} post(s); durable processing is queued.",
-                    "result": f"AGORA: Retrieved {len(posts)} post(s); durable processing is queued.",
-                    "summary": f"AGORA: Retrieved {len(posts)} post(s); durable processing is queued.",
+                    "message": posts_text,
+                    "result": posts_text,
+                    "summary": posts_text,
                     "posts": [self._dataclass_to_dict(post) for post in posts],
                     "mentions": [],
                     "saved_people": [],

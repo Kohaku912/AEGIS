@@ -244,6 +244,9 @@ def test_agora_read_posts_keeps_cursor_until_social_processing_finishes(tmp_path
     assert result["processing_pending"] is True
     assert fake.cursor_updates == []
     assert result["posts"][0]["id"] == 11
+    assert result["posts"][0]["body"] == "hello"
+    assert "hello" in result["result"]
+    assert "[11] tester: hello" in result["result"]
 
 
 def test_agora_read_posts_does_not_wait_for_llm_memory_enrichment(
