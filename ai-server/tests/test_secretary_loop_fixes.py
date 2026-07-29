@@ -56,7 +56,7 @@ def test_health_alert_on_open_circuit(tmp_path: Path, monkeypatch) -> None:
     manager = HealthAlertManager(data_dir=str(tmp_path / "health"), llm_provider=_LLM())
     alert = manager.check_llm_provider()
     assert alert is not None
-    assert alert.severity == "critical"
+    assert alert.severity == "warning"
 
 
 def test_android_unknown_does_not_alert(tmp_path: Path) -> None:

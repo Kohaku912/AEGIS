@@ -683,6 +683,13 @@ Respond with JSON:
         with self._lock:
             self._last_run_ms = int(time.time() * 1000)
 
+        social_manager = getattr(self, "_social_manager", None)
+        if social_manager is not None:
+            try:
+                social_manager.retry_pending_items(limit=5)
+            except Exception:
+                logger.exception("Bounded Social retry batch failed")
+
         if not self._desire:
             logger.warning("No desire system, using fallback interval")
             self._schedule_next(self._fallback_interval)

@@ -135,6 +135,11 @@ class AgoraClient:
         return AgoraCursor(last_read_post_id=data.get("last_read_post_id", 0))
 
     def update_cursor(self, last_read_post_id: int) -> AgoraCursor | dict[str, Any]:
+        current = self.get_cursor()
+        if isinstance(current, dict):
+            return current
+        if last_read_post_id <= current.last_read_post_id:
+            return current
         data = self._request("PUT", "/api/v1/me/cursor", json={"last_read_post_id": last_read_post_id})
         if isinstance(data, dict) and "error" in data:
             return data

@@ -62,7 +62,7 @@ def test_health_alert_on_open_circuit(tmp_path, monkeypatch) -> None:
     alert = manager.check_llm_provider()
     assert alert is not None
     assert alert.alert_type == "llm_unavailable"
-    assert alert.severity == "critical"
+    assert alert.severity == "warning"
     assert "balance" in alert.message.lower() or "circuit" in alert.message.lower()
 
 

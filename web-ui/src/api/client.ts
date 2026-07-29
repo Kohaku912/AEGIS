@@ -52,7 +52,7 @@ async function requireJson<T>(response: Response, fallback: string, accepted: nu
 export async function fetchOverview(surface: "dashboard" | "display" = "dashboard"): Promise<UiOverview> {
   const endpoint = surface === "display" ? `/display/overview${displayReadQuery()}` : "/api/ui/overview";
   const response = await fetch(endpoint, { credentials: "include" });
-  return requireJson<UiOverview>(response, "概要を取得できませんでした");
+  return requireJson<UiOverview>(response, "Could not load the overview");
 }
 
 export async function fetchResourceEntities(
@@ -70,13 +70,13 @@ export async function fetchResourceEntities(
   if (query.trim()) params.set("q", query.trim());
   if (options.status) params.set("status", options.status);
   const response = await fetch(`/api/ui/entities?${params}`, { credentials: "include" });
-  const payload = await requireJson<EntityPage>(response, "一覧を取得できませんでした");
+  const payload = await requireJson<EntityPage>(response, "Could not load the list");
   return { ...payload, items: (payload.items || []).map(normalizeEntity) };
 }
 
 export async function fetchResourceEntity(resource: string, entityId: string): Promise<EntitySummary> {
   const response = await fetch(`/api/ui/entities/${encodeURIComponent(resource)}/${encodeURIComponent(entityId)}`, { credentials: "include" });
-  return normalizeEntity(await requireJson<EntitySummary>(response, "関連データを取得できませんでした"));
+  return normalizeEntity(await requireJson<EntitySummary>(response, "Could not load related data"));
 }
 
 export async function searchResources(query: string): Promise<EntitySummary[]> {
@@ -87,7 +87,7 @@ export async function searchResourcesDetailed(query: string): Promise<{ items: E
   if (!query.trim()) return { items: [], warnings: [] };
   const params = new URLSearchParams({ q: query.trim(), limit: "40" });
   const response = await fetch(`/api/ui/search?${params}`, { credentials: "include" });
-  const payload = await requireJson<EntityPage>(response, "検索に失敗しました", [206]);
+  const payload = await requireJson<EntityPage>(response, "Search failed", [206]);
   return { items: (payload.items || []).map(normalizeEntity), warnings: payload.warnings || [] };
 }
 
@@ -140,13 +140,13 @@ export async function resetCapabilityRisk(capabilityId: string): Promise<Record<
 export async function runControlAction(action: string, confirmed = false): Promise<Record<string, unknown>> {
   const csrf = String((await fetchAuthMe()).csrf_token || "");
   const response = await fetch("/api/ui/control-actions", { method: "POST", credentials: "include", headers: { "Content-Type": "application/json", "X-CSRF-Token": csrf }, body: JSON.stringify({ action, confirmed }) });
-  return requireJson<Record<string, unknown>>(response, "操作に失敗しました", [202]);
+  return requireJson<Record<string, unknown>>(response, "Action failed", [202]);
 }
 
 export async function runTaskAction(taskId: string, action: string, confirmed = false): Promise<Record<string, unknown>> {
   const csrf = String((await fetchAuthMe()).csrf_token || "");
   const response = await fetch(`/api/tasks/${encodeURIComponent(taskId)}/actions`, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json", "X-CSRF-Token": csrf }, body: JSON.stringify({ action, confirmed }) });
-  return requireJson<Record<string, unknown>>(response, "タスク操作に失敗しました", [202]);
+  return requireJson<Record<string, unknown>>(response, "Task action failed", [202]);
 }
 
 export async function simulatePolicy(input: Record<string, unknown>): Promise<Record<string, unknown>> {
@@ -263,7 +263,7 @@ export async function sendChat(message: string, requestId = createRequestId()): 
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ text: message, request_id: requestId })
   });
-  return requireJson<Record<string, unknown>>(response, "チャット送信に失敗しました");
+  return requireJson<Record<string, unknown>>(response, "Could not send the chat message");
 }
 
 export type SavedView = {
@@ -281,7 +281,7 @@ export type SavedView = {
 
 export async function fetchSavedViews(resource: string): Promise<SavedView[]> {
   const response = await fetch(`/api/ui/saved-views?${new URLSearchParams({ resource })}`, { credentials: "include" });
-  const payload = await requireJson<{ items: SavedView[] }>(response, "保存ビューを取得できませんでした");
+  const payload = await requireJson<{ items: SavedView[] }>(response, "Could not load saved views");
   return payload.items || [];
 }
 
@@ -293,7 +293,7 @@ export async function createSavedView(input: Omit<SavedView, "id" | "created_at"
     headers: { "Content-Type": "application/json", "X-CSRF-Token": csrf },
     body: JSON.stringify(input),
   });
-  return requireJson<SavedView>(response, "保存ビューを作成できませんでした");
+  return requireJson<SavedView>(response, "Could not create the saved view");
 }
 
 export async function deleteSavedView(viewId: string): Promise<void> {
@@ -303,7 +303,7 @@ export async function deleteSavedView(viewId: string): Promise<void> {
     credentials: "include",
     headers: { "X-CSRF-Token": csrf },
   });
-  await requireJson(response, "保存ビューを削除できませんでした");
+  await requireJson(response, "Could not delete the saved view");
 }
 
 export async function resolveApproval(approvalId: string, decision: "approve" | "reject"): Promise<void> {

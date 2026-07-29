@@ -38,19 +38,20 @@ test.beforeEach(async ({ page }) => {
   await page.route("**/auth/me", (route) => route.fulfill({ json: { csrf_token: "test", authenticated: true, fresh: true } }));
 });
 
-test("master shell exposes five Japanese domains and command palette", async ({ page }) => {
+test("master shell exposes five English domains and command palette", async ({ page }) => {
   await page.goto("/dashboard");
-  const domains = ["ホーム", "仕事", "コミュニケーション", "システム", "設定・管理"];
+  await expect(page.locator("html")).toHaveAttribute("lang", "en");
+  const domains = ["Home", "Work", "Communication", "Systems", "Settings and Administration"];
   await expect(page.locator(".nav-domain > button")).toHaveCount(5);
   for (const label of domains) await expect(page.locator(".nav-domain > button", { hasText: label })).toBeVisible();
   await page.keyboard.press("Control+K");
-  await expect(page.getByRole("dialog", { name: "コマンドパレット" })).toBeVisible();
-  await expect(page.getByText("危険な操作は確認画面を開き")).toBeVisible();
+  await expect(page.getByRole("dialog", { name: "Command palette" })).toBeVisible();
+  await expect(page.getByText(/Dangerous actions open a confirmation dialog/)).toBeVisible();
 });
 
 test("capability catalog uses Manager entities and opens effective policy detail", async ({ page }) => {
   await page.goto("/dashboard/capabilities/catalog");
-  await expect(page.getByRole("heading", { name: "機能カタログ", level: 1 })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Capability Catalog", level: 1 })).toBeVisible();
   await expect(page.getByText("Manager-backed capability")).toBeVisible();
   await page.getByText("Manager-backed capability").click();
   await expect(page.getByText("Override draft")).toBeVisible();
@@ -59,7 +60,7 @@ test("capability catalog uses Manager entities and opens effective policy detail
 
 test("global search reaches records outside the overview", async ({ page }) => {
   await page.goto("/dashboard");
-  const search = page.getByLabel("AEGIS全体を検索");
+  const search = page.getByLabel("Search AEGIS");
   await search.fill("capability record");
   await expect(page.locator(".global-search__results").getByText("Manager-backed capability")).toBeVisible();
 });
@@ -69,11 +70,11 @@ test("chat rapid submit executes only once", async ({ page }) => {
   await page.route("**/api/chat/send", async (route) => {
     sends += 1;
     await new Promise((resolve) => setTimeout(resolve, 150));
-    await route.fulfill({ json: { response: "受け付けました", request_id: "e2e" } });
+    await route.fulfill({ json: { response: "Accepted", request_id: "e2e" } });
   });
   await page.goto("/dashboard");
-  await page.getByLabel("AEGISと話す").click();
-  await page.getByRole("textbox", { name: "メッセージ", exact: true }).fill("一度だけ実行");
+  await page.getByLabel("Talk to AEGIS").click();
+  await page.getByRole("textbox", { name: "Message", exact: true }).fill("Run exactly once");
   await page.locator(".chat-form").evaluate((form) => {
     (form as HTMLFormElement).requestSubmit();
     (form as HTMLFormElement).requestSubmit();
@@ -83,13 +84,13 @@ test("chat rapid submit executes only once", async ({ page }) => {
 
 test("tasks are the central work surface", async ({ page }) => {
   await page.goto("/dashboard/work/tasks");
-  await expect(page.getByRole("region", { name: "タスク詳細" })).toContainText("Manager-backed tasks");
-  await expect(page.getByRole("button", { name: /危険.*キャンセル/ })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Task details" })).toContainText("Manager-backed tasks");
+  await expect(page.getByRole("button", { name: /Dangerous.*Cancel/ })).toBeVisible();
 });
 
 test("density preference survives navigation and reload", async ({ page }) => {
   await page.goto("/dashboard");
-  await page.getByLabel("表示密度").selectOption("compact");
+  await page.getByLabel("Display density").selectOption("compact");
   await page.reload();
   await expect(page.locator(".master-shell")).toHaveAttribute("data-density", "compact");
 });
@@ -118,7 +119,9 @@ test("policy simulation reports a decision without executing a capability", asyn
   });
   await page.goto("/dashboard/capabilities/policy-simulation");
   await page.getByLabel("Capability").selectOption("capabilities-1");
-  await page.getByRole("button", { name: "Simulate policy" }).click();
+  const simulate = page.getByRole("button", { name: "Simulate policy" });
+  await simulate.evaluate((button) => button.scrollIntoView({ block: "center" }));
+  await simulate.click({ force: true });
   await expect(page.locator(".simulation-result")).toHaveAttribute("data-decision", "ALLOW");
   await expect(page.getByText("Not executed", { exact: true })).toBeVisible();
   expect(simulations).toBe(1);
@@ -135,7 +138,7 @@ test("prompt management requires developer mode, validation, diff review, and fr
   await page.route("**/api/llm/regression-test", (route) => route.fulfill({ json: { all_valid: true, candidate: { valid: true, errors: [], required_variables: ["user_name"] } } }));
   await page.goto("/dashboard/intelligence/models-prompts");
   await expect(page.getByText("Enable Developer Mode in the top bar")).toBeVisible();
-  await page.getByTitle("開発者モード").click();
+  await page.getByTitle("Developer mode").click();
   await page.getByLabel("Candidate template").fill("Revised system {{user_name}}");
   await page.getByRole("button", { name: "Validate candidate" }).click({ force: true });
   await page.getByRole("button", { name: "Review diff" }).click({ force: true });
@@ -146,8 +149,8 @@ test("prompt management requires developer mode, validation, diff review, and fr
 
 test("attention unifies approvals, errors, and offline servers", async ({ page }) => {
   await page.goto("/dashboard/attention");
-  await expect(page.getByRole("heading", { name: "対応が必要", level: 1 })).toBeVisible();
-  await expect(page.getByText("現在、対応が必要な項目はありません。")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Needs Attention", level: 1 })).toBeVisible();
+  await expect(page.getByText("No items currently need attention.")).toBeVisible();
 });
 
 test("all management domains remain usable at production display sizes", async ({ page }, testInfo) => {

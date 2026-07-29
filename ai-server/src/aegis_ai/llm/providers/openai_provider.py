@@ -14,7 +14,7 @@ from typing import Any
 
 from openai import OpenAI
 
-from aegis_ai.llm.provider_circuit import PROVIDER_CIRCUIT
+from aegis_ai.llm.provider_circuit import PROVIDER_CIRCUITS
 
 logger = logging.getLogger("aegis_ai.llm.providers.openai")
 
@@ -64,6 +64,7 @@ class OpenAIProvider:
         self._api_key = api_key or os.getenv("LLM_API_KEY", "")
         self._base_url = base_url or os.getenv("LLM_BASE_URL", "")
         self._audit = audit_log
+        self._circuit = PROVIDER_CIRCUITS.get(self._base_url)
 
         if not self._api_key:
             logger.warning("No API key set. Set LLM_API_KEY environment variable.")
@@ -136,10 +137,10 @@ class OpenAIProvider:
         }
 
     def _circuit_blocked_response(self) -> LLMResponse | None:
-        if not PROVIDER_CIRCUIT.is_open():
+        if self._circuit.allow_request():
             return None
-        remaining = PROVIDER_CIRCUIT.remaining_ms()
-        status = PROVIDER_CIRCUIT.status()
+        remaining = self._circuit.remaining_ms()
+        status = self._circuit.status()
         return LLMResponse(
             success=False,
             error=(
@@ -153,9 +154,9 @@ class OpenAIProvider:
 
     def _record_provider_outcome(self, error: Any | None = None) -> None:
         if error is None:
-            PROVIDER_CIRCUIT.record_success()
+            self._circuit.record_success()
             return
-        PROVIDER_CIRCUIT.record_error(error)
+        self._circuit.record_error(error)
 
     def generate(
         self,
@@ -250,7 +251,7 @@ class OpenAIProvider:
                     "prompt_chars": len(prompt),
                     "error": str(e),
                     "duration_ms": round(duration_ms, 1),
-                    "circuit": PROVIDER_CIRCUIT.status(),
+                    "circuit": self._circuit.status(),
                     **(context_meta or {}),
                 },
             )
@@ -374,7 +375,7 @@ class OpenAIProvider:
                     "prompt_chars": len(prompt),
                     "error": str(e),
                     "duration_ms": round(duration_ms, 1),
-                    "circuit": PROVIDER_CIRCUIT.status(),
+                    "circuit": self._circuit.status(),
                     **(context_meta or {}),
                 },
             )
@@ -554,7 +555,7 @@ class OpenAIProvider:
                     "duration_ms": round(duration_ms, 1),
                     "media_kind": media_kind,
                     "media_count": len([item for item in image_base64s if item]),
-                    "circuit": PROVIDER_CIRCUIT.status(),
+                    "circuit": self._circuit.status(),
                     **(context_meta or {}),
                 },
             )

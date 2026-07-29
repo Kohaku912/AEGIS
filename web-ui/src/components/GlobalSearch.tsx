@@ -16,7 +16,7 @@ export function GlobalSearch({ entities, onSelect }: { entities: EntitySummary[]
     let active = true;
     setSearching(true);
     const timer = window.setTimeout(() => {
-      searchResourcesDetailed(query).then((result) => { if (active) { setRemote(result.items); setWarnings(result.warnings.map((item) => `${item.resource || "データ源"}: ${item.message}`)); setError(""); } }).catch((reason) => { if (active) { setError(reason instanceof Error ? reason.message : String(reason)); } }).finally(() => { if (active) setSearching(false); });
+      searchResourcesDetailed(query).then((result) => { if (active) { setRemote(result.items); setWarnings(result.warnings.map((item) => `${item.resource || "Data source"}: ${item.message}`)); setError(""); } }).catch((reason) => { if (active) { setError(reason instanceof Error ? reason.message : String(reason)); } }).finally(() => { if (active) setSearching(false); });
     }, 180);
     return () => { active = false; window.clearTimeout(timer); };
   }, [query]);
@@ -29,8 +29,8 @@ export function GlobalSearch({ entities, onSelect }: { entities: EntitySummary[]
     <div className="global-search" data-open={open}>
       <Search size={16} aria-hidden="true" />
       <input
-        aria-label="AEGIS全体を検索"
-        placeholder="タスク、記憶、機能、端末を検索…"
+        aria-label="Search AEGIS"
+        placeholder="Search tasks, memory, capabilities, and devices..."
         value={query}
         onChange={(event) => { setQuery(event.currentTarget.value); setOpen(true); }}
         onFocus={() => setOpen(true)}
@@ -45,10 +45,10 @@ export function GlobalSearch({ entities, onSelect }: { entities: EntitySummary[]
               <small>{item.status}</small>
             </button>
           ))}
-          {searching ? <p>検索中…</p> : null}
-          {error ? <p role="alert">検索APIエラー: {error}</p> : null}
-          {warnings.length ? <p role="status">一部検索失敗: {warnings.join(" / ")}</p> : null}
-          {!results.length && !error ? <p>一致する項目はありません。</p> : null}
+          {searching ? <p>Searching...</p> : null}
+          {error ? <p role="alert">Search API error: {error}</p> : null}
+          {warnings.length ? <p role="status">Some sources failed: {warnings.join(" / ")}</p> : null}
+          {!results.length && !error ? <p>No matching items.</p> : null}
         </div>
       ) : null}
     </div>

@@ -9,7 +9,7 @@ import time
 import uuid
 from collections.abc import Callable
 from dataclasses import asdict, is_dataclass
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any
 
 from aegis_ai.llm.json_utils import extract_json_object
@@ -20,13 +20,16 @@ from aegis_ai.social.adapters import (
 )
 from aegis_ai.social.inbox import SocialInboxStore
 from aegis_ai.social.models import (
-    RETRYABLE_SOCIAL_STATUSES,
     TERMINAL_SOCIAL_STATUSES,
     SocialInboxItem,
     SocialInboxStatus,
 )
 
 logger = logging.getLogger("aegis_ai.social.manager")
+_RETRY_BATCH_SIZE = 5
+_MAX_RETRIES = 5
+_RETRY_BASE_MS = 5 * 60 * 1000
+_RETRY_MAX_MS = 6 * 60 * 60 * 1000
 
 
 def _parse_timestamp(value: Any) -> int:
@@ -116,12 +119,23 @@ class SocialManager:
         if author_names is not None:
             self._self_author_names = author_names
 
-    def retry_pending_items(self) -> list[SocialInboxItem]:
-        """Retry all items in RETRY_PENDING status."""
+    def retry_pending_items(self, limit: int = _RETRY_BATCH_SIZE) -> list[SocialInboxItem]:
+        """Retry a bounded batch of due items."""
+        now = int(time.time() * 1000)
         pending = [
             item for item in self._store.list(limit=10000)
             if item.status == SocialInboxStatus.RETRY_PENDING
+            and int(item.metadata.get("retry_count", 0) or 0) < _MAX_RETRIES
+            and int(item.metadata.get("next_retry_at", 0) or 0) <= now
         ]
+        pending.sort(
+            key=lambda item: (
+                int(item.metadata.get("next_retry_at", 0) or 0),
+                item.received_at,
+                item.item_id,
+            )
+        )
+        pending = pending[: max(0, limit)]
         if not pending:
             return []
         return self.process_new_items(pending)
@@ -145,11 +159,19 @@ class SocialManager:
 
     def resume_pending_processing(self) -> list[SocialInboxItem]:
         """Resume unfinished inbox obligations after a runtime restart."""
-        pending = [
+        untriaged = [
             item
             for item in self._store.list(limit=10000)
-            if item.status in {SocialInboxStatus.UNTRIAGED, SocialInboxStatus.RETRY_PENDING}
+            if item.status == SocialInboxStatus.UNTRIAGED
+        ][: _RETRY_BATCH_SIZE]
+        due_retries = [
+            item
+            for item in self._store.list(limit=10000)
+            if item.status == SocialInboxStatus.RETRY_PENDING
+            and int(item.metadata.get("retry_count", 0) or 0) < _MAX_RETRIES
+            and int(item.metadata.get("next_retry_at", 0) or 0) <= int(time.time() * 1000)
         ]
+        pending = (untriaged + due_retries)[:_RETRY_BATCH_SIZE]
         self.enqueue_processing(pending)
         return pending
 
@@ -230,8 +252,7 @@ class SocialManager:
             item.status = SocialInboxStatus.RETRY_PENDING
             item.decision = "observe_more"
             item.decision_reason = "LLM unavailable; will retry on next cycle."
-            saved = self._save(item)
-            return saved
+            return self._save(item)
 
         prompt = f"""Decide how AEGIS should respond to this social inbox item.
 Return JSON only. Do not infer from keyword rules; reason from the full message and context.
@@ -296,18 +317,38 @@ Return:
                 provider = relationship_provider or self._relationship_provider
                 relationship = provider(item) if provider else item.relationship
                 current = self.triage(item.item_id, relationship=relationship)
-                if current.status == SocialInboxStatus.NEEDS_REPLY:
+                if current.status == SocialInboxStatus.RETRY_PENDING:
+                    current = self._schedule_retry(current, RuntimeError("LLM unavailable"))
+                elif current.status == SocialInboxStatus.NEEDS_REPLY:
                     current = self.propose_reply(current.item_id)
                 processed.append(current)
             except Exception as exc:
                 current = self._store.get(item.item_id)
                 if current is None:
                     continue
-                current.status = SocialInboxStatus.RETRY_PENDING
-                current.decision = current.decision or "observe_more"
-                current.decision_reason = f"Social processing failed (will retry): {exc}"
-                processed.append(self._save(current))
+                processed.append(self._schedule_retry(current, exc))
         return processed
+
+    def _schedule_retry(self, item: SocialInboxItem, error: Exception) -> SocialInboxItem:
+        retry_count = int(item.metadata.get("retry_count", 0) or 0) + 1
+        item.metadata["retry_count"] = retry_count
+        item.metadata["last_error"] = str(error)[:1000]
+        item.decision = item.decision or "observe_more"
+        if retry_count >= _MAX_RETRIES:
+            item.status = SocialInboxStatus.FAILED
+            item.metadata["next_retry_at"] = 0
+            item.decision_reason = f"Social processing stopped after {retry_count} attempts: {error}"
+        else:
+            delay_ms = min(_RETRY_MAX_MS, _RETRY_BASE_MS * (2 ** (retry_count - 1)))
+            item.status = SocialInboxStatus.RETRY_PENDING
+            item.metadata["next_retry_at"] = int(time.time() * 1000) + delay_ms
+            item.decision_reason = (
+                f"Social processing failed; will retry {retry_count}/{_MAX_RETRIES}: {error}"
+            )
+        saved = self._save(item)
+        if saved.status == SocialInboxStatus.FAILED:
+            self._advance_processed_cursor(saved.channel)
+        return saved
 
     def propose_reply(self, item_id: str) -> SocialInboxItem:
         item = self._require(item_id)

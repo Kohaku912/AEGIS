@@ -50,7 +50,7 @@ describe("dashboard v2 pages", () => {
   it("renders Work queues and task detail", () => {
     render(<Work overview={overview()} />);
     expect(screen.getByRole("tablist", { name: "Work queues" })).toBeInTheDocument();
-    expect(screen.getByRole("region", { name: "タスク詳細" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Task details" })).toBeInTheDocument();
     expect(screen.getAllByText("pc-server.screenshot.get_screenshot").length).toBeGreaterThan(0);
   });
 

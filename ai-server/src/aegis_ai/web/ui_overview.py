@@ -1185,9 +1185,36 @@ def _errors(runtime: Any) -> dict[str, Any]:
     """Errors surface is RepairManager history (not raw audit JSON)."""
     repair = getattr(runtime, "repair_manager", None)
     items: list[dict[str, Any]] = []
+    had_repair_history = False
     if repair is not None and hasattr(repair, "list_history"):
-        for entry in repair.list_history(limit=30) or []:
+        latest_by_id: dict[str, dict[str, Any]] = {}
+        for entry in repair.list_history(limit=200) or []:
             if not isinstance(entry, dict):
+                continue
+            had_repair_history = True
+            repair_id = str(entry.get("repair_id") or entry.get("id") or entry.get("capability_id") or "")
+            timestamp = int(entry.get("timestamp_ms") or entry.get("timestamp") or entry.get("created_at") or 0)
+            previous = latest_by_id.get(repair_id)
+            previous_timestamp = int(
+                (previous or {}).get("timestamp_ms")
+                or (previous or {}).get("timestamp")
+                or (previous or {}).get("created_at")
+                or 0
+            )
+            if previous is None or timestamp >= previous_timestamp:
+                latest_by_id[repair_id] = entry
+        resolved_results = {"dismissed", "recovered", "infra_noise", "rolled_back"}
+        ordered = sorted(
+            latest_by_id.values(),
+            key=lambda entry: int(
+                entry.get("timestamp_ms") or entry.get("timestamp") or entry.get("created_at") or 0
+            ),
+            reverse=True,
+        )
+        for entry in ordered:
+            final_result = str(entry.get("final_result") or "").strip().lower()
+            status_value = str(entry.get("status") or entry.get("outcome") or "").strip().lower()
+            if final_result in resolved_results or status_value in resolved_results | {"resolved", "repaired"}:
                 continue
             items.append(
                 {
@@ -1197,13 +1224,17 @@ def _errors(runtime: Any) -> dict[str, Any]:
                     "severity": "warning" if entry.get("retried") else "critical",
                     "capability_id": str(entry.get("capability_id") or ""),
                     "status": str(entry.get("status") or entry.get("outcome") or "recorded"),
-                    "created_at": int(entry.get("timestamp_ms") or entry.get("created_at") or 0),
+                    "created_at": int(
+                        entry.get("timestamp_ms") or entry.get("timestamp") or entry.get("created_at") or 0
+                    ),
                     "summary": str(entry.get("lesson") or entry.get("action") or ""),
                     "next_action": str(entry.get("next_action") or entry.get("recovery_hint") or ""),
                     "raw": entry,
                 }
             )
-    if not items:
+            if len(items) >= 30:
+                break
+    if not items and not had_repair_history:
         # Fallback: keep a thin audit error list only when repair history is empty.
         audit = getattr(runtime, "audit_manager", None) or getattr(runtime, "audit_log", None)
         if audit is not None and hasattr(audit, "list_recent"):

@@ -1,6 +1,6 @@
 import { AlertTriangle, ChevronLeft, ChevronRight, LoaderCircle, Save, Trash2 } from "lucide-react";
 import { type ReactNode, useEffect, useRef } from "react";
-import { ja } from "../i18n";
+import { messages } from "../i18n";
 import type { SavedView } from "../api/client";
 
 export function PageHeader({ title, description, children }: { title: string; description?: string; children?: ReactNode }) {
@@ -8,18 +8,18 @@ export function PageHeader({ title, description, children }: { title: string; de
 }
 
 export function DataState({ loading, error, empty, onRetry }: { loading?: boolean; error?: string; empty?: boolean; onRetry?: () => void }) {
-  if (loading) return <div className="data-state" role="status"><LoaderCircle className="spin" size={18} />{ja.loading}</div>;
-  if (error) return <div className="data-state data-state--error" role="alert"><AlertTriangle size={18} /><span>{error}</span>{onRetry ? <button type="button" onClick={onRetry}>{ja.retry}</button> : null}</div>;
-  if (empty) return <div className="data-state">{ja.noData}</div>;
+  if (loading) return <div className="data-state" role="status"><LoaderCircle className="spin" size={18} />{messages.loading}</div>;
+  if (error) return <div className="data-state data-state--error" role="alert"><AlertTriangle size={18} /><span>{error}</span>{onRetry ? <button type="button" onClick={onRetry}>{messages.retry}</button> : null}</div>;
+  if (empty) return <div className="data-state">{messages.noData}</div>;
   return null;
 }
 
 export type ActionLevel = "view" | "safe" | "controlled" | "dangerous";
-const actionLabels: Record<ActionLevel, string> = { view: "参照", safe: "安全", controlled: "要確認", dangerous: "危険" };
+const actionLabels: Record<ActionLevel, string> = { view: "View", safe: "Safe", controlled: "Confirmation required", dangerous: "Dangerous" };
 
 export function ActionButton({ level, busy, children, ...props }: React.ButtonHTMLAttributes<HTMLButtonElement> & { level: ActionLevel; busy?: boolean }) {
   return <button {...props} type="button" className={`action-button action-button--${level}`} disabled={busy || props.disabled} aria-busy={busy}>
-    <span className="action-button__level">{actionLabels[level]}</span>{busy ? "実行中…" : children}
+    <span className="action-button__level">{actionLabels[level]}</span>{busy ? "Running..." : children}
   </button>;
 }
 
@@ -39,7 +39,7 @@ export function ConfirmDialog({ open, title, details, dangerous, busy, onCancel,
     <section className="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
       <h3 id="confirm-title">{title}</h3>
       <dl>{Object.entries(details).map(([key, value]) => <div key={key}><dt>{key}</dt><dd>{String(value || "—")}</dd></div>)}</dl>
-      <footer><button ref={cancelRef} type="button" className="secondary-button" onClick={onCancel} disabled={busy}>{ja.cancel}</button><ActionButton level={dangerous ? "dangerous" : "controlled"} busy={busy} onClick={onConfirm}>{ja.confirm}</ActionButton></footer>
+      <footer><button ref={cancelRef} type="button" className="secondary-button" onClick={onCancel} disabled={busy}>{messages.cancel}</button><ActionButton level={dangerous ? "dangerous" : "controlled"} busy={busy} onClick={onConfirm}>{messages.confirm}</ActionButton></footer>
     </section>
   </div>;
 }
@@ -48,21 +48,21 @@ export function FilterBar({ query, status, statuses, onQuery, onStatus, children
   query: string; status: string; statuses: string[]; onQuery: (value: string) => void; onStatus: (value: string) => void; children?: ReactNode;
 }) {
   return <div className="filter-bar" role="search">
-    <label><span>{ja.search}</span><input type="search" value={query} onChange={(event) => onQuery(event.currentTarget.value)} /></label>
-    <label><span>{ja.status}</span><select value={status} onChange={(event) => onStatus(event.currentTarget.value)}><option value="">{ja.all}</option>{statuses.map((item) => <option value={item} key={item}>{item}</option>)}</select></label>
+    <label><span>{messages.search}</span><input type="search" value={query} onChange={(event) => onQuery(event.currentTarget.value)} /></label>
+    <label><span>{messages.status}</span><select value={status} onChange={(event) => onStatus(event.currentTarget.value)}><option value="">{messages.all}</option>{statuses.map((item) => <option value={item} key={item}>{item}</option>)}</select></label>
     {children}
   </div>;
 }
 
 export function Pagination({ page, total, pageSize, onPage }: { page: number; total: number; pageSize: number; onPage: (page: number) => void }) {
   const pages = Math.max(1, Math.ceil(total / pageSize));
-  return <nav className="pagination" aria-label="ページ"><button type="button" disabled={page <= 1} onClick={() => onPage(page - 1)}><ChevronLeft size={15} />{ja.previous}</button><span>{page} / {pages}</span><button type="button" disabled={page >= pages} onClick={() => onPage(page + 1)}>{ja.next}<ChevronRight size={15} /></button></nav>;
+  return <nav className="pagination" aria-label="Pagination"><button type="button" disabled={page <= 1} onClick={() => onPage(page - 1)}><ChevronLeft size={15} />{messages.previous}</button><span>{page} / {pages}</span><button type="button" disabled={page >= pages} onClick={() => onPage(page + 1)}>{messages.next}<ChevronRight size={15} /></button></nav>;
 }
 
 export function SavedViewPicker({ views, selected, onSelect, onSave, onDelete }: {
   views: SavedView[]; selected: string; onSelect: (id: string) => void; onSave: () => void; onDelete: (id: string) => void;
 }) {
-  return <div className="saved-view-picker"><label><span>保存ビュー</span><select value={selected} onChange={(event) => onSelect(event.currentTarget.value)}><option value="">現在の条件</option>{views.map((view) => <option value={view.id} key={view.id}>{view.name}</option>)}</select></label><button type="button" onClick={onSave}><Save size={15} />{ja.saveView}</button>{selected ? <button type="button" aria-label="保存ビューを削除" onClick={() => onDelete(selected)}><Trash2 size={15} /></button> : null}</div>;
+  return <div className="saved-view-picker"><label><span>{messages.savedViews}</span><select value={selected} onChange={(event) => onSelect(event.currentTarget.value)}><option value="">{messages.currentFilters}</option>{views.map((view) => <option value={view.id} key={view.id}>{view.name}</option>)}</select></label><button type="button" onClick={onSave}><Save size={15} />{messages.saveView}</button>{selected ? <button type="button" aria-label={messages.deleteSavedView} onClick={() => onDelete(selected)}><Trash2 size={15} /></button> : null}</div>;
 }
 
 export function ResponsiveDataView({ headers, rows, empty }: {
