@@ -177,6 +177,7 @@ export type UiOverview = {
       title?: string;
       summary?: string;
       what_happened?: string;
+      narrative?: string;
       status?: string;
       started_at?: number;
       updated_at?: number;
@@ -203,8 +204,61 @@ export type UiOverview = {
   approvals: FreshnessEnvelope<{ pending: ApprovalItem[]; pending_count: number }>;
   commitments: FreshnessEnvelope<{ items: Array<Record<string, unknown>>; summary?: string }>;
   usage: FreshnessEnvelope<Record<string, unknown>>;
-  errors?: FreshnessEnvelope<{ items?: Array<Record<string, unknown>>; count?: number }>;
+  errors?: FreshnessEnvelope<{ items?: Array<Record<string, unknown>>; count?: number; repair_status?: Record<string, unknown>; source?: string }>;
   freshness: FreshnessEnvelope<Record<string, unknown>>;
+  autonomous_logs?: FreshnessEnvelope<{ cycles?: Array<Record<string, unknown>>; count?: number }>;
+  situation?: FreshnessEnvelope<Record<string, unknown>>;
+  agent_state?: FreshnessEnvelope<Record<string, unknown>>;
+  goals?: FreshnessEnvelope<{
+    items?: Array<Record<string, unknown>>;
+    open?: Array<Record<string, unknown>>;
+    count?: number;
+    open_count?: number;
+    summary?: string;
+  }>;
+  initiative?: FreshnessEnvelope<{
+    funnel?: Record<string, number>;
+    no_action_reasons?: Record<string, number>;
+    recent_non_actions?: Array<Record<string, unknown>>;
+    recent_decisions?: Array<Record<string, unknown>>;
+    summary?: string;
+    updated_at?: number;
+  }>;
+  continuations?: FreshnessEnvelope<{
+    open?: Array<Record<string, unknown>>;
+    due?: Array<Record<string, unknown>>;
+    diagnostics?: Record<string, unknown>;
+    count?: number;
+    summary?: string;
+  }>;
+  repairs?: FreshnessEnvelope<{ items?: Array<Record<string, unknown>>; status?: Record<string, unknown>; count?: number; summary?: string }>;
+  social?: FreshnessEnvelope<{
+    inbox?: Array<Record<string, unknown>>;
+    pending_decisions?: Array<Record<string, unknown>>;
+    decided?: Array<Record<string, unknown>>;
+    status?: Record<string, unknown>;
+    agora?: Record<string, unknown>;
+    summary?: string;
+  }>;
+  behavioral_reports?: FreshnessEnvelope<{
+    metrics?: Record<string, number>;
+    evidence?: Record<string, unknown>;
+    summary?: string;
+  }>;
+  open_loops?: FreshnessEnvelope<{
+    items?: Array<Record<string, unknown>>;
+    count?: number;
+    by_kind?: Record<string, number>;
+    summary?: string;
+  }>;
+  decision_context?: FreshnessEnvelope<Record<string, unknown>>;
+  generated_capabilities?: FreshnessEnvelope<{ items?: Array<Record<string, unknown>>; count?: number; summary?: string }>;
+  executions?: FreshnessEnvelope<{
+    operations?: Array<Record<string, unknown>>;
+    autonomous_cycles?: Array<Record<string, unknown>>;
+    count?: number;
+    summary?: string;
+  }>;
 };
 
 export type UiEvent = {

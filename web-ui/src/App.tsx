@@ -18,14 +18,17 @@ import { CapabilityCatalogPage } from "./pages/CapabilityCatalogPage";
 import { CommandCenter } from "./pages/CommandCenter";
 import { Display } from "./pages/Display";
 import { DomainPage } from "./pages/DomainPage";
+import { JudgmentPage } from "./pages/JudgmentPage";
 import { MindMemory } from "./pages/MindMemory";
 import { LLMUsagePage } from "./pages/LLMUsagePage";
 import { ModelsPromptsPage } from "./pages/ModelsPromptsPage";
+import { OpenLoopsPage } from "./pages/OpenLoopsPage";
+import { OperationsPage } from "./pages/OperationsPage";
 import { PolicySimulationPage } from "./pages/PolicySimulationPage";
 import { RuleManagementPage } from "./pages/RuleManagementPage";
 import { Settings } from "./pages/Settings";
+import { SocialPage } from "./pages/SocialPage";
 import { Systems } from "./pages/Systems";
-import { Work } from "./pages/Work";
 import type { EntitySummary, UiEvent, UiOverview } from "./types";
 
 export function App() {
@@ -125,11 +128,11 @@ export function App() {
         </header>
         <header className="workspace-heading"><div><span>{definition.domain.label}</span><h1>{definition.page.label}</h1></div><div><StatusBadge status={String(overview.core.data.health || "ONLINE")} /><span className="workspace-heading__freshness">Updated {new Date(overview.generated_at).toLocaleTimeString()}</span></div></header>
         <main className="master-content">
-          <Page pageId={route.page} overview={overview} recentEvents={recentEvents} onSelect={setSelectedEntity} pinnedEntities={pinnedEntities} />
+          <Page pageId={route.page} overview={overview} recentEvents={recentEvents} onSelect={setSelectedEntity} pinnedEntities={pinnedEntities} developerMode={developerMode} />
         </main>
       </div>
 
-      <GlobalInspector entity={selectedEntity} onClose={() => setSelectedEntity(undefined)} onFollowRelation={followRelation} pinned={Boolean(selectedEntity && pinnedEntities.some((item) => item.type === selectedEntity.type && item.id === selectedEntity.id))} onTogglePin={(entity) => setPinnedEntities((items) => togglePin(items, entity))} />
+      <GlobalInspector entity={selectedEntity} onClose={() => setSelectedEntity(undefined)} onFollowRelation={followRelation} pinned={Boolean(selectedEntity && pinnedEntities.some((item) => item.type === selectedEntity.type && item.id === selectedEntity.id))} onTogglePin={(entity) => setPinnedEntities((items) => togglePin(items, entity))} developerMode={developerMode} />
       <LiveActivityDrawer events={recentEvents} />
       <ChatDrawer open={chatOpen} onClose={() => setChatOpen(false)} />
       <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} navigate={navigate} />
@@ -137,9 +140,26 @@ export function App() {
   );
 }
 
-function Page({ pageId, overview, recentEvents, onSelect, pinnedEntities }: { pageId: string; overview: UiOverview; recentEvents: UiEvent[]; onSelect: (entity: EntitySummary) => void; pinnedEntities: EntitySummary[] }) {
-  if (pageId === "command-center") return <CommandCenter overview={overview} recentEvents={recentEvents} pinnedEntities={pinnedEntities} onSelect={onSelect} />;
-  if (pageId === "tasks") return <Work overview={overview} />;
+function Page({ pageId, overview, recentEvents, onSelect, pinnedEntities, developerMode }: { pageId: string; overview: UiOverview; recentEvents: UiEvent[]; onSelect: (entity: EntitySummary) => void; pinnedEntities: EntitySummary[]; developerMode: boolean }) {
+  if (pageId === "command-center") return <CommandCenter overview={overview} recentEvents={recentEvents} pinnedEntities={pinnedEntities} onSelect={onSelect} developerMode={developerMode} />;
+  if (pageId === "open-loops" || pageId === "tasks" || pageId === "plans" || pageId === "commitments") {
+    return <OpenLoopsPage overview={overview} developerMode={developerMode} />;
+  }
+  if (pageId === "goals") return <JudgmentPage overview={overview} developerMode={developerMode} focus="goals" />;
+  if (pageId === "continuations") return <JudgmentPage overview={overview} developerMode={developerMode} focus="continuations" />;
+  if (pageId === "initiative") return <JudgmentPage overview={overview} developerMode={developerMode} focus="initiative" />;
+  if (pageId === "decision-context") return <JudgmentPage overview={overview} developerMode={developerMode} focus="decision-context" />;
+  if (pageId === "repairs" || pageId === "errors") return <JudgmentPage overview={overview} developerMode={developerMode} focus="repairs" />;
+  if (pageId === "reports") return <JudgmentPage overview={overview} developerMode={developerMode} focus="reports" />;
+  if (pageId === "situation" || pageId === "user-model") {
+    return <JudgmentPage overview={overview} developerMode={developerMode} focus="situation" />;
+  }
+  if (pageId === "operations" || pageId === "capability-executions") {
+    return <OperationsPage overview={overview} developerMode={developerMode} />;
+  }
+  if (pageId === "social" || pageId === "conversations") {
+    return <SocialPage overview={overview} developerMode={developerMode} />;
+  }
   if (pageId === "approvals") return <Approvals overview={overview} />;
   if (pageId === "capability-catalog") return <CapabilityCatalogPage />;
   if (pageId === "servers") return <Systems overview={overview} />;
@@ -151,7 +171,7 @@ function Page({ pageId, overview, recentEvents, onSelect, pinnedEntities }: { pa
   if (pageId === "schedule") return <RuleManagementPage kind="hooks" />;
   if (pageId === "delegation") return <RuleManagementPage kind="delegations" />;
   if (pageId.startsWith("settings-")) return <Settings overview={overview} sectionId={pageId.replace("settings-", "")} />;
-  return <DomainPage pageId={pageId} overview={overview} events={recentEvents} onSelect={onSelect} />;
+  return <DomainPage pageId={pageId} overview={overview} events={recentEvents} onSelect={onSelect} developerMode={developerMode} />;
 }
 
 function readPins(): EntitySummary[] {

@@ -411,10 +411,24 @@ class AuditManager:
         item["audit_group_type"] = self._entry_group_type(item)
         item["audit_group_title"] = self._entry_group_title(item, item["audit_group_id"])
         # Drop bulky nested detail after summary is computed.
+        # Keep narrative fields so Activity can show what AEGIS said/did in natural language.
         if isinstance(detail, dict) and detail:
             item["detail"] = {
                 key: detail.get(key)
-                for key in ("error", "status", "execution_status", "capability_id", "model", "tokens")
+                for key in (
+                    "error",
+                    "status",
+                    "execution_status",
+                    "capability_id",
+                    "model",
+                    "tokens",
+                    "response_preview",
+                    "result_preview",
+                    "result_summary",
+                    "what_was_done",
+                    "llm_reason",
+                    "title",
+                )
                 if key in detail
             }
         return item
@@ -463,93 +477,111 @@ class AuditManager:
         return f"{action}: {group_id}"[:140]
 
     def _detail_summary(self, detail: Any, action: str = "") -> str:
+        """Human-readable one-liner for Activity / audit groups.
+
+        Prefer natural-language LLM responses and tool results over key=value dumps.
+        """
         if not isinstance(detail, dict):
             return str(detail)[:100]
 
-        parts = []
-
-        # Error field always takes priority
         if detail.get("error"):
-            parts.append(f"error={str(detail['error'])[:120]}")
+            return f"Error: {str(detail['error'])[:180]}"
 
-        # Action-specific summaries
         if action in ("llm_call", "llm_tool_call", "llm_vision_call"):
-            model = detail.get("model", "")
-            tokens = detail.get("tokens", 0)
-            duration = detail.get("duration_ms", 0)
-            response = str(detail.get("response_preview", ""))
-            prompt = str(detail.get("prompt_preview", ""))
-            
-            # Show response first as main content
+            response = str(detail.get("response_preview") or "").strip()
             if response:
-                parts.append(f"response={response[:150]}")
-            if model:
-                parts.append(f"model={model}")
-            if tokens:
-                parts.append(f"tokens={tokens}")
-            if duration:
-                parts.append(f"duration={duration}ms")
-            if prompt:
-                parts.append(f"prompt={prompt[:80]}")
-            # Show tool calls if present
+                return response[:220]
             tool_calls = detail.get("tool_calls")
             if tool_calls:
-                names = [tc.get("function", "") for tc in tool_calls if isinstance(tc, dict)]
+                names = [
+                    str(tc.get("function") or tc.get("name") or "")
+                    for tc in tool_calls
+                    if isinstance(tc, dict)
+                ]
+                names = [name for name in names if name]
                 if names:
-                    parts.append(f"tools={', '.join(names[:5])}")
+                    return f"Chose tools: {', '.join(names[:5])}"
+            model = str(detail.get("model") or "").strip()
+            return f"LLM call ({model})" if model else "LLM call completed"
 
-        elif action in ("tool_execution", "tool_invoked") or action.startswith("tool."):
-            cap_id = detail.get("capability_id", "")
-            status = detail.get("execution_status", "")
+        if action in ("tool_execution", "tool_invoked") or action.startswith("tool."):
+            for key in ("result_summary", "result_preview", "what_was_done", "output_summary"):
+                value = str(detail.get(key) or "").strip()
+                if value:
+                    return value[:180]
+            status = str(detail.get("execution_status") or detail.get("status") or "").strip()
+            cap_id = str(detail.get("capability_id") or "").strip()
+            if status and status.lower() not in {"success", "ok", "completed"}:
+                return f"Tool {status}" + (f" ({cap_id})" if cap_id else "")
             if cap_id:
-                parts.append(f"capability={cap_id}")
-            if status:
-                parts.append(f"status={status}")
-            result = str(detail.get("result_preview", ""))
-            if result:
-                parts.append(f"result={result[:80]}")
+                short = cap_id.rsplit(".", 1)[-1].replace("_", " ")
+                return f"Ran {short}"
+            return "Tool completed"
 
-        elif action.startswith("task_"):
-            task_id = detail.get("task_id", "")
-            title = detail.get("title", "")
-            status = detail.get("status", "")
+        if action.startswith("task_"):
+            title = str(detail.get("title") or "").strip()
+            status = str(detail.get("status") or "").strip()
+            if title and status:
+                return f"{title} ({status})"[:180]
             if title:
-                parts.append(f"title={title[:80]}")
-            elif task_id:
-                parts.append(f"task={task_id}")
-            if status:
-                parts.append(f"status={status}")
+                return title[:180]
+            return status or "Task update"
 
-        elif action.startswith("approval_"):
-            approval_id = detail.get("approval_id", "")
-            risk = detail.get("risk_level", "")
-            if approval_id:
-                parts.append(f"approval={approval_id}")
-            if risk:
-                parts.append(f"risk={risk}")
+        if action.startswith("approval_"):
+            summary = str(detail.get("user_facing_summary") or detail.get("summary") or "").strip()
+            if summary:
+                return summary[:180]
+            risk = str(detail.get("risk_level") or "").strip()
+            return f"Approval ({risk})" if risk else "Approval update"
 
-        elif action.startswith("autonomous_"):
-            source = detail.get("source", "")
-            reason = str(detail.get("llm_reason", ""))
-            if source:
-                parts.append(f"source={source}")
-            if reason:
-                parts.append(f"reason={reason[:100]}")
+        if action.startswith("autonomous_"):
+            for key in ("llm_reason", "what_was_done", "result_summary", "decision"):
+                value = str(detail.get(key) or "").strip()
+                if value:
+                    return value[:180]
+            source = str(detail.get("source") or "").strip()
+            return f"Autonomous tick ({source})" if source else "Autonomous update"
 
-        else:
-            # Generic fallback: show first 3 non-error fields
-            for key, value in list(detail.items())[:3]:
-                if key != "error":
-                    parts.append(f"{key}={str(value)[:60]}")
-
-        return ", ".join(parts[:5])
+        for key in (
+            "response_preview",
+            "result_summary",
+            "what_was_done",
+            "llm_reason",
+            "summary",
+            "message",
+            "title",
+        ):
+            value = str(detail.get(key) or "").strip()
+            if value:
+                return value[:180]
+        for key, value in list(detail.items())[:3]:
+            if key != "error" and value not in (None, ""):
+                return f"{key}: {str(value)[:80]}"
+        return ""
 
     def _group_summary(self, entries: list[dict[str, Any]]) -> str:
+        """Prefer the last natural-language LLM / action narrative for the group."""
+        llm_actions = {"llm_call", "llm_tool_call", "llm_vision_call"}
         for entry in reversed(entries):
-            reason = str(entry.get("reason") or "")
+            action = str(entry.get("action") or "")
+            detail = entry.get("detail") if isinstance(entry.get("detail"), dict) else {}
+            if action in llm_actions:
+                response = str(detail.get("response_preview") or "").strip()
+                if response:
+                    return response[:280]
+                summary = str(entry.get("detail_summary") or "").strip()
+                if summary:
+                    return summary[:280]
+        for entry in reversed(entries):
+            detail = entry.get("detail") if isinstance(entry.get("detail"), dict) else {}
+            for key in ("what_was_done", "result_summary", "result_preview", "llm_reason"):
+                value = str(detail.get(key) or "").strip()
+                if value:
+                    return value[:280]
+            reason = str(entry.get("reason") or "").strip()
             if reason:
                 return reason[:220]
-            summary = str(entry.get("detail_summary") or "")
+            summary = str(entry.get("detail_summary") or "").strip()
             if summary:
                 return summary[:220]
         return f"{len(entries)} audit event(s)"

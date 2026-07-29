@@ -238,16 +238,17 @@ export function factsForEntity(entity: EntitySummary | undefined, fieldLabels: s
   data.updated_at = entity.updated_at ? new Date(entity.updated_at).toISOString() : "";
   data.id = entity.id;
 
-  return fieldLabels.map((label) => {
+  return fieldLabels.flatMap((label) => {
     const keys = FIELD_KEYS[label] || [slugKey(label)];
-    const found = keys.map((key) => lookupValue(data, key)).find((value) => value !== undefined);
+    const found = keys.map((key) => lookupValue(data, key)).find((value) => value !== undefined && value !== null && value !== "");
     if (found === undefined) {
-      // Fall back to any key that loosely matches the label words.
-      const loose = Object.entries(data).find(([key]) => labelWords(label).every((word) => key.includes(word)));
-      if (loose) return { label, value: formatValue(loose[1]) };
-      return { label, value: "Not reported", missing: true };
+      const loose = Object.entries(data).find(([key, value]) =>
+        value !== undefined && value !== null && value !== "" && labelWords(label).every((word) => key.includes(word)),
+      );
+      if (loose) return [{ label, value: formatValue(loose[1]) }];
+      return [];
     }
-    return { label, value: formatValue(found) };
+    return [{ label, value: formatValue(found) }];
   });
 }
 
@@ -284,76 +285,128 @@ export function pageContextFacts(pageId: string, overview: UiOverview): DetailFa
   const mind = (overview.mind_summary?.data || overview.mind?.data || {}) as Record<string, unknown>;
   const autonomy = (mind.autonomy || {}) as Record<string, unknown>;
   const memory = (overview.memory?.data || mind.memory || {}) as Record<string, unknown>;
-  const user = (overview.user_situation?.data || overview.user_state?.data || {}) as Record<string, unknown>;
+  const user = (overview.situation?.data || overview.user_situation?.data || overview.user_state?.data || {}) as Record<string, unknown>;
   const usage = overview.usage?.data || {};
-  const errors = overview.errors?.data || {};
+  const errors = overview.repairs?.data || overview.errors?.data || {};
   const connection = overview.connection?.data || {};
   const capabilities = overview.capabilities?.data || {};
   const commitments = overview.commitments?.data || {};
   const notifications = overview.notifications?.data || {};
   const presentations = overview.presentations?.data || {};
   const core = overview.core?.data || {};
+  const decision = overview.decision_context?.data || overview.agent_state?.data || {};
+  const generated = overview.generated_capabilities?.data || {};
+  const executions = overview.executions?.data || {};
+  const social = overview.social?.data || {};
+  const reports = overview.behavioral_reports?.data || {};
+  const openLoops = overview.open_loops?.data || {};
+
+  const onlyPresent = (facts: DetailFact[]) =>
+    facts.filter((fact) => fact.value && fact.value !== "Not reported" && !fact.missing);
 
   if (pageId === "autonomy") {
-    return [
-      { label: "Mode", value: String(core.mode || autonomy.mode || "unknown") },
-      { label: "Profile", value: String(autonomy.profile || core.attention_level || "normal") },
-      { label: "Next run", value: formatValue(autonomy.next_run_at || autonomy.next_scheduled_at || "Not reported") },
-      { label: "Pressure", value: formatValue(autonomy.pressured_desires || autonomy.pressure || "Not reported") },
-      { label: "Running", value: formatValue(autonomy.running ?? autonomy.enabled ?? "Not reported") },
-    ];
+    return onlyPresent([
+      { label: "Mode", value: String(core.mode || autonomy.mode || "") },
+      { label: "Profile", value: String(autonomy.profile || core.attention_level || "") },
+      { label: "Next run", value: formatValue(autonomy.next_run_at || autonomy.next_scheduled_at || "") },
+      { label: "Pressure", value: formatValue(autonomy.pressured_desires || autonomy.pressure || "") },
+      { label: "Running", value: formatValue(autonomy.running ?? autonomy.enabled ?? "") },
+    ]);
   }
   if (pageId === "situation" || pageId === "user-model") {
-    return Object.entries(user).slice(0, 10).map(([key, value]) => ({ label: humanize(key), value: formatValue(value) }));
+    return Object.entries(user)
+      .filter(([, value]) => value !== undefined && value !== null && value !== "")
+      .slice(0, 10)
+      .map(([key, value]) => ({ label: humanize(key), value: formatValue(value) }));
   }
-  if (pageId === "sleep" || pageId === "memory" || pageId === "context") {
-    return Object.entries(memory).slice(0, 10).map(([key, value]) => ({ label: humanize(key), value: formatValue(value) }));
+  if (pageId === "sleep" || pageId === "memory") {
+    return Object.entries(memory)
+      .filter(([, value]) => value !== undefined && value !== null && value !== "")
+      .slice(0, 10)
+      .map(([key, value]) => ({ label: humanize(key), value: formatValue(value) }));
   }
-  if (pageId === "commitments") {
-    return [
-      { label: "Open", value: String((commitments.items as unknown[] | undefined)?.length || 0) },
-      { label: "Summary", value: String(commitments.summary || "No commitment summary") },
-    ];
+  if (pageId === "context" || pageId === "decision-context") {
+    return onlyPresent([
+      { label: "Summary", value: String(decision.summary || "").slice(0, 200) },
+      { label: "Obligations", value: String((decision.obligations as unknown[] | undefined)?.length || "") },
+      { label: "Identity", value: String(decision.identity || "") },
+    ]);
+  }
+  if (pageId === "open-loops" || pageId === "commitments") {
+    return onlyPresent([
+      { label: "Open loops", value: String(openLoops.count || (openLoops.items as unknown[] | undefined)?.length || commitments.items && (commitments.items as unknown[]).length || "") },
+      { label: "Summary", value: String(openLoops.summary || commitments.summary || "") },
+    ]);
   }
   if (pageId === "notifications") {
-    return [
-      { label: "Unread", value: String(notifications.unread_count || 0) },
-      { label: "Recent", value: String((notifications.recent as unknown[] | undefined)?.length || 0) },
-    ];
+    return onlyPresent([
+      { label: "Unread", value: String(notifications.unread_count ?? "") },
+      { label: "Recent", value: String((notifications.recent as unknown[] | undefined)?.length ?? "") },
+    ]);
   }
   if (pageId === "presentation-surfaces") {
-    return [
-      { label: "Takeover", value: String((presentations.takeover as unknown[] | undefined)?.length || 0) },
-      { label: "Overlays", value: String((presentations.overlays as unknown[] | undefined)?.length || 0) },
-      { label: "Persistent", value: String((presentations.persistent as unknown[] | undefined)?.length || 0) },
-    ];
+    return onlyPresent([
+      { label: "Takeover", value: String((presentations.takeover as unknown[] | undefined)?.length ?? "") },
+      { label: "Overlays", value: String((presentations.overlays as unknown[] | undefined)?.length ?? "") },
+      { label: "Persistent", value: String((presentations.persistent as unknown[] | undefined)?.length ?? "") },
+    ]);
   }
   if (pageId === "network" || pageId === "deployment" || pageId === "storage" || pageId === "performance" || pageId === "devices") {
-    return [
+    return onlyPresent([
       { label: "Online", value: `${connection.online_count ?? "?"} / ${connection.total_count ?? "?"}` },
-      { label: "Quality", value: String(connection.quality || "Not reported") },
-      { label: "Attention", value: String(connection.attention_count || 0) },
-    ];
+      { label: "Quality", value: String(connection.quality || "") },
+      { label: "Attention", value: String(connection.attention_count ?? "") },
+    ]);
   }
-  if (pageId === "errors" || pageId === "reports" || pageId === "audit" || pageId === "security" || pageId === "privacy" || pageId === "policy") {
-    return [
-      { label: "Open issues", value: String(errors.count || (errors.items as unknown[] | undefined)?.length || 0) },
-      { label: "Budget", value: String(usage.budget_state || usage.summary || "Not reported") },
-    ];
+  if (pageId === "errors" || pageId === "repairs") {
+    const repairSummary = "summary" in errors ? String(errors.summary || "") : "";
+    return onlyPresent([
+      { label: "Repairs", value: String(errors.count || (errors.items as unknown[] | undefined)?.length || "") },
+      { label: "Summary", value: repairSummary },
+    ]);
   }
-  if (pageId.includes("capability") || pageId === "generated-capabilities") {
-    return [
-      { label: "Catalog", value: String(capabilities.count || (capabilities.items as unknown[] | undefined)?.length || 0) },
-      { label: "Approval required", value: String(capabilities.approval_required_count || "Not reported") },
-      { label: "High risk", value: String(capabilities.high_risk_count || "Not reported") },
-    ];
+  if (pageId === "reports") {
+    return onlyPresent([
+      { label: "Summary", value: String(reports.summary || "") },
+      { label: "Metrics", value: String(Object.keys((reports.metrics || {}) as Record<string, unknown>).length || "") },
+    ]);
+  }
+  if (pageId === "conversations" || pageId === "social") {
+    return onlyPresent([
+      { label: "Pending", value: String((social.pending_decisions as unknown[] | undefined)?.length || (social.agora as Record<string, unknown> | undefined)?.pending_count || "") },
+      { label: "Summary", value: String(social.summary || "") },
+    ]);
+  }
+  if (pageId === "audit" || pageId === "security" || pageId === "privacy" || pageId === "policy") {
+    return onlyPresent([
+      { label: "Budget", value: String(usage.budget_state || usage.summary || "") },
+    ]);
+  }
+  if (pageId === "generated-capabilities") {
+    return onlyPresent([
+      { label: "Generated", value: String(generated.count || (generated.items as unknown[] | undefined)?.length || "") },
+      { label: "Summary", value: String(generated.summary || "") },
+    ]);
+  }
+  if (pageId === "capability-executions") {
+    return onlyPresent([
+      { label: "Executions", value: String(executions.count || (executions.operations as unknown[] | undefined)?.length || "") },
+      { label: "Summary", value: String(executions.summary || "") },
+    ]);
+  }
+  if (pageId.includes("capability")) {
+    return onlyPresent([
+      { label: "Catalog", value: String(capabilities.count || (capabilities.items as unknown[] | undefined)?.length || "") },
+      { label: "Approval required", value: String(capabilities.approval_required_count ?? "") },
+      { label: "High risk", value: String(capabilities.high_risk_count ?? "") },
+    ]);
   }
   if (pageId === "attention") {
-    return [
+    return onlyPresent([
       { label: "Attention items", value: String((overview.attention.data.items || []).length) },
       { label: "Pending approvals", value: String(overview.approvals.data.pending_count || 0) },
-      { label: "Core health", value: String(core.health || "unknown") },
-    ];
+      { label: "Core health", value: String(core.health || "") },
+    ]);
   }
   return [];
 }
@@ -380,7 +433,7 @@ function lookupValue(data: Record<string, unknown>, key: string): unknown {
 }
 
 function formatValue(value: unknown): string {
-  if (value === null || value === undefined || value === "") return "Not reported";
+  if (value === null || value === undefined || value === "") return "";
   if (typeof value === "boolean") return value ? "Yes" : "No";
   if (typeof value === "number") {
     if (value > 1_000_000_000_000) return new Date(value).toLocaleString();

@@ -28,6 +28,11 @@ def build_ui_overview(runtime: Any) -> dict[str, Any]:
     """
 
     generated_at = _now_ms()
+    # Single situation projection — avoid duplicate user_state / user_situation pages.
+    situation = _section("situation", lambda: _user_state(runtime), generated_at)
+    # Single mind projection — avoid duplicate mind / mind_summary.
+    mind = _section("mind", lambda: _mind_summary(runtime), generated_at)
+    tasks = _section("tasks", lambda: _tasks(runtime), generated_at)
     sections = {
         "core": _section("core", lambda: _core(runtime), generated_at),
         "connection": _section("connection", lambda: _connection(runtime), generated_at),
@@ -36,16 +41,22 @@ def build_ui_overview(runtime: Any) -> dict[str, Any]:
         "presentation_events": _section("presentation_events", lambda: _presentation_events(runtime), generated_at),
         "surface_roles": _section("surface_roles", lambda: _surface_roles(), generated_at),
         "display_queue": _section("display_queue", lambda: _display_queue(runtime), generated_at),
-        "tasks": _section("tasks", lambda: _tasks(runtime), generated_at),
+        "tasks": tasks,
+        # Alias: keep current_task pointing at tasks.primary without a second source.
+        "current_task": {
+            **tasks,
+            "data": (tasks.get("data") or {}).get("primary")
+            or _current_task(runtime),
+        },
         "activity": _section("activity", lambda: _activity(runtime), generated_at),
         "attention": _section("attention", lambda: _attention(runtime), generated_at),
-        "current_task": _section("current_task", lambda: _current_task(runtime), generated_at),
         "servers": _section("servers", lambda: _servers(runtime), generated_at),
         "capabilities": _section("capabilities", lambda: _capabilities(runtime), generated_at),
-        "user_situation": _section("user_situation", lambda: _user_state(runtime), generated_at),
-        "user_state": _section("user_state", lambda: _user_state(runtime), generated_at),
-        "mind": _section("mind", lambda: _mind_summary(runtime), generated_at),
-        "mind_summary": _section("mind_summary", lambda: _mind_summary(runtime), generated_at),
+        "user_situation": situation,
+        "user_state": situation,
+        "situation": situation,
+        "mind": mind,
+        "mind_summary": mind,
         "memory": _section("memory", lambda: _memory(runtime), generated_at),
         "notifications": _section("notifications", lambda: _notifications(runtime), generated_at),
         "approvals": _section("approvals", lambda: _approvals(runtime), generated_at),
@@ -54,8 +65,22 @@ def build_ui_overview(runtime: Any) -> dict[str, Any]:
         "usage": _section("usage", lambda: _usage(runtime), generated_at),
         "errors": _section("errors", lambda: _errors(runtime), generated_at),
         "freshness": _section("freshness", lambda: _freshness(runtime), generated_at),
+        # Judgment / progress surfaces (secretary dashboard)
+        "agent_state": _section("agent_state", lambda: _agent_state(runtime), generated_at),
+        "goals": _section("goals", lambda: _goals(runtime), generated_at),
+        "initiative": _section("initiative", lambda: _initiative(runtime), generated_at),
+        "continuations": _section("continuations", lambda: _continuations(runtime), generated_at),
+        "repairs": _section("repairs", lambda: _repairs(runtime), generated_at),
+        "social": _section("social", lambda: _social(runtime), generated_at),
+        "behavioral_reports": _section("behavioral_reports", lambda: _behavioral_reports(runtime), generated_at),
+        "open_loops": _section("open_loops", lambda: _open_loops(runtime), generated_at),
+        "decision_context": _section("decision_context", lambda: _decision_context(runtime), generated_at),
+        "generated_capabilities": _section(
+            "generated_capabilities", lambda: _generated_capabilities(runtime), generated_at
+        ),
+        "executions": _section("executions", lambda: _executions(runtime), generated_at),
     }
-    return {"schema_version": "ui-overview.v3", "generated_at": generated_at, **sections}
+    return {"schema_version": "ui-overview.v4", "generated_at": generated_at, **sections}
 
 
 def build_display_power_state(runtime: Any) -> dict[str, Any]:
@@ -556,8 +581,8 @@ def _operation_from_audit_group(group: dict[str, Any]) -> dict[str, Any] | None:
             continue
         action = str(entry.get("action") or "")
         capability_id = str(entry.get("capability_id") or "")
-        summary = str(entry.get("detail_summary") or entry.get("reason") or "")
-        if not (action or capability_id or summary):
+        narrative = _narrative_from_audit_entry(entry)
+        if not (action or capability_id or narrative):
             continue
         failed = bool(
             action.endswith("_failed")
@@ -568,7 +593,8 @@ def _operation_from_audit_group(group: dict[str, Any]) -> dict[str, Any] | None:
             {
                 "action": action,
                 "capability_id": capability_id,
-                "summary": _truncate_text(summary, limit=160),
+                "summary": _truncate_text(narrative, limit=220),
+                "narrative": _truncate_text(narrative, limit=220),
                 "decision": str(entry.get("decision") or ""),
                 "timestamp_ms": int(entry.get("timestamp_ms") or 0),
                 "status": "failed" if failed else "ok",
@@ -581,15 +607,16 @@ def _operation_from_audit_group(group: dict[str, Any]) -> dict[str, Any] | None:
         return None
 
     title = str(group.get("title") or kind)[:160]
-    summary = str(group.get("summary") or "")[:220]
+    summary = _humanize_activity_text(str(group.get("summary") or ""))[:280]
     what_happened = _what_happened_from_steps(steps, summary)
-    return {
+    op = {
         "operation_id": str(group.get("group_id") or ""),
         "kind": kind,
         "kind_label": _OPERATION_KIND_LABELS.get(kind, kind.title()),
         "title": title,
         "summary": summary,
         "what_happened": what_happened,
+        "narrative": what_happened,
         "status": str(group.get("status") or "success"),
         "started_at": int(group.get("start_ms") or 0),
         "updated_at": int(group.get("end_ms") or 0),
@@ -600,6 +627,8 @@ def _operation_from_audit_group(group: dict[str, Any]) -> dict[str, Any] | None:
         "steps": steps,
         "priority": "P1" if error_count else ("P2" if kind in {"chat", "approval"} else "P3"),
     }
+    op["causal_chain"] = _causal_chain_from_operation(op)
+    return op
 
 
 def _operation_from_autonomous_cycle(cycle: dict[str, Any]) -> dict[str, Any]:
@@ -610,85 +639,239 @@ def _operation_from_autonomous_cycle(cycle: dict[str, Any]) -> dict[str, Any]:
         if not isinstance(action, dict):
             continue
         capability_id = str(action.get("capability_id") or "")
-        done = str(action.get("what_was_done") or action.get("action") or "")
-        result_summary = str(action.get("result_summary") or "")
-        summary = result_summary or done
+        done = str(action.get("what_was_done") or "").strip()
+        result_summary = str(action.get("result_summary") or "").strip()
+        narrative = result_summary or done or _capability_short_label(capability_id)
         steps.append(
             {
-                "action": done,
+                "action": done or capability_id,
                 "capability_id": capability_id,
-                "summary": _truncate_text(summary, limit=160),
+                "summary": _truncate_text(narrative, limit=220),
+                "narrative": _truncate_text(narrative, limit=220),
                 "decision": "",
                 "timestamp_ms": int(cycle.get("timestamp_ms") or 0),
                 "status": "ok" if action.get("success") else "failed",
             }
         )
-        label = done or capability_id
-        if label:
-            what_parts.append(label)
+        if narrative:
+            what_parts.append(narrative)
 
     if not what_parts and cycle.get("skip_reason"):
-        what_parts.append(f"Skipped: {cycle.get('skip_reason')}")
+        what_parts.append(f"Did not act: {cycle.get('skip_reason')}")
     if not what_parts and cycle.get("decision"):
         what_parts.append(str(cycle.get("decision")))
 
-    failures = sum(1 for step in steps if step.get("status") == "failed")
-    status = "success"
-    if steps and failures == len(steps):
-        status = "failed"
-    elif failures:
-        status = "mixed"
-    elif not steps and cycle.get("skip_reason"):
-        status = "skipped"
-
-    timestamp_ms = int(cycle.get("timestamp_ms") or 0)
-    title = str(cycle.get("decision") or "Autonomous cycle")[:160]
-    summary = _truncate_text(" · ".join(what_parts), limit=220)
-    return {
-        "operation_id": f"autonomous-cycle:{timestamp_ms}",
+    summary = _truncate_text(" ".join(what_parts), limit=280)
+    what_happened = _truncate_text(
+        " ".join(what_parts) if what_parts else "No actions this cycle.",
+        limit=280,
+    )
+    op = {
+        "operation_id": f"autonomous-cycle:{int(cycle.get('timestamp_ms') or 0)}",
         "kind": "autonomous",
-        "kind_label": _OPERATION_KIND_LABELS["autonomous"],
-        "title": title,
+        "kind_label": _OPERATION_KIND_LABELS.get("autonomous", "Autonomous"),
+        "title": str(cycle.get("decision") or "Autonomous cycle")[:160],
         "summary": summary,
-        "what_happened": _truncate_text(" → ".join(what_parts) if what_parts else "No actions this cycle.", limit=280),
-        "status": status,
-        "started_at": timestamp_ms,
-        "updated_at": timestamp_ms,
+        "what_happened": what_happened,
+        "narrative": what_happened,
+        "status": "skipped" if cycle.get("skip_reason") else ("success" if not any(s.get("status") == "failed" for s in steps) else "failed"),
+        "started_at": int(cycle.get("timestamp_ms") or 0),
+        "updated_at": int(cycle.get("timestamp_ms") or 0),
         "tool_count": len(steps),
-        "error_count": failures,
+        "error_count": sum(1 for s in steps if s.get("status") == "failed"),
         "approval_count": 0,
         "entry_count": len(steps),
         "steps": steps,
-        "priority": "P1" if failures else "P3",
+        "skip_reason": str(cycle.get("skip_reason") or ""),
+        "decision": str(cycle.get("decision") or ""),
+        "priority": "P3",
     }
+    op["causal_chain"] = _causal_chain_from_operation(op)
+    return op
+
+
+def _causal_chain_from_operation(op: dict[str, Any]) -> list[dict[str, Any]]:
+    """Human-readable Trigger → … → Learning chain for one operation."""
+    steps = list(op.get("steps") or [])
+    skip = str(op.get("skip_reason") or "")
+    decision = str(op.get("decision") or "")
+    failed = [s for s in steps if s.get("status") == "failed"]
+    ok = [s for s in steps if s.get("status") != "failed"]
+
+    def stage(name: str, summary: str, status: str = "present", detail: str = "") -> dict[str, Any]:
+        return {
+            "stage": name,
+            "label": name.replace("_", " ").title(),
+            "summary": summary[:220] if summary else "",
+            "status": status,  # present | missing | skipped
+            "detail": detail[:220],
+        }
+
+    chain = [
+        stage("trigger", str(op.get("kind_label") or op.get("kind") or "Operation"), "present", str(op.get("title") or "")),
+        stage(
+            "decision_context",
+            "See Decision Context page for AgentState obligations and situation",
+            "present" if op.get("kind") else "missing",
+        ),
+        stage(
+            "candidates_and_non_action",
+            skip or decision or ("Tool steps selected" if steps else "No tool selection recorded"),
+            "present" if (skip or decision or steps) else "missing",
+            skip,
+        ),
+        stage(
+            "goal",
+            str(op.get("title") or op.get("summary") or ""),
+            "present" if op.get("title") else "missing",
+        ),
+        stage(
+            "execution",
+            f"{len(ok)} succeeded, {len(failed)} failed" if steps else (skip or "No execution"),
+            "present" if steps else ("skipped" if skip else "missing"),
+            " → ".join(str(s.get("narrative") or s.get("summary") or s.get("capability_id") or s.get("action") or "") for s in steps[:4]),
+        ),
+        stage(
+            "result",
+            str(op.get("what_happened") or op.get("narrative") or op.get("summary") or ""),
+            "present" if (op.get("what_happened") or op.get("summary")) else "missing",
+        ),
+        stage(
+            "verification",
+            "Failed steps present" if failed else ("Execution completed" if ok else "Not verified"),
+            "present" if (failed or ok) else "missing",
+        ),
+        stage(
+            "presentation",
+            "Reported to user surfaces when presentable",
+            "present" if str(op.get("kind")) in {"chat", "approval"} else "missing",
+        ),
+        stage(
+            "follow_up",
+            "Open loops / continuations may own remaining work",
+            "present" if int(op.get("approval_count") or 0) else "missing",
+        ),
+        stage(
+            "learning",
+            "Repair / failure lessons recorded when applicable",
+            "present" if failed else "missing",
+        ),
+    ]
+    return chain
+
+
+def _narrative_from_audit_entry(entry: dict[str, Any]) -> str:
+    """Extract a human sentence describing what happened in one audit entry."""
+    detail = entry.get("detail") if isinstance(entry.get("detail"), dict) else {}
+    action = str(entry.get("action") or "")
+    for key in (
+        "response_preview",
+        "what_was_done",
+        "result_summary",
+        "result_preview",
+        "llm_reason",
+        "user_facing_summary",
+        "summary",
+        "message",
+    ):
+        value = str(detail.get(key) or "").strip()
+        if value:
+            return _humanize_activity_text(value)
+    for key in ("detail_summary", "reason"):
+        value = _humanize_activity_text(str(entry.get(key) or ""))
+        if value:
+            return value
+    if action in {"llm_call", "llm_tool_call", "llm_vision_call"}:
+        return "LLM produced a response"
+    if action in {"tool_execution", "tool_invoked"} or action.startswith("tool."):
+        return _capability_short_label(str(entry.get("capability_id") or detail.get("capability_id") or ""))
+    return ""
+
+
+def _humanize_activity_text(text: str) -> str:
+    """Turn legacy key=value audit summaries into readable prose when possible."""
+    raw = (text or "").strip()
+    if not raw:
+        return ""
+    # Unwrap response=..., model=... dumps from older audit summaries.
+    for prefix, markers in (
+        ("response=", (", model=", ", tokens=", ", duration=", ", prompt=", ", tools=")),
+        ("result=", (", capability=", ", status=", ", model=")),
+        ("reason=", (", source=", ", model=")),
+    ):
+        if raw.startswith(prefix):
+            rest = raw[len(prefix) :]
+            for marker in markers:
+                if marker in rest:
+                    rest = rest.split(marker, 1)[0]
+                    break
+            return rest.strip()
+    # Drop pure technical dumps like "capability=x, status=success".
+    if "=" in raw and all(("=" in part) for part in raw.split(", ") if part.strip()):
+        preferred_keys = ("response", "result", "reason", "title", "summary", "message")
+        parts = [part.strip() for part in raw.split(", ")]
+        for part in parts:
+            for key in preferred_keys:
+                if part.startswith(f"{key}="):
+                    return part.split("=", 1)[1].strip()
+        return ""
+    return raw
+
+
+def _capability_short_label(capability_id: str) -> str:
+    cap = (capability_id or "").strip()
+    if not cap:
+        return ""
+    leaf = cap.rsplit(".", 1)[-1].replace("_", " ")
+    return f"Ran {leaf}" if leaf else cap
 
 
 def _what_happened_from_steps(steps: list[dict[str, Any]], fallback: str = "") -> str:
+    """Build a natural-language 'what AEGIS did' line for Activity."""
     if not steps:
-        return _truncate_text(fallback or "No detailed steps recorded.", limit=280)
+        return _truncate_text(_humanize_activity_text(fallback) or "No detailed steps recorded.", limit=320)
+
+    # Prefer LLM response narratives over tool metadata.
+    llm_like = [
+        step
+        for step in steps
+        if str(step.get("action") or "") in {"llm_call", "llm_tool_call", "llm_vision_call"}
+        and (step.get("narrative") or step.get("summary"))
+    ]
+    if llm_like:
+        # Last LLM answer is usually the user-facing summary of the whole operation.
+        text = _humanize_activity_text(str(llm_like[-1].get("narrative") or llm_like[-1].get("summary") or ""))
+        if text:
+            return _truncate_text(text, limit=320)
+
     preferred = [
         step
         for step in steps
-        if step.get("capability_id")
+        if step.get("narrative")
+        or step.get("summary")
+        or step.get("capability_id")
         or str(step.get("action") or "") in {"tool_execution", "tool_invoked"}
         or str(step.get("action") or "").startswith("tool.")
     ] or steps
+
     parts: list[str] = []
     for step in preferred[:5]:
+        narrative = _humanize_activity_text(str(step.get("narrative") or step.get("summary") or ""))
+        if narrative:
+            parts.append(narrative)
+            continue
         capability_id = str(step.get("capability_id") or "")
-        summary = str(step.get("summary") or "")
+        label = _capability_short_label(capability_id)
+        if label:
+            parts.append(label)
+            continue
         action = str(step.get("action") or "")
-        if capability_id and summary:
-            parts.append(f"{capability_id}: {summary}")
-        elif capability_id:
-            parts.append(capability_id)
-        elif summary and action:
-            parts.append(f"{action}: {summary}")
-        elif summary:
-            parts.append(summary)
-        elif action:
-            parts.append(action)
-    return _truncate_text(" → ".join(parts) if parts else fallback or "No detailed steps recorded.", limit=280)
+        if action:
+            parts.append(action.replace("_", " "))
+    if parts:
+        # Sentence-style join instead of capability_id: dump → dump.
+        return _truncate_text(" ".join(parts), limit=320)
+    return _truncate_text(_humanize_activity_text(fallback) or "No detailed steps recorded.", limit=320)
 
 
 def _has_nearby_operation(
@@ -924,23 +1107,470 @@ def _autonomous_logs(runtime: Any) -> dict[str, Any]:
 
 
 def _errors(runtime: Any) -> dict[str, Any]:
-    audit = getattr(runtime, "audit_manager", None) or getattr(runtime, "audit_log", None)
-    entries: list[dict[str, Any]] = []
-    if audit is not None and hasattr(audit, "list_errors"):
-        result = _call_with_limit(audit.list_errors, 20)
-        entries = result.get("entries", result if isinstance(result, list) else [])
-    elif audit is not None and hasattr(audit, "list_recent"):
-        result = _call_with_limit(audit.list_recent, 80)
-        raw_entries = result.get("entries", result if isinstance(result, list) else [])
-        entries = [
-            entry
-            for entry in raw_entries
-            if str(entry.get("action", "")).endswith("_failed") or _get(entry.get("detail", {}), "error", "")
-        ][:20]
+    """Errors surface is RepairManager history (not raw audit JSON)."""
+    repair = getattr(runtime, "repair_manager", None)
+    items: list[dict[str, Any]] = []
+    if repair is not None and hasattr(repair, "list_history"):
+        for entry in repair.list_history(limit=30) or []:
+            if not isinstance(entry, dict):
+                continue
+            items.append(
+                {
+                    "id": str(entry.get("repair_id") or entry.get("id") or entry.get("capability_id") or ""),
+                    "title": str(entry.get("category") or "Repair"),
+                    "message": str(entry.get("error") or entry.get("summary") or ""),
+                    "severity": "warning" if entry.get("retried") else "critical",
+                    "capability_id": str(entry.get("capability_id") or ""),
+                    "status": str(entry.get("status") or entry.get("outcome") or "recorded"),
+                    "created_at": int(entry.get("timestamp_ms") or entry.get("created_at") or 0),
+                    "summary": str(entry.get("lesson") or entry.get("action") or ""),
+                    "next_action": str(entry.get("next_action") or entry.get("recovery_hint") or ""),
+                    "raw": entry,
+                }
+            )
+    if not items:
+        # Fallback: keep a thin audit error list only when repair history is empty.
+        audit = getattr(runtime, "audit_manager", None) or getattr(runtime, "audit_log", None)
+        if audit is not None and hasattr(audit, "list_recent"):
+            result = _call_with_limit(audit.list_recent, 40)
+            raw_entries = result.get("entries", result if isinstance(result, list) else [])
+            for entry in raw_entries:
+                if str(entry.get("action", "")).endswith("_failed") or _get(entry.get("detail", {}), "error", ""):
+                    items.append(_error_projection(entry))
+                    if len(items) >= 20:
+                        break
+    status = {}
+    if repair is not None and hasattr(repair, "get_status"):
+        try:
+            status = repair.get_status() or {}
+        except Exception:
+            status = {}
+    return {"items": items, "count": len(items), "repair_status": status, "source": "repair_manager"}
+
+
+def _agent_state(runtime: Any) -> dict[str, Any]:
+    agent_state = getattr(runtime, "agent_state", None)
+    if agent_state is None or not hasattr(agent_state, "snapshot"):
+        return {"summary": "AgentState is not configured.", "obligations": [], "context": {}}
+    try:
+        ctx = agent_state.snapshot("dashboard")
+        data = ctx.to_dict() if hasattr(ctx, "to_dict") else dict(ctx)
+        obligations = data.get("obligations") or []
+        return {
+            "summary": ctx.to_context_string() if hasattr(ctx, "to_context_string") else "",
+            "identity": data.get("identity") or "",
+            "mission_version": data.get("mission_version") or "",
+            "obligations": obligations[:20],
+            "active_tasks": (data.get("active_tasks") or [])[:10],
+            "learnings": (data.get("learnings") or [])[:10],
+            "corrections": (data.get("corrections") or [])[:10],
+            "repair_history": (data.get("repair_history") or [])[-10:],
+            "situation": data.get("situation") or {},
+            "context": {
+                "context_id": data.get("context_id"),
+                "built_at_ms": data.get("built_at_ms"),
+                "triggering_query": data.get("triggering_query"),
+            },
+        }
+    except Exception as exc:
+        return {"summary": f"AgentState unavailable: {exc}", "obligations": [], "context": {}}
+
+
+def _decision_context(runtime: Any) -> dict[str, Any]:
+    """Actual DecisionContext from AgentState — not Context Builder field placeholders."""
+    state = _agent_state(runtime)
+    initiative = _initiative(runtime)
     return {
-        "items": [_error_projection(item) for item in entries],
-        "count": len(entries),
+        "summary": state.get("summary") or "",
+        "situation": state.get("situation") or {},
+        "obligations": state.get("obligations") or [],
+        "identity": state.get("identity") or "",
+        "recent_non_actions": (initiative.get("recent_non_actions") or [])[:10],
+        "funnel": initiative.get("funnel") or {},
+        "context_meta": state.get("context") or {},
     }
+
+
+def _goals(runtime: Any) -> dict[str, Any]:
+    items: list[dict[str, Any]] = []
+    tm = getattr(runtime, "task_manager", None)
+    if tm is not None and hasattr(tm, "list_tasks"):
+        for task in tm.list_tasks(limit=80) or []:
+            graph = task.get("goal_graph") if isinstance(task, dict) else None
+            if not graph and isinstance(task, dict) and not task.get("goal"):
+                continue
+            if not isinstance(task, dict):
+                continue
+            graph = graph if isinstance(graph, dict) else {}
+            verification = list(graph.get("verification") or [])
+            unmet = [
+                item
+                for item in verification
+                if str(item.get("status") or "") not in {"passed", "ok", "success"}
+            ]
+            items.append(
+                {
+                    "task_id": str(task.get("task_id") or ""),
+                    "title": str(task.get("title") or task.get("goal") or "Goal"),
+                    "goal": str(task.get("goal") or graph.get("goal") or ""),
+                    "status": str(task.get("status") or ""),
+                    "success_condition": str(
+                        task.get("success_condition")
+                        or graph.get("success_condition")
+                        or ""
+                    ),
+                    "verification": verification[:8],
+                    "unmet_conditions": unmet[:8],
+                    "evidence": list(graph.get("evidence") or [])[:8],
+                    "value_to_user": str(task.get("value_to_user") or graph.get("value_to_user") or ""),
+                    "updated_at": int(task.get("updated_at") or task.get("created_at") or 0),
+                }
+            )
+    open_items = [item for item in items if item["status"] not in {"completed", "cancelled", "expired"}]
+    return {
+        "items": items[:40],
+        "open": open_items[:20],
+        "count": len(items),
+        "open_count": len(open_items),
+        "summary": f"{len(open_items)} open goal(s) with verification evidence",
+    }
+
+
+def _initiative(runtime: Any) -> dict[str, Any]:
+    engine = getattr(runtime, "initiative_engine", None)
+    if engine is None or not hasattr(engine, "diagnostics"):
+        return {"funnel": {}, "recent_non_actions": [], "recent_decisions": [], "summary": "InitiativeEngine not configured."}
+    try:
+        diag = engine.diagnostics() or {}
+    except Exception as exc:
+        return {"funnel": {}, "recent_non_actions": [], "recent_decisions": [], "summary": str(exc)}
+    records = list(diag.get("recent_decisions") or [])
+    non_actions = [
+        {
+            "reason": str(item.get("reason") or ""),
+            "decision": str(item.get("decision") or "no_action"),
+            "created_at": int(item.get("created_at") or 0),
+            "detail": item.get("detail") if isinstance(item.get("detail"), dict) else {},
+            "candidate": (item.get("candidate") or {}) if isinstance(item.get("candidate"), dict) else {},
+        }
+        for item in records
+        if item.get("record_type") in {"non_action", "candidate_decision"}
+        and str(item.get("decision") or "") not in {"execute_now", ""}
+    ]
+    return {
+        "funnel": diag.get("funnel") or {},
+        "no_action_reasons": diag.get("no_action_reasons") or {},
+        "recent_non_actions": non_actions[-30:],
+        "recent_decisions": records[-30:],
+        "updated_at": int(diag.get("updated_at") or 0),
+        "summary": _initiative_summary(diag.get("funnel") or {}, diag.get("no_action_reasons") or {}),
+    }
+
+
+def _initiative_summary(funnel: dict[str, Any], reasons: dict[str, Any]) -> str:
+    triggered = int(funnel.get("triggers_observed", 0) or 0)
+    executed = int(funnel.get("actions_executed", 0) or 0)
+    presented = int(funnel.get("results_presented", 0) or 0)
+    top_reason = next(iter(reasons.keys()), "")
+    parts = [f"Triggers {triggered}", f"executed {executed}", f"presented {presented}"]
+    if top_reason:
+        parts.append(f"top non-action: {top_reason}")
+    return "; ".join(parts)
+
+
+def _continuations(runtime: Any) -> dict[str, Any]:
+    manager = getattr(runtime, "continuation_manager", None)
+    if manager is None:
+        return {"open": [], "due": [], "diagnostics": {}, "summary": "ContinuationManager not configured."}
+    open_items = manager.list_open() if hasattr(manager, "list_open") else []
+    due = manager.due() if hasattr(manager, "due") else []
+    diagnostics = manager.diagnostics() if hasattr(manager, "diagnostics") else {}
+    return {
+        "open": open_items[:40],
+        "due": due[:20],
+        "diagnostics": diagnostics,
+        "count": len(open_items),
+        "summary": f"{len(open_items)} open continuation(s), {len(due)} due for follow-up",
+    }
+
+
+def _repairs(runtime: Any) -> dict[str, Any]:
+    repair = getattr(runtime, "repair_manager", None)
+    if repair is None:
+        return {"items": [], "status": {}, "summary": "RepairManager not configured."}
+    history = repair.list_history(limit=40) if hasattr(repair, "list_history") else []
+    status = repair.get_status() if hasattr(repair, "get_status") else {}
+    return {
+        "items": history,
+        "status": status,
+        "count": len(history),
+        "summary": f"{len(history)} recent repair event(s)",
+    }
+
+
+def _social(runtime: Any) -> dict[str, Any]:
+    """SocialManager: inbox + AGORA decision state (Communications surface)."""
+    social = getattr(runtime, "social_manager", None)
+    if social is None:
+        return {
+            "inbox": [],
+            "status": {},
+            "agora": {},
+            "summary": "SocialManager not configured.",
+        }
+    inbox = social.list_items(limit=40) if hasattr(social, "list_items") else []
+    status = social.get_status() if hasattr(social, "get_status") else {}
+    pending = [
+        item
+        for item in inbox
+        if str(item.get("status") or "").lower()
+        in {"pending", "proposed", "awaiting_approval", "needs_decision", "new"}
+    ]
+    decided = [
+        {
+            "item_id": item.get("item_id"),
+            "channel": item.get("channel"),
+            "status": item.get("status"),
+            "decision_reason": item.get("decision_reason") or item.get("reason") or "",
+            "body_preview": str(item.get("body") or item.get("summary") or "")[:160],
+            "updated_at": item.get("updated_at") or item.get("created_at"),
+        }
+        for item in inbox[:30]
+    ]
+    return {
+        "inbox": inbox[:40],
+        "pending_decisions": pending[:20],
+        "decided": decided,
+        "status": status,
+        "agora": {
+            "pending_count": len(pending),
+            "total": int(status.get("total") or len(inbox)),
+            "counts": status.get("counts") or {},
+        },
+        "summary": f"{len(pending)} social item(s) awaiting decision; {int(status.get('total') or 0)} total",
+    }
+
+
+def _behavioral_reports(runtime: Any) -> dict[str, Any]:
+    evaluation = getattr(runtime, "behavioral_evaluation", None)
+    if evaluation is None or not hasattr(evaluation, "snapshot"):
+        return {"metrics": {}, "evidence": {}, "summary": "BehavioralEvaluation not configured."}
+    try:
+        snap = evaluation.snapshot() or {}
+    except Exception as exc:
+        return {"metrics": {}, "evidence": {}, "summary": str(exc)}
+    metrics = {
+        key: value
+        for key, value in snap.items()
+        if key != "evidence" and not isinstance(value, (dict, list))
+    }
+    return {
+        "metrics": metrics,
+        "evidence": snap.get("evidence") or {},
+        "summary": (
+            f"Restraint {float(metrics.get('restraint') or 0):.0%}, "
+            f"goal achievement {float(metrics.get('goal_achievement') or 0):.0%}, "
+            f"continuity {float(metrics.get('continuity') or 0):.0%}"
+        ),
+    }
+
+
+def _generated_capabilities(runtime: Any) -> dict[str, Any]:
+    """Generated page: only generated capability manifests."""
+    catalog = getattr(runtime, "capability_catalog", None) or getattr(runtime, "catalog", None)
+    items: list[dict[str, Any]] = []
+    if catalog is not None and hasattr(catalog, "list_all"):
+        try:
+            manifests = catalog.list_all(origin="generated")
+        except TypeError:
+            manifests = [
+                m
+                for m in (catalog.list_all() or [])
+                if str(getattr(m, "origin", "") or getattr(m, "source", "")).lower()
+                in {"generated", "codegen", "dynamic"}
+            ]
+        for manifest in manifests[:80]:
+            items.append(_capability_projection(manifest))
+    return {"items": items, "count": len(items), "summary": f"{len(items)} generated capability(ies)"}
+
+
+def _executions(runtime: Any) -> dict[str, Any]:
+    """Executions page: real execution history (activity operations + autonomous cycles)."""
+    activity = _activity(runtime)
+    operations = list(activity.get("operations") or [])
+    cycles = (_autonomous_logs(runtime).get("cycles") or [])[:20]
+    return {
+        "operations": operations[:40],
+        "autonomous_cycles": cycles,
+        "count": len(operations),
+        "summary": f"{len(operations)} recent operation(s), {len(cycles)} autonomous cycle(s)",
+    }
+
+
+def _open_loops(runtime: Any) -> dict[str, Any]:
+    """Unified open work: tasks, commitments, approvals, social obligations, incidents."""
+    loops: list[dict[str, Any]] = []
+
+    for task in _running_tasks(runtime) + _waiting_tasks(runtime):
+        loops.append(
+            _loop_item(
+                kind="task",
+                loop_id=f"task:{task.get('task_id')}",
+                title=str(task.get("title") or task.get("goal") or "Task"),
+                owner="AEGIS",
+                next_action=str(task.get("next_action") or task.get("current_action") or ""),
+                waiting_reason=str(task.get("blocked_reason") or ""),
+                due_at=int(task.get("due_at") or 0),
+                success_condition=str(task.get("success_condition") or task.get("verification_summary") or ""),
+                status=str(task.get("phase") or task.get("status") or "open"),
+                evidence={"task_id": task.get("task_id"), "capability_id": task.get("capability_id")},
+            )
+        )
+
+    for approval in _pending_approvals(runtime):
+        proj = _approval_projection(approval)
+        loops.append(
+            _loop_item(
+                kind="approval",
+                loop_id=f"approval:{proj.get('approval_id')}",
+                title=str(proj.get("summary") or proj.get("capability_id") or "Approval"),
+                owner="User",
+                next_action="Approve or reject",
+                waiting_reason=str(proj.get("reason") or "Waiting for user approval"),
+                due_at=int(proj.get("expires_at") or 0),
+                success_condition="User decision recorded",
+                status="waiting_approval",
+                evidence=proj,
+            )
+        )
+
+    commitments = _commitments(runtime).get("items") or []
+    for item in commitments[:30]:
+        if not isinstance(item, dict):
+            continue
+        loops.append(
+            _loop_item(
+                kind="commitment",
+                loop_id=f"commitment:{item.get('commitment_id') or item.get('id')}",
+                title=str(item.get("title") or item.get("summary") or "Commitment"),
+                owner=str(item.get("person") or item.get("owner") or "User"),
+                next_action=str(item.get("next_action") or item.get("notification_plan") or "Follow up"),
+                waiting_reason=str(item.get("status") or ""),
+                due_at=int(item.get("due_at") or item.get("due_at_ms") or 0),
+                success_condition=str(item.get("success_condition") or "Commitment fulfilled"),
+                status=str(item.get("status") or "open"),
+                evidence=item,
+            )
+        )
+
+    for item in (_social(runtime).get("pending_decisions") or [])[:20]:
+        loops.append(
+            _loop_item(
+                kind="social_obligation",
+                loop_id=f"social:{item.get('item_id')}",
+                title=str(item.get("body") or item.get("summary") or "Social item")[:120],
+                owner="AEGIS",
+                next_action=str(item.get("suggested_action") or "Decide whether to reply"),
+                waiting_reason=str(item.get("decision_reason") or "Awaiting social decision"),
+                due_at=int(item.get("due_at") or 0),
+                success_condition="Reply delivered or deliberate skip recorded",
+                status=str(item.get("status") or "pending"),
+                evidence=item,
+            )
+        )
+
+    agent = _agent_state(runtime)
+    for obligation in agent.get("obligations") or []:
+        if not isinstance(obligation, dict):
+            continue
+        kind = str(obligation.get("kind") or "obligation")
+        if kind in {"commitment", "social_obligation"}:
+            continue  # already covered
+        loops.append(
+            _loop_item(
+                kind="incident" if kind == "incident" else "obligation",
+                loop_id=f"obligation:{obligation.get('obligation_id')}",
+                title=str(obligation.get("summary") or kind),
+                owner="AEGIS",
+                next_action="Resolve open obligation",
+                waiting_reason=kind,
+                due_at=int(obligation.get("due_at_ms") or 0),
+                success_condition="Obligation cleared from AgentState",
+                status="open",
+                evidence=obligation,
+            )
+        )
+
+    for cont in (_continuations(runtime).get("open") or [])[:20]:
+        loops.append(
+            _loop_item(
+                kind="continuation",
+                loop_id=f"continuation:{cont.get('continuation_id')}",
+                title=str(cont.get("goal") or "Continuation"),
+                owner=str(cont.get("waiting_for") or "AEGIS"),
+                next_action=str(cont.get("stage") or "Advance"),
+                waiting_reason=str(cont.get("rationale") or cont.get("waiting_for") or ""),
+                due_at=int(cont.get("follow_up_due_at") or 0),
+                success_condition="Continuation reaches terminal verified state",
+                status=str(cont.get("state") or "open"),
+                evidence=cont,
+            )
+        )
+
+    loops.sort(key=lambda item: (0 if item["waiting_reason"] else 1, item.get("due_at") or 2**62))
+    return {
+        "items": loops[:80],
+        "count": len(loops),
+        "by_kind": _count_by(loops, "kind"),
+        "summary": f"{len(loops)} open loop(s) across tasks, approvals, commitments, social, and incidents",
+    }
+
+
+def _loop_item(
+    *,
+    kind: str,
+    loop_id: str,
+    title: str,
+    owner: str,
+    next_action: str,
+    waiting_reason: str,
+    due_at: int,
+    success_condition: str,
+    status: str,
+    evidence: Any,
+) -> dict[str, Any]:
+    return {
+        "id": loop_id,
+        "kind": kind,
+        "title": title[:200],
+        "owner": owner,
+        "next_action": next_action[:200],
+        "waiting_reason": waiting_reason[:200],
+        "due_at": due_at,
+        "success_condition": success_condition[:200],
+        "status": status,
+        "confidence": 0.7 if evidence else 0.4,
+        "evidence_summary": _evidence_summary(evidence),
+        "evidence": evidence if isinstance(evidence, dict) else {"value": evidence},
+    }
+
+
+def _evidence_summary(evidence: Any) -> str:
+    if not isinstance(evidence, dict):
+        return ""
+    for key in ("summary", "reason", "message", "decision_reason", "verification_summary", "body"):
+        value = evidence.get(key)
+        if value:
+            return str(value)[:160]
+    return ""
+
+
+def _count_by(items: list[dict[str, Any]], key: str) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for item in items:
+        label = str(item.get(key) or "unknown")
+        counts[label] = counts.get(label, 0) + 1
+    return counts
 
 
 def _freshness(runtime: Any) -> dict[str, Any]:

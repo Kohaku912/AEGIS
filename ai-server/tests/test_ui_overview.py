@@ -175,10 +175,30 @@ def test_ui_overview_sections_have_freshness_envelope():
         "usage",
         "errors",
         "freshness",
+        "agent_state",
+        "goals",
+        "initiative",
+        "continuations",
+        "repairs",
+        "social",
+        "behavioral_reports",
+        "open_loops",
+        "decision_context",
+        "generated_capabilities",
+        "executions",
+        "situation",
     ]:
         value = overview[section]
         assert {"generated_at", "source_updated_at", "status", "stale", "error", "data"} <= set(value)
 
+    assert overview["schema_version"] == "ui-overview.v4"
+    assert overview["user_state"] is overview["user_situation"] or overview["user_state"]["data"] == overview["user_situation"]["data"]
+    assert overview["mind"] is overview["mind_summary"] or overview["mind"]["data"] == overview["mind_summary"]["data"]
+    assert "items" in overview["open_loops"]["data"]
+    assert "operations" in overview["activity"]["data"] or "groups" in overview["activity"]["data"]
+    ops = overview["activity"]["data"].get("operations") or []
+    if ops:
+        assert "causal_chain" in ops[0]
     assert overview["approvals"]["data"]["pending"][0]["approval_id"] == "approval-1"
     assert overview["presentations"]["status"] == "ok"
     assert overview["presentations"]["data"]["count"] == 1
@@ -201,9 +221,13 @@ def test_ui_overview_route_returns_normalized_contract():
     response = app.test_client().get("/api/ui/overview")
     assert response.status_code == 200
     payload = response.get_json()
-    assert payload["schema_version"] == "ui-overview.v3"
+    assert payload["schema_version"] == "ui-overview.v4"
     assert payload["servers"]["data"]["items"]
     assert payload["tasks"]["data"]["primary"]["task_id"] == "task-1"
+    assert "open_loops" in payload
+    assert "social" in payload
+    assert "decision_context" in payload
+    assert payload["errors"]["data"].get("source") in {None, "repair_manager", "audit"} or "items" in payload["errors"]["data"]
 
 
 def test_display_power_state_route_is_compact_and_runtime_backed():
@@ -504,6 +528,17 @@ def test_activity_operations_prefer_aegis_audit_groups():
                                 "timestamp_ms": 1500,
                             },
                             {
+                                "action": "llm_call",
+                                "capability_id": "",
+                                "detail_summary": "I checked AGORA and found 3 new posts about the weekend plan.",
+                                "detail": {
+                                    "response_preview": "I checked AGORA and found 3 new posts about the weekend plan.",
+                                    "model": "deepseek-chat",
+                                },
+                                "decision": "success",
+                                "timestamp_ms": 1800,
+                            },
+                            {
                                 "action": "status_changed",
                                 "capability_id": "",
                                 "detail_summary": "android online",
@@ -538,5 +573,25 @@ def test_activity_operations_prefer_aegis_audit_groups():
     assert op["kind"] == "chat"
     assert op["kind_label"] == "User instruction"
     assert op["title"] == "Check AGORA posts"
-    assert "ai-server.agora.get_posts" in op["what_happened"]
+    assert "I checked AGORA and found 3 new posts" in op["what_happened"]
+    assert "ai-server.agora.get_posts" not in op["what_happened"]
     assert all(step.get("action") != "status_changed" for step in op["steps"])
+
+
+def test_activity_what_happened_unwraps_legacy_response_kv():
+    from aegis_ai.web.ui_overview import _humanize_activity_text, _what_happened_from_steps
+
+    assert "Found three posts" in _humanize_activity_text(
+        "response=Found three posts, model=deepseek, tokens=12"
+    )
+    text = _what_happened_from_steps(
+        [
+            {
+                "action": "llm_call",
+                "summary": "response=I already replied to the user., model=x",
+                "narrative": "response=I already replied to the user., model=x",
+            }
+        ],
+        fallback="",
+    )
+    assert text == "I already replied to the user."

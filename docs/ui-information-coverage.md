@@ -1,13 +1,13 @@
 # AEGIS UI Information Coverage
 
-Last updated: 2026-07-13 16:49 JST
+Last updated: 2026-07-29
 
 This document tracks the path from Runtime managers to API contracts and UI surfaces. It is intentionally separate from the visual checklist so missing operational data is visible before polishing layout.
 
 Legend:
 - `covered`: normalized API field exists and at least one UI surface consumes it.
 - `api-only`: normalized API field exists, but no primary UI consumes it yet.
-- `legacy-only`: old Jinja/API surface exists, but v2/v3 UI does not consume it.
+- `legacy-only`: old Jinja/API surface exists, but v2/v4 UI does not consume it.
 - `missing`: Runtime has or should have data, but no normalized contract exists.
 
 ## Manager Coverage
@@ -15,74 +15,76 @@ Legend:
 | Source | Normalized Contract | Web Dashboard | Display | Android | Status |
 | --- | --- | --- | --- | --- | --- |
 | Runtime core | `core`, `connection`, `freshness` | Command Center HUD | Core Sphere, Display shell | parsed via gRPC overview | covered |
-| TaskManager | `current_task`, `tasks` | Work, Command Center | Current Operation, Mission Phase | Tasks tab has overview model | covered |
-| ApprovalManager | `approvals`, `attention` | Approvals, Command Center | P1 takeover/Attention | Approvals tab | covered |
-| StatusManager + effective dashboard status | `servers`, `connection` | Systems, Command Center summary | Server Rail, Core arcs | Devices tab partial | covered |
-| NotificationManager | `notifications`, `attention`, `display_queue` | Activity partial | Director dock/overlays | Home partial | covered |
-| PresentationManager | `presentations`, `display_scene` | legacy Presentations page | Display Director source | not consumed | api-only |
-| CapabilityCatalog | `capabilities` | Systems partial, legacy Capability page | Core server capability counts indirectly | not consumed | api-only |
-| MemoryManager | `memory`, `mind`, `mind_summary` | Mind & Memory summary | Mission context only | not consumed | covered for Web |
-| UserStateManager | `user_situation`, `user_state` | Mind & Memory | not shown directly | not consumed | covered for Web |
-| CommitmentManager | `commitments` | Mind & Memory, Work counts | Mission context | not consumed | covered for Web |
-| Cost/LLM usage | `usage` | Command/Settings partial, legacy LLM Usage | not shown | not consumed | api-only |
-| AuditManager | `errors`, raw Activity routes | Activity partial | Director P0/P2 future source | not consumed | api-only |
-| Settings/Policy/Auth | Settings APIs, auth routes | Settings v2 reads/mutates simple values | read-only token enforcement | not consumed | covered for Web settings |
+| TaskManager | `current_task` (= `tasks.primary`), `tasks`, `goals`, `open_loops` | Open Loops, Command Center, Judgment Goals | Current Operation, Mission Phase | Tasks tab has overview model | covered |
+| ApprovalManager | `approvals`, `attention`, `open_loops` | Approvals, Open Loops, Command | P1 takeover/Attention | Approvals tab | covered |
+| StatusManager | `servers`, `connection` | Systems, Command Center | Server Rail, Core arcs | Devices tab partial | covered |
+| NotificationManager | `notifications`, `attention`, `display_queue` | Communications / Notifications | Director dock/overlays | Home partial | covered |
+| PresentationManager | `presentations`, `display_scene` | Presentation Surfaces | Display Director source | not consumed | covered for Web |
+| CapabilityCatalog | `capabilities`, `generated_capabilities` | Catalog + Generated pages | Core capability counts indirectly | not consumed | covered for Web |
+| MemoryManager | `memory`, `mind` (= `mind_summary`) | Memory / Judgment | Mission context only | not consumed | covered for Web |
+| UserStateManager | `situation` (= `user_state` / `user_situation`) | Situation, Command | not shown directly | not consumed | covered for Web |
+| CommitmentManager | `commitments`, `open_loops` | Open Loops, Command | Mission context | not consumed | covered for Web |
+| AgentState | `agent_state`, `decision_context` | Decision Context / Judgment | not consumed | not consumed | covered for Web |
+| InitiativeEngine | `initiative` | Initiative & Non-action, Command | not consumed | not consumed | covered for Web |
+| ContinuationManager | `continuations`, `open_loops` | Continuations, Open Loops | not consumed | not consumed | covered for Web |
+| RepairManager | `repairs`, `errors` | Repairs & Learning / Repair Feed | not consumed | not consumed | covered for Web |
+| SocialManager | `social`, `open_loops` | Social & AGORA | not consumed | not consumed | covered for Web |
+| BehavioralEvaluation | `behavioral_reports` | Behavioral Reports | not consumed | not consumed | covered for Web |
+| Cost/LLM usage | `usage` | LLM Usage, Command partial | not shown | not consumed | covered for Web |
+| AuditManager / autonomous logs | `activity.operations` (+ `causal_chain`), `executions`, `autonomous_logs` | Operations, Activity, Executions | Director P0/P2 future source | not consumed | covered for Web |
+| Settings/Policy/Auth | Settings APIs, auth routes | Configuration | read-only token enforcement | not consumed | covered for Web settings |
 
 ## Normalized API Fields
 
 | Field | Purpose | Status |
 | --- | --- | --- |
-| `schema_version=ui-overview.v3` | Stable contract marker with v2-compatible legacy fields retained. | covered |
+| `schema_version=ui-overview.v4` | Judgment/progress contract; aliases keep v3 field names. | covered |
 | `core` | mode, health, active goal, activity, pending approvals, offline/degraded servers. | covered |
-| `connection` | online counts, quality, attention count, last update. | api-only |
-| `display_scene` | Display phase, takeover candidate, ambient background, privacy/offline flags. | covered |
-| `presentations` | takeover/overlays/persistent/ambient presentation groups. | api-only |
-| `display_queue` | server-side projection of persistent display items from EventManager. | covered |
-| `tasks` | primary/active/waiting/scheduled/recent task groups. | covered |
-| `activity` | server-persisted EventManager history grouped for Activity. | covered |
-| `current_task` | backward-compatible primary task field. | covered |
-| `approvals` | pending approvals and count. | covered |
-| `servers` | effective server list with dependencies and Android capability availability. | covered |
-| `capabilities` | capability count, by server, approval/high-risk counts, bounded item list. | api-only |
-| `user_situation` / `user_state` | user state summary. | covered for Web |
-| `mind` / `mind_summary` | autonomy and memory stats. | covered for Web |
-| `memory` | episodic/semantic/procedural summary and consolidation marker. | covered for Web |
-| `notifications` | recent notifications and unread count. | api-only |
-| `commitments` | due/active commitments. | covered |
-| `usage` | current LLM/cost summary when available. | api-only |
-| `errors` | recent operational/audit errors. | api-only |
-| `freshness` | global staleness and oldest source update. | covered |
+| `connection` | online counts, quality, attention count, last update. | covered |
+| `display_scene` / `presentations` / `display_queue` | Display phase, presentation groups, persistent queue. | covered |
+| `tasks` / `current_task` | Task groups; `current_task` aliases `tasks.primary`. | covered |
+| `activity.operations[].causal_chain` | Trigger → Decision → … → Learning chain. | covered |
+| `open_loops` | Unified tasks/commitments/approvals/social/incidents. | covered |
+| `agent_state` / `decision_context` | Obligations, situation, identity used for judgments. | covered |
+| `goals` | GoalGraph + unmet verification conditions. | covered |
+| `initiative` | Funnel, non-action reasons, recent decisions. | covered |
+| `continuations` | Open/due follow-ups from ContinuationManager. | covered |
+| `repairs` / `errors` | RepairManager history (errors prefer repair source). | covered |
+| `social` | Social inbox + AGORA pending/decided. | covered |
+| `behavioral_reports` | Restraint / goal achievement / continuity metrics. | covered |
+| `generated_capabilities` | Generated-origin capabilities only. | covered |
+| `executions` | Operation + autonomous-cycle execution history. | covered |
+| `approvals` / `servers` / `capabilities` | Pending approvals, server health, catalog slice. | covered |
+| `situation` / `user_state` / `user_situation` | Same UserStateManager projection (deduped). | covered |
+| `mind` / `mind_summary` | Same autonomy + memory stats projection (deduped). | covered |
+| `memory` / `notifications` / `commitments` / `usage` / `freshness` | Supporting operational summaries. | covered |
+
+## Navigation (judgment-first)
+
+Command → Open Loops → Judgment → Communications → Systems → Governance → Developer → Configuration.
+
+Raw IDs/JSON stay behind Developer Mode. Domain pages that previously reused wrong entity resources (Executions→capabilities, Context→memories, Errors/Reports→audit, Conversations→sessions-only) now read the matching overview sections.
 
 ## Event Envelope
 
-`/api/ui/stream` now emits normalized events with:
+`/api/ui/stream` emits normalized events with:
 
 `event_id`, `sequence`, `event_type`, `occurred_at`, `received_at`, `priority`, `severity`, `dedupe_key`, `persistence`, `expires_at`, `resolved_by`, `affected_servers`, `affected_capabilities`, `task_id`, `approval_id`, `safe_title`, `safe_message`, `visual_hint`, and bounded `payload`.
 
-Display consumes `priority`, `persistence`, `dedupe_key`, and `visual_hint` through the Display Director model. Replay cursor support is implemented through SSE `id:` frames, `last_event_id` / `Last-Event-ID`, and client session storage. Persistent display state is restored from the `display_queue` overview projection.
+## Duplicate Displays (resolved direction)
 
-## Raw JSON Displays
-
-| Surface | Current Handling |
+| Data | Direction |
 | --- | --- |
-| Mind & Memory | Raw state removed from standard view; kept behind `Developer raw state` details drawer. |
-| Activity | Uses grouped EventManager history by default, with live SSE events overlaid. Audit/LLM/settings/security-specific grouping remains partial. |
-| Legacy Jinja pages | Several pages still render raw-ish structures and inline JS. These are legacy-only until v2 parity is complete. |
+| `user_state` / `user_situation` / `situation` | One Situation page; same backend object. |
+| `mind` / `mind_summary` | One Memory/Judgment mind projection. |
+| `current_task` / `tasks.primary` | Alias only; no second source. |
+| Tasks / Commitments / Approvals / Social / Incidents | Prefer **Open Loops** as the unified unfinished-work surface. |
 
-## Duplicate Displays
-
-| Data | Duplicates | Direction |
-| --- | --- | --- |
-| Server health | Command summary, Systems, Display rail, legacy Servers | Keep summary in Command/Display, detail in Systems. |
-| Approvals | Approvals page, Command attention, Display takeover, Android approvals | Keep same approval id and lifecycle across all. |
-| Presentations | Legacy dashboard page and dedicated Display | Move dashboard management into v2 later; Display remains read-only. |
-| Memory stats | Mind & Memory and legacy Memory page | Keep Mind summary as default; legacy/raw behind developer/debug. |
-
-## Missing Or Partial Coverage
+## Remaining Gaps
 
 | Gap | Impact |
 | --- | --- |
-| Settings v2 advanced editors | Simple scalar settings can be changed; nested/array settings still need purpose-built editors. |
-| Android consumption of full v3 groups | Android parses overview summary but does not mirror every field. |
-| Activity grouped operation history | EventManager grouping exists; audit/LLM/settings/security-specific grouping is still broad. |
+| Settings advanced editors | Nested/array settings still need purpose-built editors. |
+| Android full v4 groups | Android parses overview summary but does not mirror every judgment field. |
+| Readiness report files | `data/reports/*.json` audit scripts exist; Behavioral Reports is runtime evaluation, not file readiness packs. |
 | 72-hour Display soak test | Long-run memory/event stability not proven. |
