@@ -1187,17 +1187,23 @@ def _errors(runtime: Any) -> dict[str, Any]:
     items: list[dict[str, Any]] = []
     had_repair_history = False
     server_statuses: dict[str, str] = {}
+    server_snapshots: dict[str, dict[str, Any]] = {}
     status_manager = getattr(runtime, "status_manager", None)
     if status_manager is not None and hasattr(status_manager, "get_snapshot"):
         try:
             snapshot = status_manager.get_snapshot() or {}
-            server_statuses = {
-                str(server_id): str(value.get("status") or "").upper()
+            server_snapshots = {
+                str(server_id): value
                 for server_id, value in snapshot.items()
                 if isinstance(value, dict)
             }
+            server_statuses = {
+                str(server_id): str(value.get("status") or "").upper()
+                for server_id, value in server_snapshots.items()
+            }
         except Exception:
             server_statuses = {}
+            server_snapshots = {}
     if repair is not None and hasattr(repair, "list_history"):
         latest_by_id: dict[str, dict[str, Any]] = {}
         for entry in repair.list_history(limit=200) or []:
@@ -1241,6 +1247,23 @@ def _errors(runtime: Any) -> dict[str, Any]:
             )
             if server_statuses.get(server_id) == "ONLINE" and any(
                 marker in error_text for marker in connectivity_markers
+            ):
+                continue
+            capability_health = (
+                server_snapshots.get(server_id, {}).get("capability_health") or {}
+            )
+            current_capability = (
+                capability_health.get(capability_id)
+                if isinstance(capability_health, dict)
+                else None
+            )
+            permission_markers = ("permission missing", "missing permission")
+            if (
+                server_statuses.get(server_id) == "ONLINE"
+                and any(marker in error_text for marker in permission_markers)
+                and isinstance(current_capability, dict)
+                and current_capability.get("available") is True
+                and not current_capability.get("missing_permissions")
             ):
                 continue
             items.append(
