@@ -487,8 +487,8 @@ Return:
             result = self._llm.generate(
                 prompt=current_prompt,
                 system_prompt="You are AEGIS SocialManager. Make a reasoned social decision and return JSON only.",
-                max_tokens=600,
                 json_mode=True,
+                profile="decision",
             )
             if not getattr(result, "success", False):
                 last_error = str(getattr(result, "error", "Social triage LLM failed"))
