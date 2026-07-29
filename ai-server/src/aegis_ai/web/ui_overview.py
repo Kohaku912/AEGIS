@@ -1236,6 +1236,14 @@ def _errors(runtime: Any) -> dict[str, Any]:
                 continue
             capability_id = str(entry.get("capability_id") or "")
             server_id = capability_id.split(".", 1)[0]
+            server_snapshot = server_snapshots.get(server_id, {})
+            last_healthy_at = int(server_snapshot.get("last_healthy_at") or 0)
+            entry_timestamp = int(
+                entry.get("timestamp_ms") or entry.get("timestamp") or entry.get("created_at") or 0
+            )
+            recovered_after_error = bool(
+                entry_timestamp and last_healthy_at and last_healthy_at > entry_timestamp
+            )
             error_text = str(entry.get("error") or entry.get("summary") or "").lower()
             connectivity_markers = (
                 "unavailable",
@@ -1245,12 +1253,12 @@ def _errors(runtime: Any) -> dict[str, Any]:
                 "timeout",
                 "connection",
             )
-            if server_statuses.get(server_id) == "ONLINE" and any(
-                marker in error_text for marker in connectivity_markers
-            ):
+            if (
+                server_statuses.get(server_id) == "ONLINE" or recovered_after_error
+            ) and any(marker in error_text for marker in connectivity_markers):
                 continue
             capability_health = (
-                server_snapshots.get(server_id, {}).get("capability_health") or {}
+                server_snapshot.get("capability_health") or {}
             )
             current_capability = (
                 capability_health.get(capability_id)
@@ -1259,7 +1267,7 @@ def _errors(runtime: Any) -> dict[str, Any]:
             )
             permission_markers = ("permission missing", "missing permission")
             if (
-                server_statuses.get(server_id) == "ONLINE"
+                (server_statuses.get(server_id) == "ONLINE" or recovered_after_error)
                 and any(marker in error_text for marker in permission_markers)
                 and isinstance(current_capability, dict)
                 and current_capability.get("available") is True
