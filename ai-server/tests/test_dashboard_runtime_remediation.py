@@ -177,6 +177,31 @@ def test_social_json_uses_decision_profile_token_limit(tmp_path: Path) -> None:
     ]
 
 
+def test_social_observe_more_is_a_terminal_non_action(tmp_path: Path) -> None:
+    llm = SimpleNamespace(
+        generate=lambda **_kwargs: SimpleNamespace(
+            success=True,
+            content=(
+                '{"decision":"observe_more","reason":"No response is useful yet",'
+                '"directed_to_aegis":false,"mentions_user":false,'
+                '"question_detected":false,"reply_expected":false,'
+                '"relevance":0.1,"urgency":0.0,"sentiment":"neutral",'
+                '"draft_body":""}'
+            ),
+        )
+    )
+    manager = SocialManager(data_dir=str(tmp_path), llm=llm)
+    item = manager.ingest(
+        "agora",
+        [{"id": 1, "thread_id": 1, "author": "peer", "body": "An update."}],
+    )[0]
+
+    processed = manager.process_new_items([item])[0]
+
+    assert processed.decision == "observe_more"
+    assert processed.status.value == "skipped"
+
+
 def test_dismissed_repairs_are_not_active_errors() -> None:
     class Repair:
         def list_history(self, limit=30):
