@@ -201,10 +201,57 @@ class HealthAlertManager:
             pass
         return None
 
+    def check_llm_provider(self) -> HealthAlert | None:
+        """Check if LLM provider is available."""
+        try:
+            from aegis_ai.llm.provider_circuit import PROVIDER_CIRCUIT
+
+            if PROVIDER_CIRCUIT.is_open():
+                status = PROVIDER_CIRCUIT.status()
+                remaining_s = int(status.get("remaining_ms", 0) or 0) // 1000
+                return self._create_alert(
+                    alert_type="llm_unavailable",
+                    severity="critical",
+                    message=(
+                        f"LLM provider circuit open (balance/billing); "
+                        f"cooldown {remaining_s}s. Top up API balance."
+                    ),
+                    source="llm",
+                    details={
+                        "circuit": status,
+                        "attention": "llm_balance",
+                    },
+                )
+        except Exception:
+            logger.debug("Provider circuit health check failed", exc_info=True)
+
+        if self._llm is None:
+            return self._create_alert(
+                alert_type="llm_unavailable",
+                severity="warning",
+                message="No LLM provider configured",
+                source="llm",
+            )
+        # Check if provider has a generate method
+        if not hasattr(self._llm, "generate"):
+            return self._create_alert(
+                alert_type="llm_unavailable",
+                severity="warning",
+                message="LLM provider missing generate() method",
+                source="llm",
+            )
+        return None
+
     def check_server_reachable(
         self, server_id: str, host: str, port: int
     ) -> HealthAlert | None:
-        """Check if a server is reachable via TCP."""
+        """Check if a server is reachable via TCP (or stream presence for Android)."""
+        if server_id == "android-server":
+            return self._check_android_presence(host, port)
+
+        if not self._server_enabled(server_id):
+            return None
+
         if self._status_manager is not None:
             try:
                 snapshot = self._status_manager.get_snapshot()
@@ -232,12 +279,72 @@ class HealthAlertManager:
             )
         return None
 
+    def _check_android_presence(self, host: str, port: int) -> HealthAlert | None:
+        """Android connects outbound; never TCP-probe listen port 50054."""
+        if not self._server_enabled("android-server"):
+            return None
+
+        status = "unknown"
+        last_heartbeat_ms = 0
+        if self._status_manager is not None:
+            try:
+                snapshot = self._status_manager.get_snapshot()
+                item = snapshot.get("android-server", {}) if isinstance(snapshot, dict) else {}
+                status = str(item.get("status") or "unknown").lower()
+                last_heartbeat_ms = int(item.get("last_heartbeat_ms") or item.get("last_seen_ms") or 0)
+            except Exception:
+                logger.debug("Android presence lookup failed", exc_info=True)
+
+        if status in {"online", "degraded"}:
+            return None
+        if status in {"disabled", "unconfigured"}:
+            return None
+        if status == "unknown":
+            # No device has registered yet — not an outage.
+            return None
+        if status == "offline":
+            return self._create_alert(
+                alert_type="server_unreachable",
+                severity="warning",
+                message="android-server offline (no recent stream heartbeat)",
+                source="capability",
+                details={
+                    "server_id": "android-server",
+                    "host": host,
+                    "port": port,
+                    "status": status,
+                    "last_heartbeat_ms": last_heartbeat_ms,
+                    "check": "presence",
+                },
+            )
+        return None
+
+    @staticmethod
+    def _server_enabled(server_id: str) -> bool:
+        disabled = {
+            part.strip()
+            for part in os.environ.get("AEGIS_DISABLED_SERVERS", "").split(",")
+            if part.strip()
+        }
+        if server_id in disabled:
+            return False
+        env_map = {
+            "android-server": "ANDROID_SERVER_ENABLED",
+            "room-server": "ROOM_SERVER_ENABLED",
+            "dev-server": "DEV_SERVER_ENABLED",
+            "browser-server": "BROWSER_SERVER_ENABLED",
+            "pc-server": "PC_SERVER_ENABLED",
+        }
+        flag = env_map.get(server_id)
+        if not flag:
+            return True
+        raw = os.environ.get(flag, "true")
+        return raw.strip().lower() not in {"0", "false", "no", "off", "disabled", "unconfigured"}
+
     def _configured_servers(self) -> list[tuple[str, str, int]]:
         servers: list[tuple[str, str, int]] = []
         for server_id, host_env, port_env, default_port in _SERVER_DEFAULTS:
             default_host = "localhost"
-            if server_id == "pc-server":
-                default_host = "localhost"
             host = os.environ.get(host_env, default_host)
             port = int(os.environ.get(port_env, str(default_port)))
             servers.append((server_id, host, port))
@@ -282,25 +389,6 @@ class HealthAlertManager:
                 severity="warning",
                 message="Tool broker check failed — cannot list capabilities",
                 source="executor",
-            )
-        return None
-
-    def check_llm_provider(self) -> HealthAlert | None:
-        """Check if LLM provider is available."""
-        if self._llm is None:
-            return self._create_alert(
-                alert_type="llm_unavailable",
-                severity="warning",
-                message="No LLM provider configured",
-                source="llm",
-            )
-        # Check if provider has a generate method
-        if not hasattr(self._llm, "generate"):
-            return self._create_alert(
-                alert_type="llm_unavailable",
-                severity="warning",
-                message="LLM provider missing generate() method",
-                source="llm",
             )
         return None
 

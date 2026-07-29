@@ -150,6 +150,10 @@ class AutonomousLoop:
         self._capability_metadata_cache: dict[str, dict[str, Any]] = {}
         self._initiative_engine: Any = None
         self._continuation_manager: Any = None
+        self._approval_manager: Any = None
+        self._browser_cooldown_until_ms: int = 0
+        self._browser_cooldown_ms: int = int(os.environ.get("AEGIS_BROWSER_COOLDOWN_MS", "300000"))
+        self._no_effect_counts: dict[str, int] = {}
 
         # Load state
         self._load()
@@ -248,6 +252,47 @@ class AutonomousLoop:
         """Set the health alert manager for periodic health checks."""
         self._health_alert_manager = health_alert_manager
 
+    def set_approval_manager(self, approval_manager: Any) -> None:
+        """Set the approval manager for tick-time expiry and backlog observations."""
+        self._approval_manager = approval_manager
+
+    def _should_present_autonomous_result(
+        self,
+        result_record: dict[str, Any],
+        task: dict[str, Any] | None = None,
+    ) -> bool:
+        task = task or {}
+        presentation = task.get("presentation") if isinstance(task.get("presentation"), dict) else {}
+        audience = str(presentation.get("audience") or task.get("audience") or "").lower()
+        if audience == "agent_private":
+            return False
+
+        report_when = str(presentation.get("report_when") or "terminal").lower()
+        goal_status = str(result_record.get("goal_status") or "").lower()
+        success = bool(result_record.get("success", False))
+        awaiting = str((result_record.get("full_output") or {}).get("action_state") or "") == "awaiting_approval"
+        obligation_linked = bool(task.get("obligation_ids"))
+        failed = (not success) and not awaiting
+
+        if awaiting:
+            return False
+
+        # Terminal / obligation outcomes: present even when short ("Done") or failed.
+        if report_when == "terminal" and (success or failed or goal_status in {"failed", "needs_followup", "useful"}):
+            if failed and not obligation_linked and goal_status not in {"failed", "needs_followup"}:
+                # Only surface non-obligation failures when goal verification flagged them.
+                result_text = str(result_record.get("result", "")).lower().strip()
+                if "timeout" not in result_text and "failed" not in result_text:
+                    return False
+            return True
+
+        if not success:
+            return False
+        result_text = str(result_record.get("result", "")).lower().strip()
+        if result_text in _TRIVIAL_RESULTS or len(result_text) < 20:
+            return False
+        return True
+
     def stop(self) -> None:
         """Stop the autonomous loop."""
         with self._lock:
@@ -279,11 +324,42 @@ class AutonomousLoop:
                     finally:
                         self._last_health_check_ms = now
 
+                # Expire stale approvals even when LLM cycle is gated
+                approval_manager = getattr(self, "_approval_manager", None)
+                if approval_manager is not None and hasattr(approval_manager, "expire_old"):
+                    try:
+                        expired = approval_manager.expire_old()
+                        if expired:
+                            logger.info("Expired %d stale approval request(s)", expired)
+                    except Exception:
+                        logger.debug("Approval expire_old failed", exc_info=True)
+
                 # Spontaneous observation (every 1 minute)
                 if self._observation and now - self._last_observation_ms >= self._observation_interval_ms:
                     try:
                         observations = self._observation.observe()
-                        actionable = [o for o in observations if o.actionable and o.importance >= 0.7]
+                        actionable = []
+                        for o in observations:
+                            if not o.actionable:
+                                continue
+                            # Event/incident/manager work sources pass with lower bar
+                            source = str(o.source or "").lower()
+                            tags = {str(t).lower() for t in (o.tags or [])}
+                            incident_like = bool(
+                                tags & {"incident", "obligation", "approval", "commitment", "health", "event"}
+                                or source
+                                in {
+                                    "approval",
+                                    "commitment",
+                                    "task",
+                                    "obligation",
+                                    "incident",
+                                    "health",
+                                    "event",
+                                }
+                            )
+                            if incident_like or o.importance >= 0.7:
+                                actionable.append(o)
                         if actionable:
                             logger.info("Observation found %d actionable items", len(actionable))
                             self._pending_actionable_observations = [o.to_dict() for o in actionable[:5]]
@@ -376,6 +452,12 @@ class AutonomousLoop:
 
         if not self._llm:
             return False, "provider_unavailable"
+
+        from aegis_ai.llm.provider_circuit import PROVIDER_CIRCUIT
+
+        if PROVIDER_CIRCUIT.is_open():
+            remaining_s = PROVIDER_CIRCUIT.remaining_ms() // 1000
+            return False, f"llm_provider_circuit_open ({remaining_s}s remaining)"
 
         high_usage, usage_reason = self._llm_usage_high()
         if high_usage:
@@ -517,6 +599,74 @@ Respond with JSON:
             logger.warning("Repetition check error: %s", e)
             return tasks
 
+    def _has_interval_bypass_work(self) -> bool:
+        """Obligations / incident observations may bypass the homeostatic LLM interval."""
+        if self._priority_obligations():
+            return True
+        for obs in self._pending_actionable_observations:
+            source = str(obs.get("source") or "").lower()
+            tags = {str(t).lower() for t in (obs.get("tags") or [])}
+            if tags & {"incident", "obligation", "approval", "commitment", "health", "event"}:
+                return True
+            if source in {
+                "approval",
+                "commitment",
+                "task",
+                "obligation",
+                "incident",
+                "health",
+                "event",
+                "task.failed",
+                "browser.discovery",
+            }:
+                return True
+            obs_type = str(obs.get("observation_type") or "").lower()
+            if obs_type in {"unresolved", "warning", "incident"}:
+                return True
+        return False
+
+    def _user_facing_obligation_summary(self, obligation: dict[str, Any] | None) -> str:
+        if not obligation:
+            return ""
+        for key in ("user_facing_summary", "user_goal", "desired_outcome", "summary", "title"):
+            value = str(obligation.get(key) or "").strip()
+            if not value:
+                continue
+            lower = value.lower()
+            # Keep internal stack traces / start timeouts out of user goals.
+            if "browserstartevent" in lower or "timeout" in lower and "error" in lower:
+                return "Recover from a failed browser task and finish the user's original request."
+            if "traceback" in lower or "exception:" in lower:
+                return "Resolve a failed system task that is blocking user work."
+            return value[:300]
+        return ""
+
+    def _resolve_task_goal(
+        self,
+        *,
+        desire: str,
+        pending_observations: list[dict[str, Any]],
+        obligation: dict[str, Any] | None,
+        guide: dict[str, Any],
+        index: int,
+    ) -> str:
+        if index < len(pending_observations):
+            obs = pending_observations[index]
+            desc = str(obs.get("description") or "").strip()
+            suggested = str(obs.get("suggested_action") or "").strip()
+            if desc:
+                return desc[:300]
+            if suggested:
+                return suggested[:300]
+        if pending_observations:
+            desc = str(pending_observations[0].get("description") or "").strip()
+            if desc:
+                return desc[:300]
+        obligation_goal = self._user_facing_obligation_summary(obligation)
+        if obligation_goal:
+            return obligation_goal
+        return str(guide.get("goal") or f"Advance the {desire} objective")
+
     def _execute_cycle(self) -> None:
         """Execute autonomous tasks — only runs when scheduled or triggered."""
         if not getattr(self, "_audit_group_active", False):
@@ -539,11 +689,14 @@ Respond with JSON:
             self._save()
             return
 
-        # The LLM interval is an invariant for the whole autonomous cycle.
-        # Check it before audit-history usage accounting and context building,
-        # both of which can be expensive even though no LLM call is allowed.
+        # Homeostatic desire work stays interval-gated; obligations/incidents bypass.
         now_llm = int(time.time() * 1000)
-        if now_llm - self._last_llm_call_ms < self._min_llm_interval_ms:
+        bypass_interval = self._has_interval_bypass_work()
+        if (
+            not bypass_interval
+            and self._last_llm_call_ms
+            and now_llm - self._last_llm_call_ms < self._min_llm_interval_ms
+        ):
             remaining = (
                 self._min_llm_interval_ms
                 - (now_llm - self._last_llm_call_ms)
@@ -558,6 +711,8 @@ Respond with JSON:
             self._schedule_next(max(1, min(60, remaining)))
             self._save()
             return
+        if bypass_interval and self._last_llm_call_ms and now_llm - self._last_llm_call_ms < self._min_llm_interval_ms:
+            logger.info("LLM interval bypassed for obligations/incidents")
 
         should_proceed, preflight_reason = self._preflight_check()
         if not should_proceed:
@@ -759,7 +914,11 @@ Respond with JSON:
         except Exception:
             logger.debug("Failed to record autonomous failure lesson", exc_info=True)
 
-    def _recent_failure_penalty(self, source_desire: str) -> tuple[float, str]:
+    def _recent_failure_penalty(
+        self,
+        source_desire: str,
+        capability_id: str = "",
+    ) -> tuple[float, str]:
         if not source_desire:
             return 0.0, ""
         try:
@@ -782,6 +941,19 @@ Respond with JSON:
             logger.debug("Failed to load memory penalties", exc_info=True)
             return 0.0, ""
 
+        # Scope lessons to the same capability when structured_data has one.
+        if capability_id:
+            scoped_failures = []
+            for record in failure_lessons:
+                related_cap = str(
+                    (record.structured_data or {}).get("capability_id")
+                    or (record.structured_data or {}).get("cap_id")
+                    or ""
+                )
+                if not related_cap or related_cap == capability_id:
+                    scoped_failures.append(record)
+            failure_lessons = scoped_failures
+
         penalty = 0.0
         reasons: list[str] = []
         if failure_lessons:
@@ -793,7 +965,8 @@ Respond with JSON:
         if rejected:
             penalty += 0.2 * len(rejected)
             reasons.append(f"{len(rejected)} approval rejection lesson(s) for {source_desire}")
-        return penalty, "; ".join(reasons)
+        # Soften: never hard-skip via penalty >= 1.0; dampen score only.
+        return min(penalty, 0.9), "; ".join(reasons)
 
     def _normalize_tool_call(
         self,
@@ -845,62 +1018,6 @@ Respond with JSON:
             return None
 
         return cap_id, arguments, manifest
-
-    def _desire_action_guides(self, low_desires: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        guide_map = {
-            "user_support": {
-                "goal": (
-                    "Advance a current commitment or resolve a concrete user need "
-                    "with the least disruptive suitable action."
-                ),
-                "preferred_capabilities": [
-                    "browser-server.search.query",
-                    "browser-server.page.read",
-                    "ai-server.commitment.list",
-                    "ai-server.situation.get",
-                    "pc-server.screenshot.get_screenshot",
-                ],
-            },
-            "social": {
-                "goal": (
-                    "Review durable social obligations and respond only when reciprocity or user value warrants it."
-                ),
-                "preferred_capabilities": [
-                    "browser-server.feed.monitor",
-                    "ai-server.agora.read_posts",
-                    "ai-server.agora.post",
-                    "ai-server.social.list_drafts",
-                ],
-            },
-            "growth": {
-                "goal": (
-                    "Investigate a grounded open question linked to a project, "
-                    "commitment, failure, or prior conversation."
-                ),
-                "preferred_capabilities": [
-                    "browser-server.search.query",
-                    "browser-server.page.summarize",
-                    "ai-server.memory.search",
-                    "ai-server.workspace.list_files",
-                    "dev-server.repo.status",
-                ],
-            },
-        }
-        guides: list[dict[str, Any]] = []
-        for desire in low_desires:
-            name = str(desire.get("name", ""))
-            meta = guide_map.get(name)
-            if not meta:
-                continue
-            guides.append(
-                {
-                    "desire": name,
-                    "pressure": desire.get("pressure", 0.0),
-                    "goal": meta["goal"],
-                    "preferred_capabilities": list(meta["preferred_capabilities"]),
-                }
-            )
-        return guides
 
     def _build_decision_axes(self, low_desires: list[dict[str, Any]]) -> dict[str, float]:
         """Summarize operational priorities without adding desire dimensions."""
@@ -968,6 +1085,81 @@ Respond with JSON:
             logger.debug("Failed to build intrinsic task hints", exc_info=True)
             return []
 
+    def _desire_action_guides(self, low_desires: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        guide_map = {
+            "user_support": {
+                "goal": (
+                    "Advance a current commitment or resolve a concrete user need "
+                    "with the least disruptive suitable action."
+                ),
+                "observe_capabilities": [
+                    "ai-server.commitment.list",
+                    "ai-server.situation.get",
+                    "pc-server.screenshot.get_screenshot",
+                ],
+                "advance_capabilities": [
+                    "browser-server.search.query",
+                    "browser-server.page.read",
+                    "ai-server.commitment.update",
+                    "ai-server.presentation.present",
+                ],
+            },
+            "social": {
+                "goal": (
+                    "Review durable social obligations and respond only when reciprocity or user value warrants it."
+                ),
+                "observe_capabilities": [
+                    "browser-server.feed.monitor",
+                    "ai-server.agora.read_posts",
+                    "ai-server.social.list_drafts",
+                ],
+                "advance_capabilities": [
+                    "ai-server.agora.post",
+                    "ai-server.social.create_draft",
+                    "ai-server.presentation.present",
+                ],
+            },
+            "growth": {
+                "goal": (
+                    "Investigate a grounded open question linked to a project, "
+                    "commitment, failure, or prior conversation."
+                ),
+                "observe_capabilities": [
+                    "ai-server.memory.search",
+                    "ai-server.workspace.list_files",
+                    "dev-server.repo.status",
+                ],
+                "advance_capabilities": [
+                    "browser-server.search.query",
+                    "browser-server.page.summarize",
+                    "ai-server.memory.remember",
+                    "ai-server.presentation.present",
+                ],
+            },
+        }
+        guides: list[dict[str, Any]] = []
+        for desire in low_desires:
+            name = str(desire.get("name", ""))
+            meta = guide_map.get(name)
+            if not meta:
+                continue
+            pressure = float(desire.get("pressure", 0.0) or 0.0)
+            observe = list(meta["observe_capabilities"])
+            advance = list(meta["advance_capabilities"])
+            # When pressure is high, prefer advance tools in the representative set.
+            preferred = (advance + observe) if pressure >= self._pressure_threshold else (observe + advance)
+            guides.append(
+                {
+                    "desire": name,
+                    "pressure": pressure,
+                    "goal": meta["goal"],
+                    "preferred_capabilities": preferred,
+                    "observe_capabilities": observe,
+                    "advance_capabilities": advance,
+                }
+            )
+        return guides
+
     def _representative_capability_ids(
         self,
         low_desires: list[dict[str, Any]],
@@ -976,9 +1168,16 @@ Respond with JSON:
     ) -> set[str]:
         representatives: set[str] = set()
         for guide in self._desire_action_guides(low_desires):
-            for cap_id in guide.get("preferred_capabilities", []):
-                if cap_id in valid_cap_ids:
-                    representatives.add(cap_id)
+            pressure = float(guide.get("pressure", 0.0) or 0.0)
+            advance = [c for c in guide.get("advance_capabilities", []) if c in valid_cap_ids]
+            observe = [c for c in guide.get("observe_capabilities", []) if c in valid_cap_ids]
+            preferred = [c for c in guide.get("preferred_capabilities", []) if c in valid_cap_ids]
+            if pressure >= self._pressure_threshold and advance:
+                representatives.add(advance[0])
+            for cap_id in preferred[:4]:
+                representatives.add(cap_id)
+            for cap_id in observe[:2]:
+                representatives.add(cap_id)
         for hint in intrinsic_hints:
             for cap_id in hint.get("required_capabilities", []):
                 if cap_id in valid_cap_ids:
@@ -1145,14 +1344,15 @@ Operational decision axes (prioritization only; not additional desires):
             has_social_actions=self._has_social_actions(valid_cap_ids),
         )
 
-        self._last_llm_call_ms = int(time.time() * 1000)
-        self._last_decision_ms = self._last_llm_call_ms
         self._last_decision = "llm_requested"
         result = self._call_task_generation_llm(
             prompt=prompt,
             tools=tools,
             memory_meta=memory_meta,
         )
+        # Stamp interval only after a real LLM attempt completes.
+        self._last_llm_call_ms = int(time.time() * 1000)
+        self._last_decision_ms = self._last_llm_call_ms
 
         if not result.success:
             logger.error("LLM task generation failed: %s", getattr(result, "error", "unknown"))
@@ -1234,6 +1434,16 @@ Operational decision axes (prioritization only; not additional desires):
             if normalized is None:
                 continue
             cap_id, args, manifest = normalized
+            if self._no_effect_counts.get(cap_id, 0) >= 3:
+                logger.info("Skipping %s — temporary denylist after repeated no_effect", cap_id)
+                self._log_audit_event(
+                    action="autonomous_task_denylist",
+                    capability_id=cap_id,
+                    decision="SKIP",
+                    reason="repeated no_effect",
+                    detail={"count": self._no_effect_counts.get(cap_id, 0)},
+                )
+                continue
             schema = manifest.input_schema or {}
             required = schema.get("required", [])
             missing = [r for r in required if r not in args or not args[r]]
@@ -1268,7 +1478,8 @@ Operational decision axes (prioritization only; not additional desires):
                     expected_benefit=min(1.0, pressure / 10.0),
                     urgency=min(1.0, pressure / 10.0),
                     relevance=0.5,
-                    continuity_value=0.3 if pending_observations else 0.0,
+                    continuity_value=0.55 if (pending_observations or priority_obligations) else 0.0,
+                    commitment_value=0.6 if priority_obligations else 0.0,
                     risk=risk_cost,
                     uncertainty=0.2,
                     interruption_cost=0.1,
@@ -1291,26 +1502,19 @@ Operational decision axes (prioritization only; not additional desires):
                         detail={"candidate": candidate.to_dict()},
                     )
                     continue
-            penalty, penalty_reason = self._recent_failure_penalty(desire)
-            if penalty >= 1.0:
-                logger.info("Skipping %s due to memory penalty: %s", cap_id, penalty_reason)
-                self._log_audit_event(
-                    action="autonomous_task_penalty",
-                    capability_id=cap_id,
-                    decision="SKIP",
-                    reason=penalty_reason or "memory penalty",
-                    detail={"source": "task_generation", "desire": desire, "penalty": penalty},
-                )
-                continue
+            penalty, penalty_reason = self._recent_failure_penalty(desire, capability_id=cap_id)
+            # Soft dampening only — never hard-skip on memory penalty.
             obligation = priority_obligations[i] if i < len(priority_obligations) else None
             guide = next(
                 (item for item in desire_guides if item.get("desire") == desire),
                 {},
             )
-            goal = (
-                str(obligation.get("summary") or "")
-                if obligation
-                else str(guide.get("goal") or f"Advance the {desire} objective")
+            goal = self._resolve_task_goal(
+                desire=desire,
+                pending_observations=pending_observations,
+                obligation=obligation,
+                guide=guide,
+                index=i,
             )
             manifest_completion = dict(getattr(manifest, "completion", {}) or {})
             success_condition = str(args.get("success_condition") or "")
@@ -1496,6 +1700,25 @@ Operational decision axes (prioritization only; not additional desires):
             goal = str(task.get("goal") or action)
 
             logger.info("Executing task: %s (for %s)", action[:50], desire_name)
+
+            if capability_id.startswith("browser-server."):
+                now_ms = int(time.time() * 1000)
+                if now_ms < self._browser_cooldown_until_ms:
+                    remaining = (self._browser_cooldown_until_ms - now_ms) // 1000
+                    logger.info("Skipping %s — browser cooldown %ds remaining", capability_id, remaining)
+                    results.append(
+                        {
+                            "desire": desire_name,
+                            "action": action,
+                            "capability_id": capability_id,
+                            "result": f"Browser cooldown ({remaining}s remaining after prior timeout)",
+                            "success": False,
+                            "full_output": {"error": "browser_cooldown", "remaining_s": remaining},
+                            "goal_status": "failed",
+                            "verification_status": "",
+                        }
+                    )
+                    continue
 
             # Create task in TaskManager
             task_id = ""
@@ -1772,7 +1995,19 @@ Operational decision axes (prioritization only; not additional desires):
             }
             results.append(result_record)
 
-            if self._should_present_autonomous_result(result_record):
+            if (
+                not success
+                and capability_id.startswith("browser-server.")
+                and ("timeout" in str(failure_reason).lower() or "timeout" in str(result_summary).lower())
+            ):
+                self._browser_cooldown_until_ms = int(time.time() * 1000) + self._browser_cooldown_ms
+                logger.info(
+                    "Browser cooldown armed for %ds after timeout on %s",
+                    self._browser_cooldown_ms // 1000,
+                    capability_id,
+                )
+
+            if self._should_present_autonomous_result(result_record, task):
                 self._present_autonomous_result(task, result_record)
 
             result_text = str(result_record.get("result", "")).lower().strip()
@@ -1805,14 +2040,6 @@ Operational decision axes (prioritization only; not additional desires):
 
         return results
 
-    def _should_present_autonomous_result(self, result_record: dict[str, Any]) -> bool:
-        if not result_record.get("success", False):
-            return False
-        result_text = str(result_record.get("result", "")).lower().strip()
-        if result_text in _TRIVIAL_RESULTS or (len(result_text) < 20 and result_record.get("success", False)):
-            return False
-        return True
-
     def _present_autonomous_result(self, task: dict[str, Any], result_record: dict[str, Any]) -> None:
         try:
             from aegis_ai.presentation.models import PresentationRequest
@@ -1822,6 +2049,10 @@ Operational decision axes (prioritization only; not additional desires):
             )
             from aegis_ai.runtime import get_runtime
         except Exception:
+            return
+
+        presentation = task.get("presentation") if isinstance(task.get("presentation"), dict) else {}
+        if str(presentation.get("audience") or "").lower() == "agent_private":
             return
 
         rt = get_runtime()
@@ -2064,7 +2295,7 @@ Rules:
                 if missing:
                     logger.warning("Follow-up task missing required args for %s: %s", cap_id, missing)
                     continue
-                penalty, penalty_reason = self._recent_failure_penalty(desire)
+                penalty, penalty_reason = self._recent_failure_penalty(desire, capability_id=cap_id)
                 if penalty >= 1.0:
                     logger.info("Skipping follow-up %s due to memory penalty: %s", cap_id, penalty_reason)
                     self._log_audit_event(
@@ -2150,12 +2381,30 @@ Rules:
             capability_id = result.get("capability_id", "")
             success = result.get("success", False)
             output = result.get("full_output", {})
+            awaiting_approval = (
+                isinstance(output, dict) and str(output.get("action_state") or "") == "awaiting_approval"
+            )
 
             if not desire_name:
                 continue
 
             desire = self._desire.get_desire(desire_name)
             if not desire:
+                continue
+
+            # Hold pressure while waiting on user approval; don't keep spinning.
+            if awaiting_approval:
+                try:
+                    self._desire.reduce_pressure(desire_name, 0.5)
+                except Exception:
+                    logger.debug("Pressure hold for awaiting_approval failed", exc_info=True)
+                self._log_audit_event(
+                    action="autonomous_fulfillment_hold",
+                    capability_id=capability_id,
+                    decision="AWAITING_APPROVAL",
+                    reason="Pressure held while approval is pending",
+                    detail={"desire": desire_name, "approval_id": output.get("approval_id")},
+                )
                 continue
 
             capability_metadata = self._resolve_capability_metadata(capability_id)
@@ -2196,7 +2445,9 @@ Rules:
                 self._desire.reduce_pressure(desire_name, task_result.pressure_reduction)
 
             if task_result.task_effect == TaskEffect.NO_EFFECT:
+                self._no_effect_counts[capability_id] = self._no_effect_counts.get(capability_id, 0) + 1
                 continue
+            self._no_effect_counts.pop(capability_id, None)
 
             for d_name, delta in task_result.desire_delta_hint.items():
                 if delta != 0.0:

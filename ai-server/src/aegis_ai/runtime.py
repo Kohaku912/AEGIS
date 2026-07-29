@@ -10,6 +10,7 @@ import asyncio
 import logging
 import os
 import threading
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -745,11 +746,20 @@ def _build_runtime(config: Config) -> AegisRuntime:
         "android.user_activity.changed",
         "android.foreground_app.changed",
     }
+    # Debounce high-frequency Android activity noise (observe_more spam).
+    _android_debounce_ms = int(os.environ.get("AEGIS_ANDROID_EVENT_DEBOUNCE_MS", "60000"))
+    _last_android_trigger_ms: dict[str, int] = {}
 
     def _evaluate_immediate_event(event):
         event_type = str(getattr(event, "event_type", "") or "")
         if event_type not in immediate_event_types:
             return
+        now_ms = int(time.time() * 1000)
+        if event_type.startswith("android.user_activity") or event_type.startswith("android.foreground_app"):
+            last = _last_android_trigger_ms.get(event_type, 0)
+            if now_ms - last < _android_debounce_ms:
+                return
+            _last_android_trigger_ms[event_type] = now_ms
         payload = getattr(event, "payload", {})
         detail = dict(payload) if isinstance(payload, dict) else {}
         initiative_engine.record_trigger(event_type, detail)
@@ -774,6 +784,7 @@ def _create_autonomous_loop(runtime: AegisRuntime) -> Any:
     from aegis_ai.autonomous.curiosity_exploration import CuriosityDrivenExplorationSystem
     from aegis_ai.autonomous.spontaneous_observation import SpontaneousObservationSystem
     from aegis_ai.desire.desire_system import DesireSystem
+    from aegis_ai.health.alert_manager import HealthAlertManager
     from aegis_ai.memory.action_trace import ActionTraceMemory
     from aegis_ai.memory.association_memory import AssociationMemory
     from aegis_ai.mind.affect_system import AffectSystem
@@ -829,6 +840,18 @@ def _create_autonomous_loop(runtime: AegisRuntime) -> Any:
     loop._agent_state = runtime.agent_state
     loop._goal_service = runtime.goal_service
 
+    loop.set_health_alert_manager(
+        HealthAlertManager(
+            data_dir=os.path.join(data_dir, "health"),
+            tool_broker=runtime.tool_broker,
+            llm_provider=runtime.llm_gateway,
+            status_manager=runtime.status_manager,
+            data_path=data_dir,
+        )
+    )
+    if getattr(runtime, "approval_manager", None) is not None:
+        loop.set_approval_manager(runtime.approval_manager)
+
     loop.set_observation_system(
         SpontaneousObservationSystem(
             llm=runtime.llm_gateway,
@@ -840,6 +863,10 @@ def _create_autonomous_loop(runtime: AegisRuntime) -> Any:
             person_memory=person_mem,
             action_trace=action_trace,
             status_manager=runtime.status_manager,
+            approval_manager=getattr(runtime, "approval_manager", None),
+            task_manager=getattr(runtime, "task_manager", None),
+            agent_state=getattr(runtime, "agent_state", None),
+            user_state_manager=getattr(runtime, "user_state_manager", None),
             data_dir=os.path.join(data_dir, "autonomous"),
         )
     )
@@ -856,17 +883,6 @@ def _create_autonomous_loop(runtime: AegisRuntime) -> Any:
     )
     curiosity_system._agenda = runtime.exploration_agenda
     loop.set_curiosity_system(curiosity_system)
-    from aegis_ai.health.alert_manager import HealthAlertManager
-
-    loop.set_health_alert_manager(
-        HealthAlertManager(
-            data_dir=os.path.join(data_dir, "health"),
-            tool_broker=runtime.tool_broker,
-            llm_provider=runtime.llm_gateway,
-            status_manager=runtime.status_manager,
-            data_path=data_dir,
-        )
-    )
 
     # Wire SleepManager to SleepConsolidationSystem
     from aegis_ai.memory.sleep_consolidation import SleepConsolidationSystem

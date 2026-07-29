@@ -452,6 +452,8 @@ class UserStateManager:
         self._confidence = ConfidenceEngine()
         self._event_manager = event_manager
         self._state: dict[str, Any] = {}
+        self._state_computed_at_ms: int = 0
+        self._state_ttl_ms: int = int(os.environ.get("AEGIS_USER_STATE_TTL_MS", "30000"))
         self._lock = threading.RLock()
         self._pc_poller_stop = threading.Event()
         self._pc_poller_thread: threading.Thread | None = None
@@ -468,6 +470,7 @@ class UserStateManager:
         with self._lock:
             saved = self._store.append(event)
             self._state = self._compute_state_locked()
+            self._state_computed_at_ms = int(time.time() * 1000)
         return saved
 
     def on_event(self, event: Event) -> None:
@@ -490,8 +493,15 @@ class UserStateManager:
 
     def get_current_user_state(self) -> dict[str, Any]:
         with self._lock:
-            if not self._state:
+            now_ms = int(time.time() * 1000)
+            stale = (
+                not self._state
+                or self._state_computed_at_ms <= 0
+                or (now_ms - self._state_computed_at_ms) >= self._state_ttl_ms
+            )
+            if stale:
                 self._state = self._compute_state_locked()
+                self._state_computed_at_ms = now_ms
             return json.loads(json.dumps(self._state, ensure_ascii=False))
 
     def get_recent_events(self, limit: int = 20, source: str | None = None) -> list[dict[str, Any]]:

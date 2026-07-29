@@ -1,9 +1,8 @@
 """Desire fulfillment evaluation.
 
-The autonomous loop uses this module after a capability runs. Fulfillment is
-always judged by an LLM evaluator. If the evaluator is unavailable, the result
-is intentionally left unjudged so desire values and pressure are not reduced by
-local heuristics.
+Prefer an LLM evaluator; on parse failure retry once, then fall back to
+structured fields only (tool_success / error / empty counts) — never
+keyword-match user text.
 """
 
 from __future__ import annotations
@@ -94,11 +93,7 @@ def evaluate_task_result(
     llm_provider: Any = None,
     capability_metadata: dict[str, Any] | None = None,
 ) -> TaskResult:
-    """Evaluate the effect of a tool execution on a desire.
-
-    LLM evaluation is mandatory. If no evaluator can provide a valid judgement,
-    return a blocked result with zero pressure/desire changes.
-    """
+    """Evaluate the effect of a tool execution on a desire."""
 
     metadata = capability_metadata or {}
     if llm_provider is not None and hasattr(llm_provider, "generate"):
@@ -110,11 +105,21 @@ def evaluate_task_result(
                 desire_name=desire_name,
                 output=output,
                 capability_metadata=metadata,
+                retry_on_parse_error=True,
             )
             if llm_result is not None:
                 return llm_result
         except Exception as exc:
             logger.warning("LLM desire fulfillment evaluation failed: %s", exc)
+
+    structural = _structural_fallback(
+        capability_id=capability_id,
+        tool_success=tool_success,
+        output=output if isinstance(output, dict) else {},
+        desire_name=desire_name,
+    )
+    if structural is not None:
+        return structural
 
     return _unavailable_result(tool_success=tool_success, reason="evaluator_unavailable")
 
@@ -127,6 +132,7 @@ def _evaluate_with_llm(
     desire_name: str,
     output: dict[str, Any],
     capability_metadata: dict[str, Any],
+    retry_on_parse_error: bool = False,
 ) -> TaskResult | None:
     prompt = {
         "instruction": (
@@ -146,23 +152,27 @@ def _evaluate_with_llm(
         "allowed_desires": list(DESIRE_FULFILLMENT),
     }
     prompt_text = json.dumps(prompt, ensure_ascii=False)
-    try:
-        response = llm_provider.generate(
-            prompt=prompt_text,
-            system_prompt="You are AEGIS desire fulfillment evaluator. Return compact JSON only.",
-            max_tokens=1024,
-            temperature=0.0,
-            json_mode=True,
-            profile="decision",
-            context_meta={"caller": "desire_fulfillment"},
-        )
-    except TypeError:
-        response = llm_provider.generate(
-            prompt=prompt_text,
-            system_prompt="You are AEGIS desire fulfillment evaluator. Return compact JSON only.",
-            max_tokens=1024,
-            temperature=0.0,
-        )
+
+    def _call(text: str, caller: str) -> Any:
+        try:
+            return llm_provider.generate(
+                prompt=text,
+                system_prompt="You are AEGIS desire fulfillment evaluator. Return compact JSON only.",
+                max_tokens=1024,
+                temperature=0.0,
+                json_mode=True,
+                profile="decision",
+                context_meta={"caller": caller},
+            )
+        except TypeError:
+            return llm_provider.generate(
+                prompt=text,
+                system_prompt="You are AEGIS desire fulfillment evaluator. Return compact JSON only.",
+                max_tokens=1024,
+                temperature=0.0,
+            )
+
+    response = _call(prompt_text, "desire_fulfillment")
     if not getattr(response, "success", False):
         return None
     content = getattr(response, "content", "") or ""
@@ -170,10 +180,25 @@ def _evaluate_with_llm(
         data = extract_json_object(content)
     except Exception as exc:
         logger.error("LLM desire fulfillment returned non-JSON: %s | content: %s", exc, content[:500])
-        return None
+        if not retry_on_parse_error:
+            return None
+        repair = prompt_text + "\n\nPrevious response was not valid JSON. Reply with a single JSON object only."
+        try:
+            response = _call(repair, "desire_fulfillment_retry")
+            if not getattr(response, "success", False):
+                return None
+            data = extract_json_object(getattr(response, "content", "") or "")
+        except Exception as retry_exc:
+            logger.error("Fulfillment JSON retry failed: %s", retry_exc)
+            return None
+
     effect = _parse_effect(data.get("task_effect"))
     if effect is None:
-        logger.error("LLM desire fulfillment returned invalid task_effect: %s | data: %s", data.get("task_effect"), data)
+        logger.error(
+            "LLM desire fulfillment returned invalid task_effect: %s | data: %s",
+            data.get("task_effect"),
+            data,
+        )
         return None
     summary = str(data.get("summary") or f"LLM classified result as {effect.value}")[:500]
     deltas = _sanitize_deltas(data.get("desire_delta_hint"), desire_name)
@@ -196,6 +221,67 @@ def _evaluate_with_llm(
             "raw_confidence": data.get("confidence"),
         },
     )
+
+
+def _structural_fallback(
+    *,
+    capability_id: str,
+    tool_success: bool,
+    output: dict[str, Any],
+    desire_name: str,
+) -> TaskResult | None:
+    """Classify from structured fields only — no user-text keyword matching."""
+    error = output.get("error")
+    if not tool_success or error:
+        return TaskResult(
+            tool_success=False,
+            task_effect=TaskEffect.FAILED,
+            fulfillment_score=0.0,
+            pressure_reduction=0.0,
+            desire_delta_hint={desire_name: -0.1} if desire_name else {},
+            summary=f"Tool failed for {capability_id}",
+            confidence=0.4,
+            details={"evaluator": "structural", "reason": "tool_error"},
+        )
+
+    count = output.get("count")
+    items = output.get("items") or output.get("posts") or output.get("files") or output.get("results")
+    if count == 0 or items == []:
+        return TaskResult(
+            tool_success=True,
+            task_effect=TaskEffect.NO_EFFECT,
+            fulfillment_score=0.0,
+            pressure_reduction=0.3,
+            desire_delta_hint={},
+            summary="Structured empty result",
+            confidence=0.45,
+            details={"evaluator": "structural", "reason": "empty_result"},
+        )
+
+    if output.get("action_state") == "awaiting_approval":
+        return TaskResult(
+            tool_success=False,
+            task_effect=TaskEffect.BLOCKED,
+            fulfillment_score=0.0,
+            pressure_reduction=0.5,
+            desire_delta_hint={},
+            summary="Awaiting approval",
+            confidence=0.7,
+            details={"evaluator": "structural", "reason": "awaiting_approval"},
+        )
+
+    if tool_success and output:
+        return TaskResult(
+            tool_success=True,
+            task_effect=TaskEffect.NEEDS_FOLLOWUP,
+            fulfillment_score=0.2,
+            pressure_reduction=0.4,
+            desire_delta_hint={desire_name: 0.1} if desire_name else {},
+            summary="Structural success without LLM judgement; needs follow-up",
+            confidence=0.3,
+            details={"evaluator": "structural", "reason": "tool_success_fallback"},
+        )
+    return None
 
 
 def _unavailable_result(*, tool_success: bool, reason: str) -> TaskResult:

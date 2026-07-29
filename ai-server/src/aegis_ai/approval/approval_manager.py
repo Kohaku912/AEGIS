@@ -77,11 +77,44 @@ class ApprovalManager:
         """Create an approval request from a tool execution request.
 
         Delegates to ApprovalQueue.enqueue() for persistence.
+        Suppresses duplicate pending proposals for the same capability+args hash.
         Notifies registered callbacks with 'created' event.
         """
+        cap_id = str(getattr(tool_request, "capability_id", "") or "")
+        args = getattr(tool_request, "arguments", None) or {}
+        args_hash = self._args_hash(args)
+        for pending in self.list_pending():
+            pending_cap = str(getattr(pending, "capability_id", "") or "")
+            pending_hash = str(getattr(pending, "args_hash", "") or "")
+            if not pending_hash and hasattr(pending, "arguments"):
+                pending_hash = self._args_hash(getattr(pending, "arguments", {}) or {})
+            if pending_cap == cap_id and pending_hash and pending_hash == args_hash:
+                logger.info(
+                    "Reusing pending approval %s for %s (duplicate capability+args)",
+                    getattr(pending, "approval_id", ""),
+                    cap_id,
+                )
+                return pending
+
         req = self._queue.enqueue(tool_request, policy_result)
+        if hasattr(req, "args_hash") and not getattr(req, "args_hash", ""):
+            try:
+                req.args_hash = args_hash
+            except Exception:
+                pass
         self._notify_state_change(req, "created")
         return req
+
+    @staticmethod
+    def _args_hash(arguments: Any) -> str:
+        import hashlib
+        import json
+
+        try:
+            payload = json.dumps(arguments, sort_keys=True, ensure_ascii=False, default=str)
+        except Exception:
+            payload = str(arguments)
+        return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:24]
 
     def list_pending(self) -> list[ApprovalRequest]:
         """Return non-expired pending requests."""

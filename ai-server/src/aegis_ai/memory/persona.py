@@ -1,15 +1,8 @@
-"""Persona Memory — remembers people and their characteristics.
+"""Persona Memory — DEPRECATED.
 
-Stores information about people the user interacts with:
-- Name, relationship, preferences
-- Conversation history summaries
-- Important dates, topics discussed
-- Emotional context
-
-Usage:
-    persona_mem = PersonaMemory()
-    persona_mem.add_person(Person(name="Taro", relationship="colleague", notes="Prefers email"))
-    results = persona_mem.search("Taro")
+Use ``aegis_ai.memory.person_memory.PersonMemory`` (`data/memory/persons.jsonl`)
+instead. This module is retained only for reading legacy `data/persona.jsonl`
+exports and must not be wired into runtime.
 """
 
 from __future__ import annotations
@@ -18,6 +11,7 @@ import json
 import logging
 import os
 import time
+import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -62,6 +56,11 @@ class PersonaMemory:
     """
 
     def __init__(self, path: str = "data/persona.jsonl") -> None:
+        warnings.warn(
+            "PersonaMemory is deprecated; use PersonMemory (data/memory/persons.jsonl).",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         self._path = Path(path)
         self._path.parent.mkdir(parents=True, exist_ok=True)
         self._persons: dict[str, Person] = {}

@@ -42,15 +42,21 @@ class SituationModel:
         return dict(self._state)
 
     def update_from_observation(self, source: str, payload: dict[str, Any]) -> dict[str, Any]:
-        if self._user_state_manager is not None and source in {"android", "pc", "browser", "room", "webhook"}:
-            self._user_state_manager.ingest_event(source, payload)
-            return self.get_state()
+        normalized = _normalize_observation_source(source)
+        if self._user_state_manager is not None and normalized in {
+            "android",
+            "pc",
+            "browser",
+            "room",
+            "webhook",
+        }:
+            self._user_state_manager.ingest_event(normalized, payload)
         if "user_state" in payload and isinstance(payload.get("user_state"), dict):
             return self.update_from_user_state(payload["user_state"])
         if any(k in payload for k in ("device_type", "activity", "foreground_app", "screen_state", "presence", "focus_mode", "mode")):
-            return self.update_from_structured_observation(source, payload)
+            return self.update_from_structured_observation(normalized or source, payload)
         evidence = list(self._state.get("evidence", []))[-19:]
-        evidence.append({"source": source, "payload": payload, "timestamp": now_ms()})
+        evidence.append({"source": normalized or source, "payload": payload, "timestamp": now_ms()})
         self._state = {
             "state": "unknown",
             "interruptibility": "unknown",
@@ -177,3 +183,20 @@ class SituationModel:
 
     def _save(self) -> None:
         self._state_file.save(self._state)
+
+
+def _normalize_observation_source(source: str) -> str:
+    """Map server ids like android-server / pc-server to situation source keys."""
+    raw = str(source or "").strip().lower()
+    aliases = {
+        "android-server": "android",
+        "pc-server": "pc",
+        "browser-server": "browser",
+        "room-server": "room",
+        "ai-server": "webhook",
+    }
+    if raw in aliases:
+        return aliases[raw]
+    if raw.endswith("-server"):
+        return raw[: -len("-server")]
+    return raw
