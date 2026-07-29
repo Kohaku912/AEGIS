@@ -1,0 +1,22 @@
+---
+description: Always deploy AEGIS changes to Ubuntu production after code changes
+alwaysApply: true
+---
+
+# Always Deploy After Changes
+
+After any code change that affects runtime behavior or the dashboard UI, deploy to the Ubuntu AI Server before ending the turn. Do not wait for the user to ask.
+
+## Deploy path
+
+1. **web-ui changes**: `cd web-ui && npm run build` (writes `ai-server/src/aegis_ai/web/static/ui-v2`).
+2. Copy changed Python modules and/or `ui-v2` to Ubuntu via `.aegis-local/copy-ubuntu.ps1` and install with `.aegis-local/ssh-ubuntu.ps1`.
+3. Sync into the running container `aegis-ai-server-1` (`docker cp` into `/app/...`) and restart: `docker restart aegis-ai-server-1`.
+4. Verify with a short health check (`docker ps`, optional `curl`/`grep` for new symbols).
+
+## Scope
+
+- Deploy AI Server Python + dashboard static UI for dashboard/backend changes.
+- Deploy other servers (browser/pc) only when those trees changed.
+- Do not commit secrets from `.aegis-local/`.
+- Tell the user briefly that deploy completed (or failed with the blocker).
