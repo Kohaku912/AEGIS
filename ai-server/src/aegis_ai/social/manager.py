@@ -298,7 +298,10 @@ Return:
         elif decision == "skip":
             item.status = SocialInboxStatus.SKIPPED
         else:
-            item.status = SocialInboxStatus.UNTRIAGED
+            # "observe_more" is a deliberate no-action decision for this
+            # message, not a failed triage.  Leaving it UNTRIAGED makes startup
+            # replay select the same item forever and prevents cursor progress.
+            item.status = SocialInboxStatus.SKIPPED
         self._save(item)
         self._publish("social.inbox.triaged", item)
         self._advance_processed_cursor(item.channel)
