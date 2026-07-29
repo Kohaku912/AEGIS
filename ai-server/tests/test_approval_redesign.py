@@ -292,10 +292,12 @@ class TestApprovalFanout:
         executor = MagicMock()
         executor.execute_capability.return_value = {
             "ok": True,
-            "shown": True,
-            "delivery_id": "pc_overlay_1",
+            "approved": True,
+            "request_id": "req_1",
+            "response": "Approved with Y key",
         }
-        channel = PcOverlayApprovalChannel(server_executor=executor)
+        manager = MagicMock()
+        channel = PcOverlayApprovalChannel(server_executor=executor, approval_manager=manager)
         event = ApprovalEvent(
             approval_id="appr_001",
             event_type="created",
@@ -311,10 +313,10 @@ class TestApprovalFanout:
         assert _run_async(channel.deliver(event)) is True
         executor.execute_capability.assert_called_once()
         capability_id, args = executor.execute_capability.call_args.args
-        assert capability_id == "pc-server.overlay.show_rich"
-        assert "body" in args
-        assert "command" not in args
-        assert "joining voice changes Discord state" in args["body"]
+        assert capability_id == "pc-server.approval.overlay"
+        assert "action" in args
+        assert "joining voice changes Discord state" in args["action"]
+        manager.approve.assert_called_once_with("appr_001", channel="pc_overlay", user="pc_user")
 
     def test_android_channel_sends_body_with_reason(self):
         from aegis_ai.approval.channels.android import AndroidApprovalChannel

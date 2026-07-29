@@ -433,6 +433,8 @@ def _display_queue(runtime: Any) -> dict[str, Any]:
     events = _recent_ui_events(runtime, limit=160)
     active: dict[str, dict[str, Any]] = {}
     for event in reversed(events):
+        if _is_activity_noise_event(event):
+            continue
         _resolve_display_items(active, event)
         if event.get("persistence") == "ephemeral":
             continue
@@ -490,9 +492,8 @@ def _activity(runtime: Any) -> dict[str, Any]:
         if len(group["events"]) < 8:
             group["events"].append(_activity_group_event_projection(event))
     ordered_groups = sorted(groups.values(), key=lambda item: int(item.get("updated_at", 0) or 0), reverse=True)
+    # Never pad with system/status groups — that reintroduces device telemetry.
     display_groups = [group for group in ordered_groups if group.get("operation_type") != "system"]
-    if len(display_groups) < 6:
-        display_groups = ordered_groups
     operations = _operations(runtime)
     aegis_recent = [
         _activity_event_projection(event)
@@ -524,6 +525,25 @@ _ACTIVITY_NOISE_EVENT_TYPES = {
     "server.heartbeat",
     "health.updated",
     "device.telemetry",
+    "android.heartbeat",
+    "android.user_activity",
+    "android.user_activity.changed",
+    "android.foreground_app.changed",
+    "android.current_app_changed",
+    "android.connected",
+    "android.disconnected",
+    "android.device_state",
+    "android.permission.changed",
+    "android.presence.changed",
+    "android.semantic_layout.changed",
+    "pc.user_activity.snapshot",
+    "browser.user_activity.changed",
+}
+
+_ANDROID_ACTIVITY_ALLOWLIST = {
+    "android.approval.decided",
+    "android.approval.decision",
+    "android.chat",
 }
 
 
@@ -570,6 +590,22 @@ def _operation_from_audit_group(group: dict[str, Any]) -> dict[str, Any] | None:
     tool_count = int(group.get("tool_count") or 0)
     approval_count = int(group.get("approval_count") or 0)
     error_count = int(group.get("error_count") or 0)
+    title = str(group.get("title") or "")
+    summary = str(group.get("summary") or "")
+    blob = f"{title} {summary}".lower()
+    if any(
+        token in blob
+        for token in (
+            "heartbeat",
+            "user_activity",
+            "foreground_app",
+            "activitychange",
+            "activity_change",
+            "activity changed",
+            "device telemetry",
+        )
+    ):
+        return None
     if kind == "system" and not (tool_count or approval_count):
         return None
     if kind == "system" and tool_count:
@@ -893,10 +929,39 @@ def _has_nearby_operation(
 
 
 def _is_activity_noise_event(event: dict[str, Any]) -> bool:
-    event_type = str(event.get("event_type") or event.get("type") or "").lower()
+    """Return True for device/status telemetry that is not an AEGIS operation."""
+    event_type = str(
+        event.get("event_type") or event.get("source_type") or event.get("type") or ""
+    ).lower()
+    title = str(
+        event.get("safe_title") or event.get("title") or event.get("safe_message") or event.get("message") or ""
+    ).lower()
+    haystack = f"{event_type} {title}"
+
+    if event_type in _ANDROID_ACTIVITY_ALLOWLIST:
+        return False
     if event_type in _ACTIVITY_NOISE_EVENT_TYPES:
         return True
-    if "heartbeat" in event_type or "telemetry" in event_type:
+    if event_type.startswith("android."):
+        # Device telemetry / phone signals are not AEGIS actions.
+        return True
+    if any(
+        token in haystack
+        for token in (
+            "heartbeat",
+            "telemetry",
+            "user_activity",
+            "foreground_app",
+            "current_app",
+            "activitychange",
+            "activity_change",
+            "activity changed",
+        )
+    ):
+        return True
+    if event.get("server_id") == "android-server" and not (
+        event.get("task_id") or event.get("approval_id") or event.get("capability_id")
+    ):
         return True
     operation_type = _activity_operation_type(event)
     if operation_type != "system":
@@ -907,9 +972,19 @@ def _is_activity_noise_event(event: dict[str, Any]) -> bool:
 
 def _is_operation_noise_entry(entry: dict[str, Any]) -> bool:
     action = str(entry.get("action") or "").lower()
+    detail = entry.get("detail") if isinstance(entry.get("detail"), dict) else {}
+    title = str(
+        entry.get("audit_group_title")
+        or detail.get("title")
+        or detail.get("summary")
+        or entry.get("detail_summary")
+        or ""
+    ).lower()
     if action in {"status_changed", "status.changed", "connection.updated", "health_check", "server_heartbeat"}:
         return True
-    if "heartbeat" in action or "telemetry" in action:
+    if "heartbeat" in action or "telemetry" in action or "user_activity" in action:
+        return True
+    if any(token in title for token in ("heartbeat", "user_activity", "foreground_app", "activity change")):
         return True
     return False
 

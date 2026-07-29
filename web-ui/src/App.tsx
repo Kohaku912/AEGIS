@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetchOverview, fetchResourceEntity } from "./api/client";
 import { useOverviewStream } from "./api/useOverviewStream";
+import { isUiActivityNoise } from "./activityNoise";
 import { ChatDrawer } from "./components/ChatDrawer";
 import { CommandPalette } from "./components/CommandPalette";
 import { GlobalInspector } from "./components/GlobalInspector";
@@ -54,7 +55,14 @@ export function App() {
     refetchInterval: displayMode ? 15_000 : 30_000
   });
   const onEvent = useCallback((event: UiEvent) => {
-    if (!("schema_version" in event)) setRecentEvents((items) => [event, ...items.filter((item) => item.event_id !== event.event_id)].slice(0, 40));
+    if ("schema_version" in event) {
+      void queryClient.invalidateQueries({ queryKey: ["ui-overview"] });
+      return;
+    }
+    if (isUiActivityNoise(event)) {
+      return;
+    }
+    setRecentEvents((items) => [event, ...items.filter((item) => item.event_id !== event.event_id)].slice(0, 40));
     void queryClient.invalidateQueries({ queryKey: ["ui-overview"] });
   }, [queryClient]);
   useOverviewStream(onEvent, !displayMode);

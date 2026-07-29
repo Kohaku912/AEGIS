@@ -560,16 +560,19 @@ def test_pc_overlay_requires_real_delivery_ack() -> None:
         state="pending",
     )
     executor = MagicMock()
-    channel = PcOverlayApprovalChannel(executor)
+    manager = MagicMock()
+    channel = PcOverlayApprovalChannel(executor, approval_manager=manager)
 
     executor.execute_capability.return_value = {"error": "unreachable"}
     assert asyncio.run(channel.deliver(event)) is False
     executor.execute_capability.return_value = {
         "ok": True,
-        "shown": True,
-        "delivery_id": "delivery_1",
+        "approved": True,
+        "request_id": "req_1",
+        "response": "Approved with Y key",
     }
     assert asyncio.run(channel.deliver(event)) is True
+    manager.approve.assert_called_once()
 
 
 def test_ui_depth_limit_does_not_json_quote_android_permission_names() -> None:

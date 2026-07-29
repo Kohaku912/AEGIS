@@ -844,9 +844,9 @@ class MainActivity : ComponentActivity() {
         val token = intent.getStringExtra("pairing_token")
         val port = if (intent.hasExtra("port")) intent.getIntExtra("port", 50051) else null
         val fallbackHost = intent.getStringExtra("fallback_host")
-        val fallbackPort = if (intent.hasExtra("fallback_port")) intent.getIntExtra("fallback_port", 443) else null
+        val fallbackPort = if (intent.hasExtra("fallback_port")) intent.getIntExtra("fallback_port", 50051) else null
         val useTlsFallback = if (intent.hasExtra("use_tls_fallback")) {
-            intent.getBooleanExtra("use_tls_fallback", true)
+            intent.getBooleanExtra("use_tls_fallback", false)
         } else {
             null
         }

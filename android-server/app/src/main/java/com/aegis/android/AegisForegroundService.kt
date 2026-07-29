@@ -10,7 +10,6 @@ import android.content.Intent
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
-import android.net.NetworkRequest
 import android.os.IBinder
 import android.util.Log
 import androidx.core.app.NotificationCompat
@@ -20,6 +19,7 @@ import com.aegis.android.provider.DeviceProvider
 import com.aegis.android.provider.UserActivityCollector
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
@@ -48,6 +48,8 @@ class AegisForegroundService : Service() {
     private lateinit var userActivityCollector: UserActivityCollector
     private var notificationConversationId = "android_notification_${System.currentTimeMillis()}"
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
+    private var reconnectDebounceJob: Job? = null
+    private var lastDefaultNetwork: Network? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -150,27 +152,72 @@ class AegisForegroundService : Service() {
 
     private fun registerNetworkCallback() {
         val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-        val request = NetworkRequest.Builder()
-            .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
-            .build()
+        // Default-network only: WARP (VPN) brings up/tears down extra networks and
+        // used to thrash reconnects via onLost(network_lost) while Core was healthy.
         val callback = object : ConnectivityManager.NetworkCallback() {
             override fun onAvailable(network: Network) {
-                grpcClient.requestReconnect("network_available")
+                maybeRequestReconnect(cm, network, "default_network_available")
             }
 
             override fun onLost(network: Network) {
-                grpcClient.requestReconnect("network_lost")
+                if (network == lastDefaultNetwork) {
+                    lastDefaultNetwork = null
+                }
+                maybeRequestReconnect(cm, cm.activeNetwork, "default_network_lost")
+            }
+
+            override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) {
+                if (!caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)) {
+                    return
+                }
+                maybeRequestReconnect(cm, network, "default_network_capabilities")
             }
         }
         networkCallback = callback
         try {
-            cm.registerNetworkCallback(request, callback)
+            cm.registerDefaultNetworkCallback(callback)
+            lastDefaultNetwork = cm.activeNetwork
         } catch (exc: Exception) {
-            Log.e(TAG, "Failed to register network callback", exc)
+            Log.e(TAG, "Failed to register default network callback", exc)
+        }
+    }
+
+    private fun maybeRequestReconnect(
+        cm: ConnectivityManager,
+        network: Network?,
+        reason: String,
+    ) {
+        if (network == null) {
+            scheduleReconnect(reason)
+            return
+        }
+        if (network == lastDefaultNetwork && grpcClient.isConnected()) {
+            return
+        }
+        val caps = cm.getNetworkCapabilities(network)
+        val hasInternet = caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
+        if (!hasInternet) {
+            return
+        }
+        val changed = network != lastDefaultNetwork
+        lastDefaultNetwork = network
+        if (changed || !grpcClient.isConnected()) {
+            scheduleReconnect(reason)
+        }
+    }
+
+    private fun scheduleReconnect(reason: String) {
+        reconnectDebounceJob?.cancel()
+        reconnectDebounceJob = scope.launch {
+            delay(2_500L)
+            Log.i(TAG, "Debounced reconnect: $reason")
+            grpcClient.requestReconnect(reason)
         }
     }
 
     private fun unregisterNetworkCallback() {
+        reconnectDebounceJob?.cancel()
+        reconnectDebounceJob = null
         val callback = networkCallback ?: return
         try {
             val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager

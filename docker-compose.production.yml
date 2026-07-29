@@ -5,7 +5,7 @@ services:
       AEGIS_AUTH_MODE: passkey
       AEGIS_WEBAUTHN_RP_ID: ${AEGIS_WEBAUTHN_RP_ID:-kawahara.pp.ua}
       AEGIS_WEBAUTHN_RP_NAME: ${AEGIS_WEBAUTHN_RP_NAME:-AEGIS Dashboard}
-      AEGIS_WEBAUTHN_ORIGINS: ${AEGIS_WEBAUTHN_ORIGINS:-https://kawahara.pp.ua}
+      AEGIS_WEBAUTHN_ORIGINS: ${AEGIS_WEBAUTHN_ORIGINS:-https://kawahara.pp.ua,https://aegis.kawahara.pp.ua}
       AEGIS_SESSION_SECRET: ${AEGIS_SESSION_SECRET:?AEGIS_SESSION_SECRET is required in production}
       AEGIS_AUTH_BOOTSTRAP_TOKEN: ${AEGIS_AUTH_BOOTSTRAP_TOKEN:-}
       AEGIS_UI_VERSION: v2

@@ -138,26 +138,25 @@ cd android-server && ./gradlew test
 
 ## gRPC Connection
 
-Current production Core connection:
+Current production Core connection (same address on LAN and cellular):
 
 | Network | Host | Port | TLS |
 |---------|------|------|-----|
 | Home LAN Wi‑Fi | `192.168.50.41` | `50051` | plaintext |
-| Cellular / away | `grpc.kawahara.pp.ua` | `443` | TLS + Cloudflare Access |
+| Cellular / away | `192.168.50.41` | `50051` | plaintext via Cloudflare One (WARP) private network |
 
-For an emulator, use `10.0.2.2:50051`. Cloudflare Tunnel setup:
-`infra/cloudflared/README.md`.
+Off-LAN requires Cloudflare One enrolled to team **`kawaharahome`**. Setup:
+`infra/cloudflared/README.md`. Public `grpc.*` hostnames are not used (Free plan
+blocks `application/grpc`).
+
+For an emulator, use `10.0.2.2:50051`.
 
 For a real device, use the app settings or start it with intent extras:
 
 ```powershell
 adb shell am start -n com.aegis.android/.MainActivity `
   --es host 192.168.50.41 --ei port 50051 `
-  --es fallback_host grpc.kawahara.pp.ua --ei fallback_port 443 `
-  --ez use_tls_fallback true `
   --es pairing_token <token> `
-  --es cf_access_client_id <id> `
-  --es cf_access_client_secret <secret> `
   --ez auto_connect true
 ```
 

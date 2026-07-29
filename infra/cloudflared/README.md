@@ -1,91 +1,98 @@
-# Cloudflare Tunnel — Android gRPC
+# Cloudflare Tunnel — Android via WARP (private network)
 
 Production path for Android **outside the LAN** (cellular / away from home Wi‑Fi).
-Do **not** publish host port `50051` to the public WAN. Terminate TLS at
-Cloudflare and keep Access Service Auth in front of the tunnel hostname.
 
-## Hostname
+**Do not** publish Core gRPC (`50051`) on a public hostname. Cloudflare Free
+blocks `application/grpc` on public hostnames (`long_lived_grpc` is not
+editable). Use **Zero Trust private networking + Cloudflare One (WARP)** instead.
 
-| Public | Origin |
-|--------|--------|
-| `grpc.kawahara.pp.ua:443` | `http://192.168.50.41:50051` (production publishes Core on the LAN bind; not loopback-only) |
+## Architecture
 
-LAN Wi‑Fi may still use plaintext `192.168.50.41:50051`. The Android app tries
-LAN first on Wi‑Fi, then falls back to this Cloudflare hostname.
+```
+Android (cellular)
+  → Cloudflare One / WARP (team: kawaharahome)
+  → Cloudflare edge
+  → cloudflared on Ubuntu (tunnel AEGIS)
+  → 192.168.50.41:50051  (plaintext gRPC / h2c)
+```
 
-## Ingress snippet
+On home Wi‑Fi the phone reaches `192.168.50.41:50051` directly. With WARP
+enrolled, the **same address** works off-LAN because Split Tunnels Include
+sends that CIDR into the tunnel.
 
-Merge into the host cloudflared config (typically `/etc/cloudflared/config.yml`):
+| Setting | Value |
+|---------|--------|
+| Tunnel ID | `4939347a-cdf3-41f6-bb3e-646b883a54a3` (name: `AEGIS`) |
+| Private CIDR | `192.168.50.41/32` |
+| Team domain | `kawaharahome.cloudflareaccess.com` |
+| WARP org name | `kawaharahome` |
+| Split Tunnels | **Exclude** without `192.168.0.0/16` on **Default and any matching custom profile** (WARP onboarding profiles override Default) |
+| Dashboard public hosts | `kawahara.pp.ua` / `aegis.kawahara.pp.ua` → `http://127.0.0.1:8090` |
+
+## Apply / refresh (API)
+
+Requires a token with Tunnel Edit + Zero Trust Networks Write + Device Write:
+
+```bash
+export CLOUDFLARE_API_TOKEN=...
+export CLOUDFLARE_ACCOUNT_ID=984d706b177f0a3abdfa2849fe3c1cff
+export TUNNEL_ID=4939347a-cdf3-41f6-bb3e-646b883a54a3
+bash infra/cloudflared/apply-warp-private-network.sh
+```
+
+This script:
+
+1. Ensures teamnet route `192.168.50.41/32` → tunnel `AEGIS`
+2. Enables `warp-routing` on the tunnel
+3. Keeps Dashboard public hostnames (no public `grpc.*` ingress)
+4. Sets Split Tunnels on **Default and matching custom profiles** (WARP
+   onboarding profiles override Default) to Exclude **without** `192.168.0.0/16`.
+
+## Android phone setup
+
+1. Install **Cloudflare One** (formerly WARP) from Play Store.
+2. Open the app → tap the menu → **Account** / organization → enter `kawaharahome`.
+3. Complete device enrollment (Zero Trust login / policy as configured).
+4. Turn WARP **Connected**, then toggle **OFF → ON** after any Split Tunnel
+   policy change so Android refreshes routes.
+5. Confirm VPN routes do **not** include `192.168.0.0/16 throw` (that exclusion
+   makes Core unreachable on cellular).
+6. In AEGIS Android Settings, keep Core host `192.168.50.41` port `50051` (plaintext).
+7. Connect. Pairing token still required.
+
+Verify off Wi‑Fi (airplane mode + cellular, or disable Wi‑Fi): AEGIS should stay
+connected to Core.
+
+## Dashboard-only public ingress
+
+Remotely managed tunnels (token mode) only need HTTP ingress for the Dashboard:
 
 ```yaml
 ingress:
-  - hostname: grpc.kawahara.pp.ua
-    service: http://192.168.50.41:50051
-    originRequest:
-      # gRPC requires HTTP/2 to the origin
-      http2Origin: true
-  # ... existing dashboard / other hostnames ...
+  - hostname: kawahara.pp.ua
+    service: http://127.0.0.1:8090
+  - hostname: aegis.kawahara.pp.ua
+    service: http://127.0.0.1:8090
   - service: http_status:404
+warp-routing:
+  enabled: true
 ```
 
-> Note: if Core is rebound to `127.0.0.1:50051` only, change the origin to
-> `http://127.0.0.1:50051`.
+Private gRPC is **not** an ingress hostname; it is a teamnet route.
 
-Then:
+## Deprecated: public `grpc.kawahara.pp.ua`
+
+Earlier experiments used a public hostname with `http2Origin`. On Free plan,
+Cloudflare returns HTTP **403** for `Content-Type: application/grpc`. Keep DNS
+if desired, but do not point Android at it. Prefer deleting that public hostname
+from the tunnel config (the apply script does this).
+
+## Ops checks
 
 ```bash
-# Route DNS (once)
-cloudflared tunnel route dns <TUNNEL_NAME> grpc.kawahara.pp.ua
+# Tunnel has warp-routing + dashboard ingress only
+# Route exists for 192.168.50.41/32
+# Device profile include list contains 192.168.50.41/32
 
-sudo systemctl restart cloudflared
+ss -lntp | grep 50051   # Core must listen on the LAN IP WARP targets
 ```
-
-## Cloudflare dashboard
-
-1. Zone **Network** → enable **gRPC** for the zone (or hostname).
-2. Zero Trust → Access → Applications → Add application for `grpc.kawahara.pp.ua`.
-3. Policy: **Service Auth** only (no public bypass).
-4. Create a **Service Token**; store Client ID / Client Secret in Android Settings
-   (or Intent extras). Never bake them into the APK or commit them.
-
-Android sends headers on every gRPC call:
-
-- `cf-access-client-id`
-- `cf-access-client-secret`
-
-AEGIS pairing token remains required for Core auth.
-
-## Remotely managed tunnels (token mode)
-
-Production Ubuntu runs `cloudflared tunnel run --token ...` (no local
-`config.yml`). Public hostnames are managed in Zero Trust → Networks → Tunnels
-or via API:
-
-```bash
-export CLOUDFLARE_API_TOKEN=...   # Tunnel Edit + DNS Edit
-export CLOUDFLARE_ACCOUNT_ID=984d706b177f0a3abdfa2849fe3c1cff
-export TUNNEL_ID=4939347a-cdf3-41f6-bb3e-646b883a54a3
-bash infra/cloudflared/apply-grpc-ingress.sh
-```
-
-Required published applications (correct origins):
-
-| Hostname | Service |
-|----------|---------|
-| `kawahara.pp.ua` | `http://127.0.0.1:8090` |
-| `aegis.kawahara.pp.ua` | `http://127.0.0.1:8090` |
-| `grpc.kawahara.pp.ua` | `http://192.168.50.41:50051` with `http2Origin: true` |
-
-Do **not** use `https://localhost:50051` — AI gRPC is plaintext HTTP/2 on the LAN bind.
-
-```bash
-# From any network: TLS edge responds
-curl -sI --http2 https://grpc.kawahara.pp.ua/ | head
-
-# Confirm Core bind on the Ubuntu host (LAN and/or loopback — not 0.0.0.0 WAN)
-ss -lntp | grep 50051
-```
-
-## Example config file
-
-See [ingress.grpc.example.yml](ingress.grpc.example.yml).

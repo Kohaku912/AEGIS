@@ -348,6 +348,43 @@ def test_display_queue_resolves_persistent_server_items():
     assert overview["activity"]["data"]["recent"][0]["event_id"] == "evt-approval"
 
 
+def test_android_telemetry_is_activity_noise():
+    from aegis_ai.web.ui_overview import _is_activity_noise_event, normalize_ui_event
+
+    for event_type in (
+        "android.heartbeat",
+        "android.user_activity.changed",
+        "android.foreground_app.changed",
+        "android.connected",
+    ):
+        event = normalize_ui_event(
+            {
+                "event_id": f"evt-{event_type}",
+                "event_type": event_type,
+                "timestamp": 1000,
+                "payload": {},
+            }
+        )
+        assert _is_activity_noise_event(event), event_type
+
+    title_only = {
+        "event_type": "activity.updated",
+        "safe_title": "android-server android.heartbeat",
+        "message": "android.heartbeat",
+    }
+    assert _is_activity_noise_event(title_only)
+
+    approval = normalize_ui_event(
+        {
+            "event_id": "evt-appr",
+            "event_type": "android.approval.decided",
+            "timestamp": 1000,
+            "payload": {"approval_id": "appr_1"},
+        }
+    )
+    assert not _is_activity_noise_event(approval)
+
+
 def test_ui_overview_compacts_large_step_results():
     huge_result = {"html": "x" * 5_000_000, "status": "ok", "items": list(range(200))}
 

@@ -66,7 +66,12 @@ class PasskeyConfig:
                 "http://127.0.0.1:8091",
             ]
         if not origins and production:
-            origins = [f"https://{rp_id}"]
+            origins = [f"https://{rp_id}", f"https://aegis.{rp_id}"]
+        # Always accept the Dashboard alias host when RP is the apex domain.
+        if production and rp_id and not rp_id.startswith("localhost"):
+            for candidate in (f"https://{rp_id}", f"https://aegis.{rp_id}"):
+                if candidate not in origins:
+                    origins.append(candidate)
         return cls(rp_id=rp_id, rp_name=rp_name, origins=origins, production=production)
 
 
