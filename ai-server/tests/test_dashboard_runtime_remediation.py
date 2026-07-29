@@ -168,6 +168,40 @@ def test_dismissed_repairs_are_not_active_errors() -> None:
     assert result["items"][0]["created_at"] == 30
 
 
+def test_recovered_server_connectivity_errors_are_not_active() -> None:
+    class Repair:
+        def list_history(self, limit=30):
+            return [
+                {
+                    "repair_id": "browser-timeout",
+                    "capability_id": "browser-server.page.read",
+                    "timestamp": 10,
+                    "error": "HTTP execution error: timed out",
+                    "final_result": "recorded",
+                },
+                {
+                    "repair_id": "android-permission",
+                    "capability_id": "android-server.screen.get_screenshot",
+                    "timestamp": 20,
+                    "error": "Android permission missing: media_projection",
+                    "final_result": "recorded",
+                },
+            ]
+
+        def get_status(self):
+            return {}
+
+    class Status:
+        def get_snapshot(self):
+            return {
+                "browser-server": {"status": "ONLINE"},
+                "android-server": {"status": "ONLINE"},
+            }
+
+    result = _errors(SimpleNamespace(repair_manager=Repair(), status_manager=Status()))
+    assert [item["id"] for item in result["items"]] == ["android-permission"]
+
+
 def test_disabled_and_unconfigured_servers_are_resolved(tmp_path: Path) -> None:
     class Status:
         def __init__(self, value: str) -> None:

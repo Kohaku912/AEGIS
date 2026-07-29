@@ -1186,6 +1186,18 @@ def _errors(runtime: Any) -> dict[str, Any]:
     repair = getattr(runtime, "repair_manager", None)
     items: list[dict[str, Any]] = []
     had_repair_history = False
+    server_statuses: dict[str, str] = {}
+    status_manager = getattr(runtime, "status_manager", None)
+    if status_manager is not None and hasattr(status_manager, "get_snapshot"):
+        try:
+            snapshot = status_manager.get_snapshot() or {}
+            server_statuses = {
+                str(server_id): str(value.get("status") or "").upper()
+                for server_id, value in snapshot.items()
+                if isinstance(value, dict)
+            }
+        except Exception:
+            server_statuses = {}
     if repair is not None and hasattr(repair, "list_history"):
         latest_by_id: dict[str, dict[str, Any]] = {}
         for entry in repair.list_history(limit=200) or []:
@@ -1216,13 +1228,28 @@ def _errors(runtime: Any) -> dict[str, Any]:
             status_value = str(entry.get("status") or entry.get("outcome") or "").strip().lower()
             if final_result in resolved_results or status_value in resolved_results | {"resolved", "repaired"}:
                 continue
+            capability_id = str(entry.get("capability_id") or "")
+            server_id = capability_id.split(".", 1)[0]
+            error_text = str(entry.get("error") or entry.get("summary") or "").lower()
+            connectivity_markers = (
+                "unavailable",
+                "offline",
+                "unreachable",
+                "timed out",
+                "timeout",
+                "connection",
+            )
+            if server_statuses.get(server_id) == "ONLINE" and any(
+                marker in error_text for marker in connectivity_markers
+            ):
+                continue
             items.append(
                 {
                     "id": str(entry.get("repair_id") or entry.get("id") or entry.get("capability_id") or ""),
                     "title": str(entry.get("category") or "Repair"),
                     "message": str(entry.get("error") or entry.get("summary") or ""),
                     "severity": "warning" if entry.get("retried") else "critical",
-                    "capability_id": str(entry.get("capability_id") or ""),
+                    "capability_id": capability_id,
                     "status": str(entry.get("status") or entry.get("outcome") or "recorded"),
                     "created_at": int(
                         entry.get("timestamp_ms") or entry.get("timestamp") or entry.get("created_at") or 0
