@@ -292,6 +292,48 @@ def test_recovered_capability_permission_errors_are_not_active() -> None:
     assert result["items"] == []
 
 
+def test_historical_errors_stay_resolved_during_a_new_disconnect() -> None:
+    class Repair:
+        def list_history(self, limit=30):
+            return [
+                {
+                    "repair_id": "old-timeout",
+                    "capability_id": "android-server.device.get_status",
+                    "timestamp": 10,
+                    "error": "Connection timed out",
+                    "final_result": "recorded",
+                },
+                {
+                    "repair_id": "old-permission",
+                    "capability_id": "android-server.screen.get_screenshot",
+                    "timestamp": 20,
+                    "error": "Android permission missing: media_projection",
+                    "final_result": "recorded",
+                },
+            ]
+
+        def get_status(self):
+            return {}
+
+    class Status:
+        def get_snapshot(self):
+            return {
+                "android-server": {
+                    "status": "OFFLINE",
+                    "last_healthy_at": 30,
+                    "capability_health": {
+                        "android-server.screen.get_screenshot": {
+                            "available": True,
+                            "missing_permissions": [],
+                        }
+                    },
+                }
+            }
+
+    result = _errors(SimpleNamespace(repair_manager=Repair(), status_manager=Status()))
+    assert result["items"] == []
+
+
 def test_disabled_and_unconfigured_servers_are_resolved(tmp_path: Path) -> None:
     class Status:
         def __init__(self, value: str) -> None:
