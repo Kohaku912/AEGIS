@@ -9,11 +9,11 @@ type Props = {
 export function StatusBadge({ status, detail }: Props) {
   const normalized = (status || "UNKNOWN").toUpperCase();
   const labels: Record<ServerStatus, string> = {
-    ONLINE: "オンライン",
-    DEGRADED: "一部機能低下",
-    OFFLINE: "オフライン",
-    DISABLED: "無効",
-    UNCONFIGURED: "未設定",
+    ONLINE: "Online",
+    DEGRADED: "Degraded",
+    OFFLINE: "Offline",
+    DISABLED: "Disabled",
+    UNCONFIGURED: "Unconfigured",
   };
   const Icon =
     normalized === "ONLINE" ? CheckCircle2 : normalized === "DISABLED" || normalized === "UNCONFIGURED" ? PauseCircle : normalized === "OFFLINE" ? CircleOff : AlertTriangle;

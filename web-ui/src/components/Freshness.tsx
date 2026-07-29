@@ -5,7 +5,7 @@ type Props = {
 };
 
 export function Freshness({ generatedAt, sourceUpdatedAt, stale = false }: Props) {
-  const label = `${stale ? "古いデータ" : "更新"}: ${formatDateTime(sourceUpdatedAt)}（${formatRelative(sourceUpdatedAt, generatedAt)}）`;
+  const label = `${stale ? "Stale data" : "Updated"}: ${formatDateTime(sourceUpdatedAt)} (${formatRelative(sourceUpdatedAt, generatedAt)})`;
   return (
     <span className="freshness" data-stale={stale}>
       {label}

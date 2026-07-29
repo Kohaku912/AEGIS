@@ -12,9 +12,9 @@ import logging
 import time
 from typing import Any
 
-from aegis_ai.llm.router import LLMRequest, LLMResponse, LLMRouter, PrivacyLevel, TaskType
-from aegis_ai.llm.settings_resolver import LLMSettingsResolver, LLMSettings
 from aegis_ai.llm.prompt_registry import PromptRegistry
+from aegis_ai.llm.router import LLMRequest, LLMResponse, LLMRouter, PrivacyLevel, TaskType
+from aegis_ai.llm.settings_resolver import LLMSettings, LLMSettingsResolver
 
 logger = logging.getLogger("aegis_ai.llm.gateway")
 
@@ -56,8 +56,9 @@ class LLMGateway:
         """Get or create a provider for a profile based on api_key_env and base_url."""
         import os
         try:
-            from dotenv import load_dotenv
             from pathlib import Path
+
+            from dotenv import load_dotenv
             env_path = Path(__file__).resolve().parents[4] / ".env"
             if env_path.exists():
                 load_dotenv(env_path, override=False)
@@ -65,7 +66,10 @@ class LLMGateway:
             pass
         if not settings.api_key_env and not settings.base_url:
             return None
-        cache_key = f"{settings.api_key_env}:{settings.base_url}:{settings.provider}"
+        cache_key = (
+            f"{settings.provider}:{settings.api_key_env}:{settings.base_url}:"
+            f"{settings.model}"
+        )
         if cache_key in self._profile_providers:
             return self._profile_providers[cache_key]
         api_key = os.getenv(settings.api_key_env, "") if settings.api_key_env else ""
@@ -205,6 +209,7 @@ class LLMGateway:
                 max_tokens=settings.max_tokens,
                 temperature=settings.temperature,
                 context_meta=context_meta,
+                json_mode=json_mode,
             )
         else:
             request = self._make_request(

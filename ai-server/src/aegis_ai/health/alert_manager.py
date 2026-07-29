@@ -206,12 +206,12 @@ class HealthAlertManager:
         try:
             from aegis_ai.llm.provider_circuit import PROVIDER_CIRCUIT
 
-            if PROVIDER_CIRCUIT.is_open():
-                status = PROVIDER_CIRCUIT.status()
+            status = PROVIDER_CIRCUIT.status()
+            if status.get("open") or status.get("degraded"):
                 remaining_s = int(status.get("remaining_ms", 0) or 0) // 1000
                 return self._create_alert(
                     alert_type="llm_unavailable",
-                    severity="critical",
+                    severity="warning",
                     message=(
                         f"LLM provider circuit open (balance/billing); "
                         f"cooldown {remaining_s}s. Top up API balance."
@@ -259,7 +259,9 @@ class HealthAlertManager:
                 status = str(item.get("status") or "").lower()
                 if status in {"online", "degraded"}:
                     return None
-                if status in {"offline", "disabled", "unconfigured"}:
+                if status in {"disabled", "unconfigured"}:
+                    return None
+                if status == "offline":
                     return self._create_alert(
                         alert_type="server_unreachable",
                         severity="warning",
@@ -393,20 +395,24 @@ class HealthAlertManager:
         return None
 
     def check_data_dir_size(self) -> HealthAlert | None:
-        """Check if data directory is excessively large (> 100MB)."""
+        """Check if data directory exceeds the configured warning threshold."""
         try:
             if not self._data_path.exists():
                 return None
             total_size = sum(
                 f.stat().st_size for f in self._data_path.rglob("*") if f.is_file()
             )
-            if total_size > 100 * 1024 * 1024:
+            threshold_mb = max(1, int(os.environ.get("AEGIS_DATA_DIR_WARNING_MB", "10240")))
+            if total_size > threshold_mb * 1024 * 1024:
                 return self._create_alert(
                     alert_type="data_dir_large",
                     severity="info",
                     message=f"Data directory large: {total_size // (1024*1024)}MB",
                     source="system",
-                    details={"size_mb": total_size // (1024 * 1024)},
+                    details={
+                        "size_mb": total_size // (1024 * 1024),
+                        "threshold_mb": threshold_mb,
+                    },
                 )
         except Exception:
             pass

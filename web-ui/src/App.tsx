@@ -33,7 +33,7 @@ import { Settings } from "./pages/Settings";
 import { SocialPage } from "./pages/SocialPage";
 import { Systems } from "./pages/Systems";
 import { Work } from "./pages/Work";
-import { formatDateTime, formatRelative, ja } from "./i18n";
+import { formatDateTime, formatRelative, messages } from "./i18n";
 import type { EntitySummary, UiEvent, UiOverview } from "./types";
 
 export function App() {
@@ -109,10 +109,10 @@ export function App() {
   const approvalCount = overview.approvals.data.pending_count || 0;
   return (
     <div className="master-shell" data-domain={route.domain} data-developer-mode={developerMode} data-density={density}>
-      <a className="skip-link" href="#main-content">メインコンテンツへ移動</a>
+      <a className="skip-link" href="#main-content">Skip to main content</a>
       <aside className="master-nav">
-        <div className="brand"><span className="brand__name">AEGIS</span><span className="brand__sub">{ja.appSubtitle}</span></div>
-        <nav aria-label="AEGISメインナビゲーション">
+        <div className="brand"><span className="brand__name">AEGIS</span><span className="brand__sub">{messages.appSubtitle}</span></div>
+        <nav aria-label="AEGIS main navigation">
           {navigation.map((domain, index) => {
             const Icon = domain.icon;
             const open = expanded === domain.id;
@@ -126,23 +126,23 @@ export function App() {
             );
           })}
         </nav>
-        <footer><span>パスキーセッション</span><strong>ポリシー保護中</strong></footer>
+        <footer><span>Passkey session</span><strong>Policy protected</strong></footer>
       </aside>
 
       <div className="master-workspace">
         <header className="master-topbar">
           <GlobalSearch entities={entities} onSelect={setSelectedEntity} />
-          <button className="palette-trigger" type="button" aria-label={ja.commands} onClick={() => setPaletteOpen(true)}><CommandIcon size={15} /><span>{ja.commands}</span><kbd>Ctrl K</kbd></button>
-          <button className="topbar-command" type="button" onClick={() => navigate("/dashboard/work/tasks?create=1")}><Plus size={15} />{ja.createTask}</button>
+          <button className="palette-trigger" type="button" aria-label={messages.commands} onClick={() => setPaletteOpen(true)}><CommandIcon size={15} /><span>{messages.commands}</span><kbd>Ctrl K</kbd></button>
+          <button className="topbar-command" type="button" onClick={() => navigate("/dashboard/work/tasks?create=1")}><Plus size={15} />{messages.createTask}</button>
           <button className="topbar-signal" type="button" onClick={() => navigate("/dashboard/attention")}><Bell size={15} /><span>{attentionCount}</span></button>
           <button className="topbar-signal" type="button" onClick={() => navigate("/dashboard/attention")}><StatusBadge status={approvalCount ? "WAITING" : "READY"} /><span>{approvalCount}</span></button>
-          <button className="icon-button" type="button" onClick={() => setChatOpen(true)} title={ja.chat} aria-label={ja.chat}><MessageSquare size={16} /></button>
-          <button className="icon-button developer-toggle" type="button" aria-pressed={developerMode} onClick={() => setDeveloperMode((value) => { const next = !value; window.localStorage.setItem("aegis.developer-mode", next ? "1" : "0"); return next; })} title={ja.developerMode} aria-label={ja.developerMode}><Code2 size={16} /></button>
-          <label className="density-control"><span>表示密度</span><select aria-label="表示密度" value={density} onChange={(event) => { const next = event.currentTarget.value; setDensity(next); window.localStorage.setItem("aegis.density", next); }}><option value="comfortable">ゆったり</option><option value="standard">標準</option><option value="compact">コンパクト</option></select></label>
-          <a className="user-chip" href="/dashboard/security/passkeys"><UserRound size={15} /><span>管理者</span></a>
+          <button className="icon-button" type="button" onClick={() => setChatOpen(true)} title={messages.chat} aria-label={messages.chat}><MessageSquare size={16} /></button>
+          <button className="icon-button developer-toggle" type="button" aria-pressed={developerMode} onClick={() => setDeveloperMode((value) => { const next = !value; window.localStorage.setItem("aegis.developer-mode", next ? "1" : "0"); return next; })} title={messages.developerMode} aria-label={messages.developerMode}><Code2 size={16} /></button>
+          <label className="density-control"><span>Display density</span><select aria-label="Display density" value={density} onChange={(event) => { const next = event.currentTarget.value; setDensity(next); window.localStorage.setItem("aegis.density", next); }}><option value="comfortable">Comfortable</option><option value="standard">Standard</option><option value="compact">Compact</option></select></label>
+          <a className="user-chip" href="/dashboard/security/passkeys"><UserRound size={15} /><span>Administrator</span></a>
         </header>
-        <header className="workspace-heading"><div><span>{definition.domain.label}</span><h1>{definition.page.label}</h1></div><div><StatusBadge status={String(overview.core.data.health || "DEGRADED")} /><span className="workspace-heading__freshness">{ja.updated}: {formatDateTime(overview.generated_at)}（{formatRelative(overview.generated_at)}）</span></div></header>
-        {streamState === "offline" || streamState === "malformed" ? <div className="data-state data-state--warning" role="status">{streamState === "offline" ? "リアルタイム接続が切断されています。自動再接続中です。" : "不正な更新データを検出しました。最新スナップショットで復旧します。"}</div> : null}
+        <header className="workspace-heading"><div><span>{definition.domain.label}</span><h1>{definition.page.label}</h1></div><div><StatusBadge status={String(overview.core.data.health || "DEGRADED")} /><span className="workspace-heading__freshness">{messages.updated}: {formatDateTime(overview.generated_at)} ({formatRelative(overview.generated_at)})</span></div></header>
+        {streamState === "offline" || streamState === "malformed" ? <div className="data-state data-state--warning" role="status">{streamState === "offline" ? "The real-time connection is offline. Reconnecting automatically." : "A malformed update was detected. Recovering from the latest snapshot."}</div> : null}
         <main className="master-content" id="main-content" tabIndex={-1}>
           <Page pageId={route.page} overview={overview} recentEvents={recentEvents} onSelect={setSelectedEntity} pinnedEntities={pinnedEntities} developerMode={developerMode} />
         </main>

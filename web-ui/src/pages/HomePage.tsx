@@ -10,29 +10,29 @@ export function HomePage({ overview }: { overview: UiOverview }) {
   const recent = overview.activity?.data.operations?.slice(0, 5) || [];
   const servers = overview.servers.data.items || [];
   return <div className="home-page">
-    <PageHeader title="概要" description="AEGISが今していることと、あなたの対応が必要なことを優先して表示します。">
+    <PageHeader title="Overview" description="Prioritizes what AEGIS is doing now and what needs your attention.">
       <Freshness generatedAt={overview.generated_at} sourceUpdatedAt={overview.core.source_updated_at} stale={overview.core.stale} />
     </PageHeader>
     <a className="home-attention-hero" href="/dashboard/attention" data-clear={attention === 0}>
       {attention ? <AlertTriangle aria-hidden="true" /> : <CheckCircle2 aria-hidden="true" />}
-      <div><span>対応が必要</span><strong>{attention ? `${attention}件の確認事項があります` : "現在、対応が必要な項目はありません"}</strong></div>
+      <div><span>Needs attention</span><strong>{attention ? `${attention} item(s) need review` : "No items currently need attention"}</strong></div>
       <ArrowRight aria-hidden="true" />
     </a>
     <div className="home-summary-grid">
       <section className="panel">
-        <header><PlayCircle size={18} /><h2>現在の仕事</h2></header>
-        <h3>{task.title || "実行中のタスクはありません"}</h3>
-        <p>{task.current_action || task.next_action || "新しい依頼または継続条件を待っています。"}</p>
-        {task.task_id ? <a href={`/dashboard/work/tasks?task=${encodeURIComponent(task.task_id)}`}>タスク詳細を開く <ArrowRight size={14} /></a> : null}
+        <header><PlayCircle size={18} /><h2>Current work</h2></header>
+        <h3>{task.title || "No task is currently running"}</h3>
+        <p>{task.current_action || task.next_action || "Waiting for a new request or continuation condition."}</p>
+        {task.task_id ? <a href={`/dashboard/work/tasks?task=${encodeURIComponent(task.task_id)}`}>Open task details <ArrowRight size={14} /></a> : null}
       </section>
       <section className="panel">
-        <header><h2>AEGISの状態</h2><StatusBadge status={String(overview.core.data.health || "DEGRADED")} /></header>
-        <dl className="home-facts"><div><dt>動作モード</dt><dd>{String(overview.core.data.mode || "IDLE")}</dd></div><div><dt>サーバー</dt><dd>{servers.filter((server) => server.status === "ONLINE").length} / {servers.length} オンライン</dd></div><div><dt>承認待ち</dt><dd>{overview.approvals.data.pending_count || 0}件</dd></div></dl>
+        <header><h2>AEGIS status</h2><StatusBadge status={String(overview.core.data.health || "DEGRADED")} /></header>
+        <dl className="home-facts"><div><dt>Operating mode</dt><dd>{String(overview.core.data.mode || "IDLE")}</dd></div><div><dt>Servers</dt><dd>{servers.filter((server) => server.status === "ONLINE").length} / {servers.length} online</dd></div><div><dt>Pending approvals</dt><dd>{overview.approvals.data.pending_count || 0}</dd></div></dl>
       </section>
     </div>
     <section className="panel">
-      <header><h2>直近の結果</h2><Freshness generatedAt={overview.generated_at} sourceUpdatedAt={overview.activity?.source_updated_at || overview.generated_at} stale={overview.activity?.stale} /></header>
-      <div className="compact-list">{recent.length ? recent.map((item) => <article className="list-row" key={String(item.operation_id || item.title)}><div><strong>{item.title || item.kind_label || "処理"}</strong><p>{item.narrative || item.what_happened || item.summary || "詳細はありません"}</p></div><StatusBadge status={String(item.status || "completed")} /></article>) : <p className="muted">直近の処理結果はありません。</p>}</div>
+      <header><h2>Recent results</h2><Freshness generatedAt={overview.generated_at} sourceUpdatedAt={overview.activity?.source_updated_at || overview.generated_at} stale={overview.activity?.stale} /></header>
+      <div className="compact-list">{recent.length ? recent.map((item) => <article className="list-row" key={String(item.operation_id || item.title)}><div><strong>{item.title || item.kind_label || "Operation"}</strong><p>{item.narrative || item.what_happened || item.summary || "No details available"}</p></div><StatusBadge status={String(item.status || "completed")} /></article>) : <p className="muted">No recent operation results.</p>}</div>
     </section>
   </div>;
 }

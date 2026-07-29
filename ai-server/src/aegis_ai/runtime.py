@@ -845,6 +845,7 @@ def _create_autonomous_loop(runtime: AegisRuntime) -> Any:
     loop._continuation_manager = runtime.continuation_manager
     loop._agent_state = runtime.agent_state
     loop._goal_service = runtime.goal_service
+    loop._social_manager = runtime.social_manager
 
     loop.set_health_alert_manager(
         HealthAlertManager(
