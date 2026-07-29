@@ -4,11 +4,16 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { ActivityPage } from "./ActivityPage";
 import { Approvals } from "./Approvals";
 import { CommandCenter } from "./CommandCenter";
+import { JudgmentPage } from "./JudgmentPage";
 import { MindMemory } from "./MindMemory";
+import { OpenLoopsPage } from "./OpenLoopsPage";
+import { OperationsPage } from "./OperationsPage";
 import { Settings } from "./Settings";
+import { SocialPage } from "./SocialPage";
 import { Systems } from "./Systems";
 import { Work } from "./Work";
 import type { UiOverview } from "../types";
+import { navigation } from "../navigation";
 
 vi.mock("../components/cognitive-field/CognitiveField", () => ({
   CognitiveField: () => <div data-testid="cognitive-field-mock" />,
@@ -49,6 +54,44 @@ describe("dashboard v2 pages", () => {
     expect(screen.getAllByText("pc-server.screenshot.get_screenshot").length).toBeGreaterThan(0);
   });
 
+  it("renders Open Loops with owner and next action", () => {
+    render(<OpenLoopsPage overview={overview()} />);
+    expect(screen.getByText("Unresolved work AEGIS still owns")).toBeInTheDocument();
+    expect(screen.getAllByText("Follow up on review").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Approve or reject").length).toBeGreaterThan(0);
+  });
+
+  it("renders Operation causal chain stages", () => {
+    render(<OperationsPage overview={overview()} />);
+    expect(screen.getByText("Causal chain of each AEGIS action")).toBeInTheDocument();
+    expect(screen.getByText("Trigger")).toBeInTheDocument();
+    expect(screen.getByText("Learning")).toBeInTheDocument();
+  });
+
+  it("renders Initiative non-action and Social AGORA pending", () => {
+    render(<JudgmentPage overview={overview()} focus="initiative" />);
+    expect(screen.getByText("Why no action")).toBeInTheDocument();
+    expect(screen.getAllByText("budget gate").length).toBeGreaterThan(0);
+
+    cleanup();
+    render(<SocialPage overview={overview()} />);
+    expect(screen.getByText("Social inbox & AGORA decisions")).toBeInTheDocument();
+    expect(screen.getByText(/hello from agora/i)).toBeInTheDocument();
+  });
+  it("keeps judgment-first navigation domains", () => {
+    expect(navigation.map((domain) => domain.id)).toEqual([
+      "command",
+      "loops",
+      "judgment",
+      "communications",
+      "systems",
+      "governance",
+      "developer",
+      "configuration",
+    ]);
+    expect(navigation.find((domain) => domain.id === "loops")?.pages.some((page) => page.id === "open-loops")).toBe(true);
+  });
+
   it("renders Systems topology and Android detail", () => {
     render(<Systems overview={overview()} />);
     expect(screen.getByLabelText("Server topology")).toBeInTheDocument();
@@ -76,7 +119,7 @@ describe("dashboard v2 pages", () => {
       "/chat?conversation_id=conversation-1",
     );
     expect(screen.getAllByText("Connection dropped").length).toBeGreaterThan(0);
-    expect(screen.getByText("Audit-backed")).toBeInTheDocument();
+    expect(screen.getByText(/1 open/i)).toBeInTheDocument();
     unmount();
 
     const work = render(<Work overview={data} />);
@@ -103,7 +146,7 @@ describe("dashboard v2 pages", () => {
     render(<ActivityPage overview={data} recentEvents={[event()]} />);
     expect(screen.getByText("AEGIS Operations")).toBeInTheDocument();
     expect(screen.getByText("User instruction: Inspect desktop")).toBeInTheDocument();
-    expect(screen.getAllByText("pc-server.screenshot.get_screenshot: Captured screenshot").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Captured a screenshot of the desktop.").length).toBeGreaterThan(0);
     expect(screen.getByText("Task task-1")).toBeInTheDocument();
   });
 });
@@ -119,7 +162,7 @@ function envelope<T>(data: T) {
 
 function overview(): UiOverview {
   return {
-    schema_version: "ui-overview.v3",
+    schema_version: "ui-overview.v4",
     generated_at: 1000,
     core: envelope({ active_goal: "Ship UI", confidence: "high", health: "ONLINE", mode: "EXECUTING", activity_level: 5, pending_approval_count: 1 }),
     connection: envelope({ quality: "degraded", online_count: 1, total_count: 2, attention_count: 1 }),
@@ -226,19 +269,33 @@ function overview(): UiOverview {
           kind: "chat",
           kind_label: "User instruction",
           title: "Inspect desktop",
-          summary: "Captured screenshot",
-          what_happened: "pc-server.screenshot.get_screenshot: Captured screenshot",
+          summary: "Captured a screenshot of the desktop.",
+          what_happened: "Captured a screenshot of the desktop.",
+          narrative: "Captured a screenshot of the desktop.",
           status: "success",
           started_at: 1000,
           updated_at: 2000,
           tool_count: 1,
           error_count: 0,
           priority: "P2",
+          causal_chain: [
+            { stage: "trigger", label: "Trigger", summary: "User instruction", status: "present" },
+            { stage: "decision_context", label: "Decision Context", summary: "AgentState", status: "present" },
+            { stage: "candidates_and_non_action", label: "Candidates And Non Action", summary: "Tool steps selected", status: "present" },
+            { stage: "goal", label: "Goal", summary: "Inspect desktop", status: "present" },
+            { stage: "execution", label: "Execution", summary: "1 succeeded", status: "present" },
+            { stage: "result", label: "Result", summary: "Captured a screenshot of the desktop.", status: "present" },
+            { stage: "verification", label: "Verification", summary: "Execution completed", status: "present" },
+            { stage: "presentation", label: "Presentation", summary: "Reported", status: "present" },
+            { stage: "follow_up", label: "Follow Up", summary: "", status: "missing" },
+            { stage: "learning", label: "Learning", summary: "", status: "missing" },
+          ],
           steps: [
             {
               action: "tool_execution",
               capability_id: "pc-server.screenshot.get_screenshot",
-              summary: "Captured screenshot",
+              summary: "Captured a screenshot of the desktop.",
+              narrative: "Captured a screenshot of the desktop.",
               status: "ok",
             },
           ],
@@ -256,7 +313,48 @@ function overview(): UiOverview {
       ],
       recent: [],
     }),
-    freshness: envelope({})
+    freshness: envelope({}),
+    open_loops: envelope({
+      items: [
+        {
+          id: "loop-1",
+          kind: "commitment",
+          title: "Follow up on review",
+          owner: "User",
+          next_action: "Approve or reject",
+          waiting_reason: "Waiting for user",
+          success_condition: "Review complete",
+          status: "open",
+          confidence: 0.8,
+          evidence_summary: "Linked conversation",
+        },
+      ],
+      count: 1,
+      by_kind: { commitment: 1 },
+      summary: "1 open",
+    }),
+    initiative: envelope({
+      funnel: { triggers_observed: 3, actions_executed: 1 },
+      no_action_reasons: { "budget gate": 2 },
+      recent_non_actions: [{ decision: "no_action", reason: "budget gate", created_at: 1000 }],
+      summary: "Triggers 3; executed 1; top non-action: budget gate",
+    }),
+    goals: envelope({
+      open: [{ title: "Ship UI", success_condition: "Dashboard usable", unmet_conditions: [{ summary: "Verification pending" }], status: "running" }],
+      open_count: 1,
+      summary: "1 open goal(s)",
+    }),
+    social: envelope({
+      pending_decisions: [{ item_id: "agora-1", channel: "agora", body: "hello from agora", status: "pending" }],
+      decided: [],
+      agora: { pending_count: 1, counts: { pending: 1 } },
+      summary: "1 social item(s) awaiting decision",
+    }),
+    repairs: envelope({ items: [{ category: "llm", summary: "Provider recovered", lesson: "Retry later" }], count: 1 }),
+    behavioral_reports: envelope({ metrics: { restraint: 0.8, goal_achievement: 0.5 }, summary: "Restraint 80%" }),
+    decision_context: envelope({ summary: "User available; one obligation open", obligations: [{ kind: "commitment", summary: "Review UI" }] }),
+    executions: envelope({ operations: [], count: 0, summary: "0 recent operation(s)" }),
+    generated_capabilities: envelope({ items: [], count: 0, summary: "0 generated capability(ies)" }),
   };
 }
 

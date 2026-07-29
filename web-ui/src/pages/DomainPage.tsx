@@ -41,7 +41,7 @@ const PAGE_FIELDS: Record<string, string[]> = {
   reports: ["Production readiness", "UI completeness", "Capability coverage", "Mock audit", "E2E", "Soak", "Security", "Backup", "Device"],
 };
 
-export function DomainPage({ pageId, overview, events, onSelect }: { pageId: string; overview: UiOverview; events: UiEvent[]; onSelect: (entity: EntitySummary) => void }) {
+export function DomainPage({ pageId, overview, events, onSelect, developerMode = false }: { pageId: string; overview: UiOverview; events: UiEvent[]; onSelect: (entity: EntitySummary) => void; developerMode?: boolean }) {
   const definition = pageDefinition(pageId);
   const [query, setQuery] = useState("");
   const [savedView, setSavedView] = useState("all");
@@ -70,9 +70,12 @@ export function DomainPage({ pageId, overview, events, onSelect }: { pageId: str
   const fields = PAGE_FIELDS[pageId] || ["Status", "Source", "Owner", "Updated", "Result", "Reason"];
   const contractFacts = factsForEntity(selected, fields);
   const fallbackFacts = primaryFacts(selected, 10);
-  const contextFacts = pageContextFacts(pageId, overview);
-  const reportedFacts = contractFacts.filter((fact) => !fact.missing);
-  const detailFacts = reportedFacts.length ? contractFacts : fallbackFacts;
+  const contextFacts = pageContextFacts(pageId, overview).filter((fact) => !fact.missing && fact.value !== "Not reported");
+  const reportedFacts = contractFacts.filter((fact) => !fact.missing && fact.value !== "Not reported");
+  const detailFacts = developerMode
+    ? (reportedFacts.length ? contractFacts : fallbackFacts)
+    : (reportedFacts.length ? reportedFacts : fallbackFacts.filter((fact) => fact.value !== "Not reported"));
+
 
   useEffect(() => {
     if (selected && selected.id !== selectedId) setSelectedId(selected.id);
@@ -189,6 +192,9 @@ export function DomainPage({ pageId, overview, events, onSelect }: { pageId: str
                   </div>
                 ))}
               </dl>
+              {developerMode && selected ? (
+                <pre className="developer-raw">{JSON.stringify(selected.data || {}, null, 2)}</pre>
+              ) : null}
               {selected.relations.length ? (
                 <section>
                   <h4>Relations</h4>
@@ -242,26 +248,37 @@ function emptyMessage(pageId: string, overview: UiOverview): string {
   }
   if (pageId === "commitments") return "CommitmentManager has no open commitments.";
   if (pageId === "notifications") return "NotificationManager has no recent notifications.";
-  return "The management contract remains ready; data appears when its Manager reports it.";
+  if (pageId === "generated-capabilities") return "No generated capabilities are registered yet.";
+  if (pageId === "capability-executions") return "No execution history in the current overview window.";
+  if (pageId === "errors") return "RepairManager has no recent repair events.";
+  if (pageId === "reports") return "BehavioralEvaluation has no metrics yet.";
+  if (pageId === "conversations" || pageId === "social") return "SocialManager has no inbox items yet.";
+  return "Data appears when the backing manager reports it.";
 }
 
 function resourceForPage(pageId: string): string | undefined {
-  if (["plans", "tasks"].includes(pageId)) return "tasks";
+  if (["plans", "tasks", "open-loops"].includes(pageId)) return "tasks";
   if (pageId === "schedule") return "hooks";
   if (pageId === "delegation") return "delegations";
   if (pageId === "autonomy") return "autonomy";
   if (pageId === "commitments") return "commitments";
   if (["servers", "network", "deployment", "storage", "performance"].includes(pageId)) return "servers";
   if (pageId === "devices") return "devices";
-  if (["memory", "context"].includes(pageId)) return "memories";
+  if (pageId === "memory") return "memories";
   if (pageId === "sleep") return "sleep";
-  if (pageId === "user-model") return "user-models";
-  if (pageId === "situation") return "situations";
+  // Context is DecisionContext projection — do not hit memory resource API.
+  if (pageId === "context" || pageId === "decision-context") return undefined;
+  if (pageId === "user-model" || pageId === "situation") return undefined;
   if (pageId === "models-prompts") return "prompts";
-  if (["capability-catalog", "generated-capabilities", "capability-executions", "policy-simulation"].includes(pageId)) return "capabilities";
+  if (pageId === "capability-catalog") return "capabilities";
+  // Generated and Executions use dedicated overview sections, not the full catalog.
+  if (pageId === "generated-capabilities" || pageId === "capability-executions") return undefined;
+  if (pageId === "policy-simulation") return "capabilities";
   if (pageId.includes("approval") || pageId === "attention") return "approvals";
-  if (["audit", "errors", "reports", "llm-usage", "security", "privacy", "policy"].includes(pageId)) return "audit";
-  if (pageId === "conversations") return "conversations";
+  if (["audit", "security", "privacy", "policy", "llm-usage"].includes(pageId)) return "audit";
+  // Errors → RepairManager overview; Reports → Behavioral Evaluation overview.
+  if (pageId === "errors" || pageId === "reports") return undefined;
+  if (pageId === "conversations" || pageId === "social") return undefined;
   if (pageId === "notifications") return "notifications";
   if (pageId === "presentation-surfaces") return "presentations";
   return undefined;
@@ -287,11 +304,116 @@ function resourcesForPage(pageId: string, overview: UiOverview, events: UiEvent[
     }));
     return [...attention, ...all.filter((item) => item.severity !== "normal" || item.type === "approval")];
   }
-  if (["plans", "tasks"].includes(pageId)) return all.filter((item) => item.type === "task");
+  if (["plans", "tasks", "open-loops"].includes(pageId)) return all.filter((item) => item.type === "task");
   if (pageId === "commitments") return all.filter((item) => item.type === "commitment");
   if (["servers", "devices", "network", "deployment", "storage"].includes(pageId)) return all.filter((item) => item.type === "server");
   if (pageId === "notifications") return all.filter((item) => item.type === "notification");
-  if (["audit", "errors", "performance", "reports", "llm-usage"].includes(pageId)) return all.filter((item) => item.type === "event");
+  if (pageId === "generated-capabilities") {
+    return ((overview.generated_capabilities?.data.items || []) as Array<Record<string, unknown>>).map((item, index) => ({
+      id: String(item.capability_id || item.id || index),
+      type: "generated_capability",
+      title: String(item.short_name || item.capability_id || item.id || "Generated capability"),
+      subtitle: String(item.description || item.origin || "generated"),
+      status: String(item.status || item.promotion_status || "generated"),
+      severity: "normal",
+      updated_at: Number(item.updated_at || 0) || undefined,
+      owner: "AEGIS",
+      tags: ["generated"],
+      relations: [],
+      available_actions: [{ id: "inspect", label: "Inspect", level: "view" as const }],
+      permissions: [],
+      data: item,
+    }));
+  }
+  if (pageId === "capability-executions") {
+    const ops = (overview.executions?.data.operations || overview.activity?.data.operations || []) as Array<Record<string, unknown>>;
+    return ops.map((item, index) => ({
+      id: String(item.operation_id || index),
+      type: "execution",
+      title: String(item.title || item.kind_label || "Execution"),
+      subtitle: String(item.what_happened || item.summary || ""),
+      status: String(item.status || "ok"),
+      severity: Number(item.error_count || 0) > 0 ? "warning" : "normal",
+      updated_at: Number(item.updated_at || item.started_at || 0) || undefined,
+      owner: "AEGIS",
+      tags: [String(item.kind || "operation")],
+      relations: [],
+      available_actions: [{ id: "inspect", label: "Inspect", level: "view" as const }],
+      permissions: [],
+      data: item,
+    }));
+  }
+  if (pageId === "context" || pageId === "decision-context") {
+    const ctx = overview.decision_context?.data || overview.agent_state?.data || {};
+    return [{
+      id: "decision-context",
+      type: "decision_context",
+      title: "Decision context",
+      subtitle: String(ctx.summary || "").slice(0, 160),
+      status: "live",
+      severity: "normal",
+      owner: "AEGIS",
+      tags: ["agent_state"],
+      relations: [],
+      available_actions: [{ id: "inspect", label: "Inspect", level: "view" as const }],
+      permissions: [],
+      data: ctx as Record<string, unknown>,
+    }];
+  }
+  if (pageId === "errors") {
+    const items = (overview.repairs?.data.items || overview.errors?.data.items || []) as Array<Record<string, unknown>>;
+    return items.map((item, index) => ({
+      id: String(item.repair_id || item.id || index),
+      type: "repair",
+      title: String(item.category || item.title || "Repair"),
+      subtitle: String(item.error || item.message || item.summary || ""),
+      status: String(item.status || "recorded"),
+      severity: "warning",
+      updated_at: Number(item.updated_at || item.created_at || 0) || undefined,
+      owner: "AEGIS",
+      tags: ["repair"],
+      relations: [],
+      available_actions: [{ id: "inspect", label: "Inspect", level: "view" as const }],
+      permissions: [],
+      data: item,
+    }));
+  }
+  if (pageId === "reports") {
+    const reports = overview.behavioral_reports?.data || {};
+    return [{
+      id: "behavioral-report",
+      type: "behavioral_report",
+      title: "Behavioral evaluation",
+      subtitle: String(reports.summary || ""),
+      status: "live",
+      severity: "normal",
+      owner: "AEGIS",
+      tags: ["evaluation"],
+      relations: [],
+      available_actions: [{ id: "inspect", label: "Inspect", level: "view" as const }],
+      permissions: [],
+      data: reports as Record<string, unknown>,
+    }];
+  }
+  if (pageId === "conversations" || pageId === "social") {
+    const items = (overview.social?.data.inbox || overview.social?.data.pending_decisions || []) as Array<Record<string, unknown>>;
+    return items.map((item, index) => ({
+      id: String(item.item_id || index),
+      type: "social",
+      title: String(item.channel || "Social"),
+      subtitle: String(item.body || item.body_preview || item.summary || "").slice(0, 120),
+      status: String(item.status || "pending"),
+      severity: "normal",
+      updated_at: Number(item.updated_at || item.created_at || 0) || undefined,
+      owner: "AEGIS",
+      tags: ["social"],
+      relations: [],
+      available_actions: [{ id: "inspect", label: "Inspect", level: "view" as const }],
+      permissions: [],
+      data: item,
+    }));
+  }
+  if (["audit", "performance", "llm-usage"].includes(pageId)) return all.filter((item) => item.type === "event");
   if (pageId.includes("approval")) return all.filter((item) => item.type === "approval");
   return all;
 }
@@ -302,13 +424,18 @@ function pageDescription(pageId: string): string {
     autonomy: "Autonomous decisions, pressure, suppression, effectiveness, and budget gates.",
     memory: "Searchable episodic, semantic, procedural, preference, people, skill, and lesson memory.",
     "capability-catalog": "Manifest, user override, effective policy, completion, verification, and execution health.",
+    "generated-capabilities": "Capabilities created by codegen — not the full catalog.",
+    "capability-executions": "Real operation and autonomous-cycle execution history.",
     network: "Connection topology and traffic direction across LAN, VPN, tunnel, gRPC, and event streams.",
     security: "Passkeys, sessions, fresh authentication, secrets, exposure, and security audit state.",
     "llm-usage": "Request-level tokens, context composition, cache behavior, cost, latency, and retry families.",
     commitments: "Open social and operational commitments with due dates and linked conversations.",
     situation: "Current user location, device, activity, attention, and availability evidence.",
     notifications: "Unread, delivered, failed, and suppressed notifications across channels.",
-    errors: "Operational and audit errors with fingerprints, recovery, and repetition state."
+    errors: "RepairManager history: failures, recovery steps, and lessons.",
+    reports: "BehavioralEvaluation metrics: restraint, goal achievement, continuity.",
+    conversations: "Chat and AGORA social inbox via SocialManager.",
+    context: "Live DecisionContext from AgentState used for initiative and planning.",
   };
   return descriptions[pageId] || "Overview, list, detail, relations, history, configuration, and actions for this AEGIS resource.";
 }

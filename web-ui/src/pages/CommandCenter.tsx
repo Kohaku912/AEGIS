@@ -15,9 +15,10 @@ type Props = {
   recentEvents?: UiEvent[];
   pinnedEntities?: EntitySummary[];
   onSelect?: (entity: EntitySummary) => void;
+  developerMode?: boolean;
 };
 
-export function CommandCenter({ overview, pinnedEntities = [], onSelect }: Props) {
+export function CommandCenter({ overview, pinnedEntities = [], onSelect, developerMode = false }: Props) {
   const core = overview.core.data;
   const servers = overview.servers.data.items || [];
   const task = overview.current_task.data;
@@ -26,6 +27,11 @@ export function CommandCenter({ overview, pinnedEntities = [], onSelect }: Props
   const commitments = overview.commitments.data.items || [];
   const errors = overview.errors?.data.items || [];
   const connection = overview.connection?.data || {};
+  const openLoops = overview.open_loops?.data.items || [];
+  const initiative = overview.initiative?.data || {};
+  const goals = overview.goals?.data || {};
+  const social = overview.social?.data || {};
+  const nonActions = (initiative.recent_non_actions || []) as Array<Record<string, unknown>>;
   const serverSummary = summarizeServers(servers);
   const memorySummary = summarizeMemory(overview);
   const problemServers = servers.filter((server) => serverNeedsDetail(server));
@@ -37,7 +43,7 @@ export function CommandCenter({ overview, pinnedEntities = [], onSelect }: Props
       ? operations.map((op) => ({
           id: String(op.operation_id || op.title || "operation"),
           title: `${op.kind_label || op.kind || "Operation"}: ${op.title || "Untitled"}`,
-          message: String(op.what_happened || op.summary || ""),
+          message: String(op.narrative || op.what_happened || op.summary || ""),
           priority: String(op.priority || (op.error_count ? "P1" : "P3")),
           status: String(op.status || ""),
           steps: op.steps || [],
@@ -83,7 +89,7 @@ export function CommandCenter({ overview, pinnedEntities = [], onSelect }: Props
         <HudMetric icon={<Radio size={16} />} label="Core" value={`${String(core.mode || "IDLE")} / ${String(core.health || "ONLINE")}`} />
         <HudMetric icon={<Activity size={16} />} label="Phase" value={phase} />
         <HudMetric icon={<Server size={16} />} label="Connection" value={`${connection.online_count ?? serverSummary.ok}/${connection.total_count ?? servers.length} online`} />
-        <HudMetric icon={<ShieldAlert size={16} />} label="Approvals" value={String(core.pending_approval_count ?? overview.approvals.data.pending_count ?? 0)} />
+        <HudMetric icon={<ShieldAlert size={16} />} label="Open loops" value={String(overview.open_loops?.data.count ?? openLoops.length)} />
         <HudMetric icon={<Brain size={16} />} label="Profile" value={String((overview.mind_summary.data.autonomy as Record<string, unknown> | undefined)?.profile || core.attention_level || "normal")} />
         <HudMetric icon={<Clock size={16} />} label="Freshness" value={overview.freshness.stale ? "STALE" : "LIVE"} />
       </section>
@@ -175,10 +181,45 @@ export function CommandCenter({ overview, pinnedEntities = [], onSelect }: Props
           <div className="panel__header"><h2>Situation</h2><UserRound size={16} /></div>
           <div className="metric-list">
             <Row label="User" value={String(user.summary || user.availability || "No data yet")} />
-            <Row label="Commitments" value={overview.commitments.data.summary || `${commitments.length} active`} />
-            <Row label="Usage" value={String(usage.summary || usage.total_tokens || "Audit-backed")} />
-            <Row label="Open issues" value={String(errors.length || overview.errors?.data.count || 0)} />
+            <Row label="Open loops" value={String(overview.open_loops?.data.summary || `${openLoops.length} open`)} />
+            <Row label="AGORA pending" value={String((social.agora as Record<string, unknown> | undefined)?.pending_count ?? (social.pending_decisions as unknown[] | undefined)?.length ?? 0)} />
+            <Row label="Open goals" value={String(goals.open_count ?? (goals.open as unknown[] | undefined)?.length ?? 0)} />
           </div>
+        </section>
+
+        <section className="panel command-span-4">
+          <div className="panel__header"><h2>Open loops</h2><Freshness {...freshProps(overview.open_loops || overview.commitments)} /></div>
+          <div className="compact-list">
+            {openLoops.length ? openLoops.slice(0, 5).map((item) => (
+              <div className="list-row" key={String(item.id)}>
+                <div>
+                  <strong>{String(item.title || item.kind)}</strong>
+                  <div className="muted">{String(item.next_action || item.waiting_reason || item.kind)}</div>
+                </div>
+                <StatusBadge status={String(item.kind || item.status || "open")} />
+              </div>
+            )) : <p className="muted">No open loops. Nothing waiting on user or AEGIS follow-through.</p>}
+          </div>
+          <a className="operation-conversation-link" href="/dashboard/open-loops">View all open loops</a>
+        </section>
+
+        <section className="panel command-span-4">
+          <div className="panel__header"><h2>Judgment</h2><Freshness {...freshProps(overview.initiative || overview.core)} /></div>
+          <div className="metric-list">
+            <Row label="Initiative" value={String(initiative.summary || "No initiative data")} />
+            <Row label="Non-actions" value={String(nonActions.length)} />
+            <Row label="Repairs" value={String(overview.repairs?.data.count ?? overview.errors?.data.count ?? errors.length)} />
+            <Row label="Commitments" value={overview.commitments.data.summary || `${commitments.length} active`} />
+          </div>
+          {nonActions.slice(-3).reverse().map((item, index) => (
+            <div className="list-row" key={`${item.created_at}-${index}`}>
+              <div>
+                <strong>{String(item.decision || "no_action")}</strong>
+                <div className="muted">{String(item.reason || "")}</div>
+              </div>
+            </div>
+          ))}
+          {developerMode ? <pre className="developer-raw">{JSON.stringify({ funnel: initiative.funnel, reasons: initiative.no_action_reasons }, null, 2)}</pre> : null}
         </section>
 
         <section className="panel command-span-4 server-summary-card">
@@ -222,6 +263,7 @@ export function CommandCenter({ overview, pinnedEntities = [], onSelect }: Props
               </div>
             )) : <p className="muted">No recent AEGIS operations reported.</p>}
           </div>
+          <a className="operation-conversation-link" href="/dashboard/operations">Inspect causal chains</a>
         </section>
       </section>
     </div>
@@ -250,7 +292,8 @@ function nextServerFromTask(task: { steps?: Array<Record<string, unknown>> }): s
   return String(pending?.capability_id || "").split(".", 1)[0] || "";
 }
 
-function freshProps(section: { generated_at: number; source_updated_at: number; stale: boolean }) {
+function freshProps(section: { generated_at: number; source_updated_at: number; stale: boolean } | undefined) {
+  if (!section) return { generatedAt: 0, sourceUpdatedAt: 0, stale: true };
   return { generatedAt: section.generated_at, sourceUpdatedAt: section.source_updated_at, stale: section.stale };
 }
 

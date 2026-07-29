@@ -7,15 +7,17 @@ export function GlobalInspector({
   onClose,
   onFollowRelation,
   pinned = false,
-  onTogglePin
+  onTogglePin,
+  developerMode = false,
 }: {
   entity?: EntitySummary;
   onClose: () => void;
   onFollowRelation?: (type: string, id: string) => void;
   pinned?: boolean;
   onTogglePin?: (entity: EntitySummary) => void;
+  developerMode?: boolean;
 }) {
-  const facts = primaryFacts(entity, 14);
+  const facts = primaryFacts(entity, 14).filter((fact) => !String(fact.value).includes("Not reported"));
   return (
     <aside className="global-inspector" data-open={Boolean(entity)} aria-label="Global inspector">
       <header>
@@ -87,10 +89,12 @@ export function GlobalInspector({
             </div>
             <p className="muted">Controlled and dangerous actions open a preview and never execute directly from the inspector.</p>
           </section>
-          <details className="developer-only">
-            <summary>Developer data</summary>
-            <pre>{JSON.stringify(entity.data, null, 2)}</pre>
-          </details>
+          {developerMode ? (
+            <details className="developer-only" open>
+              <summary>Developer data</summary>
+              <pre>{JSON.stringify(entity.data, null, 2)}</pre>
+            </details>
+          ) : null}
         </div>
       ) : (
         <p className="global-inspector__empty">Select any task, server, event, approval, or search result.</p>
