@@ -7,6 +7,8 @@ export type FreshnessEnvelope<T> = {
   data: T;
 };
 
+export type ServerStatus = "ONLINE" | "DEGRADED" | "OFFLINE" | "DISABLED" | "UNCONFIGURED";
+
 export type EntitySummary = {
   id: string;
   type: string;
@@ -38,7 +40,7 @@ export type AttentionItem = {
 export type ServerItem = {
   server_id: string;
   server_type?: string;
-  status: string;
+  status: ServerStatus | string;
   registered_capabilities?: string;
   heartbeat_age_seconds?: number;
   host?: string;

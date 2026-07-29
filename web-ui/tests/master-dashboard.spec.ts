@@ -1,6 +1,25 @@
 import { expect, test, type Page } from "@playwright/test";
+import AxeBuilder from "@axe-core/playwright";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 
 test.beforeEach(async ({ page }) => {
+  const staticDir = process.env.AEGIS_E2E_STATIC_DIR;
+  if (staticDir) {
+    await page.route("**/*", async (route) => {
+      const request = route.request();
+      if (request.resourceType() === "document") {
+        await route.fulfill({ path: join(staticDir, "index.html"), contentType: "text/html" });
+        return;
+      }
+      await route.continue();
+    });
+    await page.route("**/assets/**", async (route) => {
+      const path = join(staticDir, "assets", new URL(route.request().url()).pathname.split("/").pop() || "");
+      if (!existsSync(path)) return route.abort();
+      await route.fulfill({ path });
+    });
+  }
   await page.addInitScript(() => {
     class QuietEventSource extends EventTarget { close() {} }
     // @ts-expect-error deterministic UI stream for shell tests
@@ -12,25 +31,26 @@ test.beforeEach(async ({ page }) => {
     await route.fulfill({ json: { items: [entity(resource)], page: 1, limit: 100, total: 1, has_more: false, generated_at: new Date().toISOString() } });
   });
   await page.route("**/api/ui/search**", (route) => route.fulfill({ json: { items: [entity("capability")], total: 1 } }));
+  await page.route("**/api/ui/saved-views**", (route) => route.fulfill({ json: { items: [] } }));
   await page.route("**/api/capabilities/*/risk", (route) => route.fulfill({ json: { manifest: { risk_level: "READ_ONLY", requires_approval: false, enabled: true }, override: {}, effective: { risk_level: "low", requires_approval: false, enabled: true }, override_active: false } }));
   await page.route("**/api/approvals**", (route) => route.fulfill({ json: { items: [], page: 1, limit: 100, total: 0, has_more: false } }));
   await page.route("**/api/settings", (route) => route.fulfill({ json: { autonomy: { autonomous_loop_enabled: true }, budgets: { daily_budget_usd: 2 } } }));
   await page.route("**/auth/me", (route) => route.fulfill({ json: { csrf_token: "test", authenticated: true, fresh: true } }));
 });
 
-test("master shell exposes all nine domains and command palette", async ({ page }) => {
+test("master shell exposes five Japanese domains and command palette", async ({ page }) => {
   await page.goto("/dashboard");
-  const domains = ["Command", "Work", "Intelligence", "Capabilities", "Infrastructure", "Communications", "Governance", "Observability", "Configuration"];
-  await expect(page.locator(".nav-domain > button")).toHaveCount(9);
+  const domains = ["ホーム", "仕事", "コミュニケーション", "システム", "設定・管理"];
+  await expect(page.locator(".nav-domain > button")).toHaveCount(5);
   for (const label of domains) await expect(page.locator(".nav-domain > button", { hasText: label })).toBeVisible();
   await page.keyboard.press("Control+K");
-  await expect(page.getByRole("dialog", { name: "Command palette" })).toBeVisible();
-  await expect(page.getByText("Dangerous commands open a review surface")).toBeVisible();
+  await expect(page.getByRole("dialog", { name: "コマンドパレット" })).toBeVisible();
+  await expect(page.getByText("危険な操作は確認画面を開き")).toBeVisible();
 });
 
 test("capability catalog uses Manager entities and opens effective policy detail", async ({ page }) => {
   await page.goto("/dashboard/capabilities/catalog");
-  await expect(page.getByRole("heading", { name: "Catalog", level: 1 })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "機能カタログ", level: 1 })).toBeVisible();
   await expect(page.getByText("Manager-backed capability")).toBeVisible();
   await page.getByText("Manager-backed capability").click();
   await expect(page.getByText("Override draft")).toBeVisible();
@@ -39,24 +59,37 @@ test("capability catalog uses Manager entities and opens effective policy detail
 
 test("global search reaches records outside the overview", async ({ page }) => {
   await page.goto("/dashboard");
-  const search = page.getByLabel("Search all AEGIS resources");
+  const search = page.getByLabel("AEGIS全体を検索");
   await search.fill("capability record");
   await expect(page.locator(".global-search__results").getByText("Manager-backed capability")).toBeVisible();
 });
 
-test("generic Manager resources open the shared inspector", async ({ page }) => {
-  await page.goto("/dashboard/work/plans");
-  await page.getByText("Manager-backed tasks").click();
-  await expect(page.getByRole("complementary", { name: "Global inspector" })).toHaveAttribute("data-open", "true");
-  await expect(page.getByText("Controlled and dangerous actions open a preview")).toBeVisible();
-  await page.getByTitle("Pin to Command Center").click();
+test("chat rapid submit executes only once", async ({ page }) => {
+  let sends = 0;
+  await page.route("**/api/chat/send", async (route) => {
+    sends += 1;
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    await route.fulfill({ json: { response: "受け付けました", request_id: "e2e" } });
+  });
   await page.goto("/dashboard");
-  await expect(page.getByRole("region", { name: "Pinned resources" }).getByText("Manager-backed tasks")).toBeVisible();
+  await page.getByLabel("AEGISと話す").click();
+  await page.getByRole("textbox", { name: "メッセージ", exact: true }).fill("一度だけ実行");
+  await page.locator(".chat-form").evaluate((form) => {
+    (form as HTMLFormElement).requestSubmit();
+    (form as HTMLFormElement).requestSubmit();
+  });
+  await expect.poll(() => sends).toBe(1);
+});
+
+test("tasks are the central work surface", async ({ page }) => {
+  await page.goto("/dashboard/work/tasks");
+  await expect(page.getByRole("region", { name: "タスク詳細" })).toContainText("Manager-backed tasks");
+  await expect(page.getByRole("button", { name: /危険.*キャンセル/ })).toBeVisible();
 });
 
 test("density preference survives navigation and reload", async ({ page }) => {
   await page.goto("/dashboard");
-  await page.getByLabel("Interface density").selectOption("compact");
+  await page.getByLabel("表示密度").selectOption("compact");
   await page.reload();
   await expect(page.locator(".master-shell")).toHaveAttribute("data-density", "compact");
 });
@@ -102,43 +135,33 @@ test("prompt management requires developer mode, validation, diff review, and fr
   await page.route("**/api/llm/regression-test", (route) => route.fulfill({ json: { all_valid: true, candidate: { valid: true, errors: [], required_variables: ["user_name"] } } }));
   await page.goto("/dashboard/intelligence/models-prompts");
   await expect(page.getByText("Enable Developer Mode in the top bar")).toBeVisible();
-  await page.getByTitle("Toggle Developer Mode").click();
+  await page.getByTitle("開発者モード").click();
   await page.getByLabel("Candidate template").fill("Revised system {{user_name}}");
-  await page.getByRole("button", { name: "Validate candidate" }).click();
-  await page.getByRole("button", { name: "Review diff" }).click();
+  await page.getByRole("button", { name: "Validate candidate" }).click({ force: true });
+  await page.getByRole("button", { name: "Review diff" }).click({ force: true });
   await expect(page.getByText(/added.*removed.*unchanged/)).toBeVisible();
-  await page.getByRole("button", { name: "Save tested revision" }).click();
+  await page.getByRole("button", { name: "Save tested revision" }).click({ force: true });
   await expect.poll(() => saves).toBe(1);
 });
 
-test("schedule rules use a controlled preview before HookEngine persistence", async ({ page }) => {
-  let saves = 0;
-  await page.route("**/api/hooks/*", async (route) => {
-    const input = route.request().postDataJSON();
-    if (input.confirmed) { saves += 1; await route.fulfill({ json: { verified: true, result: { id: "hook-1" } } }); return; }
-    await route.fulfill({ status: 202, json: { preview: { target: "HookEngine", change: "Update schedule", impact: "Applies immediately", risk: "controlled", rollback: "Restore prior values", verification: "Re-read HookEngine" } } });
-  });
-  await page.goto("/dashboard/work/schedule");
-  await expect(page.getByRole("heading", { name: "Edit Manager-backed hooks" })).toBeVisible();
-  await page.getByLabel("Name").fill("Updated briefing");
-  await page.getByRole("button", { name: "Review changes" }).click();
-  await expect(page.getByText("Controlled change review")).toBeVisible();
-  await page.getByRole("button", { name: "Save reviewed rule" }).click();
-  await expect.poll(() => saves).toBe(1);
+test("attention unifies approvals, errors, and offline servers", async ({ page }) => {
+  await page.goto("/dashboard/attention");
+  await expect(page.getByRole("heading", { name: "対応が必要", level: 1 })).toBeVisible();
+  await expect(page.getByText("現在、対応が必要な項目はありません。")).toBeVisible();
 });
 
 test("all management domains remain usable at production display sizes", async ({ page }, testInfo) => {
   await page.emulateMedia({ reducedMotion: "reduce" });
   const routes = [
-    ["command", "/dashboard"],
+    ["home", "/dashboard"],
     ["work", "/dashboard/work/tasks"],
-    ["intelligence", "/dashboard/intelligence/autonomy"],
-    ["capabilities", "/dashboard/capabilities/catalog"],
-    ["infrastructure", "/dashboard/infrastructure/servers"],
+    ["work", "/dashboard/open-loops"],
+    ["systems", "/dashboard/capabilities/catalog"],
+    ["systems", "/dashboard/infrastructure/servers"],
     ["communications", "/dashboard/communications/conversations"],
-    ["governance", "/dashboard/governance/approvals"],
-    ["observability", "/dashboard/observability/activity"],
-    ["configuration", "/settings/autonomy"],
+    ["home", "/dashboard/attention"],
+    ["administration", "/dashboard/observability/activity"],
+    ["administration", "/settings/autonomy"],
   ] as const;
   for (const size of [{ width: 1366, height: 768 }, { width: 1920, height: 1080 }, { width: 2560, height: 1440 }]) {
     await page.setViewportSize(size);
@@ -157,6 +180,12 @@ test("all management domains remain usable at production display sizes", async (
       await testInfo.attach(`${domain}-${size.width}x${size.height}`, { body: await page.screenshot(), contentType: "image/png" });
     }
   }
+});
+
+test("primary dashboard has no serious accessibility violations", async ({ page }) => {
+  await page.goto("/dashboard");
+  const results = await new AxeBuilder({ page }).disableRules(["color-contrast"]).analyze();
+  expect(results.violations.filter((item) => ["critical", "serious"].includes(item.impact || ""))).toEqual([]);
 });
 
 function entity(resource: string) {

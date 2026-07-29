@@ -37,7 +37,8 @@
             <td style="font-family:monospace;font-size:11px;color:var(--text-muted);">{{ t.task_id }}</td>
             <td style="font-weight:500;">{{ t.name }}</td>
             <td>{{ t.status }}</td>
-            <td colspan="2" style="font-size:12px;color:var(--text-muted);">{{ t.description }}</td>
+            <td style="font-size:12px;color:var(--text-muted);">{{ t.rule_id|default("—") }}</td>
+            <td>{{ t.priority|default("normal") }}</td>
         </tr>
         {% endfor %}
         </tbody>

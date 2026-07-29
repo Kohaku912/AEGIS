@@ -82,6 +82,7 @@ protos/**/*_grpc.pb.go
 *.tar.gz
 
 # ---- Generated / temp files ----
+.test-tmp/
 *.dot
 *_audit.json
 .android_test_token.tmp

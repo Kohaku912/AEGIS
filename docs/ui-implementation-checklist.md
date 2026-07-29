@@ -19,6 +19,7 @@ Legend: `[x]` implemented, `[~]` implemented with remaining real-device or visua
 - [x] Observation, planning, execution, approval, failure, and recovery use distinct spatial/motion grammar.
 - [x] Scene, camera, renderer, composer, geometry, and materials are mount-only and disposed on unmount.
 - [x] Frame movement is delta-time based and reduced-motion has a static information-equivalent presentation.
+- [x] `@axe-core/playwright` is a development-only dependency used to prevent keyboard and screen-reader accessibility regressions in the dashboard E2E suite.
 - [x] High, medium, and low rendering quality paths are selected from motion preference and device capacity.
 - [x] Ubuntu dedicated display is measured at 1920x1080 60.01 Hz; a 20-second center-field capture produced 1199 frames (59.95 fps), 1182 unique frames, and 17 consecutive duplicates.
 

@@ -15,7 +15,7 @@ from datetime import UTC, datetime
 from enum import Enum
 from typing import Any
 
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, g, jsonify, request
 
 resource_bp = Blueprint("ui_resources", __name__)
 
@@ -465,7 +465,9 @@ def list_entities():
     if loader is None:
         return jsonify({"error": "unsupported_resource", "supported": sorted(_LOADERS)}), 400
     try:
-        return jsonify(_filter_page(loader(_get_runtime())))
+        payload = _filter_page(loader(_get_runtime()))
+        payload.update({"status": "ok", "partial": False, "warnings": []})
+        return jsonify(payload)
     except Exception as exc:
         return jsonify({"error": "resource_unavailable", "message": str(exc), "items": []}), 503
 
@@ -489,17 +491,77 @@ def global_search():
     """Search Manager-backed entities without exposing internal storage files."""
     query = str(request.args.get("q") or "").strip()
     if not query:
-        return jsonify({"items": [], "total": 0, "generated_at": datetime.now(tz=UTC).isoformat()})
+        return jsonify({
+            "items": [],
+            "total": 0,
+            "generated_at": datetime.now(tz=UTC).isoformat(),
+            "status": "ok",
+            "partial": False,
+            "warnings": [],
+        })
     results: list[dict[str, Any]] = []
+    warnings: list[dict[str, str]] = []
     rt = _get_runtime()
     for resource, loader in _LOADERS.items():
         try:
             for item in loader(rt):
                 if query.casefold() in json.dumps(item, ensure_ascii=False, default=str).casefold():
                     results.append(item)
-        except Exception:
-            continue
-    return jsonify(_filter_page(results))
+        except Exception as exc:
+            warnings.append({"resource": resource, "message": str(exc)})
+    payload = _filter_page(results)
+    payload.update({
+        "status": "partial" if warnings else "ok",
+        "partial": bool(warnings),
+        "warnings": warnings,
+    })
+    return jsonify(payload), 206 if warnings else 200
+
+
+def _saved_view_user_id() -> str:
+    user = getattr(g, "auth_user", None)
+    return str(getattr(user, "user_id", "") or "local_user")
+
+
+@resource_bp.get("/api/ui/saved-views")
+def list_saved_views():
+    manager = getattr(_get_runtime(), "saved_view_manager", None)
+    if manager is None:
+        return jsonify({"error": "saved_views_unavailable", "message": "Saved view manager is unavailable"}), 503
+    return jsonify({"items": manager.list_views(_saved_view_user_id(), str(request.args.get("resource") or ""))})
+
+
+@resource_bp.post("/api/ui/saved-views")
+def create_saved_view():
+    manager = getattr(_get_runtime(), "saved_view_manager", None)
+    if manager is None:
+        return jsonify({"error": "saved_views_unavailable", "message": "Saved view manager is unavailable"}), 503
+    try:
+        return jsonify(manager.create_view(_saved_view_user_id(), request.get_json(silent=True) or {})), 201
+    except (TypeError, ValueError) as exc:
+        return jsonify({"error": "invalid_saved_view", "message": str(exc)}), 400
+
+
+@resource_bp.patch("/api/ui/saved-views/<view_id>")
+def update_saved_view(view_id: str):
+    manager = getattr(_get_runtime(), "saved_view_manager", None)
+    try:
+        item = (
+            manager.update_view(_saved_view_user_id(), view_id, request.get_json(silent=True) or {})
+            if manager
+            else None
+        )
+    except (TypeError, ValueError) as exc:
+        return jsonify({"error": "invalid_saved_view", "message": str(exc)}), 400
+    return jsonify(item) if item else (jsonify({"error": "not_found"}), 404)
+
+
+@resource_bp.delete("/api/ui/saved-views/<view_id>")
+def delete_saved_view(view_id: str):
+    manager = getattr(_get_runtime(), "saved_view_manager", None)
+    if manager is None or not manager.delete_view(_saved_view_user_id(), view_id):
+        return jsonify({"error": "not_found"}), 404
+    return jsonify({"deleted": True})
 
 
 @resource_bp.get("/api/memories")
