@@ -258,6 +258,40 @@ def test_recovered_server_connectivity_errors_are_not_active() -> None:
     assert [item["id"] for item in result["items"]] == ["android-permission"]
 
 
+def test_recovered_capability_permission_errors_are_not_active() -> None:
+    class Repair:
+        def list_history(self, limit=30):
+            return [
+                {
+                    "repair_id": "android-permission",
+                    "capability_id": "android-server.screen.get_screenshot",
+                    "timestamp": 20,
+                    "error": "Android permission missing: media_projection",
+                    "final_result": "recorded",
+                },
+            ]
+
+        def get_status(self):
+            return {}
+
+    class Status:
+        def get_snapshot(self):
+            return {
+                "android-server": {
+                    "status": "ONLINE",
+                    "capability_health": {
+                        "android-server.screen.get_screenshot": {
+                            "available": True,
+                            "missing_permissions": [],
+                        }
+                    },
+                }
+            }
+
+    result = _errors(SimpleNamespace(repair_manager=Repair(), status_manager=Status()))
+    assert result["items"] == []
+
+
 def test_disabled_and_unconfigured_servers_are_resolved(tmp_path: Path) -> None:
     class Status:
         def __init__(self, value: str) -> None:
