@@ -9,13 +9,21 @@ import aegis.AndroidServerOuterClass
 import aegis.Common
 import com.aegis.android.AegisConfig
 import com.aegis.android.AegisConnectionConfig
+import com.aegis.android.Endpoint
 import com.aegis.android.overlay.OverlayController
 import com.aegis.android.provider.DeviceProvider
 import com.aegis.android.ui.model.UiServerSummary
 import com.aegis.android.ui.model.UiOverviewSnapshot
+import io.grpc.ClientInterceptor
+import io.grpc.ClientCall
+import io.grpc.ForwardingClientCall
 import io.grpc.ManagedChannel
 import io.grpc.ManagedChannelBuilder
+import io.grpc.Metadata
+import io.grpc.MethodDescriptor
 import io.grpc.Status
+import io.grpc.CallOptions
+import io.grpc.Channel as GrpcChannel
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -34,6 +42,7 @@ import org.json.JSONObject
 import java.security.MessageDigest
 import java.util.UUID
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 
 data class AegisConnectionState(
     val connected: Boolean = false,
@@ -114,9 +123,16 @@ class AegisGrpcClient private constructor(
             val loaded = AegisConfig.load(appContext)
             return synchronized(this) {
                 val current = instance
-                if (current != null && current.config.host == loaded.host && current.config.port == loaded.port &&
-                    current.config.pairingToken == loaded.pairingToken
+                if (current != null &&
+                    current.config.host == loaded.host &&
+                    current.config.port == loaded.port &&
+                    current.config.pairingToken == loaded.pairingToken &&
+                    current.config.fallbackHost == loaded.fallbackHost &&
+                    current.config.fallbackPort == loaded.fallbackPort &&
+                    current.config.cfAccessClientId == loaded.cfAccessClientId &&
+                    current.config.cfAccessClientSecret == loaded.cfAccessClientSecret
                 ) {
+                    current.config = loaded
                     current
                 } else {
                     current?.disconnect()
@@ -147,6 +163,8 @@ class AegisGrpcClient private constructor(
     private var reconnectCount = metricsPreferences.getLong("reconnect_count", 0L)
     private var heartbeatFailureCount = metricsPreferences.getLong("heartbeat_failure_count", 0L)
     private var connectionId = "android_${UUID.randomUUID().toString().replace("-", "").take(10)}"
+    private val reconnectRequested = AtomicBoolean(false)
+    private var activeEndpoint: Endpoint? = null
     private val _state = MutableStateFlow(
         AegisConnectionState(
             host = config.host,
@@ -172,46 +190,117 @@ class AegisGrpcClient private constructor(
         }
         updateState(connecting = true, lastError = "")
         disconnect()
-        try {
-            channel = ManagedChannelBuilder
-                .forAddress(config.host, config.port)
-                .usePlaintext()
-                .keepAliveTime(30, TimeUnit.SECONDS)
-                .build()
-            stub = AIServerGrpcKt.AIServerCoroutineStub(channel!!)
-
-            val healthResponse = stub!!.healthCheck(Common.HealthCheckRequest.getDefaultInstance())
-            if (healthResponse.status.code != 0) {
-                Log.e(TAG, "Health check failed: ${healthResponse.status.message}")
-                connected = false
-                updateState(connected = false, connecting = false, lastError = healthResponse.status.message)
-                return@withContext false
+        config = AegisConfig.load(context)
+        val wifi = deviceProvider.isWifiConnected()
+        val endpoints = config.endpointsPreferringWifi(wifi)
+        var lastError = "Connection failed"
+        for (endpoint in endpoints) {
+            try {
+                if (connectToEndpoint(endpoint)) {
+                    reconnectRequested.set(false)
+                    return@withContext true
+                }
+            } catch (exc: Exception) {
+                lastError = exc.message ?: "Connection failed"
+                Log.e(TAG, "Failed endpoint ${endpoint.host}:${endpoint.port}", exc)
+                shutdownChannelQuietly()
             }
+        }
+        connected = false
+        updateState(connected = false, connecting = false, lastError = lastError)
+        false
+    }
 
-            val coreVersion = healthResponse.version
-            val chatRpcAvailable = supportsSendChat(coreVersion)
-            startReverseStream()
-            connected = true
-            updateState(
-                connected = true,
-                connecting = false,
-                lastError = "",
-                nextRetryMs = 0L,
-                coreVersion = coreVersion,
-                chatRpcAvailable = chatRpcAvailable,
-            )
-            refreshMobileDashboardState()
-            refreshUiOverview()
-            startMobileDashboardRefresh()
-            Log.i(TAG, "Reverse stream started for AEGIS Core at ${config.host}:${config.port}")
-            true
-        } catch (exc: Exception) {
-            Log.e(TAG, "Failed to connect to AEGIS Core", exc)
-            connected = false
-            updateState(connected = false, connecting = false, lastError = exc.message ?: "Connection failed")
-            false
+    private suspend fun connectToEndpoint(endpoint: Endpoint): Boolean {
+        val builder = ManagedChannelBuilder
+            .forAddress(endpoint.host, endpoint.port)
+            .keepAliveTime(30, TimeUnit.SECONDS)
+            .keepAliveWithoutCalls(true)
+        if (endpoint.useTls) {
+            builder.useTransportSecurity()
+        } else {
+            builder.usePlaintext()
+        }
+        if (config.cfAccessClientId.isNotBlank() && config.cfAccessClientSecret.isNotBlank()) {
+            builder.intercept(cloudflareAccessInterceptor(config.cfAccessClientId, config.cfAccessClientSecret))
+        }
+        channel = builder.build()
+        stub = AIServerGrpcKt.AIServerCoroutineStub(channel!!)
+
+        val healthResponse = stub!!.healthCheck(Common.HealthCheckRequest.getDefaultInstance())
+        if (healthResponse.status.code != 0) {
+            Log.e(TAG, "Health check failed: ${healthResponse.status.message}")
+            shutdownChannelQuietly()
+            return false
+        }
+
+        val coreVersion = healthResponse.version
+        val chatRpcAvailable = supportsSendChat(coreVersion)
+        activeEndpoint = endpoint
+        AegisConfig.rememberWorkingEndpoint(context, endpoint.host, endpoint.port, endpoint.useTls)
+        startReverseStream()
+        connected = true
+        updateState(
+            connected = true,
+            connecting = false,
+            lastError = "",
+            nextRetryMs = 0L,
+            host = endpoint.host,
+            port = endpoint.port,
+            coreVersion = coreVersion,
+            chatRpcAvailable = chatRpcAvailable,
+        )
+        refreshMobileDashboardState()
+        refreshUiOverview()
+        startMobileDashboardRefresh()
+        Log.i(TAG, "Connected to AEGIS Core at ${endpoint.host}:${endpoint.port} tls=${endpoint.useTls} (${endpoint.label})")
+        return true
+    }
+
+    private fun cloudflareAccessInterceptor(clientId: String, clientSecret: String): ClientInterceptor {
+        val idKey = Metadata.Key.of("cf-access-client-id", Metadata.ASCII_STRING_MARSHALLER)
+        val secretKey = Metadata.Key.of("cf-access-client-secret", Metadata.ASCII_STRING_MARSHALLER)
+        return object : ClientInterceptor {
+            override fun <ReqT, RespT> interceptCall(
+                method: MethodDescriptor<ReqT, RespT>,
+                callOptions: CallOptions,
+                next: GrpcChannel,
+            ): ClientCall<ReqT, RespT> {
+                return object : ForwardingClientCall.SimpleForwardingClientCall<ReqT, RespT>(
+                    next.newCall(method, callOptions),
+                ) {
+                    override fun start(responseListener: Listener<RespT>, headers: Metadata) {
+                        headers.put(idKey, clientId)
+                        headers.put(secretKey, clientSecret)
+                        super.start(responseListener, headers)
+                    }
+                }
+            }
         }
     }
+
+    private fun shutdownChannelQuietly() {
+        try {
+            channel?.shutdownNow()
+        } catch (_: Exception) {
+        } finally {
+            channel = null
+            stub = null
+        }
+    }
+
+    fun requestReconnect(reason: String = "network_change") {
+        Log.i(TAG, "Reconnect requested: $reason")
+        reconnectRequested.set(true)
+        connected = false
+        updateState(connected = false, connecting = false, lastError = reason, nextRetryMs = System.currentTimeMillis())
+        try {
+            channel?.shutdownNow()
+        } catch (_: Exception) {
+        }
+    }
+
+    fun consumeReconnectRequest(): Boolean = reconnectRequested.getAndSet(false)
 
     fun disconnect() {
         connected = false
@@ -918,6 +1007,8 @@ class AegisGrpcClient private constructor(
         lastHeartbeatMs: Long = _state.value.lastHeartbeatMs,
         lastError: String = _state.value.lastError,
         nextRetryMs: Long = _state.value.nextRetryMs,
+        host: String = activeEndpoint?.host ?: config.host,
+        port: Int = activeEndpoint?.port ?: config.port,
         coreVersion: String = _state.value.coreVersion,
         chatRpcAvailable: Boolean = _state.value.chatRpcAvailable,
         reconnectCount: Long = _state.value.reconnectCount,
@@ -929,8 +1020,8 @@ class AegisGrpcClient private constructor(
             lastHeartbeatMs = lastHeartbeatMs,
             lastError = lastError,
             nextRetryMs = nextRetryMs,
-            host = config.host,
-            port = config.port,
+            host = host,
+            port = port,
             coreVersion = coreVersion,
             chatRpcAvailable = chatRpcAvailable,
             reconnectCount = reconnectCount,

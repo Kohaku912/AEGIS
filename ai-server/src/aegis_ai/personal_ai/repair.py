@@ -55,6 +55,9 @@ class RepairManager:
 
     def record_failure(self, *, capability_id: str = "", error: str = "", status: str = "", request: Any = None, result: Any = None) -> dict[str, Any]:
         category = self.classify_failure(error=error, status=status, capability_id=capability_id)
+        # Transient infra noise is retained for diagnostics but must not promote
+        # into AgentState incident obligations.
+        final_result = "infra_noise" if category in {"transient", "server_down", "llm_failed"} else "recorded"
         entry = {
             "repair_id": f"repair_{now_ms()}",
             "capability_id": capability_id,
@@ -63,11 +66,11 @@ class RepairManager:
             "status": status,
             "timestamp": now_ms(),
             "attempts": [],
-            "final_result": "recorded",
+            "final_result": final_result,
         }
         append_jsonl(self._history, entry)
         self._audit("repair_failure_recorded", entry)
-        if category in {"auth", "permission", "server_down"}:
+        if category in {"auth", "permission"}:
             self._record_lesson(entry)
         return entry
 
@@ -212,6 +215,46 @@ class RepairManager:
             except Exception:
                 pass
         return out
+
+    def dismiss_matching(
+        self,
+        *,
+        categories: set[str] | None = None,
+        final_results: set[str] | None = None,
+        error_substrings: list[str] | None = None,
+        dry_run: bool = True,
+        limit: int = 500,
+    ) -> dict[str, Any]:
+        """Append dismissed markers for old infra noise so obligations stay clean."""
+        import json
+
+        categories = categories or {"transient", "server_down", "llm_failed"}
+        final_results = final_results or {
+            "recorded",
+            "needs_followup",
+            "rollback_failed",
+            "not_retryable",
+        }
+        needles = [s.lower() for s in (error_substrings or ["timeout", "browserstartevent", "connection"])]
+        matched: list[dict[str, Any]] = []
+        for item in self.list_history(limit=limit):
+            category = str(item.get("category") or "")
+            final_result = str(item.get("final_result") or "")
+            error = str(item.get("error") or "").lower()
+            if final_result in {"recovered", "dismissed", "infra_noise", "rolled_back"}:
+                continue
+            if category not in categories and not any(n in error for n in needles):
+                continue
+            if final_result and final_result not in final_results and category not in categories:
+                continue
+            matched.append(item)
+            if not dry_run:
+                dismiss = dict(item)
+                dismiss["final_result"] = "dismissed"
+                dismiss["dismissed_at"] = now_ms()
+                dismiss["dismiss_reason"] = "goal_hygiene_infra_noise"
+                append_jsonl(self._history, dismiss)
+        return {"matched": len(matched), "dry_run": dry_run, "repair_ids": [m.get("repair_id") for m in matched]}
 
     def set_disabled(self, disabled: bool) -> dict[str, Any]:
         self._status["disabled"] = bool(disabled)

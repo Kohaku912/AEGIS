@@ -253,6 +253,7 @@ def test_repair_manager_classifies_and_records_failures(tmp_path):
 
     assert auth["category"] == "auth"
     assert down["category"] == "server_down"
+    assert down["final_result"] == "infra_noise"
     assert len(manager.list_history()) >= 2
 
 

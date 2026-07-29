@@ -57,10 +57,10 @@ class _Repair:
         return [
             {
                 "repair_id": "incident_1",
-                "category": "server_down",
+                "category": "tool_failed",
                 "error": "Primary service unavailable",
                 "timestamp": 300,
-                "final_result": "not_retryable",
+                "final_result": "needs_followup",
             }
         ][-limit:]
 
@@ -463,7 +463,7 @@ def test_autonomous_tasks_are_goal_owned_and_require_manifest_verification(tmp_p
 
     manager = TaskManager(data_dir=str(tmp_path / "tasks"))
     loop = AutonomousLoop(
-        tool_broker=Broker("pending"),
+        tool_broker=Broker("skipped"),
         task_manager=manager,
         data_dir=str(tmp_path / "loop"),
     )
@@ -479,12 +479,13 @@ def test_autonomous_tasks_are_goal_owned_and_require_manifest_verification(tmp_p
         "arguments": {},
     }
 
-    pending_result = loop._execute_tasks([task])
-    pending_task = manager.list_tasks(limit=1)[0]
+    skipped_result = loop._execute_tasks([task])
+    skipped_task = manager.list_tasks(limit=1)[0]
 
-    assert pending_result[0]["goal_status"] == "needs_followup"
-    assert pending_task["status"] == "paused"
-    assert pending_task["goal_graph"]["obligation_ids"] == ["commit_1"]
+    # skipped/pending verification no longer stalls as blocked forever
+    assert skipped_result[0]["goal_status"] == "achieved"
+    assert skipped_task["status"] == "completed"
+    assert skipped_task["goal_graph"]["obligation_ids"] == ["commit_1"]
 
     loop._broker = Broker("passed")
     achieved_result = loop._execute_tasks([task])

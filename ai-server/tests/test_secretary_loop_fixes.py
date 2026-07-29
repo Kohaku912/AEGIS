@@ -129,3 +129,64 @@ def test_interval_bypass_and_goal_helpers(tmp_path: Path) -> None:
     assert goal == "Finish packing list"
     normalized = loop._user_facing_obligation_summary({"summary": "BrowserStartEvent timeout error"})
     assert "browser" in normalized.lower() or "recover" in normalized.lower()
+
+
+def test_transient_repairs_are_not_obligations(tmp_path: Path) -> None:
+    from aegis_ai.agency.state import AgentState
+    from aegis_ai.personal_ai.repair import RepairManager
+
+    repair = RepairManager(data_dir=str(tmp_path / "repair"))
+    repair.record_failure(
+        capability_id="browser-server.page.read",
+        error="BrowserSession.on_BrowserStartEvent timed out after 30.0s",
+        status="TIMEOUT",
+    )
+    repair.record_failure(
+        capability_id="pc-server.shell.powershell",
+        error="policy denied",
+        status="DENIED",
+    )
+    snapshot = AgentState(repair_manager=repair).snapshot("test")
+    kinds = [item.kind for item in snapshot.obligations]
+    summaries = [item.summary.lower() for item in snapshot.obligations]
+    assert "incident" in kinds
+    assert not any("browserstartevent" in s or "timed out" in s for s in summaries)
+
+
+def test_android_activity_events_are_not_queued(tmp_path: Path) -> None:
+    from aegis_ai.autonomous.autonomous_loop import AutonomousLoop
+
+    loop = AutonomousLoop(data_dir=str(tmp_path / "auto"))
+    out = loop.evaluate_event("android.user_activity.changed", {"screen_on": True})
+    assert out["queued"] is False
+    assert loop._pending_actionable_observations == []
+
+
+def test_goal_hygiene_cancels_polluted_goals(tmp_path: Path) -> None:
+    from aegis_ai.agency.goal_hygiene import sweep_pollution
+    from aegis_ai.autonomous.continuation_manager import ContinuationManager
+    from aegis_ai.task.task_manager import TaskManager
+
+    tasks = TaskManager(data_dir=str(tmp_path / "tasks"))
+    polluted = tasks.create_task(
+        title="Advance goal with workspace.list_files",
+        goal="BrowserSession.on_BrowserStartEvent timed out after 30.0s",
+        source="autonomous",
+    )
+    tasks.start_task(polluted["task_id"])
+    tasks.pause_task(polluted["task_id"])
+    keep = tasks.create_task(title="User packing", goal="Finish packing list", source="chat")
+    tasks.start_task(keep["task_id"])
+
+    cont = ContinuationManager(str(tmp_path / "auto"))
+    cont.create(goal="android-production-e2e tap", trigger="android-production-e2e")
+
+    dry = sweep_pollution(task_manager=tasks, continuation_manager=cont, dry_run=True)
+    assert polluted["task_id"] in dry["cancelled_tasks"]
+    assert keep["task_id"] not in dry["cancelled_tasks"]
+    assert dry["counts"]["closed_continuations"] == 1
+
+    applied = sweep_pollution(task_manager=tasks, continuation_manager=cont, dry_run=False)
+    assert applied["counts"]["cancelled_tasks"] >= 1
+    assert tasks.get_task(polluted["task_id"])["status"] == "cancelled"
+    assert cont.list_open() == []

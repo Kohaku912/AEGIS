@@ -257,8 +257,23 @@ class AgentState:
                 )
             )
         repair_items = self._safe_call(self._repair, "list_history", [], limit=50)
+        noise_categories = {"transient", "server_down", "llm_failed"}
+        noise_results = {
+            "recovered",
+            "infra_noise",
+            "dismissed",
+            "rolled_back",
+            "repair_disabled",
+            "not_retryable",
+        }
         for item in repair_items:
-            if str(item.get("final_result") or "") == "recovered":
+            final_result = str(item.get("final_result") or "")
+            category = str(item.get("category") or "")
+            if final_result in noise_results:
+                continue
+            if category in noise_categories:
+                # Browser timeouts / unreachable servers stay in repair history
+                # for diagnostics but must not become user/goal obligations.
                 continue
             items.append(
                 Obligation(

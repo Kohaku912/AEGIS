@@ -3,8 +3,10 @@
 ## Policy
 
 AEGIS production on Ubuntu is private-network only. Do not expose Dashboard,
-AI gRPC, Browser, or Dev ports directly to the WAN. Use Tailscale first;
-WireGuard is an acceptable self-managed alternative.
+AI gRPC, Browser, or Dev ports directly to the WAN. For Android outside the
+LAN, use **Cloudflare Tunnel** (`grpc.kawahara.pp.ua`) with Access Service
+Tokens — see `infra/cloudflared/README.md`. WireGuard remains an acceptable
+self-managed VPN alternative; do not publish raw host ports.
 
 Secrets must live in `.env` or mounted volumes. Do not bake API keys or pairing
 tokens into Docker images.
@@ -45,8 +47,10 @@ Start uses `docker-compose.yml` plus `docker-compose.production.yml`, exports
 `browser-server`. `dev-server` is behind the `dev` profile. `room-server` is
 behind the `room` profile and refuses the mock provider in production.
 
-For Android outside LAN, install Tailscale on Ubuntu and Android, then use the
-Ubuntu Tailscale IP or MagicDNS name as the Android host.
+For Android outside LAN, expose Core gRPC via Cloudflare Tunnel hostname
+`grpc.kawahara.pp.ua` (origin `127.0.0.1:50051`, Access Service Token). On home
+Wi‑Fi the companion app may use LAN `192.168.50.41:50051` and fall back to the
+tunnel on cellular. Details: `infra/cloudflared/README.md`.
 
 ## Start / Stop
 

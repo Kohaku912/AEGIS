@@ -137,8 +137,18 @@ class MainActivity : ComponentActivity() {
                             "location" -> requestLocationPermission()
                         }
                     },
-                    saveConnection = { host, port, token ->
-                        config = AegisConfig.save(this@MainActivity, host, port, token)
+                    saveConnection = { req ->
+                        config = AegisConfig.save(
+                            this@MainActivity,
+                            req.host,
+                            req.port,
+                            req.pairingToken,
+                            fallbackHost = req.fallbackHost,
+                            fallbackPort = req.fallbackPort,
+                            useTlsFallback = req.useTlsFallback,
+                            cfAccessClientId = req.cfAccessClientId,
+                            cfAccessClientSecret = req.cfAccessClientSecret,
+                        )
                         client = AegisGrpcClient.getInstance(this@MainActivity)
                         grpcClient = client
                     },
@@ -833,13 +843,30 @@ class MainActivity : ComponentActivity() {
         val host = intent.getStringExtra("host")
         val token = intent.getStringExtra("pairing_token")
         val port = if (intent.hasExtra("port")) intent.getIntExtra("port", 50051) else null
-        if (host != null || token != null || port != null) {
+        val fallbackHost = intent.getStringExtra("fallback_host")
+        val fallbackPort = if (intent.hasExtra("fallback_port")) intent.getIntExtra("fallback_port", 443) else null
+        val useTlsFallback = if (intent.hasExtra("use_tls_fallback")) {
+            intent.getBooleanExtra("use_tls_fallback", true)
+        } else {
+            null
+        }
+        val cfId = intent.getStringExtra("cf_access_client_id")
+        val cfSecret = intent.getStringExtra("cf_access_client_secret")
+        if (
+            host != null || token != null || port != null || fallbackHost != null ||
+            fallbackPort != null || useTlsFallback != null || cfId != null || cfSecret != null
+        ) {
             val current = AegisConfig.load(this)
             AegisConfig.save(
                 this,
                 host ?: current.host,
                 port ?: current.port,
                 token ?: current.pairingToken,
+                fallbackHost = fallbackHost,
+                fallbackPort = fallbackPort,
+                useTlsFallback = useTlsFallback,
+                cfAccessClientId = cfId,
+                cfAccessClientSecret = cfSecret,
             )
             grpcClient = AegisGrpcClient.getInstance(this)
         }

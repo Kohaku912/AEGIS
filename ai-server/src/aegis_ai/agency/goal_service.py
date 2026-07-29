@@ -154,7 +154,8 @@ class GoalLifecycleService:
             elif evaluation.status == "failed":
                 check.status = VerificationStatus.FAILED
             else:
-                check.status = VerificationStatus.BLOCKED
+                # needs_followup is retryable, not a permanent blocked stall.
+                check.status = VerificationStatus.PENDING
         self._tasks.save_goal_graph(task_id, graph.to_dict())
 
         current_status = str(task.get("status") or "")
@@ -174,7 +175,8 @@ class GoalLifecycleService:
             "expired",
         }:
             self._tasks.fail_task(task_id, error=evaluation.reason)
-        elif current_status == "running":
+        elif evaluation.status == "needs_followup" and current_status == "running":
+            # Keep the task open for a later cycle without marking verification blocked.
             self._tasks.pause_task(task_id)
         return evaluation
 
