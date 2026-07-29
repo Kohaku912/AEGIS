@@ -59,7 +59,7 @@ def test_llm_evaluator_controls_pressure_reduction_and_score() -> None:
     assert result.desire_delta_hint == {"growth": 0.5}
 
 
-def test_without_llm_evaluator_is_blocked_and_no_delta() -> None:
+def test_without_llm_evaluator_uses_structural_fallback() -> None:
     result = evaluate_task_result(
         capability_id="ai-server.agora.read_posts",
         tool_success=True,
@@ -67,13 +67,12 @@ def test_without_llm_evaluator_is_blocked_and_no_delta() -> None:
         desire_name="social",
     )
 
-    assert result.task_effect == TaskEffect.BLOCKED
-    assert result.pressure_reduction == 0.0
-    assert result.desire_delta_hint == {}
-    assert result.details["reason"] == "evaluator_unavailable"
+    assert result.task_effect == TaskEffect.NEEDS_FOLLOWUP
+    assert result.details["evaluator"] == "structural"
+    assert result.pressure_reduction > 0.0
 
 
-def test_llm_failure_is_blocked_even_when_tool_failed() -> None:
+def test_llm_failure_falls_back_to_structural_on_tool_error() -> None:
     llm = _EvaluatorLLM("")
     llm.generate = lambda **kwargs: SimpleNamespace(success=False, content="", error="offline")
 
@@ -85,13 +84,12 @@ def test_llm_failure_is_blocked_even_when_tool_failed() -> None:
         llm_provider=llm,
     )
 
-    assert result.task_effect == TaskEffect.BLOCKED
+    assert result.task_effect == TaskEffect.FAILED
     assert result.tool_success is False
-    assert result.pressure_reduction == 0.0
-    assert result.desire_delta_hint == {}
+    assert result.details["evaluator"] == "structural"
 
 
-def test_invalid_llm_json_is_blocked() -> None:
+def test_invalid_llm_json_retries_then_structural_fallback() -> None:
     llm = _EvaluatorLLM("not json")
 
     result = evaluate_task_result(
@@ -102,9 +100,9 @@ def test_invalid_llm_json_is_blocked() -> None:
         llm_provider=llm,
     )
 
-    assert result.task_effect == TaskEffect.BLOCKED
-    assert result.pressure_reduction == 0.0
-    assert result.desire_delta_hint == {}
+    assert llm.calls >= 1
+    assert result.task_effect == TaskEffect.NEEDS_FOLLOWUP
+    assert result.details["evaluator"] == "structural"
 
 
 def test_fulfillment_source_has_no_capability_id_branching() -> None:

@@ -54,13 +54,25 @@ class CostTracker:
         """Check if a request is within budget.
 
         Estimates cost at $0.01 per 1000 tokens (conservative).
+        Also denies when the provider balance circuit is open.
         """
+        from aegis_ai.llm.provider_circuit import PROVIDER_CIRCUIT
+
+        if PROVIDER_CIRCUIT.is_open():
+            return False
+
         estimated_cost = estimated_tokens * 0.01 / 1000
         daily_cost = self._get_daily_cost()
         monthly_cost = self._get_monthly_cost()
 
         return (daily_cost + estimated_cost <= self._daily_budget and
                 monthly_cost + estimated_cost <= self._monthly_budget)
+
+    def provider_circuit_open(self) -> bool:
+        """Return True when the shared provider balance circuit is open."""
+        from aegis_ai.llm.provider_circuit import PROVIDER_CIRCUIT
+
+        return PROVIDER_CIRCUIT.is_open()
 
     def record_usage(
         self,
@@ -93,6 +105,8 @@ class CostTracker:
 
     def get_usage_summary(self) -> dict[str, Any]:
         """Get usage summary for dashboard."""
+        from aegis_ai.llm.provider_circuit import PROVIDER_CIRCUIT
+
         daily = self._get_daily_cost()
         monthly = self._get_monthly_cost()
         return {
@@ -103,6 +117,7 @@ class CostTracker:
             "daily_remaining": round(self._daily_budget - daily, 4),
             "monthly_remaining": round(self._monthly_budget - monthly, 4),
             "total_requests": len(self._entries),
+            "provider_circuit": PROVIDER_CIRCUIT.status(),
         }
 
     def _get_daily_cost(self) -> float:

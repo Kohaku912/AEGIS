@@ -413,7 +413,33 @@ class BrowserUseAgent:
                 use_vision=True,
                 enable_planning=True,
             )
-            result = await agent.run(max_steps=task.max_steps)
+            run_timeout = max(
+                30.0,
+                float(os.getenv("AEGIS_BROWSER_TASK_TIMEOUT_SECONDS", "180")),
+            )
+            max_start_attempts = max(1, int(os.getenv("AEGIS_BROWSER_START_ATTEMPTS", "1")))
+            last_error: Exception | None = None
+            result = None
+            for attempt in range(max_start_attempts):
+                try:
+                    result = await asyncio.wait_for(agent.run(max_steps=task.max_steps), timeout=run_timeout)
+                    break
+                except TimeoutError as exc:
+                    last_error = exc
+                    trace.record(
+                        "browser_timeout",
+                        f"attempt={attempt + 1}/{max_start_attempts} timeout={run_timeout}s",
+                    )
+                    logger.warning(
+                        "Browser task timed out (attempt %d/%d, %.0fs)",
+                        attempt + 1,
+                        max_start_attempts,
+                        run_timeout,
+                    )
+                    if attempt + 1 >= max_start_attempts:
+                        raise
+            if result is None and last_error is not None:
+                raise last_error
 
             trace.record("browser_use_complete", f"Result: {str(result)[:200]}")
             self._session.record_page_visit(task.natural_language_goal[:200])

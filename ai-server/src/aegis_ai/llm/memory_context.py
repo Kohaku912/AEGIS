@@ -182,6 +182,16 @@ def build_shared_memory_context(
     except Exception as exc:
         logger.debug("Desire context failed: %s", exc)
 
+    try:
+        from aegis_ai.user_state.manager import UserStateManager
+
+        user_state = UserStateManager(data_dir=str(root / "user_state"))
+        user_ctx = user_state.to_context_string()
+        if user_ctx:
+            add_section("user_state", f"USER SITUATION:\n{user_ctx}", 1)
+    except Exception as exc:
+        logger.debug("User state context failed: %s", exc)
+
     if profile == "decision":
         try:
             from aegis_ai.mind.affect_system import AffectSystem
@@ -216,7 +226,7 @@ def build_shared_memory_context(
     except Exception as exc:
         logger.debug("Experiential memory failed: %s", exc)
 
-    if profile == "decision" and has_social_actions:
+    if profile == "decision":
         try:
             from aegis_ai.memory.person_memory import PersonMemory
 

@@ -1,0 +1,17 @@
+[
+  "tests/test_provider_circuit.py::test_android_offline_alerts_without_tcp",
+  "tests/test_provider_circuit.py::test_android_unknown_does_not_alert",
+  "tests/test_provider_circuit.py::test_circuit_opens_after_threshold",
+  "tests/test_provider_circuit.py::test_cost_tracker_denies_when_circuit_open",
+  "tests/test_provider_circuit.py::test_health_alert_on_open_circuit",
+  "tests/test_provider_circuit.py::test_is_balance_error_detects_402",
+  "tests/test_secretary_loop_fixes.py::test_android_offline_alerts_without_tcp",
+  "tests/test_secretary_loop_fixes.py::test_android_unknown_does_not_alert",
+  "tests/test_secretary_loop_fixes.py::test_circuit_opens_after_threshold",
+  "tests/test_secretary_loop_fixes.py::test_cost_tracker_denies_when_circuit_open",
+  "tests/test_secretary_loop_fixes.py::test_health_alert_on_open_circuit",
+  "tests/test_secretary_loop_fixes.py::test_interval_bypass_and_goal_helpers",
+  "tests/test_secretary_loop_fixes.py::test_is_balance_error_detects_402",
+  "tests/test_secretary_loop_fixes.py::test_normalize_observation_source",
+  "tests/test_secretary_loop_fixes.py::test_structural_fulfillment_empty_and_error"
+]

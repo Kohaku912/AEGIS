@@ -14,6 +14,8 @@ from typing import Any
 
 from openai import OpenAI
 
+from aegis_ai.llm.provider_circuit import PROVIDER_CIRCUIT
+
 logger = logging.getLogger("aegis_ai.llm.providers.openai")
 
 _AUDIT_PREVIEW_CHARS = int(os.getenv("AEGIS_LLM_AUDIT_PREVIEW_CHARS", "500"))
@@ -133,6 +135,28 @@ class OpenAIProvider:
             "prompt_tokens_details": prompt_details if isinstance(prompt_details, dict) else {},
         }
 
+    def _circuit_blocked_response(self) -> LLMResponse | None:
+        if not PROVIDER_CIRCUIT.is_open():
+            return None
+        remaining = PROVIDER_CIRCUIT.remaining_ms()
+        status = PROVIDER_CIRCUIT.status()
+        return LLMResponse(
+            success=False,
+            error=(
+                f"LLM provider circuit open "
+                f"(balance/billing; {remaining // 1000}s remaining): "
+                f"{status.get('last_error', '')}"
+            ),
+            model_used=self._model,
+            provider_used="openai",
+        )
+
+    def _record_provider_outcome(self, error: Any | None = None) -> None:
+        if error is None:
+            PROVIDER_CIRCUIT.record_success()
+            return
+        PROVIDER_CIRCUIT.record_error(error)
+
     def generate(
         self,
         prompt: str,
@@ -143,6 +167,9 @@ class OpenAIProvider:
         json_mode: bool = False,
     ) -> LLMResponse:
         """Generate a response from the LLM."""
+        blocked = self._circuit_blocked_response()
+        if blocked is not None:
+            return blocked
         prompt = self._clamp_prompt(prompt)
         logger.info("LLM call: model=%s max_tokens=%d prompt_len=%d", self._model, max_tokens, len(prompt))
         messages = []
@@ -180,6 +207,7 @@ class OpenAIProvider:
                 self._model, tokens, duration_ms,
             )
 
+            self._record_provider_outcome()
             self._audit_log(
                 action="llm_call",
                 decision="success",
@@ -212,6 +240,7 @@ class OpenAIProvider:
         except Exception as e:
             duration_ms = (time.time() - start) * 1000
             logger.error("OpenAI API call failed: %s", e)
+            self._record_provider_outcome(e)
             self._audit_log(
                 action="llm_call",
                 decision="error",
@@ -221,6 +250,7 @@ class OpenAIProvider:
                     "prompt_chars": len(prompt),
                     "error": str(e),
                     "duration_ms": round(duration_ms, 1),
+                    "circuit": PROVIDER_CIRCUIT.status(),
                     **(context_meta or {}),
                 },
             )
@@ -252,6 +282,9 @@ class OpenAIProvider:
         Returns:
             LLMResponse with tool_calls populated if the model chose tools
         """
+        blocked = self._circuit_blocked_response()
+        if blocked is not None:
+            return blocked
         prompt = self._clamp_prompt(prompt)
         logger.info("LLM tool call: model=%s tools=%d prompt_len=%d", self._model, len(tools), len(prompt))
         messages = []
@@ -296,6 +329,7 @@ class OpenAIProvider:
                 self._model, tokens, duration_ms, len(tool_calls) if tool_calls else 0,
             )
 
+            self._record_provider_outcome()
             self._audit_log(
                 action="llm_tool_call",
                 decision="success",
@@ -330,6 +364,7 @@ class OpenAIProvider:
         except Exception as e:
             duration_ms = (time.time() - start) * 1000
             logger.error("OpenAI tool call failed: %s", e)
+            self._record_provider_outcome(e)
             self._audit_log(
                 action="llm_tool_call",
                 decision="error",
@@ -339,6 +374,7 @@ class OpenAIProvider:
                     "prompt_chars": len(prompt),
                     "error": str(e),
                     "duration_ms": round(duration_ms, 1),
+                    "circuit": PROVIDER_CIRCUIT.status(),
                     **(context_meta or {}),
                 },
             )
@@ -395,6 +431,9 @@ class OpenAIProvider:
         media_kind: str = "image",
     ) -> LLMResponse:
         """Generate a response from the LLM with one or more visual inputs."""
+        blocked = self._circuit_blocked_response()
+        if blocked is not None:
+            return blocked
         logger.info(
             "LLM media call: model=%s max_tokens=%d detail=%s media_kind=%s count=%d",
             self._model,
@@ -454,6 +493,7 @@ class OpenAIProvider:
             duration_ms = (time.time() - start) * 1000
 
             action = "llm_vision_call" if len([item for item in image_base64s if item]) <= 1 else "llm_media_call"
+            self._record_provider_outcome()
             self._audit_log(
                 action=action,
                 decision="success",
@@ -487,6 +527,7 @@ class OpenAIProvider:
         except Exception as e:
             duration_ms = (time.time() - start) * 1000
             logger.error("OpenAI media API call failed: %s", e)
+            self._record_provider_outcome(e)
             error_text = str(e).lower()
             if "image_url" in error_text or "invalid_request_error" in error_text or "messages[1]" in error_text:
                 logger.error("Vision API error for model=%s: %s", self._model, e)
@@ -513,6 +554,7 @@ class OpenAIProvider:
                     "duration_ms": round(duration_ms, 1),
                     "media_kind": media_kind,
                     "media_count": len([item for item in image_base64s if item]),
+                    "circuit": PROVIDER_CIRCUIT.status(),
                     **(context_meta or {}),
                 },
             )

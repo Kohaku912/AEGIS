@@ -101,6 +101,10 @@ class SpontaneousObservationSystem:
         person_memory: Any = None,
         action_trace: Any = None,
         status_manager: Any = None,
+        approval_manager: Any = None,
+        task_manager: Any = None,
+        agent_state: Any = None,
+        user_state_manager: Any = None,
         data_dir: str = "data/autonomous",
     ) -> None:
         self._llm = llm
@@ -112,6 +116,10 @@ class SpontaneousObservationSystem:
         self._person = person_memory
         self._action_trace = action_trace
         self._status_manager = status_manager
+        self._approval_manager = approval_manager
+        self._task_manager = task_manager
+        self._agent_state = agent_state
+        self._user_state_manager = user_state_manager
         self._data_dir = Path(data_dir)
         self._data_dir.mkdir(parents=True, exist_ok=True)
         self._last_observations: list[Observation] = []
@@ -146,6 +154,9 @@ class SpontaneousObservationSystem:
 
         # 6. Unfinished task observations
         observations.extend(self._observe_unfinished_tasks())
+
+        # 7. Manager work queues (approvals, obligations, waiting tasks)
+        observations.extend(self._observe_manager_work())
 
         # Sort by importance
         observations.sort(key=lambda o: o.importance, reverse=True)
@@ -398,10 +409,140 @@ class SpontaneousObservationSystem:
                                 observation_type="unresolved", source="task",
                                 description=f"Long-running task ({age_min:.0f}min): {trace.goal[:60]}",
                                 importance=0.6, novelty=0.3,
-                                tags=["task", "stuck"],
+                                actionable=True,
+                                suggested_action="Inspect or resume the stuck task",
+                                tags=["task", "stuck", "incident"],
                             ))
             except Exception:
                 pass
+
+        return obs
+
+    def _observe_manager_work(self) -> list[Observation]:
+        """Emit bounded observations from live managers every cycle (not only on change)."""
+        obs: list[Observation] = []
+        now_ms = int(time.time() * 1000)
+
+        if self._approval_manager is not None and hasattr(self._approval_manager, "list_pending"):
+            try:
+                pending = self._approval_manager.list_pending() or []
+                count = len(pending)
+                if count > 0:
+                    sample = pending[0]
+                    summary = getattr(sample, "capability_id", None) or getattr(sample, "title", "") or "approval"
+                    obs.append(
+                        Observation(
+                            observation_id=f"obs_{os.urandom(4).hex()}",
+                            timestamp_ms=now_ms,
+                            observation_type="unresolved",
+                            source="approval",
+                            description=f"{count} pending approval(s); oldest/newest sample: {summary}",
+                            importance=0.85 if count >= 5 else 0.75,
+                            novelty=0.2,
+                            actionable=True,
+                            suggested_action="Present an approval digest to the user without auto-approving",
+                            related_desire="user_support",
+                            tags=["approval", "obligation", "incident"],
+                        )
+                    )
+            except Exception:
+                logger.debug("Approval observation failed", exc_info=True)
+
+        if self._agent_state is not None:
+            try:
+                obligations = self._agent_state.snapshot("observation").obligations
+                if obligations:
+                    first = obligations[0]
+                    summary = getattr(first, "summary", None) or str(first)
+                    obs.append(
+                        Observation(
+                            observation_id=f"obs_{os.urandom(4).hex()}",
+                            timestamp_ms=now_ms,
+                            observation_type="unresolved",
+                            source="obligation",
+                            description=f"{len(obligations)} open obligation(s): {str(summary)[:120]}",
+                            importance=0.9,
+                            novelty=0.3,
+                            actionable=True,
+                            suggested_action="Resolve the highest-priority open obligation",
+                            related_desire="user_support",
+                            tags=["obligation", "incident"],
+                        )
+                    )
+            except Exception:
+                logger.debug("Obligation observation failed", exc_info=True)
+
+        if self._task_manager is not None:
+            try:
+                waiting = []
+                if hasattr(self._task_manager, "list_tasks"):
+                    waiting = [
+                        t
+                        for t in (self._task_manager.list_tasks() or [])
+                        if str(getattr(t, "status", getattr(t, "state", "")) or "").lower()
+                        in {"waiting_approval", "wait_for_approval", "paused", "waiting"}
+                    ][:5]
+                elif hasattr(self._task_manager, "get_waiting"):
+                    waiting = list(self._task_manager.get_waiting() or [])[:5]
+                if waiting:
+                    obs.append(
+                        Observation(
+                            observation_id=f"obs_{os.urandom(4).hex()}",
+                            timestamp_ms=now_ms,
+                            observation_type="unresolved",
+                            source="task",
+                            description=f"{len(waiting)} task(s) waiting on approval or resume",
+                            importance=0.8,
+                            novelty=0.2,
+                            actionable=True,
+                            suggested_action="Digest waiting tasks for the user",
+                            related_desire="user_support",
+                            tags=["task", "approval", "incident"],
+                        )
+                    )
+            except Exception:
+                logger.debug("Task manager observation failed", exc_info=True)
+
+        if self._user_state_manager is not None and hasattr(self._user_state_manager, "to_context_string"):
+            try:
+                ctx = self._user_state_manager.to_context_string()
+                if ctx and "unknown" not in ctx.lower():
+                    obs.append(
+                        Observation(
+                            observation_id=f"obs_{os.urandom(4).hex()}",
+                            timestamp_ms=now_ms,
+                            observation_type="interesting",
+                            source="user_state",
+                            description=f"User situation: {ctx[:160]}",
+                            importance=0.55,
+                            novelty=0.1,
+                            actionable=False,
+                            tags=["user_state"],
+                        )
+                    )
+            except Exception:
+                logger.debug("User state observation failed", exc_info=True)
+
+        # Room/Dev unconfigured: surface as attention, not pressure driver.
+        for server_id, env_flag in (
+            ("room-server", "ROOM_SERVER_ENABLED"),
+            ("dev-server", "DEV_SERVER_ENABLED"),
+        ):
+            raw = os.environ.get(env_flag, "true").strip().lower()
+            if raw in {"0", "false", "no", "off", "disabled", "unconfigured"}:
+                obs.append(
+                    Observation(
+                        observation_id=f"obs_{os.urandom(4).hex()}",
+                        timestamp_ms=now_ms,
+                        observation_type="interesting",
+                        source="health",
+                        description=f"{server_id} is unconfigured/disabled — not a failure",
+                        importance=0.2,
+                        novelty=0.0,
+                        actionable=False,
+                        tags=["health", "unconfigured", server_id],
+                    )
+                )
 
         return obs
 
