@@ -555,7 +555,12 @@ def _build_runtime(config: Config) -> AegisRuntime:
     from aegis_ai.approval.channels.pc_overlay import PcOverlayApprovalChannel
     from aegis_ai.approval.channels.room import RoomApprovalChannel
 
-    approval_fanout.register_channel(PcOverlayApprovalChannel(server_executor=server_executor))
+    approval_fanout.register_channel(
+        PcOverlayApprovalChannel(
+            server_executor=server_executor,
+            approval_manager=approval_manager,
+        )
+    )
     approval_fanout.register_channel(RoomApprovalChannel(server_executor=server_executor))
     approval_fanout.register_channel(AndroidApprovalChannel(android_manager=android_manager))
 
@@ -848,26 +853,35 @@ def _create_autonomous_loop(runtime: AegisRuntime) -> Any:
         )
     )
     if getattr(runtime, "approval_manager", None) is not None:
-        loop.set_approval_manager(runtime.approval_manager)
+        if hasattr(loop, "set_approval_manager"):
+            loop.set_approval_manager(runtime.approval_manager)
+        else:
+            loop._approval_manager = runtime.approval_manager
 
-    loop.set_observation_system(
-        SpontaneousObservationSystem(
-            llm=runtime.llm_gateway,
-            broker=runtime.tool_broker,
-            desire_system=desire,
-            affect_system=affect,
-            episodic_memory=episodic_mem,
-            semantic_memory=semantic_mem,
-            person_memory=person_mem,
-            action_trace=action_trace,
-            status_manager=runtime.status_manager,
-            approval_manager=getattr(runtime, "approval_manager", None),
-            task_manager=getattr(runtime, "task_manager", None),
-            agent_state=getattr(runtime, "agent_state", None),
-            user_state_manager=getattr(runtime, "user_state_manager", None),
-            data_dir=os.path.join(data_dir, "autonomous"),
-        )
-    )
+    import inspect
+
+    observation_kwargs = {
+        "llm": runtime.llm_gateway,
+        "broker": runtime.tool_broker,
+        "desire_system": desire,
+        "affect_system": affect,
+        "episodic_memory": episodic_mem,
+        "semantic_memory": semantic_mem,
+        "person_memory": person_mem,
+        "action_trace": action_trace,
+        "status_manager": runtime.status_manager,
+        "approval_manager": getattr(runtime, "approval_manager", None),
+        "task_manager": getattr(runtime, "task_manager", None),
+        "agent_state": getattr(runtime, "agent_state", None),
+        "user_state_manager": getattr(runtime, "user_state_manager", None),
+        "data_dir": os.path.join(data_dir, "autonomous"),
+    }
+    observation_params = inspect.signature(SpontaneousObservationSystem.__init__).parameters
+    if not any(p.kind == inspect.Parameter.VAR_KEYWORD for p in observation_params.values()):
+        observation_kwargs = {
+            key: value for key, value in observation_kwargs.items() if key in observation_params
+        }
+    loop.set_observation_system(SpontaneousObservationSystem(**observation_kwargs))
     curiosity_system = CuriosityDrivenExplorationSystem(
             llm=runtime.llm_gateway,
             desire_system=desire,

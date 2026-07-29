@@ -4,9 +4,10 @@
 
 AEGIS production on Ubuntu is private-network only. Do not expose Dashboard,
 AI gRPC, Browser, or Dev ports directly to the WAN. For Android outside the
-LAN, use **Cloudflare Tunnel** (`grpc.kawahara.pp.ua`) with Access Service
-Tokens — see `infra/cloudflared/README.md`. WireGuard remains an acceptable
-self-managed VPN alternative; do not publish raw host ports.
+LAN, use **Cloudflare Tunnel private networking + Cloudflare One (WARP)** so
+the phone reaches `192.168.50.41:50051` without a public gRPC hostname — see
+`infra/cloudflared/README.md`. WireGuard remains an acceptable self-managed
+VPN alternative; do not publish raw host ports.
 
 Secrets must live in `.env` or mounted volumes. Do not bake API keys or pairing
 tokens into Docker images.
@@ -30,7 +31,7 @@ AEGIS_RUNTIME_MODE=production
 AEGIS_PRODUCTION_BIND_HOST=127.0.0.1
 AEGIS_AUTH_MODE=passkey
 AEGIS_WEBAUTHN_RP_ID=kawahara.pp.ua
-AEGIS_WEBAUTHN_ORIGINS=https://kawahara.pp.ua
+AEGIS_WEBAUTHN_ORIGINS=https://kawahara.pp.ua,https://aegis.kawahara.pp.ua
 AEGIS_SESSION_SECRET=change-me-long-random-session-secret
 AEGIS_AUTH_BOOTSTRAP_TOKEN=change-me-one-time-bootstrap-token
 AEGIS_ANDROID_PAIRING_TOKEN=change-me
@@ -47,10 +48,10 @@ Start uses `docker-compose.yml` plus `docker-compose.production.yml`, exports
 `browser-server`. `dev-server` is behind the `dev` profile. `room-server` is
 behind the `room` profile and refuses the mock provider in production.
 
-For Android outside LAN, expose Core gRPC via Cloudflare Tunnel hostname
-`grpc.kawahara.pp.ua` (origin `127.0.0.1:50051`, Access Service Token). On home
-Wi‑Fi the companion app may use LAN `192.168.50.41:50051` and fall back to the
-tunnel on cellular. Details: `infra/cloudflared/README.md`.
+For Android outside LAN, publish Core as a Zero Trust private CIDR
+(`192.168.50.41/32`) on the AEGIS tunnel and enroll the phone in Cloudflare One
+(team `kawaharahome`). The app always uses `192.168.50.41:50051`. Details:
+`infra/cloudflared/README.md`.
 
 ## Start / Stop
 

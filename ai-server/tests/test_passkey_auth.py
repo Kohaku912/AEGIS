@@ -27,6 +27,24 @@ def _service(tmp_path):
     return store, service
 
 
+def test_production_origins_include_aegis_alias(monkeypatch):
+    monkeypatch.setenv("AEGIS_RUNTIME_MODE", "production")
+    monkeypatch.setenv("AEGIS_WEBAUTHN_RP_ID", "kawahara.pp.ua")
+    monkeypatch.setenv("AEGIS_WEBAUTHN_ORIGINS", "https://kawahara.pp.ua")
+    config = PasskeyConfig.from_env()
+    assert "https://kawahara.pp.ua" in config.origins
+    assert "https://aegis.kawahara.pp.ua" in config.origins
+
+
+def test_login_page_does_not_auto_start_passkey():
+    from aegis_ai.auth.routes import _login_html
+
+    html = _login_html()
+    assert "isConditionalMediationAvailable" not in html
+    assert "mediation:'optional'" not in html
+    assert "パスキーでログイン" in html
+
+
 def test_registration_challenge_is_one_time(monkeypatch, tmp_path):
     store, service = _service(tmp_path)
     options = service.registration_options(username="admin", display_name="Admin")

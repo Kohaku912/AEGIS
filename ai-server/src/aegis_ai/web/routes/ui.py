@@ -9,7 +9,11 @@ from typing import Any
 
 from flask import Blueprint, Response, jsonify, request
 
-from aegis_ai.web.ui_overview import build_ui_overview, normalize_ui_event
+from aegis_ai.web.ui_overview import (
+    _is_activity_noise_event,
+    build_ui_overview,
+    normalize_ui_event,
+)
 
 
 def init_ui_routes(owner: Any) -> None:
@@ -28,7 +32,10 @@ def init_ui_routes(owner: Any) -> None:
 
         def _handler(event: Any) -> None:
             try:
-                event_queue.put_nowait(normalize_ui_event(event))
+                normalized = normalize_ui_event(event)
+                if _is_activity_noise_event(normalized):
+                    return
+                event_queue.put_nowait(normalized)
             except queue.Full:
                 pass
 
@@ -93,6 +100,8 @@ def _replay_events(event_manager: Any, last_event_id: str, limit: int = 100) -> 
         try:
             event = normalize_ui_event(item)
         except Exception:
+            continue
+        if _is_activity_noise_event(event):
             continue
         if event.get("event_id") != last_event_id:
             normalized.append(event)

@@ -1,15 +1,19 @@
-# Example fragment — merge into the live cloudflared config on Ubuntu.
-# Live path is usually /etc/cloudflared/config.yml (host-local; not in git).
+# Example fragment — remotely managed tunnels usually set this via API
+# (infra/cloudflared/apply-warp-private-network.sh), not a local config.yml.
+#
+# Private gRPC is NOT an ingress hostname. It is a teamnet route:
+#   192.168.50.41/32 → tunnel AEGIS
+# Android uses Cloudflare One (WARP) with Split Tunnels Include for that CIDR.
 
-tunnel: <TUNNEL_ID>
+tunnel: 4939347a-cdf3-41f6-bb3e-646b883a54a3
 credentials-file: /etc/cloudflared/<TUNNEL_ID>.json
 
 ingress:
-  - hostname: grpc.kawahara.pp.ua
-    service: http://192.168.50.41:50051
-    originRequest:
-      http2Origin: true
-      connectTimeout: 30s
-      noTLSVerify: false
-  # Keep existing Dashboard / Display hostnames above the catch-all.
+  - hostname: kawahara.pp.ua
+    service: http://127.0.0.1:8090
+  - hostname: aegis.kawahara.pp.ua
+    service: http://127.0.0.1:8090
   - service: http_status:404
+
+warp-routing:
+  enabled: true

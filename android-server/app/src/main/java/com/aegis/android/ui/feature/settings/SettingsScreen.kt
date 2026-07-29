@@ -41,48 +41,20 @@ fun SettingsScreen(
     var host by remember(config.host) { mutableStateOf(config.host) }
     var port by remember(config.port) { mutableStateOf(config.port.toString()) }
     var token by remember(config.pairingToken) { mutableStateOf(config.pairingToken) }
-    var fallbackHost by remember(config.fallbackHost) { mutableStateOf(config.fallbackHost) }
-    var fallbackPort by remember(config.fallbackPort) { mutableStateOf(config.fallbackPort.toString()) }
-    var cfId by remember(config.cfAccessClientId) { mutableStateOf(config.cfAccessClientId) }
-    var cfSecret by remember(config.cfAccessClientSecret) { mutableStateOf(config.cfAccessClientSecret) }
     AegisPanel(modifier = Modifier.padding(16.dp).fillMaxWidth()) {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.padding(16.dp)) {
             Text("Connection", color = AegisText)
             Text(
-                "LAN host for Wi‑Fi. Cloudflare fallback (grpc.kawahara.pp.ua:443) for cellular.",
+                "Use Core LAN address (192.168.50.41:50051) on Wi‑Fi and cellular. " +
+                    "Away from home: install Cloudflare One / WARP, join team kawaharahome, then connect.",
                 color = AegisTextSecondary,
             )
-            OutlinedTextField(value = host, onValueChange = { host = it }, label = { Text("LAN host") }, modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(value = port, onValueChange = { port = it }, label = { Text("LAN port") }, modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(
-                value = fallbackHost,
-                onValueChange = { fallbackHost = it },
-                label = { Text("Cloudflare fallback host") },
-                modifier = Modifier.fillMaxWidth(),
-            )
-            OutlinedTextField(
-                value = fallbackPort,
-                onValueChange = { fallbackPort = it },
-                label = { Text("Cloudflare fallback port") },
-                modifier = Modifier.fillMaxWidth(),
-            )
+            OutlinedTextField(value = host, onValueChange = { host = it }, label = { Text("Core host") }, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(value = port, onValueChange = { port = it }, label = { Text("Core port") }, modifier = Modifier.fillMaxWidth())
             OutlinedTextField(
                 value = token,
                 onValueChange = { token = it },
                 label = { Text("Pairing token") },
-                visualTransformation = PasswordVisualTransformation(),
-                modifier = Modifier.fillMaxWidth(),
-            )
-            OutlinedTextField(
-                value = cfId,
-                onValueChange = { cfId = it },
-                label = { Text("CF Access Client ID") },
-                modifier = Modifier.fillMaxWidth(),
-            )
-            OutlinedTextField(
-                value = cfSecret,
-                onValueChange = { cfSecret = it },
-                label = { Text("CF Access Client Secret") },
                 visualTransformation = PasswordVisualTransformation(),
                 modifier = Modifier.fillMaxWidth(),
             )
@@ -94,11 +66,11 @@ fun SettingsScreen(
                                 host = host,
                                 port = port.toIntOrNull() ?: 50051,
                                 pairingToken = token,
-                                fallbackHost = fallbackHost,
-                                fallbackPort = fallbackPort.toIntOrNull() ?: 443,
-                                useTlsFallback = true,
-                                cfAccessClientId = cfId,
-                                cfAccessClientSecret = cfSecret,
+                                fallbackHost = "",
+                                fallbackPort = 50051,
+                                useTlsFallback = false,
+                                cfAccessClientId = "",
+                                cfAccessClientSecret = "",
                             ),
                         )
                     },

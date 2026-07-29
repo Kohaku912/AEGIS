@@ -9,16 +9,17 @@ data class AegisConnectionConfig(
     val port: Int,
     val pairingToken: String,
     val deviceId: String,
-    val fallbackHost: String = "grpc.kawahara.pp.ua",
-    val fallbackPort: Int = 443,
-    val useTlsFallback: Boolean = true,
+    /** Optional alternate host; leave blank when Cloudflare WARP reaches [host] directly. */
+    val fallbackHost: String = "",
+    val fallbackPort: Int = DEFAULT_PORT,
+    val useTlsFallback: Boolean = false,
     val cfAccessClientId: String = "",
     val cfAccessClientSecret: String = "",
     val lastWorkingHost: String = "",
     val lastWorkingPort: Int = 0,
     val lastWorkingTls: Boolean = false,
 ) {
-    fun primaryUsesTls(): Boolean = port == 443 || host.contains("kawahara.pp.ua")
+    fun primaryUsesTls(): Boolean = port == 443
 
     fun fallbackUsesTls(): Boolean = useTlsFallback || fallbackPort == 443
 
@@ -40,10 +41,15 @@ data class AegisConnectionConfig(
             ordered.add(primary)
             if (fallback != null) ordered.add(fallback)
         } else {
-            if (fallback != null) ordered.add(fallback)
+            // Cellular: same Core LAN IP via Cloudflare WARP private network.
             ordered.add(primary)
+            if (fallback != null) ordered.add(fallback)
         }
         return ordered.distinctBy { "${it.host}:${it.port}:${it.useTls}" }
+    }
+
+    companion object {
+        const val DEFAULT_PORT: Int = 50051
     }
 }
 
@@ -70,9 +76,12 @@ object AegisConfig {
     private const val KEY_LAST_TLS = "last_working_tls"
 
     private const val DEFAULT_HOST = "192.168.50.41"
-    private const val DEFAULT_PORT = 50051
-    const val DEFAULT_FALLBACK_HOST = "grpc.kawahara.pp.ua"
-    const val DEFAULT_FALLBACK_PORT = 443
+    private const val DEFAULT_PORT = AegisConnectionConfig.DEFAULT_PORT
+    /** Deprecated public gRPC hostname (Free plan blocks application/grpc). */
+    private const val LEGACY_PUBLIC_GRPC_HOST = "grpc.kawahara.pp.ua"
+
+    const val DEFAULT_FALLBACK_HOST = ""
+    const val DEFAULT_FALLBACK_PORT = DEFAULT_PORT
 
     fun load(context: Context): AegisConnectionConfig {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -81,14 +90,20 @@ object AegisConfig {
         val deviceId = prefs.getString(KEY_DEVICE_ID, null) ?: fallbackId.also {
             prefs.edit().putString(KEY_DEVICE_ID, it).apply()
         }
+        val rawFallback = prefs.getString(KEY_FALLBACK_HOST, DEFAULT_FALLBACK_HOST) ?: DEFAULT_FALLBACK_HOST
+        val fallbackHost = if (rawFallback.equals(LEGACY_PUBLIC_GRPC_HOST, ignoreCase = true)) {
+            ""
+        } else {
+            rawFallback
+        }
         return AegisConnectionConfig(
             host = prefs.getString(KEY_HOST, DEFAULT_HOST) ?: DEFAULT_HOST,
             port = prefs.getInt(KEY_PORT, DEFAULT_PORT),
             pairingToken = prefs.getString(KEY_PAIRING_TOKEN, "") ?: "",
             deviceId = deviceId,
-            fallbackHost = prefs.getString(KEY_FALLBACK_HOST, DEFAULT_FALLBACK_HOST) ?: DEFAULT_FALLBACK_HOST,
+            fallbackHost = fallbackHost,
             fallbackPort = prefs.getInt(KEY_FALLBACK_PORT, DEFAULT_FALLBACK_PORT),
-            useTlsFallback = prefs.getBoolean(KEY_USE_TLS_FALLBACK, true),
+            useTlsFallback = prefs.getBoolean(KEY_USE_TLS_FALLBACK, false),
             cfAccessClientId = prefs.getString(KEY_CF_ACCESS_CLIENT_ID, "") ?: "",
             cfAccessClientSecret = prefs.getString(KEY_CF_ACCESS_CLIENT_SECRET, "") ?: "",
             lastWorkingHost = prefs.getString(KEY_LAST_HOST, "") ?: "",
@@ -111,7 +126,14 @@ object AegisConfig {
         val current = load(context)
         val cleanHost = host.trim().ifEmpty { DEFAULT_HOST }
         val cleanPort = port.takeIf { it in 1..65535 } ?: DEFAULT_PORT
-        val cleanFallbackHost = (fallbackHost ?: current.fallbackHost).trim().ifEmpty { DEFAULT_FALLBACK_HOST }
+        // Allow blank fallback to disable secondary endpoint (WARP path).
+        val cleanFallbackHost = when {
+            fallbackHost != null -> {
+                val trimmed = fallbackHost.trim()
+                if (trimmed.equals(LEGACY_PUBLIC_GRPC_HOST, ignoreCase = true)) "" else trimmed
+            }
+            else -> current.fallbackHost
+        }
         val cleanFallbackPort = (fallbackPort ?: current.fallbackPort).takeIf { it in 1..65535 } ?: DEFAULT_FALLBACK_PORT
         val cleanTls = useTlsFallback ?: current.useTlsFallback
         val cleanId = cfAccessClientId ?: current.cfAccessClientId

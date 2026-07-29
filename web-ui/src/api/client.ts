@@ -228,14 +228,26 @@ export async function sendChat(message: string): Promise<Record<string, unknown>
 
 export async function resolveApproval(approvalId: string, decision: "approve" | "reject"): Promise<void> {
   const endpoint = decision === "approve" ? "approve" : "reject";
+  const csrf = String((await fetchAuthMe()).csrf_token || "");
   const response = await fetch(`/api/approvals/${approvalId}/${endpoint}`, {
     method: "POST",
     credentials: "include",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({})
+    headers: {
+      "Content-Type": "application/json",
+      "X-CSRF-Token": csrf,
+    },
+    body: JSON.stringify({}),
   });
   if (!response.ok) {
-    throw new Error(`Approval ${decision} failed: ${response.status}`);
+    const payload = await response.json().catch(() => ({} as Record<string, unknown>));
+    const detail = String(payload.error || payload.message || response.status);
+    if (detail.includes("fresh_passkey") || response.status === 403 && detail.includes("fresh")) {
+      throw new Error("Fresh passkey required. Open /auth/login, authenticate, then approve again.");
+    }
+    if (detail.includes("CSRF") || response.status === 403 && detail.toLowerCase().includes("csrf")) {
+      throw new Error("CSRF token missing or expired. Refresh the page and try again.");
+    }
+    throw new Error(`Approval ${decision} failed: ${detail}`);
   }
 }
 
