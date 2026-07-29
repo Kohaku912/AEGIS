@@ -56,6 +56,7 @@ import com.aegis.android.ui.feature.chat.ChatScreen
 import com.aegis.android.ui.feature.devices.DevicesScreen
 import com.aegis.android.ui.feature.home.HomeScreen
 import com.aegis.android.ui.feature.permissions.PermissionsScreen
+import com.aegis.android.ui.feature.settings.ConnectionSaveRequest
 import com.aegis.android.ui.feature.settings.SettingsScreen
 import com.aegis.android.ui.feature.tasks.TasksScreen
 import com.aegis.android.ui.model.MobilePermissionSnapshot
@@ -64,7 +65,7 @@ import kotlinx.coroutines.launch
 
 data class MobileUiActions(
     val permissionAction: (String) -> Unit,
-    val saveConnection: (String, Int, String) -> Unit,
+    val saveConnection: (ConnectionSaveRequest) -> Unit,
     val connect: () -> Unit,
 )
 

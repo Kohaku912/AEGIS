@@ -1954,6 +1954,26 @@ Operational decision axes (prioritization only; not additional desires):
                                     result_summary[:200],
                                 ],
                             )
+                        elif success and verification_status in {
+                            "",
+                            "pending",
+                            "skipped",
+                            "verified",
+                            "unverified",
+                        }:
+                            # Align with TaskExecutionEngine._completion_verified:
+                            # no independent checks (skipped/pending) is not a stall.
+                            goal_evaluation = GoalEvaluation(
+                                status="achieved",
+                                reason=(
+                                    "Capability succeeded and verification was skipped "
+                                    "or not required by the manifest."
+                                ),
+                                evidence=[
+                                    f"verification_status:{verification_status or 'unavailable'}",
+                                    result_summary[:200],
+                                ],
+                            )
                         elif success:
                             goal_evaluation = GoalEvaluation(
                                 status="needs_followup",
@@ -2873,6 +2893,20 @@ Rules:
     def evaluate_event(self, event_type: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
         """Evaluate a structured event immediately without bypassing the LLM interval gate."""
         detail = dict(payload or {})
+        # Activity / heartbeat noise updates user_state elsewhere; never seed goal text.
+        if event_type.startswith("android.user_activity") or event_type.startswith(
+            "android.foreground_app"
+        ) or event_type.endswith(".heartbeat") or event_type == "android.heartbeat":
+            self._last_decision = "event_ignore_noise"
+            self._last_decision_ms = int(time.time() * 1000)
+            self._last_no_action_reason = "Android activity/heartbeat events do not create goal observations."
+            self._save()
+            return {
+                "event_type": event_type,
+                "decision": "ignore",
+                "reason": self._last_no_action_reason,
+                "queued": False,
+            }
         self._pending_actionable_observations.append(
             {
                 "source": event_type,

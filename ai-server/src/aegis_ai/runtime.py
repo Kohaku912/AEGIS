@@ -743,8 +743,6 @@ def _build_runtime(config: Config) -> AegisRuntime:
         "commitment.due",
         "browser.discovery",
         "android.permission.changed",
-        "android.user_activity.changed",
-        "android.foreground_app.changed",
     }
     # Debounce high-frequency Android activity noise (observe_more spam).
     _android_debounce_ms = int(os.environ.get("AEGIS_ANDROID_EVENT_DEBOUNCE_MS", "60000"))

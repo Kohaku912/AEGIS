@@ -5,7 +5,12 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.content.Context
 import android.content.Intent
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import android.os.IBinder
 import android.util.Log
 import androidx.core.app.NotificationCompat
@@ -42,26 +47,32 @@ class AegisForegroundService : Service() {
     private lateinit var deviceProvider: DeviceProvider
     private lateinit var userActivityCollector: UserActivityCollector
     private var notificationConversationId = "android_notification_${System.currentTimeMillis()}"
+    private var networkCallback: ConnectivityManager.NetworkCallback? = null
 
     override fun onCreate() {
         super.onCreate()
         Log.i(TAG, "Foreground service created")
 
-        // Create notification channel and notification BEFORE startForeground
         createNotificationChannel()
         startForeground(NOTIFICATION_ID, createNotification())
 
         grpcClient = AegisGrpcClient.getInstance(this)
         deviceProvider = DeviceProvider(this)
         userActivityCollector = UserActivityCollector(this)
+        registerNetworkCallback()
 
         scope.launch {
             var delayIndex = 0
             var attemptedConnection = false
             while (isActive) {
                 try {
-                    if (!grpcClient.isConnected()) {
-                        val waitMs = RECONNECT_DELAYS_MS[delayIndex.coerceAtMost(RECONNECT_DELAYS_MS.lastIndex)]
+                    val forced = grpcClient.consumeReconnectRequest()
+                    if (forced || !grpcClient.isConnected()) {
+                        val waitMs = if (forced) {
+                            500L
+                        } else {
+                            RECONNECT_DELAYS_MS[delayIndex.coerceAtMost(RECONNECT_DELAYS_MS.lastIndex)]
+                        }
                         grpcClient.setNextRetry(System.currentTimeMillis())
                         if (attemptedConnection) {
                             grpcClient.recordReconnectAttempt()
@@ -90,7 +101,6 @@ class AegisForegroundService : Service() {
             }
         }
 
-        // Start periodic device state push
         scope.launch {
             while (isActive) {
                 try {
@@ -131,11 +141,46 @@ class AegisForegroundService : Service() {
     override fun onDestroy() {
         super.onDestroy()
         Log.i(TAG, "Foreground service destroyed")
+        unregisterNetworkCallback()
         scope.cancel()
         grpcClient.disconnect()
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
+
+    private fun registerNetworkCallback() {
+        val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        val request = NetworkRequest.Builder()
+            .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            .build()
+        val callback = object : ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: Network) {
+                grpcClient.requestReconnect("network_available")
+            }
+
+            override fun onLost(network: Network) {
+                grpcClient.requestReconnect("network_lost")
+            }
+        }
+        networkCallback = callback
+        try {
+            cm.registerNetworkCallback(request, callback)
+        } catch (exc: Exception) {
+            Log.e(TAG, "Failed to register network callback", exc)
+        }
+    }
+
+    private fun unregisterNetworkCallback() {
+        val callback = networkCallback ?: return
+        try {
+            val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+            cm.unregisterNetworkCallback(callback)
+        } catch (exc: Exception) {
+            Log.e(TAG, "Failed to unregister network callback", exc)
+        } finally {
+            networkCallback = null
+        }
+    }
 
     private fun createNotificationChannel() {
         val channel = NotificationChannel(

@@ -6,6 +6,7 @@ from aegis_ai.agency.goal_graph import (
     GoalVerification,
     VerificationStatus,
 )
+from aegis_ai.agency.goal_hygiene import sweep_pollution
 from aegis_ai.agency.goal_service import GoalEvaluation, GoalLifecycleService
 from aegis_ai.agency.mission import (
     DEFAULT_MISSION_CONTRACT,
@@ -27,4 +28,5 @@ __all__ = [
     "MissionContract",
     "Obligation",
     "VerificationStatus",
+    "sweep_pollution",
 ]
