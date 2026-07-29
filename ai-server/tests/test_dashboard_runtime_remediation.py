@@ -146,6 +146,37 @@ def test_social_retry_batch_is_bounded_and_records_backoff(tmp_path: Path) -> No
     assert terminal.metadata["next_retry_at"] == 0
 
 
+def test_social_json_uses_decision_profile_token_limit(tmp_path: Path) -> None:
+    calls: list[dict[str, object]] = []
+
+    def generate(**kwargs):
+        calls.append(kwargs)
+        return SimpleNamespace(
+            success=True,
+            content='{"decision":"skip","reason":"not actionable","draft_body":""}',
+        )
+
+    manager = SocialManager(
+        data_dir=str(tmp_path),
+        llm=SimpleNamespace(generate=generate),
+    )
+
+    result = manager._generate_json("Decide how to handle this social item.")
+
+    assert result["decision"] == "skip"
+    assert calls == [
+        {
+            "prompt": "Decide how to handle this social item.",
+            "system_prompt": (
+                "You are AEGIS SocialManager. Make a reasoned social decision "
+                "and return JSON only."
+            ),
+            "json_mode": True,
+            "profile": "decision",
+        }
+    ]
+
+
 def test_dismissed_repairs_are_not_active_errors() -> None:
     class Repair:
         def list_history(self, limit=30):
