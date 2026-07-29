@@ -6,7 +6,9 @@ type StreamSurface = "dashboard" | "display";
 
 const lastEventIdBySurface: Partial<Record<StreamSurface, string>> = {};
 
-export function useOverviewStream(onEvent: (event: UiEvent) => void, enabled = true, surface: StreamSurface = "dashboard"): void {
+export type StreamState = "connecting" | "online" | "reconnecting" | "offline" | "malformed";
+
+export function useOverviewStream(onEvent: (event: UiEvent) => void, enabled = true, surface: StreamSurface = "dashboard", onState?: (state: StreamState) => void): void {
   useEffect(() => {
     if (!enabled || typeof EventSource === "undefined") return;
     const displayQuery = displayReadQuery();
@@ -20,6 +22,20 @@ export function useOverviewStream(onEvent: (event: UiEvent) => void, enabled = t
         ? `/api/ui/stream${query ? `?${query}` : ""}`
         : `/api/ui/stream${query ? `?${query}` : ""}`;
     const source = new EventSource(url, { withCredentials: true });
+    let failures = 0;
+    let offlineTimer = 0;
+    onState?.("connecting");
+    source.onopen = () => {
+      failures = 0;
+      window.clearTimeout(offlineTimer);
+      onState?.("online");
+    };
+    source.onerror = () => {
+      failures += 1;
+      onState?.("reconnecting");
+      window.clearTimeout(offlineTimer);
+      offlineTimer = window.setTimeout(() => onState?.("offline"), failures >= 3 ? 2_000 : 10_000);
+    };
     const handler = (event: MessageEvent<string>) => {
       try {
         const payload = JSON.parse(event.data) as UiEvent;
@@ -29,8 +45,9 @@ export function useOverviewStream(onEvent: (event: UiEvent) => void, enabled = t
           writeStoredLastEventId(surface, streamEventId);
         }
         onEvent(payload);
-      } catch {
-        // Ignore malformed stream frames; the next snapshot will recover state.
+      } catch (error) {
+        onState?.("malformed");
+        console.warn("AEGIS UI stream frame was malformed; requesting snapshot recovery.", error);
       }
     };
     for (const name of [
@@ -50,8 +67,8 @@ export function useOverviewStream(onEvent: (event: UiEvent) => void, enabled = t
       source.addEventListener(name, handler as EventListener);
     }
     source.addEventListener("ui.snapshot", handler as EventListener);
-    return () => source.close();
-  }, [enabled, onEvent, surface]);
+    return () => { window.clearTimeout(offlineTimer); source.close(); };
+  }, [enabled, onEvent, onState, surface]);
 }
 
 function readStoredLastEventId(surface: StreamSurface): string {

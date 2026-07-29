@@ -50,7 +50,7 @@ describe("dashboard v2 pages", () => {
   it("renders Work queues and task detail", () => {
     render(<Work overview={overview()} />);
     expect(screen.getByRole("tablist", { name: "Work queues" })).toBeInTheDocument();
-    expect(screen.getByText("Task Detail")).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "タスク詳細" })).toBeInTheDocument();
     expect(screen.getAllByText("pc-server.screenshot.get_screenshot").length).toBeGreaterThan(0);
   });
 
@@ -78,18 +78,15 @@ describe("dashboard v2 pages", () => {
     expect(screen.getByText("Social inbox & AGORA decisions")).toBeInTheDocument();
     expect(screen.getByText(/hello from agora/i)).toBeInTheDocument();
   });
-  it("keeps judgment-first navigation domains", () => {
+  it("keeps five task-oriented navigation domains", () => {
     expect(navigation.map((domain) => domain.id)).toEqual([
-      "command",
-      "loops",
-      "judgment",
+      "home",
+      "work",
       "communications",
       "systems",
-      "governance",
-      "developer",
-      "configuration",
+      "administration",
     ]);
-    expect(navigation.find((domain) => domain.id === "loops")?.pages.some((page) => page.id === "open-loops")).toBe(true);
+    expect(navigation.find((domain) => domain.id === "work")?.pages.some((page) => page.id === "open-loops")).toBe(true);
   });
 
   it("renders Systems topology and Android detail", () => {

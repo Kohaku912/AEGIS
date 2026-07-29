@@ -2,7 +2,7 @@ import { Bell, ChevronDown, ChevronRight, Code2, Command as CommandIcon, Message
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetchOverview, fetchResourceEntity } from "./api/client";
-import { useOverviewStream } from "./api/useOverviewStream";
+import { useOverviewStream, type StreamState } from "./api/useOverviewStream";
 import { isUiActivityNoise } from "./activityNoise";
 import { ChatDrawer } from "./components/ChatDrawer";
 import { CommandPalette } from "./components/CommandPalette";
@@ -17,6 +17,8 @@ import { ActivityPage } from "./pages/ActivityPage";
 import { Approvals } from "./pages/Approvals";
 import { CapabilityCatalogPage } from "./pages/CapabilityCatalogPage";
 import { CommandCenter } from "./pages/CommandCenter";
+import { HomePage } from "./pages/HomePage";
+import { AttentionPage } from "./pages/AttentionPage";
 import { Display } from "./pages/Display";
 import { DomainPage } from "./pages/DomainPage";
 import { JudgmentPage } from "./pages/JudgmentPage";
@@ -30,6 +32,8 @@ import { RuleManagementPage } from "./pages/RuleManagementPage";
 import { Settings } from "./pages/Settings";
 import { SocialPage } from "./pages/SocialPage";
 import { Systems } from "./pages/Systems";
+import { Work } from "./pages/Work";
+import { formatDateTime, formatRelative, ja } from "./i18n";
 import type { EntitySummary, UiEvent, UiOverview } from "./types";
 
 export function App() {
@@ -44,10 +48,11 @@ export function App() {
   const [developerMode, setDeveloperMode] = useState(() => window.localStorage.getItem("aegis.developer-mode") === "1");
   const [density, setDensity] = useState(() => window.localStorage.getItem("aegis.density") || "standard");
   const [pinnedEntities, setPinnedEntities] = useState<EntitySummary[]>(() => readPins());
+  const [streamState, setStreamState] = useState<StreamState>("connecting");
   const followRelation = useCallback(async (type: string, id: string) => {
     const resources: Record<string, string> = { task: "tasks", approval: "approvals", capability: "capabilities", server: "servers", event: "events", memory: "memories", conversation: "events" };
     try { setSelectedEntity(await fetchResourceEntity(resources[type] || `${type}s`, id)); }
-    catch { /* Keep the current entity visible when the related record is no longer retained. */ }
+    catch (error) { setRecentEvents((items) => [{ type: "ui.related-resource.failed", source_type: "dashboard", generated_at: Date.now(), source_updated_at: Date.now(), severity: "warning", message: error instanceof Error ? error.message : String(error), payload: {} }, ...items].slice(0, 40)); }
   }, []);
   const query = useQuery({
     queryKey: ["ui-overview", displayMode ? "display" : "dashboard"],
@@ -65,7 +70,8 @@ export function App() {
     setRecentEvents((items) => [event, ...items.filter((item) => item.event_id !== event.event_id)].slice(0, 40));
     void queryClient.invalidateQueries({ queryKey: ["ui-overview"] });
   }, [queryClient]);
-  useOverviewStream(onEvent, !displayMode);
+  const onStreamState = useCallback((state: StreamState) => setStreamState(state), []);
+  useOverviewStream(onEvent, !displayMode, "dashboard", onStreamState);
 
   const navigate = useCallback((path: string) => {
     window.history.pushState(null, "", path);
@@ -103,9 +109,10 @@ export function App() {
   const approvalCount = overview.approvals.data.pending_count || 0;
   return (
     <div className="master-shell" data-domain={route.domain} data-developer-mode={developerMode} data-density={density}>
+      <a className="skip-link" href="#main-content">メインコンテンツへ移動</a>
       <aside className="master-nav">
-        <div className="brand"><span className="brand__name">AEGIS</span><span className="brand__sub">Master Control Plane</span></div>
-        <nav aria-label="AEGIS management domains">
+        <div className="brand"><span className="brand__name">AEGIS</span><span className="brand__sub">{ja.appSubtitle}</span></div>
+        <nav aria-label="AEGISメインナビゲーション">
           {navigation.map((domain, index) => {
             const Icon = domain.icon;
             const open = expanded === domain.id;
@@ -114,43 +121,46 @@ export function App() {
                 <button type="button" aria-expanded={open} aria-current={route.domain === domain.id ? "page" : undefined} onClick={() => setExpanded(open ? route.domain : domain.id)}>
                   <span className="nav-domain__number">{String(index + 1).padStart(2, "0")}</span><Icon size={16} /><strong>{domain.label}</strong>{open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
                 </button>
-                {open ? <div className="nav-domain__children">{domain.pages.map((page) => <button type="button" aria-current={route.page === page.id ? "page" : undefined} onClick={() => navigate(page.path)} key={page.id}>{page.label}</button>)}</div> : null}
+                {open ? <div className="nav-domain__children">{domain.pages.filter((page) => developerMode || !page.developerOnly).map((page) => <button type="button" aria-current={route.page === page.id ? "page" : undefined} onClick={() => navigate(page.path)} key={page.id}>{page.label}</button>)}</div> : null}
               </section>
             );
           })}
         </nav>
-        <footer><span>Passkey session</span><strong>Policy guarded</strong></footer>
+        <footer><span>パスキーセッション</span><strong>ポリシー保護中</strong></footer>
       </aside>
 
       <div className="master-workspace">
         <header className="master-topbar">
           <GlobalSearch entities={entities} onSelect={setSelectedEntity} />
-          <button className="palette-trigger" type="button" onClick={() => setPaletteOpen(true)}><CommandIcon size={15} /><span>Commands</span><kbd>Ctrl K</kbd></button>
-          <button className="topbar-command" type="button" onClick={() => navigate("/dashboard/work/tasks?create=1")}><Plus size={15} />Create Task</button>
+          <button className="palette-trigger" type="button" aria-label={ja.commands} onClick={() => setPaletteOpen(true)}><CommandIcon size={15} /><span>{ja.commands}</span><kbd>Ctrl K</kbd></button>
+          <button className="topbar-command" type="button" onClick={() => navigate("/dashboard/work/tasks?create=1")}><Plus size={15} />{ja.createTask}</button>
           <button className="topbar-signal" type="button" onClick={() => navigate("/dashboard/attention")}><Bell size={15} /><span>{attentionCount}</span></button>
-          <button className="topbar-signal" type="button" onClick={() => navigate("/dashboard/governance/approvals")}><StatusBadge status={approvalCount ? "WAITING" : "READY"} /><span>{approvalCount}</span></button>
-          <button className="icon-button" type="button" onClick={() => setChatOpen(true)} title="Open AEGIS chat"><MessageSquare size={16} /></button>
-          <button className="icon-button developer-toggle" type="button" aria-pressed={developerMode} onClick={() => setDeveloperMode((value) => { const next = !value; window.localStorage.setItem("aegis.developer-mode", next ? "1" : "0"); return next; })} title="Toggle Developer Mode"><Code2 size={16} /></button>
-          <label className="density-control"><span>Density</span><select aria-label="Interface density" value={density} onChange={(event) => { const next = event.currentTarget.value; setDensity(next); window.localStorage.setItem("aegis.density", next); }}><option value="comfortable">Comfortable</option><option value="standard">Standard</option><option value="compact">Compact</option></select></label>
-          <a className="user-chip" href="/dashboard/security/passkeys"><UserRound size={15} /><span>Admin</span></a>
+          <button className="topbar-signal" type="button" onClick={() => navigate("/dashboard/attention")}><StatusBadge status={approvalCount ? "WAITING" : "READY"} /><span>{approvalCount}</span></button>
+          <button className="icon-button" type="button" onClick={() => setChatOpen(true)} title={ja.chat} aria-label={ja.chat}><MessageSquare size={16} /></button>
+          <button className="icon-button developer-toggle" type="button" aria-pressed={developerMode} onClick={() => setDeveloperMode((value) => { const next = !value; window.localStorage.setItem("aegis.developer-mode", next ? "1" : "0"); return next; })} title={ja.developerMode} aria-label={ja.developerMode}><Code2 size={16} /></button>
+          <label className="density-control"><span>表示密度</span><select aria-label="表示密度" value={density} onChange={(event) => { const next = event.currentTarget.value; setDensity(next); window.localStorage.setItem("aegis.density", next); }}><option value="comfortable">ゆったり</option><option value="standard">標準</option><option value="compact">コンパクト</option></select></label>
+          <a className="user-chip" href="/dashboard/security/passkeys"><UserRound size={15} /><span>管理者</span></a>
         </header>
-        <header className="workspace-heading"><div><span>{definition.domain.label}</span><h1>{definition.page.label}</h1></div><div><StatusBadge status={String(overview.core.data.health || "ONLINE")} /><span className="workspace-heading__freshness">Updated {new Date(overview.generated_at).toLocaleTimeString()}</span></div></header>
-        <main className="master-content">
+        <header className="workspace-heading"><div><span>{definition.domain.label}</span><h1>{definition.page.label}</h1></div><div><StatusBadge status={String(overview.core.data.health || "DEGRADED")} /><span className="workspace-heading__freshness">{ja.updated}: {formatDateTime(overview.generated_at)}（{formatRelative(overview.generated_at)}）</span></div></header>
+        {streamState === "offline" || streamState === "malformed" ? <div className="data-state data-state--warning" role="status">{streamState === "offline" ? "リアルタイム接続が切断されています。自動再接続中です。" : "不正な更新データを検出しました。最新スナップショットで復旧します。"}</div> : null}
+        <main className="master-content" id="main-content" tabIndex={-1}>
           <Page pageId={route.page} overview={overview} recentEvents={recentEvents} onSelect={setSelectedEntity} pinnedEntities={pinnedEntities} developerMode={developerMode} />
         </main>
       </div>
 
       <GlobalInspector entity={selectedEntity} onClose={() => setSelectedEntity(undefined)} onFollowRelation={followRelation} pinned={Boolean(selectedEntity && pinnedEntities.some((item) => item.type === selectedEntity.type && item.id === selectedEntity.id))} onTogglePin={(entity) => setPinnedEntities((items) => togglePin(items, entity))} developerMode={developerMode} />
       <LiveActivityDrawer events={recentEvents} />
-      <ChatDrawer open={chatOpen} onClose={() => setChatOpen(false)} />
+      {chatOpen ? <ChatDrawer open onClose={() => setChatOpen(false)} /> : null}
       <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} navigate={navigate} />
     </div>
   );
 }
 
 function Page({ pageId, overview, recentEvents, onSelect, pinnedEntities, developerMode }: { pageId: string; overview: UiOverview; recentEvents: UiEvent[]; onSelect: (entity: EntitySummary) => void; pinnedEntities: EntitySummary[]; developerMode: boolean }) {
-  if (pageId === "command-center") return <CommandCenter overview={overview} recentEvents={recentEvents} pinnedEntities={pinnedEntities} onSelect={onSelect} developerMode={developerMode} />;
-  if (pageId === "open-loops" || pageId === "tasks" || pageId === "plans" || pageId === "commitments") {
+  if (pageId === "command-center") return <HomePage overview={overview} />;
+  if (pageId === "attention") return <AttentionPage overview={overview} />;
+  if (pageId === "tasks") return <Work overview={overview} />;
+  if (pageId === "open-loops" || pageId === "plans" || pageId === "commitments") {
     return <OpenLoopsPage overview={overview} developerMode={developerMode} />;
   }
   if (pageId === "goals") return <JudgmentPage overview={overview} developerMode={developerMode} focus="goals" />;

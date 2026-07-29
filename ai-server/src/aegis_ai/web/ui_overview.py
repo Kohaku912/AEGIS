@@ -1674,7 +1674,9 @@ def _server_list(runtime: Any) -> list[dict[str, Any]]:
         found = False
         for item in servers:
             if item.get("server_id") == "android-server":
-                item["status"] = "ONLINE" if android_online else "OFFLINE"
+                configured_status = str(item.get("status") or "").upper()
+                if configured_status not in {"DISABLED", "UNCONFIGURED"}:
+                    item["status"] = "ONLINE" if android_online else "OFFLINE"
                 item["mode"] = android_status.get("connection_mode", "offline")
                 item["status_detail"] = (
                     "Android device is connected." if android_online else "Android device is not connected."
@@ -1716,7 +1718,7 @@ def _server_needs_attention(server: dict[str, Any]) -> bool:
     detail = " ".join(
         str(server.get(key, "") or "") for key in ("status_detail", "degraded_reason", "recovery_hint")
     ).lower()
-    return status in {"OFFLINE", "DEGRADED", "CRITICAL", "UNCONFIGURED", "DISABLED", "RECOVERING"} or any(
+    return status in {"OFFLINE", "DEGRADED", "CRITICAL", "RECOVERING"} or any(
         token in detail for token in ("permission", "missing", "recover")
     )
 

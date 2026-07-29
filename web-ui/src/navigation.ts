@@ -1,176 +1,79 @@
-import { Activity, BrainCircuit, Command, MessageSquare, Network, Settings, ShieldCheck, Workflow } from "lucide-react";
+import { BriefcaseBusiness, Home, MessageSquare, Network, Settings } from "lucide-react";
 
-export type DomainId =
-  | "command"
-  | "loops"
-  | "judgment"
-  | "communications"
-  | "systems"
-  | "governance"
-  | "developer"
-  | "configuration";
+export type DomainId = "home" | "work" | "communications" | "systems" | "administration";
 export type PageId = string;
+export type NavigationPage = { id: PageId; label: string; path: string; developerOnly?: boolean };
+export type NavigationDomain = { id: DomainId; label: string; path: string; icon: typeof Home; pages: NavigationPage[] };
 
-export type NavigationDomain = {
-  id: DomainId;
-  label: string;
-  path: string;
-  icon: typeof Command;
-  pages: Array<{ id: PageId; label: string; path: string }>;
-};
-
-/** User-facing navigation: judgment & progress first, not Manager inventory. */
 export const navigation: NavigationDomain[] = [
   {
-    id: "command",
-    label: "Command",
-    path: "/dashboard",
-    icon: Command,
+    id: "home", label: "ホーム", path: "/dashboard", icon: Home,
     pages: [
-      { id: "command-center", label: "Command Center", path: "/dashboard" },
-      { id: "attention", label: "Attention", path: "/dashboard/attention" },
-      { id: "situation", label: "Situation", path: "/dashboard/situation" },
+      { id: "command-center", label: "概要", path: "/dashboard" },
+      { id: "attention", label: "対応が必要", path: "/dashboard/attention" },
     ],
   },
   {
-    id: "loops",
-    label: "Open Loops",
-    path: "/dashboard/open-loops",
-    icon: Workflow,
+    id: "work", label: "仕事", path: "/dashboard/work/tasks", icon: BriefcaseBusiness,
     pages: [
-      { id: "open-loops", label: "All Open Loops", path: "/dashboard/open-loops" },
-      { id: "goals", label: "Goals & Verification", path: "/dashboard/goals" },
-      { id: "continuations", label: "Continuations", path: "/dashboard/continuations" },
-      { id: "approvals", label: "Approvals", path: "/dashboard/governance/approvals" },
+      { id: "tasks", label: "タスク", path: "/dashboard/work/tasks" },
+      { id: "goals", label: "目標と検証", path: "/dashboard/goals" },
+      { id: "open-loops", label: "未完了事項", path: "/dashboard/open-loops" },
+      { id: "continuations", label: "継続対応", path: "/dashboard/continuations" },
     ],
   },
   {
-    id: "judgment",
-    label: "Judgment",
-    path: "/dashboard/operations",
-    icon: BrainCircuit,
+    id: "communications", label: "コミュニケーション", path: "/dashboard/communications/conversations", icon: MessageSquare,
     pages: [
-      { id: "operations", label: "Operations", path: "/dashboard/operations" },
-      { id: "initiative", label: "Initiative & Non-action", path: "/dashboard/initiative" },
-      { id: "decision-context", label: "Decision Context", path: "/dashboard/decision-context" },
-      { id: "repairs", label: "Repairs & Learning", path: "/dashboard/repairs" },
-      { id: "reports", label: "Behavioral Reports", path: "/dashboard/observability/reports" },
-      { id: "memory", label: "Memory", path: "/dashboard/intelligence/memory" },
+      { id: "conversations", label: "チャット", path: "/dashboard/communications/conversations" },
+      { id: "social", label: "Social / AGORA", path: "/dashboard/communications/social" },
+      { id: "notifications", label: "通知", path: "/dashboard/communications/notifications" },
+      { id: "presentation-surfaces", label: "プレゼンテーション", path: "/dashboard/communications/presentation-surfaces" },
     ],
   },
   {
-    id: "communications",
-    label: "Communications",
-    path: "/dashboard/communications",
-    icon: MessageSquare,
+    id: "systems", label: "システム", path: "/dashboard/infrastructure/servers", icon: Network,
     pages: [
-      { id: "social", label: "Social & AGORA", path: "/dashboard/communications/social" },
-      { id: "conversations", label: "Chat", path: "/dashboard/communications/conversations" },
-      { id: "notifications", label: "Notifications", path: "/dashboard/communications/notifications" },
-      { id: "presentation-surfaces", label: "Presentations", path: "/dashboard/communications/presentation-surfaces" },
+      { id: "servers", label: "サーバー", path: "/dashboard/infrastructure/servers" },
+      { id: "devices", label: "端末", path: "/dashboard/infrastructure/devices" },
+      { id: "capability-catalog", label: "機能カタログ", path: "/dashboard/capabilities/catalog" },
+      { id: "capability-executions", label: "実行履歴", path: "/dashboard/capabilities/executions" },
     ],
   },
   {
-    id: "systems",
-    label: "Systems",
-    path: "/dashboard/infrastructure/servers",
-    icon: Network,
+    id: "administration", label: "設定・管理", path: "/dashboard/governance/policy", icon: Settings,
     pages: [
-      { id: "servers", label: "Servers", path: "/dashboard/infrastructure/servers" },
-      { id: "devices", label: "Devices", path: "/dashboard/infrastructure/devices" },
-      { id: "capability-catalog", label: "Capability Catalog", path: "/dashboard/capabilities/catalog" },
-      { id: "generated-capabilities", label: "Generated Capabilities", path: "/dashboard/capabilities/generated" },
-      { id: "capability-executions", label: "Executions", path: "/dashboard/capabilities/executions" },
-    ],
-  },
-  {
-    id: "governance",
-    label: "Governance",
-    path: "/dashboard/governance/policy",
-    icon: ShieldCheck,
-    pages: [
-      { id: "policy", label: "Policy", path: "/dashboard/governance/policy" },
-      { id: "security", label: "Security", path: "/dashboard/governance/security" },
-      { id: "privacy", label: "Privacy", path: "/dashboard/governance/privacy" },
-      { id: "policy-simulation", label: "Policy Simulation", path: "/dashboard/capabilities/policy-simulation" },
-    ],
-  },
-  {
-    id: "developer",
-    label: "Developer",
-    path: "/dashboard/observability/activity",
-    icon: Activity,
-    pages: [
-      { id: "activity", label: "Raw Activity", path: "/dashboard/observability/activity" },
-      { id: "llm-usage", label: "LLM Usage", path: "/dashboard/observability/llm-usage" },
-      { id: "errors", label: "Repair Feed", path: "/dashboard/observability/errors" },
-      { id: "audit", label: "Audit", path: "/dashboard/governance/audit" },
-      { id: "models-prompts", label: "Models & Prompts", path: "/dashboard/intelligence/models-prompts" },
-    ],
-  },
-  {
-    id: "configuration",
-    label: "Configuration",
-    path: "/settings",
-    icon: Settings,
-    pages: [
-      ...[
-        "Autonomy",
-        "Models",
-        "Prompts",
-        "Memory",
-        "Context",
-        "Capabilities",
-        "Permissions",
-        "Approvals",
-        "Servers",
-        "Devices",
-        "Notifications",
-        "Privacy",
-        "Display",
-        "Budgets",
-        "Retention",
-        "Developer",
-        "Backup",
-      ].map((label) => ({
-        id: `settings-${label.toLowerCase()}`,
-        label,
-        path: `/settings/${label.toLowerCase()}`,
-      })),
+      { id: "policy", label: "ポリシー", path: "/dashboard/governance/policy" },
+      { id: "security", label: "セキュリティ", path: "/dashboard/governance/security" },
+      { id: "privacy", label: "プライバシー", path: "/dashboard/governance/privacy" },
+      { id: "policy-simulation", label: "ポリシーシミュレーション", path: "/dashboard/capabilities/policy-simulation", developerOnly: true },
+      { id: "settings-autonomy", label: "設定", path: "/settings/autonomy" },
+      { id: "activity", label: "監査・生ログ", path: "/dashboard/observability/activity", developerOnly: true },
+      { id: "repairs", label: "修復フィード", path: "/dashboard/repairs", developerOnly: true },
+      { id: "llm-usage", label: "LLM使用量", path: "/dashboard/observability/llm-usage", developerOnly: true },
+      { id: "models-prompts", label: "モデルとプロンプト", path: "/dashboard/intelligence/models-prompts", developerOnly: true },
     ],
   },
 ];
 
+const aliases: Array<[RegExp, PageId]> = [
+  [/\/dashboard\/tasks|\/dashboard\/work(\/|$)/, "tasks"],
+  [/\/dashboard\/governance\/approvals/, "attention"],
+  [/\/dashboard\/observability\/errors/, "attention"],
+  [/\/dashboard\/systems/, "servers"],
+  [/\/dashboard\/memory|\/dashboard\/intelligence\/memory/, "models-prompts"],
+];
+
 export function routeState(pathname: string): { domain: DomainId; page: PageId } {
+  const alias = aliases.find(([pattern]) => pattern.test(pathname));
+  const target = alias?.[1];
   for (const domain of navigation) {
-    const page = domain.pages.find(
-      (candidate) =>
-        candidate.path === pathname ||
-        (candidate.path !== "/dashboard" && pathname.startsWith(candidate.path)),
+    const page = domain.pages.find((candidate) =>
+      candidate.id === target || candidate.path === pathname || (candidate.path !== "/dashboard" && pathname.startsWith(candidate.path)),
     );
     if (page) return { domain: domain.id, page: page.id };
   }
-  if (pathname.includes("open-loops") || pathname.includes("/work") || pathname.includes("/tasks")) {
-    return { domain: "loops", page: "open-loops" };
-  }
-  if (pathname.includes("operations")) return { domain: "judgment", page: "operations" };
-  if (pathname.includes("initiative")) return { domain: "judgment", page: "initiative" };
-  if (pathname.includes("decision-context") || pathname.includes("/context")) {
-    return { domain: "judgment", page: "decision-context" };
-  }
-  if (pathname.includes("repairs") || pathname.includes("/errors")) return { domain: "judgment", page: "repairs" };
-  if (pathname.includes("goals")) return { domain: "loops", page: "goals" };
-  if (pathname.includes("continuations")) return { domain: "loops", page: "continuations" };
-  if (pathname.includes("social") || pathname.includes("conversations") || pathname.includes("agora")) {
-    return { domain: "communications", page: "social" };
-  }
-  if (pathname.includes("approvals")) return { domain: "loops", page: "approvals" };
-  if (pathname.includes("servers") || pathname.includes("systems")) return { domain: "systems", page: "servers" };
-  if (pathname.includes("memory") || pathname.includes("mind")) return { domain: "judgment", page: "memory" };
-  if (pathname.includes("activity") || pathname.includes("audit")) return { domain: "developer", page: "activity" };
-  if (pathname.includes("situation") || pathname.includes("user-model")) return { domain: "command", page: "situation" };
-  if (pathname.startsWith("/settings")) return { domain: "configuration", page: "settings-autonomy" };
-  return { domain: "command", page: "command-center" };
+  return { domain: "home", page: "command-center" };
 }
 
 export function pageDefinition(pageId: PageId) {

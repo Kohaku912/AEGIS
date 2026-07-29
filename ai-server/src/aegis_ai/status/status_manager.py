@@ -58,8 +58,13 @@ def _disabled_servers() -> set[str]:
 
 
 def _server_enabled(server_id: str) -> bool:
+    return _server_configuration_state(server_id) == ServerStatus.ONLINE
+
+
+def _server_configuration_state(server_id: str) -> ServerStatus:
+    """Return the configured lifecycle state before network health is checked."""
     if server_id in _disabled_servers():
-        return False
+        return ServerStatus.DISABLED
     key = f"{_server_env_prefix(server_id)}_ENABLED"
     raw = os.getenv(key)
     if raw is None and server_id == "room-server":
@@ -67,8 +72,15 @@ def _server_enabled(server_id: str) -> bool:
     if raw is None and server_id == "dev-server":
         raw = os.getenv("DEV_SERVER_ENABLED")
     if raw is None:
-        return True
-    return raw.strip().lower() not in {"0", "false", "no", "off", "disabled", "unconfigured"}
+        if server_id in {"room-server", "dev-server"}:
+            return ServerStatus.UNCONFIGURED
+        return ServerStatus.ONLINE
+    normalized = raw.strip().lower()
+    if normalized in {"0", "false", "no", "off", "disabled"}:
+        return ServerStatus.DISABLED
+    if normalized in {"", "unconfigured"}:
+        return ServerStatus.UNCONFIGURED
+    return ServerStatus.ONLINE
 
 
 class StatusManager:
@@ -105,16 +117,17 @@ class StatusManager:
         self._running = False
 
         for server_id, (host, port) in self._servers.items():
-            enabled = _server_enabled(server_id)
+            configured = _server_configuration_state(server_id)
+            enabled = configured == ServerStatus.ONLINE
             self._status[server_id] = {
                 "server_id": server_id,
-                "status": ServerStatus.UNKNOWN.value if enabled else ServerStatus.UNCONFIGURED.value,
+                "status": ServerStatus.DEGRADED.value if enabled else configured.value,
                 "host": host,
                 "port": port,
                 "last_check_ms": 0,
                 "last_change_ms": 0,
-                "error": None if enabled else "Server disabled or unconfigured by environment",
-                "mode": "enabled" if enabled else "unconfigured",
+                "error": "Awaiting first health check" if enabled else f"Server is {configured.value} by environment",
+                "mode": "checking" if enabled else configured.value,
             }
 
     # ── Public API ────────────────────────────────────────────
@@ -146,23 +159,27 @@ class StatusManager:
         with self._lock:
             if server_id in self._status:
                 self._status[server_id]["last_check_ms"] = int(time.time() * 1000)
-                if self._status[server_id]["status"] == ServerStatus.UNKNOWN.value:
+                if self._status[server_id]["status"] in {
+                    ServerStatus.UNKNOWN.value,
+                    ServerStatus.DEGRADED.value,
+                } and _server_enabled(server_id):
                     self._status[server_id]["status"] = ServerStatus.ONLINE.value
 
     def register_server(self, server_id: str, host: str, port: int) -> None:
         """Register a server for health checking."""
         with self._lock:
-            enabled = _server_enabled(server_id)
+            configured = _server_configuration_state(server_id)
+            enabled = configured == ServerStatus.ONLINE
             self._servers[server_id] = (host, port)
             self._status[server_id] = {
                 "server_id": server_id,
-                "status": ServerStatus.UNKNOWN.value if enabled else ServerStatus.UNCONFIGURED.value,
+                "status": ServerStatus.DEGRADED.value if enabled else configured.value,
                 "host": host,
                 "port": port,
                 "last_check_ms": 0,
                 "last_change_ms": 0,
-                "error": None if enabled else "Server disabled or unconfigured by environment",
-                "mode": "enabled" if enabled else "unconfigured",
+                "error": "Awaiting first health check" if enabled else f"Server is {configured.value} by environment",
+                "mode": "checking" if enabled else configured.value,
             }
 
     # ── Background checks ─────────────────────────────────────
@@ -205,16 +222,17 @@ class StatusManager:
             servers = dict(self._servers)
 
         for server_id, (host, port) in servers.items():
-            if not _server_enabled(server_id):
+            configured = _server_configuration_state(server_id)
+            if configured != ServerStatus.ONLINE:
                 old_status = self._status.get(server_id, {}).get("status", ServerStatus.UNKNOWN.value)
                 with self._lock:
                     self._status[server_id]["last_check_ms"] = int(time.time() * 1000)
-                    self._status[server_id]["status"] = ServerStatus.UNCONFIGURED.value
-                    self._status[server_id]["mode"] = "unconfigured"
-                    self._status[server_id]["error"] = "Server disabled or unconfigured by environment"
-                    if old_status != ServerStatus.UNCONFIGURED.value:
+                    self._status[server_id]["status"] = configured.value
+                    self._status[server_id]["mode"] = configured.value
+                    self._status[server_id]["error"] = f"Server is {configured.value} by environment"
+                    if old_status != configured.value:
                         self._status[server_id]["last_change_ms"] = int(time.time() * 1000)
-                        self._publish_change(server_id, old_status, ServerStatus.UNCONFIGURED.value)
+                        self._publish_change(server_id, old_status, configured.value)
                 continue
 
             if server_id == "android-server":
@@ -287,6 +305,10 @@ class StatusManager:
         with self._lock:
             if server_id not in self._status:
                 return
+            configured = _server_configuration_state(server_id)
+            if configured != ServerStatus.ONLINE:
+                status = configured
+                error = f"Server is {configured.value} by environment"
             old = self._status[server_id]["status"]
             self._status[server_id]["status"] = status.value
             self._status[server_id]["last_change_ms"] = int(time.time() * 1000)

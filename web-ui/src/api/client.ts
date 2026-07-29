@@ -1,21 +1,58 @@
 import type { EntitySummary, UiOverview } from "../types";
 
-type EntityPage = {
+export type ApiWarning = { resource?: string; message: string };
+
+export type EntityPage = {
   items: EntitySummary[];
   page: number;
   limit: number;
   total: number;
   has_more: boolean;
   generated_at: string;
+  status?: "ok" | "partial";
+  partial?: boolean;
+  warnings?: ApiWarning[];
 };
+
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    public readonly status: number,
+    public readonly code: string,
+    public readonly requestId = "",
+    public readonly retryable = status >= 500,
+  ) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
+
+async function responsePayload(response: Response): Promise<Record<string, unknown>> {
+  try {
+    return await response.json() as Record<string, unknown>;
+  } catch {
+    return {};
+  }
+}
+
+async function requireJson<T>(response: Response, fallback: string, accepted: number[] = []): Promise<T> {
+  const payload = await responsePayload(response);
+  if (!response.ok && !accepted.includes(response.status)) {
+    throw new ApiError(
+      String(payload.message || payload.error || fallback),
+      response.status,
+      String(payload.error || "request_failed"),
+      String(payload.request_id || response.headers.get("X-Request-ID") || ""),
+      Boolean(payload.retryable ?? response.status >= 500),
+    );
+  }
+  return payload as T;
+}
 
 export async function fetchOverview(surface: "dashboard" | "display" = "dashboard"): Promise<UiOverview> {
   const endpoint = surface === "display" ? `/display/overview${displayReadQuery()}` : "/api/ui/overview";
   const response = await fetch(endpoint, { credentials: "include" });
-  if (!response.ok) {
-    throw new Error(`Overview request failed: ${response.status}`);
-  }
-  return response.json();
+  return requireJson<UiOverview>(response, "概要を取得できませんでした");
 }
 
 export async function fetchResourceEntities(
@@ -33,24 +70,25 @@ export async function fetchResourceEntities(
   if (query.trim()) params.set("q", query.trim());
   if (options.status) params.set("status", options.status);
   const response = await fetch(`/api/ui/entities?${params}`, { credentials: "include" });
-  if (!response.ok) throw new Error(`Resource request failed: ${response.status}`);
-  const payload = await response.json() as EntityPage;
+  const payload = await requireJson<EntityPage>(response, "一覧を取得できませんでした");
   return { ...payload, items: (payload.items || []).map(normalizeEntity) };
 }
 
 export async function fetchResourceEntity(resource: string, entityId: string): Promise<EntitySummary> {
   const response = await fetch(`/api/ui/entities/${encodeURIComponent(resource)}/${encodeURIComponent(entityId)}`, { credentials: "include" });
-  if (!response.ok) throw new Error(`Related resource request failed: ${response.status}`);
-  return normalizeEntity(await response.json());
+  return normalizeEntity(await requireJson<EntitySummary>(response, "関連データを取得できませんでした"));
 }
 
 export async function searchResources(query: string): Promise<EntitySummary[]> {
-  if (!query.trim()) return [];
+  return (await searchResourcesDetailed(query)).items;
+}
+
+export async function searchResourcesDetailed(query: string): Promise<{ items: EntitySummary[]; warnings: ApiWarning[] }> {
+  if (!query.trim()) return { items: [], warnings: [] };
   const params = new URLSearchParams({ q: query.trim(), limit: "40" });
   const response = await fetch(`/api/ui/search?${params}`, { credentials: "include" });
-  if (!response.ok) throw new Error(`Search request failed: ${response.status}`);
-  const payload = await response.json() as EntityPage;
-  return (payload.items || []).map(normalizeEntity);
+  const payload = await requireJson<EntityPage>(response, "検索に失敗しました", [206]);
+  return { items: (payload.items || []).map(normalizeEntity), warnings: payload.warnings || [] };
 }
 
 export async function updateMemory(memoryId: string, patch: Record<string, unknown>): Promise<EntitySummary> {
@@ -102,17 +140,13 @@ export async function resetCapabilityRisk(capabilityId: string): Promise<Record<
 export async function runControlAction(action: string, confirmed = false): Promise<Record<string, unknown>> {
   const csrf = String((await fetchAuthMe()).csrf_token || "");
   const response = await fetch("/api/ui/control-actions", { method: "POST", credentials: "include", headers: { "Content-Type": "application/json", "X-CSRF-Token": csrf }, body: JSON.stringify({ action, confirmed }) });
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok && response.status !== 202) throw new Error(String(payload.error || response.status));
-  return payload;
+  return requireJson<Record<string, unknown>>(response, "操作に失敗しました", [202]);
 }
 
 export async function runTaskAction(taskId: string, action: string, confirmed = false): Promise<Record<string, unknown>> {
   const csrf = String((await fetchAuthMe()).csrf_token || "");
   const response = await fetch(`/api/tasks/${encodeURIComponent(taskId)}/actions`, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json", "X-CSRF-Token": csrf }, body: JSON.stringify({ action, confirmed }) });
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok && response.status !== 202) throw new Error(String(payload.error || response.status));
-  return payload;
+  return requireJson<Record<string, unknown>>(response, "タスク操作に失敗しました", [202]);
 }
 
 export async function simulatePolicy(input: Record<string, unknown>): Promise<Record<string, unknown>> {
@@ -213,17 +247,63 @@ export function displayReadQuery(): string {
   return token ? `?display_token=${encodeURIComponent(token)}` : "";
 }
 
-export async function sendChat(message: string): Promise<Record<string, unknown>> {
+export function createRequestId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") return crypto.randomUUID();
+  if (typeof crypto !== "undefined" && typeof crypto.getRandomValues === "function") {
+    const bytes = crypto.getRandomValues(new Uint8Array(16));
+    return [...bytes].map((value) => value.toString(16).padStart(2, "0")).join("");
+  }
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+}
+
+export async function sendChat(message: string, requestId = createRequestId()): Promise<Record<string, unknown>> {
   const response = await fetch("/api/chat/send", {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ message })
+    body: JSON.stringify({ text: message, request_id: requestId })
   });
-  if (!response.ok) {
-    throw new Error(`Chat request failed: ${response.status}`);
-  }
-  return response.json();
+  return requireJson<Record<string, unknown>>(response, "チャット送信に失敗しました");
+}
+
+export type SavedView = {
+  id: string;
+  resource: string;
+  name: string;
+  query: string;
+  filters: Record<string, string>;
+  sort: string;
+  order: "asc" | "desc";
+  page_size: number;
+  created_at: number;
+  updated_at: number;
+};
+
+export async function fetchSavedViews(resource: string): Promise<SavedView[]> {
+  const response = await fetch(`/api/ui/saved-views?${new URLSearchParams({ resource })}`, { credentials: "include" });
+  const payload = await requireJson<{ items: SavedView[] }>(response, "保存ビューを取得できませんでした");
+  return payload.items || [];
+}
+
+export async function createSavedView(input: Omit<SavedView, "id" | "created_at" | "updated_at">): Promise<SavedView> {
+  const csrf = String((await fetchAuthMe()).csrf_token || "");
+  const response = await fetch("/api/ui/saved-views", {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", "X-CSRF-Token": csrf },
+    body: JSON.stringify(input),
+  });
+  return requireJson<SavedView>(response, "保存ビューを作成できませんでした");
+}
+
+export async function deleteSavedView(viewId: string): Promise<void> {
+  const csrf = String((await fetchAuthMe()).csrf_token || "");
+  const response = await fetch(`/api/ui/saved-views/${encodeURIComponent(viewId)}`, {
+    method: "DELETE",
+    credentials: "include",
+    headers: { "X-CSRF-Token": csrf },
+  });
+  await requireJson(response, "保存ビューを削除できませんでした");
 }
 
 export async function resolveApproval(approvalId: string, decision: "approve" | "reject"): Promise<void> {

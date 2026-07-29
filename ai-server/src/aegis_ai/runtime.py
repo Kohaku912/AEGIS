@@ -25,6 +25,7 @@ from aegis_ai.interaction.session import SessionManager
 from aegis_ai.llm.gateway import LLMGateway
 from aegis_ai.llm.router import LLMRouter
 from aegis_ai.production_readiness import is_production_mode
+from aegis_ai.web.saved_view_manager import SavedViewManager
 
 logger = logging.getLogger("aegis_ai.runtime")
 
@@ -87,6 +88,7 @@ class AegisRuntime:
     presentation_manager: Any = None
     agent_state: Any = None
     goal_service: Any = None
+    saved_view_manager: Any = None
     _lock: threading.RLock | None = None
 
     def start_autonomous_if_enabled(self) -> None:
@@ -734,6 +736,7 @@ def _build_runtime(config: Config) -> AegisRuntime:
         presentation_manager=presentation_manager,
         agent_state=agent_state,
         goal_service=goal_service,
+        saved_view_manager=SavedViewManager(data_dir, audit_manager),
         _lock=threading.RLock(),
     )
     runtime_ref["runtime"] = runtime
