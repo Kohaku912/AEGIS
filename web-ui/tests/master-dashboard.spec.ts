@@ -58,6 +58,20 @@ test("capability catalog uses Manager entities and opens effective policy detail
   await expect(page.getByText("Execution contract")).toBeVisible();
 });
 
+test("changing capability risk keeps the policy editor rendered", async ({ page }) => {
+  const pageErrors: string[] = [];
+  page.on("pageerror", (error) => pageErrors.push(error.message));
+  await page.goto("/dashboard/capabilities/catalog");
+  await page.getByText("Manager-backed capability").click();
+
+  await page.getByLabel("Risk").selectOption("high_risk");
+
+  await expect(page.getByLabel("Risk")).toHaveValue("high_risk");
+  await expect(page.getByText("Override draft")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Review changes" })).toBeEnabled();
+  expect(pageErrors).toEqual([]);
+});
+
 test("global search reaches records outside the overview", async ({ page }) => {
   await page.goto("/dashboard");
   const search = page.getByLabel("Search AEGIS");

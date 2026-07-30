@@ -185,12 +185,13 @@ export function CapabilityCatalogPage() {
                   Risk
                   <select
                     value={String(draft.risk_level || "low")}
-                    onChange={(event) =>
+                    onChange={(event) => {
+                      const riskLevel = event.currentTarget.value;
                       setDraft((value) => ({
                         ...value,
-                        risk_level: event.currentTarget.value,
-                      }))
-                    }
+                        risk_level: riskLevel,
+                      }));
+                    }}
                   >
                     {[
                       "low",
