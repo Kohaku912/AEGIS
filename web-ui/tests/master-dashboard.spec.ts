@@ -51,24 +51,43 @@ test("master shell exposes five English domains and command palette", async ({ p
 
 test("capability catalog uses Manager entities and opens effective policy detail", async ({ page }) => {
   await page.goto("/dashboard/capabilities/catalog");
-  await expect(page.getByRole("heading", { name: "Capability Catalog", level: 1 })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Capability Catalog", level: 2 })).toBeVisible();
   await expect(page.getByText("Manager-backed capability")).toBeVisible();
   await page.getByText("Manager-backed capability").click();
-  await expect(page.getByText("Override draft")).toBeVisible();
+  await expect(page.getByText("Policy controls")).toBeVisible();
   await expect(page.getByText("Execution contract")).toBeVisible();
 });
 
-test("changing capability risk keeps the policy editor rendered", async ({ page }) => {
+test("changing capability risk applies immediately without review or draft", async ({ page }) => {
   const pageErrors: string[] = [];
+  let riskPosts = 0;
+  let effectiveRisk = "low";
   page.on("pageerror", (error) => pageErrors.push(error.message));
+  await page.route("**/api/capabilities/*/risk", async (route) => {
+    if (route.request().method() === "POST") {
+      riskPosts += 1;
+      effectiveRisk = String(route.request().postDataJSON().risk_level);
+    }
+    await route.fulfill({
+      json: {
+        manifest: { risk_level: "READ_ONLY", requires_approval: false, enabled: true },
+        override: { risk_level: effectiveRisk },
+        effective: { risk_level: effectiveRisk, requires_approval: false, enabled: true },
+        override_active: effectiveRisk !== "low",
+      },
+    });
+  });
   await page.goto("/dashboard/capabilities/catalog");
   await page.getByText("Manager-backed capability").click();
 
   await page.getByLabel("Risk").selectOption("high_risk");
 
+  await expect.poll(() => riskPosts).toBe(1);
   await expect(page.getByLabel("Risk")).toHaveValue("high_risk");
-  await expect(page.getByText("Override draft")).toBeVisible();
-  await expect(page.getByRole("button", { name: "Review changes" })).toBeEnabled();
+  await expect(page.getByText("Policy updated, catalog reloaded, and effective policy audited.")).toBeVisible();
+  await expect(page.getByText("Override draft")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Review changes" })).toHaveCount(0);
+  await expect(page.getByRole("link", { name: "Test preview" })).toHaveCount(0);
   expect(pageErrors).toEqual([]);
 });
 
