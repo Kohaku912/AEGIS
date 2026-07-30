@@ -2477,6 +2477,104 @@ button.responsive-table__row { cursor: pointer; }
   .page-header { display: grid; }
 }
 
+/* === Dashboard 30-page shell / viz === */
+.global-status-bar {
+  display: flex; flex-wrap: wrap; gap: .45rem; align-items: center;
+  padding: .55rem .75rem; border-bottom: 1px solid var(--border-subtle);
+  background: linear-gradient(180deg, color-mix(in oklab, var(--surface-elevated) 92%, transparent), var(--surface-raised));
+}
+.gsb-chip, .gsb-action {
+  display: inline-flex; align-items: center; gap: .35rem; min-height: 2rem;
+  padding: .25rem .55rem; border: 1px solid var(--border-subtle); border-radius: .45rem;
+  background: var(--surface-sunken); color: var(--text-secondary); cursor: pointer;
+}
+.gsb-chip--static { cursor: default; }
+.gsb-chip span, .gsb-action span { color: var(--text-muted); font-size: .72rem; }
+.gsb-chip strong { font-size: .85rem; color: var(--text-primary); }
+.gsb-chip[data-severity="warning"], .gsb-chip[data-on="true"] { border-color: color-mix(in oklab, var(--aegis-warning) 55%, var(--border-subtle)); }
+.gsb-chip[data-severity="critical"] { border-color: color-mix(in oklab, var(--aegis-offline) 55%, var(--border-subtle)); }
+.gsb-chip[data-severity="ok"] { border-color: color-mix(in oklab, var(--aegis-online) 45%, var(--border-subtle)); }
+.gsb-actions { margin-left: auto; display: inline-flex; gap: .4rem; }
+.gsb-action kbd { font-size: .65rem; opacity: .7; }
+.nav-collapse-toggle {
+  margin: .4rem .75rem; padding: .35rem .55rem; border: 1px solid var(--border-subtle);
+  background: transparent; color: var(--text-muted); border-radius: .4rem; cursor: pointer;
+}
+.master-shell[data-nav-collapsed="true"] .master-nav { width: 7.5rem; }
+.master-shell[data-nav-collapsed="true"] .nav-domain__children { display: none; }
+
+.severity-glyph { display: inline-flex; align-items: center; gap: .35rem; }
+.severity-glyph[data-severity="critical"] { color: var(--aegis-offline); }
+.severity-glyph[data-severity="warning"] { color: var(--aegis-warning); }
+.severity-glyph[data-severity="ok"] { color: var(--aegis-online); }
+.severity-glyph[data-severity="info"] { color: var(--aegis-cyan); }
+.severity-glyph__label { font-size: .72rem; color: var(--text-muted); }
+
+.gauge-ring { position: relative; display: grid; place-items: center; }
+.gauge-ring__track { stroke: var(--border-subtle); }
+.gauge-ring__value { stroke: var(--aegis-cyan); stroke-linecap: round; transition: stroke-dashoffset .4s ease; }
+.gauge-ring__text { position: absolute; inset: 0; display: grid; place-content: center; text-align: center; }
+.gauge-ring__text strong { font-size: .95rem; }
+.gauge-ring__text span { font-size: .65rem; color: var(--text-muted); }
+
+.sparkline { display: block; overflow: visible; }
+.sparkline polyline { stroke: var(--aegis-cyan); stroke-width: 1.6; fill: none; }
+.sparkline--empty { font-size: .75rem; }
+
+.progress-steps { display: grid; gap: .35rem; }
+.progress-steps__bar { height: .45rem; border-radius: 999px; background: var(--surface-sunken); overflow: hidden; }
+.progress-steps__bar > span { display: block; height: 100%; background: var(--aegis-cyan); }
+.progress-steps__bar > span[data-failed="true"] { background: var(--aegis-warning); }
+
+.topology-mini { display: grid; gap: .6rem; justify-items: center; }
+.topology-mini__core {
+  width: 2.6rem; height: 2.6rem; border-radius: 999px; display: grid; place-items: center;
+  background: color-mix(in oklab, var(--aegis-cyan) 28%, var(--surface-raised)); border: 1px solid var(--aegis-cyan);
+}
+.topology-mini__ring { display: flex; flex-wrap: wrap; gap: .35rem; justify-content: center; }
+.topology-mini__node {
+  min-width: 3.4rem; padding: .25rem .4rem; border-radius: .4rem; border: 1px solid var(--border-subtle);
+  font-size: .68rem; text-align: center; background: var(--surface-sunken);
+}
+.topology-mini__node[data-status="ONLINE"] { border-color: var(--aegis-online); }
+.topology-mini__node[data-status="OFFLINE"], .topology-mini__node[data-status="CRITICAL"] { border-color: var(--aegis-offline); }
+.topology-mini__node[data-status="DEGRADED"] { border-color: var(--aegis-warning); }
+
+.critical-overlay {
+  display: flex; justify-content: space-between; gap: .8rem; align-items: center;
+  padding: .7rem .9rem; border: 1px solid color-mix(in oklab, var(--aegis-warning) 50%, var(--border-subtle));
+  border-radius: .55rem; background: color-mix(in oklab, var(--aegis-warning) 12%, var(--surface-raised));
+}
+.critical-overlay[data-severity="critical"] {
+  border-color: color-mix(in oklab, var(--aegis-offline) 55%, var(--border-subtle));
+  background: color-mix(in oklab, var(--aegis-offline) 12%, var(--surface-raised));
+}
+.critical-overlay > div { display: grid; gap: .2rem; }
+.critical-overlay button {
+  border: 1px solid var(--border-strong); background: var(--surface-elevated); color: var(--text-primary);
+  border-radius: .4rem; padding: .4rem .7rem; cursor: pointer;
+}
+
+.page-tabs { display: flex; flex-wrap: wrap; gap: .35rem; margin-bottom: .6rem; }
+.page-tabs > button {
+  border: 1px solid var(--border-subtle); background: var(--surface-sunken); color: var(--text-secondary);
+  border-radius: 999px; padding: .3rem .7rem; cursor: pointer;
+}
+.page-tabs > button[aria-selected="true"] {
+  background: color-mix(in oklab, var(--aegis-cyan) 18%, var(--surface-raised));
+  border-color: var(--aegis-cyan); color: var(--text-primary);
+}
+.stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr)); gap: .6rem; }
+.stat-grid article { padding: .55rem .7rem; border: 1px solid var(--border-subtle); border-radius: .45rem; background: var(--surface-sunken); }
+.stat-grid span { display: block; color: var(--text-muted); font-size: .72rem; }
+.stat-grid strong { font-size: 1rem; }
+.grid--three { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-4); }
+@media (max-width: 1100px) {
+  .grid--three { grid-template-columns: 1fr; }
+  .gsb-actions { width: 100%; margin-left: 0; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .001ms !important; animation-iteration-count: 1 !important; transition-duration: .001ms !important; }
 }
+

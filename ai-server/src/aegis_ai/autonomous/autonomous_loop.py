@@ -861,10 +861,7 @@ Respond with JSON:
         return prompt, memory_context.audit_detail()
 
     def _has_social_actions(self, valid_cap_ids: set[str]) -> bool:
-        return any(
-            cap_id.startswith("ai-server.agora.") or cap_id == "ai-server.social.list_drafts"
-            for cap_id in valid_cap_ids
-        )
+        return any(cap_id.startswith("ai-server.agora.") for cap_id in valid_cap_ids)
 
     def _log_audit_event(
         self,
@@ -1118,11 +1115,9 @@ Respond with JSON:
                 "observe_capabilities": [
                     "browser-server.feed.monitor",
                     "ai-server.agora.read_posts",
-                    "ai-server.social.list_drafts",
                 ],
                 "advance_capabilities": [
                     "ai-server.agora.post",
-                    "ai-server.social.create_draft",
                     "ai-server.presentation.present",
                 ],
             },

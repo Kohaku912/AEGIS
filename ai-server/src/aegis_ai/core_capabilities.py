@@ -74,8 +74,6 @@ class AegisCoreCapabilityClient:
             return self._interruption(capability_id, params)
         if capability_id.startswith("ai-server.repair."):
             return self._repair(capability_id, params)
-        if capability_id.startswith("ai-server.social."):
-            return self._social(capability_id, params)
         if capability_id.startswith("ai-server.presentation."):
             return self._presentation(capability_id, params)
         return {"ok": False, "error": f"Unsupported AI capability: {capability_id}", "code": "UNSUPPORTED_CAPABILITY"}
@@ -568,28 +566,6 @@ class AegisCoreCapabilityClient:
         if capability_id.endswith(".disable"):
             return {"ok": True, **manager.set_disabled(bool(params.get("disabled", True)))}
         return {"ok": False, "error": "Unsupported repair capability"}
-
-    def _social(self, capability_id: str, params: dict[str, Any]) -> dict[str, Any]:
-        manager = self._personal.get("social_proxy")
-        if manager is None:
-            return {"ok": False, "error": "SocialProxy unavailable"}
-        if capability_id.endswith(".create_draft"):
-            return {"ok": True, "draft": manager.create_draft(
-                channel=str(params.get("channel") or ""),
-                to=str(params.get("to") or ""),
-                subject=str(params.get("subject") or ""),
-                body=str(params.get("body") or ""),
-                payload=dict(params.get("payload") or {}),
-            )}
-        if capability_id.endswith(".list_drafts"):
-            return {"ok": True, "drafts": manager.list_drafts()}
-        if capability_id.endswith(".send_approved"):
-            return manager.send_approved(
-                str(params.get("draft_id") or ""),
-                approved=bool(params.get("_aegis_approved_execution")),
-                approval_id=str(params.get("_aegis_approval_id") or ""),
-            )
-        return {"ok": False, "error": "Unsupported social capability"}
 
     def _presentation(self, capability_id: str, params: dict[str, Any]) -> dict[str, Any]:
         manager = self._personal.get("presentation_manager")
