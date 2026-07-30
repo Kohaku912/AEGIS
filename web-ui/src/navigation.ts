@@ -64,9 +64,9 @@ export const navigation: NavigationDomain[] = [
     pages: [
       { id: "events", label: "イベント", path: "/dashboard/observability/events" },
       { id: "notifications", label: "通知", path: "/dashboard/communications/notifications" },
-      { id: "audit", label: "AuditLog", path: "/dashboard/observability/audit" },
+      { id: "audit", label: "Audit log", path: "/dashboard/observability/audit" },
       { id: "errors", label: "エラー", path: "/dashboard/observability/errors" },
-      { id: "logs", label: "ログ", path: "/dashboard/observability/logs" },
+      { id: "logs", label: "Logs", path: "/dashboard/observability/logs" },
     ],
   },
   {

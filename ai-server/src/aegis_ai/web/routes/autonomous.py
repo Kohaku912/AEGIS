@@ -181,6 +181,15 @@ def init_autonomous_routes(owner: Any, data_dir: str) -> None:
     def audit_grouped():
         """Return audit entries grouped by autonomous cycle or chat turn."""
         try:
+            audit_manager = getattr(getattr(owner, "_runtime", None), "audit_manager", None)
+            if audit_manager is not None and hasattr(audit_manager, "list_groups"):
+                page = max(1, int(request.args.get("page", 1)))
+                per_page = min(100, max(1, int(request.args.get("limit", 30))))
+                result = audit_manager.list_groups(page=page, per_page=per_page)
+                return jsonify({**result, "count": result.get("total", len(result.get("groups", [])))})
+
+            # Compatibility fallback for runtimes that have not migrated audit
+            # storage from JSONL to AuditManager's SQLite backend.
             audit_path = os.path.join(data_dir, "audit.jsonl")
             if not os.path.exists(audit_path):
                 return jsonify({"groups": [], "count": 0})
