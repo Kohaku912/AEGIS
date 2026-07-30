@@ -91,6 +91,42 @@ test("changing capability risk applies immediately without review or draft", asy
   expect(pageErrors).toEqual([]);
 });
 
+test("capability risk failure is announced and rolls back the control", async ({ page }) => {
+  await page.route("**/api/capabilities/*/risk", async (route) => {
+    if (route.request().method() === "POST") {
+      await route.fulfill({
+        status: 403,
+        json: {
+          error: "fresh_passkey_required",
+          fresh_auth_url: "/auth/login",
+        },
+      });
+      return;
+    }
+    await route.fulfill({
+      json: {
+        manifest: { risk_level: "low", requires_approval: false, enabled: true },
+        override: {},
+        effective: { risk_level: "low", requires_approval: false, enabled: true },
+        override_active: false,
+      },
+    });
+  });
+  await page.goto("/dashboard/capabilities/catalog");
+  await page.getByText("Manager-backed capability").click();
+
+  await page.getByLabel("Risk").selectOption("critical");
+
+  const alert = page.getByRole("alert");
+  await expect(alert).toContainText("Capability policy was not changed.");
+  await expect(alert).toContainText("passkey authentication is no longer fresh");
+  await expect(alert.getByRole("link", { name: "Authenticate with passkey" })).toHaveAttribute(
+    "href",
+    /\/auth\/login\?next=/,
+  );
+  await expect(page.getByLabel("Risk")).toHaveValue("low");
+});
+
 test("global search reaches records outside the overview", async ({ page }) => {
   await page.goto("/dashboard");
   const search = page.getByLabel("Search AEGIS");
