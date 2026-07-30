@@ -1,6 +1,6 @@
 {
-  "title": "Write AEGIS Workspace File",
-  "description": "Save text or base64 content into the private AEGIS workspace at data/aegis_workspace.",
+  "title": "Write Filesystem File",
+  "description": "Save text or base64 content to a path visible to the AI Server. Absolute paths may point outside the AEGIS workspace; relative paths are resolved from the workspace.",
   "server_id": "ai-server",
   "app_id": "workspace",
   "action": "write_file",
@@ -15,9 +15,13 @@
   "input_schema": {
     "type": "object",
     "properties": {
+      "path": {
+        "type": "string",
+        "description": "Absolute filesystem path, or a path relative to the AEGIS workspace."
+      },
       "relative_path": {
         "type": "string",
-        "description": "Path relative to the AEGIS workspace."
+        "description": "Backward-compatible path field. Absolute paths are accepted; relative paths are resolved from the AEGIS workspace."
       },
       "content": {
         "type": "string",
@@ -36,12 +40,14 @@
         "default": false
       }
     },
-    "required": [
-      "relative_path"
+    "anyOf": [
+      {"required": ["path"]},
+      {"required": ["relative_path"]}
     ]
   },
   "tags": [
     "workspace",
+    "filesystem",
     "file",
     "write",
     "safe"

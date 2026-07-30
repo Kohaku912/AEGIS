@@ -1,6 +1,6 @@
 {
-  "title": "List AEGIS Workspace Files",
-  "description": "List files inside the private AEGIS workspace.",
+  "title": "List Filesystem Directory",
+  "description": "List a directory visible to the AI Server. Absolute paths may point outside the AEGIS workspace; relative paths are resolved from the workspace.",
   "server_id": "ai-server",
   "app_id": "workspace",
   "action": "list_files",
@@ -13,10 +13,11 @@
   "input_schema": {
     "type": "object",
     "properties": {
-      "relative_dir": {"type": "string", "default": "."},
+      "path": {"type": "string", "description": "Absolute directory path, or a path relative to the AEGIS workspace."},
+      "relative_dir": {"type": "string", "description": "Backward-compatible directory field. Absolute paths are accepted.", "default": "."},
       "recursive": {"type": "boolean", "default": false},
       "max_entries": {"type": "integer", "default": 100}
     }
   },
-  "tags": ["workspace", "file", "list"]
+  "tags": ["workspace", "filesystem", "file", "list"]
 }
