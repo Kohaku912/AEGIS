@@ -1675,15 +1675,16 @@ class DashboardApp:
                 requires_approval = normalized_risk in {"APPROVAL_REQUIRED", "HIGH_RISK", "FORBIDDEN"}
 
             before = catalog.risk_details(cap_id)
-            override = catalog.get_override_store().upsert(
-                manifest.capability_id,
-                risk_level=normalized_risk,
-                requires_approval=requires_approval if requires_approval is not None else None,
-                approval_mode=approval_mode if approval_mode is not None else None,
-                enabled=enabled if enabled is not None else None,
-                updated_by=updated_by,
-                reason=reason,
-            )
+            try:
+                written = catalog.update_manifest_policy(
+                    manifest.capability_id,
+                    risk_level=normalized_risk,
+                    requires_approval=requires_approval if requires_approval is not None else None,
+                    approval_mode=approval_mode if approval_mode is not None else None,
+                    enabled=enabled if enabled is not None else None,
+                )
+            except (KeyError, FileNotFoundError, ValueError, OSError) as exc:
+                return {"error": str(exc)}, 400
             policy_engine = getattr(self._runtime, "policy_engine", None)
             if policy_engine is not None and hasattr(policy_engine, "clear_risk_override"):
                 policy_engine.clear_risk_override(manifest.capability_id)
@@ -1691,14 +1692,14 @@ class DashboardApp:
             after = catalog.risk_details(manifest.capability_id)
 
             self._audit_log.log_decision(
-                "capability.override.updated",
+                "capability.manifest.updated",
                 manifest.capability_id,
                 "ALLOW",
                 reason=reason,
                 actor=updated_by,
-                detail={"before": before, "after": after, "override": override.to_dict()},
+                detail={"before": before, "after": after, "manifest": written},
             )
-            _publish_capability_event("capability.override.updated", manifest.capability_id, {"before": before, "after": after})
+            _publish_capability_event("capability.manifest.updated", manifest.capability_id, {"before": before, "after": after})
             _publish_capability_event("capability.effective_policy.changed", manifest.capability_id, {"before": before, "after": after})
             return {"ok": True, **(after or {}), "reload": reload_result}, 200
 

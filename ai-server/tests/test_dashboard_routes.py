@@ -348,12 +348,16 @@ def test_capability_risk_update_allows_127_loopback(monkeypatch, tmp_path) -> No
     payload = response.get_json()
     manifest_after = json.loads(manifest_path.read_text(encoding="utf-8"))
     override_path = tmp_path / "data" / "settings" / "capability_overrides.json"
-    overrides = json.loads(override_path.read_text(encoding="utf-8"))
+    overrides = (
+        json.loads(override_path.read_text(encoding="utf-8"))
+        if override_path.exists()
+        else {"overrides": {}}
+    )
 
     assert response.status_code == 200
     assert payload["ok"] is True
-    assert manifest_after["risk"]["level"] == "low"
-    assert overrides["overrides"]["pc-server.test.sample"]["risk_level"] == "SAFE_ACTION"
+    assert manifest_after["risk"]["level"] == "safe"
+    assert "pc-server.test.sample" not in overrides.get("overrides", {})
     assert payload["effective"]["risk_level"] == "safe"
 
 
@@ -502,12 +506,16 @@ def test_capability_risk_update_allows_non_loopback_and_updates_manifest(monkeyp
     )
     manifest_after = json.loads(manifest_path.read_text(encoding="utf-8"))
     override_path = tmp_path / "data" / "settings" / "capability_overrides.json"
-    overrides = json.loads(override_path.read_text(encoding="utf-8"))
+    overrides = (
+        json.loads(override_path.read_text(encoding="utf-8"))
+        if override_path.exists()
+        else {"overrides": {}}
+    )
 
     assert response.status_code == 200
     assert response.get_json()["ok"] is True
-    assert manifest_after["risk"]["level"] == "low"
-    assert overrides["overrides"]["pc-server.test.remote"]["risk_level"] == "SAFE_ACTION"
+    assert manifest_after["risk"]["level"] == "safe"
+    assert "pc-server.test.remote" not in overrides.get("overrides", {})
 
 
 def test_chat_prompt_includes_actual_server_status(monkeypatch, tmp_path) -> None:
@@ -568,11 +576,15 @@ def test_capability_risk_update_can_weaken_forbidden_and_clears_override(monkeyp
     )
     manifest_after = json.loads(manifest_path.read_text(encoding="utf-8"))
     override_path = tmp_path / "data" / "settings" / "capability_overrides.json"
-    overrides = json.loads(override_path.read_text(encoding="utf-8"))
+    overrides = (
+        json.loads(override_path.read_text(encoding="utf-8"))
+        if override_path.exists()
+        else {"overrides": {}}
+    )
 
     assert response.status_code == 200
-    assert manifest_after["risk"]["level"] == "critical"
-    assert overrides["overrides"]["pc-server.test.blocked"]["risk_level"] == "SAFE_ACTION"
+    assert manifest_after["risk"]["level"] == "safe"
+    assert "pc-server.test.blocked" not in overrides.get("overrides", {})
     assert "pc-server.test.blocked" not in rt.policy_engine._risk_overrides
     cap = rt.tool_registry.get_capability("pc-server.test.blocked")
     assert cap is not None
@@ -608,9 +620,7 @@ def test_capabilities_page_displays_manifest_override_and_effective_risk(monkeyp
     assert response.status_code == 200
     assert b'id="risk-pc-server.test.visible"' in response.data
     assert b"Manifest" in response.data
-    assert b"Override" in response.data
     assert b"Effective" in response.data
-    assert b"OVERRIDE" in response.data
     assert b'data-saved-risk="APPROVAL_REQUIRED"' in response.data
 
 

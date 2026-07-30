@@ -1,0 +1,11 @@
+{
+  "server_id": "pc-server",
+  "app_id": "test",
+  "action": "sample",
+  "operation_category": "test_operation",
+  "title": "Sample",
+  "risk": {
+    "level": "approval_required",
+    "requires_approval": true
+  }
+}

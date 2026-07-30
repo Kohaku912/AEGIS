@@ -1029,7 +1029,7 @@ def _capabilities(runtime: Any) -> dict[str, Any]:
         if risk in {"high", "critical"}:
             high_risk += 1
     return {
-        "items": items[:120],
+        "items": items,
         "count": len(items),
         "by_server": by_server,
         "approval_required_count": approval_required,

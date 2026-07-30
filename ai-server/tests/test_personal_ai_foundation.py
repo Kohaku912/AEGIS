@@ -10,13 +10,10 @@ from aegis_ai.personal_ai.interruption import InterruptionController
 from aegis_ai.personal_ai.repair import RepairManager
 from aegis_ai.personal_ai.situation import SituationModel
 from aegis_ai.personal_ai.social_proxy import SocialProxy
-from aegis_ai.core_capabilities import AegisCoreCapabilityClient
 from aegis_ai.user_model import UserModelStore
 from aegis_ai.capability_catalog import CapabilityCatalog
-from aegis_ai.approval import ApprovalQueue
 from aegis_schema.models import Capability, Event, EventPriority, RiskLevel, ServerType
 from policy_engine import PolicyEngine
-from server_executor import ServerExecutor
 from tool_broker import InvokeStatus, ToolBroker, ToolExecutionRequest
 from tool_registry import ToolRegistry
 
@@ -43,14 +40,6 @@ class FakeManifest:
         self.capability_id = capability_id
         self.server_id = server_id
         self.input_schema = input_schema or {"type": "object", "properties": {}}
-
-
-class FakeCatalogForExecutor:
-    def __init__(self, server_id="ai-server"):
-        self.server_id = server_id
-
-    def resolve(self, capability_id: str):
-        return FakeManifest(capability_id, server_id=self.server_id)
 
 
 class FakeEventManager:
@@ -144,7 +133,7 @@ def test_commitment_due_creates_hook_and_transition_auditable(tmp_path):
 def test_delegation_policy_requires_approval_for_external_send_and_delete(tmp_path):
     store = DelegationPolicyStore(data_dir=str(tmp_path))
 
-    send = store.evaluate("ai-server.social.send_approved", side_effects=["external_send"])
+    send = store.evaluate("ai-server.agora.post", side_effects=["external_send"])
     delete = store.evaluate("dev-server.file.delete", side_effects=["delete"])
     read = store.evaluate("ai-server.workspace.read_file", side_effects=[])
 
@@ -156,9 +145,9 @@ def test_delegation_policy_requires_approval_for_external_send_and_delete(tmp_pa
 def test_tool_broker_applies_delegation_after_policy_allow(tmp_path):
     registry = ToolRegistry()
     cap = Capability(
-        id="ai-server.social.create_draft",
-        name="Create draft",
-        description="Create a draft.",
+        id="ai-server.agora.post",
+        name="Post to AGORA",
+        description="Post a message.",
         server_type=ServerType.AI,
         risk_level=RiskLevel.SAFE_ACTION,
         side_effects=["external_send"],
@@ -188,48 +177,16 @@ def test_social_proxy_send_requires_approved_marker(tmp_path):
     assert allowed["code"] == "UNSUPPORTED_CHANNEL"
 
 
-def test_social_send_e2e_requires_approval_then_executes_once(tmp_path):
+def test_social_proxy_draft_lifecycle_without_capability(tmp_path):
+    """SocialProxy remains available via Personal AI HTTP APIs, not capabilities."""
     proxy = SocialProxy(data_dir=str(tmp_path / "personal_ai"))
-    draft = proxy.create_draft(channel="discord", body="hello")
-    server_executor = ServerExecutor()
-    server_executor.set_catalog(FakeCatalogForExecutor("ai-server"))
-    server_executor.register_client(
-        "ai-server",
-        AegisCoreCapabilityClient(
-            data_dir=str(tmp_path),
-            server_executor=server_executor,
-            personal_managers={"social_proxy": proxy},
-        ),
-    )
-    registry = ToolRegistry()
-    cap = Capability(
-        id="ai-server.social.send_approved",
-        name="Send approved social draft",
-        description="Send approved social draft.",
-        server_type=ServerType.AI,
-        risk_level=RiskLevel.APPROVAL_REQUIRED,
-        requires_approval=True,
-        side_effects=["external_send"],
-    )
-    registry.register_capability(cap)
-    queue = ApprovalQueue(data_dir=str(tmp_path / "approvals"))
-    broker = ToolBroker(
-        registry=registry,
-        policy_engine=PolicyEngine(data_dir=str(tmp_path)),
-        approval_queue=queue,
-        server_executor=server_executor,
-        catalog=FakeCatalogForExecutor("ai-server"),
-    )
+    draft = proxy.create_draft(channel="webhook", body="hello", to="https://example.test/hook")
+    drafts = proxy.list_drafts()
 
-    first = broker.execute(ToolExecutionRequest(capability_id=cap.id, arguments={"draft_id": draft["draft_id"]}))
-    assert first.status == InvokeStatus.APPROVAL_NEEDED
-    queue.approve(first.approval_id)
-    executed = broker.execute_approved(first.approval_id)
-    duplicate = broker.execute_approved(first.approval_id)
-
-    assert executed.status == InvokeStatus.EXECUTION_ERROR
-    assert "not implemented" in executed.error
-    assert duplicate.status == InvokeStatus.DENIED
+    assert draft["draft_id"]
+    assert any(item["draft_id"] == draft["draft_id"] for item in drafts)
+    blocked = proxy.send_approved(draft["draft_id"])
+    assert blocked["code"] == "APPROVAL_REQUIRED"
 
 
 def test_interruption_batches_low_priority_but_allows_approval(tmp_path):
