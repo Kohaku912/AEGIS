@@ -716,6 +716,27 @@ def test_audit_context_and_manager_group_entries(monkeypatch, tmp_path) -> None:
     assert by_id["legacy_task_1"]["group_type"] == "task"
 
 
+def test_grouped_audit_api_reads_sqlite_audit_manager(monkeypatch, tmp_path) -> None:
+    from aegis_ai.audit.context import audit_group
+
+    runtime = _runtime(tmp_path)
+    dashboard_app = dashboard_routes.DashboardApp(runtime=runtime)
+    with audit_group("api_group_1", group_type="chat", group_title="Visible API group"):
+        runtime.audit_log.log_decision(
+            action="llm_call",
+            capability_id="llm",
+            decision="EXECUTED",
+            actor="gateway",
+        )
+
+    response = dashboard_app.app.test_client().get("/api/audit/grouped?limit=10")
+    payload = response.get_json()
+
+    assert response.status_code == 200
+    assert payload["count"] >= 1
+    assert any(group["group_id"] == "api_group_1" for group in payload["groups"])
+
+
 def test_dashboard_audit_renders_grouped_cards(monkeypatch, tmp_path) -> None:
     from aegis_ai.audit.context import audit_group
 

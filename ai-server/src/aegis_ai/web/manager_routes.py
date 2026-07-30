@@ -117,11 +117,12 @@ def list_audit():
     try:
         rt = _get_runtime()
         limit = int(request.args.get("limit", 100))
+        page = max(1, int(request.args.get("page", 1)))
         cursor = request.args.get("cursor")
         action = request.args.get("action")
         errors_only = request.args.get("errors_only") == "true"
         result = rt.audit_manager.list_recent(
-            limit=limit, cursor=cursor, action=action, errors_only=errors_only
+            limit=limit, page=page, cursor=cursor, action=action, errors_only=errors_only
         )
         return jsonify(result)
     except Exception as e:
