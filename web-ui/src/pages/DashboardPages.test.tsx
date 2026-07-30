@@ -78,15 +78,19 @@ describe("dashboard v2 pages", () => {
     expect(screen.getByText("Social inbox & AGORA decisions")).toBeInTheDocument();
     expect(screen.getByText(/hello from agora/i)).toBeInTheDocument();
   });
-  it("keeps five task-oriented navigation domains", () => {
+  it("keeps six Japanese IA navigation domains covering core pages", () => {
     expect(navigation.map((domain) => domain.id)).toEqual([
-      "home",
-      "work",
-      "communications",
-      "systems",
-      "administration",
+      "ops",
+      "intel",
+      "connect",
+      "observe",
+      "personal",
+      "settings",
     ]);
-    expect(navigation.find((domain) => domain.id === "work")?.pages.some((page) => page.id === "open-loops")).toBe(true);
+    expect(navigation.find((domain) => domain.id === "ops")?.pages.some((page) => page.id === "home")).toBe(true);
+    expect(navigation.find((domain) => domain.id === "ops")?.pages.some((page) => page.id === "approvals")).toBe(true);
+    expect(navigation.find((domain) => domain.id === "intel")?.pages.some((page) => page.id === "memory")).toBe(true);
+    expect(navigation.flatMap((domain) => domain.pages).length).toBeGreaterThanOrEqual(30);
   });
 
   it("renders Systems topology and Android detail", () => {

@@ -1,79 +1,135 @@
-import { BriefcaseBusiness, Home, MessageSquare, Network, Settings } from "lucide-react";
+import {
+  Activity,
+  Brain,
+  Cable,
+  Home,
+  Settings,
+  UserRound,
+} from "lucide-react";
 
-export type DomainId = "home" | "work" | "communications" | "systems" | "administration";
+export type DomainId = "ops" | "intel" | "connect" | "observe" | "personal" | "settings";
 export type PageId = string;
 export type NavigationPage = { id: PageId; label: string; path: string; developerOnly?: boolean };
 export type NavigationDomain = { id: DomainId; label: string; path: string; icon: typeof Home; pages: NavigationPage[] };
 
 export const navigation: NavigationDomain[] = [
   {
-    id: "home", label: "Home", path: "/dashboard", icon: Home,
+    id: "ops",
+    label: "運用",
+    path: "/dashboard",
+    icon: Home,
     pages: [
-      { id: "command-center", label: "Overview", path: "/dashboard" },
-      { id: "attention", label: "Needs Attention", path: "/dashboard/attention" },
+      { id: "home", label: "ホーム", path: "/dashboard" },
+      { id: "attention", label: "対応待ち", path: "/dashboard/attention" },
+      { id: "tasks", label: "タスク", path: "/dashboard/work/tasks" },
+      { id: "approvals", label: "承認", path: "/dashboard/approvals" },
+      { id: "autonomous", label: "自律実行", path: "/dashboard/autonomous" },
+      { id: "desires", label: "欲求", path: "/dashboard/desires" },
+      { id: "agent-state", label: "Agent State", path: "/dashboard/agent-state" },
     ],
   },
   {
-    id: "work", label: "Work", path: "/dashboard/work/tasks", icon: BriefcaseBusiness,
+    id: "intel",
+    label: "知能",
+    path: "/dashboard/memory",
+    icon: Brain,
     pages: [
-      { id: "tasks", label: "Tasks", path: "/dashboard/work/tasks" },
-      { id: "goals", label: "Goals and Verification", path: "/dashboard/goals" },
-      { id: "open-loops", label: "Open Loops", path: "/dashboard/open-loops" },
-      { id: "continuations", label: "Continuations", path: "/dashboard/continuations" },
+      { id: "memory", label: "記憶", path: "/dashboard/memory" },
+      { id: "learning", label: "学習", path: "/dashboard/learning" },
+      { id: "capability-catalog", label: "Capability", path: "/dashboard/capabilities/catalog" },
+      { id: "llm-usage", label: "LLM Usage", path: "/dashboard/observability/llm-usage" },
+      { id: "prompt-analysis", label: "Prompt Analysis", path: "/dashboard/observability/prompt-analysis" },
+      { id: "llm-config", label: "LLM Config", path: "/dashboard/intelligence/models-prompts" },
     ],
   },
   {
-    id: "communications", label: "Communication", path: "/dashboard/communications/conversations", icon: MessageSquare,
+    id: "connect",
+    label: "接続",
+    path: "/dashboard/infrastructure/servers",
+    icon: Cable,
     pages: [
-      { id: "conversations", label: "Chat", path: "/dashboard/communications/conversations" },
-      { id: "social", label: "Social / AGORA", path: "/dashboard/communications/social" },
-      { id: "notifications", label: "Notifications", path: "/dashboard/communications/notifications" },
-      { id: "presentation-surfaces", label: "Presentations", path: "/dashboard/communications/presentation-surfaces" },
+      { id: "servers", label: "サーバー", path: "/dashboard/infrastructure/servers" },
+      { id: "pc", label: "PC", path: "/dashboard/devices/pc" },
+      { id: "browser", label: "Browser", path: "/dashboard/devices/browser" },
+      { id: "android", label: "Android", path: "/dashboard/devices/android" },
+      { id: "room", label: "Room", path: "/dashboard/devices/room" },
+      { id: "agora", label: "AGORA", path: "/dashboard/communications/social" },
     ],
   },
   {
-    id: "systems", label: "Systems", path: "/dashboard/infrastructure/servers", icon: Network,
+    id: "observe",
+    label: "観測",
+    path: "/dashboard/observability/events",
+    icon: Activity,
     pages: [
-      { id: "servers", label: "Servers", path: "/dashboard/infrastructure/servers" },
-      { id: "devices", label: "Devices", path: "/dashboard/infrastructure/devices" },
-      { id: "capability-catalog", label: "Capability Catalog", path: "/dashboard/capabilities/catalog" },
-      { id: "capability-executions", label: "Executions", path: "/dashboard/capabilities/executions" },
+      { id: "events", label: "イベント", path: "/dashboard/observability/events" },
+      { id: "notifications", label: "通知", path: "/dashboard/communications/notifications" },
+      { id: "audit", label: "AuditLog", path: "/dashboard/observability/audit" },
+      { id: "errors", label: "エラー", path: "/dashboard/observability/errors" },
+      { id: "logs", label: "ログ", path: "/dashboard/observability/logs" },
     ],
   },
   {
-    id: "administration", label: "Settings and Administration", path: "/dashboard/governance/policy", icon: Settings,
+    id: "personal",
+    label: "個人",
+    path: "/dashboard/personal-ai",
+    icon: UserRound,
     pages: [
-      { id: "policy", label: "Policy", path: "/dashboard/governance/policy" },
-      { id: "security", label: "Security", path: "/dashboard/governance/security" },
-      { id: "privacy", label: "Privacy", path: "/dashboard/governance/privacy" },
-      { id: "policy-simulation", label: "Policy Simulation", path: "/dashboard/capabilities/policy-simulation", developerOnly: true },
-      { id: "settings-autonomy", label: "Settings", path: "/settings/autonomy" },
-      { id: "activity", label: "Audit and Raw Logs", path: "/dashboard/observability/activity", developerOnly: true },
-      { id: "repairs", label: "Repair Feed", path: "/dashboard/repairs", developerOnly: true },
-      { id: "llm-usage", label: "LLM Usage", path: "/dashboard/observability/llm-usage", developerOnly: true },
-      { id: "models-prompts", label: "Models and Prompts", path: "/dashboard/intelligence/models-prompts", developerOnly: true },
+      { id: "personal-ai", label: "Personal AI", path: "/dashboard/personal-ai" },
+      { id: "user-state", label: "User State", path: "/dashboard/user-state" },
+    ],
+  },
+  {
+    id: "settings",
+    label: "設定",
+    path: "/settings/general",
+    icon: Settings,
+    pages: [
+      { id: "settings-general", label: "設定", path: "/settings/general" },
+      { id: "settings-all", label: "全設定", path: "/settings/all" },
+      { id: "diagnostics", label: "システム診断", path: "/dashboard/diagnostics" },
+      { id: "dashboard-settings", label: "Dashboard設定", path: "/dashboard/dashboard-settings" },
     ],
   },
 ];
 
 const aliases: Array<[RegExp, PageId]> = [
+  [/\/dashboard\/?$/, "home"],
+  [/\/dashboard\/command-center/, "home"],
   [/\/dashboard\/tasks|\/dashboard\/work(\/|$)/, "tasks"],
-  [/\/dashboard\/governance\/approvals/, "attention"],
-  [/\/dashboard\/observability\/errors/, "attention"],
+  [/\/dashboard\/governance\/approvals/, "approvals"],
+  [/\/dashboard\/observability\/errors/, "errors"],
+  [/\/dashboard\/observability\/activity/, "audit"],
   [/\/dashboard\/systems/, "servers"],
-  [/\/dashboard\/memory|\/dashboard\/intelligence\/memory/, "models-prompts"],
+  [/\/dashboard\/intelligence\/memory/, "memory"],
+  [/\/dashboard\/communications\/social/, "agora"],
+  [/\/dashboard\/capabilities\/executions/, "capability-catalog"],
+  [/\/settings\/autonomy/, "settings-general"],
+  [/\/dashboard\/goals/, "agent-state"],
+  [/\/dashboard\/open-loops/, "agent-state"],
+  [/\/dashboard\/continuations/, "agent-state"],
+  [/\/dashboard\/repairs/, "errors"],
 ];
 
 export function routeState(pathname: string): { domain: DomainId; page: PageId } {
-  const alias = aliases.find(([pattern]) => pattern.test(pathname));
-  const target = alias?.[1];
+  for (const [pattern, pageId] of aliases) {
+    if (pattern.test(pathname)) {
+      const found = pageDefinition(pageId);
+      return { domain: found.domain.id, page: pageId };
+    }
+  }
   for (const domain of navigation) {
-    const page = domain.pages.find((candidate) =>
-      candidate.id === target || candidate.path === pathname || (candidate.path !== "/dashboard" && pathname.startsWith(candidate.path)),
-    );
+    const exact = domain.pages.find((candidate) => candidate.path === pathname);
+    if (exact) return { domain: domain.id, page: exact.id };
+  }
+  for (const domain of navigation) {
+    const page = domain.pages
+      .filter((candidate) => candidate.path !== "/dashboard")
+      .sort((a, b) => b.path.length - a.path.length)
+      .find((candidate) => pathname.startsWith(candidate.path));
     if (page) return { domain: domain.id, page: page.id };
   }
-  return { domain: "home", page: "command-center" };
+  return { domain: "ops", page: "home" };
 }
 
 export function pageDefinition(pageId: PageId) {
@@ -82,4 +138,8 @@ export function pageDefinition(pageId: PageId) {
     if (page) return { domain, page };
   }
   return { domain: navigation[0], page: navigation[0].pages[0] };
+}
+
+export function allPages(): NavigationPage[] {
+  return navigation.flatMap((domain) => domain.pages);
 }

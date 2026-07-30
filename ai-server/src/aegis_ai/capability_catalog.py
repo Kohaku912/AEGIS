@@ -13,6 +13,7 @@ Backward-compatible aliases:
 
 from __future__ import annotations
 
+import json
 import logging
 import threading
 import time
@@ -348,6 +349,66 @@ class CapabilityCatalog:
         """Return the persistent override store."""
         return self._override_store
 
+    def update_manifest_policy(
+        self,
+        cap_id: str,
+        *,
+        risk_level: str | None = None,
+        requires_approval: bool | None = None,
+        approval_mode: str | None = None,
+        enabled: bool | None = None,
+    ) -> dict[str, Any]:
+        """Write risk/enabled policy into the capability JSON manifest on disk.
+
+        This permanently updates the source-of-truth JSON file and clears any
+        soft override for the same capability so effective policy matches the
+        manifest after reload.
+        """
+        with self._lock:
+            manifest = self.resolve(cap_id)
+            if manifest is None:
+                raise KeyError(f"Capability '{cap_id}' not found")
+            path = Path(manifest.file_path)
+            if not path.is_file():
+                raise FileNotFoundError(f"Capability manifest file missing: {path}")
+
+            data = json.loads(path.read_text(encoding="utf-8-sig"))
+            if not isinstance(data, dict):
+                raise ValueError(f"Capability manifest root must be an object: {path}")
+
+            risk = data.get("risk")
+            if not isinstance(risk, dict):
+                risk = {}
+            else:
+                risk = dict(risk)
+
+            if risk_level is not None:
+                normalized = normalize_risk_label(str(risk_level), default="")
+                if not normalized:
+                    raise ValueError(f"Invalid risk level: {risk_level}")
+                risk["level"] = risk_json_label(normalized)
+            if requires_approval is not None:
+                risk["requires_approval"] = bool(requires_approval)
+            if approval_mode is not None:
+                mode = str(approval_mode).strip()
+                if mode:
+                    risk["approval_mode"] = mode
+                else:
+                    risk.pop("approval_mode", None)
+            data["risk"] = risk
+
+            if enabled is not None:
+                data["enabled"] = bool(enabled)
+
+            payload = json.dumps(data, ensure_ascii=False, indent=2) + "\n"
+            tmp = path.with_suffix(path.suffix + ".tmp")
+            tmp.write_text(payload, encoding="utf-8")
+            tmp.replace(path)
+
+            # Source JSON is authoritative after a dashboard edit.
+            self._override_store.reset(manifest.capability_id)
+            return data
+
     def risk_details(self, cap_id: str) -> dict[str, Any] | None:
         """Return manifest, override, and effective risk policy for a capability."""
         manifest = self.resolve(cap_id)
@@ -356,10 +417,10 @@ class CapabilityCatalog:
         return {
             "capability_id": manifest.capability_id,
             "manifest": {
-                "risk_level": manifest.manifest_risk_level,
+                "risk_level": risk_json_label(manifest.manifest_risk_level),
                 "requires_approval": bool(manifest.manifest_requires_approval),
-                "approval_mode": "",
-                "enabled": True,
+                "approval_mode": str(getattr(manifest, "approval_mode", "") or ""),
+                "enabled": bool(getattr(manifest, "enabled", True)),
             },
             "override": dict(manifest.override or {}),
             "effective": {
@@ -370,6 +431,7 @@ class CapabilityCatalog:
             },
             "override_active": bool(manifest.override),
             "override_store_corrupted": bool(self._override_store.corrupted),
+            "file_path": manifest.file_path,
         }
 
     def count(self) -> int:
