@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { FlaskConical, RotateCcw, Search, ShieldCheck } from "lucide-react";
+import { RotateCcw, Search } from "lucide-react";
 import { useEffect, useState } from "react";
 import {
   fetchCapabilityRisk,
@@ -20,8 +20,8 @@ export function CapabilityCatalogPage() {
   const queryClient = useQueryClient();
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<EntitySummary>();
-  const [draft, setDraft] = useState<Record<string, unknown>>({});
-  const [review, setReview] = useState(false);
+  const [editablePolicy, setEditablePolicy] = useState<Record<string, unknown>>({});
+  const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState("");
   const capabilities = useQuery({
     queryKey: ["ui-resource", "capabilities"],
@@ -36,12 +36,11 @@ export function CapabilityCatalogPage() {
   const values = (policy.data || {}) as Policy;
   useEffect(() => {
     if (values.effective) {
-      setDraft({
+      setEditablePolicy({
         ...values.effective,
         reason: "Updated from Capability Catalog",
         updated_by: "dashboard",
       });
-      setReview(false);
     }
   }, [policy.data]);
   const filtered = (capabilities.data?.items || []).filter((item) =>
@@ -50,39 +49,49 @@ export function CapabilityCatalogPage() {
       .includes(query.toLowerCase()),
   );
 
-  const save = async () => {
-    if (!selected) return;
-    setStatus("Saving reviewed policy to capability manifest...");
+  const applyChange = async (change: Record<string, unknown>) => {
+    if (!selected || saving) return;
+    const previous = editablePolicy;
+    const next = {
+      ...editablePolicy,
+      ...change,
+      reason: "Updated from Capability Catalog",
+      updated_by: "dashboard",
+    };
+    setEditablePolicy(next);
+    setSaving(true);
+    setStatus("Saving policy change...");
     try {
-      await updateCapabilityRisk(selected.id, draft);
-      setReview(false);
+      await updateCapabilityRisk(selected.id, next);
       setStatus(
-        "Manifest updated permanently, catalog reloaded, and effective policy audited.",
+        "Policy updated, catalog reloaded, and effective policy audited.",
       );
       await policy.refetch();
       await queryClient.invalidateQueries({
         queryKey: ["ui-resource", "capabilities"],
       });
     } catch (error) {
+      setEditablePolicy(previous);
       setStatus(String(error instanceof Error ? error.message : error));
+    } finally {
+      setSaving(false);
     }
   };
   const reset = async () => {
-    if (!selected) return;
-    if (!review) {
-      setReview(true);
-      setStatus(
-        "Review reset: effective policy will return to the manifest values.",
-      );
-      return;
-    }
+    if (!selected || saving) return;
+    setSaving(true);
+    setStatus("Resetting override to manifest policy...");
     try {
       await resetCapabilityRisk(selected.id);
-      setReview(false);
       setStatus("Override reset and effective policy reloaded.");
       await policy.refetch();
+      await queryClient.invalidateQueries({
+        queryKey: ["ui-resource", "capabilities"],
+      });
     } catch (error) {
       setStatus(String(error instanceof Error ? error.message : error));
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -180,17 +189,16 @@ export function CapabilityCatalogPage() {
                 ))}
               </section>
               <section className="policy-editor">
-                <h4>Override draft</h4>
+                <h4>Policy controls</h4>
+                <p>Changes are saved and applied immediately.</p>
                 <label>
                   Risk
                   <select
-                    value={String(draft.risk_level || "low")}
+                    value={String(editablePolicy.risk_level || "low")}
+                    disabled={saving}
                     onChange={(event) => {
                       const riskLevel = event.currentTarget.value;
-                      setDraft((value) => ({
-                        ...value,
-                        risk_level: riskLevel,
-                      }));
+                      void applyChange({ risk_level: riskLevel });
                     }}
                   >
                     {[
@@ -209,13 +217,11 @@ export function CapabilityCatalogPage() {
                 <label>
                   <input
                     type="checkbox"
-                    checked={Boolean(draft.requires_approval)}
+                    checked={Boolean(editablePolicy.requires_approval)}
+                    disabled={saving}
                     onChange={(event) => {
                       const checked = event.currentTarget.checked;
-                      setDraft((value) => ({
-                        ...value,
-                        requires_approval: checked,
-                      }));
+                      void applyChange({ requires_approval: checked });
                     }}
                   />
                   Requires approval
@@ -223,99 +229,27 @@ export function CapabilityCatalogPage() {
                 <label>
                   <input
                     type="checkbox"
-                    checked={Boolean(draft.enabled ?? true)}
+                    checked={Boolean(editablePolicy.enabled ?? true)}
+                    disabled={saving}
                     onChange={(event) => {
                       const checked = event.currentTarget.checked;
-                      setDraft((value) => ({ ...value, enabled: checked }));
+                      void applyChange({ enabled: checked });
                     }}
                   />
                   Enabled
                 </label>
-                <label>
-                  Reason
-                  <input
-                    value={String(draft.reason || "")}
-                    onChange={(event) => {
-                      const value = event.currentTarget.value;
-                      setDraft((item) => ({ ...item, reason: value }));
-                    }}
-                  />
-                </label>
                 <div>
-                  <button
-                    className="secondary-button"
-                    type="button"
-                    onClick={() => setReview(true)}
-                  >
-                    <ShieldCheck size={14} />
-                    Review changes
-                  </button>
-                  <a
-                    className="secondary-button"
-                    href={`/dashboard/capabilities/policy-simulation?capability_id=${encodeURIComponent(selected.id)}`}
-                  >
-                    <FlaskConical size={14} />
-                    Test preview
-                  </a>
                   <button
                     className="danger-button"
                     type="button"
+                    disabled={saving}
                     onClick={() => void reset()}
                   >
                     <RotateCcw size={14} />
-                    {review ? "Confirm manifest reset" : "Reset override"}
+                    Reset override
                   </button>
                 </div>
               </section>
-              {review ? (
-                <section className="action-preview">
-                  <h4>Policy change review</h4>
-                  <dl>
-                    <div>
-                      <dt>Target</dt>
-                      <dd>{selected.id}</dd>
-                    </div>
-                    <div>
-                      <dt>Before</dt>
-                      <dd>{summarize(values.effective)}</dd>
-                    </div>
-                    <div>
-                      <dt>After</dt>
-                      <dd>{summarize(draft)}</dd>
-                    </div>
-                    <div>
-                      <dt>Impact</dt>
-                      <dd>
-                        PolicyEngine and ToolBroker will use this effective
-                        policy immediately.
-                      </dd>
-                    </div>
-                    <div>
-                      <dt>Verification</dt>
-                      <dd>
-                        Reload CapabilityCatalog, compare effective policy, and
-                        inspect capability.effective_policy.changed audit.
-                      </dd>
-                    </div>
-                  </dl>
-                  <footer>
-                    <button
-                      className="secondary-button"
-                      type="button"
-                      onClick={() => setReview(false)}
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      className="primary-button"
-                      type="button"
-                      onClick={() => void save()}
-                    >
-                      Save override
-                    </button>
-                  </footer>
-                </section>
-              ) : null}
             </>
           ) : (
             <p>
