@@ -1,6 +1,6 @@
 {
   "title": "Broadcast Overlay Notification",
-  "description": "Show a temporary notification overlay on all selected local devices. Can include text and an image saved in the AEGIS workspace.",
+  "description": "Show a temporary notification overlay on all selected local devices. Can include an image from any path visible to the AI Server.",
   "server_id": "ai-server",
   "app_id": "notification",
   "action": "broadcast_overlay",
@@ -27,7 +27,7 @@
       },
       "image_path": {
         "type": "string",
-        "description": "Optional image path inside the AEGIS workspace."
+        "description": "Optional absolute filesystem path, or path relative to the AEGIS workspace."
       },
       "targets": {
         "type": "array",

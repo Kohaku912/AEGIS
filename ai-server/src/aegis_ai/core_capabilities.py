@@ -289,23 +289,41 @@ class AegisCoreCapabilityClient:
                     int(getattr(post, "id", 0) or 0) for post in posts
                 )
 
-    def _resolve_workspace_path(self, raw_path: str, *, must_exist: bool = False) -> Path:
+    def _resolve_file_path(self, raw_path: str, *, must_exist: bool = False) -> Path:
+        """Resolve an AI-server filesystem path.
+
+        Relative paths remain anchored to the AEGIS workspace for backward
+        compatibility. Absolute paths, and relative paths that traverse from
+        that anchor, may address any location visible to the AI-server process.
+        The operating system and container mounts remain the authority on what
+        can actually be accessed.
+        """
         if not raw_path or not str(raw_path).strip():
             raise ValueError("path is required")
         candidate = Path(str(raw_path)).expanduser()
         if not candidate.is_absolute():
             candidate = self._workspace / candidate
         resolved = candidate.resolve()
-        try:
-            resolved.relative_to(self._workspace)
-        except ValueError as exc:
-            raise ValueError("Path must stay inside the AEGIS workspace") from exc
         if must_exist and not resolved.exists():
-            raise FileNotFoundError(f"File not found in AEGIS workspace: {raw_path}")
+            raise FileNotFoundError(f"Path not found: {raw_path}")
         return resolved
 
+    def _path_metadata(self, path: Path) -> dict[str, str]:
+        """Return stable path metadata for workspace and external paths."""
+        try:
+            display_path = str(path.relative_to(self._workspace))
+            scope = "workspace"
+        except ValueError:
+            display_path = str(path)
+            scope = "external"
+        return {
+            "path": str(path),
+            "relative_path": display_path,
+            "path_scope": scope,
+        }
+
     def _prepare_image(self, image_path: str) -> dict[str, Any]:
-        path = self._resolve_workspace_path(image_path, must_exist=True)
+        path = self._resolve_file_path(image_path, must_exist=True)
         if not path.is_file():
             raise ValueError("image_path must point to a file")
         size = path.stat().st_size
@@ -331,7 +349,11 @@ class AegisCoreCapabilityClient:
         duration_seconds = max(1, int(round(duration_ms / 1000)))
         color = str(params.get("color") or "")
         raw_targets = params.get("targets") or ["pc", "android"]
-        targets = [str(item).strip().lower() for item in raw_targets] if isinstance(raw_targets, list) else [str(raw_targets).strip().lower()]
+        targets = (
+            [str(item).strip().lower() for item in raw_targets]
+            if isinstance(raw_targets, list)
+            else [str(raw_targets).strip().lower()]
+        )
         image = None
         if params.get("image_path"):
             try:
@@ -394,7 +416,7 @@ class AegisCoreCapabilityClient:
 
     def _write_file(self, params: dict[str, Any]) -> dict[str, Any]:
         try:
-            path = self._resolve_workspace_path(str(params.get("relative_path") or ""))
+            path = self._resolve_file_path(str(params.get("path") or params.get("relative_path") or ""))
         except Exception as exc:
             return {"ok": False, "error": str(exc), "code": "INVALID_PATH"}
         content = params.get("content")
@@ -406,25 +428,42 @@ class AegisCoreCapabilityClient:
         if path.exists() and not append and not overwrite:
             return {"ok": False, "error": "File already exists and overwrite=false", "code": "FILE_EXISTS"}
         try:
-            data = base64.b64decode(str(content_base64), validate=True) if content_base64 is not None else str(content).encode("utf-8")
+            data = (
+                base64.b64decode(str(content_base64), validate=True)
+                if content_base64 is not None
+                else str(content).encode("utf-8")
+            )
         except Exception as exc:
             return {"ok": False, "error": f"Invalid content_base64: {exc}", "code": "INVALID_BASE64"}
-        path.parent.mkdir(parents=True, exist_ok=True)
-        mode = "ab" if append else "wb"
-        with path.open(mode) as f:
-            f.write(data)
-        return {"ok": True, "path": str(path), "relative_path": str(path.relative_to(self._workspace)), "size_bytes": path.stat().st_size}
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            mode = "ab" if append else "wb"
+            with path.open(mode) as f:
+                f.write(data)
+            return {
+                "ok": True,
+                **self._path_metadata(path),
+                "size_bytes": path.stat().st_size,
+            }
+        except OSError as exc:
+            return {"ok": False, "error": str(exc), "code": "FILE_WRITE_FAILED", "path": str(path)}
 
     def _read_file(self, params: dict[str, Any]) -> dict[str, Any]:
         try:
-            path = self._resolve_workspace_path(str(params.get("relative_path") or ""), must_exist=True)
+            path = self._resolve_file_path(
+                str(params.get("path") or params.get("relative_path") or ""),
+                must_exist=True,
+            )
         except Exception as exc:
             return {"ok": False, "error": str(exc), "code": "INVALID_PATH"}
         if not path.is_file():
             return {"ok": False, "error": "Path is not a file", "code": "NOT_A_FILE"}
         max_bytes = int(params.get("max_bytes") or self.READ_MAX_BYTES)
         max_bytes = min(max(1, max_bytes), self.READ_MAX_BYTES)
-        data = path.read_bytes()
+        try:
+            data = path.read_bytes()
+        except OSError as exc:
+            return {"ok": False, "error": str(exc), "code": "FILE_READ_FAILED", "path": str(path)}
         if len(data) > max_bytes:
             data = data[:max_bytes]
             truncated = True
@@ -432,11 +471,16 @@ class AegisCoreCapabilityClient:
             truncated = False
         try:
             content = data.decode("utf-8")
-            return {"ok": True, "relative_path": str(path.relative_to(self._workspace)), "content": content, "truncated": truncated}
+            return {
+                "ok": True,
+                **self._path_metadata(path),
+                "content": content,
+                "truncated": truncated,
+            }
         except UnicodeDecodeError:
             return {
                 "ok": True,
-                "relative_path": str(path.relative_to(self._workspace)),
+                **self._path_metadata(path),
                 "content_base64": base64.b64encode(data).decode("ascii"),
                 "encoding": "base64",
                 "truncated": truncated,
@@ -444,11 +488,18 @@ class AegisCoreCapabilityClient:
 
     def _list_files(self, params: dict[str, Any]) -> dict[str, Any]:
         try:
-            root = self._resolve_workspace_path(str(params.get("relative_dir") or "."))
+            root = self._resolve_file_path(str(params.get("path") or params.get("relative_dir") or "."))
         except Exception as exc:
             return {"ok": False, "error": str(exc), "code": "INVALID_PATH"}
         if not root.exists():
-            return {"ok": True, "files": [], "relative_dir": str(root.relative_to(self._workspace))}
+            metadata = self._path_metadata(root)
+            return {
+                "ok": True,
+                "files": [],
+                "path": metadata["path"],
+                "relative_dir": metadata["relative_path"],
+                "path_scope": metadata["path_scope"],
+            }
         if not root.is_dir():
             return {"ok": False, "error": "Path is not a directory", "code": "NOT_A_DIRECTORY"}
         recursive = bool(params.get("recursive", False))
@@ -458,16 +509,28 @@ class AegisCoreCapabilityClient:
         for item in iterator:
             if len(files) >= max_entries:
                 break
-            stat = item.stat()
+            try:
+                stat = item.stat()
+            except OSError:
+                continue
+            metadata = self._path_metadata(item)
             files.append(
                 {
-                    "relative_path": str(item.relative_to(self._workspace)),
+                    **metadata,
                     "is_dir": item.is_dir(),
                     "size_bytes": stat.st_size if item.is_file() else 0,
                     "modified_ms": int(stat.st_mtime * 1000),
                 }
             )
-        return {"ok": True, "relative_dir": str(root.relative_to(self._workspace)), "files": files, "truncated": len(files) >= max_entries}
+        root_metadata = self._path_metadata(root)
+        return {
+            "ok": True,
+            "path": root_metadata["path"],
+            "relative_dir": root_metadata["relative_path"],
+            "path_scope": root_metadata["path_scope"],
+            "files": files,
+            "truncated": len(files) >= max_entries,
+        }
 
     def _user_model(self, capability_id: str, params: dict[str, Any]) -> dict[str, Any]:
         store = self._personal.get("user_model_store")

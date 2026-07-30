@@ -52,16 +52,47 @@ def test_workspace_write_read_and_list(tmp_path: Path) -> None:
     assert listed["files"][0]["relative_path"] == "notes\\hello.txt" or listed["files"][0]["relative_path"] == "notes/hello.txt"
 
 
-def test_workspace_rejects_path_escape(tmp_path: Path) -> None:
+def test_workspace_allows_path_escape(tmp_path: Path) -> None:
     client, _ = _client(tmp_path)
+    outside = client.workspace_dir.parent / "outside.txt"
 
     result = client.invoke_capability(
         "ai-server.workspace.write_file",
         {"relative_path": "../outside.txt", "content": "nope"},
     )
 
-    assert result["ok"] is False
-    assert "workspace" in result["error"].lower()
+    assert result["ok"] is True
+    assert result["path_scope"] == "external"
+    assert Path(result["path"]) == outside
+    assert outside.read_text(encoding="utf-8") == "nope"
+
+
+def test_workspace_capabilities_accept_absolute_external_paths(tmp_path: Path) -> None:
+    client, _ = _client(tmp_path)
+    outside_dir = tmp_path / "external"
+    outside_file = outside_dir / "hello.txt"
+
+    written = client.invoke_capability(
+        "ai-server.workspace.write_file",
+        {"path": str(outside_file), "content": "outside workspace"},
+    )
+    read = client.invoke_capability(
+        "ai-server.workspace.read_file",
+        {"path": str(outside_file)},
+    )
+    listed = client.invoke_capability(
+        "ai-server.workspace.list_files",
+        {"path": str(outside_dir)},
+    )
+
+    assert written["ok"] is True
+    assert written["path_scope"] == "external"
+    assert read["ok"] is True
+    assert read["content"] == "outside workspace"
+    assert read["path_scope"] == "external"
+    assert listed["ok"] is True
+    assert listed["path_scope"] == "external"
+    assert listed["files"][0]["path"] == str(outside_file.resolve())
 
 
 def test_broadcast_overlay_sends_text_to_pc_and_android(tmp_path: Path) -> None:
@@ -104,18 +135,23 @@ def test_broadcast_overlay_includes_workspace_image(tmp_path: Path) -> None:
     assert android_payload["image_base64"]
 
 
-def test_broadcast_overlay_rejects_image_outside_workspace(tmp_path: Path) -> None:
-    client, _ = _client(tmp_path)
+def test_broadcast_overlay_accepts_image_outside_workspace(tmp_path: Path) -> None:
+    client, executor = _client(tmp_path)
     outside = tmp_path / "outside.png"
-    outside.write_bytes(b"not really an image")
+    outside.write_bytes(
+        base64.b64decode(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADElEQVR42mP8z8BQDwAFgwJ/luzG8QAAAABJRU5ErkJggg=="
+        )
+    )
 
     result = client.invoke_capability(
         "ai-server.notification.broadcast_overlay",
         {"message": "bad", "image_path": str(outside)},
     )
 
-    assert result["ok"] is False
-    assert result["code"] == "INVALID_IMAGE_PATH"
+    assert result["ok"] is True
+    assert result["image"]["image_path"] == str(outside.resolve())
+    assert executor.calls[0][1]["image_base64"]
 
 
 def test_new_manifests_load_from_catalog() -> None:
