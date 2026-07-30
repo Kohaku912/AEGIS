@@ -196,7 +196,7 @@ def _badges(data: dict[str, Any]) -> list[str]:
 
 def _safe_limit() -> int:
     try:
-        return max(1, min(200, int(request.args.get("limit", 50))))
+        return max(1, min(1000, int(request.args.get("limit", 50))))
     except ValueError:
         return 50
 

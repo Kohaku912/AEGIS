@@ -1,0 +1,89 @@
+{
+  "rules": [
+    {
+      "audience": "",
+      "capability_pattern": "*",
+      "content_sensitivity": "",
+      "created_at": 1785375398365,
+      "decision": "approval_required",
+      "description": "External communication must be approved.",
+      "enabled": true,
+      "operation_category": "external_send",
+      "reversibility": "",
+      "rule_id": "del_external_send",
+      "scope": "",
+      "updated_at": 1785375398365
+    },
+    {
+      "audience": "",
+      "capability_pattern": "*",
+      "content_sensitivity": "",
+      "created_at": 1785375398365,
+      "decision": "approval_required",
+      "description": "Social posting requires an audience-aware approval.",
+      "enabled": true,
+      "operation_category": "social_communication",
+      "reversibility": "",
+      "rule_id": "del_social_post",
+      "scope": "",
+      "updated_at": 1785375398365
+    },
+    {
+      "audience": "",
+      "capability_pattern": "*",
+      "content_sensitivity": "",
+      "created_at": 1785375398365,
+      "decision": "approval_required",
+      "description": "Deletion must be approved.",
+      "enabled": true,
+      "operation_category": "delete",
+      "reversibility": "",
+      "rule_id": "del_delete",
+      "scope": "",
+      "updated_at": 1785375398365
+    },
+    {
+      "audience": "",
+      "capability_pattern": "*",
+      "content_sensitivity": "",
+      "created_at": 1785375398365,
+      "decision": "approval_required",
+      "description": "Git push must be approved.",
+      "enabled": true,
+      "operation_category": "push",
+      "reversibility": "",
+      "rule_id": "del_push",
+      "scope": "",
+      "updated_at": 1785375398365
+    },
+    {
+      "audience": "",
+      "capability_pattern": "*",
+      "content_sensitivity": "",
+      "created_at": 1785375398365,
+      "decision": "approval_required",
+      "description": "Payment or billing APIs must be approved.",
+      "enabled": true,
+      "operation_category": "payment",
+      "reversibility": "",
+      "rule_id": "del_payment",
+      "scope": "",
+      "updated_at": 1785375398365
+    },
+    {
+      "audience": "",
+      "capability_pattern": "*",
+      "content_sensitivity": "",
+      "created_at": 1785375398365,
+      "decision": "approval_required",
+      "description": "Physical device control must be approved.",
+      "enabled": true,
+      "operation_category": "physical_device",
+      "reversibility": "",
+      "rule_id": "del_physical",
+      "scope": "",
+      "updated_at": 1785375398365
+    }
+  ],
+  "updated_at": 1785375398365
+}

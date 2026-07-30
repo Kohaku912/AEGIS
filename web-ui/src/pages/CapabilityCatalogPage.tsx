@@ -25,7 +25,7 @@ export function CapabilityCatalogPage() {
   const [status, setStatus] = useState("");
   const capabilities = useQuery({
     queryKey: ["ui-resource", "capabilities"],
-    queryFn: () => fetchResourceEntities("capabilities"),
+    queryFn: () => fetchResourceEntities("capabilities", "", { limit: 1000 }),
     staleTime: 5_000,
   });
   const policy = useQuery({
@@ -52,12 +52,12 @@ export function CapabilityCatalogPage() {
 
   const save = async () => {
     if (!selected) return;
-    setStatus("Saving reviewed policy override...");
+    setStatus("Saving reviewed policy to capability manifest...");
     try {
       await updateCapabilityRisk(selected.id, draft);
       setReview(false);
       setStatus(
-        "Override persisted, catalog reloaded, and effective policy audited.",
+        "Manifest updated permanently, catalog reloaded, and effective policy audited.",
       );
       await policy.refetch();
       await queryClient.invalidateQueries({
@@ -93,8 +93,8 @@ export function CapabilityCatalogPage() {
           <span>CapabilityCatalog / effective policy</span>
           <h2>Capability Catalog</h2>
           <p>
-            Manifest definitions, persisted user overrides, effective policy,
-            completion, verification, and execution health.
+            Manifest definitions are the source of truth. Risk edits write
+            permanently into capability JSON, then reload the live catalog.
           </p>
         </div>
         <strong>{capabilities.data?.total || 0} capabilities</strong>
