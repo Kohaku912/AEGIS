@@ -42,6 +42,8 @@ def test_login_page_does_not_auto_start_passkey():
     html = _login_html()
     assert "isConditionalMediationAvailable" not in html
     assert "mediation:'optional'" not in html
+    assert "function returnPath()" in html
+    assert "value.startsWith('/')&&!value.startsWith('//')" in html
     assert "パスキーでログイン" in html
 
 

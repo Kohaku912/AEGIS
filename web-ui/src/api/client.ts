@@ -117,24 +117,35 @@ export async function fetchLlmRequests(period = "24h"): Promise<EntityPage> {
 
 export async function fetchCapabilityRisk(capabilityId: string): Promise<Record<string, unknown>> {
   const response = await fetch(`/api/capabilities/${encodeURIComponent(capabilityId)}/risk`, { credentials: "include" });
-  if (!response.ok) throw new Error(`Capability policy failed: ${response.status}`);
-  return response.json();
+  return requireJson<Record<string, unknown>>(response, "Could not load the capability policy");
 }
 
 export async function updateCapabilityRisk(capabilityId: string, change: Record<string, unknown>): Promise<Record<string, unknown>> {
-  const csrf = String((await fetchAuthMe()).csrf_token || "");
+  const auth = await fetchAuthMe();
+  if (auth.fresh === false) {
+    throw new ApiError(
+      "Fresh passkey authentication is required before changing capability policy.",
+      403,
+      "fresh_passkey_required",
+    );
+  }
+  const csrf = String(auth.csrf_token || "");
   const response = await fetch(`/api/capabilities/${encodeURIComponent(capabilityId)}/risk`, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json", "X-CSRF-Token": csrf }, body: JSON.stringify(change) });
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(String(payload.error || response.status));
-  return payload;
+  return requireJson<Record<string, unknown>>(response, "Could not update the capability policy");
 }
 
 export async function resetCapabilityRisk(capabilityId: string): Promise<Record<string, unknown>> {
-  const csrf = String((await fetchAuthMe()).csrf_token || "");
+  const auth = await fetchAuthMe();
+  if (auth.fresh === false) {
+    throw new ApiError(
+      "Fresh passkey authentication is required before resetting capability policy.",
+      403,
+      "fresh_passkey_required",
+    );
+  }
+  const csrf = String(auth.csrf_token || "");
   const response = await fetch(`/api/capabilities/${encodeURIComponent(capabilityId)}/risk/reset`, { method: "POST", credentials: "include", headers: { "X-CSRF-Token": csrf } });
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(String(payload.error || response.status));
-  return payload;
+  return requireJson<Record<string, unknown>>(response, "Could not reset the capability policy");
 }
 
 export async function runControlAction(action: string, confirmed = false): Promise<Record<string, unknown>> {

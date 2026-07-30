@@ -2,6 +2,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { RotateCcw, Search } from "lucide-react";
 import { useEffect, useState } from "react";
 import {
+  ApiError,
   fetchCapabilityRisk,
   fetchResourceEntities,
   resetCapabilityRisk,
@@ -16,6 +17,11 @@ type Policy = {
   override_active?: boolean;
 };
 
+type PolicyError = {
+  message: string;
+  freshAuthRequired: boolean;
+};
+
 export function CapabilityCatalogPage() {
   const queryClient = useQueryClient();
   const [query, setQuery] = useState("");
@@ -23,6 +29,7 @@ export function CapabilityCatalogPage() {
   const [editablePolicy, setEditablePolicy] = useState<Record<string, unknown>>({});
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState("");
+  const [saveError, setSaveError] = useState<PolicyError>();
   const capabilities = useQuery({
     queryKey: ["ui-resource", "capabilities"],
     queryFn: () => fetchResourceEntities("capabilities", "", { limit: 1000 }),
@@ -60,6 +67,7 @@ export function CapabilityCatalogPage() {
     };
     setEditablePolicy(next);
     setSaving(true);
+    setSaveError(undefined);
     setStatus("Saving policy change...");
     try {
       await updateCapabilityRisk(selected.id, next);
@@ -72,7 +80,8 @@ export function CapabilityCatalogPage() {
       });
     } catch (error) {
       setEditablePolicy(previous);
-      setStatus(String(error instanceof Error ? error.message : error));
+      setStatus("");
+      setSaveError(policyError(error));
     } finally {
       setSaving(false);
     }
@@ -80,6 +89,7 @@ export function CapabilityCatalogPage() {
   const reset = async () => {
     if (!selected || saving) return;
     setSaving(true);
+    setSaveError(undefined);
     setStatus("Resetting override to manifest policy...");
     try {
       await resetCapabilityRisk(selected.id);
@@ -89,7 +99,8 @@ export function CapabilityCatalogPage() {
         queryKey: ["ui-resource", "capabilities"],
       });
     } catch (error) {
-      setStatus(String(error instanceof Error ? error.message : error));
+      setStatus("");
+      setSaveError(policyError(error));
     } finally {
       setSaving(false);
     }
@@ -120,13 +131,32 @@ export function CapabilityCatalogPage() {
       {status ? (
         <div
           className="attention-item"
-          data-severity={
-            status.toLowerCase().includes("failed") || status.includes("403")
-              ? "warning"
-              : "info"
-          }
+          data-severity="info"
+          role="status"
+          aria-live="polite"
         >
           {status}
+        </div>
+      ) : null}
+      {saveError ? (
+        <div
+          className="attention-item"
+          data-severity="critical"
+          role="alert"
+          aria-live="assertive"
+        >
+          <div>
+            <strong>Capability policy was not changed.</strong>
+            <p>{saveError.message}</p>
+          </div>
+          {saveError.freshAuthRequired ? (
+            <a
+              className="primary-button"
+              href={`/auth/login?next=${encodeURIComponent(window.location.pathname + window.location.search)}`}
+            >
+              Authenticate with passkey
+            </a>
+          ) : null}
         </div>
       ) : null}
       <section className="capability-console__layout">
@@ -135,7 +165,11 @@ export function CapabilityCatalogPage() {
             <button
               type="button"
               aria-current={selected?.id === item.id}
-              onClick={() => setSelected(item)}
+              onClick={() => {
+                setSelected(item);
+                setStatus("");
+                setSaveError(undefined);
+              }}
               key={item.id}
             >
               <span>{item.subtitle}</span>
@@ -304,4 +338,39 @@ function summarize(value: unknown): string {
       : "Empty";
   }
   return String(value);
+}
+
+function policyError(error: unknown): PolicyError {
+  if (error instanceof ApiError) {
+    const freshAuthRequired =
+      error.status === 403 &&
+      (error.code === "fresh_passkey_required" ||
+        error.message.toLowerCase().includes("fresh"));
+    if (freshAuthRequired) {
+      return {
+        freshAuthRequired: true,
+        message:
+          "Your passkey authentication is no longer fresh. Authenticate again, then select the policy value once more.",
+      };
+    }
+    if (
+      error.status === 403 &&
+      (error.code.toLowerCase().includes("csrf") ||
+        error.message.toLowerCase().includes("csrf"))
+    ) {
+      return {
+        freshAuthRequired: false,
+        message:
+          "The session security token expired. Reload the page and try again.",
+      };
+    }
+    return {
+      freshAuthRequired: false,
+      message: `${error.message} (HTTP ${error.status})`,
+    };
+  }
+  return {
+    freshAuthRequired: false,
+    message: error instanceof Error ? error.message : String(error),
+  };
 }
