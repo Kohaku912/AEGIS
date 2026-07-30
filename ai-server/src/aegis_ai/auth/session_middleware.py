@@ -124,8 +124,6 @@ def _csrf_ok() -> bool:
 def _fresh_required(path: str) -> bool:
     if request.method not in {"POST", "PUT", "PATCH", "DELETE"}:
         return False
-    if path.startswith("/api/capabilities/") and (path.endswith("/risk") or path.endswith("/risk/reset")):
-        return True
     if path.startswith("/api/approvals/") and (
         path.endswith("/approve") or path.endswith("/modify-and-approve") or path.endswith("/cancel")
     ):
