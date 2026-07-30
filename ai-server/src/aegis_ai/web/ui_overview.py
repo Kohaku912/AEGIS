@@ -1204,6 +1204,27 @@ def _errors(runtime: Any) -> dict[str, Any]:
         except Exception:
             server_statuses = {}
             server_snapshots = {}
+    try:
+        projected_servers = {
+            str(server.get("server_id") or ""): server
+            for server in _server_list(runtime)
+            if isinstance(server, dict) and server.get("server_id")
+        }
+        for server_id, projected in projected_servers.items():
+            raw = server_snapshots.get(server_id, {})
+            merged = {**raw, **projected}
+            if not projected.get("capability_health") and raw.get("capability_health"):
+                merged["capability_health"] = raw["capability_health"]
+            if not projected.get("last_healthy_at") and raw.get("last_healthy_at"):
+                merged["last_healthy_at"] = raw["last_healthy_at"]
+            if server_id == "android-server" and getattr(runtime, "android_manager", None) is None:
+                merged["status"] = raw.get("status", projected.get("status", ""))
+            server_snapshots[server_id] = merged
+            server_statuses[server_id] = str(merged.get("status") or "").upper()
+    except Exception:
+        # Raw StatusManager data remains a usable fallback for minimal runtimes
+        # and focused tests that do not install all dashboard managers.
+        pass
     if repair is not None and hasattr(repair, "list_history"):
         latest_by_id: dict[str, dict[str, Any]] = {}
         for entry in repair.list_history(limit=200) or []:
