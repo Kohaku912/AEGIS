@@ -233,7 +233,7 @@ def test_display_overview_requires_token_when_forwarded_host_is_external(monkeyp
     assert allowed.status_code == 200
 
 
-def test_passkey_session_allows_dashboard_and_fresh_risk_requires_csrf(tmp_path, monkeypatch):
+def test_stale_passkey_session_can_change_risk_but_still_requires_csrf(tmp_path, monkeypatch):
     monkeypatch.setenv("AEGIS_AUTH_MODE", "passkey")
     app = Flask(__name__)
     install_passkey_auth(app, data_dir=tmp_path / "auth")
@@ -254,8 +254,14 @@ def test_passkey_session_allows_dashboard_and_fresh_risk_requires_csrf(tmp_path,
     def risk():
         return jsonify({"ok": True})
 
+    @app.route("/api/settings", methods=["POST"])
+    def settings():
+        return jsonify({"ok": True})
+
     client = app.test_client()
     client.set_cookie("aegis_session", session.session_id)
+    session.last_auth_at = 0
+    store.update_session(session)
     assert client.get("/dashboard").status_code == 200
     assert client.post("/api/capabilities/demo/risk", json={}).status_code == 403
     assert client.post(
@@ -263,6 +269,11 @@ def test_passkey_session_allows_dashboard_and_fresh_risk_requires_csrf(tmp_path,
         json={},
         headers={"X-CSRF-Token": session.csrf_token},
     ).status_code == 200
+    assert client.post(
+        "/api/settings",
+        json={},
+        headers={"X-CSRF-Token": session.csrf_token},
+    ).status_code == 403
 
 
 def test_production_token_mode_is_rejected(tmp_path, monkeypatch):

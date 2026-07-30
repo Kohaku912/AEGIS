@@ -63,6 +63,15 @@ test("changing capability risk applies immediately without review or draft", asy
   let riskPosts = 0;
   let effectiveRisk = "low";
   page.on("pageerror", (error) => pageErrors.push(error.message));
+  await page.route("**/auth/me", (route) =>
+    route.fulfill({
+      json: {
+        csrf_token: "test",
+        authenticated: true,
+        fresh: false,
+      },
+    }),
+  );
   await page.route("**/api/capabilities/*/risk", async (route) => {
     if (route.request().method() === "POST") {
       riskPosts += 1;
@@ -97,8 +106,7 @@ test("capability risk failure is announced and rolls back the control", async ({
       await route.fulfill({
         status: 403,
         json: {
-          error: "fresh_passkey_required",
-          fresh_auth_url: "/auth/login",
+          error: "capability policy change denied",
         },
       });
       return;
@@ -119,11 +127,8 @@ test("capability risk failure is announced and rolls back the control", async ({
 
   const alert = page.getByRole("alert");
   await expect(alert).toContainText("Capability policy was not changed.");
-  await expect(alert).toContainText("passkey authentication is no longer fresh");
-  await expect(alert.getByRole("link", { name: "Authenticate with passkey" })).toHaveAttribute(
-    "href",
-    /\/auth\/login\?next=/,
-  );
+  await expect(alert).toContainText("capability policy change denied (HTTP 403)");
+  await expect(alert.getByRole("link", { name: "Authenticate with passkey" })).toHaveCount(0);
   await expect(page.getByLabel("Risk")).toHaveValue("low");
 });
 

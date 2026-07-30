@@ -122,13 +122,6 @@ export async function fetchCapabilityRisk(capabilityId: string): Promise<Record<
 
 export async function updateCapabilityRisk(capabilityId: string, change: Record<string, unknown>): Promise<Record<string, unknown>> {
   const auth = await fetchAuthMe();
-  if (auth.fresh === false) {
-    throw new ApiError(
-      "Fresh passkey authentication is required before changing capability policy.",
-      403,
-      "fresh_passkey_required",
-    );
-  }
   const csrf = String(auth.csrf_token || "");
   const response = await fetch(`/api/capabilities/${encodeURIComponent(capabilityId)}/risk`, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json", "X-CSRF-Token": csrf }, body: JSON.stringify(change) });
   return requireJson<Record<string, unknown>>(response, "Could not update the capability policy");
@@ -136,13 +129,6 @@ export async function updateCapabilityRisk(capabilityId: string, change: Record<
 
 export async function resetCapabilityRisk(capabilityId: string): Promise<Record<string, unknown>> {
   const auth = await fetchAuthMe();
-  if (auth.fresh === false) {
-    throw new ApiError(
-      "Fresh passkey authentication is required before resetting capability policy.",
-      403,
-      "fresh_passkey_required",
-    );
-  }
   const csrf = String(auth.csrf_token || "");
   const response = await fetch(`/api/capabilities/${encodeURIComponent(capabilityId)}/risk/reset`, { method: "POST", credentials: "include", headers: { "X-CSRF-Token": csrf } });
   return requireJson<Record<string, unknown>>(response, "Could not reset the capability policy");
