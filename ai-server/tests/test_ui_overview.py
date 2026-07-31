@@ -632,3 +632,49 @@ def test_activity_what_happened_unwraps_legacy_response_kv():
         fallback="",
     )
     assert text == "I already replied to the user."
+
+
+def test_autonomous_activity_prefers_fulfillment_result_over_internal_llm_calls():
+    from aegis_ai.web.ui_overview import _operation_from_audit_group
+
+    operation = _operation_from_audit_group(
+        {
+            "group_id": "autonomous-result",
+            "group_type": "autonomous",
+            "title": "Advance the social obligation",
+            "start_ms": 1000,
+            "end_ms": 2000,
+            "status": "success",
+            "entry_count": 3,
+            "tool_count": 1,
+            "approval_count": 0,
+            "error_count": 0,
+            "summary": "LLM call completed",
+            "entries": [
+                *[
+                    {
+                        "action": "llm_call",
+                        "detail_summary": '{"decision":"read_posts"}',
+                        "timestamp_ms": 1000 + index,
+                    }
+                    for index in range(15)
+                ],
+                {
+                    "action": "tool_execution",
+                    "capability_id": "ai-server.agora.read_posts",
+                    "detail_summary": "Ran read posts",
+                    "timestamp_ms": 1500,
+                },
+                {
+                    "action": "autonomous_fulfillment_evaluated",
+                    "detail": {"reason": "Retrieved 7 social posts and queued them for review."},
+                    "timestamp_ms": 2000,
+                },
+            ],
+        }
+    )
+
+    assert operation is not None
+    assert operation["what_happened"] == "Retrieved 7 social posts and queued them for review."
+    assert operation["target"] == "ai-server.agora.read_posts"
+    assert '{"decision"' not in operation["what_happened"]

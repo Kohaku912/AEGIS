@@ -14,28 +14,29 @@ describe("logs and audit pages", () => {
     vi.restoreAllMocks();
   });
 
-  it("renders meaningful audit entry fields", async () => {
+  it("renders grouped operations as concrete AEGIS activity", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
-      entries: [{
-        entry_id: "audit-1",
-        timestamp_ms: Date.now(),
-        action: "tool_execution",
-        actor: "tool_broker",
-        decision: "ALLOW",
-        capability_id: "ai-server.workspace.read_file",
-        detail: { result_summary: "Read the requested file" },
+      operations: [{
+        operation_id: "operation-1",
+        updated_at: Date.now(),
+        what_happened: "Read the requested file and verified its contents.",
+        reason: "Answer the user's workspace question",
+        target: "ai-server.workspace.read_file",
+        status: "success",
+        steps: [{ action: "tool_execution", narrative: "Read the requested file", capability_id: "ai-server.workspace.read_file" }],
       }],
       page: 1,
-      per_page: 50,
+      per_page: 30,
       total: 1,
       total_pages: 1,
     }), { status: 200, headers: { "Content-Type": "application/json" } }));
 
     render(<LogsPage overview={overview} />);
 
-    await waitFor(() => expect(screen.getAllByText("tool_execution").length).toBeGreaterThan(0));
-    expect(screen.getAllByText("Read the requested file").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("ALLOW").length).toBeGreaterThan(0);
+    await waitFor(() => expect(screen.getAllByText("Read the requested file and verified its contents.").length).toBeGreaterThan(0));
+    expect(screen.getAllByText("Answer the user's workspace question").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("success").length).toBeGreaterThan(0);
+    expect(screen.queryByText("tool_execution")).not.toBeInTheDocument();
   });
 
   it("renders groups returned by the SQLite-backed audit API", async () => {

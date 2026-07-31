@@ -735,6 +735,7 @@ def test_grouped_audit_api_reads_sqlite_audit_manager(monkeypatch, tmp_path) -> 
     assert response.status_code == 200
     assert payload["count"] >= 1
     assert any(group["group_id"] == "api_group_1" for group in payload["groups"])
+    assert "operations" in payload
 
 
 def test_dashboard_audit_renders_grouped_cards(monkeypatch, tmp_path) -> None:

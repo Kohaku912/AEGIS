@@ -186,7 +186,20 @@ def init_autonomous_routes(owner: Any, data_dir: str) -> None:
                 page = max(1, int(request.args.get("page", 1)))
                 per_page = min(100, max(1, int(request.args.get("limit", 30))))
                 result = audit_manager.list_groups(page=page, per_page=per_page)
-                return jsonify({**result, "count": result.get("total", len(result.get("groups", [])))})
+                from aegis_ai.web.ui_overview import _operation_from_audit_group
+
+                operations = [
+                    operation
+                    for group in result.get("groups", [])
+                    if (operation := _operation_from_audit_group(group)) is not None
+                ]
+                return jsonify(
+                    {
+                        **result,
+                        "operations": operations,
+                        "count": result.get("total", len(result.get("groups", []))),
+                    }
+                )
 
             # Compatibility fallback for runtimes that have not migrated audit
             # storage from JSONL to AuditManager's SQLite backend.
