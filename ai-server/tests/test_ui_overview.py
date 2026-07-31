@@ -678,3 +678,41 @@ def test_autonomous_activity_prefers_fulfillment_result_over_internal_llm_calls(
     assert operation["what_happened"] == "Retrieved 7 social posts and queued them for review."
     assert operation["target"] == "ai-server.agora.read_posts"
     assert '{"decision"' not in operation["what_happened"]
+
+
+def test_autonomous_activity_without_execution_does_not_list_internal_llm_calls():
+    from aegis_ai.web.ui_overview import _operation_from_audit_group
+
+    operation = _operation_from_audit_group(
+        {
+            "group_id": "autonomous-evaluation",
+            "group_type": "autonomous",
+            "title": "Autonomous execution cycle",
+            "start_ms": 1000,
+            "end_ms": 2000,
+            "status": "success",
+            "entry_count": 2,
+            "tool_count": 0,
+            "approval_count": 0,
+            "error_count": 0,
+            "summary": "LLM call completed",
+            "entries": [
+                {
+                    "action": "llm_call",
+                    "detail_summary": "LLM call (deepseek-v4-flash)",
+                    "timestamp_ms": 1000,
+                },
+                {
+                    "action": "autonomous_tick",
+                    "detail_summary": "Autonomous tick (task_generation)",
+                    "timestamp_ms": 2000,
+                },
+            ],
+        }
+    )
+
+    assert operation is not None
+    assert operation["what_happened"] == (
+        "AEGIS evaluated the current situation but did not execute a capability."
+    )
+    assert "LLM call" not in operation["what_happened"]
