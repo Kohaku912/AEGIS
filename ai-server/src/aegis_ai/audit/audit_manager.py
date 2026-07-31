@@ -427,6 +427,11 @@ class AuditManager:
                     "result_summary",
                     "what_was_done",
                     "llm_reason",
+                    "reason",
+                    "summary",
+                    "message",
+                    "user_facing_summary",
+                    "decision",
                     "title",
                 )
                 if key in detail

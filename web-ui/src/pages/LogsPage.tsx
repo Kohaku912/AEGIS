@@ -1,33 +1,27 @@
 import { RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { fetchAuditEntries } from "../api/client";
+import { fetchActivityLogs } from "../api/client";
 import { DataState, PageHeader, Pagination, ResponsiveDataView } from "../components/DashboardPrimitives";
 import { formatDateTime, formatRelative } from "../i18n";
 import type { UiOverview } from "../types";
 import { asRecord } from "./PageSupport";
 
-const PAGE_SIZE = 50;
+const PAGE_SIZE = 30;
 
-function entryServer(entry: Record<string, unknown>): string {
-  const detail = asRecord(entry.detail);
-  const explicit = String(entry.server_id || detail.server_id || detail.source_server || "");
-  if (explicit) return explicit;
-  const capability = String(entry.capability_id || detail.capability_id || "");
-  return capability.includes(".") ? capability.split(".")[0] : "";
+function operationServers(operation: Record<string, unknown>): string[] {
+  const steps = Array.isArray(operation.steps) ? operation.steps.map(asRecord) : [];
+  return Array.from(new Set(
+    steps
+      .map((step) => String(step.capability_id || "").split(".")[0])
+      .filter(Boolean),
+  ));
 }
 
-function entryDetail(entry: Record<string, unknown>): string {
-  const detail = asRecord(entry.detail);
-  return String(
-    entry.detail_summary
-    || entry.reason
-    || detail.error
-    || detail.result_summary
-    || detail.message
-    || entry.capability_id
-    || entry.task_id
-    || "No additional detail",
-  );
+function operationTarget(operation: Record<string, unknown>): string {
+  const target = String(operation.target || "");
+  if (target) return target;
+  const servers = operationServers(operation);
+  return servers.length ? servers.join(", ") : String(operation.kind_label || operation.kind || "AEGIS");
 }
 
 export function LogsPage({ overview }: { overview: UiOverview }) {
@@ -44,7 +38,7 @@ export function LogsPage({ overview }: { overview: UiOverview }) {
     setLoading(true);
     setError("");
     try {
-      const result = await fetchAuditEntries(page, PAGE_SIZE);
+      const result = await fetchActivityLogs(page, PAGE_SIZE);
       setItems(result.items);
       setTotal(result.total);
       setUpdatedAt(Date.now());
@@ -60,30 +54,47 @@ export function LogsPage({ overview }: { overview: UiOverview }) {
   }, [load, reload]);
 
   const visibleItems = useMemo(
-    () => server === "all" ? items : items.filter((entry) => entryServer(entry) === server),
+    () => server === "all"
+      ? items
+      : items.filter((operation) => operationServers(operation).includes(server)),
     [items, server],
   );
 
-  const rows = visibleItems.map((entry, index) => {
-    const timestamp = Number(entry.timestamp_ms || entry.created_at || 0);
-    const action = String(entry.action || entry.event_type || "Unknown action");
-    const actor = String(entry.actor || entry.source || entryServer(entry) || "AEGIS");
-    const outcome = String(entry.decision || entry.status || (asRecord(entry.detail).error ? "ERROR" : "RECORDED"));
-    const detail = entryDetail(entry);
-    const id = String(entry.entry_id || entry.audit_id || `${timestamp}-${index}`);
+  const rows = visibleItems.map((operation, index) => {
+    const timestamp = Number(operation.updated_at || operation.started_at || 0);
+    const what = String(
+      operation.what_happened
+      || operation.narrative
+      || operation.summary
+      || "No result was recorded.",
+    );
+    const reason = String(operation.reason || operation.title || "No reason was recorded.");
+    const outcome = String(operation.status || "recorded").replaceAll("_", " ");
+    const target = operationTarget(operation);
+    const steps = Array.isArray(operation.steps) ? operation.steps.map(asRecord) : [];
+    const id = String(operation.operation_id || `${timestamp}-${index}`);
     return {
       id,
-      cells: [formatDateTime(timestamp), action, actor, outcome, detail],
+      cells: [formatDateTime(timestamp), what, target, outcome, reason],
       card: <div className="log-card">
-        <div><strong>{action}</strong><span className="status-badge">{outcome}</span></div>
-        <p>{detail}</p>
-        <small>{formatDateTime(timestamp)} · {actor}</small>
+        <div><strong>{what}</strong><span className="status-badge">{outcome}</span></div>
+        <p><span className="muted">Target:</span> {target}</p>
+        <p><span className="muted">Why:</span> {reason}</p>
+        <small>{formatDateTime(timestamp)} · {String(operation.kind_label || operation.kind || "AEGIS")}</small>
+        {steps.length ? <details>
+          <summary>Show {steps.length} recorded step{steps.length === 1 ? "" : "s"}</summary>
+          <ol>
+            {steps.map((step, stepIndex) => <li key={`${id}-${stepIndex}`}>
+              {String(step.narrative || step.summary || step.action || step.capability_id || "Recorded step")}
+            </li>)}
+          </ol>
+        </details> : null}
       </div>,
     };
   });
 
   return <div className="grid">
-    <PageHeader title="Logs" description="Recent audit-backed activity recorded by AEGIS.">
+    <PageHeader title="Logs" description="What AEGIS did, why it acted, and the result of each operation.">
       <button type="button" className="secondary-button" onClick={() => setReload((value) => value + 1)} disabled={loading}>
         <RefreshCw size={14} aria-hidden="true" />Refresh
       </button>
@@ -98,10 +109,10 @@ export function LogsPage({ overview }: { overview: UiOverview }) {
       </div>
       <DataState loading={loading} error={error} empty={!loading && !error && !rows.length} onRetry={() => setReload((value) => value + 1)} />
       {!loading && !error && rows.length ? <ResponsiveDataView
-        headers={["Time", "Action", "Actor", "Outcome", "Details"]}
+        headers={["Time", "What AEGIS did", "Target", "Result", "Why"]}
         rows={rows}
       /> : null}
-      {server !== "all" && !loading && !error ? <p className="muted">The server filter applies to the current page of audit records.</p> : null}
+      {server !== "all" && !loading && !error ? <p className="muted">The server filter applies to the current page of operations.</p> : null}
       <Pagination page={page} total={total} pageSize={PAGE_SIZE} onPage={setPage} />
     </section>
   </div>;

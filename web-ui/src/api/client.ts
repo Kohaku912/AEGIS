@@ -152,6 +152,25 @@ export async function fetchAuditGroups(page = 1, limit = 30): Promise<AuditPageR
   };
 }
 
+export async function fetchActivityLogs(page = 1, limit = 30): Promise<AuditPageResult> {
+  const response = await fetch(`/api/audit/grouped?${new URLSearchParams({ page: String(page), limit: String(limit) })}`, {
+    credentials: "include",
+  });
+  const payload = await requireJson<Record<string, unknown>>(response, "Could not load activity logs");
+  const operations = Array.isArray(payload.operations)
+    ? payload.operations as Array<Record<string, unknown>>
+    : Array.isArray(payload.groups)
+      ? payload.groups as Array<Record<string, unknown>>
+      : [];
+  return {
+    items: operations,
+    page: Number(payload.page || page),
+    limit: Number(payload.per_page || limit),
+    total: Number(payload.total ?? payload.count ?? operations.length),
+    totalPages: Number(payload.total_pages || 1),
+  };
+}
+
 export async function fetchCapabilityRisk(capabilityId: string): Promise<Record<string, unknown>> {
   const response = await fetch(`/api/capabilities/${encodeURIComponent(capabilityId)}/risk`, { credentials: "include" });
   return requireJson<Record<string, unknown>>(response, "Could not load the capability policy");

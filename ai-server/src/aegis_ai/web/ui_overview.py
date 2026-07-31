@@ -636,15 +636,41 @@ def _operation_from_audit_group(group: dict[str, Any]) -> dict[str, Any] | None:
                 "status": "failed" if failed else "ok",
             }
         )
-        if len(steps) >= 12:
-            break
+
+    if len(steps) > 12:
+        llm_actions = {"llm_call", "llm_tool_call", "llm_vision_call"}
+        operational_steps = [
+            step for step in steps if str(step.get("action") or "") not in llm_actions
+        ]
+        if kind == "chat":
+            final_llm_step = next(
+                (
+                    step
+                    for step in reversed(steps)
+                    if str(step.get("action") or "") in llm_actions
+                ),
+                None,
+            )
+            selected = operational_steps[-11:]
+            if final_llm_step is not None:
+                selected.append(final_llm_step)
+        else:
+            selected = operational_steps[-12:]
+        steps = sorted(selected or steps[-12:], key=lambda step: int(step.get("timestamp_ms") or 0))
 
     if kind == "system" and not steps:
         return None
 
     title = str(group.get("title") or kind)[:160]
     summary = _humanize_activity_text(str(group.get("summary") or ""))[:280]
-    what_happened = _what_happened_from_steps(steps, summary)
+    what_happened = _what_happened_from_steps(steps, summary, kind=kind)
+    targets = list(
+        dict.fromkeys(
+            str(step.get("capability_id") or "")
+            for step in steps
+            if step.get("capability_id")
+        )
+    )
     op = {
         "operation_id": str(group.get("group_id") or ""),
         "kind": kind,
@@ -653,6 +679,9 @@ def _operation_from_audit_group(group: dict[str, Any]) -> dict[str, Any] | None:
         "summary": summary,
         "what_happened": what_happened,
         "narrative": what_happened,
+        "reason": title,
+        "target": ", ".join(targets[:3]),
+        "targets": targets,
         "status": str(group.get("status") or "success"),
         "started_at": int(group.get("start_ms") or 0),
         "updated_at": int(group.get("end_ms") or 0),
@@ -800,12 +829,17 @@ def _narrative_from_audit_entry(entry: dict[str, Any]) -> str:
     """Extract a human sentence describing what happened in one audit entry."""
     detail = entry.get("detail") if isinstance(entry.get("detail"), dict) else {}
     action = str(entry.get("action") or "")
+    if action == "autonomous_fulfillment_evaluated":
+        value = str(detail.get("reason") or entry.get("reason") or "").strip()
+        if value:
+            return _humanize_activity_text(value)
     for key in (
         "response_preview",
         "what_was_done",
         "result_summary",
         "result_preview",
         "llm_reason",
+        "reason",
         "user_facing_summary",
         "summary",
         "message",
@@ -862,20 +896,46 @@ def _capability_short_label(capability_id: str) -> str:
     return f"Ran {leaf}" if leaf else cap
 
 
-def _what_happened_from_steps(steps: list[dict[str, Any]], fallback: str = "") -> str:
+def _what_happened_from_steps(
+    steps: list[dict[str, Any]],
+    fallback: str = "",
+    *,
+    kind: str = "",
+) -> str:
     """Build a natural-language 'what AEGIS did' line for Activity."""
     if not steps:
         return _truncate_text(_humanize_activity_text(fallback) or "No detailed steps recorded.", limit=320)
 
-    # Prefer LLM response narratives over tool metadata.
+    # Fulfillment evaluation describes the user-visible outcome of an autonomous
+    # operation and must outrank the implementation-level LLM calls around it.
+    outcome_steps = [
+        step
+        for step in steps
+        if str(step.get("action") or "") in {
+            "autonomous_fulfillment_evaluated",
+            "task_completed",
+            "task_failed",
+            "verification_completed",
+            "presentation_completed",
+        }
+        and (step.get("narrative") or step.get("summary"))
+    ]
+    if outcome_steps:
+        text = _humanize_activity_text(
+            str(outcome_steps[-1].get("narrative") or outcome_steps[-1].get("summary") or "")
+        )
+        if text:
+            return _truncate_text(text, limit=320)
+
+    # In chat, the last LLM response is normally the user-facing result. In
+    # autonomous/task groups it is often planning or memory-extraction JSON.
     llm_like = [
         step
         for step in steps
         if str(step.get("action") or "") in {"llm_call", "llm_tool_call", "llm_vision_call"}
         and (step.get("narrative") or step.get("summary"))
     ]
-    if llm_like:
-        # Last LLM answer is usually the user-facing summary of the whole operation.
+    if llm_like and (kind == "chat" or not any(step.get("capability_id") for step in steps)):
         text = _humanize_activity_text(str(llm_like[-1].get("narrative") or llm_like[-1].get("summary") or ""))
         if text:
             return _truncate_text(text, limit=320)
@@ -883,11 +943,16 @@ def _what_happened_from_steps(steps: list[dict[str, Any]], fallback: str = "") -
     preferred = [
         step
         for step in steps
-        if step.get("narrative")
-        or step.get("summary")
-        or step.get("capability_id")
-        or str(step.get("action") or "") in {"tool_execution", "tool_invoked"}
-        or str(step.get("action") or "").startswith("tool.")
+        if (
+            str(step.get("action") or "") in {"tool_execution", "tool_invoked"}
+            or str(step.get("action") or "").startswith("tool.")
+            or str(step.get("action") or "").startswith("approval_")
+        )
+        and (
+            step.get("narrative")
+            or step.get("summary")
+            or step.get("capability_id")
+        )
     ] or steps
 
     parts: list[str] = []
