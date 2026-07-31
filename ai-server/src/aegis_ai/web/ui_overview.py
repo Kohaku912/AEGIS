@@ -936,9 +936,12 @@ def _what_happened_from_steps(
         and (step.get("narrative") or step.get("summary"))
     ]
     if llm_like and (kind == "chat" or not any(step.get("capability_id") for step in steps)):
-        text = _humanize_activity_text(str(llm_like[-1].get("narrative") or llm_like[-1].get("summary") or ""))
-        if text:
-            return _truncate_text(text, limit=320)
+        if kind == "chat" or not kind:
+            text = _humanize_activity_text(
+                str(llm_like[-1].get("narrative") or llm_like[-1].get("summary") or "")
+            )
+            if text:
+                return _truncate_text(text, limit=320)
 
     preferred = [
         step
@@ -954,6 +957,23 @@ def _what_happened_from_steps(
             or step.get("capability_id")
         )
     ] or steps
+
+    if kind in {"autonomous", "task"} and preferred is steps:
+        skipped = next(
+            (
+                step
+                for step in reversed(steps)
+                if str(step.get("decision") or "").lower() in {"skip", "skipped"}
+            ),
+            None,
+        )
+        if skipped is not None:
+            reason = _humanize_activity_text(
+                str(skipped.get("narrative") or skipped.get("summary") or "")
+            )
+            if reason:
+                return _truncate_text(f"AEGIS did not act: {reason}", limit=320)
+        return "AEGIS evaluated the current situation but did not execute a capability."
 
     parts: list[str] = []
     for step in preferred[:5]:
