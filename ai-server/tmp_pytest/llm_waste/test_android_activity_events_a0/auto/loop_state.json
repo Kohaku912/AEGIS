@@ -1,0 +1,22 @@
+{
+  "next_run_ms": 0,
+  "last_run_ms": 0,
+  "last_llm_call_ms": 0,
+  "last_pressure_signature": "",
+  "last_skip_reason": "",
+  "last_decision": "event_ignore_noise",
+  "last_decision_ms": 1785471890095,
+  "last_action_ms": 0,
+  "available_capability_count": 0,
+  "selected_tool_count": 0,
+  "last_no_action_reason": "Android activity/heartbeat events do not create goal observations.",
+  "last_candidate_capability_ids": [],
+  "last_decision_axes": {
+    "user_commitment": 0.0,
+    "system_health": 0.0,
+    "learning": 0.0,
+    "curiosity": 0.0
+  },
+  "consecutive_no_action": 0,
+  "timestamp_ms": 1785471890095
+}

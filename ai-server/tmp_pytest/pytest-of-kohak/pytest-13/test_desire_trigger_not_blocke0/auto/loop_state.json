@@ -1,0 +1,22 @@
+{
+  "next_run_ms": 1785554521661,
+  "last_run_ms": 1785552721649,
+  "last_llm_call_ms": 1785552721654,
+  "last_pressure_signature": "5dc8624cfec2da4d7386debc766bef0eb9f736b3875dba2089873cabbc2a4d48",
+  "last_skip_reason": "llm_interval_gate (1700s remaining)",
+  "last_decision": "no_action",
+  "last_decision_ms": 0,
+  "last_action_ms": 0,
+  "available_capability_count": 0,
+  "selected_tool_count": 0,
+  "last_no_action_reason": "",
+  "last_candidate_capability_ids": [],
+  "last_decision_axes": {
+    "user_commitment": 0.0,
+    "system_health": 0.0,
+    "learning": 0.0,
+    "curiosity": 0.0
+  },
+  "consecutive_no_action": 0,
+  "timestamp_ms": 1785552721663
+}

@@ -11,6 +11,11 @@ from tool_broker import ExecutionSource, InvokeStatus, ToolExecutionRequest
 
 from aegis_ai.personal_ai.storage import JsonStateFile, append_jsonl, now_ms
 
+# Failures AEGIS cannot recover from autonomously — learn + ask the user.
+_UNREPAIRABLE_CATEGORIES = frozenset({"auth", "permission", "policy_denied", "validation"})
+_INFRA_NOISE_CATEGORIES = frozenset({"transient", "server_down", "llm_failed"})
+_PRESENT_COOLDOWN_MS = 3_600_000  # 1 hour per fingerprint
+
 
 class RepairManager:
     """Classifies failures, retries safe operations, and records lessons."""
@@ -21,19 +26,26 @@ class RepairManager:
         tool_broker: Any = None,
         audit_manager: Any = None,
         memory_manager: Any = None,
+        presentation_manager: Any = None,
     ) -> None:
         self._state = JsonStateFile(Path(data_dir) / "repair.json", {"disabled": False})
         self._history = Path(data_dir) / "repair_history.jsonl"
         self._tool_broker = tool_broker
         self._audit_manager = audit_manager
         self._memory_manager = memory_manager
+        self._presentation_manager = presentation_manager
         self._status = self._state.load()
         self._rollback_strategies: dict[str, dict[str, Any]] = dict(self._status.get("rollback_strategies", {}))
         self._agent_state: Any = None
+        self._presented_fingerprints: dict[str, int] = dict(self._status.get("presented_fingerprints", {}) or {})
 
     def set_agent_state(self, agent_state: Any) -> None:
         """Use the shared state when selecting a recovery strategy."""
         self._agent_state = agent_state
+
+    def set_presentation_manager(self, presentation_manager: Any) -> None:
+        """Wire PresentationManager for unrepairable user reports."""
+        self._presentation_manager = presentation_manager
 
     def classify_failure(self, *, error: str = "", status: str = "", capability_id: str = "") -> str:
         text = f"{error} {status} {capability_id}".lower()
@@ -41,7 +53,14 @@ class RepairManager:
             return "auth"
         if "permission" in text or "denied" in text:
             return "permission"
-        if "unreachable" in text or "connection" in text or "offline" in text:
+        if "screen is locked" in text or ("locked" in text and "screen" in text):
+            return "permission"
+        if (
+            "unreachable" in text
+            or "connection" in text
+            or "offline" in text
+            or "unavailable" in text
+        ):
             return "server_down"
         if "validation" in text or "invalid argument" in text:
             return "validation"
@@ -55,9 +74,12 @@ class RepairManager:
 
     def record_failure(self, *, capability_id: str = "", error: str = "", status: str = "", request: Any = None, result: Any = None) -> dict[str, Any]:
         category = self.classify_failure(error=error, status=status, capability_id=capability_id)
-        # Transient infra noise is retained for diagnostics but must not promote
-        # into AgentState incident obligations.
-        final_result = "infra_noise" if category in {"transient", "server_down", "llm_failed"} else "recorded"
+        if category in _INFRA_NOISE_CATEGORIES:
+            final_result = "infra_noise"
+        elif category in _UNREPAIRABLE_CATEGORIES:
+            final_result = "not_retryable"
+        else:
+            final_result = "recorded"
         entry = {
             "repair_id": f"repair_{now_ms()}",
             "capability_id": capability_id,
@@ -70,8 +92,9 @@ class RepairManager:
         }
         append_jsonl(self._history, entry)
         self._audit("repair_failure_recorded", entry)
-        if category in {"auth", "permission"}:
-            self._record_lesson(entry)
+        self._record_lesson(entry)
+        if final_result == "not_retryable":
+            self._present_unrepairable(entry)
         return entry
 
     def maybe_retry(self, request: Any, result: Any, *, max_attempts: int = 2) -> dict[str, Any]:
@@ -79,11 +102,19 @@ class RepairManager:
         status = getattr(getattr(result, "status", None), "value", str(getattr(result, "status", "")))
         error = getattr(result, "error", "")
         entry = self.record_failure(capability_id=cap_id, error=error, status=status, request=request, result=result)
+        if entry.get("final_result") == "not_retryable":
+            # Already classified as unrepairable and reported.
+            return entry
         if self._status.get("disabled"):
             entry["final_result"] = "repair_disabled"
+            append_jsonl(self._history, entry)
+            self._present_unrepairable(entry)
             return entry
         if not self._is_safe_retry(request, result):
             entry["final_result"] = "not_retryable"
+            append_jsonl(self._history, entry)
+            self._record_lesson(entry)
+            self._present_unrepairable(entry)
             return entry
         strategy = self.plan_strategy(request, result)
         entry["strategy"] = strategy
@@ -117,6 +148,8 @@ class RepairManager:
             elif strategy["method"] == "rollback_or_escalate":
                 entry["final_result"] = "needs_followup"
             self._record_lesson(entry)
+            if entry["final_result"] in {"not_retryable", "repair_disabled", "needs_followup", "rollback_failed"}:
+                self._present_unrepairable(entry)
         append_jsonl(self._history, entry)
         return entry
 
@@ -272,15 +305,117 @@ class RepairManager:
         return risk in {"read_only", "safe_action", ""}
 
     def _record_lesson(self, entry: dict[str, Any]) -> None:
+        """Persist a short failure lesson so future planning can avoid the same trap."""
         if self._memory_manager is None:
             return
+        category = str(entry.get("category") or "")
+        # Skip pure infra noise noise; keep actionable lessons.
+        if category in _INFRA_NOISE_CATEGORIES:
+            return
+        content = (
+            f"Failure lesson [{category}] capability={entry.get('capability_id')}: "
+            f"{entry.get('error')} (result={entry.get('final_result')})"
+        )
         try:
-            self._memory_manager.add_memory(
-                f"Failure category {entry['category']} for {entry.get('capability_id')}: {entry.get('error')}",
-                memory_type="lesson",
-                tags=["repair", entry["category"]],
-                importance=0.6,
+            if hasattr(self._memory_manager, "write_memory"):
+                self._memory_manager.write_memory(
+                    content,
+                    memory_type="lesson",
+                    tags=["repair", category or "general"],
+                    importance=0.6,
+                )
+            elif hasattr(self._memory_manager, "add_memory"):
+                self._memory_manager.add_memory(
+                    content,
+                    memory_type="lesson",
+                    tags=["repair", category or "general"],
+                    importance=0.6,
+                )
+        except Exception:
+            pass
+
+    def _present_fingerprint(self, entry: dict[str, Any]) -> str:
+        error = str(entry.get("error") or "")[:120]
+        return f"{entry.get('capability_id')}|{entry.get('category')}|{error}"
+
+    def _should_suppress_present(self, entry: dict[str, Any]) -> bool:
+        fingerprint = self._present_fingerprint(entry)
+        last = int(self._presented_fingerprints.get(fingerprint) or 0)
+        return bool(last and now_ms() - last < _PRESENT_COOLDOWN_MS)
+
+    def _user_guidance(self, entry: dict[str, Any]) -> str:
+        category = str(entry.get("category") or "")
+        error = str(entry.get("error") or "")
+        if category == "permission":
+            if "locked" in error.lower():
+                return "端末の画面ロックを解除してから、同じ操作を再試行してください。"
+            return "不足している権限を付与してから、同じ操作を再試行してください。"
+        if category == "auth":
+            return "認証情報の再設定または再ログインが必要です。"
+        if category == "policy_denied":
+            return "ポリシーにより自動実行できません。必要なら承認するか方針を見直してください。"
+        if category == "validation":
+            return "引数や入力内容を確認してから再試行してください。"
+        if entry.get("final_result") == "repair_disabled":
+            return "自動修復が無効です。設定を確認するか手動で対応してください。"
+        return "AEGIS だけでは修復できないため、手動対応が必要です。"
+
+    def _present_unrepairable(self, entry: dict[str, Any]) -> None:
+        """Tell the user when AEGIS cannot recover from a failure."""
+        if self._should_suppress_present(entry):
+            return
+        presentation_manager = self._presentation_manager
+        if presentation_manager is None:
+            try:
+                from aegis_ai.runtime import get_runtime
+
+                runtime = get_runtime()
+                presentation_manager = getattr(runtime, "presentation_manager", None) if runtime else None
+            except Exception:
+                presentation_manager = None
+        if presentation_manager is None or not hasattr(presentation_manager, "present"):
+            return
+
+        capability_id = str(entry.get("capability_id") or "unknown")
+        error = str(entry.get("error") or "Unknown error")
+        category = str(entry.get("category") or "tool_failed")
+        guidance = self._user_guidance(entry)
+        try:
+            from aegis_ai.presentation.models import PresentationRequest
+
+            request = PresentationRequest(
+                source="repair_manager",
+                intent="unrepairable_failure",
+                importance="high",
+                modality="text_card",
+                title="修復できない問題があります",
+                summary=f"{capability_id}: {error[:200]}",
+                content={
+                    "capability_id": capability_id,
+                    "category": category,
+                    "error": error[:500],
+                    "final_result": entry.get("final_result"),
+                    "repair_id": entry.get("repair_id"),
+                    "guidance": guidance,
+                    "body": f"{error}\n\n{guidance}",
+                },
+                targets=["dashboard"],
+                metadata={
+                    "repair_id": entry.get("repair_id"),
+                    "category": category,
+                },
             )
+            presentation_manager.present(request)
+            fingerprint = self._present_fingerprint(entry)
+            self._presented_fingerprints[fingerprint] = now_ms()
+            # Bound persisted dedupe map
+            if len(self._presented_fingerprints) > 200:
+                oldest = sorted(self._presented_fingerprints.items(), key=lambda item: item[1])[:50]
+                for key, _ in oldest:
+                    self._presented_fingerprints.pop(key, None)
+            self._status["presented_fingerprints"] = self._presented_fingerprints
+            self._state.save(self._status)
+            self._audit("repair_unrepairable_presented", entry)
         except Exception:
             pass
 

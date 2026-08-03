@@ -1,149 +1,139 @@
-import { useState } from "react";
-import type { UiOverview } from "../types";
+import { useMemo, useState } from "react";
+import { PageHeader } from "../components/DashboardPrimitives";
+import { StatusBadge } from "../components/StatusBadge";
+import { SeverityGlyph, type Severity } from "../components/viz/UxViz";
+import type { UiEvent, UiOverview } from "../types";
+import { text, time } from "./PageSupport";
 
-type OperationView = {
-  id: string;
-  kind: string;
-  kindLabel: string;
-  title: string;
-  message: string;
-  status: string;
-  priority: string;
-  updatedAt: number;
-  toolCount: number;
-  errorCount: number;
-  steps: Array<Record<string, unknown>>;
-  raw: Record<string, unknown>;
+const HIDDEN_BY_DEFAULT = /(heartbeat|telemetry|user_activity|foreground_app\.changed)/i;
+
+type Props = {
+  overview: UiOverview;
+  recentEvents?: UiEvent[];
+  developerMode?: boolean;
+  detailId?: string;
+  onNavigate?: (path: string) => void;
 };
 
-function stepLabel(step: Record<string, unknown>, index: number): string {
-  const narrative = String(step.narrative || step.summary || "").trim();
-  if (narrative) return narrative;
-  const capability = String(step.capability_id || "").trim();
-  if (capability) {
-    const leaf = capability.split(".").pop() || capability;
-    return `Ran ${leaf.replace(/_/g, " ")}`;
-  }
-  const action = String(step.action || "").trim();
-  if (action) return action.replace(/_/g, " ");
-  return `Step ${index + 1}`;
-}
+export function ActivityPage({
+  overview,
+  recentEvents = [],
+  developerMode = false,
+  detailId = "",
+  onNavigate,
+}: Props) {
+  const [showNoise, setShowNoise] = useState(false);
+  const [selectedId, setSelectedId] = useState(detailId);
+  const history = (overview.activity?.data.recent || []) as Array<Record<string, unknown>>;
+  const events = useMemo(() => {
+    const merged: Array<Record<string, unknown>> = [
+      ...recentEvents.map((item) => ({ ...item })),
+      ...history,
+    ];
+    const byId = new Map<string, Record<string, unknown>>();
+    for (const item of merged) {
+      const id = String(item.event_id || item.id || `${item.type || item.event_type}-${item.generated_at || item.occurred_at}`);
+      if (!byId.has(id)) byId.set(id, { ...item, event_id: id });
+    }
+    return [...byId.values()].sort(
+      (a, b) => Number(b.occurred_at || b.generated_at || 0) - Number(a.occurred_at || a.generated_at || 0),
+    );
+  }, [history, recentEvents]);
 
-function stepMeta(step: Record<string, unknown>): string {
-  const capability = String(step.capability_id || "").trim();
-  const action = String(step.action || "").trim();
-  const bits = [action && action !== capability ? action.replace(/_/g, " ") : "", capability].filter(Boolean);
-  return bits.join(" · ");
-}
+  const visible = events.filter((item) => {
+    if (showNoise || developerMode && showNoise) return true;
+    const blob = `${item.type || ""} ${item.event_type || ""} ${item.safe_title || ""} ${item.safe_message || ""}`;
+    return !HIDDEN_BY_DEFAULT.test(blob);
+  });
 
-export function ActivityPage({ overview }: { overview: UiOverview; recentEvents?: unknown[] }) {
-  const operations: OperationView[] = (overview.activity?.data.operations || []).map((op, index) => ({
-    id: String(op.operation_id || `operation-${index}`),
-    kind: String(op.kind || "operation"),
-    kindLabel: String(op.kind_label || op.kind || "Operation"),
-    title: String(op.title || "Untitled operation"),
-    message: String((op as Record<string, unknown>).narrative || op.what_happened || op.summary || ""),
-    status: String(op.status || ""),
-    priority: String(op.priority || (op.error_count ? "P1" : "P3")),
-    updatedAt: Number(op.updated_at || op.started_at || 0),
-    toolCount: Number(op.tool_count || 0),
-    errorCount: Number(op.error_count || 0),
-    steps: Array.isArray(op.steps) ? op.steps : [],
-    raw: op as Record<string, unknown>,
-  }));
+  const selected = visible.find((item) => String(item.event_id) === selectedId) || visible[0];
 
-  const groups = overview.activity?.data.groups || [];
-  const [selectedId, setSelectedId] = useState("");
-  const selected = operations.find((item) => item.id === selectedId) || operations[0];
+  const select = (id: string) => {
+    setSelectedId(id);
+    onNavigate?.(`/dashboard/activity/${encodeURIComponent(id)}`);
+  };
 
   return (
     <div className="grid activity-page">
-      <section className="panel">
-        <div className="panel__header">
-          <div>
-            <h2>AEGIS Operations</h2>
-            <div className="muted">What AEGIS did, in plain language — not raw telemetry.</div>
-          </div>
-          <span className="freshness" data-stale={overview.activity?.stale || false}>{overview.activity?.data.source || "audit_manager"}</span>
-        </div>
-        <div className="work-layout">
-          <div className="panel">
-            <div className="panel__header"><h2>Recent Operations</h2></div>
-            <div className="grid">
-              {operations.map((op) => (
+      <PageHeader
+        title="Raw Activity"
+        description="開発者向けの低レベル Event Stream。通常の実行履歴（Operations）とは分離されています。"
+      >
+        <label className="developer-filter">
+          <input
+            type="checkbox"
+            checked={showNoise}
+            onChange={(event) => setShowNoise(event.currentTarget.checked)}
+          />
+          Developer Filter: heartbeat / telemetry
+        </label>
+      </PageHeader>
+
+      <div className="judgment-split">
+        <section className="panel">
+          <div className="compact-list">
+            {visible.map((item) => {
+              const id = String(item.event_id);
+              const title = text(item.safe_title || item.type || item.event_type, "event");
+              return (
                 <button
                   type="button"
-                  className="list-row task-list-row"
-                  data-selected={selected?.id === op.id}
-                  key={op.id}
-                  onClick={() => setSelectedId(op.id)}
+                  className="list-row"
+                  data-selected={selected?.event_id === id}
+                  key={id}
+                  onClick={() => select(id)}
                 >
+                  <SeverityGlyph severity={String(item.severity || "info").toLowerCase() as Severity} />
                   <div>
-                    <strong>{op.kindLabel}: {op.title}</strong>
-                    <div className="activity-narrative-preview">{op.message || "No summary yet."}</div>
+                    <strong>{title}</strong>
+                    <p>{text(item.safe_message || item.message || item.summary)}</p>
+                    <small>
+                      {text(item.source_type || item.source || "manager")} · {time(item.occurred_at || item.generated_at)}
+                      {item.operation_id ? ` · op ${String(item.operation_id).slice(0, 10)}` : ""}
+                    </small>
                   </div>
-                  <span className="mono muted">{op.status || op.priority}</span>
+                  <StatusBadge status={String(item.severity || "info")} />
                 </button>
-              ))}
-              {!operations.length ? <div className="muted">No AEGIS operations have been recorded yet.</div> : null}
-            </div>
+              );
+            })}
+            {!visible.length ? <p className="muted">表示可能なイベントはありません。</p> : null}
           </div>
-          <div className="panel">
-            <div className="panel__header"><h2>Operation Detail</h2></div>
-            {selected ? (
-              <div className="activity-detail">
-                <p className="activity-narrative">{selected.message || "No natural-language summary was recorded for this operation."}</p>
-                <div className="metric-list compact">
-                  <div className="metric-row"><span>Kind</span><strong>{selected.kindLabel}</strong></div>
-                  <div className="metric-row"><span>Status</span><strong>{selected.status || "unknown"}</strong></div>
-                  <div className="metric-row"><span>When</span><strong>{selected.updatedAt ? new Date(selected.updatedAt).toLocaleString() : "No timestamp"}</strong></div>
-                  <div className="metric-row"><span>Tools / errors</span><strong>{selected.toolCount} / {selected.errorCount}</strong></div>
-                </div>
-                <div className="operation-steps">
-                  <h3>What happened, step by step</h3>
-                  {selected.steps.length ? selected.steps.map((step, index) => (
-                    <div className="list-row" key={`${selected.id}-step-${index}`}>
-                      <div>
-                        <strong>{stepLabel(step, index)}</strong>
-                        {stepMeta(step) ? <div className="muted mono">{stepMeta(step)}</div> : null}
-                      </div>
-                      <span className="mono muted">{String(step.status || "")}</span>
-                    </div>
-                  )) : <p className="muted">No step details recorded for this operation.</p>}
-                </div>
-              </div>
-            ) : <p className="muted">Select an operation to inspect what AEGIS did.</p>}
-            <details className="inline-drawer developer-only">
-              <summary>Developer trace</summary>
-              <pre>{JSON.stringify(selected?.raw || {}, null, 2)}</pre>
-            </details>
-          </div>
-        </div>
-      </section>
+        </section>
 
-      <section className="panel">
-        <div className="panel__header">
-          <div>
-            <h2>Event Groups</h2>
-            <div className="muted">Secondary EventManager grouping (AEGIS actions only; status noise filtered).</div>
-          </div>
-          <span className="freshness" data-stale={overview.activity?.stale || false}>{overview.activity?.data.source || "event_manager"}</span>
-        </div>
-        <div className="grid">
-          {groups.length ? groups.slice(0, 12).map((group) => (
-            <div className="list-row list-row--with-drawer" key={String(group.group_id || group.title)}>
-              <div>
-                <strong>{String(group.title || group.group_id || "Activity")}</strong>
-                <div className="activity-narrative-preview">
-                  {String(group.summary || group.status || group.severity || "updated")}
-                  {Number((group.events as unknown[])?.length || 0) ? ` · ${Number((group.events as unknown[])?.length || 0)} event(s)` : ""}
-                </div>
+        <aside className="panel judgment-detail">
+          {selected ? (
+            <>
+              <div className="panel__header">
+                <h2>{text(selected.safe_title || selected.type || selected.event_type, "Event")}</h2>
+                <StatusBadge status={String(selected.severity || "info")} />
               </div>
-              <span className="mono muted">{String(group.capability_id || group.task_id || group.operation_type || "event")}</span>
-            </div>
-          )) : <div className="muted">No persisted activity groups yet.</div>}
-        </div>
-      </section>
+              <dl className="human-facts compact">
+                <div><dt>Event Type</dt><dd>{text(selected.type || selected.event_type)}</dd></div>
+                <div><dt>発行元</dt><dd>{text(selected.source_type || selected.source || "—")}</dd></div>
+                <div><dt>Entity</dt><dd>{text(selected.entity_id || selected.affected_entity || "—")}</dd></div>
+                <div><dt>変化</dt><dd>{text(selected.safe_message || selected.message || selected.summary)}</dd></div>
+                <div><dt>Operation</dt><dd>{text(selected.operation_id || "—")}</dd></div>
+                <div><dt>Task</dt><dd>{text(selected.task_id || "—")}</dd></div>
+                <div><dt>Approval</dt><dd>{text(selected.approval_id || "—")}</dd></div>
+                <div><dt>Capability</dt><dd>{text(selected.capability_id || "—")}</dd></div>
+                <div><dt>Dedupe Key</dt><dd>{text(selected.dedupe_key || selected.correlation_id || "—")}</dd></div>
+              </dl>
+              {selected.operation_id ? (
+                <button
+                  type="button"
+                  className="secondary-button"
+                  onClick={() => onNavigate?.(`/dashboard/operations/${encodeURIComponent(String(selected.operation_id))}`)}
+                >
+                  関連 Operation を開く
+                </button>
+              ) : null}
+              {developerMode ? <pre className="developer-raw">{JSON.stringify(selected, null, 2)}</pre> : null}
+            </>
+          ) : (
+            <p className="empty-copy">イベントを選択してください。</p>
+          )}
+        </aside>
+      </div>
     </div>
   );
 }

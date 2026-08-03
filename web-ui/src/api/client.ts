@@ -171,6 +171,35 @@ export async function fetchActivityLogs(page = 1, limit = 30): Promise<AuditPage
   };
 }
 
+export async function fetchOperations(limit = 40): Promise<Array<Record<string, unknown>>> {
+  const response = await fetch(`/api/operations?${new URLSearchParams({ limit: String(limit) })}`, {
+    credentials: "include",
+  });
+  const payload = await requireJson<Record<string, unknown>>(response, "Could not load operations");
+  if (Array.isArray(payload.items)) {
+    return payload.items.map((item) => {
+      if (item && typeof item === "object" && "data" in item) {
+        const entity = item as { data?: Record<string, unknown>; id?: string };
+        return { ...(entity.data || {}), operation_id: entity.data?.operation_id || entity.id };
+      }
+      return item as Record<string, unknown>;
+    });
+  }
+  if (Array.isArray(payload.operations)) return payload.operations as Array<Record<string, unknown>>;
+  return [];
+}
+
+export async function fetchOperation(operationId: string): Promise<Record<string, unknown>> {
+  const response = await fetch(`/api/operations/${encodeURIComponent(operationId)}`, {
+    credentials: "include",
+  });
+  const payload = await requireJson<Record<string, unknown>>(response, "Could not load operation");
+  if (payload.data && typeof payload.data === "object") {
+    return payload.data as Record<string, unknown>;
+  }
+  return payload;
+}
+
 export async function fetchCapabilityRisk(capabilityId: string): Promise<Record<string, unknown>> {
   const response = await fetch(`/api/capabilities/${encodeURIComponent(capabilityId)}/risk`, { credentials: "include" });
   return requireJson<Record<string, unknown>>(response, "Could not load the capability policy");

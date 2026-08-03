@@ -1,0 +1,2 @@
+{"attempts": [], "capability_id": "browser-server.page.read", "category": "transient", "error": "BrowserSession.on_BrowserStartEvent timed out after 30.0s", "final_result": "infra_noise", "repair_id": "repair_1785471889926", "status": "TIMEOUT", "timestamp": 1785471889926}
+{"attempts": [], "capability_id": "pc-server.shell.powershell", "category": "permission", "error": "policy denied", "final_result": "recorded", "repair_id": "repair_1785471889930", "status": "DENIED", "timestamp": 1785471889930}

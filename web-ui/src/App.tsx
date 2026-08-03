@@ -13,13 +13,13 @@ import { StatusBadge } from "./components/StatusBadge";
 import { UiState } from "./components/UiState";
 import { entitiesFromOverview } from "./entityModel";
 import { navigation, pageDefinition, routeState, type DomainId } from "./navigation";
-import { ActivityPage } from "./pages/ActivityPage";
 import { AgentStatePage } from "./pages/AgentStatePage";
 import { AllSettingsPage } from "./pages/AllSettingsPage";
 import { Approvals } from "./pages/Approvals";
 import { AttentionPage } from "./pages/AttentionPage";
 import { AuditPage } from "./pages/AuditPage";
 import { AutonomousPage } from "./pages/AutonomousPage";
+import { BehavioralReportsPage } from "./pages/BehavioralReportsPage";
 import { CapabilityCatalogPage } from "./pages/CapabilityCatalogPage";
 import { DashboardSettingsPage } from "./pages/DashboardSettingsPage";
 import { DesiresPage } from "./pages/DesiresPage";
@@ -27,17 +27,18 @@ import { DevicePage } from "./pages/DevicePage";
 import { DiagnosticsPage } from "./pages/DiagnosticsPage";
 import { Display } from "./pages/Display";
 import { DomainPage } from "./pages/DomainPage";
-import { ErrorsPage } from "./pages/ErrorsPage";
-import { EventsPage } from "./pages/EventsPage";
 import { HomePage } from "./pages/HomePage";
+import { IncidentsPage } from "./pages/IncidentsPage";
 import { LearningPage } from "./pages/LearningPage";
 import { LLMUsagePage } from "./pages/LLMUsagePage";
-import { LogsPage } from "./pages/LogsPage";
 import { MindMemory } from "./pages/MindMemory";
 import { ModelsPromptsPage } from "./pages/ModelsPromptsPage";
 import { NotificationsPage } from "./pages/NotificationsPage";
+import { OperationsPage } from "./pages/OperationsPage";
+import { PerformancePage } from "./pages/PerformancePage";
 import { PersonalAiPage } from "./pages/PersonalAiPage";
 import { PromptAnalysisPage } from "./pages/PromptAnalysisPage";
+import { RawActivityPage } from "./pages/RawActivityPage";
 import { Settings } from "./pages/Settings";
 import { SocialPage } from "./pages/SocialPage";
 import { Systems } from "./pages/Systems";
@@ -53,6 +54,7 @@ export function App() {
   const [recentEvents, setRecentEvents] = useState<UiEvent[]>([]);
   const [route, setRoute] = useState(() => routeState(window.location.pathname));
   const [expanded, setExpanded] = useState<DomainId>(route.domain);
+  const detailId = route.detailId || "";
   const [selectedEntity, setSelectedEntity] = useState<EntitySummary>();
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [navCollapsed, setNavCollapsed] = useState(() => window.localStorage.getItem("aegis.nav-collapsed") === "1");
@@ -295,6 +297,8 @@ export function App() {
             recentEvents={recentEvents}
             onSelect={setSelectedEntity}
             onNavigate={navigate}
+            pathname={window.location.pathname}
+            detailId={detailId}
             pinnedEntities={pinnedEntities}
             developerMode={developerMode}
           />
@@ -327,6 +331,8 @@ function Page({
   recentEvents,
   onSelect,
   onNavigate,
+  pathname = "",
+  detailId = "",
   developerMode,
 }: {
   pageId: string;
@@ -334,6 +340,8 @@ function Page({
   recentEvents: UiEvent[];
   onSelect: (entity: EntitySummary) => void;
   onNavigate: (path: string) => void;
+  pathname?: string;
+  detailId?: string;
   pinnedEntities: EntitySummary[];
   developerMode: boolean;
 }) {
@@ -360,11 +368,43 @@ function Page({
   if (pageId === "agora" || pageId === "social" || pageId === "conversations") {
     return <SocialPage overview={overview} developerMode={developerMode} />;
   }
-  if (pageId === "events") return <EventsPage overview={overview} recentEvents={recentEvents} />;
+  if (pageId === "operations" || pageId === "logs") {
+    return (
+      <OperationsPage
+        overview={overview}
+        developerMode={developerMode}
+        pathname={pathname}
+        detailId={detailId}
+        onNavigate={onNavigate}
+      />
+    );
+  }
+  if (pageId === "raw-activity" || pageId === "events") {
+    return (
+      <RawActivityPage
+        overview={overview}
+        recentEvents={recentEvents}
+        developerMode={developerMode}
+        pathname={pathname}
+        onNavigate={onNavigate}
+      />
+    );
+  }
+  if (pageId === "incidents" || pageId === "errors") {
+    return (
+      <IncidentsPage
+        overview={overview}
+        pathname={pathname}
+        detailId={detailId}
+        developerMode={developerMode}
+        onNavigate={onNavigate}
+      />
+    );
+  }
+  if (pageId === "performance") return <PerformancePage overview={overview} developerMode={developerMode} />;
+  if (pageId === "behavioral-reports") return <BehavioralReportsPage overview={overview} />;
   if (pageId === "notifications") return <NotificationsPage overview={overview} />;
   if (pageId === "audit" || pageId === "activity") return <AuditPage />;
-  if (pageId === "errors") return <ErrorsPage overview={overview} />;
-  if (pageId === "logs") return <LogsPage overview={overview} />;
   if (pageId === "personal-ai") return <PersonalAiPage overview={overview} />;
   if (pageId === "user-state") return <UserStatePage overview={overview} />;
   if (pageId === "settings-all") return <AllSettingsPage />;

@@ -37,9 +37,6 @@ export const navigation: NavigationDomain[] = [
       { id: "memory", label: "記憶", path: "/dashboard/memory" },
       { id: "learning", label: "学習", path: "/dashboard/learning" },
       { id: "capability-catalog", label: "Capability", path: "/dashboard/capabilities/catalog" },
-      { id: "llm-usage", label: "LLM Usage", path: "/dashboard/observability/llm-usage" },
-      { id: "prompt-analysis", label: "Prompt Analysis", path: "/dashboard/observability/prompt-analysis" },
-      { id: "llm-config", label: "LLM Config", path: "/dashboard/intelligence/models-prompts" },
     ],
   },
   {
@@ -59,14 +56,16 @@ export const navigation: NavigationDomain[] = [
   {
     id: "observe",
     label: "観測",
-    path: "/dashboard/observability/events",
+    path: "/dashboard/operations",
     icon: Activity,
     pages: [
-      { id: "events", label: "イベント", path: "/dashboard/observability/events" },
-      { id: "notifications", label: "通知", path: "/dashboard/communications/notifications" },
-      { id: "audit", label: "Audit log", path: "/dashboard/observability/audit" },
-      { id: "errors", label: "エラー", path: "/dashboard/observability/errors" },
-      { id: "logs", label: "Logs", path: "/dashboard/observability/logs" },
+      { id: "operations", label: "Operations", path: "/dashboard/operations" },
+      { id: "raw-activity", label: "Raw Activity", path: "/dashboard/activity", developerOnly: true },
+      { id: "llm-usage", label: "LLM Usage", path: "/dashboard/observability/llm-usage" },
+      { id: "incidents", label: "Incidents & Repairs", path: "/dashboard/incidents" },
+      { id: "performance", label: "Performance", path: "/dashboard/observability/performance" },
+      { id: "audit", label: "Audit", path: "/dashboard/observability/audit", developerOnly: true },
+      { id: "behavioral-reports", label: "Behavioral Reports", path: "/dashboard/observability/behavioral-reports" },
     ],
   },
   {
@@ -87,8 +86,11 @@ export const navigation: NavigationDomain[] = [
     pages: [
       { id: "settings-general", label: "設定", path: "/settings/general" },
       { id: "settings-all", label: "全設定", path: "/settings/all" },
+      { id: "llm-config", label: "Models & Prompts", path: "/dashboard/intelligence/models-prompts" },
+      { id: "prompt-analysis", label: "Prompt Analysis", path: "/dashboard/observability/prompt-analysis", developerOnly: true },
       { id: "diagnostics", label: "システム診断", path: "/dashboard/diagnostics" },
       { id: "dashboard-settings", label: "Dashboard設定", path: "/dashboard/dashboard-settings" },
+      { id: "notifications", label: "通知", path: "/dashboard/communications/notifications" },
     ],
   },
 ];
@@ -98,20 +100,60 @@ const aliases: Array<[RegExp, PageId]> = [
   [/\/dashboard\/command-center/, "home"],
   [/\/dashboard\/tasks|\/dashboard\/work(\/|$)/, "tasks"],
   [/\/dashboard\/governance\/approvals/, "approvals"],
-  [/\/dashboard\/observability\/errors/, "errors"],
-  [/\/dashboard\/observability\/activity/, "audit"],
+  [/\/dashboard\/operations(\/|$)/, "operations"],
+  [/\/dashboard\/activity(\/|$)/, "raw-activity"],
+  [/\/dashboard\/incidents(\/|$)/, "incidents"],
+  [/\/dashboard\/observability\/events/, "raw-activity"],
+  [/\/dashboard\/observability\/logs/, "operations"],
+  [/\/dashboard\/observability\/errors/, "incidents"],
+  [/\/dashboard\/observability\/performance/, "performance"],
+  [/\/dashboard\/observability\/behavioral-reports/, "behavioral-reports"],
+  [/\/dashboard\/observability\/llm-usage/, "llm-usage"],
+  [/\/dashboard\/llm(\/|$)/, "llm-usage"],
   [/\/dashboard\/systems/, "servers"],
   [/\/dashboard\/intelligence\/memory/, "memory"],
+  [/\/dashboard\/intelligence\/models-prompts/, "llm-config"],
   [/\/dashboard\/communications\/social/, "agora"],
   [/\/dashboard\/capabilities\/executions/, "capability-catalog"],
   [/\/settings\/autonomy/, "settings-general"],
   [/\/dashboard\/goals/, "agent-state"],
   [/\/dashboard\/open-loops/, "agent-state"],
   [/\/dashboard\/continuations/, "agent-state"],
-  [/\/dashboard\/repairs/, "errors"],
+  [/\/dashboard\/repairs/, "incidents"],
 ];
 
-export function routeState(pathname: string): { domain: DomainId; page: PageId } {
+/** Extract a detail id from `/prefix/{id}` style paths. */
+export function detailIdFromPath(pathname: string, prefix: string): string {
+  const normalized = prefix.endsWith("/") ? prefix.slice(0, -1) : prefix;
+  if (!pathname.startsWith(`${normalized}/`)) return "";
+  const rest = pathname.slice(normalized.length + 1).split(/[/?#]/, 1)[0];
+  return rest ? decodeURIComponent(rest) : "";
+}
+
+/** Detail IDs for deep-linkable observation pages. */
+export function detailRoute(pathname: string): { page: PageId; detailId: string } | null {
+  const patterns: Array<[RegExp, PageId]> = [
+    [/^\/dashboard\/operations\/([^/]+)$/, "operations"],
+    [/^\/dashboard\/activity\/([^/]+)$/, "raw-activity"],
+    [/^\/dashboard\/incidents\/([^/]+)$/, "incidents"],
+    [/^\/dashboard\/observability\/audit\/([^/]+)$/, "audit"],
+    [/^\/dashboard\/audit\/([^/]+)$/, "audit"],
+    [/^\/dashboard\/llm\/([^/]+)$/, "llm-usage"],
+    [/^\/dashboard\/observability\/llm-usage\/([^/]+)$/, "llm-usage"],
+  ];
+  for (const [pattern, page] of patterns) {
+    const match = pathname.match(pattern);
+    if (match?.[1]) return { page, detailId: decodeURIComponent(match[1]) };
+  }
+  return null;
+}
+
+export function routeState(pathname: string): { domain: DomainId; page: PageId; detailId?: string } {
+  const detail = detailRoute(pathname);
+  if (detail) {
+    const found = pageDefinition(detail.page);
+    return { domain: found.domain.id, page: detail.page, detailId: detail.detailId };
+  }
   for (const [pattern, pageId] of aliases) {
     if (pattern.test(pathname)) {
       const found = pageDefinition(pageId);
