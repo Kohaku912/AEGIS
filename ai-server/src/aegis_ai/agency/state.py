@@ -18,6 +18,24 @@ _OBLIGATION_RANK = {
 }
 
 
+def _obligation_fingerprint(item: "Obligation") -> str:
+    """Collapse duplicate duties that share the same capability/error payload."""
+    evidence = item.evidence if isinstance(item.evidence, dict) else {}
+    capability_id = str(
+        evidence.get("capability_id")
+        or evidence.get("capability")
+        or ""
+    ).strip()
+    error = str(evidence.get("error") or item.summary or "").strip().lower()
+    if capability_id and error:
+        return f"{item.kind}:{capability_id}:{error[:160]}"
+    if capability_id:
+        return f"{item.kind}:{capability_id}"
+    if error:
+        return f"{item.kind}:{error[:160]}"
+    return ""
+
+
 @dataclass
 class Obligation:
     """An unresolved real-world duty considered before optional desires."""
@@ -223,29 +241,51 @@ class AgentState:
 
     def _obligations(self, now_ms: int) -> list[Obligation]:
         items: list[Obligation] = []
+        seen_ids: set[str] = set()
+        seen_fingerprints: set[str] = set()
+
+        def _add(item: Obligation) -> None:
+            oid = str(item.obligation_id or "").strip()
+            if oid and oid in seen_ids:
+                return
+            fingerprint = _obligation_fingerprint(item)
+            if fingerprint and fingerprint in seen_fingerprints:
+                return
+            if oid:
+                seen_ids.add(oid)
+            if fingerprint:
+                seen_fingerprints.add(fingerprint)
+            items.append(item)
+
         commitments = self._safe_call(self._commitments, "list_commitments", [], status="open")
         for item in commitments:
-            items.append(
+            status = str(item.get("status") or "open")
+            if status in {"completed", "failed", "cancelled", "expired", "postponed"}:
+                continue
+            due_at_ms = int(item.get("due_at_ms") or 0)
+            # Past-due open commitments are overdue work; only drop clearly expired status.
+            # Stale postponed/expired entries must never re-enter the LLM gate.
+            _add(
                 Obligation(
                     obligation_id=str(item.get("commitment_id") or ""),
                     kind="commitment",
                     summary=str(item.get("title") or item.get("description") or ""),
                     priority=self._priority_value(item.get("priority")),
-                    due_at_ms=int(item.get("due_at_ms") or 0),
+                    due_at_ms=due_at_ms,
                     source=str(item.get("source") or "commitment_manager"),
                     evidence=dict(item),
                 )
             )
+
+        # Only statuses that still need a planning decision. In-flight / already-acted
+        # social work must not bypass the LLM interval as fresh obligations.
+        open_social_statuses = {"untriaged", "needs_reply"}
         social_items = self._safe_call(self._social, "list_items", [], limit=200)
         for item in social_items:
-            if str(item.get("status") or "") in {
-                "replied",
-                "acknowledged",
-                "skipped",
-                "failed",
-            }:
+            status = str(item.get("status") or "")
+            if status not in open_social_statuses:
                 continue
-            items.append(
+            _add(
                 Obligation(
                     obligation_id=str(item.get("item_id") or ""),
                     kind="social_obligation",
@@ -256,26 +296,9 @@ class AgentState:
                     evidence=dict(item),
                 )
             )
-        repair_items = self._safe_call(self._repair, "list_history", [], limit=50)
-        noise_categories = {"transient", "server_down", "llm_failed"}
-        noise_results = {
-            "recovered",
-            "infra_noise",
-            "dismissed",
-            "rolled_back",
-            "repair_disabled",
-            "not_retryable",
-        }
-        for item in repair_items:
-            final_result = str(item.get("final_result") or "")
-            category = str(item.get("category") or "")
-            if final_result in noise_results:
-                continue
-            if category in noise_categories:
-                # Browser timeouts / unreachable servers stay in repair history
-                # for diagnostics but must not become user/goal obligations.
-                continue
-            items.append(
+
+        for item in self._active_repair_incidents(now_ms):
+            _add(
                 Obligation(
                     obligation_id=str(item.get("repair_id") or ""),
                     kind="incident",
@@ -286,14 +309,18 @@ class AgentState:
                     evidence=dict(item),
                 )
             )
-        task_items = self._safe_call(self._tasks, "list_tasks", [], limit=200)
-        for item in task_items:
-            if (
-                str(item.get("status") or "") != "failed"
-                or str(item.get("incident_status") or "") != "open"
-            ):
-                continue
-            items.append(
+
+        task_items = self._safe_call(self._tasks, "list_open_incidents", None, limit=200)
+        if task_items is None:
+            task_items = self._safe_call(self._tasks, "list_tasks", [], limit=200)
+            task_items = [
+                item
+                for item in (task_items or [])
+                if str(item.get("status") or "") == "failed"
+                and str(item.get("incident_status") or "") == "open"
+            ]
+        for item in task_items or []:
+            _add(
                 Obligation(
                     obligation_id=str(item.get("task_id") or ""),
                     kind="incident",
@@ -305,6 +332,49 @@ class AgentState:
                 )
             )
         return sorted(items, key=Obligation.sort_key)
+
+    def _active_repair_incidents(self, now_ms: int) -> list[dict[str, Any]]:
+        """Return only unresolved repair incidents (latest line wins per repair/capability)."""
+        repair_items = self._safe_call(self._repair, "list_history", [], limit=200)
+        noise_categories = {"transient", "server_down", "llm_failed"}
+        terminal_results = {
+            "recovered",
+            "infra_noise",
+            "dismissed",
+            "rolled_back",
+            "repair_disabled",
+            "not_retryable",
+        }
+        # Collapse JSONL append-only history: later lines supersede earlier ones.
+        latest_by_key: dict[str, dict[str, Any]] = {}
+        for item in repair_items:
+            if not isinstance(item, dict):
+                continue
+            repair_id = str(item.get("repair_id") or "")
+            capability_id = str(item.get("capability_id") or "")
+            key = repair_id or f"{capability_id}|{item.get('error', '')}"
+            if not key:
+                continue
+            prev = latest_by_key.get(key)
+            prev_ts = int((prev or {}).get("timestamp") or 0)
+            cur_ts = int(item.get("timestamp") or 0)
+            if prev is None or cur_ts >= prev_ts:
+                latest_by_key[key] = item
+
+        active: list[dict[str, Any]] = []
+        for item in latest_by_key.values():
+            final_result = str(item.get("final_result") or "")
+            category = str(item.get("category") or "")
+            if final_result in terminal_results:
+                continue
+            if category in noise_categories:
+                continue
+            # Ignore ancient unresolved repair ghosts that no longer drive action.
+            ts = int(item.get("timestamp") or 0)
+            if ts and now_ms - ts > 7 * 24 * 60 * 60 * 1000:
+                continue
+            active.append(item)
+        return active
 
     def _active_tasks(self) -> list[dict[str, Any]]:
         tasks = self._safe_call(self._tasks, "list_tasks", [], limit=200)

@@ -881,7 +881,7 @@ def _generate_direct_response(
     context_meta: dict[str, Any] | None = None,
     max_tokens: int = 1000,
 ) -> str:
-    """Generate a non-tool response, retrying once if the provider returns empty content."""
+    """Generate a non-tool response once (no empty-success double call)."""
 
     result = llm.generate(
         prompt=user_message,
@@ -893,21 +893,6 @@ def _generate_direct_response(
         return result.content.strip()
     if not result.success:
         return f"LLM error: {result.error}"
-
-    retry = llm.generate(
-        prompt=(
-            "Answer the CURRENT user request directly. Do not call tools. "
-            "Return a concise natural response in the language requested by the user.\n\n"
-            f"CURRENT user request:\n{user_message}"
-        ),
-        system_prompt="You are AEGIS. Provide only the final assistant message.",
-        max_tokens=max_tokens,
-        context_meta=context_meta,
-    )
-    if retry.success and (retry.content or "").strip():
-        return retry.content.strip()
-    if not retry.success:
-        return f"LLM error: {retry.error}"
     return "応答生成が空で返りました。もう一度送信してください。"
 
 
@@ -1111,7 +1096,9 @@ def call_llm_with_tools(
         content = result.content or ""
 
         if tc is None:
-            should_force_tool = round_num == 0 and not content.strip()
+            # Do not double-call solely because round-0 returned empty text.
+            # Only force another tool step when prior tool results still need work.
+            should_force_tool = False
             if not content.strip() and all_tool_results and round_num < max_tool_rounds - 1:
                 should_force_tool = True
             if content.strip() and (round_num == 0 or not decision_returned_tool_call):

@@ -1,7 +1,6 @@
 import { cleanup, render, screen, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { ActivityPage } from "./ActivityPage";
 import { Approvals } from "./Approvals";
 import { CommandCenter } from "./CommandCenter";
 import { JudgmentPage } from "./JudgmentPage";
@@ -14,6 +13,15 @@ import { Systems } from "./Systems";
 import { Work } from "./Work";
 import type { UiOverview } from "../types";
 import { navigation } from "../navigation";
+
+vi.mock("../api/client", async () => {
+  const actual = await vi.importActual<typeof import("../api/client")>("../api/client");
+  return {
+    ...actual,
+    fetchOperations: vi.fn(async () => []),
+    fetchOperation: vi.fn(async () => ({})),
+  };
+});
 
 vi.mock("../components/cognitive-field/CognitiveField", () => ({
   CognitiveField: () => <div data-testid="cognitive-field-mock" />,
@@ -63,7 +71,7 @@ describe("dashboard v2 pages", () => {
 
   it("renders Operation causal chain stages", () => {
     render(<OperationsPage overview={overview()} />);
-    expect(screen.getByText("Causal chain of each AEGIS action")).toBeInTheDocument();
+    expect(screen.getByText("何に対して、何を行い、どうなったか")).toBeInTheDocument();
     expect(screen.getByText("Trigger")).toBeInTheDocument();
     expect(screen.getByText("Learning")).toBeInTheDocument();
   });
@@ -87,9 +95,18 @@ describe("dashboard v2 pages", () => {
       "personal",
       "settings",
     ]);
-    expect(navigation.find((domain) => domain.id === "ops")?.pages.some((page) => page.id === "home")).toBe(true);
-    expect(navigation.find((domain) => domain.id === "ops")?.pages.some((page) => page.id === "approvals")).toBe(true);
-    expect(navigation.find((domain) => domain.id === "intel")?.pages.some((page) => page.id === "memory")).toBe(true);
+    expect(navigation.find((domain) => domain.id === "observe")?.pages.map((page) => page.id)).toEqual([
+      "operations",
+      "raw-activity",
+      "llm-usage",
+      "incidents",
+      "performance",
+      "audit",
+      "behavioral-reports",
+    ]);
+    expect(navigation.find((domain) => domain.id === "settings")?.pages.some((page) => page.id === "llm-config")).toBe(true);
+    expect(navigation.find((domain) => domain.id === "intel")?.pages.some((page) => page.id === "llm-usage")).toBe(false);
+    expect(navigation.find((domain) => domain.id === "observe")?.pages.some((page) => page.id === "llm-usage")).toBe(true);
     expect(navigation.flatMap((domain) => domain.pages).length).toBeGreaterThanOrEqual(30);
   });
 
@@ -144,11 +161,10 @@ describe("dashboard v2 pages", () => {
     expect(screen.getByText("Review UI")).toBeInTheDocument();
     mind.unmount();
 
-    render(<ActivityPage overview={data} recentEvents={[event()]} />);
-    expect(screen.getByText("AEGIS Operations")).toBeInTheDocument();
-    expect(screen.getByText("User instruction: Inspect desktop")).toBeInTheDocument();
+    render(<OperationsPage overview={data} />);
+    expect(screen.getByText("実行履歴")).toBeInTheDocument();
+    expect(screen.getByText("Inspect desktop")).toBeInTheDocument();
     expect(screen.getAllByText("Captured a screenshot of the desktop.").length).toBeGreaterThan(0);
-    expect(screen.getByText("Task task-1")).toBeInTheDocument();
   });
 });
 
@@ -286,9 +302,9 @@ function overview(): UiOverview {
             { stage: "goal", label: "Goal", summary: "Inspect desktop", status: "present" },
             { stage: "execution", label: "Execution", summary: "1 succeeded", status: "present" },
             { stage: "result", label: "Result", summary: "Captured a screenshot of the desktop.", status: "present" },
-            { stage: "verification", label: "Verification", summary: "Execution completed", status: "present" },
-            { stage: "presentation", label: "Presentation", summary: "Reported", status: "present" },
-            { stage: "follow_up", label: "Follow Up", summary: "", status: "missing" },
+            { stage: "verification", label: "Verification", summary: "Goal達成", status: "present" },
+            { stage: "presentation", label: "Presentation", summary: "ダッシュボードへ提示", status: "present" },
+            { stage: "follow_up", label: "Follow-up", summary: "", status: "missing" },
             { stage: "learning", label: "Learning", summary: "", status: "missing" },
           ],
           steps: [

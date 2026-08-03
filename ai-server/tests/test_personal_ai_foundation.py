@@ -207,11 +207,65 @@ def test_repair_manager_classifies_and_records_failures(tmp_path):
 
     auth = manager.record_failure(capability_id="x", error="token expired", status="failed")
     down = manager.record_failure(capability_id="x", error="connection refused", status="failed")
+    unavailable = manager.record_failure(
+        capability_id="android-server.notification.get_notifications",
+        error="Android server is unavailable",
+        status="failed",
+    )
+    permission = manager.record_failure(
+        capability_id="android-server.screen.get_ui_tree",
+        error="Android permission missing: accessibility",
+        status="failed",
+    )
 
     assert auth["category"] == "auth"
+    assert auth["final_result"] == "not_retryable"
     assert down["category"] == "server_down"
     assert down["final_result"] == "infra_noise"
-    assert len(manager.list_history()) >= 2
+    assert unavailable["category"] == "server_down"
+    assert unavailable["final_result"] == "infra_noise"
+    assert permission["category"] == "permission"
+    assert permission["final_result"] == "not_retryable"
+    assert len(manager.list_history()) >= 4
+
+
+def test_repair_unrepairable_presents_and_learns(tmp_path):
+    lessons: list[dict] = []
+    presented: list[object] = []
+
+    class FakeMemory:
+        def write_memory(self, content, memory_type="episodic", tags=None, importance=0.5, **kwargs):
+            lessons.append(
+                {"content": content, "memory_type": memory_type, "tags": tags, "importance": importance}
+            )
+            return "mem_1"
+
+    class FakePresentation:
+        def present(self, request):
+            presented.append(request)
+            return {"ok": True}
+
+    manager = RepairManager(
+        data_dir=str(tmp_path),
+        memory_manager=FakeMemory(),
+        presentation_manager=FakePresentation(),
+    )
+    entry = manager.record_failure(
+        capability_id="android-server.screen.get_ui_tree",
+        error="Android permission missing: accessibility",
+        status="denied",
+    )
+    assert entry["final_result"] == "not_retryable"
+    assert lessons
+    assert lessons[0]["memory_type"] == "lesson"
+    assert presented
+    # Dedupe within cooldown
+    manager.record_failure(
+        capability_id="android-server.screen.get_ui_tree",
+        error="Android permission missing: accessibility",
+        status="denied",
+    )
+    assert len(presented) == 1
 
 
 def test_hook_engine_dedupe_backoff_and_stop(tmp_path):

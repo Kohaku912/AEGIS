@@ -1,0 +1,1 @@
+{"timestamp_ms": 1785552721661, "tasks": [], "results": [], "next_run_ms": 1785554521661, "candidate_capability_ids": [], "decision_axes": {"user_commitment": 0.0, "system_health": 0.0, "learning": 0.0, "curiosity": 0.0}, "selected_tool_count": 0, "last_decision": "no_action", "last_no_action_reason": ""}

@@ -248,7 +248,8 @@ class _NoActionLLM:
         return SimpleNamespace(success=True, content="No action.", tool_calls=[])
 
 
-def test_high_pressure_no_action_is_reprompted_once(tmp_path) -> None:
+def test_empty_tool_response_is_not_reprompted(tmp_path) -> None:
+    """Successful empty responses are intentional no-action — never double-call LLM."""
     capability_ids = ["ai-server.memory.search"]
     broker = _Broker(capability_ids)
     tool_name = capability_ids[0].replace(".", "__").replace("-", "_")
@@ -263,10 +264,10 @@ def test_high_pressure_no_action_is_reprompted_once(tmp_path) -> None:
 
     tasks = loop._generate_tasks([{"name": "user_support", "gap": 5.0}])
 
-    assert llm.calls == 2
-    assert tasks
-    assert tasks[0]["capability_id"] == "ai-server.memory.search"
-    assert loop.get_status()["selected_tool_count"] == 1
+    assert llm.calls == 1
+    assert tasks == []
+    assert loop.get_status()["selected_tool_count"] == 0
+    assert loop.get_status()["last_decision"] == "no_action"
 
 
 def test_repeated_no_action_does_not_select_or_clear_pressure(tmp_path) -> None:

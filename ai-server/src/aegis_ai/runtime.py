@@ -89,6 +89,7 @@ class AegisRuntime:
     agent_state: Any = None
     goal_service: Any = None
     saved_view_manager: Any = None
+    operation_store: Any = None
     _lock: threading.RLock | None = None
 
     def start_autonomous_if_enabled(self) -> None:
@@ -486,6 +487,9 @@ def _build_runtime(config: Config) -> AegisRuntime:
         social_manager=social_manager,
         task_manager=task_manager,
     )
+    from aegis_ai.operations import OperationStore
+
+    operation_store = OperationStore(data_dir=data_dir)
     tool_broker.set_continuation_manager(continuation_manager)
     approval_manager.on_state_change(social_manager.handle_approval_event)
     approval_manager.on_state_change(continuation_manager.handle_approval_event)
@@ -669,6 +673,7 @@ def _build_runtime(config: Config) -> AegisRuntime:
         conditional_preference_store=preference_store,
         data_dir=data_dir,
     )
+    repair_manager.set_presentation_manager(presentation_manager)
     if core_client is not None and hasattr(core_client, "_personal"):
         core_client._personal["presentation_manager"] = presentation_manager
 
@@ -737,6 +742,7 @@ def _build_runtime(config: Config) -> AegisRuntime:
         agent_state=agent_state,
         goal_service=goal_service,
         saved_view_manager=SavedViewManager(data_dir, audit_manager),
+        operation_store=operation_store,
         _lock=threading.RLock(),
     )
     runtime_ref["runtime"] = runtime
@@ -846,6 +852,7 @@ def _create_autonomous_loop(runtime: AegisRuntime) -> Any:
     loop._agent_state = runtime.agent_state
     loop._goal_service = runtime.goal_service
     loop._social_manager = runtime.social_manager
+    loop._operation_store = getattr(runtime, "operation_store", None)
 
     loop.set_health_alert_manager(
         HealthAlertManager(

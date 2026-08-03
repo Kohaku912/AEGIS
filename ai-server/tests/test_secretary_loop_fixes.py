@@ -153,6 +153,107 @@ def test_transient_repairs_are_not_obligations(tmp_path: Path) -> None:
     assert not any("browserstartevent" in s or "timed out" in s for s in summaries)
 
 
+def test_stale_and_inflight_obligations_are_filtered(tmp_path: Path) -> None:
+    from aegis_ai.agency.state import AgentState
+    from aegis_ai.personal_ai.commitments import CommitmentManager
+    from aegis_ai.personal_ai.repair import RepairManager
+    from aegis_ai.personal_ai.storage import append_jsonl, now_ms
+
+    class _Social:
+        def list_items(self, status: str = "", limit: int = 200):
+            items = [
+                {
+                    "item_id": "social-open",
+                    "channel": "agora",
+                    "author": "alice",
+                    "body": "please reply",
+                    "status": "needs_reply",
+                    "urgency": 0.8,
+                    "received_at": now_ms(),
+                },
+                {
+                    "item_id": "social-drafted",
+                    "channel": "agora",
+                    "author": "bob",
+                    "body": "already drafted",
+                    "status": "drafted",
+                    "urgency": 0.9,
+                    "received_at": now_ms(),
+                },
+                {
+                    "item_id": "social-waiting",
+                    "channel": "agora",
+                    "author": "carol",
+                    "body": "awaiting approval",
+                    "status": "awaiting_approval",
+                    "urgency": 0.9,
+                    "received_at": now_ms(),
+                },
+            ]
+            if status:
+                items = [item for item in items if item["status"] == status]
+            return items[:limit]
+
+    commitments = CommitmentManager(data_dir=str(tmp_path / "personal"))
+    commitments.upsert_commitment({"title": "Active packing", "status": "open"})
+    commitments.upsert_commitment({"title": "Done chore", "status": "completed"})
+    expired = commitments.upsert_commitment({"title": "Expired duty", "status": "open"})
+    commitments.transition(expired["commitment_id"], "cancelled", reason="expired cleanup")
+
+    repair = RepairManager(data_dir=str(tmp_path / "repair"))
+    history = repair._history
+    ts = now_ms()
+    append_jsonl(
+        history,
+        {
+            "repair_id": "repair_dup",
+            "capability_id": "pc-server.shell.powershell",
+            "category": "tool_failed",
+            "error": "boom",
+            "timestamp": ts,
+            "final_result": "recorded",
+        },
+    )
+    append_jsonl(
+        history,
+        {
+            "repair_id": "repair_dup",
+            "capability_id": "pc-server.shell.powershell",
+            "category": "tool_failed",
+            "error": "boom",
+            "timestamp": ts + 1,
+            "final_result": "recovered",
+        },
+    )
+    append_jsonl(
+        history,
+        {
+            "repair_id": "repair_open",
+            "capability_id": "ai-server.agora.post",
+            "category": "tool_failed",
+            "error": "still broken",
+            "timestamp": ts + 2,
+            "final_result": "needs_followup",
+        },
+    )
+
+    snapshot = AgentState(
+        commitment_manager=commitments,
+        social_manager=_Social(),
+        repair_manager=repair,
+    ).snapshot("test")
+    ids = {item.obligation_id for item in snapshot.obligations}
+    kinds = {(item.obligation_id, item.kind) for item in snapshot.obligations}
+
+    assert any(item.summary == "Active packing" for item in snapshot.obligations)
+    assert "social-open" in ids
+    assert "social-drafted" not in ids
+    assert "social-waiting" not in ids
+    assert "repair_dup" not in ids
+    assert "repair_open" in ids
+    assert ("repair_open", "incident") in kinds
+
+
 def test_android_activity_events_are_not_queued(tmp_path: Path) -> None:
     from aegis_ai.autonomous.autonomous_loop import AutonomousLoop
 

@@ -118,13 +118,20 @@ class AutonomousLoop:
         self._execution_log: list[dict[str, Any]] = []
         self._pending_actionable_observations: list[dict[str, Any]] = []
         self._last_observation_ms: int = 0
-        self._observation_interval_ms: int = 60_000  # 1 minute
-        self._desire_check_interval_ms: int = 60_000  # 1 minute
+        # Observation only runs inside an execution cycle (not a 60s poll).
+        self._observation_interval_ms: int = int(
+            os.environ.get("AEGIS_OBSERVATION_INTERVAL_MS", str(1_800_000))
+        )
+        self._desire_check_interval_ms: int = 60_000  # skip-reason rate limit only
         self._last_desire_check_ms: int = 0
         self._last_desire_signature: str = ""
         self._last_pressure_signature: str = ""
-        self._min_execution_interval_ms: int = 60_000  # Minimum 1 minute between executions
+        # Allow immediate fire when pressure crosses threshold (no artificial 60s gate).
+        self._min_execution_interval_ms: int = int(
+            os.environ.get("AEGIS_MIN_EXECUTION_INTERVAL_MS", "5000")
+        )
         self._min_llm_interval_ms: int = int(os.environ.get("AEGIS_MIN_LLM_INTERVAL_MS", 1_800_000))
+        self._idle_wake_cap_ms: int = int(os.environ.get("AEGIS_IDLE_WAKE_CAP_MS", "300000"))  # 5 min
         self._llm_usage_window_ms: int = int(os.environ.get("AEGIS_AUTONOMOUS_LLM_USAGE_WINDOW_MS", 3_600_000))
         self._llm_usage_token_limit: int = int(os.environ.get("AEGIS_AUTONOMOUS_LLM_USAGE_TOKEN_LIMIT", 80_000))
         self._last_llm_call_ms: int = 0
@@ -303,7 +310,12 @@ class AutonomousLoop:
         logger.info("Autonomous loop stopped")
 
     def _run_loop(self) -> None:
-        """Main loop — desire monitoring, observation, and execution."""
+        """Main loop — desire monitoring and threshold-triggered execution.
+
+        Desires accumulate pressure at ~10/hour (threshold 5.0 ≈ 30 minutes).
+        When pressure crosses the threshold, an autonomous cycle runs immediately.
+        There is no 60-second execution/observation poll.
+        """
         while True:
             with self._lock:
                 running = self._running
@@ -334,57 +346,86 @@ class AutonomousLoop:
                     except Exception:
                         logger.debug("Approval expire_old failed", exc_info=True)
 
-                # Spontaneous observation (every 1 minute)
-                if self._observation and now - self._last_observation_ms >= self._observation_interval_ms:
-                    try:
-                        observations = self._observation.observe()
-                        actionable = []
-                        for o in observations:
-                            if not o.actionable:
-                                continue
-                            # Event/incident/manager work sources pass with lower bar
-                            source = str(o.source or "").lower()
-                            tags = {str(t).lower() for t in (o.tags or [])}
-                            incident_like = bool(
-                                tags & {"incident", "obligation", "approval", "commitment", "health", "event"}
-                                or source
-                                in {
-                                    "approval",
-                                    "commitment",
-                                    "task",
-                                    "obligation",
-                                    "incident",
-                                    "health",
-                                    "event",
-                                }
-                            )
-                            if incident_like or o.importance >= 0.7:
-                                actionable.append(o)
-                        if actionable:
-                            logger.info("Observation found %d actionable items", len(actionable))
-                            self._pending_actionable_observations = [o.to_dict() for o in actionable[:5]]
-                    except Exception as e:
-                        logger.warning("Observation failed: %s", e)
-                    finally:
-                        self._last_observation_ms = now
-
-                # Check minimum interval since last execution
                 time_since_last_run = now - self._last_run_ms
                 can_execute = time_since_last_run >= self._min_execution_interval_ms
-
-                if can_execute and (desire_triggered or now >= self._next_run_ms):
-                    self._execute_cycle()
+                # Desire threshold is the primary cadence — never block it behind
+                # llm_interval_gate / backoff schedules from earlier empty cycles.
+                if can_execute and desire_triggered:
+                    self._execute_cycle(force_desire=True)
+                elif can_execute and now >= self._next_run_ms:
+                    self._execute_cycle(force_desire=False)
                 else:
-                    # Sleep until next event: next_run, observation, or 60s
-                    sleep_ms = self._next_run_ms - now
-                    if self._observation:
-                        next_obs = self._last_observation_ms + self._observation_interval_ms - now
-                        sleep_ms = min(sleep_ms, next_obs)
-                    sleep_ms = max(sleep_ms, 1000)  # At least 1 second
-                    time.sleep(min(sleep_ms / 1000, 60))
+                    sleep_s = self._compute_idle_sleep_seconds(now)
+                    time.sleep(sleep_s)
             except Exception as e:
                 logger.error("Autonomous loop error: %s", e)
                 time.sleep(60)
+
+    def _is_execution_gated(self, now_ms: int) -> bool:
+        """True when a prior cycle scheduled a future gate (backoff / LLM interval).
+
+        Desire-threshold fires ignore this gate; it only paces fallback schedule wakes.
+        """
+        if self._next_run_ms <= now_ms:
+            return False
+        reason = str(self._last_skip_reason or "")
+        return reason.startswith(
+            ("no_action_backoff", "llm_interval_gate", "llm_provider_circuit")
+        )
+
+    def _compute_idle_sleep_seconds(self, now_ms: int) -> float:
+        """Sleep until pressure threshold, next_run, or idle wake cap — never a 60s poll."""
+        candidates: list[float] = [max(1.0, self._idle_wake_cap_ms / 1000.0)]
+        # Always prefer waking when desire pressure will hit threshold.
+        if self._desire is not None and hasattr(self._desire, "seconds_until_threshold"):
+            try:
+                eta = float(self._desire.seconds_until_threshold(self._pressure_threshold))
+                candidates.append(1.0 if eta <= 0 else eta)
+            except Exception:
+                logger.debug("Unable to estimate desire ETA", exc_info=True)
+        if self._next_run_ms > now_ms:
+            candidates.append(max(1.0, (self._next_run_ms - now_ms) / 1000.0))
+        if self._health_alert_manager is not None:
+            next_health = self._last_health_check_ms + self._health_check_interval_ms - now_ms
+            if next_health > 0:
+                candidates.append(max(1.0, next_health / 1000.0))
+        return max(1.0, min(candidates))
+
+    def _refresh_observations_for_cycle(self) -> None:
+        """Collect actionable observations once per execution cycle."""
+        if not self._observation:
+            return
+        now = int(time.time() * 1000)
+        try:
+            observations = self._observation.observe()
+            actionable = []
+            for o in observations:
+                if not o.actionable:
+                    continue
+                source = str(o.source or "").lower()
+                tags = {str(t).lower() for t in (o.tags or [])}
+                incident_like = bool(
+                    tags & {"incident", "obligation", "approval", "commitment", "health", "event"}
+                    or source
+                    in {
+                        "approval",
+                        "commitment",
+                        "task",
+                        "obligation",
+                        "incident",
+                        "health",
+                        "event",
+                    }
+                )
+                if incident_like or o.importance >= 0.7:
+                    actionable.append(o)
+            if actionable:
+                logger.info("Observation found %d actionable items", len(actionable))
+                self._pending_actionable_observations = [o.to_dict() for o in actionable[:5]]
+        except Exception as e:
+            logger.warning("Observation failed: %s", e)
+        finally:
+            self._last_observation_ms = now
 
     def _monitor_desires(self) -> bool:
         """Desire monitoring — runs every tick.
@@ -667,8 +708,26 @@ Respond with JSON:
             return obligation_goal
         return str(guide.get("goal") or f"Advance the {desire} objective")
 
-    def _execute_cycle(self) -> None:
-        """Execute autonomous tasks — only runs when scheduled or triggered."""
+    def _pressure_due(self) -> bool:
+        """True when any visible desire has reached the pressure threshold."""
+        if not self._desire:
+            return False
+        for desire in self._desire.get_all_desires().values():
+            if desire.hidden:
+                continue
+            if desire.pressure >= self._pressure_threshold:
+                return True
+        return False
+
+    def _execute_cycle(self, force_desire: bool = False) -> None:
+        """Execute autonomous tasks — only runs when scheduled or triggered.
+
+        Parameters
+        ----------
+        force_desire:
+            When True, pressure has crossed the threshold. Desire pacing owns the
+            cadence, so LLM-interval / no-action backoff gates are skipped.
+        """
         if not getattr(self, "_audit_group_active", False):
             from aegis_ai.audit.context import audit_group
 
@@ -676,12 +735,14 @@ Respond with JSON:
             with audit_group(group_id, group_type="autonomous", group_title="Autonomous execution cycle"):
                 self._audit_group_active = True
                 try:
-                    return self._execute_cycle()
+                    return self._execute_cycle(force_desire=force_desire)
                 finally:
                     self._audit_group_active = False
         logger.info("Starting autonomous execution cycle")
         with self._lock:
             self._last_run_ms = int(time.time() * 1000)
+
+        self._refresh_observations_for_cycle()
 
         social_manager = getattr(self, "_social_manager", None)
         if social_manager is not None:
@@ -690,36 +751,86 @@ Respond with JSON:
             except Exception:
                 logger.exception("Bounded Social retry batch failed")
 
+        # Collapse historical failed-task incidents before obligation / LLM gating.
+        if self._task_manager is not None and hasattr(self._task_manager, "sweep_stale_incidents"):
+            try:
+                sweep = self._task_manager.sweep_stale_incidents()
+                if int(sweep.get("resolved_count") or 0):
+                    logger.info(
+                        "Task incident sweep resolved=%s kept_open=%s",
+                        sweep.get("resolved_count"),
+                        sweep.get("kept_open"),
+                    )
+            except Exception:
+                logger.debug("Task incident sweep failed", exc_info=True)
+
         if not self._desire:
             logger.warning("No desire system, using fallback interval")
             self._schedule_next(self._fallback_interval)
             self._save()
             return
 
-        # Homeostatic desire work stays interval-gated; obligations/incidents bypass.
+        # Ensure pressure is current before gate decisions.
+        try:
+            self._desire.apply_decay()
+        except Exception:
+            logger.debug("Desire apply_decay failed at cycle start", exc_info=True)
+
+        pressure_due = force_desire or self._pressure_due()
         now_llm = int(time.time() * 1000)
         bypass_interval = self._has_interval_bypass_work()
-        if (
-            not bypass_interval
-            and self._last_llm_call_ms
-            and now_llm - self._last_llm_call_ms < self._min_llm_interval_ms
-        ):
-            remaining = (
-                self._min_llm_interval_ms
-                - (now_llm - self._last_llm_call_ms)
-            ) // 1000
-            logger.info(
-                "LLM interval gate: %ds remaining until next LLM call",
-                remaining,
-            )
-            self._last_skip_reason = (
-                f"llm_interval_gate ({remaining}s remaining)"
-            )
-            self._schedule_next(max(1, min(60, remaining)))
-            self._save()
-            return
+        backoff_ms = self._no_action_backoff_ms()
+
+        # Desire-threshold fires: pressure refill (~30m) is the only cadence gate.
+        if not pressure_due:
+            if (
+                bypass_interval
+                and backoff_ms > 0
+                and self._last_llm_call_ms
+                and now_llm - self._last_llm_call_ms < backoff_ms
+            ):
+                remaining = (backoff_ms - (now_llm - self._last_llm_call_ms)) // 1000
+                logger.info(
+                    "No-action backoff gate: %ds remaining (consecutive_no_action=%s)",
+                    remaining,
+                    self._consecutive_no_action,
+                )
+                self._last_skip_reason = (
+                    f"no_action_backoff ({remaining}s remaining, consecutive={self._consecutive_no_action})"
+                )
+                self._schedule_next(max(300, min(3600, remaining)))
+                self._save()
+                return
+            if (
+                not bypass_interval
+                and self._last_llm_call_ms
+                and now_llm - self._last_llm_call_ms < self._min_llm_interval_ms
+            ):
+                remaining = (
+                    self._min_llm_interval_ms
+                    - (now_llm - self._last_llm_call_ms)
+                ) // 1000
+                logger.info(
+                    "LLM interval gate: %ds remaining until next LLM call",
+                    remaining,
+                )
+                self._last_skip_reason = (
+                    f"llm_interval_gate ({remaining}s remaining)"
+                )
+                self._schedule_next(max(300, min(3600, remaining)))
+                self._save()
+                return
+        else:
+            logger.info("Desire pressure due — skipping LLM interval / no-action backoff gates")
+            # Fresh desire fire: do not carry empty-cycle backoff into this attempt.
+            if self._consecutive_no_action:
+                self._consecutive_no_action = 0
+
         if bypass_interval and self._last_llm_call_ms and now_llm - self._last_llm_call_ms < self._min_llm_interval_ms:
-            logger.info("LLM interval bypassed for obligations/incidents")
+            if not pressure_due:
+                logger.info("LLM interval bypassed for obligations/incidents")
+            else:
+                logger.info("LLM interval superseded by desire pressure threshold")
 
         should_proceed, preflight_reason = self._preflight_check()
         if not should_proceed:
@@ -736,7 +847,7 @@ Respond with JSON:
                 )
             next_interval = self._fallback_interval
             if not preflight_reason.startswith("all_pressure_below_threshold"):
-                next_interval = 60
+                next_interval = max(300, min(self._fallback_interval, 900))
             self._schedule_next(next_interval)
             self._save()
             return
@@ -805,9 +916,16 @@ Respond with JSON:
 
         self._update_desires(results)
         self._record_experiences(tasks, results)
+        # Spend desire pressure so the next homeostatic fire takes ~30 minutes.
+        if self._desire is not None and hasattr(self._desire, "release_cycle_pressure"):
+            try:
+                self._desire.release_cycle_pressure(effectiveness=1.0)
+            except Exception:
+                logger.debug("Desire pressure release failed", exc_info=True)
         next_interval = self._decide_next_interval(results)
         self._schedule_next(next_interval)
         self._log_execution(tasks, results)
+        self._record_operation(tasks, results)
         self._save()
 
     def _get_low_desires(self) -> list[dict[str, Any]]:
@@ -1362,38 +1480,13 @@ Operational decision axes (prioritization only; not additional desires):
             self._last_skip_reason = f"llm_error: {getattr(result, 'error', 'unknown')}"
             return []
 
-        if not result.tool_calls and not str(getattr(result, "content", "") or "").strip():
-            reason = result.content[:200] if result.content else "LLM returned no tool calls"
-            self._log_audit_event(
-                action="autonomous_llm_retry",
-                capability_id="none",
-                decision="RETRY",
-                reason=reason,
-                detail={
-                    "source": "task_generation",
-                    "candidate_capability_ids": candidate_ids[:50],
-                    "desire_guides": desire_guides,
-                    "decision_axes": decision_axes,
-                    "intrinsic_hints": intrinsic_hints,
-                },
-            )
-            result = self._call_task_generation_llm(
-                prompt=prompt,
-                tools=tools,
-                memory_meta=memory_meta,
-                retry=True,
-            )
-
-        if not result.success:
-            logger.error("LLM task generation retry failed: %s", getattr(result, "error", "unknown"))
-            self._last_decision = "llm_error"
-            self._last_skip_reason = f"llm_error: {getattr(result, 'error', 'unknown')}"
-            return []
-
+        # Successful empty responses are intentional non-action — never double-call.
         if not result.tool_calls:
             reason = "LLM chose not to act"
             if result.content:
                 reason = result.content[:200]
+            elif not str(getattr(result, "content", "") or "").strip():
+                reason = "LLM returned no tool calls"
             logger.info("LLM no_action: %s", reason)
             self._last_decision = "no_action"
             self._last_skip_reason = f"no_action: {reason}"
@@ -2712,8 +2805,31 @@ Rules:
                 except (KeyError, TypeError, ValueError):
                     logger.debug("Unable to advance learned continuation %s", continuation_id, exc_info=True)
 
+    def _no_action_backoff_ms(self) -> int:
+        """Exponential backoff after repeated intentional/empty no-action cycles.
+
+        consecutive_no_action: 0 → 0
+                               1 → 60s
+                               2 → 120s
+                               3 → 240s
+                               ...
+                               capped at min(1h, AEGIS_MIN_LLM_INTERVAL_MS)
+        """
+        n = int(self._consecutive_no_action or 0)
+        if n <= 0:
+            return 0
+        seconds = min(3600, 60 * (2 ** min(n - 1, 6)))
+        # Never shorter than the homeostatic LLM interval once we are spinning.
+        if n >= 3:
+            seconds = max(seconds, min(3600, self._min_llm_interval_ms // 1000))
+        return int(seconds * 1000)
+
     def _decide_next_interval(self, results: list[dict[str, Any]]) -> int:
-        """Decide when to run next using pressure-based logic (no LLM)."""
+        """Decide when to run next using pressure-based logic (no LLM).
+
+        After a cycle, pressure is normally released, so the default is the
+        ~30 minute fallback. Never schedule a 60-second re-fire.
+        """
         if not self._desire:
             logger.info("No desire — using fallback interval %ds", self._fallback_interval)
             return self._fallback_interval
@@ -2731,24 +2847,28 @@ Rules:
         success_count = sum(1 for r in results if r.get("success"))
         total_count = len(results)
         fail_count = total_count - success_count
+        backoff_s = self._no_action_backoff_ms() // 1000
+        min_interval = max(300, int(self._fallback_interval))
 
         if high_pressure_count == 0:
             interval = self._fallback_interval
-            reason = "all pressures below threshold"
-        elif high_pressure_count >= 3:
-            interval = 60
-            reason = f"{high_pressure_count} desires critically pressured"
+            reason = "all pressures below threshold (refill ~30m)"
+        elif total_count == 0 and backoff_s > 0:
+            interval = max(min_interval, backoff_s)
+            reason = (
+                f"no_action backoff consecutive={self._consecutive_no_action} → {interval}s"
+            )
         elif fail_count > success_count and total_count > 0:
-            interval = 900
+            interval = max(min_interval, 900)
             reason = f"{fail_count}/{total_count} tasks failed, backing off"
         elif total_count == 0:
-            interval = 60
-            reason = "no tasks executed while pressure remains high"
+            interval = max(min_interval, backoff_s or self._fallback_interval)
+            reason = "no tasks executed; wait for desire refill"
         else:
-            interval = max(60, int(self._fallback_interval * (1.0 - total_pressure / 30.0)))
-            reason = f"{high_pressure_count} pressured desires, managed"
+            interval = self._fallback_interval
+            reason = f"{high_pressure_count} pressured desires handled; homeostatic refill"
 
-        interval = max(60, min(3600, interval))
+        interval = max(300, min(3600, interval))
         logger.info("Next autonomous run in %d seconds: %s", interval, reason)
         return interval
 
@@ -2842,6 +2962,25 @@ Rules:
         log_path = self._data_dir / "execution_log.jsonl"
         with open(log_path, "a", encoding="utf-8") as f:
             f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+
+    def _record_operation(self, tasks: list[dict[str, Any]], results: list[dict[str, Any]]) -> None:
+        """Persist a first-class OperationRecord for the observation dashboard."""
+        store = getattr(self, "_operation_store", None)
+        if store is None or not hasattr(store, "record_autonomous_cycle"):
+            return
+        try:
+            store.record_autonomous_cycle(
+                tasks=tasks,
+                results=results,
+                decision=str(self._last_decision or ""),
+                skip_reason=str(self._last_skip_reason or ""),
+                no_action_reason=str(self._last_no_action_reason or ""),
+                candidates=list(self._last_candidate_capability_ids[-20:]),
+                decision_axes=dict(self._last_decision_axes),
+                timestamp_ms=int(time.time() * 1000),
+            )
+        except Exception:
+            logger.debug("Failed to persist operation record", exc_info=True)
 
     def get_status(self) -> dict[str, Any]:
         """Get autonomous loop status."""

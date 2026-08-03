@@ -653,6 +653,46 @@ def llm_requests():
     return jsonify(_filter_page(traces))
 
 
+@resource_bp.get("/api/operations")
+def list_operations():
+    from aegis_ai.web.ui_overview import _operations
+
+    items = _operations(_get_runtime())
+    return jsonify(_filter_page([_summary("operation", item, fallback_id=str(item.get("operation_id") or "")) for item in items]))
+
+
+@resource_bp.get("/api/operations/<path:operation_id>")
+def get_operation(operation_id: str):
+    from aegis_ai.web.ui_overview import _operations
+
+    rt = _get_runtime()
+    store = getattr(rt, "operation_store", None)
+    if store is not None and hasattr(store, "get"):
+        record = store.get(operation_id)
+        if record is not None:
+            return jsonify(record.to_dict() if hasattr(record, "to_dict") else record)
+    for item in _operations(rt):
+        if str(item.get("operation_id") or "") == operation_id:
+            return jsonify(item)
+    return jsonify({"error": "not_found", "operation_id": operation_id}), 404
+
+
+@resource_bp.get("/api/llm/requests/<path:request_id>")
+def get_llm_request(request_id: str):
+    from aegis_ai.observability.llm_usage.service import LLMUsageService
+
+    rt = _get_runtime()
+    service = LLMUsageService(
+        audit_manager=getattr(rt, "audit_manager", None) or getattr(rt, "audit_log", None),
+        prompt_registry=getattr(rt, "prompt_registry", None),
+    )
+    for trace in service.get_traces(period=request.args.get("period", "30d"), limit=500):
+        identity = str(trace.get("request_id") or trace.get("id") or "")
+        if identity == request_id:
+            return jsonify(_summary("llm_request", trace, fallback_id=identity))
+    return jsonify({"error": "not_found", "request_id": request_id}), 404
+
+
 @resource_bp.post("/api/policy/simulate")
 def simulate_policy():
     """Evaluate the effective policy without invoking the capability."""

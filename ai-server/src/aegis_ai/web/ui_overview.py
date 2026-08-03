@@ -510,11 +510,13 @@ def _activity(runtime: Any) -> dict[str, Any]:
 
 
 _OPERATION_KIND_LABELS = {
-    "chat": "User instruction",
-    "autonomous": "Autonomous run",
-    "task": "Task",
-    "approval": "Approval",
-    "system": "System",
+    "chat": "ユーザー指示",
+    "autonomous": "自律判断",
+    "task": "タスク",
+    "approval": "承認",
+    "event": "イベント",
+    "schedule": "Schedule",
+    "system": "システム",
 }
 
 _ACTIVITY_NOISE_EVENT_TYPES = {
@@ -548,9 +550,26 @@ _ANDROID_ACTIVITY_ALLOWLIST = {
 
 
 def _operations(runtime: Any) -> list[dict[str, Any]]:
-    """Build AEGIS-centric operation timeline (one chat turn / autonomous cycle / task)."""
+    """Build AEGIS-centric operation timeline from OperationStore, then audit fallback."""
     ops: list[dict[str, Any]] = []
     seen: set[str] = set()
+
+    store = getattr(runtime, "operation_store", None)
+    if store is not None and hasattr(store, "list_recent"):
+        try:
+            for record in store.list_recent(limit=40):
+                payload = record.to_dict() if hasattr(record, "to_dict") else dict(record)
+                operation_id = str(payload.get("operation_id") or "")
+                if not operation_id or operation_id in seen:
+                    continue
+                if not payload.get("causal_chain"):
+                    from aegis_ai.operations import build_causal_chain
+
+                    payload["causal_chain"] = build_causal_chain(payload)
+                seen.add(operation_id)
+                ops.append(payload)
+        except Exception:
+            pass
 
     audit = getattr(runtime, "audit_manager", None)
     if audit is not None and hasattr(audit, "list_groups"):
@@ -582,7 +601,7 @@ def _operations(runtime: Any) -> list[dict[str, Any]]:
         ops.append(_operation_from_autonomous_cycle(cycle))
 
     ops.sort(key=lambda item: int(item.get("updated_at") or 0), reverse=True)
-    return ops[:24]
+    return ops[:40]
 
 
 def _operation_from_audit_group(group: dict[str, Any]) -> dict[str, Any] | None:
@@ -664,6 +683,14 @@ def _operation_from_audit_group(group: dict[str, Any]) -> dict[str, Any] | None:
     title = str(group.get("title") or kind)[:160]
     summary = _humanize_activity_text(str(group.get("summary") or ""))[:280]
     what_happened = _what_happened_from_steps(steps, summary, kind=kind)
+    if not what_happened:
+        what_happened = summary or title
+    # Never use species labels as the primary title.
+    if title.lower() in {"autonomous", "autonomous run", "autonomous cycle", "system", "chat", "task"} or title in {
+        "自律実行",
+        "Autonomous cycle",
+    }:
+        title = what_happened[:160] or title
     targets = list(
         dict.fromkeys(
             str(step.get("capability_id") or "")
@@ -671,25 +698,43 @@ def _operation_from_audit_group(group: dict[str, Any]) -> dict[str, Any] | None:
             if step.get("capability_id")
         )
     )
+    target_summary = ", ".join(
+        dict.fromkeys(cap.split(".", 1)[0].replace("-server", "") for cap in targets[:4] if cap)
+    )
+    result_status = str(group.get("status") or "success")
+    if error_count and tool_count and error_count < tool_count:
+        result_status = "partial"
+    elif error_count:
+        result_status = "failed"
     op = {
         "operation_id": str(group.get("group_id") or ""),
         "kind": kind,
         "kind_label": _OPERATION_KIND_LABELS.get(kind, kind.title()),
+        "source": "user" if kind == "chat" else ("autonomous" if kind == "autonomous" else kind),
         "title": title,
+        "action_summary": title,
         "summary": summary,
         "what_happened": what_happened,
         "narrative": what_happened,
-        "reason": title,
+        "result_summary": what_happened,
+        "purpose": title,
         "target": ", ".join(targets[:3]),
+        "target_summary": target_summary or ", ".join(targets[:3]),
         "targets": targets,
-        "status": str(group.get("status") or "success"),
+        "status": result_status,
+        "result_status": result_status,
+        "goal_status": "unmet" if error_count else ("achieved" if tool_count else "unknown"),
+        "verification_status": "failed" if error_count else ("passed" if tool_count else "unknown"),
         "started_at": int(group.get("start_ms") or 0),
         "updated_at": int(group.get("end_ms") or 0),
+        "duration_ms": max(0, int(group.get("end_ms") or 0) - int(group.get("start_ms") or 0)),
         "tool_count": tool_count,
         "error_count": error_count,
         "approval_count": approval_count,
         "entry_count": int(group.get("entry_count") or len(steps)),
         "steps": steps,
+        "next_action": "失敗を確認して再試行" if error_count else "",
+        "linked_entity_ids": {"capability": targets[:12]},
         "priority": "P1" if error_count else ("P2" if kind in {"chat", "approval"} else "P3"),
     }
     op["causal_chain"] = _causal_chain_from_operation(op)
@@ -722,24 +767,36 @@ def _operation_from_autonomous_cycle(cycle: dict[str, Any]) -> dict[str, Any]:
             what_parts.append(narrative)
 
     if not what_parts and cycle.get("skip_reason"):
-        what_parts.append(f"Did not act: {cycle.get('skip_reason')}")
+        what_parts.append(f"行動しなかった：{cycle.get('skip_reason')}")
     if not what_parts and cycle.get("decision"):
         what_parts.append(str(cycle.get("decision")))
 
     summary = _truncate_text(" ".join(what_parts), limit=280)
     what_happened = _truncate_text(
-        " ".join(what_parts) if what_parts else "No actions this cycle.",
+        " ".join(what_parts) if what_parts else "このサイクルでは具体的な操作がありません。",
         limit=280,
     )
+    skip = str(cycle.get("skip_reason") or "")
+    title = what_happened[:160] if what_happened else str(cycle.get("decision") or "観測サイクル")[:160]
+    if title.lower().startswith("autonomous") or title in {"Autonomous cycle", "自律実行"}:
+        title = what_happened[:160] or (f"行動しなかった：{skip}" if skip else "観測のみ")
     op = {
         "operation_id": f"autonomous-cycle:{int(cycle.get('timestamp_ms') or 0)}",
         "kind": "autonomous",
-        "kind_label": _OPERATION_KIND_LABELS.get("autonomous", "Autonomous"),
-        "title": str(cycle.get("decision") or "Autonomous cycle")[:160],
+        "kind_label": _OPERATION_KIND_LABELS.get("autonomous", "自律判断"),
+        "source": "autonomous",
+        "title": title,
+        "action_summary": title,
         "summary": summary,
         "what_happened": what_happened,
         "narrative": what_happened,
-        "status": "skipped" if cycle.get("skip_reason") else ("success" if not any(s.get("status") == "failed" for s in steps) else "failed"),
+        "result_summary": what_happened,
+        "purpose": str(cycle.get("decision") or skip or title)[:280],
+        "decision_reason": str(cycle.get("decision") or skip)[:280],
+        "status": "non_action" if skip else ("success" if not any(s.get("status") == "failed" for s in steps) else "failed"),
+        "result_status": "non_action" if skip else ("success" if not any(s.get("status") == "failed" for s in steps) else "failed"),
+        "goal_status": "not_applicable" if skip else ("achieved" if steps and not any(s.get("status") == "failed" for s in steps) else "unmet"),
+        "verification_status": "skipped" if skip else ("failed" if any(s.get("status") == "failed" for s in steps) else "passed"),
         "started_at": int(cycle.get("timestamp_ms") or 0),
         "updated_at": int(cycle.get("timestamp_ms") or 0),
         "tool_count": len(steps),
@@ -747,8 +804,17 @@ def _operation_from_autonomous_cycle(cycle: dict[str, Any]) -> dict[str, Any]:
         "approval_count": 0,
         "entry_count": len(steps),
         "steps": steps,
-        "skip_reason": str(cycle.get("skip_reason") or ""),
+        "skip_reason": skip,
+        "wait_reason": skip,
         "decision": str(cycle.get("decision") or ""),
+        "next_action": skip if skip else "",
+        "target_summary": ", ".join(
+            dict.fromkeys(
+                str(step.get("capability_id") or "").split(".", 1)[0]
+                for step in steps
+                if step.get("capability_id")
+            )
+        ),
         "priority": "P3",
     }
     op["causal_chain"] = _causal_chain_from_operation(op)
@@ -757,72 +823,34 @@ def _operation_from_autonomous_cycle(cycle: dict[str, Any]) -> dict[str, Any]:
 
 def _causal_chain_from_operation(op: dict[str, Any]) -> list[dict[str, Any]]:
     """Human-readable Trigger → … → Learning chain for one operation."""
-    steps = list(op.get("steps") or [])
-    skip = str(op.get("skip_reason") or "")
-    decision = str(op.get("decision") or "")
-    failed = [s for s in steps if s.get("status") == "failed"]
-    ok = [s for s in steps if s.get("status") != "failed"]
+    from aegis_ai.operations import build_causal_chain
 
-    def stage(name: str, summary: str, status: str = "present", detail: str = "") -> dict[str, Any]:
-        return {
-            "stage": name,
-            "label": name.replace("_", " ").title(),
-            "summary": summary[:220] if summary else "",
-            "status": status,  # present | missing | skipped
-            "detail": detail[:220],
+    enriched = dict(op)
+    if not enriched.get("action_summary"):
+        enriched["action_summary"] = str(op.get("title") or op.get("what_happened") or "")
+    if not enriched.get("result_summary"):
+        enriched["result_summary"] = str(op.get("what_happened") or op.get("narrative") or op.get("summary") or "")
+    if not enriched.get("purpose"):
+        enriched["purpose"] = str(op.get("title") or op.get("decision") or "")
+    if not enriched.get("decision_reason"):
+        enriched["decision_reason"] = str(op.get("decision") or op.get("skip_reason") or "")
+    if not enriched.get("wait_reason"):
+        enriched["wait_reason"] = str(op.get("skip_reason") or "")
+    if not enriched.get("result_status"):
+        if op.get("skip_reason"):
+            enriched["result_status"] = "non_action"
+        elif int(op.get("error_count") or 0):
+            enriched["result_status"] = "failed"
+        else:
+            enriched["result_status"] = str(op.get("status") or "success")
+    if not enriched.get("goal"):
+        enriched["goal"] = str(op.get("title") or "")
+    if not enriched.get("trigger"):
+        enriched["trigger"] = {
+            "summary": str(op.get("kind_label") or op.get("kind") or ""),
+            "detail": str(op.get("title") or ""),
         }
-
-    chain = [
-        stage("trigger", str(op.get("kind_label") or op.get("kind") or "Operation"), "present", str(op.get("title") or "")),
-        stage(
-            "decision_context",
-            "See Decision Context page for AgentState obligations and situation",
-            "present" if op.get("kind") else "missing",
-        ),
-        stage(
-            "candidates_and_non_action",
-            skip or decision or ("Tool steps selected" if steps else "No tool selection recorded"),
-            "present" if (skip or decision or steps) else "missing",
-            skip,
-        ),
-        stage(
-            "goal",
-            str(op.get("title") or op.get("summary") or ""),
-            "present" if op.get("title") else "missing",
-        ),
-        stage(
-            "execution",
-            f"{len(ok)} succeeded, {len(failed)} failed" if steps else (skip or "No execution"),
-            "present" if steps else ("skipped" if skip else "missing"),
-            " → ".join(str(s.get("narrative") or s.get("summary") or s.get("capability_id") or s.get("action") or "") for s in steps[:4]),
-        ),
-        stage(
-            "result",
-            str(op.get("what_happened") or op.get("narrative") or op.get("summary") or ""),
-            "present" if (op.get("what_happened") or op.get("summary")) else "missing",
-        ),
-        stage(
-            "verification",
-            "Failed steps present" if failed else ("Execution completed" if ok else "Not verified"),
-            "present" if (failed or ok) else "missing",
-        ),
-        stage(
-            "presentation",
-            "Reported to user surfaces when presentable",
-            "present" if str(op.get("kind")) in {"chat", "approval"} else "missing",
-        ),
-        stage(
-            "follow_up",
-            "Open loops / continuations may own remaining work",
-            "present" if int(op.get("approval_count") or 0) else "missing",
-        ),
-        stage(
-            "learning",
-            "Repair / failure lessons recorded when applicable",
-            "present" if failed else "missing",
-        ),
-    ]
-    return chain
+    return build_causal_chain(enriched)
 
 
 def _narrative_from_audit_entry(entry: dict[str, Any]) -> str:
@@ -1136,15 +1164,49 @@ def _user_state(runtime: Any) -> dict[str, Any]:
 
 
 def _mind_summary(runtime: Any) -> dict[str, Any]:
-    desires = {}
+    autonomy: dict[str, Any] = {}
     loop = getattr(runtime, "autonomous_loop", None)
     if loop is not None and hasattr(loop, "get_status"):
-        desires = loop.get_status()
+        try:
+            autonomy = dict(loop.get_status() or {})
+        except Exception:
+            autonomy = {}
+
+    desires: dict[str, Any] = {}
+    pressures: dict[str, Any] = {}
+    pressure_details: dict[str, Any] = {}
+    desire_system = getattr(loop, "_desire", None) if loop is not None else None
+    if desire_system is None:
+        desire_system = getattr(runtime, "desire_system", None)
+    if desire_system is not None:
+        try:
+            if hasattr(desire_system, "apply_decay"):
+                desire_system.apply_decay()
+            if hasattr(desire_system, "get_stats"):
+                stats = desire_system.get_stats()
+                desires = dict(stats.get("desires") or {})
+                pressures = dict(stats.get("pressures") or {})
+                autonomy["desires"] = desires
+                autonomy["pressures"] = pressures
+                autonomy["average_pressure"] = stats.get("average_pressure", 0)
+                autonomy["seconds_until_threshold"] = stats.get("seconds_until_threshold", 0)
+                autonomy["pressure_threshold"] = stats.get("pressure_threshold", 5.0)
+            if hasattr(desire_system, "get_pressure_state"):
+                pressure_details = desire_system.get_pressure_state()
+        except Exception:
+            pass
+
     memory_stats = {}
     manager = getattr(runtime, "memory_manager", None)
     if manager is not None and hasattr(manager, "get_stats"):
         memory_stats = manager.get_stats()
-    return {"autonomy": desires, "memory": memory_stats}
+    return {
+        "autonomy": autonomy,
+        "desires": desires,
+        "pressures": pressures,
+        "pressure": pressure_details,
+        "memory": memory_stats,
+    }
 
 
 def _memory(runtime: Any) -> dict[str, Any]:

@@ -1,0 +1,44 @@
+{
+  "records": {
+    "cont_70e7380c50a2": {
+      "approval_id": "",
+      "arguments": {},
+      "capability_id": "",
+      "continuation_id": "cont_70e7380c50a2",
+      "conversation_id": "",
+      "created_at": 1785471890117,
+      "follow_up_due_at": 0,
+      "goal": "android-production-e2e tap",
+      "history": [
+        {
+          "at": 1785471890117,
+          "reason": "",
+          "stage": "observed",
+          "state": "open"
+        },
+        {
+          "at": 1785471890145,
+          "reason": "goal_hygiene: stale e2e continuation",
+          "stage": "hygiene",
+          "state": "cancelled"
+        }
+      ],
+      "promised_action": "",
+      "purpose": "",
+      "rationale": "goal_hygiene: stale e2e continuation",
+      "request_id": "",
+      "social_obligation_id": "",
+      "source_desire": "",
+      "stage": "hygiene",
+      "state": "cancelled",
+      "step_id": "",
+      "stop_condition": "",
+      "success_condition": "",
+      "task_id": "",
+      "trigger": "android-production-e2e",
+      "unresolved_question": "",
+      "updated_at": 1785471890145,
+      "waiting_for": ""
+    }
+  }
+}

@@ -38,6 +38,57 @@ class TaskSource(Enum):
     SYSTEM = "system"
 
 
+def _incident_fingerprint(task: dict[str, Any]) -> str:
+    """Normalize a failed task into a collapse key for duplicate incident cleanup."""
+    error = str(task.get("error") or task.get("goal") or task.get("title") or "").strip().lower()
+    capability = ""
+    steps = task.get("steps") if isinstance(task.get("steps"), list) else []
+    for step in steps:
+        if isinstance(step, dict) and step.get("capability_id"):
+            capability = str(step.get("capability_id"))
+            break
+    if not capability:
+        capability = str(task.get("capability_id") or task.get("source") or "task")
+    # Stabilize noisy prefixes while keeping distinct failure families separate.
+    for marker in (
+        "browserstartevent",
+        "completion verification failed",
+        "http execution error: timed out",
+        "invalid json from pc server",
+        "interrupted by an ai server restart",
+        "dev server grpc error: unavailable",
+        "no space left on device",
+        "failed to establish cdp connection",
+        "path must stay inside the aegis workspace",
+        "network_error",
+        "remote end closed connection",
+    ):
+        if marker in error:
+            return f"{capability}:{marker}"
+    compact = " ".join(error.split())[:160]
+    return f"{capability}:{compact or 'unknown'}"
+
+
+def _is_unrecoverable_incident(error: str) -> bool:
+    """Return True when retrying the same failure cannot make progress without external change."""
+    text = (error or "").strip().lower()
+    if not text:
+        return False
+    markers = (
+        "browserstartevent",
+        "interrupted by an ai server restart",
+        "dev server grpc error: unavailable",
+        "errors resolving dev-server",
+        "no space left on device",
+        "invalid json from pc server",
+        "failed to establish cdp connection",
+        "path must stay inside the aegis workspace",
+        "android server is unavailable",
+        "connection refused",
+    )
+    return any(marker in text for marker in markers)
+
+
 _VALID_TRANSITIONS: dict[str, set[str]] = {
     "created": {"planning", "running", "cancelled", "expired"},
     "planning": {"running", "cancelled", "failed"},
@@ -242,6 +293,85 @@ class TaskManager:
             task["updated_at"] = int(time.time() * 1000)
             self._save()
         return True
+
+    def list_open_incidents(self, *, limit: int = 5000) -> list[dict[str, Any]]:
+        """Return failed tasks that still carry an open incident."""
+        with self._lock:
+            items = [
+                dict(task)
+                for task in self._tasks.values()
+                if str(task.get("status") or "") == TaskStatus.FAILED.value
+                and str(task.get("incident_status") or "") == "open"
+            ]
+        items.sort(key=lambda task: int(task.get("updated_at") or task.get("created_at") or 0), reverse=True)
+        return items[: max(1, limit)]
+
+    def sweep_stale_incidents(
+        self,
+        *,
+        now_ms: int | None = None,
+        max_age_ms: int = 24 * 60 * 60 * 1000,
+        keep_per_fingerprint: int = 1,
+    ) -> dict[str, Any]:
+        """Auto-resolve duplicate / unrecoverable / aged failed-task incidents.
+
+        Keeps at most ``keep_per_fingerprint`` newest open incidents per normalized
+        error signature so AgentState obligations cannot be flooded by historical
+        BrowserStart / timeout ghosts.
+        """
+        now = int(now_ms or time.time() * 1000)
+        resolved: list[dict[str, str]] = []
+        kept = 0
+        by_fingerprint: dict[str, list[dict[str, Any]]] = {}
+
+        with self._lock:
+            open_items = [
+                task
+                for task in self._tasks.values()
+                if str(task.get("status") or "") == TaskStatus.FAILED.value
+                and str(task.get("incident_status") or "") == "open"
+            ]
+            for task in open_items:
+                fingerprint = _incident_fingerprint(task)
+                by_fingerprint.setdefault(fingerprint, []).append(task)
+
+            for fingerprint, group in by_fingerprint.items():
+                group.sort(
+                    key=lambda task: int(task.get("updated_at") or task.get("created_at") or 0),
+                    reverse=True,
+                )
+                for index, task in enumerate(group):
+                    task_id = str(task.get("task_id") or "")
+                    error = str(task.get("error") or task.get("goal") or "")
+                    updated_at = int(task.get("updated_at") or task.get("created_at") or 0)
+                    reason = ""
+                    if _is_unrecoverable_incident(error):
+                        reason = "auto_resolved_unrecoverable"
+                    elif updated_at and now - updated_at > max_age_ms:
+                        reason = "auto_resolved_stale_age"
+                    elif index >= max(1, keep_per_fingerprint):
+                        reason = "auto_resolved_duplicate"
+                    if not reason:
+                        kept += 1
+                        continue
+                    task["incident_status"] = "resolved"
+                    task["incident_resolution"] = reason
+                    task["updated_at"] = now
+                    resolved.append({"task_id": task_id, "reason": reason, "fingerprint": fingerprint[:120]})
+            if resolved:
+                self._save()
+
+        if resolved:
+            logger.info(
+                "Swept %d stale task incident(s); %d open incident(s) remain",
+                len(resolved),
+                kept,
+            )
+        return {
+            "resolved_count": len(resolved),
+            "kept_open": kept,
+            "resolved": resolved[:50],
+        }
 
     def list_tasks(self, status: str | None = None, source: str | None = None, limit: int = 100) -> list[dict[str, Any]]:
         """List tasks with optional filters."""

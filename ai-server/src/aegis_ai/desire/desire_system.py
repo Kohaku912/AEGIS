@@ -303,6 +303,7 @@ class DesireSystem:
         if now_ms is None:
             now_ms = int(time.time() * 1000)
 
+        changed = False
         for dim in self._desires.values():
             if dim.hidden:
                 continue
@@ -318,6 +319,14 @@ class DesireSystem:
                 dim.pressure = self._pressure_engine.get_pressure(dim.name)
                 dim.drift_rate = self._pressure_engine.get_drift_rate(dim.name)
             dim.last_updated_at = now_ms
+            changed = True
+
+        # Persist so dashboard / restarts see accumulation (not only in-memory).
+        if changed:
+            last_save = int(getattr(self, "_last_pressure_save_ms", 0) or 0)
+            if now_ms - last_save >= 30_000:
+                self._save()
+                self._last_pressure_save_ms = now_ms
 
     # ── Pressure methods ─────────────────────────────────────────────────
 
@@ -342,18 +351,66 @@ class DesireSystem:
             dim.drift_rate = self._pressure_engine.get_drift_rate(desire)
             dim.last_action_at = int(time.time() * 1000)
 
+    def release_cycle_pressure(self, *, effectiveness: float = 1.0) -> None:
+        """Spend accumulated pressure after an autonomous cycle so refill takes ~30 minutes.
+
+        Time pressure accumulates at 10.0/hour toward threshold 5.0 (~30 minutes from 0).
+        Releasing after each cycle prevents sticky high pressure from re-firing every tick.
+        """
+        for name, dim in self._desires.items():
+            if dim.hidden:
+                continue
+            if dim.pressure <= 0:
+                continue
+            self.reduce_pressure(name, effectiveness)
+        self._save()
+
+    def seconds_until_threshold(self, threshold: float = 5.0) -> float:
+        """Estimate seconds until any visible desire reaches ``threshold`` from time alone.
+
+        Returns 0 if already at/above threshold. Uses AEGIS_PRESSURE_PER_HOUR (default 10).
+        """
+        from aegis_ai.desire.pressure import _TIME_PRESSURE_PER_HOUR
+
+        rate = float(_TIME_PRESSURE_PER_HOUR or 10.0)
+        if rate <= 0:
+            return 1800.0
+        soonest = float("inf")
+        any_visible = False
+        for dim in self._desires.values():
+            if dim.hidden:
+                continue
+            any_visible = True
+            if dim.pressure >= threshold:
+                return 0.0
+            remaining = threshold - dim.pressure
+            soonest = min(soonest, (remaining / rate) * 3600.0)
+        if not any_visible or soonest == float("inf"):
+            return (threshold / rate) * 3600.0
+        return max(0.0, soonest)
+
     def get_pressure_state(self) -> dict[str, dict[str, Any]]:
         """Return complete pressure state for all desires."""
+        from aegis_ai.desire.pressure import _TIME_PRESSURE_PER_HOUR
+
+        rate = float(_TIME_PRESSURE_PER_HOUR or 10.0)
         state: dict[str, dict[str, Any]] = {}
         for name, dim in self._desires.items():
             if dim.hidden:
                 continue
+            if dim.pressure >= 5.0 or rate <= 0:
+                eta = 0.0
+            else:
+                eta = max(0.0, ((5.0 - dim.pressure) / rate) * 3600.0)
             state[name] = {
-                "value": dim.value,
                 "pressure": dim.pressure,
                 "threshold": 5.0,
                 "drift_rate": dim.drift_rate,
+                "desire_value": dim.value,
+                # Backward compatible alias (desire satisfaction, NOT pressure).
+                "value": dim.value,
                 "last_action_at": dim.last_action_at,
+                "seconds_until_threshold": eta,
             }
         return state
 
@@ -635,6 +692,8 @@ class DesireSystem:
             "max_pressure": max(pressures) if pressures else 0,
             "min_value": min(values) if values else 0,
             "max_value": max(values) if values else 0,
+            "pressure_threshold": 5.0,
+            "seconds_until_threshold": self.seconds_until_threshold(5.0),
         }
 
     def save(self) -> None:

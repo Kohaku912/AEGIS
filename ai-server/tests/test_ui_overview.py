@@ -608,7 +608,7 @@ def test_activity_operations_prefer_aegis_audit_groups():
     assert len(operations) == 1
     op = operations[0]
     assert op["kind"] == "chat"
-    assert op["kind_label"] == "User instruction"
+    assert op["kind_label"] == "ユーザー指示"
     assert op["title"] == "Check AGORA posts"
     assert "I checked AGORA and found 3 new posts" in op["what_happened"]
     assert "ai-server.agora.get_posts" not in op["what_happened"]

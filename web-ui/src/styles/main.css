@@ -2344,6 +2344,25 @@ a {
 .causal-chain li[data-status="skipped"] { border-left-color: var(--aegis-critical); }
 .causal-chain li[data-status="missing"] { border-left-color: var(--border-subtle); opacity: .72; }
 .causal-chain strong { color: var(--text-primary); }
+.operation-facts { display: grid; gap: .55rem; margin: 0 0 1rem; }
+.operation-facts div { display: grid; gap: .15rem; }
+.operation-facts dt { color: var(--text-muted); font-size: .72rem; text-transform: uppercase; letter-spacing: .04em; }
+.operation-facts dd { margin: 0; color: var(--text-primary); }
+.operation-list__badges { display: flex; gap: .35rem; flex-wrap: wrap; margin-bottom: .35rem; }
+.operation-list__title-row { display: flex; align-items: flex-start; gap: .5rem; flex-wrap: wrap; }
+.kind-badge {
+  display: inline-flex; align-items: center; padding: .1rem .45rem; border-radius: .25rem;
+  background: var(--surface-sunken); color: var(--text-muted); font-size: .68rem; white-space: nowrap;
+}
+.operation-links { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: .85rem; }
+.operation-link-row { display: flex; flex-wrap: wrap; gap: .5rem; }
+.operation-steps ol { margin: 0; padding-left: 1.1rem; display: grid; gap: .65rem; }
+.operation-steps li { color: var(--text-secondary); }
+.operation-steps strong { color: var(--text-primary); }
+.operation-steps small { display: block; color: var(--text-muted); margin-top: .2rem; }
+.operation-links a { font-size: .8rem; }
+.developer-filter { display: inline-flex; align-items: center; gap: .4rem; font-size: .8rem; color: var(--text-muted); }
+.list-row[data-selected="true"] { outline: 1px solid var(--domain-color, var(--aegis-violet)); background: var(--surface-elevated); }
 .causal-chain span { color: var(--text-secondary); }
 .causal-chain small { color: var(--text-muted); }
 

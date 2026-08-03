@@ -79,6 +79,7 @@ def init_autonomous_routes(owner: Any, data_dir: str) -> None:
             from aegis_ai.desire.desire_system import DesireSystem
 
             desire = DesireSystem(data_dir=os.path.join(data_dir, "desires"))
+            desire.apply_decay()
             return jsonify(desire.get_stats())
         except Exception as exc:
             return jsonify({"error": str(exc)})
@@ -89,7 +90,17 @@ def init_autonomous_routes(owner: Any, data_dir: str) -> None:
             from aegis_ai.desire.desire_system import DesireSystem
 
             ds = DesireSystem(data_dir=os.path.join(data_dir, "desires"))
-            return jsonify(ds.get_pressure_state())
+            ds.apply_decay()
+            pressure = ds.get_pressure_state()
+            return jsonify({
+                "pressures": pressure,
+                "pressure_threshold": 5.0,
+                "seconds_until_threshold": ds.seconds_until_threshold(5.0),
+                "average_pressure": (
+                    sum(item.get("pressure", 0.0) for item in pressure.values()) / len(pressure)
+                    if pressure else 0.0
+                ),
+            })
         except Exception as exc:
             return jsonify({"error": str(exc)})
 
