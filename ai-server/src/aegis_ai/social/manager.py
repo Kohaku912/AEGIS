@@ -245,6 +245,27 @@ class SocialManager:
             return True
         return False
 
+    def _has_active_or_completed_reply(self, item: SocialInboxItem) -> bool:
+        """True when this external message already has an in-flight or finished reply."""
+        external_id = str(item.external_message_id or "")
+        if not external_id:
+            return False
+        blocking = {
+            SocialInboxStatus.AWAITING_APPROVAL,
+            SocialInboxStatus.DRAFTED,
+            SocialInboxStatus.REPLIED,
+        }
+        for existing in self._store.list(limit=10000):
+            if existing.item_id == item.item_id:
+                continue
+            if existing.channel != item.channel:
+                continue
+            if str(existing.external_message_id or "") != external_id:
+                continue
+            if existing.status in blocking:
+                return True
+        return False
+
     def triage(self, item_id: str, *, relationship: dict[str, Any] | None = None) -> SocialInboxItem:
         item = self._require(item_id)
         item.relationship = relationship or item.relationship
@@ -265,6 +286,13 @@ Relationship context:
 
 Shared AgentState:
 {json.dumps(self._agent_state.snapshot(item.body).to_dict() if self._agent_state else {}, ensure_ascii=False)}
+
+Rules:
+- Choose decision=reply only when the message is directed to AEGIS (or clearly expects AEGIS)
+  and a public social reply would be reciprocal and valuable.
+- If not directed to AEGIS, or relevance is low, choose skip or observe_more — never reply.
+- draft_body must be a genuine social reply. Never draft internal system status, approval meta,
+  test probes, or duplicate answers to a thread AEGIS already handled.
 
 Return:
 {{
@@ -291,8 +319,15 @@ Return:
         item.decision = decision
         item.decision_reason = str(data.get("reason") or "LLM supplied no reason")
         if decision == "reply":
-            item.status = SocialInboxStatus.NEEDS_REPLY
-            item.draft_body = str(data.get("draft_body") or "").strip()
+            draft = str(data.get("draft_body") or "").strip()
+            if not draft:
+                item.decision = "skip"
+                item.status = SocialInboxStatus.SKIPPED
+                item.draft_body = ""
+                item.decision_reason = "Reply chosen without draft body; skipped."
+            else:
+                item.status = SocialInboxStatus.NEEDS_REPLY
+                item.draft_body = draft
         elif decision == "acknowledge":
             item.status = SocialInboxStatus.ACKNOWLEDGED
         elif decision == "skip":
@@ -357,6 +392,14 @@ Return:
         item = self._require(item_id)
         if item.status != SocialInboxStatus.NEEDS_REPLY or not item.draft_body:
             raise ValueError("A triaged reply draft is required before proposal")
+        if self._has_active_or_completed_reply(item):
+            item.status = SocialInboxStatus.SKIPPED
+            item.decision_reason = (
+                "Reply-once: an approval or completed reply already exists for this message."
+            )
+            saved = self._save(item)
+            self._advance_processed_cursor(item.channel)
+            return saved
         adapter = self._adapters.get(item.channel)
         if adapter is None or not adapter.available:
             item.status = SocialInboxStatus.FAILED

@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 import time
+from pathlib import Path
 from typing import Any
 
 from aegis_ai.integrations.agora.agora_client import AgoraClient
@@ -16,6 +18,7 @@ from aegis_ai.integrations.agora.agora_types import (
     AgoraReplyDraft,
     AgoraTaskDetection,
 )
+from aegis_ai.llm.json_utils import extract_json_object
 
 logger = logging.getLogger("aegis_ai.integrations.agora.service")
 
@@ -25,8 +28,8 @@ _SECRET_PATTERN = re.compile(
 )
 
 _COOLDOWN_SECONDS = 60
-_last_post_time: dict[str, float] = {}
-_last_post_body: dict[str, str] = {}
+_MAX_REPLIED_TO = 200
+_MAX_RECENT_BODIES = 40
 
 
 def _has_secret(text: str) -> bool:
@@ -36,8 +39,27 @@ def _has_secret(text: str) -> bool:
 class AgoraService:
     """High-level AGORA operations with safety checks."""
 
-    def __init__(self, client: AgoraClient | None = None) -> None:
+    def __init__(
+        self,
+        client: AgoraClient | None = None,
+        *,
+        data_dir: str | Path | None = None,
+        llm: Any = None,
+    ) -> None:
         self._client = client or AgoraClient()
+        self._llm = llm
+        base = Path(data_dir) if data_dir else Path("data/social")
+        self._guard_path = base / "agora_post_guard.json"
+        self._guard_path.parent.mkdir(parents=True, exist_ok=True)
+        self._guard = self._load_guard()
+
+    def set_llm(self, llm: Any) -> None:
+        self._llm = llm
+
+    def set_data_dir(self, data_dir: str | Path) -> None:
+        self._guard_path = Path(data_dir) / "agora_post_guard.json"
+        self._guard_path.parent.mkdir(parents=True, exist_ok=True)
+        self._guard = self._load_guard()
 
     @property
     def client(self) -> AgoraClient:
@@ -67,8 +89,94 @@ class AgoraService:
     def update_cursor(self, last_read_post_id: int) -> AgoraCursor | dict[str, Any]:
         return self._client.update_cursor(last_read_post_id=last_read_post_id)
 
+    def evaluate_social_suitability(
+        self,
+        body: str,
+        *,
+        reply_to: int | None = None,
+    ) -> dict[str, Any]:
+        """LLM judgment: is this suitable as a public AGORA social post?
+
+        Fail-closed when LLM is unavailable. Does not use keyword denylists.
+        """
+        if self._llm is None:
+            return {
+                "suitable": False,
+                "reason": "Social suitability gate unavailable (no LLM); posting blocked.",
+                "category": "gate_unavailable",
+            }
+
+        recent_bodies = list(self._guard.get("recent_bodies") or [])[-5:]
+        replied_to = list(self._guard.get("replied_to_ids") or [])[-20:]
+        prompt = f"""Judge whether this draft is suitable as a public AGORA social post
+between humans (and AEGIS as a social participant).
+
+Return JSON only:
+{{"suitable": true, "reason": "...", "category": "social_reply|cold_open|unsuitable_internal|unsuitable_test|unsuitable_duplicate|unsuitable_meta|other"}}
+
+Rules (reason from meaning, not keywords):
+- suitable: genuine social reciprocity, helpful reply to someone, or a grounded public update a human would welcome
+- unsuitable: internal system/ops status, incident/timeout/permission reports, approval-request meta about AEGIS itself,
+  meaningless test/probe content, or near-duplicate of a recent AEGIS post on the same topic/reply_to
+- Do not classify by capability id. Judge body + context only.
+
+Draft body:
+{body}
+
+reply_to: {reply_to!s}
+Recent AEGIS post bodies (for duplicate awareness):
+{json.dumps(recent_bodies, ensure_ascii=False)}
+Recent reply_to ids already answered by AEGIS:
+{json.dumps(replied_to, ensure_ascii=False)}
+"""
+        try:
+            if hasattr(self._llm, "generate"):
+                response = self._llm.generate(
+                    prompt=prompt,
+                    system_prompt=(
+                        "You are AEGIS's AGORA social suitability judge. "
+                        "Prefer blocking internal/test/meta posts over letting them through. "
+                        "Output JSON only."
+                    ),
+                    max_tokens=400,
+                    json_mode=True,
+                )
+                if not getattr(response, "success", False):
+                    return {
+                        "suitable": False,
+                        "reason": f"Suitability LLM failed: {getattr(response, 'error', 'unknown')}",
+                        "category": "gate_unavailable",
+                    }
+                content = getattr(response, "content", "") or ""
+            else:
+                return {
+                    "suitable": False,
+                    "reason": "Social suitability gate unavailable (LLM has no generate).",
+                    "category": "gate_unavailable",
+                }
+            data = extract_json_object(content)
+            suitable = bool(data.get("suitable"))
+            return {
+                "suitable": suitable,
+                "reason": str(data.get("reason") or ("suitable" if suitable else "unsuitable"))[:500],
+                "category": str(data.get("category") or ("other" if suitable else "unsuitable")),
+            }
+        except Exception as exc:
+            logger.warning("AGORA suitability evaluation failed: %s", exc)
+            return {
+                "suitable": False,
+                "reason": f"Suitability evaluation error: {exc}",
+                "category": "gate_unavailable",
+            }
+
     def create_post(
-        self, thread_id: int = 1, body: str = "", reply_to: int | None = None,
+        self,
+        thread_id: int = 1,
+        body: str = "",
+        reply_to: int | None = None,
+        *,
+        already_approved: bool = False,
+        skip_suitability: bool = False,
     ) -> AgoraPost | dict[str, Any]:
         if _has_secret(body):
             return {"error": "blocked", "message": "Post body contains potential secrets. Posting denied."}
@@ -76,20 +184,26 @@ class AgoraService:
         if not body.strip():
             return {"error": "blocked", "message": "Post body is empty."}
 
-        now = time.time()
-        last_time = _last_post_time.get("global", 0)
-        if now - last_time < _COOLDOWN_SECONDS:
-            remaining = int(_COOLDOWN_SECONDS - (now - last_time))
-            return {"error": "cooldown", "message": f"Post cooldown active. Wait {remaining}s."}
+        structural = self._structural_block(body=body, reply_to=reply_to)
+        if structural is not None:
+            return structural
 
-        last_body = _last_post_body.get("global", "")
-        if last_body and last_body.strip() == body.strip():
-            return {"error": "duplicate", "message": "Duplicate post body detected. Posting denied."}
+        run_suitability = not already_approved and not skip_suitability
+        if run_suitability:
+            judgment = self.evaluate_social_suitability(body, reply_to=reply_to)
+            if not judgment.get("suitable"):
+                return {
+                    "error": "blocked",
+                    "message": (
+                        "Post blocked by social suitability gate: "
+                        f"{judgment.get('reason')}"
+                    ),
+                    "suitability": judgment,
+                }
 
         result = self._client.create_post(thread_id=thread_id, body=body, reply_to=reply_to)
         if isinstance(result, AgoraPost):
-            _last_post_time["global"] = now
-            _last_post_body["global"] = body
+            self._record_successful_post(body=body, reply_to=reply_to)
         return result
 
     def draft_reply(self, target_post: AgoraPost, context: str = "") -> AgoraReplyDraft:
@@ -113,9 +227,86 @@ class AgoraService:
             reason="Pending LLM triage in SocialManager.",
         )
 
+    def has_replied_to(self, reply_to: int | None) -> bool:
+        if reply_to is None:
+            return False
+        replied = {int(x) for x in (self._guard.get("replied_to_ids") or []) if str(x).isdigit() or isinstance(x, int)}
+        return int(reply_to) in replied
 
-def check_cooldown() -> dict[str, Any]:
+    def _structural_block(self, *, body: str, reply_to: int | None) -> dict[str, Any] | None:
+        now = time.time()
+        last_time = float(self._guard.get("last_post_time") or 0.0)
+        if now - last_time < _COOLDOWN_SECONDS:
+            remaining = int(_COOLDOWN_SECONDS - (now - last_time))
+            return {"error": "cooldown", "message": f"Post cooldown active. Wait {remaining}s."}
+
+        last_body = str(self._guard.get("last_post_body") or "")
+        if last_body and last_body.strip() == body.strip():
+            return {"error": "duplicate", "message": "Duplicate post body detected. Posting denied."}
+
+        recent_bodies = [str(b).strip() for b in (self._guard.get("recent_bodies") or [])]
+        if body.strip() in recent_bodies:
+            return {
+                "error": "duplicate",
+                "message": "Duplicate of a recent AEGIS post body. Posting denied.",
+            }
+
+        if reply_to is not None and self.has_replied_to(int(reply_to)):
+            return {
+                "error": "duplicate_reply",
+                "message": f"AEGIS already replied to post #{int(reply_to)}. Posting denied.",
+            }
+        return None
+
+    def _record_successful_post(self, *, body: str, reply_to: int | None) -> None:
+        now = time.time()
+        self._guard["last_post_time"] = now
+        self._guard["last_post_body"] = body
+        recent = list(self._guard.get("recent_bodies") or [])
+        recent.append(body.strip())
+        self._guard["recent_bodies"] = recent[-_MAX_RECENT_BODIES:]
+        if reply_to is not None:
+            replied = [int(x) for x in (self._guard.get("replied_to_ids") or []) if str(x).lstrip("-").isdigit()]
+            rid = int(reply_to)
+            if rid not in replied:
+                replied.append(rid)
+            self._guard["replied_to_ids"] = replied[-_MAX_REPLIED_TO:]
+        self._save_guard()
+
+    def _load_guard(self) -> dict[str, Any]:
+        if not self._guard_path.exists():
+            return {
+                "last_post_time": 0.0,
+                "last_post_body": "",
+                "recent_bodies": [],
+                "replied_to_ids": [],
+            }
+        try:
+            data = json.loads(self._guard_path.read_text(encoding="utf-8"))
+            if isinstance(data, dict):
+                return data
+        except Exception as exc:
+            logger.warning("Failed to load AGORA post guard state: %s", exc)
+        return {
+            "last_post_time": 0.0,
+            "last_post_body": "",
+            "recent_bodies": [],
+            "replied_to_ids": [],
+        }
+
+    def _save_guard(self) -> None:
+        try:
+            self._guard_path.write_text(
+                json.dumps(self._guard, indent=2, ensure_ascii=False),
+                encoding="utf-8",
+            )
+        except Exception as exc:
+            logger.warning("Failed to save AGORA post guard state: %s", exc)
+
+
+def check_cooldown(data_dir: str | Path | None = None) -> dict[str, Any]:
+    service = AgoraService(data_dir=data_dir)
     now = time.time()
-    last_time = _last_post_time.get("global", 0)
+    last_time = float(service._guard.get("last_post_time") or 0.0)
     remaining = max(0, _COOLDOWN_SECONDS - (now - last_time))
     return {"cooldown_active": remaining > 0, "remaining_seconds": int(remaining)}

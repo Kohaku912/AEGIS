@@ -92,6 +92,7 @@ def evaluate_task_result(
     *,
     llm_provider: Any = None,
     capability_metadata: dict[str, Any] | None = None,
+    desire_goal: str = "",
 ) -> TaskResult:
     """Evaluate the effect of a tool execution on a desire."""
 
@@ -103,6 +104,7 @@ def evaluate_task_result(
                 capability_id=capability_id,
                 tool_success=tool_success,
                 desire_name=desire_name,
+                desire_goal=desire_goal,
                 output=output,
                 capability_metadata=metadata,
                 retry_on_parse_error=True,
@@ -130,21 +132,35 @@ def _evaluate_with_llm(
     capability_id: str,
     tool_success: bool,
     desire_name: str,
+    desire_goal: str,
     output: dict[str, Any],
     capability_metadata: dict[str, Any],
     retry_on_parse_error: bool = False,
 ) -> TaskResult | None:
+    desire_rubric = DESIRE_FULFILLMENT.get(desire_name, {})
     prompt = {
         "instruction": (
-            "Classify whether this capability result fulfilled the target desire. "
+            "Judge whether this action would feel meaningfully fulfilling to a human "
+            "for the target desire — not whether the tool merely succeeded. "
             "Return JSON only with keys task_effect, fulfillment_score, pressure_reduction, "
             "desire_delta_hint, summary, and confidence. "
             "task_effect must be one of useful, no_effect, failed, blocked, needs_followup. "
             "fulfillment_score, pressure_reduction, and confidence must be numbers from 0.0 to 1.0. "
-            "Do not infer from stock phrases alone. Judge the structured result, target desire, "
-            "and capability metadata. Capability ID is only an identifier; do not classify by its text."
+            "Rules: "
+            "(1) tool_success=true alone is NEVER enough for useful or for pressure_reduction>0. "
+            "(2) Passive inventory/list/read/check that finds nothing new, nothing actionable, or only "
+            "already-known state → task_effect=no_effect, pressure_reduction=0. "
+            "(3) useful only when there is human-felt value: new useful information, a real reply "
+            "to someone, progress on a user request/commitment, a lasting learning, or a creative "
+            "output that advances the desire goal. "
+            "(4) If the result only enables a later decision, use needs_followup with "
+            "pressure_reduction=0. "
+            "Do not classify by capability ID text. Judge the structured result, desire goal, "
+            "and capability metadata."
         ),
         "target_desire": desire_name,
+        "desire_goal": desire_goal,
+        "desire_rubric": desire_rubric,
         "capability_id": capability_id,
         "tool_success": bool(tool_success),
         "capability_metadata": _compact_value(capability_metadata),
@@ -157,7 +173,10 @@ def _evaluate_with_llm(
         try:
             return llm_provider.generate(
                 prompt=text,
-                system_prompt="You are AEGIS desire fulfillment evaluator. Return compact JSON only.",
+                system_prompt=(
+                    "You are AEGIS desire fulfillment evaluator. "
+                    "Judge human-felt value, not tool success. Return compact JSON only."
+                ),
                 max_tokens=1024,
                 temperature=0.0,
                 json_mode=True,
@@ -167,7 +186,10 @@ def _evaluate_with_llm(
         except TypeError:
             return llm_provider.generate(
                 prompt=text,
-                system_prompt="You are AEGIS desire fulfillment evaluator. Return compact JSON only.",
+                system_prompt=(
+                    "You are AEGIS desire fulfillment evaluator. "
+                    "Judge human-felt value, not tool success. Return compact JSON only."
+                ),
                 max_tokens=1024,
                 temperature=0.0,
             )
@@ -205,6 +227,18 @@ def _evaluate_with_llm(
     pressure_reduction = _bounded_float(data.get("pressure_reduction"), default=0.0)
     fulfillment_score = _bounded_float(data.get("fulfillment_score"), default=0.0)
     confidence = _bounded_float(data.get("confidence"), default=0.0)
+    # Only confident useful outcomes may drain pressure. Weak "useful" labels on
+    # re-reads / empty inventories are coerced to no_effect.
+    if effect == TaskEffect.USEFUL and fulfillment_score < 0.5:
+        effect = TaskEffect.NO_EFFECT
+        pressure_reduction = 0.0
+        summary = (
+            f"Downgraded weak useful (score={fulfillment_score:.2f}) to no_effect: {summary}"
+        )[:500]
+        fulfillment_score = min(fulfillment_score, 0.49)
+    elif effect != TaskEffect.USEFUL:
+        pressure_reduction = 0.0
+        fulfillment_score = min(fulfillment_score, 0.49)
     return TaskResult(
         tool_success=bool(tool_success),
         task_effect=effect,
@@ -219,6 +253,7 @@ def _evaluate_with_llm(
             "raw_pressure_reduction": data.get("pressure_reduction"),
             "raw_fulfillment_score": data.get("fulfillment_score"),
             "raw_confidence": data.get("confidence"),
+            "desire_goal": desire_goal,
         },
     )
 
@@ -230,7 +265,11 @@ def _structural_fallback(
     output: dict[str, Any],
     desire_name: str,
 ) -> TaskResult | None:
-    """Classify from structured fields only — no user-text keyword matching."""
+    """Classify from structured fields only — never claim fulfillment without LLM judgment.
+
+    Structural paths may fail/block/flag follow-up, but pressure_reduction is always 0.0.
+    Only the LLM evaluator may mark USEFUL and drain desire pressure.
+    """
     error = output.get("error")
     if not tool_success or error:
         return TaskResult(
@@ -251,9 +290,9 @@ def _structural_fallback(
             tool_success=True,
             task_effect=TaskEffect.NO_EFFECT,
             fulfillment_score=0.0,
-            pressure_reduction=0.3,
+            pressure_reduction=0.0,
             desire_delta_hint={},
-            summary="Structured empty result",
+            summary="Structured empty result — no human-felt fulfillment",
             confidence=0.45,
             details={"evaluator": "structural", "reason": "empty_result"},
         )
@@ -263,9 +302,9 @@ def _structural_fallback(
             tool_success=False,
             task_effect=TaskEffect.BLOCKED,
             fulfillment_score=0.0,
-            pressure_reduction=0.5,
+            pressure_reduction=0.0,
             desire_delta_hint={},
-            summary="Awaiting approval",
+            summary="Awaiting approval — desire not fulfilled yet",
             confidence=0.7,
             details={"evaluator": "structural", "reason": "awaiting_approval"},
         )
@@ -274,10 +313,10 @@ def _structural_fallback(
         return TaskResult(
             tool_success=True,
             task_effect=TaskEffect.NEEDS_FOLLOWUP,
-            fulfillment_score=0.2,
-            pressure_reduction=0.4,
-            desire_delta_hint={desire_name: 0.1} if desire_name else {},
-            summary="Structural success without LLM judgement; needs follow-up",
+            fulfillment_score=0.0,
+            pressure_reduction=0.0,
+            desire_delta_hint={},
+            summary="Structural success without LLM judgement; desire not reduced",
             confidence=0.3,
             details={"evaluator": "structural", "reason": "tool_success_fallback"},
         )

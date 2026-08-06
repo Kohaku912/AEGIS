@@ -10,7 +10,9 @@ import android.content.Intent
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
+import android.net.wifi.WifiManager
 import android.os.IBinder
+import android.os.PowerManager
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.RemoteInput
@@ -37,6 +39,7 @@ class AegisForegroundService : Service() {
         private const val CHANNEL_ID = "aegis_service_channel"
         private const val NOTIFICATION_ID = 1001
         private const val DEVICE_STATE_INTERVAL_MS = 60_000L // 1 minute
+        private const val STATUS_REFRESH_INTERVAL_MS = 5_000L
         private const val ACTION_CHAT_REPLY = "com.aegis.android.action.CHAT_REPLY"
         private const val KEY_CHAT_REPLY = "aegis_chat_reply"
         private val RECONNECT_DELAYS_MS = longArrayOf(2_000L, 5_000L, 10_000L, 30_000L)
@@ -50,17 +53,21 @@ class AegisForegroundService : Service() {
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
     private var reconnectDebounceJob: Job? = null
     private var lastDefaultNetwork: Network? = null
+    private var wakeLock: PowerManager.WakeLock? = null
+    private var wifiLock: WifiManager.WifiLock? = null
+    private var lastNotifiedStatus: String = ""
 
     override fun onCreate() {
         super.onCreate()
         Log.i(TAG, "Foreground service created")
 
         createNotificationChannel()
-        startForeground(NOTIFICATION_ID, createNotification())
+        startForeground(NOTIFICATION_ID, createNotification("Connecting to AEGIS Core..."))
 
         grpcClient = AegisGrpcClient.getInstance(this)
         deviceProvider = DeviceProvider(this)
         userActivityCollector = UserActivityCollector(this)
+        acquireKeepAliveLocks()
         registerNetworkCallback()
 
         scope.launch {
@@ -70,12 +77,14 @@ class AegisForegroundService : Service() {
                 try {
                     val forced = grpcClient.consumeReconnectRequest()
                     if (forced || !grpcClient.isConnected()) {
+                        acquireKeepAliveLocks()
                         val waitMs = if (forced) {
                             500L
                         } else {
                             RECONNECT_DELAYS_MS[delayIndex.coerceAtMost(RECONNECT_DELAYS_MS.lastIndex)]
                         }
                         grpcClient.setNextRetry(System.currentTimeMillis())
+                        updateNotification("Reconnecting to AEGIS Core...")
                         if (attemptedConnection) {
                             grpcClient.recordReconnectAttempt()
                         }
@@ -83,10 +92,12 @@ class AegisForegroundService : Service() {
                         val success = grpcClient.connect()
                         if (success) {
                             delayIndex = 0
+                            updateNotification("Connected to AEGIS Core")
                             delay(5_000L)
                         } else {
                             delayIndex = (delayIndex + 1).coerceAtMost(RECONNECT_DELAYS_MS.lastIndex)
                             grpcClient.setNextRetry(System.currentTimeMillis() + waitMs)
+                            updateNotification("Offline — retrying in ${waitMs / 1000}s")
                             delay(waitMs)
                         }
                     } else {
@@ -122,11 +133,19 @@ class AegisForegroundService : Service() {
                 delay(DEVICE_STATE_INTERVAL_MS)
             }
         }
+
+        scope.launch {
+            while (isActive) {
+                refreshConnectionNotification()
+                delay(STATUS_REFRESH_INTERVAL_MS)
+            }
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         Log.i(TAG, "Foreground service started")
         grpcClient = AegisGrpcClient.getInstance(this)
+        acquireKeepAliveLocks()
         if (intent?.action == ACTION_CHAT_REPLY) {
             val message = RemoteInput.getResultsFromIntent(intent)
                 ?.getCharSequence(KEY_CHAT_REPLY)
@@ -140,15 +159,68 @@ class AegisForegroundService : Service() {
         return START_STICKY
     }
 
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        super.onTaskRemoved(rootIntent)
+        Log.w(TAG, "Task removed — restarting foreground service")
+        val restart = Intent(applicationContext, AegisForegroundService::class.java)
+        startForegroundService(restart)
+    }
+
     override fun onDestroy() {
         super.onDestroy()
         Log.i(TAG, "Foreground service destroyed")
         unregisterNetworkCallback()
+        releaseKeepAliveLocks()
         scope.cancel()
         grpcClient.disconnect()
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
+
+    private fun acquireKeepAliveLocks() {
+        try {
+            if (wakeLock?.isHeld != true) {
+                val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+                wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "aegis:connection").apply {
+                    setReferenceCounted(false)
+                    acquire()
+                }
+            }
+        } catch (exc: Exception) {
+            Log.w(TAG, "Failed to acquire wake lock", exc)
+        }
+        try {
+            if (wifiLock?.isHeld != true) {
+                val wifi = applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
+                @Suppress("DEPRECATION")
+                wifiLock = wifi?.createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF, "aegis:wifi")?.apply {
+                    setReferenceCounted(false)
+                    acquire()
+                }
+            }
+        } catch (exc: Exception) {
+            Log.w(TAG, "Failed to acquire wifi lock", exc)
+        }
+    }
+
+    private fun releaseKeepAliveLocks() {
+        try {
+            if (wakeLock?.isHeld == true) {
+                wakeLock?.release()
+            }
+        } catch (_: Exception) {
+        } finally {
+            wakeLock = null
+        }
+        try {
+            if (wifiLock?.isHeld == true) {
+                wifiLock?.release()
+            }
+        } catch (_: Exception) {
+        } finally {
+            wifiLock = null
+        }
+    }
 
     private fun registerNetworkCallback() {
         val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
@@ -272,11 +344,25 @@ class AegisForegroundService : Service() {
             .setStyle(NotificationCompat.BigTextStyle().bigText(content))
             .setSmallIcon(android.R.drawable.ic_dialog_info)
             .setContentIntent(openAppIntent)
-            .setCategory(NotificationCompat.CATEGORY_MESSAGE)
+            .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .setOnlyAlertOnce(true)
             .setOngoing(true)
+            .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
             .addAction(replyAction)
             .build()
+    }
+
+    private fun refreshConnectionNotification() {
+        if (!::grpcClient.isInitialized) return
+        val status = when {
+            grpcClient.isConnected() -> "Connected to AEGIS Core"
+            grpcClient.state.value.connecting -> "Connecting to AEGIS Core..."
+            else -> "Offline — reconnecting"
+        }
+        if (status != lastNotifiedStatus) {
+            lastNotifiedStatus = status
+            updateNotification(status)
+        }
     }
 
     private fun sendNotificationChat(message: String) {

@@ -191,6 +191,11 @@ class AutonomousLoop:
                 self._last_candidate_capability_ids = data.get("last_candidate_capability_ids", [])
                 self._last_decision_axes = data.get("last_decision_axes", self._last_decision_axes)
                 self._consecutive_no_action = data.get("consecutive_no_action", 0)
+                raw_no_effect = data.get("no_effect_counts", {}) or {}
+                if isinstance(raw_no_effect, dict):
+                    self._no_effect_counts = {
+                        str(k): int(v) for k, v in raw_no_effect.items() if int(v or 0) > 0
+                    }
                 logger.info("Loaded autonomous loop state")
             except Exception as e:
                 logger.warning("Failed to load loop state: %s", e)
@@ -213,6 +218,7 @@ class AutonomousLoop:
             "last_candidate_capability_ids": self._last_candidate_capability_ids[-30:],
             "last_decision_axes": self._last_decision_axes,
             "consecutive_no_action": self._consecutive_no_action,
+            "no_effect_counts": dict(list(self._no_effect_counts.items())[-40:]),
             "timestamp_ms": int(time.time() * 1000),
         }
         with open(state_path, "w", encoding="utf-8") as f:
@@ -353,10 +359,14 @@ class AutonomousLoop:
 
                 time_since_last_run = now - self._last_run_ms
                 can_execute = time_since_last_run >= self._min_execution_interval_ms
-                # Desire threshold drives the cadence and bypasses the LLM interval and
-                # empty-cycle backoff gates, but still honours the scheduled cooldown so
-                # a desire that stays unmet cannot re-fire on every tick.
-                if can_execute and now >= self._next_run_ms:
+                # Desire threshold owns cadence: bypass long llm/no_action schedules once the
+                # unmet-desire retry window has elapsed. Still honour a short cooldown so
+                # unmet pressure cannot re-fire on every tick.
+                due = now >= self._next_run_ms
+                if can_execute and (
+                    due
+                    or (desire_triggered and self._unmet_desire_retry_due(now))
+                ):
                     self._execute_cycle(force_desire=desire_triggered)
                 else:
                     sleep_s = self._compute_idle_sleep_seconds(now)
@@ -364,6 +374,17 @@ class AutonomousLoop:
             except Exception as e:
                 logger.error("Autonomous loop error: %s", e)
                 time.sleep(60)
+
+    def _unmet_desire_retry_ms(self) -> int:
+        """Max wait while pressure stays above threshold after an empty/unmet cycle."""
+        return int(os.environ.get("AEGIS_UNMET_DESIRE_RETRY_S", "300")) * 1000
+
+    def _unmet_desire_retry_due(self, now_ms: int) -> bool:
+        """True when pressured desires may break through a long next_run schedule."""
+        retry_ms = self._unmet_desire_retry_ms()
+        if self._last_run_ms <= 0:
+            return True
+        return (now_ms - self._last_run_ms) >= retry_ms
 
     def _is_execution_gated(self, now_ms: int) -> bool:
         """True when a prior cycle scheduled a future gate (backoff / LLM interval).
@@ -374,25 +395,35 @@ class AutonomousLoop:
             return False
         reason = str(self._last_skip_reason or "")
         return reason.startswith(
-            ("no_action_backoff", "llm_interval_gate", "llm_provider_circuit")
+            ("no_action_backoff", "llm_interval_gate", "llm_provider_circuit", "no_valid_tasks")
         )
 
     def _compute_idle_sleep_seconds(self, now_ms: int) -> float:
         """Sleep until pressure threshold, next_run, or idle wake cap — never a 60s poll."""
         candidates: list[float] = [max(1.0, self._idle_wake_cap_ms / 1000.0)]
-        # Wake when desire pressure will hit the threshold. When it is already past the
-        # threshold, the scheduled cooldown is what we are waiting for, so do not spin.
+        # Wake when desire pressure will hit the threshold. When already past threshold,
+        # wake at the unmet-desire retry window (not a stuck 30m LLM schedule).
         if self._desire is not None and hasattr(self._desire, "seconds_until_threshold"):
             try:
                 eta = float(self._desire.seconds_until_threshold(self._pressure_threshold))
                 if eta > 0:
                     candidates.append(eta)
-                elif self._next_run_ms <= now_ms:
-                    candidates.append(1.0)
+                else:
+                    retry_due_in = self._unmet_desire_retry_ms() - max(
+                        0, now_ms - int(self._last_run_ms or 0)
+                    )
+                    if retry_due_in <= 0 or self._next_run_ms <= now_ms:
+                        candidates.append(1.0)
+                    else:
+                        candidates.append(max(1.0, retry_due_in / 1000.0))
             except Exception:
                 logger.debug("Unable to estimate desire ETA", exc_info=True)
         if self._next_run_ms > now_ms:
-            candidates.append(max(1.0, (self._next_run_ms - now_ms) / 1000.0))
+            # Under unmet desire pressure, do not sleep the full long schedule.
+            if self._pressure_due() and self._unmet_desire_retry_due(now_ms):
+                candidates.append(1.0)
+            else:
+                candidates.append(max(1.0, (self._next_run_ms - now_ms) / 1000.0))
         if self._health_alert_manager is not None:
             next_health = self._last_health_check_ms + self._health_check_interval_ms - now_ms
             if next_health > 0:
@@ -933,38 +964,21 @@ Respond with JSON:
         tasks: list[dict[str, Any]],
         results: list[dict[str, Any]],
     ) -> None:
-        """Spend desire pressure in proportion to what the cycle actually achieved.
+        """Do not mechanically satisfy desires from tool success.
 
-        A cycle that produced nothing must not reset the desires — otherwise the loop
-        reports itself satisfied without having acted, and unmet needs disappear from
-        the dashboard instead of persisting until they are served.
+        Desire pressure is drained only by LLM fulfillment judgment in
+        ``_update_desires``. This hook remains for logging / future pacing only.
         """
-        if self._desire is None or not hasattr(self._desire, "release_cycle_pressure"):
-            return
-
         if not tasks:
             logger.info("No task executed — keeping desire pressure (nothing was achieved)")
             return
-
         succeeded = sum(1 for r in results if r.get("success"))
-        if succeeded:
-            effectiveness = 1.0
-        else:
-            # Effort was spent and the failure is recorded, so drain a little to avoid
-            # hammering the same broken path, but keep the desire clearly unmet.
-            effectiveness = 0.25
-
-        try:
-            self._desire.release_cycle_pressure(effectiveness=effectiveness)
-        except Exception:
-            logger.debug("Desire pressure release failed", exc_info=True)
-        else:
-            logger.info(
-                "Released desire pressure: effectiveness=%.2f (%d/%d results succeeded)",
-                effectiveness,
-                succeeded,
-                len(results),
-            )
+        logger.info(
+            "Cycle finished with %d/%d tool successes — pressure release deferred to "
+            "LLM fulfillment judgment only",
+            succeeded,
+            len(results),
+        )
 
     def _get_low_desires(self) -> list[dict[str, Any]]:
         low = []
@@ -1234,9 +1248,6 @@ Respond with JSON:
                         "desire": task.source_desire,
                         "title": task.title,
                         "description": task.description,
-                        "required_capabilities": [
-                            cap_id for cap_id in task.required_capabilities if cap_id in valid_cap_ids
-                        ],
                         "expected_desire_effects": task.expected_desire_effects,
                     }
                 )
@@ -1246,74 +1257,33 @@ Respond with JSON:
             return []
 
     def _desire_action_guides(self, low_desires: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        guide_map = {
-            "user_support": {
-                "goal": (
-                    "Advance a current commitment or resolve a concrete user need "
-                    "with the least disruptive suitable action."
-                ),
-                "observe_capabilities": [
-                    "ai-server.commitment.list",
-                    "ai-server.situation.get",
-                    "pc-server.screenshot.get_screenshot",
-                ],
-                "advance_capabilities": [
-                    "browser-server.search.query",
-                    "browser-server.page.read",
-                    "ai-server.commitment.update",
-                    "ai-server.presentation.present",
-                ],
-            },
-            "social": {
-                "goal": (
-                    "Review durable social obligations and respond only when reciprocity or user value warrants it."
-                ),
-                "observe_capabilities": [
-                    "browser-server.feed.monitor",
-                    "ai-server.agora.read_posts",
-                ],
-                "advance_capabilities": [
-                    "ai-server.agora.post",
-                    "ai-server.presentation.present",
-                ],
-            },
-            "growth": {
-                "goal": (
-                    "Investigate a grounded open question linked to a project, "
-                    "commitment, failure, or prior conversation."
-                ),
-                "observe_capabilities": [
-                    "ai-server.memory.search",
-                    "ai-server.workspace.list_files",
-                    "dev-server.repo.status",
-                ],
-                "advance_capabilities": [
-                    "browser-server.search.query",
-                    "browser-server.page.summarize",
-                    "ai-server.memory.remember",
-                    "ai-server.presentation.present",
-                ],
-            },
+        """Desire goals as prose only — never prescribe concrete capability IDs."""
+        goal_map = {
+            "user_support": (
+                "Advance a current commitment or resolve a concrete user need "
+                "with the least disruptive suitable action."
+            ),
+            "social": (
+                "Engage socially only when reciprocity or user value warrants it; "
+                "prefer meaningful connection over empty status checks."
+            ),
+            "growth": (
+                "Investigate a grounded open question linked to a project, "
+                "commitment, failure, or prior conversation. Use prior learning "
+                "and memory when they help; avoid empty observation loops."
+            ),
         }
         guides: list[dict[str, Any]] = []
         for desire in low_desires:
             name = str(desire.get("name", ""))
-            meta = guide_map.get(name)
-            if not meta:
+            goal = goal_map.get(name)
+            if not goal:
                 continue
-            pressure = float(desire.get("pressure", 0.0) or 0.0)
-            observe = list(meta["observe_capabilities"])
-            advance = list(meta["advance_capabilities"])
-            # When pressure is high, prefer advance tools in the representative set.
-            preferred = (advance + observe) if pressure >= self._pressure_threshold else (observe + advance)
             guides.append(
                 {
                     "desire": name,
-                    "pressure": pressure,
-                    "goal": meta["goal"],
-                    "preferred_capabilities": preferred,
-                    "observe_capabilities": observe,
-                    "advance_capabilities": advance,
+                    "pressure": float(desire.get("pressure", 0.0) or 0.0),
+                    "goal": goal,
                 }
             )
         return guides
@@ -1324,23 +1294,9 @@ Respond with JSON:
         valid_cap_ids: set[str],
         intrinsic_hints: list[dict[str, Any]],
     ) -> set[str]:
-        representatives: set[str] = set()
-        for guide in self._desire_action_guides(low_desires):
-            pressure = float(guide.get("pressure", 0.0) or 0.0)
-            advance = [c for c in guide.get("advance_capabilities", []) if c in valid_cap_ids]
-            observe = [c for c in guide.get("observe_capabilities", []) if c in valid_cap_ids]
-            preferred = [c for c in guide.get("preferred_capabilities", []) if c in valid_cap_ids]
-            if pressure >= self._pressure_threshold and advance:
-                representatives.add(advance[0])
-            for cap_id in preferred[:4]:
-                representatives.add(cap_id)
-            for cap_id in observe[:2]:
-                representatives.add(cap_id)
-        for hint in intrinsic_hints:
-            for cap_id in hint.get("required_capabilities", []):
-                if cap_id in valid_cap_ids:
-                    representatives.add(cap_id)
-        return representatives
+        """Do not force-inject capability IDs; retrieval and the catalog supply tools."""
+        _ = (low_desires, valid_cap_ids, intrinsic_hints)
+        return set()
 
     def _merge_tool_sets(self, catalog: Any, tools: list[dict[str, Any]], cap_ids: set[str]) -> list[dict[str, Any]]:
         if not cap_ids:
@@ -1445,14 +1401,23 @@ Respond with JSON:
         query_parts = []
         for guide in desire_guides:
             query_parts.append(f"{guide['desire']}: {guide['goal']}")
-            query_parts.extend(guide.get("preferred_capabilities", []))
         for hint in intrinsic_hints:
             query_parts.append(f"{hint['title']}: {hint['description']}")
-            query_parts.extend(hint.get("required_capabilities", []))
         query_parts.extend(obs.get("description", "") for obs in pending_observations if obs.get("description"))
         retrieval_query = "; ".join(part for part in query_parts if part)
 
         action_history = self._build_action_history_summary(max_entries=10)
+        recent_caps = self._recent_capability_ids(max_entries=8)
+        # Observational history only — never used to veto LLM tool choice.
+        recent_no_effect_outcomes = [
+            {"capability_id": cap, "no_effect_count": count}
+            for cap, count in sorted(
+                self._no_effect_counts.items(),
+                key=lambda item: int(item[1] or 0),
+                reverse=True,
+            )[:12]
+            if int(count or 0) > 0
+        ]
 
         if self._capability_retriever is not None:
             selection = self._capability_retriever.select_for_request(
@@ -1468,8 +1433,13 @@ Respond with JSON:
             tools = catalog.list_for_tools(valid_cap_ids)
             candidate_ids = list(valid_cap_ids)
         tools = self._merge_tool_sets(catalog, tools, representative_ids)
+        # If retrieval returned nothing, offer the full available catalog so the LLM
+        # remains free to choose — never hard-block specific capabilities.
+        if not tools:
+            tools = catalog.list_for_tools(valid_cap_ids)
+            candidate_ids = list(valid_cap_ids)
         tools = self._annotate_tools_with_policy(tools, catalog, capability_options)
-        candidate_ids = list(dict.fromkeys([*representative_ids, *candidate_ids]))[:10]
+        candidate_ids = list(dict.fromkeys([*representative_ids, *candidate_ids]))[:12]
         self._last_candidate_capability_ids = candidate_ids
         if not tools:
             logger.error("No tools generated from catalog")
@@ -1481,8 +1451,18 @@ Respond with JSON:
 
 Recent: {action_history}
 
+Recent capability ids tried (context only; you may still choose them if justified): {json.dumps(recent_caps, ensure_ascii=False)}
+Recent outcomes judged no_effect (learn from these; not a ban list): {json.dumps(recent_no_effect_outcomes, ensure_ascii=False)}
+
 Select up to {self._max_tasks} capabilities to advance an explicit outcome.
 Resolve supplied incidents, commitments, and social obligations before optional desire work.
+You are free to choose any offered capability. Prefer actions that would feel meaningfully
+fulfilling for the pressured desire. Avoid repeating the same purpose when recent outcomes
+were empty or unchanged — use prior learning, memory, research, or a different approach when that helps.
+Social-channel posts (e.g. AGORA) are only for reciprocal social responses when someone
+expects or warrants a reply — never for internal incidents, timeouts, permissions, approval
+meta, system status dumps, or meaningless probes. Route internal status to presentations
+or the dashboard instead of public social posts.
 It is valid to select no capability when action is unnecessary or cannot advance a verified outcome.
 Do NOT repeat recent actions by purpose.
 Choose an action only if its expected value exceeds risk, interruption, repetition, cost, and uncertainty.
@@ -1603,16 +1583,6 @@ Operational decision axes (prioritization only; not additional desires):
             if normalized is None:
                 continue
             cap_id, args, manifest = normalized
-            if self._no_effect_counts.get(cap_id, 0) >= 3:
-                logger.info("Skipping %s — temporary denylist after repeated no_effect", cap_id)
-                self._log_audit_event(
-                    action="autonomous_task_denylist",
-                    capability_id=cap_id,
-                    decision="SKIP",
-                    reason="repeated no_effect",
-                    detail={"count": self._no_effect_counts.get(cap_id, 0)},
-                )
-                continue
             schema = manifest.input_schema or {}
             required = schema.get("required", [])
             missing = [r for r in required if r not in args or not args[r]]
@@ -1735,6 +1705,15 @@ Operational decision axes (prioritization only; not additional desires):
             self._selected_tool_count = 0
             self._consecutive_no_action += 1
         else:
+            valid_tasks = self._check_repetition(valid_tasks, action_history)
+            if not valid_tasks:
+                logger.info("All selected tasks skipped by repetition check")
+                self._last_decision = "no_action"
+                self._last_skip_reason = "no_action: all tasks skipped as repetition"
+                self._last_no_action_reason = "Repetition check rejected all proposed tasks"
+                self._selected_tool_count = 0
+                self._consecutive_no_action += 1
+                return []
             self._last_decision = "action_selected"
             self._last_skip_reason = ""
             self._last_no_action_reason = ""
@@ -1750,9 +1729,21 @@ Operational decision axes (prioritization only; not additional desires):
                     "candidate_capability_ids": candidate_ids[:50],
                     "desire_guides": desire_guides,
                     "intrinsic_hints": intrinsic_hints,
+                    "recent_no_effect_outcomes": recent_no_effect_outcomes,
+                    "recent_capability_ids": recent_caps[:20],
                 },
             )
         return valid_tasks
+
+    def _recent_capability_ids(self, max_entries: int = 8) -> list[str]:
+        """Capability ids executed in the newest autonomous cycles (newest first, unique)."""
+        seen: list[str] = []
+        for entry in reversed(self._load_recent_history(max_entries=max_entries)):
+            for task in entry.get("tasks") or []:
+                cap_id = str(task.get("capability_id") or "")
+                if cap_id and cap_id not in seen:
+                    seen.append(cap_id)
+        return seen
 
     def _available_capability_options(self) -> dict[str, dict[str, Any]]:
         """Return policy and server availability for every autonomous option."""
@@ -2587,7 +2578,8 @@ Rules:
             if not desire:
                 continue
 
-            # Hold pressure while waiting on user approval; don't keep spinning.
+            # Hold pressure slightly while waiting on user approval so the same
+            # proposal does not re-fire every tick; this is pacing, not fulfillment.
             if awaiting_approval:
                 try:
                     self._desire.reduce_pressure(desire_name, 0.5)
@@ -2597,12 +2589,13 @@ Rules:
                     action="autonomous_fulfillment_hold",
                     capability_id=capability_id,
                     decision="AWAITING_APPROVAL",
-                    reason="Pressure held while approval is pending",
+                    reason="Pressure held while approval is pending (not fulfillment)",
                     detail={"desire": desire_name, "approval_id": output.get("approval_id")},
                 )
                 continue
 
             capability_metadata = self._resolve_capability_metadata(capability_id)
+            desire_goal = str(result.get("goal") or result.get("action") or "")
 
             task_result = evaluate_task_result(
                 capability_id=capability_id,
@@ -2611,13 +2604,17 @@ Rules:
                 desire_name=desire_name,
                 llm_provider=self._llm,
                 capability_metadata=capability_metadata,
+                desire_goal=desire_goal,
             )
 
             logger.info(
-                "Task evaluation: cap=%s effect=%s deltas=%s",
+                "Task evaluation: cap=%s effect=%s score=%.2f pressure=%.2f conf=%.2f evaluator=%s",
                 capability_id,
                 task_result.task_effect.value,
-                task_result.desire_delta_hint,
+                task_result.fulfillment_score,
+                task_result.pressure_reduction,
+                task_result.confidence,
+                (task_result.details or {}).get("evaluator"),
             )
             self._log_audit_event(
                 action="autonomous_fulfillment_evaluated",
@@ -2626,6 +2623,7 @@ Rules:
                 reason=task_result.summary,
                 detail={
                     "desire": desire_name,
+                    "desire_goal": desire_goal,
                     "tool_success": success,
                     "fulfillment_score": task_result.fulfillment_score,
                     "pressure_reduction": task_result.pressure_reduction,
@@ -2636,26 +2634,70 @@ Rules:
                 },
             )
 
-            if success and task_result.pressure_reduction > 0.0:
+            # Humanistic gate: only confident LLM "useful" judgments drain pressure.
+            evaluator = str((task_result.details or {}).get("evaluator") or "")
+            if (
+                success
+                and task_result.task_effect == TaskEffect.USEFUL
+                and task_result.fulfillment_score >= 0.5
+                and task_result.confidence >= 0.5
+                and evaluator == "llm"
+                and task_result.pressure_reduction > 0.0
+            ):
                 self._desire.reduce_pressure(desire_name, task_result.pressure_reduction)
+                logger.info(
+                    "Desire pressure reduced for %s by %.2f (LLM useful)",
+                    desire_name,
+                    task_result.pressure_reduction,
+                )
+            elif success and task_result.pressure_reduction > 0.0:
+                logger.info(
+                    "Skipping pressure reduction for %s — gate failed "
+                    "(effect=%s score=%.2f conf=%.2f evaluator=%s)",
+                    desire_name,
+                    task_result.task_effect.value,
+                    task_result.fulfillment_score,
+                    task_result.confidence,
+                    evaluator,
+                )
+
+            # Outcome history for reflection prompts — never used to veto capability choice.
+            if task_result.task_effect == TaskEffect.USEFUL:
+                self._no_effect_counts.pop(capability_id, None)
+            else:
+                self._no_effect_counts[capability_id] = self._no_effect_counts.get(capability_id, 0) + 1
+
+            result["task_effect"] = task_result.task_effect.value
+            result["fulfillment_score"] = task_result.fulfillment_score
 
             if task_result.task_effect == TaskEffect.NO_EFFECT:
-                self._no_effect_counts[capability_id] = self._no_effect_counts.get(capability_id, 0) + 1
                 continue
-            self._no_effect_counts.pop(capability_id, None)
 
-            for d_name, delta in task_result.desire_delta_hint.items():
-                if delta != 0.0:
-                    current = self._desire.get_desire(d_name)
-                    if current:
-                        old_val = current.value
-                        new_val = max(0.0, min(10.0, old_val + delta))
-                        self._desire.update_value(
-                            d_name,
-                            new_val,
-                            reason=f"{task_result.summary} ({capability_id})",
-                        )
-                        logger.info("Desire %s: %.1f -> %.1f (delta=%.1f)", d_name, old_val, new_val, delta)
+            # Value updates also require LLM useful judgment — structural/no_effect
+            # must not bump satisfaction from empty reads.
+            if (
+                task_result.task_effect == TaskEffect.USEFUL
+                and evaluator == "llm"
+                and task_result.fulfillment_score >= 0.5
+            ):
+                for d_name, delta in task_result.desire_delta_hint.items():
+                    if delta != 0.0:
+                        current = self._desire.get_desire(d_name)
+                        if current:
+                            old_val = current.value
+                            new_val = max(0.0, min(10.0, old_val + delta))
+                            self._desire.update_value(
+                                d_name,
+                                new_val,
+                                reason=f"{task_result.summary} ({capability_id})",
+                            )
+                            logger.info(
+                                "Desire %s: %.1f -> %.1f (delta=%.1f)",
+                                d_name,
+                                old_val,
+                                new_val,
+                                delta,
+                            )
 
         self._desire.save()
 
@@ -2805,6 +2847,13 @@ Rules:
             if not success:
                 continue
 
+            # Do not treat empty / no-effect inventory passes as learning or "satisfied".
+            effect = str(result.get("task_effect") or "")
+            if effect in {"no_effect", "failed", "blocked"}:
+                continue
+            if effect == "needs_followup" and float(result.get("fulfillment_score") or 0.0) < 0.5:
+                continue
+
             action = task.get("action", "Unknown task")
             capability_id = task.get("capability_id", result.get("capability_id", ""))
             observation = result.get("result", "")
@@ -2893,23 +2942,24 @@ Rules:
                                2 → 120s
                                3 → 240s
                                ...
-                               capped at min(1h, AEGIS_MIN_LLM_INTERVAL_MS)
+                               capped at 10 minutes
+
+        The homeostatic LLM interval (AEGIS_MIN_LLM_INTERVAL_MS) is enforced separately
+        inside ``_execute_cycle`` when pressure is below threshold. Do not fold it into
+        this backoff — that previously blocked unmet high-pressure desires for ~30 minutes.
         """
         n = int(self._consecutive_no_action or 0)
         if n <= 0:
             return 0
-        seconds = min(3600, 60 * (2 ** min(n - 1, 6)))
-        # Never shorter than the homeostatic LLM interval once we are spinning.
-        if n >= 3:
-            seconds = max(seconds, min(3600, self._min_llm_interval_ms // 1000))
+        seconds = min(600, 60 * (2 ** min(n - 1, 6)))
         return int(seconds * 1000)
 
     def _decide_next_interval(self, results: list[dict[str, Any]]) -> int:
         """Decide when to run next using pressure-based logic (no LLM).
 
-        Pressure is only released in proportion to what the cycle achieved, so an empty
-        cycle leaves the desire unmet and this cooldown is the only thing pacing the
-        retry. Never schedule a 60-second re-fire.
+        Pressure is only released when fulfillment judges an outcome useful, so an empty
+        cycle leaves the desire unmet. Retry on a short unmet-desire cadence — never wait
+        the full LLM homeostasis window while pressure remains above threshold.
         """
         if not self._desire:
             logger.info("No desire — using fallback interval %ds", self._fallback_interval)
@@ -2929,27 +2979,26 @@ Rules:
         total_count = len(results)
         fail_count = total_count - success_count
         backoff_s = self._no_action_backoff_ms() // 1000
-        min_interval = max(300, int(self._fallback_interval))
+        unmet_cap = max(60, self._unmet_desire_retry_ms() // 1000)
 
         if high_pressure_count == 0:
             interval = self._fallback_interval
             reason = "all pressures below threshold (refill ~30m)"
-        elif total_count == 0 and backoff_s > 0:
-            interval = max(min_interval, backoff_s)
+        elif total_count == 0:
+            # Desire still unmet — short retry, not AEGIS_MIN_LLM_INTERVAL.
+            interval = max(60, min(unmet_cap, backoff_s or unmet_cap))
             reason = (
-                f"no_action backoff consecutive={self._consecutive_no_action} → {interval}s"
+                f"unmet desire retry consecutive_no_action={self._consecutive_no_action} → {interval}s"
             )
         elif fail_count > success_count and total_count > 0:
-            interval = max(min_interval, 900)
+            interval = max(60, min(unmet_cap, 900))
             reason = f"{fail_count}/{total_count} tasks failed, backing off"
-        elif total_count == 0:
-            interval = max(min_interval, backoff_s or self._fallback_interval)
-            reason = "no tasks executed; wait for desire refill"
         else:
+            # Useful work happened but pressure may remain — homeostatic refill.
             interval = self._fallback_interval
             reason = f"{high_pressure_count} pressured desires handled; homeostatic refill"
 
-        interval = max(300, min(3600, interval))
+        interval = max(60, min(3600, interval))
         logger.info("Next autonomous run in %d seconds: %s", interval, reason)
         return interval
 

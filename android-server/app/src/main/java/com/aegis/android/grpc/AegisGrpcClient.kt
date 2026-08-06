@@ -215,6 +215,7 @@ class AegisGrpcClient private constructor(
         val builder = ManagedChannelBuilder
             .forAddress(endpoint.host, endpoint.port)
             .keepAliveTime(30, TimeUnit.SECONDS)
+            .keepAliveTimeout(15, TimeUnit.SECONDS)
             .keepAliveWithoutCalls(true)
         if (endpoint.useTls) {
             builder.useTransportSecurity()
@@ -611,14 +612,16 @@ class AegisGrpcClient private constructor(
                 Log.e(TAG, "Reverse stream closed", exc)
                 updateState(lastError = exc.message ?: "Reverse stream closed")
             } finally {
-                connected = false
-                updateState(connected = false, connecting = false)
+                markDisconnectedAndReconnect("stream_closed")
             }
         }
         heartbeatJob = scope.launch {
             while (isActive) {
                 delay(HEARTBEAT_INTERVAL_MS)
-                sendHeartbeat()
+                if (!sendHeartbeat()) {
+                    markDisconnectedAndReconnect("heartbeat_failed")
+                    break
+                }
             }
         }
         sendEvent(
@@ -764,9 +767,23 @@ class AegisGrpcClient private constructor(
         }.getOrElse {
             heartbeatFailureCount += 1L
             metricsPreferences.edit().putLong("heartbeat_failure_count", heartbeatFailureCount).apply()
-            updateState(connected = false, lastError = it.message ?: "Heartbeat failed")
+            updateState(
+                connected = false,
+                lastError = it.message ?: "Heartbeat failed",
+                heartbeatFailureCount = heartbeatFailureCount,
+            )
             false
         }
+    }
+
+    /**
+     * Keep private [connected] and UI state in sync, then ask the FGS loop to reconnect.
+     * Heartbeat/stream failures previously only flipped UI state and left [isConnected] true,
+     * which stalled the reconnect loop while the dashboard showed offline.
+     */
+    private fun markDisconnectedAndReconnect(reason: String) {
+        Log.w(TAG, "Marking disconnected: $reason")
+        requestReconnect(reason)
     }
 
     private suspend fun sendEvent(eventType: String, payloadJson: String, dedupeKey: String): Boolean {
@@ -790,7 +807,7 @@ class AegisGrpcClient private constructor(
             outbound?.send(message)
             true
         }.getOrElse {
-            updateState(connected = false, lastError = it.message ?: "Event send failed")
+            markDisconnectedAndReconnect(it.message ?: "Event send failed")
             false
         }
     }

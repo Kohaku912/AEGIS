@@ -69,7 +69,63 @@ def test_without_llm_evaluator_uses_structural_fallback() -> None:
 
     assert result.task_effect == TaskEffect.NEEDS_FOLLOWUP
     assert result.details["evaluator"] == "structural"
-    assert result.pressure_reduction > 0.0
+    assert result.pressure_reduction == 0.0
+    assert result.fulfillment_score == 0.0
+
+
+def test_structural_empty_read_does_not_reduce_pressure() -> None:
+    result = evaluate_task_result(
+        capability_id="ai-server.commitment.list",
+        tool_success=True,
+        output={"count": 0, "items": []},
+        desire_name="user_support",
+    )
+
+    assert result.task_effect == TaskEffect.NO_EFFECT
+    assert result.pressure_reduction == 0.0
+    assert result.details["evaluator"] == "structural"
+
+
+def test_llm_no_effect_for_passive_read_clamps_pressure() -> None:
+    llm = _EvaluatorLLM(
+        '{"task_effect":"no_effect","fulfillment_score":0.1,"pressure_reduction":0.4,'
+        '"summary":"Only listed existing commitments","confidence":0.9,'
+        '"desire_delta_hint":{}}'
+    )
+
+    result = evaluate_task_result(
+        capability_id="ai-server.commitment.list",
+        tool_success=True,
+        output={"items": [{"id": "c1"}]},
+        desire_name="user_support",
+        llm_provider=llm,
+        desire_goal="Advance a real user commitment",
+    )
+
+    assert result.task_effect == TaskEffect.NO_EFFECT
+    assert result.pressure_reduction == 0.0
+    assert result.details["evaluator"] == "llm"
+
+
+def test_weak_useful_score_is_downgraded_to_no_effect() -> None:
+    llm = _EvaluatorLLM(
+        '{"task_effect":"useful","fulfillment_score":0.1,"pressure_reduction":0.05,'
+        '"summary":"Re-read the same Agora posts","confidence":0.9,'
+        '"desire_delta_hint":{"social":0.1}}'
+    )
+
+    result = evaluate_task_result(
+        capability_id="ai-server.agora.read_posts",
+        tool_success=True,
+        output={"message": "AGORA: Retrieved 10 post(s)", "posts": [{"id": 310}]},
+        desire_name="social",
+        llm_provider=llm,
+        desire_goal="Respond only when reciprocity warrants it",
+    )
+
+    assert result.task_effect == TaskEffect.NO_EFFECT
+    assert result.pressure_reduction == 0.0
+    assert "Downgraded weak useful" in result.summary
 
 
 def test_llm_failure_falls_back_to_structural_on_tool_error() -> None:

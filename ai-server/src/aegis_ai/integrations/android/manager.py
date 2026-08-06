@@ -244,6 +244,7 @@ class AndroidServerManager:
 
     def get_status(self) -> dict[str, Any]:
         """Return dashboard-friendly Android connection state."""
+        self.sweep_stale_sessions()
         session = self._get_active_session()
         online = session is not None or self._lan_client.is_available()
         devices = self.device_registry.list_devices()
@@ -271,6 +272,30 @@ class AndroidServerManager:
             "pairing_configured": self.device_registry.pairing_configured,
             **metrics,
         }
+
+    def sweep_stale_sessions(self, *, stale_after_ms: int = 90_000) -> int:
+        """Close reverse-stream sessions that stopped heartbeating (half-dead streams).
+
+        Client heartbeats every ~30s; after 3 missed intervals we treat the session as gone
+        so the dashboard does not stay falsely online.
+        """
+        now_ms = int(time.time() * 1000)
+        closed = 0
+        for session in list(self._sessions.values()):
+            if session.closed:
+                continue
+            age_ms = now_ms - int(session.last_seen_ms or 0)
+            if age_ms < stale_after_ms:
+                continue
+            logger.warning(
+                "Closing stale Android session %s (last_seen_age_ms=%s)",
+                session.connection_id,
+                age_ms,
+            )
+            session.close(f"stale heartbeat ({age_ms}ms)")
+            self._handle_stream_disconnect(session, f"stale heartbeat ({age_ms}ms)")
+            closed += 1
+        return closed
 
     def _handle_stream_message(self, message: Any, session: AndroidStreamSession) -> None:
         kind = message.WhichOneof("kind")
@@ -317,8 +342,12 @@ class AndroidServerManager:
             self._handle_approval_decision(decision, session)
 
     def _handle_stream_disconnect(self, session: AndroidStreamSession, reason: str) -> None:
-        if self._sessions.get(session.connection_id) is session:
-            self._sessions.pop(session.connection_id, None)
+        if self._sessions.get(session.connection_id) is not session:
+            # Already cleaned up (stale sweep and stream finally can race).
+            if self._device_to_connection.get(session.device_id) == session.connection_id:
+                self._device_to_connection.pop(session.device_id, None)
+            return
+        self._sessions.pop(session.connection_id, None)
         if self._device_to_connection.get(session.device_id) == session.connection_id:
             self._device_to_connection.pop(session.device_id, None)
         self._publish_android_event(

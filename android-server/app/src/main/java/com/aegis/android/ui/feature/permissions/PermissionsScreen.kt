@@ -23,6 +23,9 @@ fun PermissionsScreen(snapshot: MobilePermissionSnapshot, onAction: (String) -> 
         PermissionRow("Screenshot", snapshot.screenshot) { onAction("screenshot") }
         PermissionRow("Overlay", snapshot.overlay) { onAction("overlay") }
         PermissionRow("Location", snapshot.location) { onAction("location") }
+        PermissionRow("Battery optimization exempt", snapshot.batteryOptimizationExempt) {
+            onAction("battery-optimization")
+        }
     }
 }
 

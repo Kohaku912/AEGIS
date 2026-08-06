@@ -52,6 +52,17 @@ def _mask_arguments(args: dict[str, Any]) -> dict[str, Any]:
 
 def _summarize_arguments(args: dict[str, Any], max_len: int = 300) -> str:
     masked = _mask_arguments(args)
+    # Prefer the full social post body so approvers see the exact AGORA text.
+    body = masked.get("body") or masked.get("message")
+    if isinstance(body, str) and body.strip():
+        extra = {k: v for k, v in masked.items() if k not in {"body", "message", "_already_approved"}}
+        parts = [f"body={body.strip()}"]
+        if extra:
+            parts.append(str(extra))
+        s = " ".join(parts)
+        # Allow longer summaries for social posts (full body visibility).
+        limit = max(max_len, 2000)
+        return s[:limit] + ("..." if len(s) > limit else "")
     s = str(masked)
     return s[:max_len] + "..." if len(s) > max_len else s
 

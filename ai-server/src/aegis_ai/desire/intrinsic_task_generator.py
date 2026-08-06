@@ -48,7 +48,7 @@ class _TaskTemplate:
     cooldown_seconds: int
 
 
-# ── Per-desire task templates ────────────────────────────────────────────
+# ── Per-desire task templates (prose hints only — no forced capability IDs) ─
 
 _TASK_TEMPLATES: dict[str, list[_TaskTemplate]] = {
     "user_support": [
@@ -56,7 +56,7 @@ _TASK_TEMPLATES: dict[str, list[_TaskTemplate]] = {
             title="Review user's pending TODOs",
             description="Scan recent conversations and tasks for unfinished user requests.",
             expected_desire_effects={"user_support": 2.0, "social": 0.3},
-            required_capabilities=["ai-server.workspace.read_file"],
+            required_capabilities=[],
             risk_level=RiskLevel.NONE,
             requires_user_approval=False,
             cooldown_seconds=3600,
@@ -76,16 +76,20 @@ _TASK_TEMPLATES: dict[str, list[_TaskTemplate]] = {
             title="Read AGORA posts and check for mentions",
             description="Read recent AGORA posts, check for mentions directed at AEGIS.",
             expected_desire_effects={"social": 1.5, "user_support": 0.3},
-            required_capabilities=["ai-server.agora.read_posts"],
+            required_capabilities=[],
             risk_level=RiskLevel.NONE,
             requires_user_approval=False,
             cooldown_seconds=1800,
         ),
         _TaskTemplate(
-            title="Post a status update to AGORA",
-            description="Share a useful update or reply to an ongoing AGORA conversation.",
+            title="Consider a directed AGORA social reply",
+            description=(
+                "Only when there is a directed social obligation or clear reciprocity, "
+                "consider a genuine AGORA reply. Do not cold-open, post system status, "
+                "or invent a message without a social reason."
+            ),
             expected_desire_effects={"social": 2.0, "growth": 0.3},
-            required_capabilities=["ai-server.agora.post"],
+            required_capabilities=[],
             risk_level=RiskLevel.MEDIUM,
             requires_user_approval=True,
             cooldown_seconds=14400,
@@ -96,7 +100,7 @@ _TASK_TEMPLATES: dict[str, list[_TaskTemplate]] = {
             title="Review recent failure logs and learn",
             description="Read recent test failures and error logs, extract lessons.",
             expected_desire_effects={"growth": 2.0},
-            required_capabilities=["ai-server.workspace.read_file"],
+            required_capabilities=[],
             risk_level=RiskLevel.LOW,
             requires_user_approval=False,
             cooldown_seconds=3600,
@@ -105,10 +109,7 @@ _TASK_TEMPLATES: dict[str, list[_TaskTemplate]] = {
             title="Research user's active project context",
             description="Investigate the user's current project for relevant new information.",
             expected_desire_effects={"growth": 1.5, "user_support": 0.5},
-            required_capabilities=[
-                "browser-server.search.query",
-                "ai-server.workspace.read_file",
-            ],
+            required_capabilities=[],
             risk_level=RiskLevel.LOW,
             requires_user_approval=False,
             cooldown_seconds=7200,
@@ -142,9 +143,8 @@ class IntrinsicTaskGenerator:
     pressure_threshold:
         Minimum pressure for a desire to produce task candidates.
     available_capabilities:
-        Set of capability IDs the system can currently execute.
-        Tasks whose required_capabilities are not a subset are downgraded
-        to ``requires_user_approval=True`` proposals.
+        Reserved for callers that track runtime capability availability.
+        Templates no longer require concrete capability IDs; hints are prose only.
     now_ms:
         Override clock (epoch-ms). Defaults to wall-clock.
     """
@@ -184,13 +184,8 @@ class IntrinsicTaskGenerator:
                 if now - last_run < tpl.cooldown_seconds * 1000:
                     continue
 
-                caps_available = set(tpl.required_capabilities).issubset(self._caps)
                 needs_approval = tpl.requires_user_approval
                 risk = tpl.risk_level
-
-                if not caps_available and tpl.required_capabilities:
-                    needs_approval = True
-                    risk = RiskLevel.MEDIUM
 
                 if risk in (RiskLevel.HIGH, RiskLevel.FORBIDDEN):
                     needs_approval = True
@@ -204,7 +199,7 @@ class IntrinsicTaskGenerator:
                     description=tpl.description,
                     priority=priority,
                     expected_desire_effects=dict(tpl.expected_desire_effects),
-                    required_capabilities=list(tpl.required_capabilities),
+                    required_capabilities=[],
                     risk_level=risk,
                     requires_user_approval=needs_approval,
                     cooldown_seconds=tpl.cooldown_seconds,
