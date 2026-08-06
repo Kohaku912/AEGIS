@@ -93,7 +93,7 @@ def test_structural_fulfillment_empty_and_error() -> None:
     )
     assert empty is not None
     assert empty.task_effect == TaskEffect.NO_EFFECT
-    assert empty.pressure_reduction > 0
+    assert empty.pressure_reduction == 0.0
 
     failed = evaluate_task_result(
         capability_id="browser-server.page.read",

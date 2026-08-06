@@ -581,6 +581,20 @@ class ToolBroker:
                 )
 
         if policy_result.decision == PolicyDecision.ASK_APPROVAL:
+            precheck_error = self._precheck_agora_post_before_approval(request)
+            if precheck_error:
+                result = ToolExecutionResult(
+                    request_id=request.request_id,
+                    status=InvokeStatus.DENIED,
+                    error=precheck_error,
+                    started_at=request.created_at,
+                    finished_at=int(time.time() * 1000),
+                    policy_decision="AGORA_SUITABILITY_DENY",
+                    policy_result=policy_result,
+                )
+                self._record_audit(request, result)
+                self._record_failure_for_repair(request, result)
+                return result
             request.requires_approval = True
             with self._lock:
                 self._pending_approvals[request.request_id] = request
@@ -904,7 +918,10 @@ class ToolBroker:
             task_id=appr.task_id,
             capability_id=manifest.capability_id,
             tool_name=appr.tool_name,
-            arguments=appr.arguments,
+            arguments={
+                **dict(appr.arguments or {}),
+                "_already_approved": True,
+            },
             source=self._resolve_source(appr.source),
             reason=f"Approved: {appr.approval_reason}",
             source_desire=appr.source_desire,
@@ -1449,6 +1466,31 @@ class ToolBroker:
         result.output.setdefault("production_blocker", True)
         result.output.setdefault("production_blocker_reason", result.error)
         result.verification_status = "failed"
+
+    def _precheck_agora_post_before_approval(self, request: ToolExecutionRequest) -> str:
+        """Block unsuitable AGORA drafts before they become approval requests."""
+        cap_id = str(request.capability_id or "")
+        if not cap_id.endswith("agora.post"):
+            return ""
+        client = None
+        try:
+            if self._server_executor is not None and hasattr(self._server_executor, "get_client"):
+                client = self._server_executor.get_client("ai-server")
+            elif self._server_executor is not None and hasattr(self._server_executor, "_clients"):
+                client = (self._server_executor._clients or {}).get("ai-server")
+        except Exception:
+            logger.debug("Unable to resolve ai-server client for AGORA precheck", exc_info=True)
+        if client is None or not hasattr(client, "precheck_agora_post"):
+            # Fail closed for social posts when the gate cannot run.
+            return "AGORA social suitability gate unavailable; approval not created."
+        try:
+            outcome = client.precheck_agora_post(dict(request.arguments or {}))
+        except Exception as exc:
+            logger.warning("AGORA precheck failed: %s", exc)
+            return f"AGORA social suitability gate error: {exc}"
+        if outcome.get("ok"):
+            return ""
+        return str(outcome.get("message") or outcome.get("error") or "AGORA post blocked by suitability gate.")
 
     def _record_failure_for_repair(self, request: ToolExecutionRequest, result: ToolExecutionResult) -> None:
         if self._repair_manager is None or result.success:

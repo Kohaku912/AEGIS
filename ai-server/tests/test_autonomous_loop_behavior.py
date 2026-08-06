@@ -352,6 +352,7 @@ def test_execute_tasks_accepts_tool_execution_result_object(tmp_path) -> None:
 
 
 def test_representative_capability_is_included_when_retriever_misses(tmp_path) -> None:
+    """Empty retrieval falls back to the full catalog — LLM remains free to choose."""
     capability_ids = [
         "browser-server.page.read",
         "ai-server.memory.search",
@@ -373,11 +374,36 @@ def test_representative_capability_is_included_when_retriever_misses(tmp_path) -
     )
     loop._capability_retriever = _Retriever()
     loop._log_audit_event = lambda **kwargs: None
+    # Pass through repetition check so LLM choice is not second-guessed here.
+    loop._check_repetition = lambda tasks, _history: tasks  # type: ignore[method-assign]
 
-    tasks = loop._generate_tasks([{"name": "user_support", "gap": 5.0}])
+    tasks = loop._generate_tasks([{"name": "user_support", "gap": 5.0, "pressure": 8.0}])
 
     assert tasks[0]["capability_id"] == "browser-server.page.read"
     assert "browser-server.page.read" in loop.get_status()["candidate_capability_ids"]
+
+
+def test_llm_choice_is_not_vetoed_by_no_effect_history(tmp_path) -> None:
+    """Past no_effect counts are observational only — never a hard denylist."""
+    capability_ids = ["ai-server.agora.read_posts", "ai-server.memory.search"]
+    broker = _Broker(capability_ids)
+    tool_name = "ai_server__agora__read_posts"
+    llm = _NoActionThenToolLLM(tool_name)
+
+    loop = AutonomousLoop(
+        llm_provider=llm,
+        desire_system=_PressureDesire(),
+        tool_broker=broker,
+        data_dir=str(tmp_path / "autonomous"),
+    )
+    loop._no_effect_counts["ai-server.agora.read_posts"] = 5
+    loop._log_audit_event = lambda **kwargs: None
+    loop._check_repetition = lambda tasks, _history: tasks  # type: ignore[method-assign]
+
+    tasks = loop._generate_tasks([{"name": "social", "gap": 5.0, "pressure": 8.0}])
+
+    assert tasks
+    assert tasks[0]["capability_id"] == "ai-server.agora.read_posts"
 
 
 def test_useful_result_reduces_pressure(monkeypatch, tmp_path) -> None:
@@ -392,9 +418,12 @@ def test_useful_result_reduces_pressure(monkeypatch, tmp_path) -> None:
         lambda **kwargs: TaskResult(
             tool_success=True,
             task_effect=TaskEffect.USEFUL,
+            fulfillment_score=0.8,
             pressure_reduction=0.7,
+            confidence=0.9,
             desire_delta_hint={"growth": 0.5},
             summary="Useful",
+            details={"evaluator": "llm"},
         ),
     )
 
@@ -414,7 +443,7 @@ def test_useful_result_reduces_pressure(monkeypatch, tmp_path) -> None:
     assert desire.saved is True
 
 
-def test_pressure_reduction_comes_from_llm_result(monkeypatch, tmp_path) -> None:
+def test_needs_followup_does_not_reduce_pressure(monkeypatch, tmp_path) -> None:
     desire = _PressureDesire()
     loop = AutonomousLoop(
         desire_system=desire,
@@ -425,9 +454,12 @@ def test_pressure_reduction_comes_from_llm_result(monkeypatch, tmp_path) -> None
         lambda **kwargs: TaskResult(
             tool_success=True,
             task_effect=TaskEffect.NEEDS_FOLLOWUP,
+            fulfillment_score=0.2,
             pressure_reduction=0.25,
+            confidence=0.8,
             desire_delta_hint={"growth": 0.2},
             summary="Needs follow-up",
+            details={"evaluator": "llm"},
         ),
     )
 
@@ -442,7 +474,44 @@ def test_pressure_reduction_comes_from_llm_result(monkeypatch, tmp_path) -> None
         ]
     )
 
-    assert desire.reductions == [("growth", 0.25)]
+    assert desire.reductions == []
+    assert desire.dimension.value == 2.0
+
+
+def test_structural_useful_cannot_reduce_pressure(monkeypatch, tmp_path) -> None:
+    """Even if a structural path claimed useful, the gate requires evaluator=llm."""
+    desire = _PressureDesire()
+    loop = AutonomousLoop(
+        desire_system=desire,
+        data_dir=str(tmp_path / "autonomous"),
+    )
+    monkeypatch.setattr(
+        "aegis_ai.desire.fulfillment.evaluate_task_result",
+        lambda **kwargs: TaskResult(
+            tool_success=True,
+            task_effect=TaskEffect.USEFUL,
+            fulfillment_score=0.9,
+            pressure_reduction=0.8,
+            confidence=0.9,
+            desire_delta_hint={"growth": 0.5},
+            summary="Structural fake useful",
+            details={"evaluator": "structural"},
+        ),
+    )
+
+    loop._update_desires(
+        [
+            {
+                "desire": "growth",
+                "capability_id": "ai-server.agora.read_posts",
+                "success": True,
+                "full_output": {"posts": [{"id": 1}]},
+            }
+        ]
+    )
+
+    assert desire.reductions == []
+    assert desire.dimension.value == 2.0
 
 
 def test_no_effect_does_not_reduce_pressure(monkeypatch, tmp_path) -> None:
@@ -524,19 +593,79 @@ def test_empty_cycle_does_not_satisfy_desires(tmp_path) -> None:
     assert desire.releases == []
 
 
-def test_failed_cycle_keeps_desire_largely_unmet(tmp_path) -> None:
+def test_tool_success_alone_does_not_release_cycle_pressure(tmp_path) -> None:
+    """Mechanical cycle release is disabled — only LLM fulfillment drains pressure."""
     desire = _ReleaseTrackingDesire()
     loop = AutonomousLoop(desire_system=desire, data_dir=str(tmp_path / "autonomous"))
 
     loop._release_cycle_pressure([{"action": "look"}], [{"success": False}])
-
-    assert desire.releases == [0.25]
-
-
-def test_successful_cycle_spends_full_pressure(tmp_path) -> None:
-    desire = _ReleaseTrackingDesire()
-    loop = AutonomousLoop(desire_system=desire, data_dir=str(tmp_path / "autonomous"))
-
     loop._release_cycle_pressure([{"action": "look"}], [{"success": True}])
 
-    assert desire.releases == [1.0]
+    assert desire.releases == []
+
+
+def test_no_effect_history_persists_for_reflection(tmp_path) -> None:
+    desire = _PressureDesire()
+    loop = AutonomousLoop(desire_system=desire, data_dir=str(tmp_path / "autonomous"))
+    loop._no_effect_counts["ai-server.agora.read_posts"] = 1
+    loop._save()
+
+    reloaded = AutonomousLoop(desire_system=desire, data_dir=str(tmp_path / "autonomous"))
+    assert reloaded._no_effect_counts.get("ai-server.agora.read_posts") == 1
+
+
+def test_needs_followup_updates_outcome_history(monkeypatch, tmp_path) -> None:
+    desire = _PressureDesire()
+    loop = AutonomousLoop(desire_system=desire, data_dir=str(tmp_path / "autonomous"))
+    loop._no_effect_counts["ai-server.commitment.list"] = 1
+    monkeypatch.setattr(
+        "aegis_ai.desire.fulfillment.evaluate_task_result",
+        lambda **kwargs: TaskResult(
+            tool_success=True,
+            task_effect=TaskEffect.NEEDS_FOLLOWUP,
+            fulfillment_score=0.0,
+            pressure_reduction=0.0,
+            confidence=0.3,
+            summary="Structural fallback",
+            details={"evaluator": "structural"},
+        ),
+    )
+
+    loop._update_desires(
+        [
+            {
+                "desire": "growth",
+                "capability_id": "ai-server.commitment.list",
+                "success": True,
+                "full_output": {"commitments": []},
+            }
+        ]
+    )
+
+    assert loop._no_effect_counts.get("ai-server.commitment.list", 0) >= 2
+
+
+def test_no_effect_experience_is_not_recorded_as_learning(tmp_path) -> None:
+    recorded: list[dict] = []
+
+    class _Experiential:
+        def record_experience(self, **kwargs):
+            recorded.append(kwargs)
+
+    loop = AutonomousLoop(
+        experiential_memory=_Experiential(),
+        data_dir=str(tmp_path / "autonomous"),
+    )
+    loop._record_experiences(
+        [{"action": "read agora", "capability_id": "ai-server.agora.read_posts", "desire": "social"}],
+        [
+            {
+                "success": True,
+                "result": "AGORA: Retrieved 10 post(s); durable processing is queued. " + ("x" * 40),
+                "task_effect": "no_effect",
+                "fulfillment_score": 0.0,
+            }
+        ],
+    )
+
+    assert recorded == []

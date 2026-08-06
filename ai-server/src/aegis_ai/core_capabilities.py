@@ -35,12 +35,17 @@ class AegisCoreCapabilityClient:
         self._workspace.mkdir(parents=True, exist_ok=True)
         self._server_executor = server_executor
         self._personal = personal_managers or {}
-        self._agora = AgoraService()
+        social_dir = self._data_dir / "social"
+        self._agora = AgoraService(data_dir=social_dir)
         self._agora_memory_lock = threading.RLock()
         self._agora_memory_inflight: set[int] = set()
         social_manager = self._personal.get("social_manager")
         if social_manager is not None:
             social_manager.set_cursor_updater("agora", self._agora.update_cursor)
+        llm = self._personal.get("llm") or self._personal.get("llm_provider")
+        if llm is not None:
+            self._agora.set_llm(llm)
+        self._refresh_agora_self_authors()
 
     @property
     def workspace_dir(self) -> Path:
@@ -166,6 +171,7 @@ class AegisCoreCapabilityClient:
             if isinstance(result, dict):
                 return {"ok": False, **result}
             posts = result.posts if isinstance(result, AgoraFetchResult) else []
+            self._refresh_agora_self_authors()
             if posts:
                 social_manager = self._personal.get("social_manager")
                 inbox_items = social_manager.ingest("agora", posts) if social_manager is not None else []
@@ -244,10 +250,16 @@ class AegisCoreCapabilityClient:
             body = str(params.get("body") or params.get("message") or "").strip()
             if not body:
                 return {"ok": False, "error": "body is required", "code": "INVALID_ARGUMENT"}
+            already_approved = bool(
+                params.get("_already_approved")
+                or params.get("already_approved")
+                or (params.get("_execution_metadata") or {}).get("approved_execution")
+            )
             result = self._agora.create_post(
                 thread_id=int(params.get("thread_id") or 1),
                 body=body,
                 reply_to=int(params["reply_to"]) if params.get("reply_to") not in (None, "") else None,
+                already_approved=already_approved,
             )
             if isinstance(result, dict):
                 return {"ok": False, **result}
@@ -255,6 +267,50 @@ class AegisCoreCapabilityClient:
                 return {"ok": True, "post": self._dataclass_to_dict(result), "result": f"Posted to AGORA as #{result.id}."}
             return {"ok": True, "result": str(result)}
         return {"ok": False, "error": "Unsupported AGORA capability", "code": "UNSUPPORTED_CAPABILITY"}
+
+    def precheck_agora_post(self, params: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Run structural + suitability checks before creating an approval request."""
+        params = params or {}
+        body = str(params.get("body") or params.get("message") or "").strip()
+        reply_to = int(params["reply_to"]) if params.get("reply_to") not in (None, "") else None
+        if not body:
+            return {"ok": False, "error": "blocked", "message": "Post body is empty."}
+        structural = self._agora._structural_block(body=body, reply_to=reply_to)
+        if structural is not None:
+            return {"ok": False, **structural}
+        judgment = self._agora.evaluate_social_suitability(body, reply_to=reply_to)
+        if not judgment.get("suitable"):
+            return {
+                "ok": False,
+                "error": "blocked",
+                "message": f"Post blocked by social suitability gate: {judgment.get('reason')}",
+                "suitability": judgment,
+            }
+        return {"ok": True, "suitability": judgment}
+
+    def _refresh_agora_self_authors(self) -> None:
+        """Wire SocialManager own-author skip from live AGORA identity."""
+        social_manager = self._personal.get("social_manager")
+        if social_manager is None or not hasattr(social_manager, "set_self_authors"):
+            return
+        try:
+            me = self._agora.get_me()
+        except Exception as exc:
+            logger.info("AGORA get_me unavailable for self-author wiring: %s", exc)
+            return
+        if isinstance(me, dict) and me.get("error"):
+            logger.info("AGORA get_me error for self-author wiring: %s", me.get("error"))
+            return
+        author_id = int(getattr(me, "id", 0) or (me.get("id") if isinstance(me, dict) else 0) or 0)
+        author_name = str(
+            getattr(me, "name", "") or (me.get("name") if isinstance(me, dict) else "") or ""
+        ).strip()
+        ids = {author_id} if author_id else set()
+        names = {author_name} if author_name else set()
+        if not ids and not names:
+            return
+        social_manager.set_self_authors(author_ids=ids, author_names=names)
+        logger.info("Wired SocialManager self authors id=%s name=%s", author_id or None, author_name or None)
 
     def _enqueue_agora_memory_sync(self, posts: list[Any]) -> None:
         """Queue LLM-backed memory enrichment outside the retrieval RPC."""

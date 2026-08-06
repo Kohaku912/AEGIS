@@ -54,7 +54,8 @@ def test_no_action_backoff_grows_exponentially(tmp_path) -> None:
     loop._consecutive_no_action = 3
     assert loop._no_action_backoff_ms() >= 240_000
     loop._consecutive_no_action = 10
-    assert loop._no_action_backoff_ms() == 3_600_000
+    # Must not inherit AEGIS_MIN_LLM_INTERVAL (30m); cap at 10 minutes.
+    assert loop._no_action_backoff_ms() == 600_000
 
 
 def test_decide_next_interval_uses_no_action_backoff(tmp_path) -> None:
@@ -70,8 +71,30 @@ def test_decide_next_interval_uses_no_action_backoff(tmp_path) -> None:
     loop = AutonomousLoop(desire_system=desire, data_dir=str(tmp_path / "auto"))
     loop._consecutive_no_action = 4
     interval = loop._decide_next_interval([])
-    assert interval >= 480
-    assert interval >= 300
+    # Unmet high pressure retries within the unmet-desire cap (default 5m), not 30m.
+    assert 60 <= interval <= 300
+
+
+def test_high_pressure_bypasses_long_next_run_schedule(tmp_path) -> None:
+    from aegis_ai.desire.desire_system import DesireSystem
+
+    desire = DesireSystem(data_dir=str(tmp_path / "desire"))
+    for name, obj in desire.get_all_desires().items():
+        if obj.hidden:
+            continue
+        obj.pressure = 10.0
+        if desire._pressure_engine is not None:
+            desire._pressure_engine._pressures[name] = 10.0
+    loop = AutonomousLoop(desire_system=desire, data_dir=str(tmp_path / "auto"))
+    now = int(time.time() * 1000)
+    loop._last_run_ms = now - 400_000  # last cycle > unmet retry window
+    loop._next_run_ms = now + 1_500_000  # still blocked by old 30m schedule
+    loop._last_skip_reason = "no_valid_tasks"
+    assert loop._pressure_due() is True
+    assert loop._unmet_desire_retry_due(now) is True
+    sleep_s = loop._compute_idle_sleep_seconds(now)
+    assert sleep_s <= 5.0
+
 
 
 def test_desire_eta_and_cycle_pressure_release(tmp_path) -> None:

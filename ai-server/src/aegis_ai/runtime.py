@@ -464,6 +464,26 @@ def _build_runtime(config: Config) -> AegisRuntime:
         }
 
     social_manager.set_relationship_provider(_social_relationship_context)
+    # Prefer live AGORA identity; fall back to deferred refresh via read_posts / get_me.
+    try:
+        from aegis_ai.integrations.agora.agora_service import AgoraService
+
+        _agora_boot = AgoraService(data_dir=os.path.join(data_dir, "social"))
+        me = _agora_boot.get_me()
+        if not (isinstance(me, dict) and me.get("error")):
+            author_id = int(getattr(me, "id", 0) or 0)
+            author_name = str(getattr(me, "name", "") or "").strip()
+            social_manager.set_self_authors(
+                author_ids={author_id} if author_id else set(),
+                author_names={author_name} if author_name else set(),
+            )
+            logger.info(
+                "Boot-wired SocialManager self authors id=%s name=%s",
+                author_id or None,
+                author_name or None,
+            )
+    except Exception:
+        logger.info("AGORA self-author boot wiring deferred until first read_posts", exc_info=True)
     from aegis_ai.autonomous.continuation_manager import ContinuationManager
     from aegis_ai.autonomous.exploration_agenda import ExplorationAgenda
     from aegis_ai.autonomous.initiative_engine import InitiativeEngine

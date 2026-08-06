@@ -7,6 +7,7 @@ data class MobilePermissionSnapshot(
     val screenshot: Boolean = false,
     val overlay: Boolean = false,
     val location: Boolean = false,
+    val batteryOptimizationExempt: Boolean = false,
 )
 
 data class UiOverviewSnapshot(

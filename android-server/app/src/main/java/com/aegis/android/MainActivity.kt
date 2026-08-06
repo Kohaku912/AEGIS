@@ -10,6 +10,7 @@ import android.media.projection.MediaProjectionManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.PowerManager
 import android.provider.Settings
 import android.text.TextUtils
 import android.util.Log
@@ -135,6 +136,7 @@ class MainActivity : ComponentActivity() {
                             "screenshot" -> requestScreenshotPermission()
                             "overlay" -> openOverlaySettings()
                             "location" -> requestLocationPermission()
+                            "battery-optimization" -> requestBatteryOptimizationExemption()
                         }
                     },
                     saveConnection = { req ->
@@ -771,6 +773,7 @@ class MainActivity : ComponentActivity() {
             screenshot = screenshotProvider.isAvailable(),
             overlay = overlayController.canDrawOverlays(),
             location = locationProvider.hasPermission(),
+            batteryOptimizationExempt = isBatteryOptimizationExempt(),
             deviceLine = "${device.manufacturer} ${device.model} / Android ${device.androidVersion}",
             batteryLine = "${device.batteryLevel}%${if (device.batteryCharging) " charging" else ""}",
             screenLine = "${if (device.screenOn) "On" else "Off"} / ${if (device.locked) "Locked" else "Unlocked"}",
@@ -786,6 +789,7 @@ class MainActivity : ComponentActivity() {
             screenshot = snapshot.screenshot,
             overlay = snapshot.overlay,
             location = snapshot.location,
+            batteryOptimizationExempt = snapshot.batteryOptimizationExempt,
         )
     }
 
@@ -820,6 +824,24 @@ class MainActivity : ComponentActivity() {
     private fun requestRuntimeNotificationPermission() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.POST_NOTIFICATIONS), REQUEST_NOTIFICATIONS)
+        }
+    }
+
+    private fun isBatteryOptimizationExempt(): Boolean {
+        val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+        return pm.isIgnoringBatteryOptimizations(packageName)
+    }
+
+    private fun requestBatteryOptimizationExemption() {
+        if (isBatteryOptimizationExempt()) return
+        try {
+            val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                data = Uri.parse("package:$packageName")
+            }
+            startActivity(intent)
+        } catch (exc: Exception) {
+            Log.w(TAG, "Direct battery exemption request failed, opening settings", exc)
+            startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
         }
     }
 
@@ -883,6 +905,7 @@ data class StatusSnapshot(
     val screenshot: Boolean,
     val overlay: Boolean,
     val location: Boolean,
+    val batteryOptimizationExempt: Boolean = false,
     val deviceLine: String,
     val batteryLine: String,
     val screenLine: String,

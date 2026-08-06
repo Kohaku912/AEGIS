@@ -1,0 +1,13 @@
+{
+  "pressures": {
+    "user_support": 0.0,
+    "social": 0.0,
+    "growth": 0.0
+  },
+  "drift_rates": {
+    "user_support": -2.7,
+    "social": -2.7,
+    "growth": -2.7
+  },
+  "last_updated_ms": 1785989692096
+}

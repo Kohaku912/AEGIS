@@ -1,0 +1,47 @@
+{
+  "desires": {
+    "user_support": {
+      "value": 5.0,
+      "expected_value": 7.0,
+      "decay_rate_per_hour": 0.12,
+      "recovery_rate": 0.3,
+      "safety_category": "general",
+      "visible": true,
+      "hidden": false,
+      "last_updated_at": 1785989704715,
+      "update_history": [],
+      "pressure": 0.0,
+      "drift_rate": -2.7,
+      "last_action_at": 1785989704715
+    },
+    "social": {
+      "value": 5.0,
+      "expected_value": 6.0,
+      "decay_rate_per_hour": 0.1,
+      "recovery_rate": 0.25,
+      "safety_category": "social",
+      "visible": true,
+      "hidden": false,
+      "last_updated_at": 1785989704715,
+      "update_history": [],
+      "pressure": 0.0,
+      "drift_rate": -2.7,
+      "last_action_at": 1785989704715
+    },
+    "growth": {
+      "value": 5.0,
+      "expected_value": 7.0,
+      "decay_rate_per_hour": 0.08,
+      "recovery_rate": 0.2,
+      "safety_category": "general",
+      "visible": true,
+      "hidden": false,
+      "last_updated_at": 1785989704715,
+      "update_history": [],
+      "pressure": 0.0,
+      "drift_rate": -2.7,
+      "last_action_at": 1785989704715
+    }
+  },
+  "saved_at_ms": 1785989704715
+}
