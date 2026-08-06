@@ -38,6 +38,7 @@ class LLMResponse:
     success: bool = True
     error: str = ""
     tool_calls: list[dict[str, Any]] | None = None
+    finish_reason: str = ""
 
 
 class OpenAIProvider:
@@ -65,6 +66,8 @@ class OpenAIProvider:
         self._base_url = base_url or os.getenv("LLM_BASE_URL", "")
         self._audit = audit_log
         self._circuit = PROVIDER_CIRCUITS.get(self._base_url)
+        # None = untested, False = backend rejected the toggle and must not receive it again.
+        self._thinking_toggle_supported: bool | None = None
 
         if not self._api_key:
             logger.warning("No API key set. Set LLM_API_KEY environment variable.")
@@ -92,6 +95,21 @@ class OpenAIProvider:
             _MAX_PROMPT_CHARS,
         )
         return value[: max(0, _MAX_PROMPT_CHARS - 3)] + "..."
+
+    def _reasoning_extra_body(self, reasoning_level: str) -> dict[str, Any]:
+        """Translate a profile reasoning level into backend request options.
+
+        Reasoning tokens are drawn from the same budget as the visible answer, so a
+        thinking model on a large prompt can exhaust ``max_tokens`` before emitting any
+        tool call. Levels at or below "low" therefore turn thinking off outright.
+        """
+        if str(reasoning_level or "").lower() not in {"none", "off", "minimal", "low"}:
+            return {}
+        if self._thinking_toggle_supported is False:
+            return {}
+        if "deepseek" not in self._base_url.lower() and not self._model.lower().startswith("deepseek"):
+            return {}
+        return {"thinking": {"type": "disabled"}}
 
     def _supports_vision(self) -> bool:
         """Return True when the configured backend is likely to accept image inputs."""
@@ -270,6 +288,7 @@ class OpenAIProvider:
         max_tokens: int = 1000,
         temperature: float = 0.3,
         context_meta: dict[str, Any] | None = None,
+        reasoning_level: str = "",
     ) -> LLMResponse:
         """Generate a response using OpenAI tool calling.
 
@@ -279,6 +298,7 @@ class OpenAIProvider:
             system_prompt: Optional system prompt
             max_tokens: Max response tokens
             temperature: Sampling temperature
+            reasoning_level: Profile reasoning level; low or below disables thinking
 
         Returns:
             LLMResponse with tool_calls populated if the model chose tools
@@ -295,17 +315,39 @@ class OpenAIProvider:
 
         start = time.time()
         try:
-            response = self._client.chat.completions.create(
-                model=self._model,
-                messages=messages,
-                tools=tools,
-                tool_choice="auto",
-                max_tokens=max_tokens,
-                temperature=temperature,
-            )
+            extra_body = self._reasoning_extra_body(reasoning_level)
+            try:
+                response = self._client.chat.completions.create(
+                    model=self._model,
+                    messages=messages,
+                    tools=tools,
+                    tool_choice="auto",
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    **({"extra_body": extra_body} if extra_body else {}),
+                )
+                if extra_body:
+                    self._thinking_toggle_supported = True
+            except Exception as thinking_error:
+                if not extra_body or "thinking" not in str(thinking_error).lower():
+                    raise
+                logger.warning(
+                    "Backend rejected the thinking toggle (%s) — retrying without it",
+                    str(thinking_error)[:200],
+                )
+                self._thinking_toggle_supported = False
+                response = self._client.chat.completions.create(
+                    model=self._model,
+                    messages=messages,
+                    tools=tools,
+                    tool_choice="auto",
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                )
 
             choice = response.choices[0]
             content = choice.message.content or ""
+            finish_reason = str(getattr(choice, "finish_reason", "") or "")
             usage_detail = self._usage_detail(response)
             tokens = usage_detail["tokens"]
             duration_ms = (time.time() - start) * 1000
@@ -326,9 +368,17 @@ class OpenAIProvider:
                     })
 
             logger.info(
-                "LLM tool call success: model=%s tokens=%d duration=%.1fms tool_calls=%d",
+                "LLM tool call success: model=%s tokens=%d duration=%.1fms tool_calls=%d "
+                "finish_reason=%s content_len=%d",
                 self._model, tokens, duration_ms, len(tool_calls) if tool_calls else 0,
+                finish_reason, len(content),
             )
+            if finish_reason == "length" and not tool_calls and not content.strip():
+                logger.warning(
+                    "LLM tool call truncated before producing output: model=%s max_tokens=%d "
+                    "(reasoning consumed the output budget)",
+                    self._model, max_tokens,
+                )
 
             self._record_provider_outcome()
             self._audit_log(
@@ -340,6 +390,9 @@ class OpenAIProvider:
                     "prompt_chars": len(prompt),
                     "response_preview": self._preview_text(content),
                     "tool_calls": tool_calls,
+                    "finish_reason": finish_reason,
+                    "reasoning_level": reasoning_level,
+                    "thinking_disabled": bool(extra_body),
                     "tool_count": len(tools),
                     "tokens": tokens,
                     **usage_detail,
@@ -361,6 +414,7 @@ class OpenAIProvider:
                 cost_estimate=tokens * 0.000002,
                 success=True,
                 tool_calls=tool_calls,
+                finish_reason=finish_reason,
             )
         except Exception as e:
             duration_ms = (time.time() - start) * 1000

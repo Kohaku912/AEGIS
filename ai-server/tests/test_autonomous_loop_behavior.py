@@ -182,6 +182,8 @@ def test_decision_axes_keep_four_operational_priorities(tmp_path) -> None:
 def test_llm_interval_gate_waits_thirty_minutes_by_default(monkeypatch, tmp_path) -> None:
     monkeypatch.delenv("AEGIS_MIN_LLM_INTERVAL_MS", raising=False)
     desire = _PressureDesire()
+    # Gate only applies when pressure is below the threshold (desire fires bypass it).
+    desire.dimension.pressure = 1.0
     loop = AutonomousLoop(
         llm_provider=object(),
         desire_system=desire,
@@ -196,15 +198,18 @@ def test_llm_interval_gate_waits_thirty_minutes_by_default(monkeypatch, tmp_path
     loop._record_experiences = lambda tasks, results: None
     loop._decide_next_interval = lambda results: 60
     loop._log_execution = lambda tasks, results: None
+    # Avoid preflight "all_pressure_below_threshold" short-circuit once the interval opens.
+    loop._preflight_check = lambda: (True, "ok")
+    loop._get_low_desires = lambda: [{"name": "growth", "gap": 1.0, "pressure": 1.0}]
 
     loop._last_llm_call_ms = int(time.time() * 1000)
-    loop._execute_cycle()
+    loop._execute_cycle(force_desire=False)
     assert generated == []
     assert loop.get_status()["last_skip_reason"].startswith("llm_interval_gate")
 
     loop._last_llm_call_ms = int(time.time() * 1000) - loop._min_llm_interval_ms
     loop._last_pressure_signature = ""
-    loop._execute_cycle()
+    loop._execute_cycle(force_desire=False)
     assert generated == [True]
 
 
@@ -248,8 +253,8 @@ class _NoActionLLM:
         return SimpleNamespace(success=True, content="No action.", tool_calls=[])
 
 
-def test_empty_tool_response_is_not_reprompted(tmp_path) -> None:
-    """Successful empty responses are intentional no-action — never double-call LLM."""
+def test_empty_tool_response_is_retried_once(tmp_path) -> None:
+    """An empty body with no tool call is not a decision — retry once for an answer."""
     capability_ids = ["ai-server.memory.search"]
     broker = _Broker(capability_ids)
     tool_name = capability_ids[0].replace(".", "__").replace("-", "_")
@@ -264,9 +269,28 @@ def test_empty_tool_response_is_not_reprompted(tmp_path) -> None:
 
     tasks = loop._generate_tasks([{"name": "user_support", "gap": 5.0}])
 
+    assert llm.calls == 2
+    assert len(tasks) == 1
+    assert tasks[0]["capability_id"] == capability_ids[0]
+    assert loop.get_status()["selected_tool_count"] == 1
+    assert loop.get_status()["last_decision"] == "action_selected"
+
+
+def test_explicit_no_action_reason_is_not_retried(tmp_path) -> None:
+    """A stated non-action reason is intentional — do not double-call the LLM."""
+    llm = _NoActionLLM()
+    loop = AutonomousLoop(
+        llm_provider=llm,
+        desire_system=_PressureDesire(),
+        tool_broker=_Broker(["ai-server.memory.search"]),
+        data_dir=str(tmp_path / "autonomous"),
+    )
+    loop._log_audit_event = lambda **kwargs: None
+
+    tasks = loop._generate_tasks([{"name": "user_support", "gap": 5.0}])
+
     assert llm.calls == 1
     assert tasks == []
-    assert loop.get_status()["selected_tool_count"] == 0
     assert loop.get_status()["last_decision"] == "no_action"
 
 
@@ -480,3 +504,39 @@ def test_execution_log_stores_image_digest_instead_of_base64(tmp_path) -> None:
     assert "image_payload" in log_text
     assert "payload_omitted" in log_text
     assert not any((tmp_path / "autonomous" / "artifacts").iterdir())
+
+
+class _ReleaseTrackingDesire(_PressureDesire):
+    def __init__(self) -> None:
+        super().__init__()
+        self.releases: list[float] = []
+
+    def release_cycle_pressure(self, *, effectiveness: float = 1.0) -> None:
+        self.releases.append(effectiveness)
+
+
+def test_empty_cycle_does_not_satisfy_desires(tmp_path) -> None:
+    desire = _ReleaseTrackingDesire()
+    loop = AutonomousLoop(desire_system=desire, data_dir=str(tmp_path / "autonomous"))
+
+    loop._release_cycle_pressure([], [])
+
+    assert desire.releases == []
+
+
+def test_failed_cycle_keeps_desire_largely_unmet(tmp_path) -> None:
+    desire = _ReleaseTrackingDesire()
+    loop = AutonomousLoop(desire_system=desire, data_dir=str(tmp_path / "autonomous"))
+
+    loop._release_cycle_pressure([{"action": "look"}], [{"success": False}])
+
+    assert desire.releases == [0.25]
+
+
+def test_successful_cycle_spends_full_pressure(tmp_path) -> None:
+    desire = _ReleaseTrackingDesire()
+    loop = AutonomousLoop(desire_system=desire, data_dir=str(tmp_path / "autonomous"))
+
+    loop._release_cycle_pressure([{"action": "look"}], [{"success": True}])
+
+    assert desire.releases == [1.0]
