@@ -11,6 +11,7 @@ Architecture reference: docs/architecture.md §5.3
 
 from __future__ import annotations
 
+import inspect
 import logging
 import threading
 from dataclasses import dataclass
@@ -18,6 +19,17 @@ from enum import Enum, auto
 from typing import Any
 
 logger = logging.getLogger("aegis_ai.llm.router")
+
+
+def accepts_kwarg(func: Any, name: str) -> bool:
+    """Return True when ``func`` declares ``name`` or accepts arbitrary keywords."""
+    try:
+        parameters = inspect.signature(func).parameters
+    except (TypeError, ValueError):
+        return False
+    if name in parameters:
+        return True
+    return any(p.kind is inspect.Parameter.VAR_KEYWORD for p in parameters.values())
 
 
 class TaskType(Enum):
@@ -56,6 +68,7 @@ class LLMRequest:
     caller: str = ""  # Which agent is making the request
     context_meta: dict[str, Any] | None = None
     json_mode: bool = False
+    reasoning_level: str = ""
 
 
 @dataclass
@@ -75,6 +88,7 @@ class LLMResponse:
     success: bool = True
     error: str = ""
     tool_calls: list[dict[str, Any]] | None = None
+    finish_reason: str = ""
 
 
 class LLMRouter:
@@ -216,14 +230,19 @@ class LLMRouter:
 
         try:
             if hasattr(provider, "generate_with_tools"):
-                response = provider.generate_with_tools(
-                    prompt=request.prompt,
-                    tools=tools,
-                    system_prompt=request.system_prompt,
-                    max_tokens=request.max_tokens,
-                    temperature=request.temperature,
-                    context_meta=request.context_meta,
-                )
+                call_kwargs: dict[str, Any] = {
+                    "prompt": request.prompt,
+                    "tools": tools,
+                    "system_prompt": request.system_prompt,
+                    "max_tokens": request.max_tokens,
+                    "temperature": request.temperature,
+                    "context_meta": request.context_meta,
+                }
+                if request.reasoning_level and accepts_kwarg(
+                    provider.generate_with_tools, "reasoning_level"
+                ):
+                    call_kwargs["reasoning_level"] = request.reasoning_level
+                response = provider.generate_with_tools(**call_kwargs)
             else:
                 response = provider.generate(
                     prompt=request.prompt,
@@ -448,4 +467,5 @@ class LLMRouter:
             success=getattr(response, "success", True),
             error=getattr(response, "error", ""),
             tool_calls=getattr(response, "tool_calls", None),
+            finish_reason=getattr(response, "finish_reason", ""),
         )

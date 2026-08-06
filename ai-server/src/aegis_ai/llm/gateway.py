@@ -13,10 +13,19 @@ import time
 from typing import Any
 
 from aegis_ai.llm.prompt_registry import PromptRegistry
-from aegis_ai.llm.router import LLMRequest, LLMResponse, LLMRouter, PrivacyLevel, TaskType
+from aegis_ai.llm.router import (
+    LLMRequest,
+    LLMResponse,
+    LLMRouter,
+    PrivacyLevel,
+    TaskType,
+    accepts_kwarg,
+)
 from aegis_ai.llm.settings_resolver import LLMSettings, LLMSettingsResolver
 
 logger = logging.getLogger("aegis_ai.llm.gateway")
+
+
 
 
 class LLMGateway:
@@ -178,6 +187,7 @@ class LLMGateway:
             request_id=str(meta.get("request_id", "")),
             context_meta=context_meta,
             json_mode=json_mode,
+            reasoning_level=settings.reasoning_level,
         )
 
     # ── Public API ────────────────────────────────────────────
@@ -281,14 +291,17 @@ class LLMGateway:
         provider = self._get_provider_for_profile(settings)
 
         if provider is not None and hasattr(provider, "generate_with_tools"):
-            response = provider.generate_with_tools(
-                prompt=prompt,
-                tools=tools,
-                system_prompt=system_prompt,
-                max_tokens=settings.max_tokens,
-                temperature=settings.temperature,
-                context_meta=context_meta,
-            )
+            call_kwargs: dict[str, Any] = {
+                "prompt": prompt,
+                "tools": tools,
+                "system_prompt": system_prompt,
+                "max_tokens": settings.max_tokens,
+                "temperature": settings.temperature,
+                "context_meta": context_meta,
+            }
+            if accepts_kwarg(provider.generate_with_tools, "reasoning_level"):
+                call_kwargs["reasoning_level"] = settings.reasoning_level
+            response = provider.generate_with_tools(**call_kwargs)
         else:
             request = self._make_request(
                 prompt=prompt,

@@ -312,3 +312,54 @@ class TestAuditEntry:
         assert len(records) == 1
         assert records[0]["profile_id"] == ""
         assert records[0]["model"] == ""
+
+
+class TestReasoningLevelIsSentToTheBackend:
+    """Reasoning tokens share the output budget, so the level must reach the API."""
+
+    @staticmethod
+    def _provider(base_url: str = "https://api.deepseek.com", model: str = "deepseek-v4-flash"):
+        from aegis_ai.llm.providers.openai_provider import OpenAIProvider
+
+        return OpenAIProvider(model=model, api_key="test-key", base_url=base_url)
+
+    def test_low_reasoning_disables_thinking_on_deepseek(self) -> None:
+        provider = self._provider()
+        assert provider._reasoning_extra_body("low") == {"thinking": {"type": "disabled"}}
+
+    def test_high_reasoning_leaves_thinking_enabled(self) -> None:
+        provider = self._provider()
+        assert provider._reasoning_extra_body("high") == {}
+
+    def test_non_deepseek_backend_never_receives_the_toggle(self) -> None:
+        provider = self._provider(base_url="https://api.openai.com/v1", model="gpt-4o")
+        assert provider._reasoning_extra_body("low") == {}
+
+    def test_toggle_is_dropped_after_the_backend_rejects_it(self) -> None:
+        provider = self._provider()
+        provider._thinking_toggle_supported = False
+        assert provider._reasoning_extra_body("low") == {}
+
+    def test_gateway_forwards_reasoning_level_to_the_provider(self, llm_yaml: Path) -> None:
+        from aegis_ai.llm.providers.openai_provider import LLMResponse as ProviderResponse
+
+        captured: dict[str, object] = {}
+
+        class _Provider:
+            def generate_with_tools(self, **kwargs):
+                captured.update(kwargs)
+                return ProviderResponse(content="ok")
+
+        resolver = LLMSettingsResolver(llm_path=str(llm_yaml))
+        gateway = LLMGateway(router=None, settings_resolver=resolver)
+        gateway._get_provider_for_profile = lambda settings: _Provider()
+
+        gateway.generate_with_tools(prompt="hi", tools=[], profile="chat_balanced")
+
+        assert captured["reasoning_level"] == "medium"
+
+    def test_truncated_tool_call_reports_finish_reason(self) -> None:
+        from aegis_ai.llm.providers.openai_provider import LLMResponse as ProviderResponse
+
+        assert ProviderResponse().finish_reason == ""
+        assert ProviderResponse(finish_reason="length").finish_reason == "length"

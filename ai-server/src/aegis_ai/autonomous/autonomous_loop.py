@@ -132,6 +132,11 @@ class AutonomousLoop:
         )
         self._min_llm_interval_ms: int = int(os.environ.get("AEGIS_MIN_LLM_INTERVAL_MS", 1_800_000))
         self._idle_wake_cap_ms: int = int(os.environ.get("AEGIS_IDLE_WAKE_CAP_MS", "300000"))  # 5 min
+        # Reasoning models spend part of this budget on hidden reasoning tokens; a budget
+        # that is too small truncates the answer before any tool call is emitted.
+        self._decision_max_tokens: int = int(
+            os.environ.get("AEGIS_DECISION_MAX_TOKENS", "2048")
+        )
         self._llm_usage_window_ms: int = int(os.environ.get("AEGIS_AUTONOMOUS_LLM_USAGE_WINDOW_MS", 3_600_000))
         self._llm_usage_token_limit: int = int(os.environ.get("AEGIS_AUTONOMOUS_LLM_USAGE_TOKEN_LIMIT", 80_000))
         self._last_llm_call_ms: int = 0
@@ -348,12 +353,11 @@ class AutonomousLoop:
 
                 time_since_last_run = now - self._last_run_ms
                 can_execute = time_since_last_run >= self._min_execution_interval_ms
-                # Desire threshold is the primary cadence — never block it behind
-                # llm_interval_gate / backoff schedules from earlier empty cycles.
-                if can_execute and desire_triggered:
-                    self._execute_cycle(force_desire=True)
-                elif can_execute and now >= self._next_run_ms:
-                    self._execute_cycle(force_desire=False)
+                # Desire threshold drives the cadence and bypasses the LLM interval and
+                # empty-cycle backoff gates, but still honours the scheduled cooldown so
+                # a desire that stays unmet cannot re-fire on every tick.
+                if can_execute and now >= self._next_run_ms:
+                    self._execute_cycle(force_desire=desire_triggered)
                 else:
                     sleep_s = self._compute_idle_sleep_seconds(now)
                     time.sleep(sleep_s)
@@ -376,11 +380,15 @@ class AutonomousLoop:
     def _compute_idle_sleep_seconds(self, now_ms: int) -> float:
         """Sleep until pressure threshold, next_run, or idle wake cap — never a 60s poll."""
         candidates: list[float] = [max(1.0, self._idle_wake_cap_ms / 1000.0)]
-        # Always prefer waking when desire pressure will hit threshold.
+        # Wake when desire pressure will hit the threshold. When it is already past the
+        # threshold, the scheduled cooldown is what we are waiting for, so do not spin.
         if self._desire is not None and hasattr(self._desire, "seconds_until_threshold"):
             try:
                 eta = float(self._desire.seconds_until_threshold(self._pressure_threshold))
-                candidates.append(1.0 if eta <= 0 else eta)
+                if eta > 0:
+                    candidates.append(eta)
+                elif self._next_run_ms <= now_ms:
+                    candidates.append(1.0)
             except Exception:
                 logger.debug("Unable to estimate desire ETA", exc_info=True)
         if self._next_run_ms > now_ms:
@@ -822,9 +830,6 @@ Respond with JSON:
                 return
         else:
             logger.info("Desire pressure due — skipping LLM interval / no-action backoff gates")
-            # Fresh desire fire: do not carry empty-cycle backoff into this attempt.
-            if self._consecutive_no_action:
-                self._consecutive_no_action = 0
 
         if bypass_interval and self._last_llm_call_ms and now_llm - self._last_llm_call_ms < self._min_llm_interval_ms:
             if not pressure_due:
@@ -916,17 +921,50 @@ Respond with JSON:
 
         self._update_desires(results)
         self._record_experiences(tasks, results)
-        # Spend desire pressure so the next homeostatic fire takes ~30 minutes.
-        if self._desire is not None and hasattr(self._desire, "release_cycle_pressure"):
-            try:
-                self._desire.release_cycle_pressure(effectiveness=1.0)
-            except Exception:
-                logger.debug("Desire pressure release failed", exc_info=True)
+        self._release_cycle_pressure(tasks, results)
         next_interval = self._decide_next_interval(results)
         self._schedule_next(next_interval)
         self._log_execution(tasks, results)
         self._record_operation(tasks, results)
         self._save()
+
+    def _release_cycle_pressure(
+        self,
+        tasks: list[dict[str, Any]],
+        results: list[dict[str, Any]],
+    ) -> None:
+        """Spend desire pressure in proportion to what the cycle actually achieved.
+
+        A cycle that produced nothing must not reset the desires — otherwise the loop
+        reports itself satisfied without having acted, and unmet needs disappear from
+        the dashboard instead of persisting until they are served.
+        """
+        if self._desire is None or not hasattr(self._desire, "release_cycle_pressure"):
+            return
+
+        if not tasks:
+            logger.info("No task executed — keeping desire pressure (nothing was achieved)")
+            return
+
+        succeeded = sum(1 for r in results if r.get("success"))
+        if succeeded:
+            effectiveness = 1.0
+        else:
+            # Effort was spent and the failure is recorded, so drain a little to avoid
+            # hammering the same broken path, but keep the desire clearly unmet.
+            effectiveness = 0.25
+
+        try:
+            self._desire.release_cycle_pressure(effectiveness=effectiveness)
+        except Exception:
+            logger.debug("Desire pressure release failed", exc_info=True)
+        else:
+            logger.info(
+                "Released desire pressure: effectiveness=%.2f (%d/%d results succeeded)",
+                effectiveness,
+                succeeded,
+                len(results),
+            )
 
     def _get_low_desires(self) -> list[dict[str, Any]]:
         low = []
@@ -1336,13 +1374,20 @@ Respond with JSON:
                 " Re-evaluate once for a missed useful action. It is valid to choose non-action again, but "
                 "state the concrete reason instead of returning an empty response."
             )
-        return self._llm.generate_with_tools(
-            prompt=prompt,
-            tools=tools,
-            system_prompt=system_prompt,
-            max_tokens=600,
-            context_meta=memory_meta,
-        )
+        from aegis_ai.llm.router import accepts_kwarg
+
+        call_kwargs: dict[str, Any] = {
+            "prompt": prompt,
+            "tools": tools,
+            "system_prompt": system_prompt,
+            "max_tokens": self._decision_max_tokens,
+            "context_meta": memory_meta,
+        }
+        # The "decision" profile keeps reasoning low so the token budget is spent on the
+        # tool call rather than on hidden reasoning.
+        if accepts_kwarg(self._llm.generate_with_tools, "profile"):
+            call_kwargs["profile"] = "decision"
+        return self._llm.generate_with_tools(**call_kwargs)
 
     def _generate_tasks(self, low_desires: list[dict[str, Any]]) -> list[dict[str, Any]]:
         if not self._llm:
@@ -1480,13 +1525,42 @@ Operational decision axes (prioritization only; not additional desires):
             self._last_skip_reason = f"llm_error: {getattr(result, 'error', 'unknown')}"
             return []
 
-        # Successful empty responses are intentional non-action — never double-call.
+        # An empty body with no tool call is not a decision. Retry once with an explicit
+        # demand for either a tool call or a stated reason, and treat a truncated
+        # response as a provider error so it never masquerades as deliberate non-action.
+        if not result.tool_calls and not str(result.content or "").strip():
+            if str(getattr(result, "finish_reason", "") or "") == "length":
+                logger.error(
+                    "LLM task generation truncated (max_tokens=%d exhausted by reasoning) — "
+                    "treating as provider error, not non-action",
+                    self._decision_max_tokens,
+                )
+                self._last_decision = "llm_error"
+                self._last_skip_reason = "llm_error: response truncated before any output"
+                return []
+
+            logger.warning("LLM returned an empty decision — retrying once for an explicit answer")
+            result = self._call_task_generation_llm(
+                prompt=prompt,
+                tools=tools,
+                memory_meta=memory_meta,
+                retry=True,
+            )
+            self._last_llm_call_ms = int(time.time() * 1000)
+            self._last_decision_ms = self._last_llm_call_ms
+            if not result.success:
+                logger.error("LLM task generation retry failed: %s", getattr(result, "error", "unknown"))
+                self._last_decision = "llm_error"
+                self._last_skip_reason = f"llm_error: {getattr(result, 'error', 'unknown')}"
+                return []
+            if not result.tool_calls and not str(result.content or "").strip():
+                self._last_decision = "llm_error"
+                self._last_skip_reason = "llm_error: empty decision after retry"
+                logger.error("LLM returned an empty decision twice — not counting it as non-action")
+                return []
+
         if not result.tool_calls:
-            reason = "LLM chose not to act"
-            if result.content:
-                reason = result.content[:200]
-            elif not str(getattr(result, "content", "") or "").strip():
-                reason = "LLM returned no tool calls"
+            reason = str(result.content or "").strip()[:200] or "LLM chose not to act"
             logger.info("LLM no_action: %s", reason)
             self._last_decision = "no_action"
             self._last_skip_reason = f"no_action: {reason}"
@@ -2373,20 +2447,26 @@ Rules:
 - Do not repeat a successful read-only capability unless the result explicitly shows more unread or paginated data
 - Do not repeat invalid or previously failed tool choices unless memory indicates a new reason they should work now"""
 
+        from aegis_ai.llm.router import accepts_kwarg
+
+        follow_up_kwargs: dict[str, Any] = {
+            "prompt": prompt,
+            "tools": tools,
+            "system_prompt": (
+                "You are AEGIS deciding follow-up actions. "
+                "You MUST use the provided tools to execute actions. "
+                "Call tools directly using the function calling mechanism. "
+                "Do NOT respond with text when a tool call is appropriate. "
+                "If no follow-up is needed, simply respond with a brief explanation without calling any tools."
+            ),
+            "max_tokens": self._decision_max_tokens,
+            "context_meta": None,
+        }
+        if accepts_kwarg(self._llm.generate_with_tools, "profile"):
+            follow_up_kwargs["profile"] = "decision"
+
         try:
-            result = self._llm.generate_with_tools(
-                prompt=prompt,
-                tools=tools,
-                system_prompt=(
-                    "You are AEGIS deciding follow-up actions. "
-                    "You MUST use the provided tools to execute actions. "
-                    "Call tools directly using the function calling mechanism. "
-                    "Do NOT respond with text when a tool call is appropriate. "
-                    "If no follow-up is needed, simply respond with a brief explanation without calling any tools."
-                ),
-                max_tokens=400,
-                context_meta=None,
-            )
+            result = self._llm.generate_with_tools(**follow_up_kwargs)
 
             if not result.success or not result.tool_calls:
                 return []
@@ -2827,8 +2907,9 @@ Rules:
     def _decide_next_interval(self, results: list[dict[str, Any]]) -> int:
         """Decide when to run next using pressure-based logic (no LLM).
 
-        After a cycle, pressure is normally released, so the default is the
-        ~30 minute fallback. Never schedule a 60-second re-fire.
+        Pressure is only released in proportion to what the cycle achieved, so an empty
+        cycle leaves the desire unmet and this cooldown is the only thing pacing the
+        retry. Never schedule a 60-second re-fire.
         """
         if not self._desire:
             logger.info("No desire — using fallback interval %ds", self._fallback_interval)
