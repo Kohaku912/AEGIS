@@ -13,7 +13,7 @@ def test_health_check_returns_online_version() -> None:
 
     assert response.status.code == 0
     assert response.server_status == common_pb2.SERVER_STATUS_ONLINE
-    assert "mock-light" in response.version
+    assert "light-ir" in response.version or "mock-light" in response.version
 
 
 def test_set_light_with_mock_provider_records_state() -> None:
@@ -27,6 +27,7 @@ def test_set_light_with_mock_provider_records_state() -> None:
             brightness=128,
             color_temp_k=4200,
             color_rgb="#AA00FF",
+            mode="eco",
         ),
         None,
     )
@@ -37,7 +38,18 @@ def test_set_light_with_mock_provider_records_state() -> None:
     assert state.power_on is True
     assert state.brightness == 128
     assert state.color_rgb == "#AA00FF"
-    assert provider.ir_log[-1]["device_id"] == "desk-light"
+    assert state.ir_code == "0xD001:0x21"
+    assert provider.ir_log[-1]["command"] == 0x21
+    assert provider.ir_log[-1]["address"] == 0xD001
+
+
+def test_light_modes_map_to_expected_ir_codes() -> None:
+    from aegis_room.light_ir import format_ir_code
+
+    assert format_ir_code("all") == "0xD001:0x20"
+    assert format_ir_code("eco") == "0xD001:0x21"
+    assert format_ir_code("night") == "0xD001:0x22"
+    assert format_ir_code("off") == "0xD001:0x23"
 
 
 def test_invalid_brightness_and_repeat_return_safe_errors() -> None:

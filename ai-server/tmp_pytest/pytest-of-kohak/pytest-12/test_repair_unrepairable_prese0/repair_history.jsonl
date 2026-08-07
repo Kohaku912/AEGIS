@@ -1,2 +1,0 @@
-{"attempts": [], "capability_id": "android-server.screen.get_ui_tree", "category": "permission", "error": "Android permission missing: accessibility", "final_result": "not_retryable", "repair_id": "repair_1785484002856", "status": "denied", "timestamp": 1785484002856}
-{"attempts": [], "capability_id": "android-server.screen.get_ui_tree", "category": "permission", "error": "Android permission missing: accessibility", "final_result": "not_retryable", "repair_id": "repair_1785484002899", "status": "denied", "timestamp": 1785484002899}

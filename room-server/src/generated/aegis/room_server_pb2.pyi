@@ -1,4 +1,4 @@
-from generated.aegis import common_pb2 as _common_pb2
+from aegis import common_pb2 as _common_pb2
 from google.protobuf.internal import containers as _containers
 from google.protobuf import descriptor as _descriptor
 from google.protobuf import message as _message
@@ -106,18 +106,20 @@ class SendIrCommandResponse(_message.Message):
     def __init__(self, status: _Optional[_Union[_common_pb2.Status, _Mapping]] = ...) -> None: ...
 
 class SetLightRequest(_message.Message):
-    __slots__ = ("device_id", "power_on", "brightness", "color_temp_k", "color_rgb")
+    __slots__ = ("device_id", "power_on", "brightness", "color_temp_k", "color_rgb", "mode")
     DEVICE_ID_FIELD_NUMBER: _ClassVar[int]
     POWER_ON_FIELD_NUMBER: _ClassVar[int]
     BRIGHTNESS_FIELD_NUMBER: _ClassVar[int]
     COLOR_TEMP_K_FIELD_NUMBER: _ClassVar[int]
     COLOR_RGB_FIELD_NUMBER: _ClassVar[int]
+    MODE_FIELD_NUMBER: _ClassVar[int]
     device_id: str
     power_on: bool
     brightness: int
     color_temp_k: int
     color_rgb: str
-    def __init__(self, device_id: _Optional[str] = ..., power_on: _Optional[bool] = ..., brightness: _Optional[int] = ..., color_temp_k: _Optional[int] = ..., color_rgb: _Optional[str] = ...) -> None: ...
+    mode: str
+    def __init__(self, device_id: _Optional[str] = ..., power_on: _Optional[bool] = ..., brightness: _Optional[int] = ..., color_temp_k: _Optional[int] = ..., color_rgb: _Optional[str] = ..., mode: _Optional[str] = ...) -> None: ...
 
 class SetLightResponse(_message.Message):
     __slots__ = ("status",)

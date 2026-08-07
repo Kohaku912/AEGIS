@@ -161,6 +161,33 @@ def test_invalid_llm_json_retries_then_structural_fallback() -> None:
     assert result.details["evaluator"] == "structural"
 
 
+def test_empty_llm_content_uses_structural_without_retry_spam() -> None:
+    llm = _EvaluatorLLM("")
+
+    result = evaluate_task_result(
+        capability_id="dynamic-server.anything.run",
+        tool_success=True,
+        output={"ok": True, "items": [{"x": 1}]},
+        desire_name="growth",
+        llm_provider=llm,
+    )
+
+    assert llm.calls == 1
+    assert result.details["evaluator"] == "structural"
+    assert result.task_effect == TaskEffect.NEEDS_FOLLOWUP
+
+
+def test_awaiting_approval_is_blocked_not_failed() -> None:
+    result = evaluate_task_result(
+        capability_id="ai-server.agora.post",
+        tool_success=True,
+        output={"action_state": "awaiting_approval", "approval_id": "a1", "ok": True},
+        desire_name="social",
+    )
+    assert result.task_effect == TaskEffect.BLOCKED
+    assert result.details["reason"] == "awaiting_approval"
+
+
 def test_fulfillment_source_has_no_capability_id_branching() -> None:
     import inspect
     from aegis_ai.desire import fulfillment

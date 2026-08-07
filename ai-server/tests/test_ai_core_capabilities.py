@@ -52,6 +52,41 @@ def test_workspace_write_read_and_list(tmp_path: Path) -> None:
     assert listed["files"][0]["relative_path"] == "notes\\hello.txt" or listed["files"][0]["relative_path"] == "notes/hello.txt"
 
 
+def test_search_web_returns_results(tmp_path: Path, monkeypatch) -> None:
+    from aegis_ai.integrations.duckduckgo_search import SearchResponse, SearchResult
+
+    client, _ = _client(tmp_path)
+
+    class FakeSearch:
+        def search(self, query: str, max_results: int = 5):
+            return SearchResponse(
+                query=query,
+                success=True,
+                results=[
+                    SearchResult(title="AEGIS", url="https://example.com", snippet="assistant"),
+                ],
+            )
+
+    monkeypatch.setattr(
+        "aegis_ai.integrations.duckduckgo_search.DuckDuckGoSearch",
+        FakeSearch,
+    )
+    result = client.invoke_capability(
+        "ai-server.search.web",
+        {"query": "AEGIS assistant", "max_results": 3},
+    )
+    assert result["ok"] is True
+    assert result["count"] == 1
+    assert result["results"][0]["url"] == "https://example.com"
+
+
+def test_search_web_requires_query(tmp_path: Path) -> None:
+    client, _ = _client(tmp_path)
+    result = client.invoke_capability("ai-server.search.web", {})
+    assert result["ok"] is False
+    assert result["code"] == "INVALID_ARGUMENT"
+
+
 def test_workspace_allows_path_escape(tmp_path: Path) -> None:
     client, _ = _client(tmp_path)
     outside = client.workspace_dir.parent / "outside.txt"

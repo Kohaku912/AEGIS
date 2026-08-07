@@ -1,4 +1,0 @@
-{"attempts": [], "capability_id": "x", "category": "auth", "error": "token expired", "final_result": "not_retryable", "repair_id": "repair_1785483993058", "status": "failed", "timestamp": 1785483993058}
-{"attempts": [], "capability_id": "x", "category": "server_down", "error": "connection refused", "final_result": "infra_noise", "repair_id": "repair_1785484002779", "status": "failed", "timestamp": 1785484002779}
-{"attempts": [], "capability_id": "android-server.notification.get_notifications", "category": "server_down", "error": "Android server is unavailable", "final_result": "infra_noise", "repair_id": "repair_1785484002780", "status": "failed", "timestamp": 1785484002780}
-{"attempts": [], "capability_id": "android-server.screen.get_ui_tree", "category": "permission", "error": "Android permission missing: accessibility", "final_result": "not_retryable", "repair_id": "repair_1785484002782", "status": "failed", "timestamp": 1785484002782}
