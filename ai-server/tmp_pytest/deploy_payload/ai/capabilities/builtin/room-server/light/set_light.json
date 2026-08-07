@@ -1,0 +1,86 @@
+{
+  "title": "Set Room Light",
+  "description": "Control the room ceiling light via IR. Modes: all/全灯 (0x20), eco/エコ (0x21), night/常夜灯 (0x22), off/消灯 (0x23). Address LIGHT_ADDR=0xD001.",
+  "server_id": "room-server",
+  "app_id": "light",
+  "action": "set_light",
+  "operation_category": "physical_device",
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "device_id": {
+        "type": "string",
+        "default": "light-main",
+        "description": "Room light device id."
+      },
+      "mode": {
+        "type": "string",
+        "enum": ["all", "eco", "night", "off"],
+        "description": "Ceiling light mode: all=全灯, eco=エコ, night=常夜灯, off=消灯. Preferred over power_on when set."
+      },
+      "power_on": {
+        "type": "boolean",
+        "description": "Whether the light should be on. Used when mode is omitted (true→all, false→off)."
+      },
+      "brightness": {
+        "type": "integer",
+        "default": -1,
+        "minimum": -1,
+        "maximum": 255,
+        "description": "-1 keeps the current brightness; otherwise 0-255."
+      },
+      "color_temp_k": {
+        "type": "integer",
+        "default": 0,
+        "description": "0 keeps the current color temperature."
+      },
+      "color_rgb": {
+        "type": "string",
+        "default": "",
+        "description": "Optional #RRGGBB color value."
+      },
+      "ir_code": {
+        "type": "string",
+        "default": "",
+        "description": "Optional override IR code as 0xD001:0x20. Normally derived from mode."
+      }
+    },
+    "anyOf": [
+      {"required": ["mode"]},
+      {"required": ["power_on"]}
+    ]
+  },
+  "risk": {
+    "level": "approval_required",
+    "side_effects": [
+      "physical_device_control",
+      "lighting_control",
+      "ir_transmit"
+    ],
+    "requires_approval": true,
+    "approval_mode": "explicit"
+  },
+  "tags": [
+    "builtin",
+    "room",
+    "light",
+    "ir",
+    "physical_device"
+  ],
+  "completion": {
+    "mode": "any",
+    "retry": {
+      "max_attempts": 0,
+      "delay_ms": 0
+    },
+    "on_failure": "retry_or_user_confirmation",
+    "checks": [
+      {
+        "name": "success_true",
+        "type": "output_field",
+        "field": "success",
+        "equals": true
+      }
+    ]
+  }
+}

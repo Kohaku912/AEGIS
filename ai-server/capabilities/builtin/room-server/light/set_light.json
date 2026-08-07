@@ -1,6 +1,6 @@
 {
   "title": "Set Room Light",
-  "description": "Control a room light through the Room Server IR lighting provider.",
+  "description": "Control the room ceiling light via IR. Modes: all/full (0x20), eco (0x21), night (0x22), off (0x23). Address LIGHT_ADDR=0xD001.",
   "server_id": "room-server",
   "app_id": "light",
   "action": "set_light",
@@ -13,9 +13,14 @@
         "default": "light-main",
         "description": "Room light device id."
       },
+      "mode": {
+        "type": "string",
+        "enum": ["all", "eco", "night", "off"],
+        "description": "Ceiling light mode mapped to IR: all=0x20, eco=0x21, night=0x22, off=0x23. Preferred over power_on when set."
+      },
       "power_on": {
         "type": "boolean",
-        "description": "Whether the light should be on."
+        "description": "Whether the light should be on. Used when mode is omitted (true->all, false->off)."
       },
       "brightness": {
         "type": "integer",
@@ -37,18 +42,20 @@
       "ir_code": {
         "type": "string",
         "default": "",
-        "description": "Optional provider-specific IR code label for later hardware mapping."
+        "description": "Optional override IR code as 0xD001:0x20. Normally derived from mode."
       }
     },
-    "required": [
-      "power_on"
+    "anyOf": [
+      {"required": ["mode"]},
+      {"required": ["power_on"]}
     ]
   },
   "risk": {
     "level": "approval_required",
     "side_effects": [
       "physical_device_control",
-      "lighting_control"
+      "lighting_control",
+      "ir_transmit"
     ],
     "requires_approval": true,
     "approval_mode": "explicit"

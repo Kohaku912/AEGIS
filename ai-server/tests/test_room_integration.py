@@ -45,19 +45,39 @@ def test_room_client_maps_set_light_to_grpc_and_optional_ir() -> None:
         stub,
         {
             "device_id": "desk-light",
-            "power_on": True,
+            "mode": "all",
             "brightness": 90,
             "color_temp_k": 4000,
             "color_rgb": "#AA00FF",
-            "ir_code": "desk_light_on",
         },
     )
 
     assert result["success"] is True
+    assert result["mode"] == "all"
+    assert result["ir_code"] == "0xD001:0x20"
     assert result["device"]["state"]["provider"] == "mock"
     assert stub.set_light_requests[0].device_id == "desk-light"
     assert stub.set_light_requests[0].brightness == 90
-    assert stub.ir_requests[0].ir_code == "desk_light_on"
+    assert stub.set_light_requests[0].mode == "all"
+    assert stub.ir_requests == []
+
+
+def test_room_client_custom_ir_override_sends_ir_command() -> None:
+    client = RoomServerGrpcClient(timeout_seconds=1)
+    stub = _FakeRoomStub()
+
+    result = client._set_light(
+        stub,
+        {
+            "device_id": "desk-light",
+            "power_on": True,
+            "ir_code": "0xD001:0x21",
+        },
+    )
+
+    assert result["success"] is True
+    assert result["mode"] == "all"
+    assert stub.ir_requests[0].ir_code == "0xD001:0x21"
 
 
 def test_room_light_manifest_loads_and_requires_approval() -> None:

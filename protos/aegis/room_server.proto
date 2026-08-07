@@ -102,6 +102,7 @@ message SetLightRequest {
   int32 brightness = 3;             // 0–255 (-1 = no change)
   int32 color_temp_k = 4;           // Color temperature in Kelvin (0 = no change)
   string color_rgb = 5;             // "#RRGGBB" (empty = no change)
+  string mode = 6;                  // "all"|"eco"|"night"|"off" (ceiling light IR modes)
 }
 
 message SetLightResponse {
