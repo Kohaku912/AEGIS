@@ -109,6 +109,24 @@ def init_chat_routes(owner: Any) -> None:
 
     def _save_chat(user_msg: str, bot_msg: str, image: str = "") -> None:
         owner._append_chat_history(user_msg, bot_msg, image)
+        try:
+            mm = getattr(owner._runtime, "memory_manager", None)
+            if mm is not None and hasattr(mm, "encode_conversation"):
+                mm.encode_conversation(user_msg, bot_msg, source="dashboard_chat")
+            else:
+                advanced = None
+                if mm is not None and hasattr(mm, "get_backend"):
+                    advanced = mm.get_backend("advanced")
+                if advanced is not None and hasattr(advanced, "add_conversation"):
+                    advanced.add_conversation(user_msg, bot_msg)
+        except Exception:
+            logger.debug("Chat memory encode failed", exc_info=True)
+        try:
+            sleep_manager = getattr(owner._runtime, "sleep_manager", None)
+            if sleep_manager is not None and hasattr(sleep_manager, "update_activity"):
+                sleep_manager.update_activity()
+        except Exception:
+            logger.debug("Sleep activity update failed", exc_info=True)
 
     @bp.route("/api/chat/history")
     def chat_history():

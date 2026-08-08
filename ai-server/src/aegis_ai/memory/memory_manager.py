@@ -259,6 +259,62 @@ class MemoryManager:
 
     # ── Maintenance ───────────────────────────────────────────
 
+    def encode_conversation(
+        self,
+        user_msg: str,
+        bot_msg: str,
+        *,
+        source: str = "chat",
+    ) -> dict[str, Any]:
+        """Persist a dialogue turn into short-term and long-term memory.
+
+        Short-term: episodic episode + advanced conversation log.
+        Long-term: LLM entity/fact extraction via AdvancedMemory when available.
+        """
+        result: dict[str, Any] = {
+            "advanced": False,
+            "episodic": False,
+            "memory_ids": [],
+        }
+        user_msg = str(user_msg or "").strip()
+        bot_msg = str(bot_msg or "").strip()
+        if not user_msg and not bot_msg:
+            return result
+
+        with self._lock:
+            if self._advanced is not None and hasattr(self._advanced, "add_conversation"):
+                try:
+                    self._advanced.add_conversation(user_msg, bot_msg)
+                    result["advanced"] = True
+                except Exception:
+                    logger.exception("AdvancedMemory conversation encode failed")
+
+            if self._episodic is not None:
+                try:
+                    from aegis_ai.memory.episodic import Episode
+
+                    summary = f"User: {user_msg[:240]}"
+                    if bot_msg:
+                        summary += f" | AEGIS: {bot_msg[:240]}"
+                    self._episodic.add(
+                        Episode(
+                            summary=summary,
+                            category="conversation",
+                            detail={"source": source, "user": user_msg[:1000], "bot": bot_msg[:1000]},
+                        )
+                    )
+                    result["episodic"] = True
+                except Exception:
+                    logger.exception("Episodic conversation encode failed")
+
+        if result["advanced"] or result["episodic"]:
+            self._publish_event(
+                "memory.conversation_encoded",
+                "conversation",
+                "conversation",
+            )
+        return result
+
     def classify_memory_type(self, content: str) -> str:
         """Classify content into memory type. Uses LLM if available."""
         if self._llm is not None:
@@ -269,7 +325,13 @@ class MemoryManager:
                     max_tokens=20,
                     temperature=0.0,
                 )
-                text = result.get("text", "").strip().lower()
+                text = ""
+                if hasattr(result, "content"):
+                    text = str(getattr(result, "content", "") or "").strip().lower()
+                elif isinstance(result, dict):
+                    text = str(result.get("text") or result.get("content") or "").strip().lower()
+                else:
+                    text = str(result or "").strip().lower()
                 for t in ["episodic", "semantic", "skill", "lesson", "workflow", "preference", "person"]:
                     if t in text:
                         return t

@@ -321,16 +321,42 @@ Only extract meaningful information. If nothing noteworthy, return empty arrays.
             return {"entities": [], "facts": []}
 
     def get_context(self, query: str, max_tokens: int = 2000) -> str:
-        """Get relevant memory context for a query."""
-        parts = []
+        """Get relevant memory context for a query.
 
-        # Get relevant entities
+        Short-term: recent conversations always included (working memory).
+        Long-term: important facts/entities plus relevance-ranked recall.
+        """
+        parts: list[str] = []
+        budget = max(400, max_tokens * 4)
+
+        # Short-term working memory: always surface recent dialogue.
+        recent = self.get_recent_conversations(limit=8)
+        if recent:
+            parts.append("Recent conversations (short-term memory):")
+            for c in recent[-5:]:
+                parts.append(f"  User: {c.user_msg[:160]}")
+                parts.append(f"  AEGIS: {c.bot_msg[:160]}")
+
+        # Stable long-term knowledge: high-importance facts even without query hit.
+        durable_facts = [
+            f for f in self._facts.values()
+            if f.invalid_at_ms == 0 and float(f.importance or 0.0) >= 0.55
+        ]
+        durable_facts.sort(key=lambda f: (f.importance, f.valid_at_ms), reverse=True)
+        if durable_facts:
+            parts.append("\nStable knowledge (long-term memory):")
+            for f in durable_facts[:8]:
+                parts.append(f"  - {f.content}")
+
+        # Query-relevant recall via token overlap (retrieval ranking, not intent routing).
         entities = self._search_entities(query)
         if entities:
-            parts.append("People and entities I know:")
+            parts.append("\nPeople and entities I know:")
             for e in entities[:5]:
                 attrs = ", ".join(f"{k}: {v}" for k, v in e.attributes.items() if v)
-                rels = ", ".join(r.get("type", "") + " " + r.get("target", "") for r in e.relationships if r)
+                rels = ", ".join(
+                    r.get("type", "") + " " + r.get("target", "") for r in e.relationships if r
+                )
                 desc = f"  - {e.name} ({e.entity_type})"
                 if attrs:
                     desc += f" [{attrs}]"
@@ -338,51 +364,98 @@ Only extract meaningful information. If nothing noteworthy, return empty arrays.
                     desc += f" relationships: {rels}"
                 parts.append(desc)
 
-        # Get relevant facts
         facts = self._search_facts(query)
-        if facts:
-            parts.append("\nThings I know:")
-            for f in facts[:10]:
-                if f.invalid_at_ms == 0:  # Only valid facts
-                    parts.append(f"  - {f.content}")
+        # Avoid duplicating durable facts already listed.
+        durable_ids = {f.fact_id for f in durable_facts[:8]}
+        relevant_facts = [f for f in facts if f.invalid_at_ms == 0 and f.fact_id not in durable_ids]
+        if relevant_facts:
+            parts.append("\nRelated facts:")
+            for f in relevant_facts[:10]:
+                parts.append(f"  - {f.content}")
 
-        # Get recent conversations mentioning query
-        recent = self._search_conversations(query)
-        if recent:
-            parts.append("\nRecent conversations:")
-            for c in recent[:3]:
+        matched_convs = self._search_conversations(query)
+        recent_ids = {c.entry_id for c in recent[-5:]}
+        extra_convs = [c for c in matched_convs if c.entry_id not in recent_ids]
+        if extra_convs:
+            parts.append("\nRelated past conversations:")
+            for c in extra_convs[:3]:
                 parts.append(f"  User: {c.user_msg[:100]}")
                 parts.append(f"  AEGIS: {c.bot_msg[:100]}")
 
-        return "\n".join(parts) if parts else ""
+        text = "\n".join(parts).strip()
+        if len(text) > budget:
+            return text[: budget - 3] + "..."
+        return text
+
+    @staticmethod
+    def _query_tokens(query: str) -> set[str]:
+        import re
+
+        return {t for t in re.findall(r"[a-zA-Z0-9_\u3040-\u30ff\u3400-\u9fff]{2,}", query.lower())}
+
+    @staticmethod
+    def _overlap_score(query_tokens: set[str], *texts: str) -> float:
+        if not query_tokens:
+            return 0.0
+        blob = " ".join(texts).lower()
+        hits = sum(1 for t in query_tokens if t in blob)
+        return hits / max(1, len(query_tokens))
 
     def _search_entities(self, query: str) -> list[Entity]:
-        """Search entities by name or attributes."""
-        query_lower = query.lower()
-        results = []
+        """Search entities by name/attributes with overlap ranking."""
+        query_tokens = self._query_tokens(query)
+        query_lower = query.lower().strip()
+        if not query_tokens and not query_lower:
+            # Without a retrieval cue, durable people still matter — top by importance.
+            return sorted(
+                self._entities.values(),
+                key=lambda e: float(e.importance or 0.0),
+                reverse=True,
+            )[:5]
+        scored: list[tuple[float, Entity]] = []
         for entity in self._entities.values():
-            if (query_lower in entity.name.lower() or
-                any(query_lower in str(v).lower() for v in entity.attributes.values())):
-                results.append(entity)
-        return sorted(results, key=lambda e: e.importance, reverse=True)
+            attr_blob = " ".join(str(v) for v in entity.attributes.values())
+            name_blob = f"{entity.name} {attr_blob}"
+            score = self._overlap_score(query_tokens, name_blob)
+            if query_lower and query_lower in name_blob.lower():
+                score = max(score, 1.0)
+            if score > 0:
+                scored.append((score + float(entity.importance or 0.0) * 0.2, entity))
+        scored.sort(key=lambda item: item[0], reverse=True)
+        return [entity for _, entity in scored]
 
     def _search_facts(self, query: str) -> list[Fact]:
-        """Search facts by content."""
-        query_lower = query.lower()
-        results = []
+        """Search facts by content with overlap ranking."""
+        query_tokens = self._query_tokens(query)
+        query_lower = query.lower().strip()
+        scored: list[tuple[float, Fact]] = []
         for fact in self._facts.values():
-            if query_lower in fact.content.lower() or query_lower in fact.subject.lower():
-                results.append(fact)
-        return sorted(results, key=lambda f: f.importance, reverse=True)
+            if fact.invalid_at_ms != 0:
+                continue
+            blob = f"{fact.content} {fact.subject} {fact.predicate} {fact.object}"
+            score = self._overlap_score(query_tokens, blob)
+            if query_lower and query_lower in blob.lower():
+                score = max(score, 1.0)
+            if score > 0:
+                scored.append((score + float(fact.importance or 0.0) * 0.25, fact))
+        scored.sort(key=lambda item: item[0], reverse=True)
+        return [fact for _, fact in scored]
 
     def _search_conversations(self, query: str) -> list[ConversationEntry]:
-        """Search conversations by content."""
-        query_lower = query.lower()
-        results = []
+        """Search conversations by content with overlap ranking."""
+        query_tokens = self._query_tokens(query)
+        query_lower = query.lower().strip()
+        scored: list[tuple[float, ConversationEntry]] = []
         for conv in self._conversations:
-            if query_lower in conv.user_msg.lower() or query_lower in conv.bot_msg.lower():
-                results.append(conv)
-        return results[-5:]  # Most recent
+            score = self._overlap_score(query_tokens, conv.user_msg, conv.bot_msg)
+            if query_lower and (
+                query_lower in conv.user_msg.lower() or query_lower in conv.bot_msg.lower()
+            ):
+                score = max(score, 1.0)
+            if score > 0:
+                scored.append((score, conv))
+        scored.sort(key=lambda item: item[0], reverse=True)
+        return [conv for _, conv in scored[-8:]]
 
     def get_all_entities(self) -> list[Entity]:
         """Get all tracked entities."""

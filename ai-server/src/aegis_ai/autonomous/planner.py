@@ -166,15 +166,13 @@ Goal: {goal}
 Current world state:
 {world_context}
 
-Available capabilities (examples):
-- ai-server.agora.read_posts, ai-server.agora.post
-- memory.save, memory.search
-- pc.get_screenshot, pc.get_active_window
+Choose capability_id values freely from the system's offered capability catalog.
+Do not prefer a fixed shortlist of capability names.
 
 Rules:
 - Each subtask must have a capability_id or be an observation/reflection step
 - Mark dependencies between subtasks
-- External sends (ai-server.agora.post and channel send capabilities) require approval
+- External sends and physical-device actions require approval when the catalog marks them so
 - Never include destructive actions without explicit user request
 - If a goal is unsafe or impossible, return {{"cancel": true, "reason": "..."}}
 

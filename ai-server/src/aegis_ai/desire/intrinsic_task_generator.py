@@ -180,9 +180,7 @@ class IntrinsicTaskGenerator:
             templates = _TASK_TEMPLATES.get(desire_name, [])
             for tpl in templates:
                 fp = _fingerprint(desire_name, tpl.title)
-                last_run = self._cooldown_map.get(fp, 0)
-                if now - last_run < tpl.cooldown_seconds * 1000:
-                    continue
+                # No cooldown skip: repeating a desire-driven action remains allowed.
 
                 needs_approval = tpl.requires_user_approval
                 risk = tpl.risk_level

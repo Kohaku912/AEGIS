@@ -1,0 +1,1 @@
+{"neighbors": [{"ip": "192.168.50.120", "mac": "20-86-A0-62-98-E0", "state": "REACHABLE"}, {"ip": "192.168.50.99", "mac": "aa:bb:cc:dd:ee:ff", "state": "FAILED"}]}

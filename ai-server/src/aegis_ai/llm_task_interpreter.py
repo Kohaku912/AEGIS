@@ -107,9 +107,8 @@ Analyze the user's message and produce a structured task plan.
 - Reading user-owned accounts (SNS, email, notifications) is READ, not EXTERNAL_SEND
 - Creating drafts (not sending) is DRAFT
 - If uncertain about risk, use the safer category
-- Browser steps must use a purpose-specific canonical browser-server capability.
-- Browser arguments must declare viewer, purpose, success_condition, and stop_condition.
-- Use pc-server.app.show_url only for a declared user-visible handoff, never for agent-private research.
+- Prefer purpose-specific capabilities from the offered catalog; do not invent ids.
+- Browser arguments must declare viewer, purpose, success_condition, and stop_condition when using browser tools.
 - If capability doesn't exist, note it in assumptions
 - Respond with ONLY the JSON, no markdown fences"""
 

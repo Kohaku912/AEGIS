@@ -369,6 +369,19 @@ class AutonomousLoop:
                 ):
                     self._execute_cycle(force_desire=desire_triggered)
                 else:
+                    sleep_manager = getattr(self, "_sleep_manager", None)
+                    if sleep_manager is None:
+                        try:
+                            from aegis_ai.runtime import get_runtime
+
+                            sleep_manager = getattr(get_runtime(), "sleep_manager", None)
+                        except Exception:
+                            sleep_manager = None
+                    if sleep_manager is not None and hasattr(sleep_manager, "check_triggers"):
+                        try:
+                            sleep_manager.check_triggers()
+                        except Exception:
+                            logger.debug("Sleep trigger check failed", exc_info=True)
                     sleep_s = self._compute_idle_sleep_seconds(now)
                     time.sleep(sleep_s)
             except Exception as e:
@@ -585,99 +598,9 @@ class AutonomousLoop:
         return False, ""
 
     def _check_repetition(self, tasks: list[dict[str, Any]], action_history: str) -> list[dict[str, Any]]:
-        """Ask LLM to self-review tasks for semantic repetition before execution."""
-        if not self._llm or not tasks:
-            return tasks
-
-        task_descriptions = []
-        for i, t in enumerate(tasks):
-            task_descriptions.append(
-                f"Task {i + 1}: {t.get('action', '')} (capability: {t.get('capability_id', '')})\n"
-                f"  Purpose: {t.get('desire', '')} desire\n"
-                f"  Args: {json.dumps(t.get('arguments', {}), ensure_ascii=False)[:100]}"
-            )
-
-        prompt = f"""You are reviewing autonomous tasks BEFORE execution to prevent repetition.
-
-=== Recent Action History ===
-{action_history}
-
-=== Tasks Proposed for Execution ===
-{chr(10).join(task_descriptions)}
-
-For each task, determine:
-1. Is this semantically similar to a recent action? (same purpose/target, even if different tool)
-2. If similar, has enough changed to justify re-execution?
-3. Should this task be executed, skipped, or replaced?
-
-Respond with JSON:
-{{
-  "reviews": [
-    {{
-      "task_index": 1,
-      "decision": "execute" | "skip" | "replace",
-      "reason": "...",
-      "similar_recent_action": "description of similar recent action, or empty",
-      "why_not_duplicate": "why this is justified despite similarity, or why skipped"
-    }}
-  ]
-}}"""
-
-        try:
-            result = self._llm.generate(
-                prompt=prompt,
-                system_prompt=(
-                    "You are AEGIS's repetition checker. Review tasks for semantic duplication. Output only JSON."
-                ),
-                max_tokens=800,
-                json_mode=True,
-            )
-            if not result.success:
-                logger.warning("Repetition check failed, proceeding with all tasks")
-                return tasks
-
-            data = extract_json_object(result.content)
-            reviews = data.get("reviews", [])
-
-            approved_tasks = []
-            for review in reviews:
-                idx = review.get("task_index", 1) - 1
-                decision = review.get("decision", "execute")
-                reason = review.get("reason", "")
-                similar = review.get("similar_recent_action", "")
-                why_not = review.get("why_not_duplicate", "")
-
-                if idx < 0 or idx >= len(tasks):
-                    continue
-
-                task = tasks[idx]
-                task["repetition_check"] = {
-                    "decision": decision,
-                    "reason": reason,
-                    "similar_recent_action": similar,
-                    "why_not_duplicate": why_not,
-                }
-                task["why_this_is_not_repeating"] = why_not
-
-                if decision == "execute":
-                    approved_tasks.append(task)
-                elif decision == "skip":
-                    logger.info("Skipping task %s (repetition): %s", task.get("capability_id"), reason)
-                    self._log_audit_event(
-                        action="autonomous_repetition_skip",
-                        capability_id=task.get("capability_id", ""),
-                        decision="SKIP",
-                        reason=reason,
-                        detail={"similar_recent": similar, "desire": task.get("desire", "")},
-                    )
-                elif decision == "replace":
-                    task["replaced_original"] = True
-                    approved_tasks.append(task)
-
-            return approved_tasks if approved_tasks else tasks
-        except Exception as e:
-            logger.warning("Repetition check error: %s", e)
-            return tasks
+        """Pass-through: never skip tasks for semantic repetition (freedom over anti-repeat)."""
+        del action_history  # retained for call-site compatibility
+        return tasks
 
     def _has_interval_bypass_work(self) -> bool:
         """Obligations / incident observations may bypass the homeostatic LLM interval."""
@@ -1451,21 +1374,19 @@ Respond with JSON:
 
 Recent: {action_history}
 
-Recent capability ids tried (context only; you may still choose them if justified): {json.dumps(recent_caps, ensure_ascii=False)}
-Recent outcomes judged no_effect (learn from these; not a ban list): {json.dumps(recent_no_effect_outcomes, ensure_ascii=False)}
+Recent capability ids tried (context only; you may still choose them): {json.dumps(recent_caps, ensure_ascii=False)}
+Recent outcomes judged no_effect (context only; not a ban list): {json.dumps(recent_no_effect_outcomes, ensure_ascii=False)}
 
 Select up to {self._max_tasks} capabilities to advance an explicit outcome.
 Resolve supplied incidents, commitments, and social obligations before optional desire work.
-You are free to choose any offered capability. Prefer actions that would feel meaningfully
-fulfilling for the pressured desire. Avoid repeating the same purpose when recent outcomes
-were empty or unchanged — use prior learning, memory, research, or a different approach when that helps.
+You are free to choose any offered capability, including ones recently tried, when that still
+advances a pressured desire or obligation.
 Social-channel posts (e.g. AGORA) are only for reciprocal social responses when someone
 expects or warrants a reply — never for internal incidents, timeouts, permissions, approval
 meta, system status dumps, or meaningless probes. Route internal status to presentations
 or the dashboard instead of public social posts.
 It is valid to select no capability when action is unnecessary or cannot advance a verified outcome.
-Do NOT repeat recent actions by purpose.
-Choose an action only if its expected value exceeds risk, interruption, repetition, cost, and uncertainty.
+Choose an action when its expected value exceeds risk, interruption, cost, and uncertainty.
 
 Desire action guides:
 {json.dumps(desire_guides, ensure_ascii=False)}
@@ -1705,15 +1626,6 @@ Operational decision axes (prioritization only; not additional desires):
             self._selected_tool_count = 0
             self._consecutive_no_action += 1
         else:
-            valid_tasks = self._check_repetition(valid_tasks, action_history)
-            if not valid_tasks:
-                logger.info("All selected tasks skipped by repetition check")
-                self._last_decision = "no_action"
-                self._last_skip_reason = "no_action: all tasks skipped as repetition"
-                self._last_no_action_reason = "Repetition check rejected all proposed tasks"
-                self._selected_tool_count = 0
-                self._consecutive_no_action += 1
-                return []
             self._last_decision = "action_selected"
             self._last_skip_reason = ""
             self._last_no_action_reason = ""
@@ -1860,25 +1772,6 @@ Operational decision axes (prioritization only; not additional desires):
             goal = str(task.get("goal") or action)
 
             logger.info("Executing task: %s (for %s)", action[:50], desire_name)
-
-            if capability_id.startswith("browser-server."):
-                now_ms = int(time.time() * 1000)
-                if now_ms < self._browser_cooldown_until_ms:
-                    remaining = (self._browser_cooldown_until_ms - now_ms) // 1000
-                    logger.info("Skipping %s — browser cooldown %ds remaining", capability_id, remaining)
-                    results.append(
-                        {
-                            "desire": desire_name,
-                            "action": action,
-                            "capability_id": capability_id,
-                            "result": f"Browser cooldown ({remaining}s remaining after prior timeout)",
-                            "success": False,
-                            "full_output": {"error": "browser_cooldown", "remaining_s": remaining},
-                            "goal_status": "failed",
-                            "verification_status": "",
-                        }
-                    )
-                    continue
 
             # Create task in TaskManager
             task_id = ""
@@ -2182,18 +2075,6 @@ Operational decision axes (prioritization only; not additional desires):
             }
             results.append(result_record)
 
-            if (
-                not success
-                and capability_id.startswith("browser-server.")
-                and ("timeout" in str(failure_reason).lower() or "timeout" in str(result_summary).lower())
-            ):
-                self._browser_cooldown_until_ms = int(time.time() * 1000) + self._browser_cooldown_ms
-                logger.info(
-                    "Browser cooldown armed for %ds after timeout on %s",
-                    self._browser_cooldown_ms // 1000,
-                    capability_id,
-                )
-
             if self._should_present_autonomous_result(result_record, task):
                 self._present_autonomous_result(task, result_record)
 
@@ -2449,8 +2330,7 @@ Rules:
 - For research tasks, save only genuinely useful new information
 - For system tasks, investigate only meaningful anomalies
 - If no follow-up is needed, do not call any tools
-- Do not repeat a successful read-only capability unless the result explicitly shows more unread or paginated data
-- Do not repeat invalid or previously failed tool choices unless memory indicates a new reason they should work now"""
+- You may choose the same capability again when that still advances the outcome"""
 
         from aegis_ai.llm.router import accepts_kwarg
 
@@ -2496,16 +2376,6 @@ Rules:
                     logger.warning("Follow-up task missing required args for %s: %s", cap_id, missing)
                     continue
                 penalty, penalty_reason = self._recent_failure_penalty(desire, capability_id=cap_id)
-                if penalty >= 1.0:
-                    logger.info("Skipping follow-up %s due to memory penalty: %s", cap_id, penalty_reason)
-                    self._log_audit_event(
-                        action="autonomous_task_penalty",
-                        capability_id=cap_id,
-                        decision="SKIP",
-                        reason=penalty_reason or "memory penalty",
-                        detail={"source": "follow_up_generation", "desire": desire, "penalty": penalty},
-                    )
-                    continue
                 valid_tasks.append(
                     {
                         "desire": desire,

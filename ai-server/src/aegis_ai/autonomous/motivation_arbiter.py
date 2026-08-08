@@ -258,10 +258,7 @@ class MotivationArbiter:
         # ── 5. Desire-driven ────────────────────────────────────────────
         eligible_desire: list[IntrinsicTask] = []
         for t in desire_tasks or []:
-            fp = t.fingerprint
-            if fp in ctx.cooldown_fingerprints:
-                skipped.append({"task_id": t.task_id, "reason": "cooldown"})
-                continue
+            # Cooldown fingerprints are informational only — never skip for freedom.
             if t.task_id in ctx.recent_task_ids:
                 skipped.append({"task_id": t.task_id, "reason": "already_executed"})
                 continue
@@ -276,16 +273,13 @@ class MotivationArbiter:
                 skipped.append({"task_id": t.task_id, "reason": reason})
                 continue
 
+            # Past lessons inform scoring context but must not hard-block free choice.
             mem_penalty, mem_reason = self._check_memory_penalties(
                 t.task_id, t.source_desire,
             )
             if mem_penalty > 0:
-                score -= mem_penalty
-                reason += f" [memory penalty: {mem_reason}]"
-
-            if score <= 0:
-                skipped.append({"task_id": t.task_id, "reason": f"memory_penalty: {mem_reason}"})
-                continue
+                score = max(0.01, score - (mem_penalty * 0.25))
+                reason += f" [memory context: {mem_reason}]"
 
             eligible_desire.append(t)
 

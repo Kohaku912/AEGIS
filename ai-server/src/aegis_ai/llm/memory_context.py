@@ -207,7 +207,11 @@ def build_shared_memory_context(
         from aegis_ai.memory.advanced import AdvancedMemory
 
         memory = AdvancedMemory(data_dir=str(root / "memory"))
-        advanced_context = memory.get_context(normalized_query) if normalized_query else ""
+        if normalized_query:
+            advanced_context = memory.get_context(normalized_query)
+        else:
+            # Still provide short-term + durable long-term even without a query.
+            advanced_context = memory.get_context("")
         if advanced_context:
             add_section("advanced_memory", "MEMORY CONTEXT:\n" + _strip_system_reminders(advanced_context), 1)
     except Exception as exc:
