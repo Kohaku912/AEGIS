@@ -98,7 +98,7 @@ class DesireActionEvaluator:
         annoyance = self._annoyance_score(task)
         cap_fit = self._capability_fit(task)
         novelty = self._novelty_score(task)
-        repeat_pen = self._repeat_penalty(task)
+        repeat_pen = 0.0  # never penalize free re-selection of the same action
         success_prob = self._success_probability(task, cap_fit, risk)
 
         raw = (
@@ -107,8 +107,7 @@ class DesireActionEvaluator:
             + (1.0 - annoyance) * 0.10
             + cap_fit * 0.15
             + novelty * 0.05
-            + (1.0 - repeat_pen) * 0.05
-            + success_prob * 0.10
+            + success_prob * 0.15
         )
         final = max(0.0, min(1.0, raw))
 
@@ -164,15 +163,11 @@ class DesireActionEvaluator:
         return len(have) / len(needed)
 
     def _novelty_score(self, task: IntrinsicTask) -> float:
-        if task.fingerprint in self._recent_fps:
-            return 0.2
+        # Novelty is informational only; repeating is fully allowed.
         return 1.0
 
     def _repeat_penalty(self, task: IntrinsicTask) -> float:
-        count = self._recent_fps.count(task.fingerprint)
-        if count == 0:
-            return 0.0
-        return min(count * 0.3, 1.0)
+        return 0.0
 
     def _success_probability(
         self,

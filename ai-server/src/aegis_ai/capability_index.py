@@ -502,18 +502,9 @@ def _tag_score(query: str, doc: CapabilityDocument) -> float:
 
 
 def _priority_score(doc: CapabilityDocument) -> float:
-    important = {
-        "pc-server.screenshot.get_screenshot",
-        "browser-server.page.read",
-        "browser-server.search.query",
-        "pc-server.app.show_url",
-        "ai-server.memory.search",
-        "ai-server.memory.save",
-    }
-    if doc.id in important:
-        return 1.0
+    # Do not hard-boost named capability ids — that biases autonomous choice.
     if doc.risk_level in ("low", "safe"):
-        return 0.35
+        return 0.2
     return 0.0
 
 

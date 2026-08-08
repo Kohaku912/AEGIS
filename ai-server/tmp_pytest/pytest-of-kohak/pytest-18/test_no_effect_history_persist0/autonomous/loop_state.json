@@ -1,0 +1,25 @@
+{
+  "next_run_ms": 0,
+  "last_run_ms": 0,
+  "last_llm_call_ms": 0,
+  "last_pressure_signature": "",
+  "last_skip_reason": "",
+  "last_decision": "",
+  "last_decision_ms": 0,
+  "last_action_ms": 0,
+  "available_capability_count": 0,
+  "selected_tool_count": 0,
+  "last_no_action_reason": "",
+  "last_candidate_capability_ids": [],
+  "last_decision_axes": {
+    "user_commitment": 0.0,
+    "system_health": 0.0,
+    "learning": 0.0,
+    "curiosity": 0.0
+  },
+  "consecutive_no_action": 0,
+  "no_effect_counts": {
+    "ai-server.agora.read_posts": 1
+  },
+  "timestamp_ms": 1786158799217
+}

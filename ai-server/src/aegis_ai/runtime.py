@@ -873,6 +873,8 @@ def _create_autonomous_loop(runtime: AegisRuntime) -> Any:
     loop._goal_service = runtime.goal_service
     loop._social_manager = runtime.social_manager
     loop._operation_store = getattr(runtime, "operation_store", None)
+    loop._sleep_manager = runtime.sleep_manager
+    loop._memory_manager = runtime.memory_manager
 
     loop.set_health_alert_manager(
         HealthAlertManager(

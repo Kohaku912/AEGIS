@@ -493,7 +493,7 @@ def _build_chat_system_prompt(user_message: str) -> tuple[str, dict[str, Any], s
         "- Use only tools whose backing server is online or intentionally available.\n"
         "- If a requested tool is offline, degraded, or unconfigured, explain the practical limitation and use a safe available alternative when one exists.\n"
         "- When user asks to DO something (browse, search, create account, fill form), ALWAYS use a tool\n"
-        "- When user asks to DO something on a website, prefer browser-server__page__browse only if Browser Server is online enough for that task\n"
+        "- Choose freely among offered online capabilities; do not prefer a fixed capability name.\n"
         "- NEVER just describe what to do - actually DO it with tools\n"
         "- If you need user confirmation or input, use ask_user tool\n"
         "- If no tool is needed, respond naturally and concisely"
@@ -2589,13 +2589,24 @@ class DashboardApp:
             return ChatHistoryStore(self._chat_history_path).load(limit=100)
 
         def _auto_save_memory(user_msg: str, bot_msg: str):
-            """Use AdvancedMemory to extract and save entities/facts, and update desires."""
+            """Encode dialogue into short-term episodic and long-term AdvancedMemory."""
             try:
-                memory = _get_mem_backend("advanced")
-                if memory:
-                    memory.add_conversation(user_msg, bot_msg)
+                mm = getattr(self._runtime, "memory_manager", None)
+                if mm is not None and hasattr(mm, "encode_conversation"):
+                    mm.encode_conversation(user_msg, bot_msg, source="dashboard_chat")
+                else:
+                    memory = _get_mem_backend("advanced")
+                    if memory:
+                        memory.add_conversation(user_msg, bot_msg)
             except Exception as e:
                 logger.debug("Auto-save memory failed: %s", e)
+
+            try:
+                sleep_manager = getattr(self._runtime, "sleep_manager", None)
+                if sleep_manager is not None and hasattr(sleep_manager, "update_activity"):
+                    sleep_manager.update_activity()
+            except Exception as e:
+                logger.debug("Sleep activity update failed: %s", e)
 
             # Boost desires directly (no LLM needed — autonomous loop handles desire management)
             try:
