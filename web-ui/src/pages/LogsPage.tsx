@@ -1,27 +1,23 @@
 import { RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { fetchActivityLogs } from "../api/client";
+import { fetchJournalEvents } from "../api/client";
 import { DataState, PageHeader, Pagination, ResponsiveDataView } from "../components/DashboardPrimitives";
 import { formatDateTime, formatRelative } from "../i18n";
 import type { UiOverview } from "../types";
-import { asRecord } from "./PageSupport";
+import { asRecord, text } from "./PageSupport";
 
 const PAGE_SIZE = 30;
 
-function operationServers(operation: Record<string, unknown>): string[] {
-  const steps = Array.isArray(operation.steps) ? operation.steps.map(asRecord) : [];
-  return Array.from(new Set(
-    steps
-      .map((step) => String(step.capability_id || "").split(".")[0])
-      .filter(Boolean),
-  ));
+function eventServer(item: Record<string, unknown>): string {
+  const payload = asRecord(item.payload);
+  const target = String(item.target || payload.capability_id || payload.server_id || "");
+  return target.split(".")[0] || String(item.aggregate_type || "");
 }
 
-function operationTarget(operation: Record<string, unknown>): string {
-  const target = String(operation.target || "");
-  if (target) return target;
-  const servers = operationServers(operation);
-  return servers.length ? servers.join(", ") : String(operation.kind_label || operation.kind || "AEGIS");
+function shortTrace(value: unknown): string {
+  const trace = String(value || "");
+  if (!trace) return "—";
+  return trace.length > 12 ? `${trace.slice(0, 8)}…${trace.slice(-4)}` : trace;
 }
 
 export function LogsPage({ overview }: { overview: UiOverview }) {
@@ -38,7 +34,7 @@ export function LogsPage({ overview }: { overview: UiOverview }) {
     setLoading(true);
     setError("");
     try {
-      const result = await fetchActivityLogs(page, PAGE_SIZE);
+      const result = await fetchJournalEvents(page, PAGE_SIZE);
       setItems(result.items);
       setTotal(result.total);
       setUpdatedAt(Date.now());
@@ -54,47 +50,32 @@ export function LogsPage({ overview }: { overview: UiOverview }) {
   }, [load, reload]);
 
   const visibleItems = useMemo(
-    () => server === "all"
-      ? items
-      : items.filter((operation) => operationServers(operation).includes(server)),
+    () => server === "all" ? items : items.filter((item) => eventServer(item) === server),
     [items, server],
   );
 
-  const rows = visibleItems.map((operation, index) => {
-    const timestamp = Number(operation.updated_at || operation.started_at || 0);
-    const what = String(
-      operation.what_happened
-      || operation.narrative
-      || operation.summary
-      || "No result was recorded.",
-    );
-    const reason = String(operation.reason || operation.title || "No reason was recorded.");
-    const outcome = String(operation.status || "recorded").replaceAll("_", " ");
-    const target = operationTarget(operation);
-    const steps = Array.isArray(operation.steps) ? operation.steps.map(asRecord) : [];
-    const id = String(operation.operation_id || `${timestamp}-${index}`);
+  const rows = visibleItems.map((item, index) => {
+    const timestamp = Number(item.timestamp_ms || item.updated_at || 0);
+    const what = String(item.title || item.what_happened || item.event_type || "event");
+    const summary = String(item.summary || item.reason || "");
+    const target = String(item.target || item.aggregate_id || "—");
+    const outcome = String(item.status || "recorded").replaceAll("_", " ");
+    const id = String(item.id || item.sequence || `${timestamp}-${index}`);
     return {
       id,
-      cells: [formatDateTime(timestamp), what, target, outcome, reason],
+      cells: [formatDateTime(timestamp), what, target, shortTrace(item.trace_id), outcome],
       card: <div className="log-card">
         <div><strong>{what}</strong><span className="status-badge">{outcome}</span></div>
+        {summary ? <p>{summary}</p> : null}
         <p><span className="muted">Target:</span> {target}</p>
-        <p><span className="muted">Why:</span> {reason}</p>
-        <small>{formatDateTime(timestamp)} · {String(operation.kind_label || operation.kind || "AEGIS")}</small>
-        {steps.length ? <details>
-          <summary>Show {steps.length} recorded step{steps.length === 1 ? "" : "s"}</summary>
-          <ol>
-            {steps.map((step, stepIndex) => <li key={`${id}-${stepIndex}`}>
-              {String(step.narrative || step.summary || step.action || step.capability_id || "Recorded step")}
-            </li>)}
-          </ol>
-        </details> : null}
+        <p><span className="muted">Trace:</span> <span className="mono">{text(item.trace_id, "—")}</span></p>
+        <small>{formatDateTime(timestamp)} · {String(item.event_type || item.kind || "journal")} · seq {String(item.sequence || "—")}</small>
       </div>,
     };
   });
 
   return <div className="grid">
-    <PageHeader title="Logs" description="What AEGIS did, why it acted, and the result of each operation.">
+    <PageHeader title="Logs" description="Journal に記録されたイベントと OpenTelemetry の trace id です。">
       <button type="button" className="secondary-button" onClick={() => setReload((value) => value + 1)} disabled={loading}>
         <RefreshCw size={14} aria-hidden="true" />Refresh
       </button>
@@ -109,10 +90,10 @@ export function LogsPage({ overview }: { overview: UiOverview }) {
       </div>
       <DataState loading={loading} error={error} empty={!loading && !error && !rows.length} onRetry={() => setReload((value) => value + 1)} />
       {!loading && !error && rows.length ? <ResponsiveDataView
-        headers={["Time", "What AEGIS did", "Target", "Result", "Why"]}
+        headers={["Time", "Event", "Target", "Trace", "Result"]}
         rows={rows}
       /> : null}
-      {server !== "all" && !loading && !error ? <p className="muted">The server filter applies to the current page of operations.</p> : null}
+      {server !== "all" && !loading && !error ? <p className="muted">The server filter applies to the current page of journal events.</p> : null}
       <Pagination page={page} total={total} pageSize={PAGE_SIZE} onPage={setPage} />
     </section>
   </div>;

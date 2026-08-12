@@ -1054,25 +1054,27 @@ class DashboardApp:
 
         @self._app.before_request
         def _bind_request_correlation():
-            from flask import g, request
+            from flask import request
 
-            from aegis_ai.audit.context import correlation_from_headers
+            from aegis_ai.audit.context import bind_audit_group, parse_traceparent, new_trace_ids
 
-            g._aegis_correlation = correlation_from_headers(
-                {k: v for k, v in request.headers.items()},
-                group_id=str(request.headers.get("X-Request-ID") or request.path),
+            headers = {k: v for k, v in request.headers.items()}
+            trace_id, span_id = parse_traceparent(headers.get("traceparent", ""))
+            if not trace_id:
+                trace_id, span_id = new_trace_ids()
+            bind_audit_group(
+                str(request.headers.get("X-Request-ID") or request.path),
                 group_type="http",
                 group_title=str(request.path),
+                trace_id=trace_id,
+                span_id=span_id,
             )
-            g._aegis_correlation.__enter__()
 
         @self._app.teardown_request
-        def _clear_request_correlation(exc):
-            from flask import g
+        def _clear_request_correlation(_exc):
+            from aegis_ai.audit.context import clear_audit_group
 
-            cm = getattr(g, "_aegis_correlation", None)
-            if cm is not None:
-                cm.__exit__(type(exc), exc, exc.__traceback__ if exc else None)
+            clear_audit_group()
 
     def _create_llm_provider(self, audit_log: Any = None) -> Any:
         """Create an LLM provider that honors dashboard settings."""
@@ -1562,7 +1564,13 @@ class DashboardApp:
 
         @app.route("/chat")
         def web_chat_redirect():
+            from aegis_ai.web.routes.ui_v2 import ui_v2_available
+
+            if ui_v2_available():
+                return redirect("/dashboard")
             host = request.host.split(":", 1)[0] or "localhost"
+            if host not in {"127.0.0.1", "localhost", "::1"}:
+                return redirect("/dashboard")
             return redirect(f"http://{host}:8091/chat")
 
         @app.route("/dashboard/servers")

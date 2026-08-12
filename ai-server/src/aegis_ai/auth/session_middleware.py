@@ -69,7 +69,14 @@ def install_passkey_auth(app: Any, *, data_dir: str | Path = "data/auth", exempt
         if _display_read_allowed(path):
             return None
 
-        protected = path == "/" or path.startswith("/dashboard") or path.startswith("/api/") or _is_sse_or_ws()
+        protected = (
+            path == "/"
+            or path.startswith("/dashboard")
+            or path.startswith("/settings")
+            or path.startswith("/chat")
+            or path.startswith("/api/")
+            or _is_sse_or_ws()
+        )
         if not protected:
             return None
         if not store.has_users():

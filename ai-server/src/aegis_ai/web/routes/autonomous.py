@@ -9,6 +9,24 @@ from typing import Any
 from flask import Blueprint, jsonify, request
 
 
+def _live_desire_system(owner: Any, data_dir: str):
+    from aegis_ai.desire.desire_system import DesireSystem
+
+    loop = getattr(owner, "_autonomous_loop", None)
+    if loop is None:
+        runtime = getattr(owner, "_runtime", None)
+        loop = getattr(runtime, "autonomous_loop", None) if runtime is not None else None
+    desire = getattr(loop, "_desire", None) if loop is not None else None
+    if desire is None:
+        runtime = getattr(owner, "_runtime", None)
+        desire = getattr(runtime, "desire_system", None) if runtime is not None else None
+    if desire is None:
+        desire = DesireSystem(data_dir=os.path.join(data_dir, "desires"))
+    if hasattr(desire, "apply_decay"):
+        desire.apply_decay()
+    return desire
+
+
 def init_autonomous_routes(owner: Any, data_dir: str) -> None:
     bp = Blueprint("dashboard_autonomous_api", __name__)
 
@@ -76,10 +94,7 @@ def init_autonomous_routes(owner: Any, data_dir: str) -> None:
     @bp.route("/api/desires")
     def desires_status():
         try:
-            from aegis_ai.desire.desire_system import DesireSystem
-
-            desire = DesireSystem(data_dir=os.path.join(data_dir, "desires"))
-            desire.apply_decay()
+            desire = _live_desire_system(owner, data_dir)
             return jsonify(desire.get_stats())
         except Exception as exc:
             return jsonify({"error": str(exc)})
@@ -87,10 +102,7 @@ def init_autonomous_routes(owner: Any, data_dir: str) -> None:
     @bp.route("/api/desires/pressure")
     def desires_pressure():
         try:
-            from aegis_ai.desire.desire_system import DesireSystem
-
-            ds = DesireSystem(data_dir=os.path.join(data_dir, "desires"))
-            ds.apply_decay()
+            ds = _live_desire_system(owner, data_dir)
             pressure = ds.get_pressure_state()
             return jsonify({
                 "pressures": pressure,

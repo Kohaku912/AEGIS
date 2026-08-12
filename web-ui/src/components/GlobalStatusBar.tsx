@@ -22,10 +22,18 @@ function autonomousOn(overview: UiOverview): boolean {
 
 function llmStatus(overview: UiOverview): string {
   const usage = overview.usage?.data || {};
-  if (usage.budget_state) return String(usage.budget_state);
-  if (usage.provider_status) return String(usage.provider_status);
+  const tokens = Number(usage.total_tokens || 0);
+  const calls = Number(usage.total_calls || usage.total_requests || 0);
+  if (tokens > 0) return `${Math.round(tokens).toLocaleString()} tok`;
+  if (calls > 0) return `${calls} calls`;
+  const state = String(usage.budget_state || usage.provider_status || "");
+  if (state && state !== "not_reported") return state;
   const health = String(overview.core.data.health || "UNKNOWN").toUpperCase();
   return health === "ONLINE" ? "ready" : health.toLowerCase();
+}
+
+function runningCount(overview: UiOverview): number {
+  return (overview.tasks?.data.active || []).length;
 }
 
 export function GlobalStatusBar({
@@ -40,10 +48,7 @@ export function GlobalStatusBar({
   onNavigate: (path: string) => void;
 }) {
   const health = String(overview.core.data.health || "UNKNOWN");
-  const running = (overview.tasks?.data.active || overview.current_task.data.task_id ? [overview.current_task.data] : []).filter(
-    (item) => item && (item.task_id || (item as { id?: string }).id),
-  );
-  const activeCount = (overview.tasks?.data.active || []).length || (overview.current_task.data.task_id ? 1 : 0);
+  const activeCount = runningCount(overview);
   const approvals = overview.approvals.data.pending_count || 0;
   const errors = errorCount(overview);
   const serversOnline = onlineCount(overview);
@@ -64,7 +69,7 @@ export function GlobalStatusBar({
       </button>
       <button type="button" className="gsb-chip" onClick={() => onNavigate("/dashboard/work/tasks")}>
         <span>実行中</span>
-        <strong>{activeCount || running.length}</strong>
+        <strong>{activeCount}</strong>
       </button>
       <button type="button" className="gsb-chip" data-severity={approvals ? "warning" : "ok"} onClick={() => onNavigate("/dashboard/approvals")}>
         <span>承認待ち</span>
