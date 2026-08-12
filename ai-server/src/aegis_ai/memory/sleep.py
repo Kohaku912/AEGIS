@@ -192,8 +192,9 @@ class SleepManager:
         if self._event_manager is None:
             return
         try:
-            from aegis_schema.models import Event
-            self._event_manager.publish(Event(
+            from aegis_ai.event.helpers import build_event
+
+            self._event_manager.publish(build_event(
                 event_type=event_type,
                 source="sleep_manager",
                 payload=payload,

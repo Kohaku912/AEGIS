@@ -51,6 +51,7 @@ class TaskExecutionEngine:
         audit_manager: Any = None,
         repair_manager: Any = None,
         goal_service: Any = None,
+        temporal_runtime: Any = None,
     ) -> None:
         self._task_manager = task_manager
         self._tool_broker = tool_broker
@@ -63,6 +64,7 @@ class TaskExecutionEngine:
         self._audit_manager = audit_manager
         self._repair_manager = repair_manager
         self._goal_service = goal_service
+        self._temporal = temporal_runtime
         self._plans: dict[str, TaskPlan] = {}
 
     def evaluate_plan_state(self, plan: TaskPlan) -> TaskFinalState:
@@ -203,6 +205,22 @@ class TaskExecutionEngine:
         self._task_manager.save_plan(task_id, plan_json)
         if plan.goal_graph is not None:
             self._task_manager.save_goal_graph(task_id, plan.goal_graph.to_dict())
+
+        if self._temporal is not None and getattr(self._temporal, "enabled", False):
+            try:
+                workflow_id = self._temporal.start_task_workflow_sync(task_id, plan.to_dict())
+                task = self._task_manager.get_task(task_id)
+                if task is not None:
+                    metadata = dict(task.get("metadata") or {})
+                    metadata["workflow_id"] = workflow_id
+                    task["metadata"] = metadata
+                return ExecutionResponse(
+                    text=f"Durable workflow started ({workflow_id}). Use /api/tasks/{task_id}/continue to resume after approval.",
+                    task_id=task_id,
+                )
+            except Exception as exc:
+                logger.warning("Temporal workflow start failed; using in-process engine: %s", exc)
+
         results: list[str] = []
 
         for step in plan.steps:
@@ -493,6 +511,14 @@ class TaskExecutionEngine:
         task = self._task_manager.get_task(task_id)
         if task is None:
             return ExecutionResponse(text=f"Task {task_id} not found")
+        metadata = dict(task.get("metadata") or {})
+        workflow_id = str(metadata.get("workflow_id") or "")
+        if workflow_id and self._temporal is not None and getattr(self._temporal, "enabled", False):
+            try:
+                self._temporal.signal_approval_sync(workflow_id)
+                return ExecutionResponse(text=f"Approval signal sent to workflow {workflow_id}", task_id=task_id)
+            except Exception as exc:
+                logger.warning("Temporal continue signal failed: %s", exc)
         if task["status"] not in ("running", "waiting_approval", "paused"):
             return ExecutionResponse(text=f"Task {task_id} not in executable state (status={task['status']})")
         plan = self._plans.get(task_id)
@@ -689,13 +715,12 @@ class TaskExecutionEngine:
         if self._event_manager is None:
             return
         try:
-            from aegis_schema.models import Event, EventPriority
+            from aegis_ai.event.helpers import build_event
 
             self._event_manager.publish(
-                Event(
-                    event_type="verification.completed",
-                    source="task_execution_engine",
-                    priority=EventPriority.NORMAL,
+                build_event(
+                    "verification.completed",
+                    source_server_id="task_execution_engine",
                     payload={
                         "verification_id": getattr(verification, "verification_id", ""),
                         "request_id": getattr(verification_request, "request_id", ""),

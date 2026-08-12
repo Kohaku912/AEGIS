@@ -69,6 +69,7 @@ class EventBus:
 
     def __init__(self, dedup_window_ms: int = DEFAULT_DEDUP_WINDOW_MS) -> None:
         self._dedup_window_ms = dedup_window_ms
+        self._dead_letter_handler: Callable[[Event, str, str], None] | None = None
 
         # Dedup tracking: dedupe_key → timestamp of last occurrence
         self._dedup_tracker: dict[str, float] = {}
@@ -88,6 +89,11 @@ class EventBus:
         # Stats
         self.stats = EventBusStats()
         self._lock = threading.RLock()
+
+    def set_dead_letter_handler(self, handler: Callable[[Event, str, str], None] | None) -> None:
+        """Register handler invoked when a subscriber raises."""
+        with self._lock:
+            self._dead_letter_handler = handler
 
     # ── Publish ──────────────────────────────────────────────
 
@@ -233,9 +239,13 @@ class EventBus:
             try:
                 if sub.event_filter is None or sub.event_filter(event):
                     sub.handler(event)
-            except Exception:
-                # Subscriber errors must not crash the bus
-                pass
+            except Exception as exc:
+                handler = self._dead_letter_handler
+                if handler is not None:
+                    try:
+                        handler(event, sub.subscriber_id, str(exc))
+                    except Exception:
+                        pass
 
     def _queue_size(self) -> int:
         return (

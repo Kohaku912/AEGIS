@@ -41,6 +41,7 @@ mod overlay_approval;
 mod redaction;
 mod safety;
 mod system_ops;
+mod uia;
 
 use std::env;
 

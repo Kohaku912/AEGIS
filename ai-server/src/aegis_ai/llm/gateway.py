@@ -211,25 +211,37 @@ class LLMGateway:
 
         provider = self._get_provider_for_profile(settings)
 
+        from aegis_ai.observability.otel_tracing import start_span
+
+        span_attrs = {
+            "llm.profile": str(profile or "default"),
+            "llm.model": str(settings.model),
+        }
+        if context_meta:
+            span_attrs["request_id"] = str(context_meta.get("request_id") or "")
+            if context_meta.get("task_id"):
+                span_attrs["task_id"] = str(context_meta.get("task_id") or "")
+
         start = time.monotonic()
-        if provider is not None:
-            response = provider.generate(
-                prompt=prompt,
-                system_prompt=system_prompt,
-                max_tokens=settings.max_tokens,
-                temperature=settings.temperature,
-                context_meta=context_meta,
-                json_mode=json_mode,
-            )
-        else:
-            request = self._make_request(
-                prompt=prompt,
-                system_prompt=system_prompt,
-                settings=settings,
-                context_meta=context_meta,
-                json_mode=json_mode,
-            )
-            response = self._router.route(request)
+        with start_span("aegis.llm.generate", **span_attrs):
+            if provider is not None:
+                response = provider.generate(
+                    prompt=prompt,
+                    system_prompt=system_prompt,
+                    max_tokens=settings.max_tokens,
+                    temperature=settings.temperature,
+                    context_meta=context_meta,
+                    json_mode=json_mode,
+                )
+            else:
+                request = self._make_request(
+                    prompt=prompt,
+                    system_prompt=system_prompt,
+                    settings=settings,
+                    context_meta=context_meta,
+                    json_mode=json_mode,
+                )
+                response = self._router.route(request)
         duration_ms = int((time.monotonic() - start) * 1000)
 
         self._audit_call(
@@ -290,26 +302,39 @@ class LLMGateway:
         start = time.monotonic()
         provider = self._get_provider_for_profile(settings)
 
-        if provider is not None and hasattr(provider, "generate_with_tools"):
-            call_kwargs: dict[str, Any] = {
-                "prompt": prompt,
-                "tools": tools,
-                "system_prompt": system_prompt,
-                "max_tokens": settings.max_tokens,
-                "temperature": settings.temperature,
-                "context_meta": context_meta,
-            }
-            if accepts_kwarg(provider.generate_with_tools, "reasoning_level"):
-                call_kwargs["reasoning_level"] = settings.reasoning_level
-            response = provider.generate_with_tools(**call_kwargs)
-        else:
-            request = self._make_request(
-                prompt=prompt,
-                system_prompt=system_prompt,
-                settings=settings,
-                context_meta=context_meta,
-            )
-            response = self._router.route_with_tools(request, tools)
+        from aegis_ai.observability.otel_tracing import start_span
+
+        span_attrs = {
+            "llm.profile": str(profile or "default"),
+            "llm.model": str(settings.model),
+        }
+        if context_meta:
+            span_attrs["request_id"] = str(context_meta.get("request_id") or "")
+            if context_meta.get("task_id"):
+                span_attrs["task_id"] = str(context_meta.get("task_id") or "")
+
+        with start_span("aegis.llm.generate_with_tools", **span_attrs):
+            if provider is not None and hasattr(provider, "generate_with_tools"):
+                call_kwargs: dict[str, Any] = {
+                    "prompt": prompt,
+                    "tools": tools,
+                    "system_prompt": system_prompt,
+                    "max_tokens": settings.max_tokens,
+                    "temperature": settings.temperature,
+                    "context_meta": context_meta,
+                }
+                if accepts_kwarg(provider.generate_with_tools, "reasoning_level"):
+                    call_kwargs["reasoning_level"] = settings.reasoning_level
+                response = provider.generate_with_tools(**call_kwargs)
+            else:
+                request = self._make_request(
+                    prompt=prompt,
+                    system_prompt=system_prompt,
+                    settings=settings,
+                    context_meta=context_meta,
+                )
+                response = self._router.route_with_tools(request, tools)
+
         duration_ms = int((time.monotonic() - start) * 1000)
 
         self._audit_call(

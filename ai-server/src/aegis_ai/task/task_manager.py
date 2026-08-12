@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import threading
 import time
 import uuid
@@ -546,8 +547,10 @@ class TaskManager:
     def _notify(self, task: dict[str, Any], event_type: str) -> None:
         if self._event_manager is not None:
             try:
-                from aegis_schema.models import Event, EventPriority
-                event = Event(
+                from aegis_ai.event.helpers import build_event
+                from aegis_schema.models import EventPriority
+
+                event = build_event(
                     event_type=f"task.{event_type}",
                     source="task_manager",
                     priority=EventPriority.NORMAL,
@@ -627,17 +630,30 @@ class TaskManager:
                     task["incident_status"] = "resolved"
                     event_type = TaskStatus.COMPLETED.value
                 else:
-                    task["status"] = TaskStatus.FAILED.value
-                    task["error"] = task.get("error") or (
-                        "Execution was interrupted by an AI Server restart. Retry the task."
-                    )
-                    task["incident_status"] = "open"
-                    for step in steps:
-                        if step.get("status") == "running":
-                            step["status"] = "failed"
-                            step["error"] = step.get("error") or task["error"]
-                            step["updated_at"] = now_ms
-                    event_type = TaskStatus.FAILED.value
+                    if os.getenv("TEMPORAL_ADDRESS", "").strip():
+                        task["status"] = TaskStatus.PAUSED.value
+                        task["error"] = task.get("error") or (
+                            "Execution paused after AI Server restart. Resume via POST /api/tasks/{id}/continue."
+                        )
+                        task["incident_status"] = "open"
+                        for step in steps:
+                            if step.get("status") == "running":
+                                step["status"] = "paused"
+                                step["error"] = step.get("error") or task["error"]
+                                step["updated_at"] = now_ms
+                        event_type = TaskStatus.PAUSED.value
+                    else:
+                        task["status"] = TaskStatus.FAILED.value
+                        task["error"] = task.get("error") or (
+                            "Execution was interrupted by an AI Server restart. Retry the task."
+                        )
+                        task["incident_status"] = "open"
+                        for step in steps:
+                            if step.get("status") == "running":
+                                step["status"] = "failed"
+                                step["error"] = step.get("error") or task["error"]
+                                step["updated_at"] = now_ms
+                        event_type = TaskStatus.FAILED.value
                 task["updated_at"] = now_ms
                 task["completed_at"] = now_ms
                 recovered.append((task, event_type))

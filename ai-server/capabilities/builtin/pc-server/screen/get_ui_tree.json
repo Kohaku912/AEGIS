@@ -1,0 +1,42 @@
+{
+  "title": "PC UI Tree",
+  "description": "Read the current Windows UI tree via UI Automation (foreground window).",
+  "server_id": "pc-server",
+  "app_id": "screen",
+  "action": "get_ui_tree",
+  "operation_category": "read_only",
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "include_invisible": {
+        "type": "boolean",
+        "default": false
+      }
+    }
+  },
+  "risk": {
+    "level": "safe",
+    "side_effects": [
+      "reads_screen_text"
+    ],
+    "requires_approval": false
+  },
+  "tags": [
+    "builtin",
+    "pc",
+    "screen",
+    "uia",
+    "privacy"
+  ],
+  "tcp_command": "ui_tree {include_invisible}",
+  "completion": {
+    "mode": "all",
+    "checks": [
+      {
+        "name": "ui_tree_present",
+        "type": "ui_tree",
+        "expect_changed": false
+      }
+    ]
+  }
+}

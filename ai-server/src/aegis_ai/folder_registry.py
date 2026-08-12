@@ -23,6 +23,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from pydantic import ValidationError as PydanticValidationError
+
+from aegis_ai.schema import CapabilityManifestModel
+
 logger = logging.getLogger("aegis_ai.folder_registry")
 
 
@@ -173,6 +177,38 @@ class FolderCapabilityRegistry:
 
         manifest_risk = data.get("risk", {}).get("level", "low")
         manifest_requires_approval = data.get("risk", {}).get("requires_approval", False)
+
+        # Phase 0: fail-fast manifest validation through Pydantic boundary model.
+        # We keep validation intentionally shallow for compatibility with
+        # permissive manifests (we mainly want to catch type/shape errors).
+        try:
+            CapabilityManifestModel(
+                capability_id=cap_id,
+                title=str(data.get("title") or ids["action"].replace("_", " ").title()),
+                description=str(data.get("description") or ""),
+                server_id=str(ids["server_id"]),
+                app_id=str(ids["app_id"]),
+                action=str(ids["action"]),
+                operation_category=str(data.get("operation_category") or ""),
+                origin=str(origin),
+                version=str(data.get("version") or "1.0.0"),
+                input_schema=dict(data.get("input_schema") or data.get("input") or {}),
+                output_schema=dict(data.get("output_schema") or {}),
+                risk_level=str(manifest_risk or "low"),
+                requires_approval=bool(manifest_requires_approval),
+                side_effects=list(data.get("risk", {}).get("side_effects", []) or []),
+                tags=list(data.get("tags", []) or []),
+                completion=dict(data.get("completion") or {}),
+                tcp_command=str(data.get("tcp_command") or ""),
+                tcp_command_json=str(data.get("tcp_command_json") or ""),
+                extra=extra,
+            )
+        except PydanticValidationError as exc:
+            self._errors.append({"path": path, "error": f"Pydantic manifest validation failed: {exc}"})
+            return
+        except Exception as exc:
+            self._errors.append({"path": path, "error": f"Manifest validation error: {exc}"})
+            return
 
         self._manifests[cap_id] = CapabilityManifest(
             capability_id=cap_id,

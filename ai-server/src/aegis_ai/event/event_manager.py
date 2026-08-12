@@ -18,7 +18,7 @@ from collections import deque
 from pathlib import Path
 from typing import Any
 
-from aegis_schema.models import Event, EventPriority
+from aegis_schema.models import Event, EventPriority, ServerType
 
 from event_bus import EventBus
 
@@ -87,6 +87,8 @@ class EventManager:
         event_bus: EventBus,
         data_dir: str = "data",
         persist_important: bool = True,
+        journal_store: Any = None,
+        journal_projector: Any = None,
     ) -> None:
         self._bus = event_bus
         self._data_dir = Path(data_dir)
@@ -94,22 +96,50 @@ class EventManager:
         self._persist_path = self._data_dir / "events.jsonl"
         self._dead_letter_path = self._data_dir / "dead_letters.jsonl"
         self._persist_important = persist_important
+        self._journal = journal_store
+        self._journal_projector = journal_projector
 
         self._persisted_events: list[dict[str, Any]] = []
         self._dead_letters: deque[dict[str, Any]] = deque(maxlen=500)
         self._processed: dict[str, set[str]] = {}  # event_id -> set of processor IDs
         self._lock = threading.Lock()
 
+        self._bus.set_dead_letter_handler(self.record_dead_letter)
         self._load_persisted()
 
     # ── Publish / Subscribe (delegate to EventBus) ────────────
 
     def publish(self, event: Event) -> bool:
-        """Publish an event. Persists important events."""
+        """Publish an event. Persists important events and appends to journal."""
         result = self._bus.publish(event)
-        if result and self._persist_important and self._should_persist(event):
-            self._persist_event(event)
+        if result:
+            if self._journal is not None:
+                try:
+                    payload = self._event_payload(event)
+                    entry = self._journal.append(
+                        event_type=event.event_type,
+                        aggregate_type=self._aggregate_type(event.event_type),
+                        aggregate_id=str(payload.get("task_id") or payload.get("approval_id") or event.event_id),
+                        payload=payload,
+                        correlation_id=event.correlation_id or event.event_id,
+                    )
+                    if self._journal_projector is not None:
+                        self._journal_projector.project(entry.model_dump())
+                except Exception:
+                    logger.debug("Journal append failed", exc_info=True)
+            if self._persist_important and self._should_persist(event):
+                self._persist_event(event)
         return result
+
+    def publish_event(self, event_type: str, *, source: str, payload: dict[str, Any]) -> bool:
+        """Legacy publisher helper using canonical Event fields."""
+        from aegis_ai.event.helpers import build_event
+
+        return self.publish(build_event(event_type, source=source, payload=payload))
+
+    def record_summary(self, event: Event, *, full_payload: dict[str, Any] | None = None) -> None:
+        """Record a UI summary without re-publishing to the bus."""
+        self._persist_event(event, full_payload=full_payload)
 
     def subscribe(self, handler, event_filter=None) -> str:
         """Subscribe to events. Returns subscriber ID."""
@@ -223,6 +253,8 @@ class EventManager:
             "handler_id": handler_id,
             "error": error,
             "timestamp": int(time.time() * 1000),
+            "source_server_id": getattr(event, "source_server_id", ""),
+            "payload": self._event_payload(event),
         }
         with self._lock:
             self._dead_letters.append(entry)
@@ -232,18 +264,38 @@ class EventManager:
     # ── Internal ──────────────────────────────────────────────
 
     def _should_persist(self, event: Event) -> bool:
-        event_type = getattr(event, "event_type", "")
-        return event_type in _PERSIST_EVENT_TYPES
+        return event.event_type in _PERSIST_EVENT_TYPES
 
-    def _persist_event(self, event: Event) -> None:
+    @staticmethod
+    def _aggregate_type(event_type: str) -> str:
+        if event_type.startswith("task."):
+            return "task"
+        if event_type.startswith("approval."):
+            return "approval"
+        return "event"
+
+    @staticmethod
+    def _event_payload(event: Event) -> dict[str, Any]:
+        raw = getattr(event, "payload_json", "") or "{}"
+        try:
+            parsed = json.loads(raw)
+            return parsed if isinstance(parsed, dict) else {"value": parsed}
+        except Exception:
+            return {"raw": str(raw)[:2000]}
+
+    def _persist_event(self, event: Event, *, full_payload: dict[str, Any] | None = None) -> None:
+        payload = full_payload if full_payload is not None else self._event_payload(event)
         entry = {
-            "event_id": getattr(event, "event_id", str(uuid.uuid4().hex[:10])),
-            "event_type": getattr(event, "event_type", "unknown"),
-            "source": getattr(event, "source", "unknown"),
-            "timestamp": getattr(event, "timestamp", int(time.time() * 1000)),
-            "priority": getattr(event, "priority", EventPriority.NORMAL).name if hasattr(getattr(event, "priority", None), "name") else "NORMAL",
-            "severity": getattr(event, "severity", "info"),
-            "payload_summary": str(getattr(event, "payload", {}))[:300],
+            "event_id": event.event_id,
+            "event_type": event.event_type,
+            "source_server_id": event.source_server_id,
+            "source_server_type": event.source_server_type.name,
+            "timestamp": event.timestamp_ms,
+            "priority": event.priority.name if hasattr(event.priority, "name") else "NORMAL",
+            "severity": event.severity,
+            "correlation_id": event.correlation_id,
+            "payload_summary": str(payload)[:300],
+            "payload": payload,
         }
         with self._lock:
             self._persisted_events.append(entry)

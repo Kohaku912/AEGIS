@@ -29,6 +29,7 @@ from pathlib import Path
 from typing import Any
 
 from jsonschema import ValidationError, validate
+from pydantic import TypeAdapter
 
 from aegis_ai.capability_catalog import risk_level_from_label
 from aegis_ai.production_readiness import is_mock_like_output, is_production_mode
@@ -369,6 +370,7 @@ class ToolBroker:
         delegation_policy: Any = None,
         repair_manager: Any = None,
         event_manager: Any = None,
+        capability_health: Any = None,
     ) -> None:
         self._registry = registry
         self._policy = policy_engine or create_default_policy_engine()
@@ -383,6 +385,7 @@ class ToolBroker:
         self._repair_manager = repair_manager
         self._event_manager = event_manager
         self._continuation_manager: Any = None
+        self._capability_health = capability_health
 
         if self._catalog is not None and self._server_executor is not None:
             self._server_executor.set_catalog(self._catalog)
@@ -425,6 +428,21 @@ class ToolBroker:
         if not request.created_at:
             request.created_at = int(time.time() * 1000)
 
+        from aegis_ai.observability.otel_tracing import start_span
+
+        with start_span(
+            "aegis.tool.execute",
+            capability_id=request.capability_id,
+            request_id=request.request_id,
+            task_id=request.task_id,
+            source=request.source.value,
+        ):
+            return self._execute_core(request)
+
+    def _execute_core(
+        self,
+        request: ToolExecutionRequest,
+    ) -> ToolExecutionResult:
         logger.info(
             "Capability call: cap=%s source=%s args=%s",
             request.capability_id,
@@ -1065,8 +1083,14 @@ class ToolBroker:
 
     def _validate_arguments(self, manifest: Any, arguments: dict[str, Any]) -> str:
         schema = getattr(manifest, "input_schema", None) or {"type": "object", "properties": {}}
+        # Pydantic gate: ensure args is a proper dict before jsonschema validation.
+        # This makes downstream tracing/telemetry more stable (always dict semantics).
         try:
-            validate(instance=arguments or {}, schema=schema)
+            validated_args = TypeAdapter(dict[str, Any]).validate_python(arguments or {})
+        except Exception as exc:
+            return f"Invalid arguments for '{manifest.capability_id}': {exc}"
+        try:
+            validate(instance=validated_args, schema=schema)
             return ""
         except ValidationError as exc:
             path = ".".join(str(part) for part in exc.path)
@@ -1353,50 +1377,59 @@ class ToolBroker:
         PRIVATE. Cannot be called from outside the class.
         ALWAYS called after PolicyEngine.evaluate() returns ALLOW.
         """
-        started_at = int(time.time() * 1000)
-        try:
-            arguments = dict(request.arguments)
-            if request.metadata.get("approved_execution"):
-                arguments["_aegis_approved_execution"] = True
-                arguments["_aegis_approval_id"] = request.metadata.get("approval_id", "")
-            output = self._server_executor.execute(cap, arguments)
-            finished_at = int(time.time() * 1000)
-            if isinstance(output, dict) and (output.get("error") or output.get("ok") is False):
-                error_msg = str(
-                    output.get("error")
-                    or output.get("message")
-                    or f"Capability returned ok=false for '{request.capability_id}'"
-                )
+        from aegis_ai.observability.otel_tracing import start_span
+
+        with start_span(
+            "aegis.tool.invoke_internal",
+            capability_id=getattr(cap, "id", ""),
+            request_id=request.request_id,
+            task_id=request.task_id,
+            source=str(getattr(request.source, "value", request.source)),
+        ):
+            started_at = int(time.time() * 1000)
+            try:
+                arguments = dict(request.arguments)
+                if request.metadata.get("approved_execution"):
+                    arguments["_aegis_approved_execution"] = True
+                    arguments["_aegis_approval_id"] = request.metadata.get("approval_id", "")
+                output = self._server_executor.execute(cap, arguments)
+                finished_at = int(time.time() * 1000)
+                if isinstance(output, dict) and (output.get("error") or output.get("ok") is False):
+                    error_msg = str(
+                        output.get("error")
+                        or output.get("message")
+                        or f"Capability returned ok=false for '{request.capability_id}'"
+                    )
+                    return ToolExecutionResult(
+                        request_id=request.request_id,
+                        status=InvokeStatus.EXECUTION_ERROR,
+                        error=error_msg,
+                        output=output,
+                        started_at=started_at,
+                        finished_at=finished_at,
+                        duration_ms=finished_at - started_at,
+                        policy_decision="ALLOW",
+                    )
                 return ToolExecutionResult(
                     request_id=request.request_id,
-                    status=InvokeStatus.EXECUTION_ERROR,
-                    error=error_msg,
-                    output=output,
+                    status=InvokeStatus.SUCCESS,
+                    output=output if isinstance(output, dict) else {"result": output},
                     started_at=started_at,
                     finished_at=finished_at,
                     duration_ms=finished_at - started_at,
                     policy_decision="ALLOW",
                 )
-            return ToolExecutionResult(
-                request_id=request.request_id,
-                status=InvokeStatus.SUCCESS,
-                output=output if isinstance(output, dict) else {"result": output},
-                started_at=started_at,
-                finished_at=finished_at,
-                duration_ms=finished_at - started_at,
-                policy_decision="ALLOW",
-            )
-        except Exception as e:
-            finished_at = int(time.time() * 1000)
-            return ToolExecutionResult(
-                request_id=request.request_id,
-                status=InvokeStatus.EXECUTION_ERROR,
-                error=f"Server execution error: {e}",
-                started_at=started_at,
-                finished_at=finished_at,
-                duration_ms=finished_at - started_at,
-                policy_decision="ALLOW",
-            )
+            except Exception as e:
+                finished_at = int(time.time() * 1000)
+                return ToolExecutionResult(
+                    request_id=request.request_id,
+                    status=InvokeStatus.EXECUTION_ERROR,
+                    error=f"Server execution error: {e}",
+                    started_at=started_at,
+                    finished_at=finished_at,
+                    duration_ms=finished_at - started_at,
+                    policy_decision="ALLOW",
+                )
 
     # ── Audit ──────────────────────────────────────────────────
 
@@ -1447,6 +1480,27 @@ class ToolBroker:
                 result.audit_log_id = audit_entry.entry_id
             except Exception as exc:
                 logger.warning("Failed to write audit: %s", exc)
+
+        if self._capability_health is not None:
+            try:
+                self._capability_health.record_invocation(
+                    request.capability_id,
+                    success=result.success,
+                    latency_ms=result.duration_ms,
+                    error=result.error,
+                )
+            except Exception:
+                logger.debug("Capability health record failed", exc_info=True)
+        try:
+            from aegis_ai.observability.otel_tracing import record_capability_invocation
+
+            record_capability_invocation(
+                request.capability_id,
+                success=result.success,
+                duration_ms=result.duration_ms,
+            )
+        except Exception:
+            logger.debug("OTel capability metric failed", exc_info=True)
 
         logger.info(
             "Tool execution: cap=%s status=%s source=%s duration=%.1fms",

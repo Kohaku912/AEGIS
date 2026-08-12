@@ -204,6 +204,15 @@ def _build_runtime(config: Config) -> AegisRuntime:
     from aegis_ai.llm.settings_resolver import LLMSettingsResolver
     from aegis_ai.settings.store import SettingsStore
 
+    # Phase 1: optional OpenTelemetry bootstrap.
+    # Keep this best-effort so tracing never blocks core runtime.
+    try:
+        from aegis_ai.observability.otel_tracing import init_tracing
+
+        init_tracing()
+    except Exception:
+        logger.debug("OTel init failed (best-effort)", exc_info=True)
+
     base_dir = Path(__file__).resolve().parents[2]
     data_dir = str(base_dir / "data")
     settings_store = SettingsStore(
@@ -247,20 +256,18 @@ def _build_runtime(config: Config) -> AegisRuntime:
             finally:
                 loop.close()
             if event_manager is not None:
-                from aegis_schema.models import Event
+                from aegis_ai.event.helpers import build_event
 
-                event_manager.publish(
-                    Event(
-                        event_type=f"approval.{event_dict.get('event_type', 'updated')}",
-                        source="approval_manager",
-                        payload={
-                            "approval_id": getattr(req, "approval_id", ""),
-                            "capability_id": getattr(req, "capability_id", ""),
-                            "task_id": getattr(req, "task_id", ""),
-                            "state": getattr(req, "status", ""),
-                        },
-                    )
-                )
+                event_manager.publish(build_event(
+                    event_type=f"approval.{event_dict.get('event_type', 'updated')}",
+                    source="approval_manager",
+                    payload={
+                        "approval_id": getattr(req, "approval_id", ""),
+                        "capability_id": getattr(req, "capability_id", ""),
+                        "task_id": getattr(req, "task_id", ""),
+                        "state": getattr(req, "status", ""),
+                    },
+                ))
         except Exception:
             logger.debug("Approval fanout failed", exc_info=True)
 
@@ -387,7 +394,21 @@ def _build_runtime(config: Config) -> AegisRuntime:
     experiential_memory = ExperientialMemory(data_dir=memory_dir, llm_provider=llm_gateway)
     person_memory = PersonMemory(path=os.path.join(memory_dir, "persons.jsonl"))
 
-    event_manager = EventManager(event_bus=event_bus, data_dir=data_dir)
+    from aegis_ai.journal.journal_store import JournalStore
+    from aegis_ai.journal.projector import JournalProjector
+    from aegis_ai.observability.capability_health import CapabilityHealthView
+
+    journal_store = JournalStore(data_dir=data_dir)
+    journal_projector = JournalProjector(event_manager=None, operation_store=None)
+    event_manager = EventManager(
+        event_bus=event_bus,
+        data_dir=data_dir,
+        journal_store=journal_store,
+        journal_projector=journal_projector,
+    )
+    journal_projector._event_manager = event_manager
+    capability_health = CapabilityHealthView(tool_registry=tool_registry)
+    tool_broker._capability_health = capability_health
     audit_manager = AuditManager(audit_log=audit_log, data_dir=data_dir)
     status_manager = StatusManager(event_manager=event_manager)
     task_manager = TaskManager(event_manager=event_manager, audit_manager=audit_manager, data_dir=data_dir)
@@ -591,6 +612,13 @@ def _build_runtime(config: Config) -> AegisRuntime:
     approval_fanout.register_channel(AndroidApprovalChannel(android_manager=android_manager))
 
     verification_service._android = android_manager
+    from aegis_ai.temporal.client import init_temporal_runtime
+
+    temporal_runtime = init_temporal_runtime(
+        tool_broker=tool_broker,
+        llm_gateway=llm_gateway,
+        journal_store=journal_store,
+    )
     execution_engine = TaskExecutionEngine(
         task_manager=task_manager,
         tool_broker=tool_broker,
@@ -601,6 +629,7 @@ def _build_runtime(config: Config) -> AegisRuntime:
         verification_service=verification_service,
         event_manager=event_manager,
         audit_manager=audit_manager,
+        temporal_runtime=temporal_runtime,
     )
 
     interaction_router._task_manager = task_manager

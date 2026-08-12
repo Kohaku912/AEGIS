@@ -84,6 +84,19 @@ def tasks_waiting():
         return jsonify({"error": str(e)}), 500
 
 
+@manager_bp.route("/api/tasks/<task_id>/continue", methods=["POST"])
+def continue_task(task_id):
+    try:
+        rt = _get_runtime()
+        engine = getattr(rt, "execution_engine", None)
+        if engine is None:
+            return jsonify({"error": "Execution engine unavailable"}), 503
+        response = engine.continue_task(task_id)
+        return jsonify({"ok": True, "text": response.text, "task_id": response.task_id})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 # ── Event Routes ──────────────────────────────────────────────
 
 @manager_bp.route("/api/events")

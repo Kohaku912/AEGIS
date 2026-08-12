@@ -128,8 +128,9 @@ class NotificationManager:
 
         if self._event_manager is not None:
             try:
-                from aegis_schema.models import Event
-                self._event_manager.publish(Event(
+                from aegis_ai.event.helpers import build_event
+
+                self._event_manager.publish(build_event(
                     event_type="notification.sent",
                     source="notification_manager",
                     payload={"notification_id": notification_id, "title": notif["title"]},

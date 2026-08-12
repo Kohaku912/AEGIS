@@ -1045,6 +1045,34 @@ class DashboardApp:
         self._setup_routes()
         init_ui_v2_routes(self)
         self._autonomous_loop = runtime.autonomous_loop
+        try:
+            from aegis_ai.observability.otel_tracing import instrument_flask
+
+            instrument_flask(self._app)
+        except Exception:
+            logger.debug("Flask OTel instrumentation skipped", exc_info=True)
+
+        @self._app.before_request
+        def _bind_request_correlation():
+            from flask import g, request
+
+            from aegis_ai.audit.context import correlation_from_headers
+
+            g._aegis_correlation = correlation_from_headers(
+                {k: v for k, v in request.headers.items()},
+                group_id=str(request.headers.get("X-Request-ID") or request.path),
+                group_type="http",
+                group_title=str(request.path),
+            )
+            g._aegis_correlation.__enter__()
+
+        @self._app.teardown_request
+        def _clear_request_correlation(exc):
+            from flask import g
+
+            cm = getattr(g, "_aegis_correlation", None)
+            if cm is not None:
+                cm.__exit__(type(exc), exc, exc.__traceback__ if exc else None)
 
     def _create_llm_provider(self, audit_log: Any = None) -> Any:
         """Create an LLM provider that honors dashboard settings."""

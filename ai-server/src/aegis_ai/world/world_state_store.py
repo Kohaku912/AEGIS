@@ -72,6 +72,8 @@ class WorldStateStore:
             ps.visible_text_summary = _mask_text(
                 observation.get("visible_text_summary", ps.visible_text_summary)[:500]
             )
+            if observation.get("ui_tree"):
+                ps.ui_tree_summary = str(observation.get("ui_tree"))[:500]
             ps.last_observation_id = observation.get("observation_id", "")
             ps.last_verified_at = now
             ps.confidence = 0.8 if observation.get("status") == "success" else 0.4

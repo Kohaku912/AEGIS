@@ -519,12 +519,12 @@ class MemoryManager:
         if self._event_manager is None:
             return
         try:
-            from aegis_schema.models import Event
+            from aegis_ai.event.helpers import build_event
 
             self._event_manager.publish(
-                Event(
-                    event_type=event_type,
-                    source="memory_manager",
+                build_event(
+                    event_type,
+                    source_server_id="memory_manager",
                     payload={"memory_id": memory_id, "memory_type": memory_type},
                 )
             )

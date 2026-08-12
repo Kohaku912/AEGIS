@@ -682,3 +682,73 @@ pub fn empty_recycle_bin() -> Result<(), String> {
         Err(String::from_utf8_lossy(&output.stderr).to_string())
     }
 }
+
+/// Close a window by title or process name.
+pub fn close_window(target: &str) -> Result<(), String> {
+    let target = target.trim();
+    if target.is_empty() {
+        return Err("Window title or process name is required".to_string());
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let output = Command::new("powershell")
+            .env("AEGIS_CLOSE_TARGET", target)
+            .args([
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                "$t=$env:AEGIS_CLOSE_TARGET; $p=Get-Process -Name $t -ErrorAction SilentlyContinue; if ($p) { $p | Stop-Process -Force; exit 0 }; $w=Get-Process | Where-Object { $_.MainWindowTitle -like \"*$t*\" -and $_.MainWindowHandle -ne 0 }; if (-not $w) { exit 2 }; $w | ForEach-Object { $_.CloseMainWindow() | Out-Null }; exit 0",
+            ])
+            .output()
+            .map_err(|e| format!("Failed to close window: {e}"))?;
+        if output.status.success() {
+            Ok(())
+        } else {
+            Err(format!("Window/process not found or could not be closed: {target}"))
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = target;
+        Err("Window close is only supported on Windows".to_string())
+    }
+}
+
+/// Resize a window by title.
+pub fn resize_window(title: &str, width: i32, height: i32) -> Result<(), String> {
+    let title = title.trim();
+    if title.is_empty() {
+        return Err("Window title is required".to_string());
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let output = Command::new("powershell")
+            .env("AEGIS_RESIZE_TITLE", title)
+            .env("AEGIS_RESIZE_WIDTH", width.to_string())
+            .env("AEGIS_RESIZE_HEIGHT", height.to_string())
+            .args([
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                "Add-Type @'
+using System;
+using System.Runtime.InteropServices;
+public class Win32 {
+  [DllImport(\"user32.dll\")] public static extern bool MoveWindow(IntPtr hWnd, int X, int Y, int nWidth, int nHeight, bool bRepaint);
+}
+'@; $t=$env:AEGIS_RESIZE_TITLE; $w=[int]$env:AEGIS_RESIZE_WIDTH; $h=[int]$env:AEGIS_RESIZE_HEIGHT; $p=Get-Process | Where-Object { $_.MainWindowTitle -like \"*$t*\" -and $_.MainWindowHandle -ne 0 } | Select-Object -First 1; if (-not $p) { exit 2 }; [Win32]::MoveWindow($p.MainWindowHandle, 100, 100, $w, $h, $true) | Out-Null; exit 0",
+            ])
+            .output()
+            .map_err(|e| format!("Failed to resize window: {e}"))?;
+        if output.status.success() {
+            Ok(())
+        } else {
+            Err(format!("Window not found or could not be resized: {title}"))
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = (title, width, height);
+        Err("Window resize is only supported on Windows".to_string())
+    }
+}
