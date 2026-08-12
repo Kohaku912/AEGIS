@@ -1,0 +1,63 @@
+{
+  "title": "Send Room IR Command",
+  "description": "Transmit a raw IR code with Arduino-IRremote sendNEC semantics (LSB-first NEC). For the ceiling light use ir_code=0xD001:0x23 (off), 0xD001:0x20 (all), 0xD001:0x21 (eco), 0xD001:0x22 (night). Prefer room-server.light.set_light for normal light control.",
+  "server_id": "room-server",
+  "app_id": "ir",
+  "action": "send_ir_command",
+  "operation_category": "physical_device",
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "device_type": {
+        "type": "string",
+        "default": "light",
+        "description": "IR target class: light, tv, ac, other."
+      },
+      "ir_code": {
+        "type": "string",
+        "description": "Code as 0xADDR:0xCMD (e.g. 0xD001:0x23). Encoded like IrSender.sendNEC(addr, cmd, repeat)."
+      },
+      "repeat": {
+        "type": "integer",
+        "default": 3,
+        "minimum": 1,
+        "maximum": 10,
+        "description": "Matches Arduino sendNEC repeat count (default 3)."
+      }
+    },
+    "required": ["ir_code"]
+  },
+  "risk": {
+    "level": "approval_required",
+    "side_effects": [
+      "physical_device_control",
+      "ir_transmit"
+    ],
+    "requires_approval": true,
+    "approval_mode": "explicit"
+  },
+  "tags": [
+    "builtin",
+    "room",
+    "ir",
+    "nec",
+    "arduino-irremote",
+    "physical_device"
+  ],
+  "completion": {
+    "mode": "any",
+    "retry": {
+      "max_attempts": 0,
+      "delay_ms": 0
+    },
+    "on_failure": "retry_or_user_confirmation",
+    "checks": [
+      {
+        "name": "success_true",
+        "type": "output_field",
+        "field": "success",
+        "equals": true
+      }
+    ]
+  }
+}

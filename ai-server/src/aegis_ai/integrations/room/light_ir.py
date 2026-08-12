@@ -1,6 +1,7 @@
 """Ceiling light IR map mirrored for AI Server capability mapping.
 
 Keep in sync with room-server/src/aegis_room/light_ir.py.
+Encoding: Arduino-IRremote IrSender.sendNEC(0xD001, cmd, repeats).
 """
 
 from __future__ import annotations

@@ -85,6 +85,9 @@ def _is_unrecoverable_incident(error: str) -> bool:
         "path must stay inside the aegis workspace",
         "android server is unavailable",
         "connection refused",
+        "ddgs package not installed",
+        "unsupported ai capability",
+        "unsupported ai capability:",
     )
     return any(marker in text for marker in markers)
 

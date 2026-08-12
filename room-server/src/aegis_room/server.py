@@ -12,8 +12,9 @@ import grpc
 from generated.aegis import common_pb2, room_server_pb2, room_server_pb2_grpc
 
 from aegis_room.providers import LightProvider, create_light_provider, now_ms
+from aegis_room.sound_inmp441 import create_sound_provider
 
-VERSION = "0.1.1+light-ir-modes"
+VERSION = "0.1.4+pc11-ir-inmp441"
 
 
 def _status(code: int = 0, message: str = "ok") -> common_pb2.Status:
@@ -35,9 +36,18 @@ def _validate_repeat(repeat: int) -> str:
 
 
 class RoomServer(room_server_pb2_grpc.RoomServerServicer):
-    def __init__(self, light_provider: LightProvider | None = None) -> None:
+    def __init__(
+        self,
+        light_provider: LightProvider | None = None,
+        sound_provider: Any | None = None,
+    ) -> None:
         self._started_at_ms = now_ms()
         self._light_provider = light_provider or create_light_provider()
+        # None sentinel for "use factory"; pass an object to inject, or set provider env=off.
+        if sound_provider is None:
+            self._sound_provider = create_sound_provider()
+        else:
+            self._sound_provider = sound_provider
         self._environment: dict[str, Any] = {
             "temperature_c": 22.5,
             "humidity_pct": 45.0,
@@ -67,6 +77,18 @@ class RoomServer(room_server_pb2_grpc.RoomServerServicer):
             timestamp_ms=int(env["timestamp_ms"]),
         )
 
+    def _sound_device_status(self, duration_ms: int = 250) -> room_server_pb2.DeviceStatus | None:
+        if self._sound_provider is None:
+            return None
+        sample = self._sound_provider.sample(duration_ms=duration_ms)
+        return room_server_pb2.DeviceStatus(
+            device_id=sample.device_id,
+            device_type="sensor",
+            state_json=sample.to_json(),
+            online=bool(sample.available),
+            last_seen_ms=sample.updated_at_ms,
+        )
+
     def GetDeviceStatus(self, request, context):
         requested = set(request.device_ids)
         devices = []
@@ -82,6 +104,9 @@ class RoomServer(room_server_pb2_grpc.RoomServerServicer):
                     last_seen_ms=state.updated_at_ms,
                 )
             )
+        sound = self._sound_device_status()
+        if sound is not None and (not requested or sound.device_id in requested):
+            devices.append(sound)
         return room_server_pb2.GetDeviceStatusResponse(status=_status(), devices=devices)
 
     def SetLight(self, request, context):
@@ -111,7 +136,7 @@ class RoomServer(room_server_pb2_grpc.RoomServerServicer):
             return room_server_pb2.SetLightResponse(status=_status(500, str(exc)))
 
     def SendIrCommand(self, request, context):
-        repeat = request.repeat or 1
+        repeat = request.repeat or 3
         err = _validate_repeat(repeat)
         if err:
             return room_server_pb2.SendIrCommandResponse(status=_status(400, err))
@@ -164,4 +189,3 @@ def serve(host: str = "0.0.0.0", port: int = 50055) -> None:
             time.sleep(86400)
     except KeyboardInterrupt:
         server.stop(grace=2)
-

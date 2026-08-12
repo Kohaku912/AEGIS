@@ -1,0 +1,39 @@
+{
+  "title": "Room Sound Level",
+  "description": "Sample ambient sound level from the INMP441 I2S MEMS mic on Orange Pi Zero3. Wiring (I2S3): L/R=GND, SCK=PH6 (board 23), WS=PH7 (board 19), SD=PH9 (board 24). ALSA card ahubi2s3. Returns RMS / dBFS.",
+  "server_id": "room-server",
+  "app_id": "sound",
+  "action": "get_level",
+  "operation_category": "read_only",
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "duration_ms": {
+        "type": "integer",
+        "default": 250,
+        "minimum": 50,
+        "maximum": 5000,
+        "description": "Capture window in milliseconds."
+      },
+      "device_id": {
+        "type": "string",
+        "default": "sound-inmp441",
+        "description": "Sound device id."
+      }
+    }
+  },
+  "risk": {
+    "level": "low",
+    "side_effects": [],
+    "requires_approval": false
+  },
+  "tags": [
+    "builtin",
+    "room",
+    "sound",
+    "microphone",
+    "inmp441",
+    "i2s",
+    "read"
+  ]
+}

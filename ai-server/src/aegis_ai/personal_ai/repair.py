@@ -51,6 +51,9 @@ class RepairManager:
         text = f"{error} {status} {capability_id}".lower()
         if "auth" in text or "token" in text or "credential" in text:
             return "auth"
+        if "already replied" in text:
+            # Duplicate AGORA reply guard — expected policy, not a repairable fault.
+            return "policy_denied"
         if "permission" in text or "denied" in text:
             return "permission"
         if "screen is locked" in text or ("locked" in text and "screen" in text):
@@ -64,7 +67,14 @@ class RepairManager:
             return "server_down"
         if "validation" in text or "invalid argument" in text:
             return "validation"
-        if "timeout" in text or "temporar" in text:
+        if (
+            "timeout" in text
+            or "timed out" in text
+            or "temporar" in text
+            or "ddgs package not installed" in text
+            or "unsupported ai capability" in text
+            or "no results" in text
+        ):
             return "transient"
         if "llm" in text or "provider" in text:
             return "llm_failed"
@@ -268,7 +278,25 @@ class RepairManager:
             "rollback_failed",
             "not_retryable",
         }
-        needles = [s.lower() for s in (error_substrings or ["timeout", "browserstartevent", "connection"])]
+        needles = [
+            s.lower()
+            for s in (
+                error_substrings
+                or [
+                    "timeout",
+                    "timed out",
+                    "browserstartevent",
+                    "connection",
+                    "ddgs package not installed",
+                    "unsupported ai capability",
+                    "already replied",
+                    "android permission missing",
+                    "android_permission_missing",
+                    "no results",
+                    "completion verification failed",
+                ]
+            )
+        ]
         matched: list[dict[str, Any]] = []
         for item in self.list_history(limit=limit):
             category = str(item.get("category") or "")
@@ -362,6 +390,9 @@ class RepairManager:
 
     def _present_unrepairable(self, entry: dict[str, Any]) -> None:
         """Tell the user when AEGIS cannot recover from a failure."""
+        error = str(entry.get("error") or "")
+        if "already replied" in error.lower():
+            return
         if self._should_suppress_present(entry):
             return
         presentation_manager = self._presentation_manager

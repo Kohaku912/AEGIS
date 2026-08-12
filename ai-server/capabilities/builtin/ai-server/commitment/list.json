@@ -1,6 +1,6 @@
 {
   "title": "List Commitments",
-  "description": "List promises, pending tasks, follow-ups, and deferred checks.",
+  "description": "List stored promises and follow-ups when a specific open item must be inspected. Not a default idle action.",
   "server_id": "ai-server",
   "app_id": "commitment",
   "action": "list",
