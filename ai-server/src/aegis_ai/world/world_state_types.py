@@ -115,6 +115,7 @@ class PCState:
     active_process: str = ""
     screenshot_summary: str = ""
     visible_text_summary: str = ""
+    ui_tree_summary: str = ""
     detected_elements: list[dict[str, Any]] = field(default_factory=list)
     running_processes_summary: str = ""
     focused_element: str = ""

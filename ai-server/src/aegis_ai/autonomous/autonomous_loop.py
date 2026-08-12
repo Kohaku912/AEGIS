@@ -1514,11 +1514,14 @@ Operational decision axes (prioritization only; not additional desires):
         )
 
         self._last_decision = "llm_requested"
-        result = self._call_task_generation_llm(
-            prompt=prompt,
-            tools=tools,
-            memory_meta=memory_meta,
-        )
+        from aegis_ai.observability.otel_tracing import start_span
+
+        with start_span("aegis.autonomous.generate_tasks", decision="task_selection"):
+            result = self._call_task_generation_llm(
+                prompt=prompt,
+                tools=tools,
+                memory_meta=memory_meta,
+            )
         # Stamp interval only after a real LLM attempt completes.
         self._last_llm_call_ms = int(time.time() * 1000)
         self._last_decision_ms = self._last_llm_call_ms
@@ -1544,12 +1547,13 @@ Operational decision axes (prioritization only; not additional desires):
                 return []
 
             logger.warning("LLM returned an empty decision — retrying once for an explicit answer")
-            result = self._call_task_generation_llm(
-                prompt=prompt,
-                tools=tools,
-                memory_meta=memory_meta,
-                retry=True,
-            )
+            with start_span("aegis.autonomous.generate_tasks", decision="task_selection_retry"):
+                result = self._call_task_generation_llm(
+                    prompt=prompt,
+                    tools=tools,
+                    memory_meta=memory_meta,
+                    retry=True,
+                )
             self._last_llm_call_ms = int(time.time() * 1000)
             self._last_decision_ms = self._last_llm_call_ms
             if not result.success:

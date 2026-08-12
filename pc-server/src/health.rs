@@ -204,6 +204,49 @@ fn handle_command(cmd: &str) -> String {
             })),
             Err(error) => json_error(error),
         },
+        "close_window" => {
+            if action::is_real_actions_enabled() {
+                match system_ops::close_window(params) {
+                    Ok(()) => json_response(&serde_json::json!({
+                        "status": "ok",
+                        "action": "close_window",
+                        "target": params,
+                    })),
+                    Err(error) => json_error(error),
+                }
+            } else {
+                "{\"status\":\"approval_required\",\"action\":\"close_window\",\"reason\":\"Closing windows requires approval\"}".to_string()
+            }
+        }
+        "resize_window" => {
+            let parts: Vec<&str> = params.split(',').collect();
+            let title = parts.first().unwrap_or(&"").trim();
+            let width: i32 = parts.get(1).and_then(|s| s.trim().parse().ok()).unwrap_or(800);
+            let height: i32 = parts.get(2).and_then(|s| s.trim().parse().ok()).unwrap_or(600);
+            match system_ops::resize_window(title, width, height) {
+                Ok(()) => json_response(&serde_json::json!({
+                    "status": "ok",
+                    "action": "resize_window",
+                    "title": title,
+                    "width": width,
+                    "height": height,
+                })),
+                Err(error) => json_error(error),
+            }
+        }
+        "mouse_scroll" => {
+            let amount: i32 = params.trim().parse().unwrap_or(0);
+            let result = action::mouse_scroll(amount);
+            serde_json::to_string(&result).unwrap_or_else(|_| "{\"error\":\"json\"}".into())
+        }
+        "ui_tree" => match crate::uia::get_ui_tree(params.trim() == "true") {
+            Ok(tree) => serde_json::to_string(&tree).unwrap_or_else(|_| "{\"error\":\"json\"}".into()),
+            Err(error) => json_error(error),
+        },
+        "ui_find" => match crate::uia::find_ui_element(params.trim()) {
+            Ok(value) => serde_json::to_string(&value).unwrap_or_else(|_| "{\"error\":\"json\"}".into()),
+            Err(error) => json_error(error),
+        },
 
         // ── Input (Level 2: Approval required) ─────────────
         "mouse_move" => {

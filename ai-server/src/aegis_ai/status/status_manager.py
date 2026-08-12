@@ -349,11 +349,10 @@ class StatusManager:
         if self._event_manager is None:
             return
         try:
-            from aegis_schema.models import Event, EventPriority
-            event = Event(
-                event_type="status.changed",
-                source="status_manager",
-                priority=EventPriority.NORMAL,
+            from aegis_ai.event.helpers import build_event
+            event = build_event(
+                "status.changed",
+                source_server_id="status_manager",
                 payload={
                     "server_id": server_id,
                     "old_status": old_status,

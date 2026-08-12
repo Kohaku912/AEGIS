@@ -327,3 +327,48 @@ pub fn press_hotkey(keys: &str) -> ActionResult {
         details: "Only supported on Windows".into(),
     }
 }
+
+/// Scroll the mouse wheel.
+pub fn mouse_scroll(amount: i32) -> ActionResult {
+    if !is_real_actions_enabled() {
+        return ActionResult {
+            success: true,
+            action: "mouse_scroll".into(),
+            details: format!("[MOCK] Scrolled {}", amount),
+        };
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        unsafe {
+            use windows_sys::Win32::UI::Input::KeyboardAndMouse::*;
+
+            let input = INPUT {
+                r#type: INPUT_MOUSE,
+                Anonymous: INPUT_0 {
+                    mi: MOUSEINPUT {
+                        dx: 0,
+                        dy: 0,
+                        mouseData: (amount * 120) as u32,
+                        dwFlags: MOUSEEVENTF_WHEEL,
+                        time: 0,
+                        dwExtraInfo: 0,
+                    },
+                },
+            };
+            SendInput(1, &input, std::mem::size_of::<INPUT>() as i32);
+        }
+        ActionResult {
+            success: true,
+            action: "mouse_scroll".into(),
+            details: format!("Scrolled {}", amount),
+        }
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    ActionResult {
+        success: false,
+        action: "mouse_scroll".into(),
+        details: "Only supported on Windows".into(),
+    }
+}

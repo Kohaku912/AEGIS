@@ -539,6 +539,12 @@ def serve(
     server = grpc.server(
         futures.ThreadPoolExecutor(max_workers=config.max_workers),
     )
+    try:
+        from aegis_ai.observability.otel_tracing import instrument_grpc_server
+
+        instrument_grpc_server(server)
+    except Exception:
+        logger.debug("gRPC OTel instrumentation skipped", exc_info=True)
     ai_server_pb2_grpc.add_AIServerServicer_to_server(
         AegisAIServicer(runtime), server
     )

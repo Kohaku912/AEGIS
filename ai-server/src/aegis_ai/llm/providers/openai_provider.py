@@ -189,96 +189,99 @@ class OpenAIProvider:
         blocked = self._circuit_blocked_response()
         if blocked is not None:
             return blocked
-        prompt = self._clamp_prompt(prompt)
-        logger.info("LLM call: model=%s max_tokens=%d prompt_len=%d", self._model, max_tokens, len(prompt))
-        messages = []
-        if system_prompt:
-            messages.append({"role": "system", "content": system_prompt})
-        messages.append({"role": "user", "content": prompt})
+        from aegis_ai.observability.otel_tracing import start_span
 
-        start = time.time()
-        try:
-            request_kwargs: dict[str, Any] = {
-                "model": self._model,
-                "messages": messages,
-                "max_tokens": max_tokens,
-                "temperature": temperature,
-            }
-            if json_mode:
-                request_kwargs["response_format"] = {"type": "json_object"}
+        with start_span("aegis.llm.generate", llm_model=self._model, max_tokens=max_tokens):
+            prompt = self._clamp_prompt(prompt)
+            logger.info("LLM call: model=%s max_tokens=%d prompt_len=%d", self._model, max_tokens, len(prompt))
+            messages = []
+            if system_prompt:
+                messages.append({"role": "system", "content": system_prompt})
+            messages.append({"role": "user", "content": prompt})
 
+            start = time.time()
             try:
-                response = self._client.chat.completions.create(**request_kwargs)
-            except Exception:
-                if not json_mode:
-                    raise
-                logger.warning("LLM JSON mode was rejected; retrying without response_format", exc_info=True)
-                request_kwargs.pop("response_format", None)
-                response = self._client.chat.completions.create(**request_kwargs)
-
-            content = response.choices[0].message.content or ""
-            usage_detail = self._usage_detail(response)
-            tokens = usage_detail["tokens"]
-            duration_ms = (time.time() - start) * 1000
-
-            logger.info(
-                "LLM call success: model=%s tokens=%d duration=%.1fms",
-                self._model, tokens, duration_ms,
-            )
-
-            self._record_provider_outcome()
-            self._audit_log(
-                action="llm_call",
-                decision="success",
-                detail={
+                request_kwargs: dict[str, Any] = {
                     "model": self._model,
-                    "prompt_preview": self._preview_text(prompt),
-                    "prompt_chars": len(prompt),
-                    "response_preview": self._preview_text(content),
-                    "tokens": tokens,
-                    **usage_detail,
-                    "duration_ms": round(duration_ms, 1),
-                    "json_mode": json_mode,
-                    **(context_meta or {}),
-                },
-            )
+                    "messages": messages,
+                    "max_tokens": max_tokens,
+                    "temperature": temperature,
+                }
+                if json_mode:
+                    request_kwargs["response_format"] = {"type": "json_object"}
 
-            return LLMResponse(
-                content=content,
-                model_used=self._model,
-                provider_used="openai",
-                tokens_used=tokens,
-                input_tokens=usage_detail["input_tokens"],
-                output_tokens=usage_detail["output_tokens"],
-                input_cache_hit_tokens=usage_detail["input_cache_hit_tokens"],
-                input_cache_miss_tokens=usage_detail["input_cache_miss_tokens"],
-                provider_reported_cost=usage_detail["provider_reported_cost"],
-                cost_estimate=tokens * 0.000002,
-                success=True,
-            )
-        except Exception as e:
-            duration_ms = (time.time() - start) * 1000
-            logger.error("OpenAI API call failed: %s", e)
-            self._record_provider_outcome(e)
-            self._audit_log(
-                action="llm_call",
-                decision="error",
-                detail={
-                    "model": self._model,
-                    "prompt_preview": self._preview_text(prompt),
-                    "prompt_chars": len(prompt),
-                    "error": str(e),
-                    "duration_ms": round(duration_ms, 1),
-                    "circuit": self._circuit.status(),
-                    **(context_meta or {}),
-                },
-            )
-            return LLMResponse(
-                success=False,
-                error=str(e),
-                model_used=self._model,
-                provider_used="openai",
-            )
+                try:
+                    response = self._client.chat.completions.create(**request_kwargs)
+                except Exception:
+                    if not json_mode:
+                        raise
+                    logger.warning("LLM JSON mode was rejected; retrying without response_format", exc_info=True)
+                    request_kwargs.pop("response_format", None)
+                    response = self._client.chat.completions.create(**request_kwargs)
+
+                content = response.choices[0].message.content or ""
+                usage_detail = self._usage_detail(response)
+                tokens = usage_detail["tokens"]
+                duration_ms = (time.time() - start) * 1000
+
+                logger.info(
+                    "LLM call success: model=%s tokens=%d duration=%.1fms",
+                    self._model, tokens, duration_ms,
+                )
+
+                self._record_provider_outcome()
+                self._audit_log(
+                    action="llm_call",
+                    decision="success",
+                    detail={
+                        "model": self._model,
+                        "prompt_preview": self._preview_text(prompt),
+                        "prompt_chars": len(prompt),
+                        "response_preview": self._preview_text(content),
+                        "tokens": tokens,
+                        **usage_detail,
+                        "duration_ms": round(duration_ms, 1),
+                        "json_mode": json_mode,
+                        **(context_meta or {}),
+                    },
+                )
+
+                return LLMResponse(
+                    content=content,
+                    model_used=self._model,
+                    provider_used="openai",
+                    tokens_used=tokens,
+                    input_tokens=usage_detail["input_tokens"],
+                    output_tokens=usage_detail["output_tokens"],
+                    input_cache_hit_tokens=usage_detail["input_cache_hit_tokens"],
+                    input_cache_miss_tokens=usage_detail["input_cache_miss_tokens"],
+                    provider_reported_cost=usage_detail["provider_reported_cost"],
+                    cost_estimate=tokens * 0.000002,
+                    success=True,
+                )
+            except Exception as e:
+                duration_ms = (time.time() - start) * 1000
+                logger.error("OpenAI API call failed: %s", e)
+                self._record_provider_outcome(e)
+                self._audit_log(
+                    action="llm_call",
+                    decision="error",
+                    detail={
+                        "model": self._model,
+                        "prompt_preview": self._preview_text(prompt),
+                        "prompt_chars": len(prompt),
+                        "error": str(e),
+                        "duration_ms": round(duration_ms, 1),
+                        "circuit": self._circuit.status(),
+                        **(context_meta or {}),
+                    },
+                )
+                return LLMResponse(
+                    success=False,
+                    error=str(e),
+                    model_used=self._model,
+                    provider_used="openai",
+                )
 
     def generate_with_tools(
         self,

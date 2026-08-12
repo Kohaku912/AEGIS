@@ -564,12 +564,12 @@ Return:
         if self._events is None or not hasattr(self._events, "publish"):
             return
         try:
-            from aegis_schema.models import Event
+            from aegis_ai.event.helpers import build_event
 
             self._events.publish(
-                Event(
-                    event_type=event_type,
-                    source="social_manager",
+                build_event(
+                    event_type,
+                    source_server_id="social_manager",
                     payload={
                         "item_id": item.item_id,
                         "channel": item.channel,

@@ -327,6 +327,15 @@ class AuditLog:
                 entry.audit_group_type = ctx.group_type
             if not entry.audit_group_title:
                 entry.audit_group_title = ctx.group_title
+            # Correlation fields: keep in `detail` so we can join traces
+            # later without modifying the audit.db schema yet.
+            if isinstance(entry.detail, dict):
+                if ctx.trace_id and not entry.detail.get("trace_id"):
+                    entry.detail["trace_id"] = ctx.trace_id
+                if ctx.span_id and not entry.detail.get("span_id"):
+                    entry.detail["span_id"] = ctx.span_id
+                if ctx.workflow_id and not entry.detail.get("workflow_id"):
+                    entry.detail["workflow_id"] = ctx.workflow_id
         if not entry.audit_group_id:
             detail = entry.detail if isinstance(entry.detail, dict) else {}
             fallback_id = (
