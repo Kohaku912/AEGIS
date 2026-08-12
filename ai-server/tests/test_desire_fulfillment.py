@@ -86,6 +86,46 @@ def test_structural_empty_read_does_not_reduce_pressure() -> None:
     assert result.details["evaluator"] == "structural"
 
 
+def test_structural_empty_agora_posts_is_no_effect() -> None:
+    result = evaluate_task_result(
+        capability_id="ai-server.agora.read_posts",
+        tool_success=True,
+        output={"posts": [], "unread_count": 0},
+        desire_name="social",
+    )
+
+    assert result.task_effect == TaskEffect.NO_EFFECT
+    assert result.pressure_reduction == 0.0
+    assert result.details["evaluator"] == "structural"
+
+
+def test_commitment_list_never_hints_useful(tmp_path) -> None:
+    from aegis_ai.core_capabilities import AegisCoreCapabilityClient
+
+    class _CommitmentManager:
+        def list_commitments(self, status: str = "open"):
+            return [{"commitment_id": "c1", "title": "Ship fix"}]
+
+    client = AegisCoreCapabilityClient(
+        data_dir=str(tmp_path / "data"),
+        server_executor=object(),
+        personal_managers={"commitment_manager": _CommitmentManager()},
+    )
+    result = client.invoke_capability("ai-server.commitment.list", {})
+
+    assert result["task_effect_hint"] == "no_effect"
+    assert result["count"] == 1
+
+
+def test_reduce_after_action_uses_small_delta(tmp_path) -> None:
+    from aegis_ai.desire.pressure import PressureEngine
+
+    engine = PressureEngine()
+    engine._pressures["growth"] = 10.0
+    engine.reduce_after_action("growth", 0.5)
+    assert engine.get_pressure("growth") == 9.0
+
+
 def test_llm_no_effect_for_passive_read_clamps_pressure() -> None:
     llm = _EvaluatorLLM(
         '{"task_effect":"no_effect","fulfillment_score":0.1,"pressure_reduction":0.4,'

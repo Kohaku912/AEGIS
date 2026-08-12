@@ -52,12 +52,46 @@ _TRIVIAL_RESULTS = frozenset(
         "memory sleep consolidation has started.",
     }
 )
+_INVENTORY_CAPABILITY_IDS = frozenset(
+    {
+        "ai-server.commitment.list",
+        "ai-server.agora.read_posts",
+        "ai-server.interruption.status",
+    }
+)
 
 
 def _normalize_result_text(text: str) -> str:
     """Lower/strip and drop trailing punctuation so trivial matching is stable."""
     value = str(text or "").lower().strip()
     return value.rstrip(" .!。")
+
+
+def _is_inventory_capability(capability_id: str) -> bool:
+    return str(capability_id or "").strip().lower() in _INVENTORY_CAPABILITY_IDS
+
+
+def _is_empty_memory_search_result(result: dict[str, Any]) -> bool:
+    cap = str(result.get("capability_id") or "").lower()
+    if not cap.endswith(".memory.search"):
+        return False
+    text = _normalize_result_text(result.get("result", ""))
+    return "no memory" in text or text in _TRIVIAL_RESULTS
+
+
+def _is_inventory_only_cycle(
+    tasks: list[dict[str, Any]],
+    results: list[dict[str, Any]],
+) -> bool:
+    if not tasks or len(tasks) != len(results):
+        return False
+    for task, result in zip(tasks, results):
+        cap = str(task.get("capability_id") or "")
+        if cap.endswith(".memory.search") and _is_empty_memory_search_result(result):
+            continue
+        if not _is_inventory_capability(cap):
+            return False
+    return True
 
 
 class AutonomousLoop:
@@ -1354,6 +1388,11 @@ class AutonomousLoop:
             for cap_id, option in capability_options.items()
             if option["disposition"] in {"execute_safe", "propose_for_approval"}
         }
+        has_commitment_obligations = any(
+            str(obligation.get("kind") or "") == "commitment" for obligation in priority_obligations
+        )
+        if has_commitment_obligations:
+            valid_cap_ids.discard("ai-server.commitment.list")
 
         if not valid_cap_ids:
             logger.error("No valid capabilities available — cannot generate tasks")
@@ -1425,9 +1464,17 @@ class AutonomousLoop:
             return []
         valid_tool_names = {tool["function"]["name"] for tool in tools}
 
+        obligation_hint = ""
+        if has_commitment_obligations:
+            obligation_hint = (
+                "\nOpen commitments are already listed in Shared AgentState obligations above — "
+                "do not call ai-server.commitment.list again; transition or act on a specific "
+                "obligation_id, or pick a different capability.\n"
+            )
+
         low_list = ", ".join(desire_context)
         prompt = f"""Low desires: {low_list}
-
+{obligation_hint}
 Recent: {action_history}
 
 Recent capability ids tried (context only; you may still choose them): {json.dumps(recent_caps, ensure_ascii=False)}
@@ -2320,6 +2367,8 @@ Operational decision axes (prioritization only; not additional desires):
             for r in previous_results
         ):
             return []
+        if _is_inventory_only_cycle(previous_tasks, previous_results):
+            return []
         # Skip follow-up when all tasks succeeded with trivial results
         if len(previous_tasks) == len(previous_results):
             all_trivial = all(
@@ -2356,7 +2405,11 @@ Operational decision axes (prioritization only; not additional desires):
         follow_up_query = "; ".join(
             part
             for part in [
-                *(task.get("capability_id", "") for task in previous_tasks),
+                *(
+                    task.get("capability_id", "")
+                    for task in previous_tasks
+                    if not _is_inventory_capability(str(task.get("capability_id") or ""))
+                ),
                 *(task.get("action", "") for task in previous_tasks),
                 *(result.get("result", "")[:120] for result in previous_results),
             ]
@@ -2521,13 +2574,7 @@ Rules:
             if not desire:
                 continue
 
-            # Hold pressure slightly while waiting on user approval so the same
-            # proposal does not re-fire every tick; this is pacing, not fulfillment.
             if awaiting_approval:
-                try:
-                    self._desire.reduce_pressure(desire_name, 0.5)
-                except Exception:
-                    logger.debug("Pressure hold for awaiting_approval failed", exc_info=True)
                 self._log_audit_event(
                     action="autonomous_fulfillment_hold",
                     capability_id=capability_id,
@@ -2932,6 +2979,8 @@ Rules:
             logger.info("No desire — using fallback interval %ds", self._fallback_interval)
             return self._fallback_interval
 
+        from aegis_ai.desire.fulfillment import TaskEffect
+
         desires = self._desire.get_all_desires()
         high_pressure_count = 0
         total_pressure = 0.0
@@ -2943,6 +2992,9 @@ Rules:
             total_pressure += desire.pressure
 
         success_count = sum(1 for r in results if r.get("success"))
+        useful_count = sum(
+            1 for r in results if str(r.get("task_effect") or "").lower() == TaskEffect.USEFUL.value
+        )
         total_count = len(results)
         fail_count = total_count - success_count
         backoff_s = self._no_action_backoff_ms() // 1000
@@ -2957,13 +3009,15 @@ Rules:
             reason = (
                 f"unmet desire retry consecutive_no_action={self._consecutive_no_action} → {interval}s"
             )
+        elif useful_count > 0:
+            interval = self._fallback_interval
+            reason = f"{useful_count}/{total_count} useful; homeostatic refill"
         elif fail_count > success_count and total_count > 0:
             interval = max(60, min(unmet_cap, 900))
             reason = f"{fail_count}/{total_count} tasks failed, backing off"
         else:
-            # Useful work happened but pressure may remain — homeostatic refill.
-            interval = self._fallback_interval
-            reason = f"{high_pressure_count} pressured desires handled; homeostatic refill"
+            interval = max(60, min(unmet_cap, backoff_s or unmet_cap))
+            reason = f"no useful fulfillment ({total_count} tasks); unmet retry"
 
         interval = max(60, min(3600, interval))
         logger.info("Next autonomous run in %d seconds: %s", interval, reason)

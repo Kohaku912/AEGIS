@@ -253,6 +253,15 @@ class AegisCoreCapabilityClient:
                     "fallback_recent": False,
                 }
             )
+            inbox_items = payload.get("social_inbox_items") or []
+            needs_reply = bool(posts) and (
+                payload.get("processing_pending")
+                or any(
+                    str(item.get("status") or "") not in {"replied", "acknowledged", "skipped", "failed"}
+                    for item in inbox_items
+                )
+            )
+            payload["task_effect_hint"] = "needs_followup" if needs_reply else "no_effect"
             return payload
         if capability_id.endswith(".post"):
             body = str(params.get("body") or params.get("message") or "").strip()
@@ -669,7 +678,7 @@ class AegisCoreCapabilityClient:
                 "commitments": items,
                 "count": len(items),
                 "result": summary,
-                "task_effect_hint": "no_effect" if not items else "useful",
+                "task_effect_hint": "no_effect",
             }
         if capability_id.endswith(".upsert"):
             return {"ok": True, "commitment": manager.upsert_commitment(params)}
@@ -721,7 +730,7 @@ class AegisCoreCapabilityClient:
         if manager is None:
             return {"ok": False, "error": "InterruptionController unavailable"}
         if capability_id.endswith(".status"):
-            return {"ok": True, **manager.get_status()}
+            return {"ok": True, **manager.get_status(), "task_effect_hint": "no_effect"}
         if capability_id.endswith(".flush"):
             return {"ok": True, "items": manager.flush_batch()}
         if capability_id.endswith(".emergency_stop"):

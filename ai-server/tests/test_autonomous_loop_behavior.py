@@ -614,6 +614,71 @@ def test_no_effect_history_persists_for_reflection(tmp_path) -> None:
     assert reloaded._no_effect_counts.get("ai-server.agora.read_posts") == 1
 
 
+def test_commitment_list_excluded_when_obligations_present(tmp_path) -> None:
+    capability_ids = ["ai-server.commitment.list", "ai-server.memory.search"]
+    broker = _Broker(capability_ids)
+    captured: list[list[dict]] = []
+
+    class _CapturingLLM:
+        def generate_with_tools(self, **kwargs):
+            captured.append(list(kwargs.get("tools") or []))
+            return SimpleNamespace(success=True, content="No action needed.", tool_calls=[])
+
+    loop = AutonomousLoop(
+        llm_provider=_CapturingLLM(),
+        desire_system=_PressureDesire(),
+        tool_broker=broker,
+        data_dir=str(tmp_path / "autonomous"),
+    )
+    loop._log_audit_event = lambda **kwargs: None
+    loop._priority_obligations = lambda: [  # type: ignore[method-assign]
+        {"kind": "commitment", "obligation_id": "c1", "summary": "Finish deploy"}
+    ]
+
+    loop._generate_tasks([{"name": "user_support", "gap": 5.0, "pressure": 8.0}])
+
+    assert captured
+    tool_names = {tool["function"]["name"] for tool in captured[0]}
+    assert "ai_server__commitment__list" not in tool_names
+    assert "ai_server__memory__search" in tool_names
+
+
+def test_follow_up_skipped_after_inventory_only_cycle(tmp_path) -> None:
+    loop = AutonomousLoop(
+        llm_provider=object(),
+        tool_broker=_Broker(["ai-server.commitment.list"]),
+        data_dir=str(tmp_path / "autonomous"),
+    )
+    tasks = [{"capability_id": "ai-server.commitment.list", "action": "list commitments"}]
+    results = [{"success": True, "result": "3 open commitment(s): ship fix"}]
+
+    assert loop._generate_follow_up_tasks(tasks, results) == []
+
+
+def test_decide_next_interval_retries_after_no_effect_success(tmp_path) -> None:
+    from aegis_ai.desire.desire_system import DesireSystem
+
+    desire = DesireSystem(data_dir=str(tmp_path / "desire"))
+    for name, obj in desire.get_all_desires().items():
+        if obj.hidden:
+            continue
+        obj.pressure = 8.0
+        if desire._pressure_engine is not None:
+            desire._pressure_engine._pressures[name] = 8.0
+    loop = AutonomousLoop(
+        desire_system=desire,
+        data_dir=str(tmp_path / "autonomous"),
+        fallback_interval_seconds=3600,
+    )
+
+    interval = loop._decide_next_interval(
+        [{"success": True, "task_effect": "no_effect", "result": "No open commitments."}]
+    )
+
+    assert interval <= 300
+    assert interval < loop._fallback_interval
+
+
 def test_needs_followup_updates_outcome_history(monkeypatch, tmp_path) -> None:
     desire = _PressureDesire()
     loop = AutonomousLoop(desire_system=desire, data_dir=str(tmp_path / "autonomous"))
