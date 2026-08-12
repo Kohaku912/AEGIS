@@ -59,7 +59,7 @@ DESIRE_FULFILLMENT = {
         "conditions": {
             "posted_to_agora": 1.0,
             "replied_to_mention": 0.9,
-            "read_new_posts": 0.1,
+            "read_new_posts": 0.0,
             "reactions_received": 0.5,
             "no_new_posts": 0.0,
             "tool_error": -0.3,
@@ -300,18 +300,18 @@ def _structural_fallback(
         )
 
     count = output.get("count")
-    items = output.get("items") or output.get("posts") or output.get("files") or output.get("results")
-    if count == 0 or items == []:
-        return TaskResult(
-            tool_success=True,
-            task_effect=TaskEffect.NO_EFFECT,
-            fulfillment_score=0.0,
-            pressure_reduction=0.0,
-            desire_delta_hint={},
-            summary="Structured empty result — no human-felt fulfillment",
-            confidence=0.45,
-            details={"evaluator": "structural", "reason": "empty_result"},
-        )
+    if count == 0:
+        return _empty_structural_result(capability_id=capability_id, desire_name=desire_name)
+    for key in ("unread_count", "batched_count", "due_count"):
+        if output.get(key) == 0:
+            return _empty_structural_result(capability_id=capability_id, desire_name=desire_name)
+    for key in ("items", "posts", "commitments", "results", "batched", "files"):
+        val = output.get(key)
+        if val == [] or val == ():
+            return _empty_structural_result(capability_id=capability_id, desire_name=desire_name)
+    nested = output.get("result")
+    if isinstance(nested, dict) and _is_structurally_empty(nested):
+        return _empty_structural_result(capability_id=capability_id, desire_name=desire_name)
 
     if output.get("action_state") == "awaiting_approval":
         return TaskResult(
@@ -337,6 +337,31 @@ def _structural_fallback(
             details={"evaluator": "structural", "reason": "tool_success_fallback"},
         )
     return None
+
+
+def _is_structurally_empty(output: dict[str, Any]) -> bool:
+    for key in ("count", "unread_count", "batched_count", "due_count"):
+        if output.get(key) == 0:
+            return True
+    for key in ("items", "posts", "commitments", "results", "batched", "files"):
+        val = output.get(key)
+        if val == [] or val == ():
+            return True
+    nested = output.get("result")
+    return isinstance(nested, dict) and _is_structurally_empty(nested)
+
+
+def _empty_structural_result(*, capability_id: str, desire_name: str) -> TaskResult:
+    return TaskResult(
+        tool_success=True,
+        task_effect=TaskEffect.NO_EFFECT,
+        fulfillment_score=0.0,
+        pressure_reduction=0.0,
+        desire_delta_hint={},
+        summary="Structured empty result — no human-felt fulfillment",
+        confidence=0.45,
+        details={"evaluator": "structural", "reason": "empty_result", "capability_id": capability_id},
+    )
 
 
 def _unavailable_result(*, tool_success: bool, reason: str) -> TaskResult:

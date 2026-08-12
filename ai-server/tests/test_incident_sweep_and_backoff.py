@@ -122,7 +122,7 @@ def test_desire_eta_and_cycle_pressure_release(tmp_path) -> None:
     for name, obj in desire.get_all_desires().items():
         if obj.hidden:
             continue
-        assert obj.pressure < 5.0
+        assert obj.pressure == 7.0
 
 
 def test_autonomous_loop_no_60s_idle_poll(tmp_path) -> None:

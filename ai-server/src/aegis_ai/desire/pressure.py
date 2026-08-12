@@ -103,7 +103,7 @@ class PressureEngine:
     def reduce_after_action(self, desire: str, effectiveness: float) -> None:
         """Reduce pressure after a successful action."""
         effectiveness = _clamp(effectiveness)
-        reduction = 5.0 + (5.0 * min(effectiveness, 1.0))
+        reduction = min(2.0, 2.0 * effectiveness)
         self._apply_delta(desire, -reduction)
 
     def get_pressure(self, desire: str) -> float:
