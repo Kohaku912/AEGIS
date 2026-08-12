@@ -38,8 +38,26 @@ _SECRET_TEXT_RE = re.compile(
     r"((?:token|secret|password|api[_-]?key)\s*[:=]\s*)\S+"
 )
 _TRIVIAL_RESULTS = frozenset(
-    {"no new posts", "done", "no memory found", "ok", "no new messages", "no drafts", "no new data"}
+    {
+        "no new posts",
+        "done",
+        "no memory found",
+        "ok",
+        "no new messages",
+        "no drafts",
+        "no new data",
+        "no open commitments.",
+        "no open commitments",
+        "memory sleep consolidation has started",
+        "memory sleep consolidation has started.",
+    }
 )
+
+
+def _normalize_result_text(text: str) -> str:
+    """Lower/strip and drop trailing punctuation so trivial matching is stable."""
+    value = str(text or "").lower().strip()
+    return value.rstrip(" .!。")
 
 
 class AutonomousLoop:
@@ -295,21 +313,60 @@ class AutonomousLoop:
         if awaiting:
             return False
 
-        # Terminal / obligation outcomes: present even when short ("Done") or failed.
+        # Terminal outcomes are presentable, but never surface empty/trivial "Done" spam
+        # (e.g. repeated commitment.list with no actionable items).
+        result_text = _normalize_result_text(result_record.get("result", ""))
+        capability_id = str(result_record.get("capability_id") or task.get("capability_id") or "").lower()
+        if result_text in _TRIVIAL_RESULTS or (success and len(result_text) < 20 and not obligation_linked):
+            return False
+        if capability_id.endswith(".memory.search") and "no memory" in result_text:
+            return False
+        if capability_id.endswith(".interruption.status"):
+            return False
+        if capability_id.endswith(".memory.sleep") and "started" in result_text:
+            return False
+        if capability_id.endswith(".commitment.list"):
+            return False
+        if capability_id.endswith(".agora.read_posts"):
+            # Read dumps are agent-internal; don't flood the display surface.
+            return False
+        if "already replied" in result_text:
+            return False
+
         if report_when == "terminal" and (success or failed or goal_status in {"failed", "needs_followup", "useful"}):
             if failed and not obligation_linked and goal_status not in {"failed", "needs_followup"}:
                 # Only surface non-obligation failures when goal verification flagged them.
-                result_text = str(result_record.get("result", "")).lower().strip()
                 if "timeout" not in result_text and "failed" not in result_text:
                     return False
             return True
 
         if not success:
             return False
-        result_text = str(result_record.get("result", "")).lower().strip()
         if result_text in _TRIVIAL_RESULTS or len(result_text) < 20:
             return False
         return True
+
+    def _summarize_capability_output(self, capability_id: str, output: dict[str, Any]) -> str:
+        """Build a human result string; avoid empty success collapsing to 'Done'."""
+        if not isinstance(output, dict):
+            return str(output or "")[:200]
+        explicit = output.get("result")
+        if explicit not in (None, ""):
+            return str(explicit)[:500]
+        if "commitments" in output:
+            items = output.get("commitments") or []
+            if not items:
+                return "No open commitments."
+            titles = [str(item.get("title") or item.get("commitment_id") or "item") for item in items[:8]]
+            return f"{len(items)} commitment(s): " + "; ".join(titles)
+        if "count" in output:
+            return f"{capability_id}: count={output.get('count')}"
+        if output.get("ok") is True and len(output) <= 2:
+            return f"{capability_id}: ok"
+        try:
+            return json.dumps(output, ensure_ascii=False)[:500]
+        except TypeError:
+            return str(output)[:500]
 
     def stop(self) -> None:
         """Stop the autonomous loop."""
@@ -1183,8 +1240,7 @@ class AutonomousLoop:
         """Desire goals as prose only — never prescribe concrete capability IDs."""
         goal_map = {
             "user_support": (
-                "Advance a current commitment or resolve a concrete user need "
-                "with the least disruptive suitable action."
+                "Advance a pending user need or follow-up with the least disruptive suitable action."
             ),
             "social": (
                 "Engage socially only when reciprocity or user value warrants it; "
@@ -1192,7 +1248,7 @@ class AutonomousLoop:
             ),
             "growth": (
                 "Investigate a grounded open question linked to a project, "
-                "commitment, failure, or prior conversation. Use prior learning "
+                "failure, or prior conversation. Use prior learning "
                 "and memory when they help; avoid empty observation loops."
             ),
         }
@@ -1893,7 +1949,7 @@ Operational decision axes (prioritization only; not additional desires):
                             except Exception:
                                 result_summary = str(output.get("result", output.get("count", "Done")))
                         else:
-                            result_summary = str(output.get("result", output.get("count", "Done")))
+                            result_summary = self._summarize_capability_output(capability_id, output)
                         if self._llm:
                             image_b64 = output.get("image_base64") or output.get("image_data") or ""
                             if image_b64:
@@ -2078,7 +2134,7 @@ Operational decision axes (prioritization only; not additional desires):
             if self._should_present_autonomous_result(result_record, task):
                 self._present_autonomous_result(task, result_record)
 
-            result_text = str(result_record.get("result", "")).lower().strip()
+            result_text = _normalize_result_text(result_record.get("result", ""))
             if result_text in _TRIVIAL_RESULTS or (len(result_text) < 20 and result_record.get("success", False)):
                 continue
 
@@ -2268,7 +2324,10 @@ Operational decision axes (prioritization only; not additional desires):
         if len(previous_tasks) == len(previous_results):
             all_trivial = all(
                 r.get("success", False)
-                and (str(r.get("result", "")).lower().strip() in _TRIVIAL_RESULTS or len(str(r.get("result", ""))) < 20)
+                and (
+                    _normalize_result_text(r.get("result", "")) in _TRIVIAL_RESULTS
+                    or len(_normalize_result_text(r.get("result", ""))) < 20
+                )
                 for r in previous_results
             )
             if all_trivial:
@@ -2490,6 +2549,26 @@ Rules:
                 capability_metadata=capability_metadata,
                 desire_goal=desire_goal,
             )
+            # Structured empty reads (e.g. commitment.list with zero items) are no_effect,
+            # not fulfillment — prevents idle loops that only re-list empty state.
+            if (
+                success
+                and isinstance(output, dict)
+                and str(output.get("task_effect_hint") or "").lower() == "no_effect"
+                and task_result.task_effect != TaskEffect.NO_EFFECT
+            ):
+                from dataclasses import replace
+
+                task_result = replace(
+                    task_result,
+                    task_effect=TaskEffect.NO_EFFECT,
+                    fulfillment_score=0.0,
+                    pressure_reduction=0.0,
+                    desire_delta_hint={},
+                    confidence=max(float(task_result.confidence or 0.0), 0.8),
+                    summary=str(output.get("result") or task_result.summary or "no_effect"),
+                    details={**(task_result.details or {}), "forced_hint": "no_effect"},
+                )
 
             logger.info(
                 "Task evaluation: cap=%s effect=%s score=%.2f pressure=%.2f conf=%.2f evaluator=%s",
@@ -2745,7 +2824,7 @@ Rules:
             action = task.get("action", "Unknown task")
             capability_id = task.get("capability_id", result.get("capability_id", ""))
             observation = result.get("result", "")
-            result_text = str(result.get("result", "")).lower().strip()
+            result_text = _normalize_result_text(result.get("result", ""))
             if result_text in _TRIVIAL_RESULTS or (len(result_text) < 20 and result.get("success", False)):
                 continue
             desire_name = task.get("desire", "")

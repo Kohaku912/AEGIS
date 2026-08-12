@@ -1,6 +1,10 @@
 """Ceiling light IR command map for the room lighting remote.
 
-Address/command values are hardware-specific for the installed fixture remote.
+Address/command values match the installed fixture remote and Arduino
+``IrSender.sendNEC(address, command, repeats)`` (LSB-first NEC).
+
+Proven wiring on Orange Pi Zero3: DATA=PC11 (board pin 12), VCC=5V, GND=GND.
+DATA must idle LOW or the TX module overheats. (PC9 is reserved for INMP441 SD.)
 """
 
 from __future__ import annotations

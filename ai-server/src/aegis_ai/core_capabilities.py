@@ -36,7 +36,13 @@ class AegisCoreCapabilityClient:
         self._server_executor = server_executor
         self._personal = personal_managers or {}
         social_dir = self._data_dir / "social"
-        self._agora = AgoraService(data_dir=social_dir)
+        try:
+            self._agora = AgoraService(data_dir=social_dir)
+        except TypeError:
+            # Older AgoraService builds without data_dir kwarg.
+            self._agora = AgoraService()
+            if hasattr(self._agora, "set_data_dir"):
+                self._agora.set_data_dir(social_dir)
         self._agora_memory_lock = threading.RLock()
         self._agora_memory_inflight: set[int] = set()
         social_manager = self._personal.get("social_manager")
@@ -648,7 +654,23 @@ class AegisCoreCapabilityClient:
         if manager is None:
             return {"ok": False, "error": "CommitmentManager unavailable"}
         if capability_id.endswith(".list"):
-            return {"ok": True, "commitments": manager.list_commitments(status=params.get("status"))}
+            # Default to open only — listing cancelled/historical items re-biases autonomy toward commitment.list.
+            status = params.get("status")
+            if status is None or str(status).strip() == "":
+                status = "open"
+            items = manager.list_commitments(status=status)
+            if not items:
+                summary = "No open commitments."
+            else:
+                titles = [str(item.get("title") or item.get("commitment_id") or "item") for item in items[:8]]
+                summary = f"{len(items)} open commitment(s): " + "; ".join(titles)
+            return {
+                "ok": True,
+                "commitments": items,
+                "count": len(items),
+                "result": summary,
+                "task_effect_hint": "no_effect" if not items else "useful",
+            }
         if capability_id.endswith(".upsert"):
             return {"ok": True, "commitment": manager.upsert_commitment(params)}
         if capability_id.endswith(".transition"):

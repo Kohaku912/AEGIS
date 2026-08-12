@@ -1,0 +1,73 @@
+/dts-v1/;
+/plugin/;
+
+/*
+ * Orange Pi Zero3 (H618) I2S3 for INMP441 capture.
+ *
+ * SoC mux: Port C has NO I2S function. Hardware I2S3 is only on Port H:
+ *   SCK (BCLK) -> PH6  (header pin 23)
+ *   WS  (LRCK) -> PH7  (header pin 19)
+ *   SD  (mic DOUT / SoC DIN0) -> PH9 (header pin 24)
+ *   L/R -> GND
+ *
+ * Based on elkoni I2S3 overlay; sleep pinctrl omitted so pins stay on i2s3.
+ */
+
+&pio {
+	ahub_daudio30: ahub_daudio30 {
+		pins = "PH5", "PH6", "PH7";
+		function = "i2s3";
+		drive-strength = <0x14>;
+		bias-disable;
+	};
+	ahub_daudio31: ahub_daudio31 {
+		pins = "PH8";
+		function = "i2s3_dout0";
+		drive-strength = <0x14>;
+		bias-disable;
+	};
+	ahub_daudio32: ahub_daudio32 {
+		pins = "PH9";
+		function = "i2s3_din0";
+		drive-strength = <0x14>;
+		bias-disable;
+	};
+};
+
+&{/soc} {
+	ahub3_plat: ahub3_plat {
+		#sound-dai-cells = <0>;
+		compatible = "allwinner,sunxi-snd-plat-ahub";
+		apb_num = <2>;
+		dmas = <&dma 5>, <&dma 5>;
+		dma-names = "tx", "rx";
+		playback_cma = <128>;
+		capture_cma = <128>;
+		tx_fifo_size = <128>;
+		rx_fifo_size = <128>;
+		tdm_num = <3>;
+		tx_pin = <0>;
+		rx_pin = <0>;
+		status = "okay";
+		pinctrl-names = "default";
+		pinctrl-0 = <&ahub_daudio30>, <&ahub_daudio31>, <&ahub_daudio32>;
+	};
+
+	ahub3_mach: ahub3_mach {
+		compatible = "allwinner,sunxi-snd-mach";
+		soundcard-mach,name = "ahubi2s3";
+		soundcard-mach,format = "i2s";
+		soundcard-mach,frame-master = <&ahub3_cpu>;
+		soundcard-mach,bitclock-master = <&ahub3_cpu>;
+		soundcard-mach,slot-num = <2>;
+		soundcard-mach,slot-width = <32>;
+		status = "okay";
+		ahub3_cpu: soundcard-mach,cpu {
+			sound-dai = <&ahub3_plat>;
+			soundcard-mach,pll-fs = <0x04>;
+			soundcard-mach,mclk-fs = <0x200>;
+		};
+		ahub3_codec: soundcard-mach,codec {
+		};
+	};
+};

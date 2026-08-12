@@ -1,6 +1,6 @@
 {
   "title": "Set Room Light",
-  "description": "Control the room ceiling light via IR remote. mode=all(全灯/0x20), eco(エコ/0x21), night(常夜灯/0x22), off(消灯/0x23). Address LIGHT_ADDR=0xD001.",
+  "description": "Control the room ceiling light via IR (Arduino-IRremote compatible). Uses IrSender.sendNEC(address, command, repeats) encoding: LSB-first NEC, address=0xD001, commands all=0x20 eco=0x21 night=0x22 off=0x23. Hardware: Orange Pi PC11 (DATA, board pin 12) + 5V + GND; DATA idles LOW. Prefer mode=off/all/eco/night.",
   "server_id": "room-server",
   "app_id": "light",
   "action": "set_light",
@@ -16,33 +16,40 @@
       "mode": {
         "type": "string",
         "enum": ["all", "eco", "night", "off"],
-        "description": "Ceiling light mode mapped to IR: all=0x20, eco=0x21, night=0x22, off=0x23. Preferred over power_on when set."
+        "description": "Ceiling light mode → sendNEC(0xD001, cmd): all=0x20, eco=0x21, night=0x22, off=0x23. Preferred over power_on."
       },
       "power_on": {
         "type": "boolean",
-        "description": "Whether the light should be on. Used when mode is omitted (true->all, false->off)."
+        "description": "When mode omitted: true→all (0x20), false→off (0x23)."
       },
       "brightness": {
         "type": "integer",
         "default": -1,
         "minimum": -1,
         "maximum": 255,
-        "description": "-1 keeps the current brightness; otherwise 0-255."
+        "description": "-1 keeps current brightness; otherwise 0-255 (stored only; IR remote has no brightness channel)."
       },
       "color_temp_k": {
         "type": "integer",
         "default": 0,
-        "description": "0 keeps the current color temperature."
+        "description": "0 keeps current color temperature (not used by this IR remote)."
       },
       "color_rgb": {
         "type": "string",
         "default": "",
-        "description": "Optional #RRGGBB color value."
+        "description": "Optional #RRGGBB (not used by this IR remote)."
       },
       "ir_code": {
         "type": "string",
         "default": "",
-        "description": "Optional override IR code as 0xD001:0x20. Normally derived from mode."
+        "description": "Optional override as 0xD001:0x23 (same as Arduino addr/cmd). Normally derived from mode."
+      },
+      "repeat": {
+        "type": "integer",
+        "default": 3,
+        "minimum": 1,
+        "maximum": 10,
+        "description": "Extra NEC frames after the first (Arduino IrSender.sendNEC third arg). Default 3."
       }
     },
     "anyOf": [
@@ -65,6 +72,8 @@
     "room",
     "light",
     "ir",
+    "nec",
+    "arduino-irremote",
     "physical_device"
   ],
   "completion": {
