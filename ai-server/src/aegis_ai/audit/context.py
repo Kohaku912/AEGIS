@@ -83,7 +83,57 @@ def audit_group(
     try:
         yield ctx
     finally:
-        _current_audit_group.reset(token)
+        _safe_reset_audit_group(token)
+
+
+def _safe_reset_audit_group(token: object) -> None:
+    """Reset a ContextVar token even if Flask/OTel copied the execution context.
+
+    ``ContextVar.reset`` raises ValueError when the token was created in a
+    different context (FlaskInstrumentor attach/detach). That must never 500
+    a request.
+    """
+    try:
+        _current_audit_group.reset(token)  # type: ignore[arg-type]
+    except (ValueError, LookupError):
+        try:
+            _current_audit_group.set(None)
+        except Exception:
+            pass
+
+
+def bind_audit_group(
+    group_id: str,
+    *,
+    group_type: str = "system",
+    group_title: str = "",
+    trace_id: str = "",
+    span_id: str = "",
+    workflow_id: str = "",
+    task_id: str = "",
+) -> AuditGroupContext | None:
+    """Set the current audit group without a matching reset token."""
+    if not group_id:
+        return None
+    ctx = AuditGroupContext(
+        group_id=str(group_id),
+        group_type=str(group_type or "system"),
+        group_title=str(group_title or ""),
+        trace_id=str(trace_id or ""),
+        span_id=str(span_id or ""),
+        workflow_id=str(workflow_id or ""),
+        task_id=str(task_id or ""),
+    )
+    _current_audit_group.set(ctx)
+    return ctx
+
+
+def clear_audit_group() -> None:
+    """Clear the current audit group; never raises across copied contexts."""
+    try:
+        _current_audit_group.set(None)
+    except Exception:
+        pass
 
 
 @contextmanager

@@ -101,6 +101,34 @@ def record_capability_invocation(capability_id: str, *, success: bool, duration_
         logger.debug("Failed to record capability metric", exc_info=True)
 
 
+def current_trace_metadata() -> dict[str, Any]:
+    """Return OTel + audit correlation fields for journal/audit records."""
+    meta: dict[str, Any] = {}
+    ctx = get_audit_group()
+    if ctx is not None:
+        if ctx.trace_id:
+            meta["trace_id"] = ctx.trace_id
+        if ctx.span_id:
+            meta["span_id"] = ctx.span_id
+        if ctx.workflow_id:
+            meta["workflow_id"] = ctx.workflow_id
+        if ctx.task_id:
+            meta["task_id"] = ctx.task_id
+        if ctx.group_id:
+            meta["group_id"] = ctx.group_id
+    try:
+        from opentelemetry import trace
+
+        span = trace.get_current_span()
+        span_ctx = span.get_span_context() if span is not None else None
+        if span_ctx is not None and getattr(span_ctx, "is_valid", False):
+            meta["otel_trace_id"] = format(span_ctx.trace_id, "032x")
+            meta["otel_span_id"] = format(span_ctx.span_id, "016x")
+    except Exception:
+        pass
+    return meta
+
+
 def _span_correlation_attributes() -> dict[str, Any]:
     ctx = get_audit_group()
     if ctx is None:
@@ -146,5 +174,6 @@ __all__ = [
     "instrument_flask",
     "instrument_grpc_server",
     "record_capability_invocation",
+    "current_trace_metadata",
     "start_span",
 ]

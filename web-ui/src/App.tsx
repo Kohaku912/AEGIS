@@ -31,6 +31,7 @@ import { HomePage } from "./pages/HomePage";
 import { IncidentsPage } from "./pages/IncidentsPage";
 import { LearningPage } from "./pages/LearningPage";
 import { LLMUsagePage } from "./pages/LLMUsagePage";
+import { LogsPage } from "./pages/LogsPage";
 import { MindMemory } from "./pages/MindMemory";
 import { ModelsPromptsPage } from "./pages/ModelsPromptsPage";
 import { NotificationsPage } from "./pages/NotificationsPage";
@@ -314,7 +315,7 @@ export function App() {
         developerMode={developerMode}
       />
       <LiveActivityDrawer events={recentEvents} />
-      {chatOpen ? <ChatDrawer open onClose={() => setChatOpen(false)} /> : null}
+      <ChatDrawer open={chatOpen} onClose={() => setChatOpen(false)} />
       <CommandPalette
         open={paletteOpen}
         onOpenChange={setPaletteOpen}
@@ -368,7 +369,7 @@ function Page({
   if (pageId === "agora" || pageId === "social" || pageId === "conversations") {
     return <SocialPage overview={overview} developerMode={developerMode} />;
   }
-  if (pageId === "operations" || pageId === "logs") {
+  if (pageId === "operations") {
     return (
       <OperationsPage
         overview={overview}
@@ -378,6 +379,9 @@ function Page({
         onNavigate={onNavigate}
       />
     );
+  }
+  if (pageId === "logs") {
+    return <LogsPage overview={overview} />;
   }
   if (pageId === "raw-activity" || pageId === "events") {
     return (

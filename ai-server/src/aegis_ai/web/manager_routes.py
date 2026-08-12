@@ -123,6 +123,37 @@ def get_event(event_id):
         return jsonify({"error": str(e)}), 500
 
 
+@manager_bp.route("/api/journal/events")
+def list_journal_events():
+    try:
+        rt = _get_runtime()
+        store = getattr(rt.event_manager, "_journal", None) if getattr(rt, "event_manager", None) else None
+        if store is None or not hasattr(store, "list_recent"):
+            return jsonify({"items": [], "total": 0, "page": 1, "limit": 50, "source": "journal"})
+        page = max(1, int(request.args.get("page", 1)))
+        limit = min(200, max(1, int(request.args.get("limit", 50))))
+        event_type = str(request.args.get("event_type") or "").strip()
+        rows = store.list_recent(limit=500)
+        if event_type:
+            rows = [row for row in rows if str(row.get("event_type") or "") == event_type]
+        rows.reverse()
+        total = len(rows)
+        start = (page - 1) * limit
+        page_rows = rows[start:start + limit]
+        from aegis_ai.journal.projector import journal_event_for_ui
+
+        return jsonify({
+            "items": [journal_event_for_ui(row) for row in page_rows],
+            "page": page,
+            "limit": limit,
+            "total": total,
+            "total_pages": max(1, (total + limit - 1) // limit),
+            "source": "journal",
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 # ── Audit Routes ──────────────────────────────────────────────
 
 @manager_bp.route("/api/audit")

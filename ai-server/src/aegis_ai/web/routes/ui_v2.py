@@ -55,10 +55,9 @@ def init_ui_v2_routes(owner: Any) -> None:
             return None
         if path == "/" or any(path == root or path.startswith(root + "/") for root in _SPA_ROOTS):
             accept = request.accept_mimetypes
-            # Browser navigations prefer HTML; JSON API clients should pass through.
-            if accept and accept.best_match(["application/json", "text/html"]) == "application/json":
-                if "text/html" not in str(request.headers.get("Accept", "")):
-                    return None
+            accept_header = str(request.headers.get("Accept", ""))
+            if "text/html" not in accept_header and accept and accept.best_match(["text/html", "application/json"]) == "application/json":
+                return None
             return _spa_index()
         return None
 
@@ -67,6 +66,7 @@ def init_ui_v2_routes(owner: Any) -> None:
     @app.route("/dashboard/<path:_path>")
     @app.route("/chat")
     @app.route("/settings")
+    @app.route("/settings/<path:_path>")
     def ui_v2_shell(_path: str = ""):
         if not ui_v2_available():
             abort(404)

@@ -27,6 +27,40 @@ export function time(value: unknown): string {
   return new Date(milliseconds).toLocaleString("ja-JP");
 }
 
+export function recordTitle(item: Record<string, unknown>, fallback = "項目"): string {
+  const nested = asRecord(item.detail || item.candidate);
+  return text(
+    item.title
+      || item.name
+      || item.short_name
+      || item.decision
+      || item.reason
+      || item.action
+      || item.capability_id
+      || item.id
+      || nested.title
+      || nested.reason
+      || item.type,
+    fallback,
+  );
+}
+
+export function recordSummary(item: Record<string, unknown>): string {
+  const nested = asRecord(item.detail || item.candidate);
+  const actionCount = item.action_count;
+  return text(
+    item.summary
+      || item.message
+      || item.description
+      || item.skip_reason
+      || item.status
+      || nested.summary
+      || nested.reason
+      || (actionCount != null && actionCount !== "" ? `${actionCount} actions` : "")
+      || time(item.timestamp_ms || item.created_at || item.started_at || item.updated_at),
+  );
+}
+
 export function RecordList({ items, empty = "データはありません", render }: {
   items: Array<Record<string, unknown>>;
   empty?: string;
@@ -35,7 +69,7 @@ export function RecordList({ items, empty = "データはありません", rende
   if (!items.length) return <p className="muted">{empty}</p>;
   return <div className="compact-list">{items.map((item, index) => (
     <article className="list-row" key={String(item.id || item.task_id || item.event_id || item.operation_id || item.title || index)}>
-      {render ? render(item, index) : <div><strong>{text(item.title || item.name || item.type, "項目")}</strong><p>{text(item.summary || item.message || item.status)}</p></div>}
+      {render ? render(item, index) : <div><strong>{recordTitle(item)}</strong><p>{recordSummary(item)}</p></div>}
     </article>
   ))}</div>;
 }

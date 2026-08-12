@@ -1205,6 +1205,9 @@ def _mind_summary(runtime: Any) -> dict[str, Any]:
         "desires": desires,
         "pressures": pressures,
         "pressure": pressure_details,
+        "average_pressure": autonomy.get("average_pressure", 0),
+        "seconds_until_threshold": autonomy.get("seconds_until_threshold", 0),
+        "pressure_threshold": autonomy.get("pressure_threshold", 5.0),
         "memory": memory_stats,
     }
 
@@ -1246,14 +1249,28 @@ def _commitments(runtime: Any) -> dict[str, Any]:
 
 
 def _usage(runtime: Any) -> dict[str, Any]:
+    data: dict[str, Any] = {}
     tracker = getattr(runtime, "cost_tracker", None)
-    if tracker is not None and hasattr(tracker, "get_summary"):
-        return _usage_projection(tracker.get_summary())
-    if tracker is not None and hasattr(tracker, "summary"):
-        return _usage_projection(tracker.summary())
-    return _usage_projection(
-        {"summary": "LLM usage is available from the LLM Usage service.", "input_tokens": 0, "output_tokens": 0}
-    )
+    if tracker is not None:
+        if hasattr(tracker, "get_usage_summary"):
+            data.update(_to_plain(tracker.get_usage_summary()) or {})
+        elif hasattr(tracker, "get_summary"):
+            data.update(_to_plain(tracker.get_summary()) or {})
+        elif hasattr(tracker, "summary"):
+            data.update(_to_plain(tracker.summary()) or {})
+    try:
+        from aegis_ai.observability.llm_usage.service import LLMUsageService
+
+        service = LLMUsageService(
+            audit_manager=getattr(runtime, "audit_manager", None) or getattr(runtime, "audit_log", None),
+            prompt_registry=getattr(runtime, "prompt_registry", None),
+        )
+        data.update(service.get_summary(period="24h") or {})
+    except Exception:
+        pass
+    if not data:
+        data = {"summary": "LLM usage is available from the LLM Usage service.", "input_tokens": 0, "output_tokens": 0}
+    return _usage_projection(data)
 
 
 def _autonomous_logs(runtime: Any) -> dict[str, Any]:
@@ -1308,12 +1325,25 @@ def _autonomous_logs(runtime: Any) -> dict[str, Any]:
                     }
                 )
 
+            first_action = (actions[0]["action"] or actions[0]["capability_id"]) if actions else ""
+            title = str(decision or skip_reason or first_action or "autonomous cycle")
+            summary = str(
+                skip_reason
+                or (f"{len(actions)} action(s)" if actions else decision)
+                or "No action recorded"
+            )
             cycles.append(
                 {
+                    "id": f"cycle-{ts or len(cycles)}",
+                    "title": title,
+                    "summary": summary,
                     "timestamp_ms": ts,
+                    "created_at": ts,
+                    "started_at": ts,
                     "decision": decision,
                     "skip_reason": skip_reason,
                     "action_count": len(actions),
+                    "status": "skipped" if skip_reason and not actions else "recorded",
                     "actions": actions,
                 }
             )
@@ -1577,15 +1607,10 @@ def _initiative(runtime: Any) -> dict[str, Any]:
     except Exception as exc:
         return {"funnel": {}, "recent_non_actions": [], "recent_decisions": [], "summary": str(exc)}
     records = list(diag.get("recent_decisions") or [])
+    labeled_records = [_initiative_record(item) for item in records]
     non_actions = [
-        {
-            "reason": str(item.get("reason") or ""),
-            "decision": str(item.get("decision") or "no_action"),
-            "created_at": int(item.get("created_at") or 0),
-            "detail": item.get("detail") if isinstance(item.get("detail"), dict) else {},
-            "candidate": (item.get("candidate") or {}) if isinstance(item.get("candidate"), dict) else {},
-        }
-        for item in records
+        item
+        for item in labeled_records
         if item.get("record_type") in {"non_action", "candidate_decision"}
         and str(item.get("decision") or "") not in {"execute_now", ""}
     ]
@@ -1593,9 +1618,36 @@ def _initiative(runtime: Any) -> dict[str, Any]:
         "funnel": diag.get("funnel") or {},
         "no_action_reasons": diag.get("no_action_reasons") or {},
         "recent_non_actions": non_actions[-30:],
-        "recent_decisions": records[-30:],
+        "recent_decisions": labeled_records[-30:],
         "updated_at": int(diag.get("updated_at") or 0),
         "summary": _initiative_summary(diag.get("funnel") or {}, diag.get("no_action_reasons") or {}),
+    }
+
+
+def _initiative_record(item: Any) -> dict[str, Any]:
+    data = _to_plain(item) if not isinstance(item, dict) else dict(item)
+    detail = data.get("detail") if isinstance(data.get("detail"), dict) else {}
+    candidate = data.get("candidate") if isinstance(data.get("candidate"), dict) else {}
+    reason = str(data.get("reason") or detail.get("reason") or "")
+    decision = str(data.get("decision") or "no_action")
+    title = str(
+        data.get("title")
+        or decision
+        or reason
+        or candidate.get("capability_id")
+        or candidate.get("id")
+        or "decision"
+    )
+    summary = str(data.get("summary") or reason or detail.get("summary") or "")
+    return {
+        **data,
+        "reason": reason,
+        "decision": decision,
+        "title": title,
+        "summary": summary,
+        "created_at": int(data.get("created_at") or 0),
+        "detail": detail,
+        "candidate": candidate,
     }
 
 
@@ -2407,19 +2459,26 @@ def _usage_projection(summary: Any) -> dict[str, Any]:
     input_tokens = _number(data.get("input_tokens", data.get("prompt_tokens", 0)), 0)
     output_tokens = _number(data.get("output_tokens", data.get("completion_tokens", 0)), 0)
     total_tokens = _number(data.get("total_tokens", input_tokens + output_tokens), input_tokens + output_tokens)
-    cost = data.get("provider_reported_cost", data.get("cost", data.get("estimated_cost", "")))
-    budget_state = data.get("budget_state") or data.get("status") or ("active" if total_tokens else "not_reported")
+    total_calls = _number(data.get("total_calls", data.get("total_requests", 0)), 0)
+    cost = data.get("provider_reported_cost", data.get("cost", data.get("estimated_cost", data.get("daily_cost", ""))))
+    budget_state = data.get("budget_state") or data.get("status")
+    if not budget_state or budget_state == "not_reported":
+        budget_state = "ready" if total_tokens or total_calls else "not_reported"
     summary_text = data.get("summary") or (
-        f"{int(total_tokens)} tokens" if total_tokens else "LLM usage is not reported yet."
+        f"{int(total_calls)} calls / {int(total_tokens)} tokens"
+        if total_tokens or total_calls
+        else "LLM usage is not reported yet."
     )
     return {
         **data,
         "input_tokens": input_tokens,
         "output_tokens": output_tokens,
         "total_tokens": total_tokens,
+        "total_calls": total_calls,
         "provider_reported_cost": data.get("provider_reported_cost", ""),
         "estimated_cost": data.get("estimated_cost", cost),
         "cost": cost,
+        "today_tokens": total_tokens,
         "budget_state": budget_state,
         "autonomous_suppression": data.get("autonomous_suppression", data.get("suppression_reason", "")),
         "summary": summary_text,
@@ -2512,10 +2571,15 @@ def _summarize_step_result(result: Any) -> dict[str, Any]:
 def _capability_projection(capability: Any) -> dict[str, Any]:
     data = _to_plain(capability)
     capability_id = str(data.get("id", ""))
+    short_name = str(data.get("short_name", capability_id) or capability_id)
+    description = _truncate_text(data.get("description", ""), limit=240)
     return {
         "id": capability_id,
-        "short_name": data.get("short_name", capability_id),
-        "description": _truncate_text(data.get("description", ""), limit=240),
+        "title": short_name,
+        "name": short_name,
+        "short_name": short_name,
+        "summary": description,
+        "description": description,
         "server_id": _server_from_capability_id(capability_id),
         "risk": data.get("risk", ""),
         "requires_approval": bool(data.get("requires_approval") or data.get("only_master")),

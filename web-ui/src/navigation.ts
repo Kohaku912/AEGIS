@@ -60,6 +60,7 @@ export const navigation: NavigationDomain[] = [
     icon: Activity,
     pages: [
       { id: "operations", label: "Operations", path: "/dashboard/operations" },
+      { id: "logs", label: "Logs", path: "/dashboard/observability/logs" },
       { id: "raw-activity", label: "Raw Activity", path: "/dashboard/activity", developerOnly: true },
       { id: "llm-usage", label: "LLM Usage", path: "/dashboard/observability/llm-usage" },
       { id: "incidents", label: "Incidents & Repairs", path: "/dashboard/incidents" },
@@ -104,7 +105,7 @@ const aliases: Array<[RegExp, PageId]> = [
   [/\/dashboard\/activity(\/|$)/, "raw-activity"],
   [/\/dashboard\/incidents(\/|$)/, "incidents"],
   [/\/dashboard\/observability\/events/, "raw-activity"],
-  [/\/dashboard\/observability\/logs/, "operations"],
+  [/\/dashboard\/observability\/logs/, "logs"],
   [/\/dashboard\/observability\/errors/, "incidents"],
   [/\/dashboard\/observability\/performance/, "performance"],
   [/\/dashboard\/observability\/behavioral-reports/, "behavioral-reports"],

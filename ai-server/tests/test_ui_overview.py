@@ -716,3 +716,21 @@ def test_autonomous_activity_without_execution_does_not_list_internal_llm_calls(
         "AEGIS evaluated the current situation but did not execute a capability."
     )
     assert "LLM call" not in operation["what_happened"]
+
+
+def test_usage_projection_uses_audit_totals_instead_of_not_reported():
+    from aegis_ai.web.ui_overview import _usage_projection
+
+    projected = _usage_projection({"total_calls": 12, "total_tokens": 3400, "estimated_cost": 0.02})
+    assert projected["budget_state"] == "ready"
+    assert projected["total_calls"] == 12
+    assert projected["total_tokens"] == 3400
+    assert "3400" in projected["summary"]
+
+
+def test_initiative_record_has_title_for_ui_lists():
+    from aegis_ai.web.ui_overview import _initiative_record
+
+    record = _initiative_record({"decision": "observe_more", "reason": "pressure below threshold"})
+    assert record["title"] == "observe_more"
+    assert record["summary"] == "pressure below threshold"

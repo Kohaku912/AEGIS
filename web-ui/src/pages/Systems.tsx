@@ -113,7 +113,15 @@ function formatCapabilityHealth(value?: Record<string, unknown>): string {
   if (ok) parts.push(`${ok} ok`);
   if (degraded) parts.push(`${degraded} degraded`);
   if (unavailable) parts.push(`${unavailable} unavailable`);
-  return parts.join(" / ") || Object.entries(value).slice(0, 3).map(([key, val]) => `${key}:${String(val)}`).join(" / ");
+  if (parts.length) return parts.join(" / ");
+  return Object.entries(value).slice(0, 3).map(([key, val]) => {
+    if (val && typeof val === "object") {
+      const rec = val as Record<string, unknown>;
+      const status = rec.status ?? rec.state ?? rec.ok ?? rec.available;
+      return status == null ? key : `${key}:${String(status)}`;
+    }
+    return `${key}:${String(val)}`;
+  }).join(" / ");
 }
 
 function AndroidDetail({ server }: { server: NonNullable<UiOverview["servers"]["data"]["items"][number]> }) {

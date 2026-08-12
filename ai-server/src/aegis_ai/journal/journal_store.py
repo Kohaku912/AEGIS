@@ -69,9 +69,54 @@ class JournalStore:
                 causation_id=causation_id or str(uuid.uuid4().hex[:12]),
             )
             record = entry.model_dump()
+            if not record.get("metadata"):
+                record["metadata"] = {}
+            try:
+                from aegis_ai.observability.otel_tracing import current_trace_metadata, start_span
+
+                with start_span(
+                    "journal.append",
+                    **{"aegis.event_type": event_type, "aegis.aggregate_id": aggregate_id},
+                ):
+                    for key, value in current_trace_metadata().items():
+                        record["metadata"].setdefault(key, value)
+                entry = JournalEvent.model_validate(record)
+            except Exception:
+                pass
             with open(self._path, "a", encoding="utf-8") as f:
-                f.write(json.dumps(record, ensure_ascii=False) + "\n")
+                f.write(json.dumps(entry.model_dump(), ensure_ascii=False) + "\n")
             return entry
+
+    def list_recent(self, *, limit: int = 100, after_sequence: int = 0) -> list[dict[str, Any]]:
+        """Return the newest journal rows, newest last."""
+        if not self._path.exists() or limit <= 0:
+            return []
+        try:
+            size = self._path.stat().st_size
+            max_bytes = 2 * 1024 * 1024
+            with open(self._path, "rb") as f:
+                offset = max(0, size - max_bytes)
+                f.seek(offset)
+                payload = f.read(max_bytes)
+            if offset:
+                newline = payload.find(b"\n")
+                payload = payload[newline + 1 :] if newline >= 0 else b""
+            rows: list[dict[str, Any]] = []
+            for raw in payload.splitlines():
+                line = raw.decode("utf-8", errors="replace").strip()
+                if not line:
+                    continue
+                try:
+                    row = json.loads(line)
+                except Exception:
+                    continue
+                if int(row.get("sequence") or 0) <= after_sequence:
+                    continue
+                rows.append(row)
+            return rows[-limit:]
+        except Exception:
+            logger.debug("Failed to read recent journal", exc_info=True)
+            return []
 
     def list_for_aggregate(self, aggregate_id: str, *, limit: int = 500) -> list[dict[str, Any]]:
         if not self._path.exists():

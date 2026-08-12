@@ -19,6 +19,20 @@ type DesireCard = {
   etaSeconds: number | null;
 };
 
+function numericField(value: unknown, ...keys: string[]): number | undefined {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim() !== "") {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  const record = asRecord(value);
+  for (const key of keys) {
+    const nested = record[key];
+    if (typeof nested === "number" && Number.isFinite(nested)) return nested;
+  }
+  return undefined;
+}
+
 function readPressure(
   id: string,
   pressureMap: Record<string, unknown>,
@@ -26,15 +40,18 @@ function readPressure(
 ): DesireCard {
   const detail = asRecord(pressureMap[id]);
   const statsPressures = asRecord(statsMap.pressures);
-  const statsDesires = asRecord(statsMap.desires || statsMap);
+  const statsDesires = asRecord(statsMap.desires);
   // API shape: { pressure, value(=desire level), threshold, drift_rate }
   // Never prefer `value` for pressure — that field is the desire satisfaction level.
-  const pressure = Number(
-    detail.pressure ?? statsPressures[id] ?? (typeof pressureMap[id] === "number" ? pressureMap[id] : 0) ?? 0,
-  );
-  const desireValue = Number(detail.desire_value ?? detail.value ?? statsDesires[id] ?? 0);
-  const threshold = Number(detail.threshold ?? 5);
-  const drift = Number(detail.drift_rate ?? asRecord(statsMap.drift_rates)[id] ?? 0);
+  const pressure = numericField(detail, "pressure")
+    ?? numericField(statsPressures[id], "pressure")
+    ?? numericField(pressureMap[id], "pressure")
+    ?? 0;
+  const desireValue = numericField(detail, "desire_value", "value")
+    ?? numericField(statsDesires[id], "desire_value", "value")
+    ?? 0;
+  const threshold = numericField(detail, "threshold") ?? numericField(statsMap.pressure_threshold) ?? 5;
+  const drift = numericField(detail, "drift_rate") ?? numericField(asRecord(statsMap.drift_rates)[id]) ?? 0;
   const etaRaw = detail.seconds_until_threshold ?? statsMap.seconds_until_threshold;
   const etaSeconds = etaRaw == null || etaRaw === "" ? null : Number(etaRaw);
   const status =
@@ -57,13 +74,25 @@ function formatEta(seconds: number | null): string {
   return `約${minutes}分`;
 }
 
+function mindStats(overview: UiOverview): Record<string, unknown> {
+  const mind = asRecord(overview.mind?.data || overview.mind_summary?.data);
+  const autonomy = asRecord(mind.autonomy);
+  return {
+    desires: asRecord(mind.desires || autonomy.desires),
+    pressures: asRecord(mind.pressures || autonomy.pressures),
+    drift_rates: asRecord(mind.drift_rates || autonomy.drift_rates),
+    average_pressure: mind.average_pressure ?? autonomy.average_pressure ?? 0,
+    seconds_until_threshold: mind.seconds_until_threshold ?? autonomy.seconds_until_threshold,
+    pressure_threshold: mind.pressure_threshold ?? autonomy.pressure_threshold ?? 5,
+  };
+}
+
 export function DesiresPage({ overview }: { overview: UiOverview }) {
-  const autonomy = asRecord(overview.mind_summary?.data?.autonomy || overview.mind?.data?.autonomy);
-  const initialPressure = asRecord(overview.mind?.data?.pressure || autonomy.pressure || {});
-  const [stats, setStats] = useState<Record<string, unknown>>(() =>
-    asRecord(autonomy.desires ? { desires: autonomy.desires, pressures: autonomy.pressures } : autonomy),
+  const mind = asRecord(overview.mind?.data || overview.mind_summary?.data);
+  const [stats, setStats] = useState<Record<string, unknown>>(() => mindStats(overview));
+  const [pressure, setPressure] = useState<Record<string, unknown>>(() =>
+    asRecord(mind.pressure || asRecord(mind.autonomy).pressure || mind.pressures),
   );
-  const [pressure, setPressure] = useState<Record<string, unknown>>(initialPressure);
   const [error, setError] = useState("");
   const [updatedAt, setUpdatedAt] = useState<number>(Date.now());
 

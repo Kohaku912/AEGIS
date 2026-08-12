@@ -152,6 +152,21 @@ export async function fetchAuditGroups(page = 1, limit = 30): Promise<AuditPageR
   };
 }
 
+export async function fetchJournalEvents(page = 1, limit = 50): Promise<AuditPageResult> {
+  const response = await fetch(`/api/journal/events?${new URLSearchParams({ page: String(page), limit: String(limit) })}`, {
+    credentials: "include",
+  });
+  const payload = await requireJson<Record<string, unknown>>(response, "Could not load journal events");
+  const items = Array.isArray(payload.items) ? payload.items as Array<Record<string, unknown>> : [];
+  return {
+    items,
+    page: Number(payload.page || page),
+    limit: Number(payload.limit || limit),
+    total: Number(payload.total || items.length),
+    totalPages: Number(payload.total_pages || 1),
+  };
+}
+
 export async function fetchActivityLogs(page = 1, limit = 30): Promise<AuditPageResult> {
   const response = await fetch(`/api/audit/grouped?${new URLSearchParams({ page: String(page), limit: String(limit) })}`, {
     credentials: "include",

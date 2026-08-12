@@ -405,6 +405,15 @@ a {
   padding: var(--space-md);
 }
 
+.chat-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 59;
+  border: 0;
+  background: #01040a88;
+  cursor: pointer;
+}
+
 .chat-drawer {
   position: fixed;
   inset: 0 0 0 auto;
@@ -415,11 +424,15 @@ a {
   border-left: 1px solid var(--aegis-border);
   transform: translateX(100%);
   transition: transform var(--motion-normal);
-  z-index: 20;
+  z-index: 60;
+  pointer-events: none;
+  visibility: hidden;
 }
 
 .chat-drawer[data-open="true"] {
   transform: translateX(0);
+  pointer-events: auto;
+  visibility: visible;
 }
 
 .chat-drawer__header {

@@ -86,7 +86,7 @@ $tree = Get-UiNode $root 0
 /// Find a UI node by automation id or name substring.
 pub fn find_ui_element(query: &str) -> Result<serde_json::Value, String> {
     let tree = get_ui_tree(false)?;
-    fn walk(node: &UiNode, query: &str, hits: &mut Vec<&UiNode>) {
+    fn walk<'a>(node: &'a UiNode, query: &str, hits: &mut Vec<&'a UiNode>) {
         if node.automation_id.contains(query) || node.name.contains(query) {
             hits.push(node);
         }

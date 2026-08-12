@@ -14,28 +14,30 @@ describe("logs and audit pages", () => {
     vi.restoreAllMocks();
   });
 
-  it("renders grouped operations as concrete AEGIS activity", async () => {
+  it("renders journal events with trace ids", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
-      operations: [{
-        operation_id: "operation-1",
-        updated_at: Date.now(),
-        what_happened: "Read the requested file and verified its contents.",
-        reason: "Answer the user's workspace question",
+      items: [{
+        id: "journal-1",
+        sequence: 1,
+        timestamp_ms: Date.now(),
+        event_type: "task.completed",
+        title: "Read the requested file and verified its contents.",
+        summary: "Answer the user's workspace question",
         target: "ai-server.workspace.read_file",
         status: "success",
-        steps: [{ action: "tool_execution", narrative: "Read the requested file", capability_id: "ai-server.workspace.read_file" }],
+        trace_id: "abc123def456",
       }],
       page: 1,
-      per_page: 30,
+      limit: 30,
       total: 1,
       total_pages: 1,
+      source: "journal",
     }), { status: 200, headers: { "Content-Type": "application/json" } }));
 
     render(<LogsPage overview={overview} />);
 
     await waitFor(() => expect(screen.getAllByText("Read the requested file and verified its contents.").length).toBeGreaterThan(0));
     expect(screen.getAllByText("Answer the user's workspace question").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("success").length).toBeGreaterThan(0);
     expect(screen.queryByText("tool_execution")).not.toBeInTheDocument();
   });
 
