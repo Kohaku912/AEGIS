@@ -467,6 +467,9 @@ class TestToolBrokerApproval:
         manifest.description = "Click"
         manifest.risk_level = "medium"
         manifest.tags = []
+        manifest.side_effects = []
+        manifest.requires_approval = True
+        manifest.enabled = True
         manifest.server_id = "pc-server"
         manifest.app_id = "mouse"
         manifest.action = "mouse_click"

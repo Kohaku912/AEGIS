@@ -7,5 +7,5 @@
   "operation_category": "commitment_management",
   "risk": {"level": "low", "side_effects": [], "requires_approval": false},
   "input_schema": {"type": "object", "properties": {"status": {"type": "string", "default": ""}}},
-  "tags": ["commitment", "personal-ai", "read"]
+  "tags": ["commitment", "personal-ai", "read", "inventory"]
 }

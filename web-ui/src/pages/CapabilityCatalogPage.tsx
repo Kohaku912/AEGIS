@@ -22,6 +22,32 @@ type PolicyError = {
   freshAuthRequired: boolean;
 };
 
+const APPROVAL_RISKS = new Set(["approval_required", "high_risk", "critical"]);
+
+function policyFromRisk(riskLevel: string): Record<string, unknown> {
+  return {
+    risk_level: riskLevel,
+    requires_approval: APPROVAL_RISKS.has(riskLevel),
+  };
+}
+
+function policyFromApprovalToggle(
+  current: Record<string, unknown>,
+  checked: boolean,
+): Record<string, unknown> {
+  const risk = String(current.risk_level || "low");
+  if (checked) {
+    return {
+      requires_approval: true,
+      risk_level: APPROVAL_RISKS.has(risk) ? risk : "approval_required",
+    };
+  }
+  return {
+    requires_approval: false,
+    risk_level: APPROVAL_RISKS.has(risk) ? "safe" : risk,
+  };
+}
+
 export function CapabilityCatalogPage() {
   const queryClient = useQueryClient();
   const [query, setQuery] = useState("");
@@ -232,7 +258,7 @@ export function CapabilityCatalogPage() {
                     disabled={saving}
                     onChange={(event) => {
                       const riskLevel = event.currentTarget.value;
-                      void applyChange({ risk_level: riskLevel });
+                      void applyChange(policyFromRisk(riskLevel));
                     }}
                   >
                     {[
@@ -255,7 +281,7 @@ export function CapabilityCatalogPage() {
                     disabled={saving}
                     onChange={(event) => {
                       const checked = event.currentTarget.checked;
-                      void applyChange({ requires_approval: checked });
+                      void applyChange(policyFromApprovalToggle(editablePolicy, checked));
                     }}
                   />
                   Requires approval

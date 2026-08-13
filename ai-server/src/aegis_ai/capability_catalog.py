@@ -90,6 +90,25 @@ def risk_level_from_label(label: str):
     return RiskLevel[normalize_risk_label(label)]
 
 
+def aligned_policy(risk_label: str, requires_approval: bool) -> tuple[Any, bool]:
+    """Keep risk_level and requires_approval consistent for PolicyEngine.
+
+    PolicyEngine decides ASK_APPROVAL from risk_level, not the checkbox.
+    Unchecking approval therefore drops APPROVAL_REQUIRED/HIGH_RISK to SAFE_ACTION.
+    FORBIDDEN stays forbidden.
+    """
+    from aegis_schema.models import RiskLevel
+
+    risk = risk_level_from_label(risk_label)
+    if risk == RiskLevel.FORBIDDEN:
+        return risk, True
+    if not requires_approval and risk >= RiskLevel.APPROVAL_REQUIRED:
+        return RiskLevel.SAFE_ACTION, False
+    if requires_approval and risk < RiskLevel.APPROVAL_REQUIRED:
+        return RiskLevel.APPROVAL_REQUIRED, True
+    return risk, bool(requires_approval)
+
+
 class CapabilityCatalog:
     """Unified capability catalog — single source of truth."""
 
@@ -106,8 +125,12 @@ class CapabilityCatalog:
         self._override_store = override_store or CapabilityOverrideStore(override_path)
         self._aliases: dict[str, str] = {}
         self._lock = threading.RLock()
+        self._last_dir_mtime = 0.0
+        self._last_reload_check_ms = 0
         self._apply_overrides()
         self._load_aliases()
+        self._last_dir_mtime = self._dir_mtime()
+        self._last_reload_check_ms = int(time.time() * 1000)
 
     def _apply_overrides(self) -> None:
         """Apply persisted user overrides to manifests after disk load."""
@@ -166,10 +189,39 @@ class CapabilityCatalog:
             self._load_aliases()
             if self._exec_reg:
                 self._exec_reg.reload()
+            self._last_dir_mtime = self._dir_mtime()
+            self._last_reload_check_ms = int(time.time() * 1000)
             return result
+
+    def _dir_mtime(self) -> float:
+        root = getattr(self._cap_reg, "_dir", None)
+        if root is None:
+            return 0.0
+        latest = 0.0
+        try:
+            for path in Path(root).rglob("*.json"):
+                try:
+                    latest = max(latest, path.stat().st_mtime)
+                except OSError:
+                    continue
+        except OSError:
+            return latest
+        return latest
+
+    def _maybe_reload(self) -> None:
+        """Pick up add/edit/delete of capability JSON without a process restart."""
+        now = int(time.time() * 1000)
+        if now - self._last_reload_check_ms < 2000:
+            return
+        self._last_reload_check_ms = now
+        mtime = self._dir_mtime()
+        if mtime <= self._last_dir_mtime:
+            return
+        self.reload()
 
     def resolve(self, cap_id: str) -> CapabilityManifest | None:
         """Resolve any ID format (canonical, short, or old-prefix) to manifest."""
+        self._maybe_reload()
         with self._lock:
             direct = self._cap_reg.get(cap_id)
             if direct:
@@ -181,11 +233,13 @@ class CapabilityCatalog:
 
     def list_all(self, origin: str | None = None) -> list[CapabilityManifest]:
         """List all capabilities."""
+        self._maybe_reload()
         with self._lock:
             return self._cap_reg.list_all(origin=origin)
 
     def list_for_llm(self) -> list[dict[str, Any]]:
         """Get capability list formatted for LLM consumption."""
+        self._maybe_reload()
         with self._lock:
             manifests = [m for m in self._cap_reg.list_all() if m.enabled]
         return [
@@ -216,6 +270,7 @@ class CapabilityCatalog:
         Returns:
             List of OpenAI tool definitions.
         """
+        self._maybe_reload()
         tools = []
         with self._lock:
             manifests = [m for m in self._cap_reg.list_all() if m.enabled]
@@ -304,7 +359,7 @@ class CapabilityCatalog:
         for m in manifests:
             if not getattr(m, "enabled", True):
                 continue
-            risk_level = risk_level_from_label(m.risk_level)
+            risk_level, requires_approval = aligned_policy(m.risk_level, bool(m.requires_approval))
             if risk_level == RiskLevel.FORBIDDEN:
                 continue
             try:
@@ -314,7 +369,7 @@ class CapabilityCatalog:
                     description=(m.description[:80] if m.description else m.title or m.capability_id),
                     server_type=server_type_map.get(m.server_id, ServerType.AI),
                     risk_level=risk_level,
-                    requires_approval=m.requires_approval,
+                    requires_approval=requires_approval,
                     side_effects=m.side_effects,
                     tags=m.tags,
                 ))
@@ -364,14 +419,14 @@ class CapabilityCatalog:
         soft override for the same capability so effective policy matches the
         manifest after reload.
         """
-        with self._lock:
-            manifest = self.resolve(cap_id)
-            if manifest is None:
-                raise KeyError(f"Capability '{cap_id}' not found")
-            path = Path(manifest.file_path)
-            if not path.is_file():
-                raise FileNotFoundError(f"Capability manifest file missing: {path}")
+        manifest = self.resolve(cap_id)
+        if manifest is None:
+            raise KeyError(f"Capability '{cap_id}' not found")
+        path = Path(manifest.file_path)
+        if not path.is_file():
+            raise FileNotFoundError(f"Capability manifest file missing: {path}")
 
+        with self._lock:
             data = json.loads(path.read_text(encoding="utf-8-sig"))
             if not isinstance(data, dict):
                 raise ValueError(f"Capability manifest root must be an object: {path}")
@@ -387,8 +442,16 @@ class CapabilityCatalog:
                 if not normalized:
                     raise ValueError(f"Invalid risk level: {risk_level}")
                 risk["level"] = risk_json_label(normalized)
+                if requires_approval is None:
+                    requires_approval = normalized in {"APPROVAL_REQUIRED", "HIGH_RISK", "FORBIDDEN"}
             if requires_approval is not None:
                 risk["requires_approval"] = bool(requires_approval)
+            aligned_risk, aligned_approval = aligned_policy(
+                str(risk.get("level") or "low"),
+                bool(risk.get("requires_approval", False)),
+            )
+            risk["level"] = risk_json_label(aligned_risk.name)
+            risk["requires_approval"] = aligned_approval
             if approval_mode is not None:
                 mode = str(approval_mode).strip()
                 if mode:
@@ -407,7 +470,9 @@ class CapabilityCatalog:
 
             # Source JSON is authoritative after a dashboard edit.
             self._override_store.reset(manifest.capability_id)
-            return data
+            written = data
+        self.reload()
+        return written
 
     def risk_details(self, cap_id: str) -> dict[str, Any] | None:
         """Return manifest, override, and effective risk policy for a capability."""

@@ -31,7 +31,7 @@ from typing import Any
 from jsonschema import ValidationError, validate
 from pydantic import TypeAdapter
 
-from aegis_ai.capability_catalog import risk_level_from_label
+from aegis_ai.capability_catalog import aligned_policy
 from aegis_ai.production_readiness import is_mock_like_output, is_production_mode
 from aegis_schema.models import Capability, RiskLevel, ServerType
 from policy_engine import PolicyDecision, PolicyEngine, PolicyResult, create_default_policy_engine
@@ -47,7 +47,12 @@ def _capability_from_manifest(manifest: Any) -> Capability:
     Uses canonical ID format: server_id.app_id.action
     e.g., pc-server.screenshot.get_screenshot
     """
-    risk = risk_level_from_label(getattr(manifest, "risk_level", "low"))
+    risk, requires_approval = aligned_policy(
+        getattr(manifest, "risk_level", "low"),
+        bool(getattr(manifest, "requires_approval", False)),
+    )
+    if risk == RiskLevel.FORBIDDEN:
+        raise ValueError(f"Capability '{getattr(manifest, 'capability_id', '')}' is FORBIDDEN")
 
     server_id = getattr(manifest, "server_id", "ai-server")
     server_type_map = {
@@ -71,7 +76,7 @@ def _capability_from_manifest(manifest: Any) -> Capability:
         description=manifest.description or manifest.title or cap_id,
         server_type=server_type,
         risk_level=risk,
-        requires_approval=getattr(manifest, "requires_approval", False),
+        requires_approval=requires_approval,
         side_effects=list(getattr(manifest, "side_effects", [])),
         tags=manifest.tags,
     )
@@ -511,11 +516,7 @@ class ToolBroker:
                 policy_decision="VALIDATION_DENY",
             )
 
-        cap = self._registry.get_capability(request.capability_id)
-        if cap is None and self._folder_registry is not None:
-            manifest = self._folder_registry.get(request.capability_id)
-            if manifest is not None:
-                cap = _capability_from_manifest(manifest)
+        cap = self._live_capability(request.capability_id)
         if cap is None:
             return ToolExecutionResult(
                 request_id=request.request_id,
@@ -780,7 +781,7 @@ class ToolBroker:
                 error=validation_error,
             )
 
-        cap = self._registry.get_capability(capability_id)
+        cap = self._live_capability(capability_id)
         if cap is None:
             return InvokeResult(
                 status=InvokeStatus.NOT_FOUND,
@@ -905,7 +906,7 @@ class ToolBroker:
                 approval_id=approval_id,
             )
 
-        cap = self._registry.get_capability(manifest.capability_id)
+        cap = self._live_capability(manifest.capability_id)
         if cap is None:
             return ToolExecutionResult(
                 status=InvokeStatus.NOT_FOUND,
@@ -1075,7 +1076,27 @@ class ToolBroker:
             logger.debug("Failed to advance continuation %s", continuation_id, exc_info=True)
 
     def find_capability(self, capability_id: str) -> Capability | None:
-        return self._registry.get_capability(capability_id)
+        return self._live_capability(capability_id)
+
+    def _live_capability(self, capability_id: str) -> Capability | None:
+        """Build policy Capability from the live catalog, not a stale registry copy."""
+        manifest = self._resolve_manifest(capability_id)
+        if manifest is not None:
+            try:
+                return _capability_from_manifest(manifest)
+            except ValueError:
+                logger.warning("Live manifest for %s is not registerable", capability_id)
+        cap = self._registry.get_capability(capability_id)
+        if cap is not None:
+            return cap
+        if self._folder_registry is not None:
+            fallback = self._folder_registry.get(capability_id)
+            if fallback is not None:
+                try:
+                    return _capability_from_manifest(fallback)
+                except ValueError:
+                    return None
+        return None
 
     def _resolve_manifest(self, capability_id: str) -> Any | None:
         if self._catalog is None:

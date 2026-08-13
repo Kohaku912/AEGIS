@@ -33,7 +33,7 @@ _JST = timezone(timedelta(hours=9))
 _DATA_DIR = str(Path(__file__).resolve().parent.parent.parent.parent / "data")
 
 from flask import Flask, jsonify, redirect, render_template, request
-from aegis_ai.capability_catalog import normalize_risk_label, risk_level_from_label
+from aegis_ai.capability_catalog import aligned_policy, normalize_risk_label
 from aegis_ai.llm.memory_context import build_shared_memory_context
 from aegis_ai.web.auth import install_dashboard_token_auth
 from aegis_ai.web.chat_history import ChatHistoryStore, entry_to_mobile_messages
@@ -126,7 +126,9 @@ def _sync_tool_registry_from_catalog(runtime: Any) -> dict[str, int]:
             unregistered += 1
             skipped += 1
             continue
-        risk_level = risk_level_from_label(manifest.risk_level)
+        risk_level, requires_approval = aligned_policy(
+            manifest.risk_level, bool(manifest.requires_approval)
+        )
         if risk_level == RiskLevel.FORBIDDEN:
             registry.unregister_capability(manifest.capability_id)
             unregistered += 1
@@ -140,7 +142,7 @@ def _sync_tool_registry_from_catalog(runtime: Any) -> dict[str, int]:
                     description=manifest.description or manifest.title or manifest.capability_id,
                     server_type=server_type_map.get(manifest.server_id, ServerType.AI),
                     risk_level=risk_level,
-                    requires_approval=bool(manifest.requires_approval),
+                    requires_approval=requires_approval,
                     side_effects=list(manifest.side_effects),
                     tags=list(manifest.tags),
                 )

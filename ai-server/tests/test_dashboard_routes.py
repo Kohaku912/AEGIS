@@ -421,6 +421,54 @@ def test_capability_risk_update_resyncs_live_registry(monkeypatch, tmp_path) -> 
     assert result.status != InvokeStatus.APPROVAL_NEEDED
 
 
+def test_capability_requires_approval_false_allows_execute(monkeypatch, tmp_path) -> None:
+    from aegis_schema.models import RiskLevel
+    from tool_broker import ExecutionSource, InvokeStatus, ToolExecutionRequest
+
+    rt = _runtime(tmp_path)
+    client = dashboard_routes.DashboardApp(runtime=rt).app.test_client()
+    manifest_path = tmp_path / "data" / "capabilities" / "builtin" / "pc-server" / "test" / "act.json"
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "server_id": "pc-server",
+                "app_id": "test",
+                "action": "act",
+                "operation_category": "test_operation",
+                "title": "Act",
+                "description": "Act capability",
+                "risk": {"level": "approval_required", "requires_approval": True},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    response = client.post(
+        "/api/capabilities/pc-server.test.act/risk",
+        json={"requires_approval": False},
+        headers={"Origin": "http://127.0.0.1:8090"},
+        environ_base={"REMOTE_ADDR": "127.0.0.1"},
+    )
+    written = json.loads(manifest_path.read_text(encoding="utf-8"))
+    cap = rt.tool_registry.get_capability("pc-server.test.act")
+    result = rt.tool_broker.execute(
+        ToolExecutionRequest(
+            capability_id="pc-server.test.act",
+            arguments={},
+            source=ExecutionSource.USER_EXPLICIT,
+        )
+    )
+
+    assert response.status_code == 200
+    assert written["risk"]["requires_approval"] is False
+    assert written["risk"]["level"] == "safe"
+    assert cap is not None
+    assert cap.requires_approval is False
+    assert cap.risk_level == RiskLevel.SAFE_ACTION
+    assert result.status != InvokeStatus.APPROVAL_NEEDED
+
+
 def test_capability_risk_update_to_forbidden_unregisters(monkeypatch, tmp_path) -> None:
     rt = _runtime(tmp_path)
     client = dashboard_routes.DashboardApp(runtime=rt).app.test_client()

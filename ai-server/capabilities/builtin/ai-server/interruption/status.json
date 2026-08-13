@@ -7,5 +7,5 @@
   "operation_category": "notification",
   "risk": {"level": "low", "side_effects": [], "requires_approval": false},
   "input_schema": {"type": "object", "properties": {}},
-  "tags": ["interruption", "notification", "personal-ai", "read"]
+  "tags": ["interruption", "notification", "personal-ai", "read", "inventory"]
 }
