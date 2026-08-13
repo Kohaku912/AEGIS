@@ -253,4 +253,6 @@ class ServerExecutor:
     def _pc_tcp_timeout_seconds(cap_id: str) -> int:
         if cap_id.startswith("pc-server.discord.") or cap_id.startswith("pc.discord_"):
             return 60
+        if cap_id.endswith("personal_data.drain"):
+            return 20
         return 10

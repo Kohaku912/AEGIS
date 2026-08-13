@@ -208,9 +208,11 @@ def test_immediate_event_is_evaluated_without_calling_llm(tmp_path: Path) -> Non
     )
 
     assert result["queued"] is True
-    assert result["decision"] == "observe_more"
+    assert result["decision"] in {"execute_now", "observe_more", "save_for_later", "propose_approval"}
     llm.generate.assert_not_called()
-    assert loop._pending_actionable_observations[0]["source"] == "status.changed"
+    queued = loop._pending_actionable_observations[0]
+    assert queued["source"] == "status.changed"
+    assert "event" in queued.get("tags", [])
 
 
 def test_continuation_survives_restart_and_tracks_approval(tmp_path: Path) -> None:

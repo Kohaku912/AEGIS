@@ -101,6 +101,10 @@ fn handle_command(cmd: &str) -> String {
             serde_json::to_string(&result.unwrap())
                 .unwrap_or_else(|_| "{\"error\":\"json\"}".into())
         }
+        "personal_data_drain" => {
+            let events = crate::personal_data::drain();
+            json_response(&serde_json::json!({ "events": events, "count": events.len() }))
+        }
         "windows" => {
             let result = observe::list_windows();
             serde_json::to_string(&result.unwrap())

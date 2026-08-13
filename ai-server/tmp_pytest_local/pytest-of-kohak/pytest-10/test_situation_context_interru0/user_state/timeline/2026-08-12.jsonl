@@ -1,0 +1,1 @@
+{"day": "2026-08-12", "event_id": "user_state_56551d5517203f2c", "event_type": "pc.user_activity.snapshot", "payload": {"event_type": "pc.user_activity.snapshot", "fullscreen": true, "idle_ms": 1000, "keyboard_count": 2, "mouse_count": 2, "process_name": "Steam"}, "source": "pc-server", "timestamp_ms": 1786540253143}

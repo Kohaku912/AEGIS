@@ -5,6 +5,7 @@ import android.accessibilityservice.AccessibilityServiceInfo
 import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import com.aegis.android.grpc.AegisGrpcClient
+import com.aegis.android.provider.ScreenshotProvider
 import com.aegis.android.provider.UITreeProvider
 import com.aegis.android.provider.UserActivityCollector
 
@@ -15,6 +16,7 @@ import com.aegis.android.provider.UserActivityCollector
  * - UI tree extraction
  * - Tap/swipe gestures
  * - Text input
+ * - Personal Data Core stream (tap/text/focus/scroll/transition + optional screenshot)
  *
  * User must enable this in Settings > Accessibility > AEGIS Android
  */
@@ -23,6 +25,8 @@ class AegisAccessibilityService : AccessibilityService() {
     companion object {
         private const val TAG = "AegisAccessibility"
         private const val ACTIVITY_PUSH_THROTTLE_MS = 5_000L
+        private const val SCROLL_THROTTLE_MS = 1_000L
+        private const val SCREENSHOT_THROTTLE_MS = 5_000L
         var instance: AegisAccessibilityService? = null
             private set
         var uiTreeProvider: UITreeProvider? = null
@@ -33,13 +37,16 @@ class AegisAccessibilityService : AccessibilityService() {
     }
 
     private val userActivityCollector by lazy { UserActivityCollector(this) }
+    private val screenshotProvider by lazy { ScreenshotProvider(this) }
     private var lastActivityPushMs: Long = 0L
+    private var lastPersonalDataPushMs: Long = 0L
+    private var lastScrollPushMs: Long = 0L
+    private var lastScreenshotPushMs: Long = 0L
 
     override fun onServiceConnected() {
         super.onServiceConnected()
         instance = this
 
-        // Configure the service
         val info = serviceInfo.apply {
             eventTypes = AccessibilityEvent.TYPES_ALL_MASK
             feedbackType = AccessibilityServiceInfo.FEEDBACK_GENERIC
@@ -66,6 +73,7 @@ class AegisAccessibilityService : AccessibilityService() {
             lastForegroundPackage = packageName
             AegisGrpcClient.current()?.pushForegroundApp(packageName)
         }
+        pushPersonalDataEvent(event, packageName)
         if (shouldPushActivity(event)) {
             lastActivityPushMs = System.currentTimeMillis()
             AegisGrpcClient.current()?.pushUserActivity(userActivityCollector.collect().toString())
@@ -80,6 +88,82 @@ class AegisAccessibilityService : AccessibilityService() {
         super.onDestroy()
         instance = null
         Log.i(TAG, "AccessibilityService destroyed")
+    }
+
+    private fun pushPersonalDataEvent(event: AccessibilityEvent, packageName: String) {
+        val now = System.currentTimeMillis()
+        val eventType = when (event.eventType) {
+            AccessibilityEvent.TYPE_VIEW_CLICKED -> "android.ui.tapped"
+            AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED -> "android.ui.text_changed"
+            AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> "android.screen.transition"
+            AccessibilityEvent.TYPE_VIEW_FOCUSED -> "android.ui.focus_changed"
+            AccessibilityEvent.TYPE_VIEW_SCROLLED -> "android.ui.scrolled"
+            else -> return
+        }
+        if (eventType == "android.ui.scrolled") {
+            if (now - lastScrollPushMs < SCROLL_THROTTLE_MS) return
+            lastScrollPushMs = now
+        } else if (event.eventType != AccessibilityEvent.TYPE_VIEW_CLICKED) {
+            if (now - lastPersonalDataPushMs < 250L) return
+        }
+        lastPersonalDataPushMs = now
+
+        val source = event.source
+        val isPassword = source?.isPassword == true || event.isPassword
+        val controlName = (source?.viewIdResourceName ?: event.className?.toString() ?: "").ifBlank {
+            event.contentDescription?.toString().orEmpty()
+        }.ifBlank { if (isPassword) "password" else "" }
+        val text = event.text?.joinToString(" ").orEmpty().take(240)
+        val payload = org.json.JSONObject()
+            .put("event_type", eventType)
+            .put("package_name", packageName)
+            .put("control_name", controlName.take(120))
+            .put("is_password", isPassword)
+            .put("value", text)
+            .put("a11y_event", when (eventType) {
+                "android.ui.tapped" -> "click"
+                "android.ui.text_changed" -> "text"
+                "android.ui.focus_changed" -> "focus"
+                "android.ui.scrolled" -> "scroll"
+                else -> "window"
+            })
+            .put("timestamp_ms", now)
+
+        if (eventType == "android.ui.scrolled") {
+            payload.put("scroll_x", event.scrollX)
+            payload.put("scroll_y", event.scrollY)
+        }
+        if (eventType == "android.ui.tapped" && source != null) {
+            val bounds = android.graphics.Rect()
+            source.getBoundsInScreen(bounds)
+            if (!bounds.isEmpty) {
+                payload.put("click_x", bounds.centerX())
+                payload.put("click_y", bounds.centerY())
+                payload.put("click_w", bounds.width())
+                payload.put("click_h", bounds.height())
+            }
+        }
+
+        if (eventType == "android.screen.transition" && now - lastScreenshotPushMs >= SCREENSHOT_THROTTLE_MS) {
+            try {
+                if (screenshotProvider.isAvailable()) {
+                    val shot = screenshotProvider.captureScreenshot()
+                    val b64 = shot?.imageBase64.orEmpty()
+                    if (b64.isNotBlank()) {
+                        payload.put("screenshot_jpeg_base64", b64)
+                        lastScreenshotPushMs = now
+                    }
+                }
+            } catch (exc: Exception) {
+                Log.d(TAG, "screenshot on transition skipped", exc)
+            }
+        }
+
+        AegisGrpcClient.current()?.pushPersonalData(eventType, payload.toString())
+        try {
+            source?.recycle()
+        } catch (_: Exception) {
+        }
     }
 
     private fun shouldPushActivity(event: AccessibilityEvent): Boolean {
@@ -163,9 +247,6 @@ class AegisAccessibilityService : AccessibilityService() {
         return score
     }
 
-    /**
-     * Get the current UI tree.
-     */
     fun getUITree(): UITreeProvider.UINode? {
         val rootNode = rootInActiveWindow ?: return null
         return buildUINode(rootNode)

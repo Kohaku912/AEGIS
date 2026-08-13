@@ -121,6 +121,7 @@ export type AuditPageResult = {
   limit: number;
   total: number;
   totalPages: number;
+  eventTypes?: Array<{ event_type: string; count: number }>;
 };
 
 export async function fetchAuditEntries(page = 1, limit = 50): Promise<AuditPageResult> {
@@ -165,6 +166,69 @@ export async function fetchJournalEvents(page = 1, limit = 50): Promise<AuditPag
     total: Number(payload.total || items.length),
     totalPages: Number(payload.total_pages || 1),
   };
+}
+
+export async function fetchPersonalDataTimeline(
+  page = 1,
+  limit = 50,
+  device = "",
+  eventType = "",
+): Promise<AuditPageResult> {
+  const params = new URLSearchParams({ page: String(page), limit: String(limit) });
+  if (device) params.set("device", device);
+  if (eventType) params.set("event_type", eventType);
+  const response = await fetch(`/api/personal-data/timeline?${params}`, { credentials: "include" });
+  const payload = await requireJson<Record<string, unknown>>(response, "Could not load personal timeline");
+  const items = Array.isArray(payload.items) ? payload.items as Array<Record<string, unknown>> : [];
+  const eventTypes = Array.isArray(payload.event_types)
+    ? (payload.event_types as Array<Record<string, unknown>>).map((row) => ({
+      event_type: String(row.event_type || ""),
+      count: Number(row.count || 0),
+    })).filter((row) => row.event_type)
+    : [];
+  const total = Number(payload.total || items.length);
+  return {
+    items,
+    page,
+    limit: Number(payload.limit || limit),
+    total,
+    totalPages: Math.max(1, Math.ceil(total / Math.max(1, limit))),
+    eventTypes,
+  };
+}
+
+/** Fetch every matching PDC event (paged under the API cap). */
+export async function fetchPersonalDataTimelineAll(
+  device = "",
+  eventType = "",
+  pageLimit = 50_000,
+): Promise<AuditPageResult> {
+  const first = await fetchPersonalDataTimeline(1, pageLimit, device, eventType);
+  if (first.total <= first.items.length) return first;
+  const pages = Math.ceil(first.total / pageLimit);
+  const items = [...first.items];
+  for (let page = 2; page <= pages; page += 1) {
+    const chunk = await fetchPersonalDataTimeline(page, pageLimit, device, eventType);
+    items.push(...chunk.items);
+  }
+  return { ...first, items, limit: items.length, page: 1, totalPages: 1 };
+}
+
+export async function fetchPersonalDataEvent(eventId: string): Promise<Record<string, unknown>> {
+  const response = await fetch(`/api/personal-data/events/${encodeURIComponent(eventId)}`, { credentials: "include" });
+  return requireJson<Record<string, unknown>>(response, "Could not load personal-data event");
+}
+
+export async function searchPersonalData(query: string, limit = 10_000, device = ""): Promise<AuditPageResult> {
+  const params = new URLSearchParams({ q: query, limit: String(limit) });
+  if (device) params.set("device", device);
+  const response = await fetch(`/api/personal-data/search?${params}`, {
+    credentials: "include",
+  });
+  const payload = await requireJson<Record<string, unknown>>(response, "Could not search personal data");
+  const items = Array.isArray(payload.items) ? payload.items as Array<Record<string, unknown>> : [];
+  const total = Number(payload.total || items.length);
+  return { items, page: 1, limit, total, totalPages: 1 };
 }
 
 export async function fetchActivityLogs(page = 1, limit = 30): Promise<AuditPageResult> {

@@ -129,13 +129,15 @@ def _csrf_ok() -> bool:
 
 
 def _fresh_required(path: str) -> bool:
+    if path.startswith("/api/personal-data/evidence"):
+        return True
     if request.method not in {"POST", "PUT", "PATCH", "DELETE"}:
         return False
     if path.startswith("/api/approvals/") and (
         path.endswith("/approve") or path.endswith("/modify-and-approve") or path.endswith("/cancel")
     ):
         return True
-    if path.startswith("/api/llm/") or path.startswith("/api/settings"):
+    if path.startswith("/api/settings") or path.startswith("/api/personal-data/export") or path.startswith("/api/personal-data/delete"):
         return True
     if path.startswith("/api/memories/"):
         return True

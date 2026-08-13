@@ -1,1 +1,0 @@
-{"title": "Strict Tool", "description": "Strict validation test tool.", "server_id": "ai-server", "app_id": "strict", "action": "run", "operation_category": "observe", "risk": {"level": "low", "requires_approval": false}, "input_schema": {"type": "object", "properties": {"name": {"type": "string"}}, "required": ["name"], "additionalProperties": false}}

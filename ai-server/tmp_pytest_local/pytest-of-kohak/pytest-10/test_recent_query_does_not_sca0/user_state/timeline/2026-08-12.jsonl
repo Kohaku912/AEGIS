@@ -1,0 +1,1 @@
+{"day": "2026-08-12", "event_id": "user_state_ab50e05fd0b2b245", "event_type": "pc.user_activity.snapshot", "payload": {"event_type": "pc.user_activity.snapshot", "process_name": "Code.exe"}, "source": "pc-server", "timestamp_ms": 1786540252785}

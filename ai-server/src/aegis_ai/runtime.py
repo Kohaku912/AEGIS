@@ -90,6 +90,7 @@ class AegisRuntime:
     goal_service: Any = None
     saved_view_manager: Any = None
     operation_store: Any = None
+    personal_data_core: Any = None
     _lock: threading.RLock | None = None
 
     def start_autonomous_if_enabled(self) -> None:
@@ -130,6 +131,12 @@ class AegisRuntime:
                 user_state_manager.stop()
             except Exception:
                 logger.debug("Failed to stop user state manager", exc_info=True)
+        personal_data_core = getattr(self, "personal_data_core", None)
+        if personal_data_core is not None and hasattr(personal_data_core, "stop"):
+            try:
+                personal_data_core.stop()
+            except Exception:
+                logger.debug("Failed to stop personal data core", exc_info=True)
         if self.sleep_manager is not None and hasattr(self.sleep_manager, "close"):
             try:
                 self.sleep_manager.close()
@@ -432,6 +439,16 @@ def _build_runtime(config: Config) -> AegisRuntime:
         event_manager=event_manager,
         settings_store=settings_store,
     )
+    from aegis_ai.personal_data import PersonalDataCore
+
+    personal_data_core = PersonalDataCore(
+        data_dir,
+        event_manager=event_manager,
+        settings_store=settings_store,
+        audit_manager=audit_manager,
+        server_executor=server_executor,
+    )
+    event_manager._personal_data_core = personal_data_core
     situation_model = SituationModel(data_dir=personal_dir, event_manager=event_manager, user_state_manager=user_state_manager)
     delegation_policy = DelegationPolicyStore(
         data_dir=personal_dir,
@@ -651,6 +668,7 @@ def _build_runtime(config: Config) -> AegisRuntime:
         llm_gateway=llm_gateway,
         event_manager=event_manager,
     )
+    personal_data_core._memory = memory_manager
     from aegis_ai.personal_ai import RepairManager
 
     repair_manager = RepairManager(
@@ -688,6 +706,7 @@ def _build_runtime(config: Config) -> AegisRuntime:
     if core_client is not None and hasattr(core_client, "_personal"):
         core_client._personal["memory_manager"] = memory_manager
         core_client._personal["repair_manager"] = repair_manager
+        core_client._personal["personal_data_core"] = personal_data_core
     tool_broker.set_repair_manager(repair_manager)
     execution_engine._repair_manager = repair_manager
     sleep_manager = SleepManager(
@@ -696,6 +715,7 @@ def _build_runtime(config: Config) -> AegisRuntime:
         audit_manager=audit_manager,
         llm_gateway=llm_gateway,
     )
+    sleep_manager._personal_data_core = personal_data_core
     if core_client is not None and hasattr(core_client, "_personal"):
         core_client._personal["sleep_manager"] = sleep_manager
 
@@ -733,6 +753,7 @@ def _build_runtime(config: Config) -> AegisRuntime:
             status_manager=status_manager,
             interval_seconds=pc_poll_interval,
         )
+        personal_data_core.start_background(server_executor)
     except Exception:
         logger.debug("Failed to start user-state PC poller", exc_info=True)
 
@@ -792,6 +813,7 @@ def _build_runtime(config: Config) -> AegisRuntime:
         goal_service=goal_service,
         saved_view_manager=SavedViewManager(data_dir, audit_manager),
         operation_store=operation_store,
+        personal_data_core=personal_data_core,
         _lock=threading.RLock(),
     )
     runtime_ref["runtime"] = runtime
@@ -806,6 +828,8 @@ def _build_runtime(config: Config) -> AegisRuntime:
         "commitment.due",
         "browser.discovery",
         "android.permission.changed",
+        "android.notification.posted",
+        "android.notification_received",
     }
     # Debounce high-frequency Android activity noise (observe_more spam).
     _android_debounce_ms = int(os.environ.get("AEGIS_ANDROID_EVENT_DEBOUNCE_MS", "60000"))

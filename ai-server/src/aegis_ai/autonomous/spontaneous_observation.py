@@ -503,10 +503,23 @@ class SpontaneousObservationSystem:
             except Exception:
                 logger.debug("Task manager observation failed", exc_info=True)
 
-        if self._user_state_manager is not None and hasattr(self._user_state_manager, "to_context_string"):
+        if self._user_state_manager is not None:
             try:
-                ctx = self._user_state_manager.to_context_string()
+                ctx = ""
+                if hasattr(self._user_state_manager, "to_context_string"):
+                    ctx = str(self._user_state_manager.to_context_string() or "")
+                label = ""
+                if hasattr(self._user_state_manager, "get_current_user_state"):
+                    state = self._user_state_manager.get_current_user_state() or {}
+                    activity = state.get("activity") if isinstance(state.get("activity"), dict) else {}
+                    label = str(activity.get("label") or "")
                 if ctx and "unknown" not in ctx.lower():
+                    sleeping = label == "sleeping"
+                    focused = label in {"gaming", "watching_video", "focused"}
+                    interruptible = not sleeping and not focused and label != "away"
+                    tags = ["user_state"]
+                    if interruptible:
+                        tags.append("event")
                     obs.append(
                         Observation(
                             observation_id=f"obs_{os.urandom(4).hex()}",
@@ -514,12 +527,20 @@ class SpontaneousObservationSystem:
                             observation_type="interesting",
                             source="user_state",
                             description=f"User situation: {ctx[:160]}",
-                            importance=0.55,
-                            novelty=0.1,
-                            actionable=False,
-                            tags=["user_state"],
+                            importance=0.45 if sleeping else (0.72 if focused else 0.78),
+                            novelty=0.15,
+                            actionable=not sleeping,
+                            suggested_action=(
+                                "Stay quiet unless something important needs the user."
+                                if sleeping or focused
+                                else "Act on the current situation with a concrete capability."
+                            ),
+                            related_desire="user_support",
+                            tags=tags,
                         )
                     )
+                    if interruptible and self._desire is not None and hasattr(self._desire, "accumulate_pressure"):
+                        self._desire.accumulate_pressure("user_support", 0.5, "user_situation")
             except Exception:
                 logger.debug("User state observation failed", exc_info=True)
 

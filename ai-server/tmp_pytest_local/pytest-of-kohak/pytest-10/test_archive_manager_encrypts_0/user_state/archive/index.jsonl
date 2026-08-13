@@ -1,0 +1,1 @@
+{"algorithm": "gzip+AESGCM", "archive_path": "C:\\Users\\kohak\\programs\\AEGIS\\ai-server\\tmp_pytest_local\\pytest-of-kohak\\pytest-10\\test_archive_manager_encrypts_0\\user_state\\archive\\2026-08-10.jsonl.gz.aesgcm", "archived_at_ms": 1786540253124, "bytes_encrypted": 202, "bytes_plain": 247, "day": "2026-08-10"}

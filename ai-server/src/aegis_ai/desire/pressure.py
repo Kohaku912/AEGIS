@@ -85,10 +85,18 @@ class PressureEngine:
         self._apply_delta(desire, delta)
 
     def accumulate_from_event(self, desire: str, event_type: str, severity: float) -> None:
-        """Accumulate pressure from a system event."""
+        """Accumulate pressure from a system event.
+
+        Known event types use a small base * severity. Unknown reasons treat
+        ``severity`` as a direct delta so DesireSystem.accumulate_pressure()
+        actually moves the needle.
+        """
         if severity <= 0:
             return
-        base = _EVENT_PRESSURE_DELTAS.get(event_type, 0.0)
+        base = _EVENT_PRESSURE_DELTAS.get(event_type)
+        if base is None:
+            self._apply_delta(desire, min(float(severity), 3.0))
+            return
         if base <= 0:
             return
         self._apply_delta(desire, base * severity)

@@ -62,6 +62,12 @@ pub struct UserActivitySnapshot {
     pub mouse_count: u32,
     pub key_event_count: u32,
     pub key_category_counts: BTreeMap<String, u32>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub keys: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub mouse_buttons: Vec<String>,
+    pub cursor_x: i32,
+    pub cursor_y: i32,
     pub input_target_category: String,
     pub idle_ms: u64,
     pub locked: bool,
@@ -152,7 +158,8 @@ pub fn get_user_activity_snapshot() -> Result<UserActivitySnapshot, String> {
         && active.y <= 0
         && active.width >= screen.width.saturating_sub(8)
         && active.height >= screen.height.saturating_sub(8);
-    let (keyboard_count, mouse_count, key_category_counts) = get_input_transition_counts();
+    let input = get_input_transition_counts();
+    let (cursor_x, cursor_y) = get_cursor_pos();
     let app_name = app_name_from_process(&active.process_name);
     let input_target_category =
         input_target_category(&active.process_name, &active.title, fullscreen);
@@ -164,10 +171,14 @@ pub fn get_user_activity_snapshot() -> Result<UserActivitySnapshot, String> {
         pid: active.pid,
         browser_domain: String::new(),
         browser_url_hash: String::new(),
-        keyboard_count,
-        mouse_count,
-        key_event_count: keyboard_count.saturating_add(mouse_count),
-        key_category_counts,
+        keyboard_count: input.keyboard_count,
+        mouse_count: input.mouse_count,
+        key_event_count: input.keyboard_count.saturating_add(input.mouse_count),
+        key_category_counts: input.key_category_counts,
+        keys: input.keys,
+        mouse_buttons: input.mouse_buttons,
+        cursor_x,
+        cursor_y,
         input_target_category,
         idle_ms: get_idle_ms(),
         locked: false,
@@ -175,8 +186,16 @@ pub fn get_user_activity_snapshot() -> Result<UserActivitySnapshot, String> {
     })
 }
 
+struct InputTransitions {
+    keyboard_count: u32,
+    mouse_count: u32,
+    key_category_counts: BTreeMap<String, u32>,
+    keys: Vec<String>,
+    mouse_buttons: Vec<String>,
+}
+
 #[cfg(target_os = "windows")]
-fn get_input_transition_counts() -> (u32, u32, BTreeMap<String, u32>) {
+fn get_input_transition_counts() -> InputTransitions {
     use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
         GetAsyncKeyState, VK_LBUTTON, VK_MBUTTON, VK_RBUTTON, VK_XBUTTON1, VK_XBUTTON2,
     };
@@ -192,6 +211,8 @@ fn get_input_transition_counts() -> (u32, u32, BTreeMap<String, u32>) {
     let mut keyboard_count = 0u32;
     let mut mouse_count = 0u32;
     let mut category_counts = empty_key_category_counts();
+    let mut keys = Vec::new();
+    let mut mouse_buttons = Vec::new();
 
     unsafe {
         for vk in 1..=254 {
@@ -203,17 +224,112 @@ fn get_input_transition_counts() -> (u32, u32, BTreeMap<String, u32>) {
             increment_category(&mut category_counts, category);
             if mouse_keys.contains(&vk) {
                 mouse_count = mouse_count.saturating_add(1);
+                mouse_buttons.push(key_name(vk));
             } else {
                 keyboard_count = keyboard_count.saturating_add(1);
+                keys.push(key_name(vk));
             }
         }
     }
-    (keyboard_count, mouse_count, category_counts)
+    InputTransitions {
+        keyboard_count,
+        mouse_count,
+        key_category_counts: category_counts,
+        keys,
+        mouse_buttons,
+    }
 }
 
 #[cfg(not(target_os = "windows"))]
-fn get_input_transition_counts() -> (u32, u32, BTreeMap<String, u32>) {
-    (0, 0, empty_key_category_counts())
+fn get_input_transition_counts() -> InputTransitions {
+    InputTransitions {
+        keyboard_count: 0,
+        mouse_count: 0,
+        key_category_counts: empty_key_category_counts(),
+        keys: Vec::new(),
+        mouse_buttons: Vec::new(),
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn get_cursor_pos() -> (i32, i32) {
+    use windows_sys::Win32::Foundation::POINT;
+    use windows_sys::Win32::UI::WindowsAndMessaging::GetCursorPos;
+    let mut point = POINT { x: 0, y: 0 };
+    let ok = unsafe { GetCursorPos(&mut point) };
+    if ok == 0 {
+        (0, 0)
+    } else {
+        (point.x, point.y)
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn get_cursor_pos() -> (i32, i32) {
+    (0, 0)
+}
+
+pub(crate) fn key_name(vk: i32) -> String {
+    match vk {
+        0x01 => "LButton".into(),
+        0x02 => "RButton".into(),
+        0x04 => "MButton".into(),
+        0x05 => "XButton1".into(),
+        0x06 => "XButton2".into(),
+        0x08 => "Backspace".into(),
+        0x09 => "Tab".into(),
+        0x0D => "Enter".into(),
+        0x10 => "Shift".into(),
+        0x11 => "Ctrl".into(),
+        0x12 => "Alt".into(),
+        0x13 => "Pause".into(),
+        0x14 => "CapsLock".into(),
+        0x1B => "Esc".into(),
+        0x20 => "Space".into(),
+        0x21 => "PageUp".into(),
+        0x22 => "PageDown".into(),
+        0x23 => "End".into(),
+        0x24 => "Home".into(),
+        0x25 => "Left".into(),
+        0x26 => "Up".into(),
+        0x27 => "Right".into(),
+        0x28 => "Down".into(),
+        0x2C => "PrintScreen".into(),
+        0x2D => "Insert".into(),
+        0x2E => "Delete".into(),
+        0x5B => "LWin".into(),
+        0x5C => "RWin".into(),
+        0x5D => "App".into(),
+        0x70..=0x87 => format!("F{}", vk - 0x6F),
+        0x90 => "NumLock".into(),
+        0x91 => "ScrollLock".into(),
+        0xA0 => "LShift".into(),
+        0xA1 => "RShift".into(),
+        0xA2 => "LCtrl".into(),
+        0xA3 => "RCtrl".into(),
+        0xA4 => "LAlt".into(),
+        0xA5 => "RAlt".into(),
+        0xBA => ";".into(),
+        0xBB => "=".into(),
+        0xBC => ",".into(),
+        0xBD => "-".into(),
+        0xBE => ".".into(),
+        0xBF => "/".into(),
+        0xC0 => "`".into(),
+        0xDB => "[".into(),
+        0xDC => "\\".into(),
+        0xDD => "]".into(),
+        0xDE => "'".into(),
+        0x30..=0x39 => ((b'0' + (vk - 0x30) as u8) as char).to_string(),
+        0x41..=0x5A => ((b'A' + (vk - 0x41) as u8) as char).to_string(),
+        0x60..=0x69 => format!("Num{}", vk - 0x60),
+        0x6A => "Num*".into(),
+        0x6B => "Num+".into(),
+        0x6D => "Num-".into(),
+        0x6E => "Num.".into(),
+        0x6F => "Num/".into(),
+        _ => format!("VK_{vk:02X}"),
+    }
 }
 
 fn empty_key_category_counts() -> BTreeMap<String, u32> {
@@ -406,6 +522,15 @@ mod tests {
         assert_eq!(key_category(0x10), "modifier");
         assert_eq!(key_category(0x01), "mouse");
         assert_eq!(key_category(0x2C), "system");
+    }
+
+    #[test]
+    fn key_name_maps_common_virtual_keys() {
+        assert_eq!(key_name(0x41), "A");
+        assert_eq!(key_name(0x0D), "Enter");
+        assert_eq!(key_name(0x01), "LButton");
+        assert_eq!(key_name(0x70), "F1");
+        assert_eq!(key_name(0x25), "Left");
     }
 
     #[test]

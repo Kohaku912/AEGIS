@@ -1,0 +1,13 @@
+{
+  "id": "pc-server.personal_data.drain",
+  "title": "Drain PC personal-data events",
+  "description": "Return buffered window/UIA/URL events and optional change-triggered JPEG screenshots for Personal Data Core.",
+  "server_id": "pc-server",
+  "app_id": "personal_data",
+  "action": "drain",
+  "operation_category": "read_only",
+  "risk": {"level": "low", "side_effects": [], "requires_approval": false},
+  "tags": ["pc", "observe", "personal_data", "read_only"],
+  "params": {"type": "object", "properties": {}, "additionalProperties": false},
+  "tcp_command": "personal_data_drain"
+}

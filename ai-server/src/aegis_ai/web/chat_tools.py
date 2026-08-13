@@ -837,9 +837,9 @@ def _llm_wants_tools(
         "Decide whether the CURRENT user request requires external tool/capability execution.\n"
         "Return ONLY compact JSON with this shape: "
         '{"use_tools": true|false, "reason": "short reason"}\n\n'
-        "Use tools only when the request requires observing or changing external state, "
-        "such as device state, screen contents, files, browsing, server status, approvals, or physical devices.\n"
-        "Do not use tools for greetings, simple conversation, translation, or requests that can be answered directly.\n\n"
+        "Prefer tools whenever a capability would observe or change the world, look something up, "
+        "or make the answer more accurate than memory alone. Set use_tools false only for greetings, "
+        "thanks, or purely conversational replies that need no external state.\n\n"
         f"CURRENT user request:\n{user_message}"
     )
     try:

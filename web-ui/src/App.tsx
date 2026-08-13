@@ -43,6 +43,7 @@ import { RawActivityPage } from "./pages/RawActivityPage";
 import { Settings } from "./pages/Settings";
 import { SocialPage } from "./pages/SocialPage";
 import { Systems } from "./pages/Systems";
+import { TimelinePage } from "./pages/TimelinePage";
 import { UserStatePage } from "./pages/UserStatePage";
 import { Work } from "./pages/Work";
 import { formatDateTime, formatRelative, messages } from "./i18n";
@@ -410,6 +411,7 @@ function Page({
   if (pageId === "notifications") return <NotificationsPage overview={overview} />;
   if (pageId === "audit" || pageId === "activity") return <AuditPage />;
   if (pageId === "personal-ai") return <PersonalAiPage overview={overview} />;
+  if (pageId === "timeline") return <TimelinePage overview={overview} />;
   if (pageId === "user-state") return <UserStatePage overview={overview} />;
   if (pageId === "settings-all") return <AllSettingsPage />;
   if (pageId === "diagnostics") return <DiagnosticsPage overview={overview} />;

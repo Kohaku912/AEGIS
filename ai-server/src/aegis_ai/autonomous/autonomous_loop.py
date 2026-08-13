@@ -450,6 +450,9 @@ class AutonomousLoop:
 
                 time_since_last_run = now - self._last_run_ms
                 can_execute = time_since_last_run >= self._min_execution_interval_ms
+                if now - self._last_observation_ms >= self._idle_wake_cap_ms:
+                    self._refresh_observations_for_cycle()
+                has_wake_work = self._has_interval_bypass_work()
                 # Desire threshold owns cadence: bypass long llm/no_action schedules once the
                 # unmet-desire retry window has elapsed. Still honour a short cooldown so
                 # unmet pressure cannot re-fire on every tick.
@@ -457,8 +460,9 @@ class AutonomousLoop:
                 if can_execute and (
                     due
                     or (desire_triggered and self._unmet_desire_retry_due(now))
+                    or has_wake_work
                 ):
-                    self._execute_cycle(force_desire=desire_triggered)
+                    self._execute_cycle(force_desire=desire_triggered or has_wake_work)
                 else:
                     sleep_manager = getattr(self, "_sleep_manager", None)
                     if sleep_manager is None:
@@ -564,7 +568,16 @@ class AutonomousLoop:
                     actionable.append(o)
             if actionable:
                 logger.info("Observation found %d actionable items", len(actionable))
-                self._pending_actionable_observations = [o.to_dict() for o in actionable[:5]]
+                incoming = [o.to_dict() for o in actionable[:5]]
+                merged: list[dict[str, Any]] = []
+                seen: set[tuple[str, str]] = set()
+                for item in [*self._pending_actionable_observations, *incoming]:
+                    key = (str(item.get("source") or ""), str(item.get("description") or "")[:80])
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    merged.append(item)
+                self._pending_actionable_observations = merged[-12:]
         except Exception as e:
             logger.warning("Observation failed: %s", e)
         finally:
@@ -631,7 +644,8 @@ class AutonomousLoop:
         max_pressure = max((d["pressure"] for d in pressure_state.values()), default=0.0)
 
         has_obligations = bool(self._priority_obligations())
-        if max_pressure < self._pressure_threshold and not has_obligations:
+        has_pending = bool(self._pending_actionable_observations)
+        if max_pressure < self._pressure_threshold and not has_obligations and not has_pending:
             return False, f"all_pressure_below_threshold (max={max_pressure:.1f} < {self._pressure_threshold:.1f})"
 
         if not self._llm:
@@ -647,7 +661,11 @@ class AutonomousLoop:
         if high_usage:
             return False, usage_reason
 
-        return True, "priority_obligation" if has_obligations else "ok"
+        if has_obligations:
+            return True, "priority_obligation"
+        if has_pending:
+            return True, "pending_observation"
+        return True, "ok"
 
     def _priority_obligations(self) -> list[dict[str, Any]]:
         """Return unresolved duties from the shared AgentState."""
@@ -692,6 +710,23 @@ class AutonomousLoop:
         """Pass-through: never skip tasks for semantic repetition (freedom over anti-repeat)."""
         del action_history  # retained for call-site compatibility
         return tasks
+
+    def _current_interruption_cost(self) -> float:
+        """Map SituationModel interruptibility into InitiativeEngine's cost axis."""
+        agent_state = getattr(self, "_agent_state", None)
+        if agent_state is None:
+            return 0.15
+        try:
+            situation = agent_state.snapshot("autonomous interrupt").situation or {}
+        except Exception:
+            return 0.15
+        kind = str(situation.get("interruptibility") or "").lower()
+        return {
+            "suppress": 0.9,
+            "important_only": 0.55,
+            "batch_later": 0.4,
+            "interruptible": 0.1,
+        }.get(kind, 0.2)
 
     def _has_interval_bypass_work(self) -> bool:
         """Obligations / incident observations may bypass the homeostatic LLM interval."""
@@ -1332,16 +1367,16 @@ class AutonomousLoop:
         retry: bool = False,
     ) -> Any:
         system_prompt = (
-            "You are AEGIS's initiative evaluator. Consider continuity, expected user value, social "
-            "obligation, urgency, uncertainty, risk, repetition, and interruption cost. Select a tool only "
-            "when acting now is justified. Approval-required tools may be selected as proposals and are not "
-            "executed before approval. When non-action is more appropriate, return a concise reason. Use "
-            "purpose-specific browser capabilities and keep agent-private research off the user's display."
+            "You are AEGIS's initiative evaluator. Prefer a concrete capability when obligations, "
+            "observations, or a useful user situation are present. Consider interruption cost: stay quiet "
+            "only when the user must not be interrupted or there is truly nothing to do. Approval-required "
+            "tools may be selected as proposals and are not executed before approval. Use purpose-specific "
+            "browser capabilities and keep agent-private research off the user's display."
         )
         if retry:
             system_prompt += (
-                " Re-evaluate once for a missed useful action. It is valid to choose non-action again, but "
-                "state the concrete reason instead of returning an empty response."
+                " Re-evaluate once for a missed useful action. Choose a tool unless interruption is "
+                "forbidden or no offered capability can help. State the concrete reason if you still decline."
             )
         from aegis_ai.llm.router import accepts_kwarg
 
@@ -1488,7 +1523,8 @@ Social-channel posts (e.g. AGORA) are only for reciprocal social responses when 
 expects or warrants a reply — never for internal incidents, timeouts, permissions, approval
 meta, system status dumps, or meaningless probes. Route internal status to presentations
 or the dashboard instead of public social posts.
-It is valid to select no capability when action is unnecessary or cannot advance a verified outcome.
+Prefer a capability when observations or obligations exist. Select no capability only when the
+user must not be interrupted or no offered tool can advance a real outcome.
 Choose an action when its expected value exceeds risk, interruption, cost, and uncertainty.
 
 Desire action guides:
@@ -1637,6 +1673,7 @@ Operational decision axes (prioritization only; not additional desires):
                     "approval_required": 0.35,
                     "high_risk": 0.7,
                 }.get(risk_name, 0.2)
+                interruption_cost = self._current_interruption_cost()
                 candidate = ActionCandidate(
                     candidate_id=f"candidate_{int(time.time() * 1000)}_{i}",
                     goal=f"Advance the {desire} objective with {cap_id}",
@@ -1644,12 +1681,12 @@ Operational decision axes (prioritization only; not additional desires):
                     trigger="homeostatic",
                     expected_benefit=min(1.0, pressure / 10.0),
                     urgency=min(1.0, pressure / 10.0),
-                    relevance=0.5,
+                    relevance=0.7 if (pending_observations or priority_obligations) else 0.45,
                     continuity_value=0.55 if (pending_observations or priority_obligations) else 0.0,
                     commitment_value=0.6 if priority_obligations else 0.0,
                     risk=risk_cost,
                     uncertainty=0.2,
-                    interruption_cost=0.1,
+                    interruption_cost=interruption_cost,
                     repetition=0.0,
                     candidate_capabilities=[cap_id],
                     visibility=str(args.get("viewer") or "agent_private"),
@@ -1660,6 +1697,9 @@ Operational decision axes (prioritization only; not additional desires):
                 disposition = CapabilityDisposition(str(option.get("disposition") or "unavailable"))
                 decision, initiative_reason = self._initiative_engine.evaluate(candidate, disposition)
                 initiative_decision = decision.value
+                if initiative_decision == "save_for_later" and risk_name in {"read_only", "safe_action"}:
+                    initiative_decision = "execute_now"
+                    initiative_reason = "Postponed work is still safe to run now."
                 if initiative_decision not in {"execute_now", "propose_approval"}:
                     self._log_audit_event(
                         action="autonomous_initiative_no_action",
@@ -3209,15 +3249,23 @@ Rules:
                 "description": str(detail.get("safe_message") or event_type),
                 "context": detail,
                 "created_at_ms": int(time.time() * 1000),
+                "observation_type": "incident",
+                "actionable": True,
+                "importance": 0.8,
+                "tags": ["event", "obligation"],
+                "suggested_action": "Handle this event with a concrete capability.",
             }
         )
+        if self._desire is not None and hasattr(self._desire, "accumulate_pressure"):
+            desire_name = "social" if event_type.startswith("social.") else "user_support"
+            self._desire.accumulate_pressure(desire_name, 1.2, event_type)
         decision = "observe_more"
         reason = "Event was captured for the next bounded reasoning cycle."
         if self._initiative_engine is not None:
             from aegis_ai.autonomous.models import ActionCandidate, CapabilityDisposition
 
             capability_id = str(detail.get("capability_id") or "")
-            disposition = CapabilityDisposition.DEFER
+            disposition = CapabilityDisposition.EXECUTE_SAFE
             if capability_id:
                 option = self._available_capability_options().get(capability_id, {})
                 try:
@@ -3231,15 +3279,15 @@ Rules:
                 trigger=event_type,
                 related_task=str(detail.get("task_id") or ""),
                 related_conversation=str(detail.get("conversation_id") or ""),
-                expected_benefit=float(detail.get("expected_benefit", 0.4) or 0.4),
+                expected_benefit=float(detail.get("expected_benefit", 0.6) or 0.6),
                 social_obligation=float(detail.get("social_obligation", 0.0) or 0.0),
-                urgency=float(detail.get("urgency", 0.5) or 0.5),
-                relevance=float(detail.get("relevance", 0.5) or 0.5),
+                urgency=float(detail.get("urgency", 0.7) or 0.7),
+                relevance=float(detail.get("relevance", 0.7) or 0.7),
                 continuity_value=0.5,
                 risk=float(detail.get("risk", 0.1) or 0.1),
-                uncertainty=float(detail.get("uncertainty", 0.3) or 0.3),
-                interruption_cost=float(detail.get("interruption_cost", 0.2) or 0.2),
-                candidate_capabilities=[capability_id] if capability_id else [],
+                uncertainty=float(detail.get("uncertainty", 0.2) or 0.2),
+                interruption_cost=float(detail.get("interruption_cost") or self._current_interruption_cost()),
+                candidate_capabilities=[capability_id] if capability_id else ["pending"],
                 requires_approval=bool(detail.get("requires_approval", False)),
             )
             evaluated, reason = self._initiative_engine.evaluate(candidate, disposition)
