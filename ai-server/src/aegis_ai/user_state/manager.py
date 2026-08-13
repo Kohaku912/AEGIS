@@ -525,8 +525,26 @@ class UserStateManager:
             return {"ok": False, "error": result.get("error")}
         if not force and not self._should_save_pc_snapshot(result or {}):
             return {"ok": True, "skipped": True, "reason": "unchanged"}
+        self._offer_raw_to_pdc("pc.user_activity.snapshot", result or {})
         event = self.ingest_event("pc-server", {"event_type": "pc.user_activity.snapshot", **(result or {})})
         return {"ok": True, "event": event}
+
+    def _offer_raw_to_pdc(self, event_type: str, payload: dict[str, Any]) -> None:
+        pdc = getattr(self._event_manager, "_personal_data_core", None) if self._event_manager is not None else None
+        if pdc is None or not hasattr(pdc, "ingest_bus_event"):
+            return
+        from types import SimpleNamespace
+
+        try:
+            pdc.ingest_bus_event(SimpleNamespace(
+                event_type=event_type,
+                event_id="",
+                source_server_id="pc-server",
+                timestamp_ms=int(payload.get("timestamp_ms") or now_ms()),
+                payload_json=json.dumps(payload, ensure_ascii=False),
+            ))
+        except Exception:
+            pass
 
     def start_pc_poller(self, server_executor: Any, *, status_manager: Any = None, interval_seconds: int = 2) -> None:
         if self._pc_poller_thread and self._pc_poller_thread.is_alive():

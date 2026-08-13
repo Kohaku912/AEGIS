@@ -87,6 +87,8 @@ class AegisCoreCapabilityClient:
             return self._repair(capability_id, params)
         if capability_id.startswith("ai-server.presentation."):
             return self._presentation(capability_id, params)
+        if capability_id.startswith("ai-server.personal_data."):
+            return self._personal_data(capability_id, params)
         if capability_id == "ai-server.search.web":
             return self._search_web(params)
         return {"ok": False, "error": f"Unsupported AI capability: {capability_id}", "code": "UNSUPPORTED_CAPABILITY"}
@@ -162,6 +164,36 @@ class AegisCoreCapabilityClient:
                 "result": "No memory found." if not hits else f"Found {len(hits)} memory item(s).",
             }
         return {"ok": False, "error": "Unsupported memory capability", "code": "UNSUPPORTED_CAPABILITY"}
+
+    def _personal_data(self, capability_id: str, params: dict[str, Any]) -> dict[str, Any]:
+        core = self._personal.get("personal_data_core")
+        if core is None:
+            return {"ok": False, "error": "PersonalDataCore unavailable", "code": "BACKEND_UNAVAILABLE"}
+        if capability_id.endswith(".search"):
+            query = str(params.get("query") or params.get("q") or "").strip()
+            if not query:
+                return {"ok": False, "error": "query is required", "code": "INVALID_ARGUMENT"}
+            result = core.search(query, limit=min(max(int(params.get("limit") or 10), 1), 50))
+            items = result.get("items") or []
+            summaries = [
+                {
+                    "id": item.get("id"),
+                    "title": item.get("title"),
+                    "event_type": item.get("event_type"),
+                    "timestamp_ms": item.get("timestamp_ms"),
+                    "epistemics": item.get("epistemics"),
+                }
+                for item in items
+            ]
+            return {
+                "ok": True,
+                "query": query,
+                "results": summaries,
+                "result": "No personal-data events." if not summaries else f"Found {len(summaries)} timeline event(s).",
+            }
+        if capability_id.endswith(".timeline"):
+            return {"ok": True, **core.timeline(limit=min(max(int(params.get("limit") or 20), 1), 100))}
+        return {"ok": False, "error": "Unsupported personal_data capability", "code": "UNSUPPORTED_CAPABILITY"}
 
     def _agora_capability(self, capability_id: str, params: dict[str, Any]) -> dict[str, Any]:
         if capability_id.endswith(".read_posts"):

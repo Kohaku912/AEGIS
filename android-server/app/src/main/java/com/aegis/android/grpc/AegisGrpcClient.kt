@@ -351,7 +351,7 @@ class AegisGrpcClient private constructor(
         isOngoing: Boolean,
         isClearable: Boolean,
     ): Boolean {
-        val payload = """{"package_name":${jsonString(packageName)},"app_name":${jsonString(appName)},"title_hash":${jsonString(sha256(title))},"text_hash":${jsonString(sha256(text))},"posted_ms":$postedMs,"is_ongoing":$isOngoing,"is_clearable":$isClearable,"metadata_only":true}"""
+        val payload = """{"package_name":${jsonString(packageName)},"app_name":${jsonString(appName)},"title_hash":${jsonString(sha256(title))},"text_hash":${jsonString(sha256(text))},"title":${jsonString(title.take(240))},"text":${jsonString(text.take(240))},"posted_ms":$postedMs,"is_ongoing":$isOngoing,"is_clearable":$isClearable,"metadata_only":false}"""
         return sendEvent(
             eventType = "android.notification.posted",
             payloadJson = payload,
@@ -382,6 +382,16 @@ class AegisGrpcClient private constructor(
                 eventType = "android.user_activity.changed",
                 payloadJson = payloadJson,
                 dedupeKey = "android.user_activity.changed:${config.deviceId}:${payloadJson.hashCode()}",
+            )
+        }
+    }
+
+    fun pushPersonalData(eventType: String, payloadJson: String) {
+        scope.launch {
+            sendEvent(
+                eventType = eventType,
+                payloadJson = payloadJson,
+                dedupeKey = "$eventType:${config.deviceId}:${payloadJson.hashCode()}",
             )
         }
     }

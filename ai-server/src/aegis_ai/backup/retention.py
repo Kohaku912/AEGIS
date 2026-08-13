@@ -60,6 +60,10 @@ class RetentionManager:
             cleaned["old_episodes"] = old_count
             # Note: actual deletion would need a method on EpisodicMemory
 
+        pdc = getattr(self, "_personal_data_core", None)
+        if pdc is not None:
+            cleaned.update({f"pdc_{k}": v for k, v in pdc.apply_retention().items()})
+
         return cleaned
 
     def get_retention_status(self) -> dict[str, Any]:

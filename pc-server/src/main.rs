@@ -38,6 +38,7 @@ mod health;
 mod observe;
 mod observe_ext;
 mod overlay_approval;
+mod personal_data;
 mod redaction;
 mod safety;
 mod system_ops;
@@ -126,6 +127,7 @@ fn main() {
     println!("Press Ctrl+C to stop.");
     println!();
 
+    crate::personal_data::start_sampler();
     // Start health server
     health::start_health_server(&full_addr);
 }

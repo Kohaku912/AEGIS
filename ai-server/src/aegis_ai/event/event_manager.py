@@ -42,6 +42,11 @@ _PERSIST_EVENT_TYPES = {
     "android.notification_received",
     "android.foreground_app.changed",
     "android.user_activity.changed",
+    "android.ui.tapped",
+    "android.ui.text_changed",
+    "android.ui.focus_changed",
+    "android.ui.scrolled",
+    "android.screen.transition",
     "android.presence.changed",
     "android.semantic_layout.changed",
     "android.current_app_changed",
@@ -129,6 +134,12 @@ class EventManager:
                     logger.debug("Journal append failed", exc_info=True)
             if self._persist_important and self._should_persist(event):
                 self._persist_event(event)
+            pdc = getattr(self, "_personal_data_core", None)
+            if pdc is not None:
+                try:
+                    pdc.ingest_bus_event(event)
+                except Exception:
+                    logger.debug("Personal Data Core ingest failed", exc_info=True)
         return result
 
     def publish_event(self, event_type: str, *, source: str, payload: dict[str, Any]) -> bool:

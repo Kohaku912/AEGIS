@@ -64,9 +64,14 @@ class InitiativeEngine:
             reason = f"Expected utility is too low ({score:.2f})."
             self._increment("candidates_filtered")
         elif score < 0.75:
-            decision = InitiativeDecision.SAVE_FOR_LATER
-            reason = f"Candidate is useful but not timely enough ({score:.2f})."
-            self._increment("candidates_filtered")
+            if candidate.interruption_cost <= 0.35:
+                decision = InitiativeDecision.EXECUTE_NOW
+                reason = f"Useful and cheap to interrupt ({score:.2f})."
+                self._increment("safe_actions_selected")
+            else:
+                decision = InitiativeDecision.SAVE_FOR_LATER
+                reason = f"Candidate is useful but not timely enough ({score:.2f})."
+                self._increment("candidates_filtered")
         elif candidate.requires_approval or disposition == CapabilityDisposition.PROPOSE_FOR_APPROVAL:
             decision = InitiativeDecision.PROPOSE_APPROVAL
             reason = "The candidate is worthwhile, but policy requires explicit approval."

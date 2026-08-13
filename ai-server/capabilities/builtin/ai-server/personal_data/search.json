@@ -1,0 +1,18 @@
+{
+  "title": "Personal Data Search",
+  "description": "Search the Personal Data Core timeline. Returns titles and event types, not raw screenshots or keystrokes.",
+  "server_id": "ai-server",
+  "app_id": "personal_data",
+  "action": "search",
+  "operation_category": "memory",
+  "risk": {"level": "low", "side_effects": [], "requires_approval": false},
+  "tags": ["builtin", "personal_data", "read"],
+  "only_master": false,
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "query": {"type": "string", "description": "Search query"}
+    },
+    "required": ["query"]
+  }
+}

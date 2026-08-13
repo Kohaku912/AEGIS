@@ -76,6 +76,7 @@ export const navigation: NavigationDomain[] = [
     icon: UserRound,
     pages: [
       { id: "personal-ai", label: "Personal AI", path: "/dashboard/personal-ai" },
+      { id: "timeline", label: "Timeline", path: "/dashboard/personal-data/timeline" },
       { id: "user-state", label: "User State", path: "/dashboard/user-state" },
     ],
   },
@@ -112,6 +113,7 @@ const aliases: Array<[RegExp, PageId]> = [
   [/\/dashboard\/observability\/llm-usage/, "llm-usage"],
   [/\/dashboard\/llm(\/|$)/, "llm-usage"],
   [/\/dashboard\/systems/, "servers"],
+  [/\/dashboard\/personal-data\/timeline/, "timeline"],
   [/\/dashboard\/intelligence\/memory/, "memory"],
   [/\/dashboard\/intelligence\/models-prompts/, "llm-config"],
   [/\/dashboard\/communications\/social/, "agora"],

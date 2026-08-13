@@ -61,6 +61,41 @@ def _load_jsonl_records(path: Path, limit: int | None = None) -> list[dict[str, 
         return []
 
 
+def _personal_data_lines(data_dir: Path, limit: int = 8) -> tuple[list[str], int]:
+    """Read recent PDC titles/facts without constructing PersonalDataCore."""
+    db = data_dir / "personal_data" / "core.db"
+    if not db.exists():
+        return [], 0
+    try:
+        import sqlite3
+
+        conn = sqlite3.connect(str(db), check_same_thread=False)
+        try:
+            facts = conn.execute(
+                "SELECT statement FROM facts ORDER BY timestamp_ms DESC LIMIT 5"
+            ).fetchall()
+            events = conn.execute(
+                "SELECT event_type, title FROM events ORDER BY timestamp_ms DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+        finally:
+            conn.close()
+    except Exception as exc:
+        logger.debug("Personal data context failed: %s", exc)
+        return [], 0
+    lines = ["RECENT PERSONAL DATA:"]
+    for row in facts:
+        statement = str(row[0] or "").strip()
+        if statement:
+            lines.append(f"- fact: {_truncate(statement, 160)}")
+    for event_type, title in events:
+        lines.append(f"- {event_type}: {_truncate(str(title or ''), 140)}")
+    count = len(facts) + len(events)
+    if count == 0:
+        return [], 0
+    return lines, count
+
+
 def _recent_execution_lines(data_dir: Path, limit: int = 6) -> tuple[list[str], int, list[str]]:
     entries = _load_jsonl_records(data_dir / "autonomous" / "execution_log.jsonl", limit=limit)
     lines: list[str] = []
@@ -261,6 +296,10 @@ def build_shared_memory_context(
                 add_section("skills", "SKILLS:\n" + skill_context, skill_memory.get_stats().get("total_skills", 0))
         except Exception as exc:
             logger.debug("Skill memory failed: %s", exc)
+
+    pdc_lines, pdc_count = _personal_data_lines(root)
+    if pdc_lines:
+        add_section("personal_data", "\n".join(pdc_lines), pdc_count)
 
     execution_lines, execution_count, repeated_failures = _recent_execution_lines(root)
     if execution_lines:

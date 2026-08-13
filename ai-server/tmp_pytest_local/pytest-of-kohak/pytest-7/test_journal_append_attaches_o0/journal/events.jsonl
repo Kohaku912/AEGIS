@@ -1,1 +1,0 @@
-{"sequence": 1, "event_type": "task.created", "aggregate_type": "task", "aggregate_id": "task_otel", "timestamp_ms": 1786538108012, "payload": {"title": "traced"}, "metadata": {"otel_trace_id": "b52f4128bf7dac556f546e5d2478d5d9", "otel_span_id": "c25ed2c08f8da9be"}, "correlation_id": "", "causation_id": "e5459b0eaefb"}

@@ -717,6 +717,7 @@ class ToolBroker:
                 reason=result.error or "; ".join(verification.details),
             )
         self._record_audit(request, result)
+        self._publish_tool_event(request, result)
         if not result.success:
             self._record_failure_for_repair(request, result)
         return result
@@ -1549,6 +1550,27 @@ class ToolBroker:
         if outcome.get("ok"):
             return ""
         return str(outcome.get("message") or outcome.get("error") or "AGORA post blocked by suitability gate.")
+
+    def _publish_tool_event(self, request: ToolExecutionRequest, result: ToolExecutionResult) -> None:
+        if self._event_manager is None or not hasattr(self._event_manager, "publish"):
+            return
+        try:
+            from aegis_ai.event.helpers import build_event
+
+            self._event_manager.publish(build_event(
+                "tool.executed",
+                source="ai-server",
+                payload={
+                    "capability_id": request.capability_id,
+                    "success": result.success,
+                    "status": result.status.value,
+                    "task_id": request.task_id,
+                    "source": request.source.value,
+                    "title": request.capability_id,
+                },
+            ))
+        except Exception:
+            logger.debug("tool.executed publish failed", exc_info=True)
 
     def _record_failure_for_repair(self, request: ToolExecutionRequest, result: ToolExecutionResult) -> None:
         if self._repair_manager is None or result.success:

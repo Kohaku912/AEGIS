@@ -1,0 +1,2 @@
+{"sequence": 1, "event_type": "task.created", "aggregate_type": "task", "aggregate_id": "task_123", "timestamp_ms": 1786540255629, "payload": {"title": "demo"}, "metadata": {}, "correlation_id": "corr_1", "causation_id": "0829286783f8"}
+{"sequence": 2, "event_type": "task.updated", "aggregate_type": "task", "aggregate_id": "task_123", "timestamp_ms": 1786540255636, "payload": {"status": "running"}, "metadata": {}, "correlation_id": "corr_1", "causation_id": "99dbe92fd103"}

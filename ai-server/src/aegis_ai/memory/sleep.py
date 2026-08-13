@@ -167,6 +167,19 @@ class SleepManager:
                 summary["lessons_extracted"] = consolidation_results.get("lessons_extracted", 0)
                 summary["memories_archived"] = consolidation_results.get("episodes_summarized", 0)
 
+            pdc = getattr(self, "_personal_data_core", None)
+            if pdc is not None:
+                derived = 0
+                for fact in pdc.recent_facts(limit=20):
+                    pdc.derive_memory(
+                        fact_ids=[str(fact.get("id") or "")],
+                        event_ids=[],
+                        statement=str(fact.get("statement") or ""),
+                    )
+                    derived += 1
+                summary["personal_data_facts_derived"] = derived
+                summary["personal_data_retention"] = pdc.apply_retention()
+
             self._last_summary = summary
         except Exception as e:
             summary["errors"].append(str(e))

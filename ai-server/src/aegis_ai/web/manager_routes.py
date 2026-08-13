@@ -535,6 +535,159 @@ def user_state_ingest():
         return jsonify({"error": str(e)}), 500
 
 
+def _pdc():
+    return getattr(_get_runtime(), "personal_data_core", None)
+
+
+@manager_bp.route("/api/personal-data/timeline")
+def personal_data_timeline():
+    core = _pdc()
+    if core is None:
+        return jsonify({"items": [], "total": 0, "event_types": [], "source": "personal_data"})
+    try:
+        from_ms = int(request.args.get("from") or 0)
+        to_ms = int(request.args.get("to") or 0)
+        device = _normalize_pdc_device(str(request.args.get("device") or ""))
+        event_type = str(request.args.get("event_type") or request.args.get("type") or "")
+        page = max(1, int(request.args.get("page") or 1))
+        # User log: allow paging / bulk fetch of the full Personal Data Core history.
+        limit = min(50_000, max(1, int(request.args.get("limit") or 50)))
+        result = core.timeline(
+            from_ms=from_ms,
+            to_ms=to_ms,
+            device=device,
+            event_type=event_type,
+            limit=limit,
+            offset=(page - 1) * limit,
+        )
+        result["page"] = page
+        result["limit"] = limit
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+def _normalize_pdc_device(device: str) -> str:
+    value = (device or "").strip().lower()
+    if value in {"", "all", "*"}:
+        return ""
+    if value in {"pc-server", "pc_server"}:
+        return "pc"
+    if value in {"android-server", "android_server"}:
+        return "android"
+    if value in {"room-server", "room_server"}:
+        return "room"
+    if value in {"ai-server", "aegis-ai", "aegis_ai"}:
+        return "aegis"
+    return value
+
+
+@manager_bp.route("/api/personal-data/events/<event_id>")
+def personal_data_event(event_id):
+    core = _pdc()
+    if core is None:
+        return jsonify({"error": "unavailable"}), 503
+    item = core.get_event(event_id)
+    if item is None:
+        return jsonify({"error": "Not found"}), 404
+    return jsonify(item)
+
+
+@manager_bp.route("/api/personal-data/search")
+def personal_data_search():
+    core = _pdc()
+    if core is None:
+        return jsonify({"items": [], "query": "", "total": 0, "source": "personal_data"})
+    try:
+        limit = min(10_000, max(1, int(request.args.get("limit") or 50)))
+        result = core.search(
+            str(request.args.get("q") or ""),
+            from_ms=int(request.args.get("from") or 0),
+            to_ms=int(request.args.get("to") or 0),
+            limit=limit,
+        )
+        items = result.get("items") or []
+        result["total"] = int(result.get("total") or len(items))
+        result["limit"] = limit
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@manager_bp.route("/api/personal-data/evidence/<evidence_id>")
+def personal_data_evidence(evidence_id):
+    core = _pdc()
+    if core is None:
+        return jsonify({"error": "unavailable"}), 503
+    got = core.get_evidence_bytes(evidence_id)
+    if got is None:
+        return jsonify({"error": "Not found"}), 404
+    data, meta = got
+    from flask import Response
+    return Response(data, mimetype=str(meta.get("mime") or "application/octet-stream"))
+
+
+@manager_bp.route("/api/personal-data/policy", methods=["GET", "POST"])
+def personal_data_policy():
+    core = _pdc()
+    if core is None:
+        return jsonify({"error": "unavailable"}), 503
+    if request.method == "GET":
+        return jsonify(core.policy().model_dump())
+    payload = request.get_json(silent=True) or {}
+    rt = _get_runtime()
+    settings = rt.settings_store.get()
+    privacy = settings.privacy
+    for key, value in payload.items():
+        field = key if key.startswith("personal_data_") else f"personal_data_{key}"
+        if hasattr(privacy, field):
+            setattr(privacy, field, value)
+    rt.settings_store.save(settings)
+    return jsonify(core.policy().model_dump())
+
+
+@manager_bp.route("/api/personal-data/export", methods=["POST"])
+def personal_data_export():
+    core = _pdc()
+    if core is None:
+        return jsonify({"error": "unavailable"}), 503
+    payload = request.get_json(silent=True) or {}
+    return jsonify(core.export_range(int(payload.get("from") or 0), int(payload.get("to") or 0)))
+
+
+@manager_bp.route("/api/personal-data/delete", methods=["POST"])
+def personal_data_delete():
+    core = _pdc()
+    if core is None:
+        return jsonify({"error": "unavailable"}), 503
+    payload = request.get_json(silent=True) or {}
+    ids = payload.get("event_ids") or payload.get("ids") or []
+    return jsonify(core.delete_events([str(item) for item in ids]))
+
+
+@manager_bp.route("/api/personal-data/room/frame", methods=["POST"])
+def personal_data_room_frame():
+    core = _pdc()
+    if core is None:
+        return jsonify({"error": "unavailable"}), 503
+    jpeg = request.get_data() or b""
+    if request.content_type and "json" in request.content_type:
+        payload = request.get_json(silent=True) or {}
+        import base64
+        jpeg = base64.b64decode(payload.get("image_base64") or "")
+        loc = payload.get("location") if isinstance(payload.get("location"), dict) else {}
+        return jsonify(core.ingest_room_frame(jpeg, location=loc))
+    return jsonify(core.ingest_room_frame(jpeg))
+
+
+@manager_bp.route("/api/personal-data/room/audio", methods=["POST"])
+def personal_data_room_audio():
+    core = _pdc()
+    if core is None:
+        return jsonify({"error": "unavailable"}), 503
+    return jsonify(core.ingest_room_audio(request.get_data() or b""))
+
+
 @manager_bp.route("/api/interruption", methods=["GET"])
 def interruption():
     try:
