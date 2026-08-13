@@ -175,8 +175,22 @@ class FolderCapabilityRegistry:
         if "requires_permissions" in data and "requires_permissions" not in extra:
             extra["requires_permissions"] = data.get("requires_permissions", [])
 
-        manifest_risk = data.get("risk", {}).get("level", "low")
-        manifest_requires_approval = data.get("risk", {}).get("requires_approval", False)
+        risk_obj = data.get("risk") if isinstance(data.get("risk"), dict) else {}
+        manifest_risk = risk_obj.get("level", "low")
+        if "requires_approval" in risk_obj:
+            manifest_requires_approval = bool(risk_obj.get("requires_approval"))
+        else:
+            # Missing flag follows risk_level so omitted approval_required still asks.
+            level_key = str(manifest_risk or "low").strip().lower()
+            manifest_requires_approval = level_key in {
+                "approval_required",
+                "medium",
+                "approval",
+                "high",
+                "high_risk",
+                "critical",
+                "forbidden",
+            }
 
         # Phase 0: fail-fast manifest validation through Pydantic boundary model.
         # We keep validation intentionally shallow for compatibility with

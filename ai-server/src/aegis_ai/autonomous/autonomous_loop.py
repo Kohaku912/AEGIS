@@ -52,46 +52,12 @@ _TRIVIAL_RESULTS = frozenset(
         "memory sleep consolidation has started.",
     }
 )
-_INVENTORY_CAPABILITY_IDS = frozenset(
-    {
-        "ai-server.commitment.list",
-        "ai-server.agora.read_posts",
-        "ai-server.interruption.status",
-    }
-)
 
 
 def _normalize_result_text(text: str) -> str:
     """Lower/strip and drop trailing punctuation so trivial matching is stable."""
     value = str(text or "").lower().strip()
     return value.rstrip(" .!。")
-
-
-def _is_inventory_capability(capability_id: str) -> bool:
-    return str(capability_id or "").strip().lower() in _INVENTORY_CAPABILITY_IDS
-
-
-def _is_empty_memory_search_result(result: dict[str, Any]) -> bool:
-    cap = str(result.get("capability_id") or "").lower()
-    if not cap.endswith(".memory.search"):
-        return False
-    text = _normalize_result_text(result.get("result", ""))
-    return "no memory" in text or text in _TRIVIAL_RESULTS
-
-
-def _is_inventory_only_cycle(
-    tasks: list[dict[str, Any]],
-    results: list[dict[str, Any]],
-) -> bool:
-    if not tasks or len(tasks) != len(results):
-        return False
-    for task, result in zip(tasks, results):
-        cap = str(task.get("capability_id") or "")
-        if cap.endswith(".memory.search") and _is_empty_memory_search_result(result):
-            continue
-        if not _is_inventory_capability(cap):
-            return False
-    return True
 
 
 class AutonomousLoop:
@@ -350,19 +316,10 @@ class AutonomousLoop:
         # Terminal outcomes are presentable, but never surface empty/trivial "Done" spam
         # (e.g. repeated commitment.list with no actionable items).
         result_text = _normalize_result_text(result_record.get("result", ""))
-        capability_id = str(result_record.get("capability_id") or task.get("capability_id") or "").lower()
+        capability_id = str(result_record.get("capability_id") or task.get("capability_id") or "")
         if result_text in _TRIVIAL_RESULTS or (success and len(result_text) < 20 and not obligation_linked):
             return False
-        if capability_id.endswith(".memory.search") and "no memory" in result_text:
-            return False
-        if capability_id.endswith(".interruption.status"):
-            return False
-        if capability_id.endswith(".memory.sleep") and "started" in result_text:
-            return False
-        if capability_id.endswith(".commitment.list"):
-            return False
-        if capability_id.endswith(".agora.read_posts"):
-            # Read dumps are agent-internal; don't flood the display surface.
+        if self._is_inventory_capability(capability_id):
             return False
         if "already replied" in result_text:
             return False
@@ -1079,8 +1036,66 @@ class AutonomousLoop:
             prompt = f"Shared AgentState:\n{decision_text}\n\n{prompt}"
         return prompt, memory_context.audit_detail()
 
+    def _capability_catalog(self) -> Any:
+        broker = self._broker
+        return getattr(broker, "_catalog", None) if broker is not None else None
+
+    def _manifest_for(self, capability_id: str) -> Any:
+        catalog = self._capability_catalog()
+        if catalog is None or not hasattr(catalog, "resolve"):
+            return None
+        try:
+            return catalog.resolve(capability_id)
+        except Exception:
+            return None
+
+    def _is_inventory_capability(self, capability_id: str) -> bool:
+        manifest = self._manifest_for(capability_id)
+        if manifest is None:
+            return False
+        tags = {str(item).lower() for item in (getattr(manifest, "tags", None) or [])}
+        extra = getattr(manifest, "extra", None) or {}
+        if not isinstance(extra, dict):
+            extra = {}
+        return "inventory" in tags or bool(extra.get("inventory"))
+
+    def _inventory_redundant_for_obligations(self, capability_id: str, obligation_kinds: set[str]) -> bool:
+        if not self._is_inventory_capability(capability_id):
+            return False
+        manifest = self._manifest_for(capability_id)
+        app_id = str(getattr(manifest, "app_id", "") or "").strip().lower()
+        if not app_id and "." in capability_id:
+            parts = capability_id.split(".")
+            app_id = parts[1] if len(parts) > 1 else ""
+        return bool(app_id) and app_id in obligation_kinds
+
+    def _is_inventory_only_cycle(
+        self,
+        tasks: list[dict[str, Any]],
+        results: list[dict[str, Any]],
+    ) -> bool:
+        if not tasks or len(tasks) != len(results):
+            return False
+        for task, result in zip(tasks, results):
+            cap = str(task.get("capability_id") or "")
+            text = _normalize_result_text(result.get("result", ""))
+            if self._is_inventory_capability(cap):
+                continue
+            if text in _TRIVIAL_RESULTS or "no memory" in text:
+                continue
+            return False
+        return True
+
     def _has_social_actions(self, valid_cap_ids: set[str]) -> bool:
-        return any(cap_id.startswith("ai-server.agora.") for cap_id in valid_cap_ids)
+        for cap_id in valid_cap_ids:
+            manifest = self._manifest_for(cap_id)
+            if manifest is None:
+                continue
+            category = str(getattr(manifest, "operation_category", "") or "").lower()
+            tags = {str(item).lower() for item in (getattr(manifest, "tags", None) or [])}
+            if "social" in category or "social" in tags:
+                return True
+        return False
 
     def _log_audit_event(
         self,
@@ -1423,11 +1438,17 @@ class AutonomousLoop:
             for cap_id, option in capability_options.items()
             if option["disposition"] in {"execute_safe", "propose_for_approval"}
         }
-        has_commitment_obligations = any(
-            str(obligation.get("kind") or "") == "commitment" for obligation in priority_obligations
-        )
-        if has_commitment_obligations:
-            valid_cap_ids.discard("ai-server.commitment.list")
+        obligation_kinds = {
+            str(obligation.get("kind") or "").strip().lower()
+            for obligation in priority_obligations
+            if str(obligation.get("kind") or "").strip()
+        }
+        if obligation_kinds:
+            valid_cap_ids = {
+                cap_id
+                for cap_id in valid_cap_ids
+                if not self._inventory_redundant_for_obligations(cap_id, obligation_kinds)
+            }
 
         if not valid_cap_ids:
             logger.error("No valid capabilities available — cannot generate tasks")
@@ -1500,10 +1521,10 @@ class AutonomousLoop:
         valid_tool_names = {tool["function"]["name"] for tool in tools}
 
         obligation_hint = ""
-        if has_commitment_obligations:
+        if obligation_kinds:
             obligation_hint = (
-                "\nOpen commitments are already listed in Shared AgentState obligations above — "
-                "do not call ai-server.commitment.list again; transition or act on a specific "
+                "\nOpen obligations are already listed in Shared AgentState — "
+                "do not call an inventory/list capability for them; act on a specific "
                 "obligation_id, or pick a different capability.\n"
             )
 
@@ -2411,7 +2432,7 @@ Operational decision axes (prioritization only; not additional desires):
             for r in previous_results
         ):
             return []
-        if _is_inventory_only_cycle(previous_tasks, previous_results):
+        if self._is_inventory_only_cycle(previous_tasks, previous_results):
             return []
         # Skip follow-up when all tasks succeeded with trivial results
         if len(previous_tasks) == len(previous_results):
@@ -2452,7 +2473,7 @@ Operational decision axes (prioritization only; not additional desires):
                 *(
                     task.get("capability_id", "")
                     for task in previous_tasks
-                    if not _is_inventory_capability(str(task.get("capability_id") or ""))
+                    if not self._is_inventory_capability(str(task.get("capability_id") or ""))
                 ),
                 *(task.get("action", "") for task in previous_tasks),
                 *(result.get("result", "")[:120] for result in previous_results),

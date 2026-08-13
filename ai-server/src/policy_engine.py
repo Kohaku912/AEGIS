@@ -421,6 +421,8 @@ class PolicyEngine:
 
         for pattern in self._explicit_approval:
             if pattern.match(cap_id):
+                if not capability.requires_approval:
+                    break
                 if self._approval_store is not None and self._approval_store.is_approved(cap_id):
                     return PolicyResult(
                         decision=PolicyDecision.ALLOW,

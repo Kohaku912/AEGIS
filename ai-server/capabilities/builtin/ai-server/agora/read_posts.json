@@ -6,7 +6,7 @@
   "action": "read_posts",
   "operation_category": "social_read",
   "risk": {"level": "low", "side_effects": [], "requires_approval": false},
-  "tags": ["builtin", "agora", "read", "social"],
+  "tags": ["builtin", "agora", "read", "social", "inventory"],
   "only_master": false,
   "input_schema": {
     "type": "object",

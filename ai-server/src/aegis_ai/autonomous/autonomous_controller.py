@@ -319,10 +319,11 @@ class AutonomousController:
         return None
 
     def _infer_action_type(self, task: IntrinsicTask) -> ActionType:
-        caps = set(task.required_capabilities)
-        if "notify_user" in caps:
+        if task.requires_user_approval:
+            return ActionType.ASSIST
+        if task.source_desire == "social":
             return ActionType.NOTIFY
-        if "browser-server.search.query" in caps:
+        if task.source_desire == "growth":
             return ActionType.RESEARCH
         return ActionType.SELF_DEV
 

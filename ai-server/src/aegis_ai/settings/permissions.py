@@ -105,16 +105,17 @@ class SettingsPermissionGuard:
                     risk_level=capability.risk_level,
                 )
 
-        # Check privacy settings for specific capabilities
-        if capability.id == "pc-server.clipboard.get_clipboard" and not settings.privacy.clipboard_capture_enabled:
+        parts = str(capability.id or "").split(".")
+        app_id = parts[1].lower() if len(parts) >= 3 else ""
+        tags = {str(item).lower() for item in (getattr(capability, "tags", None) or [])}
+        if (app_id == "clipboard" or "clipboard" in tags) and not settings.privacy.clipboard_capture_enabled:
             return PolicyResult(
                 decision=PolicyDecision.DENY,
                 reason="Clipboard capture is disabled in privacy settings",
                 capability_id=capability.id,
                 risk_level=capability.risk_level,
             )
-
-        if capability.id in ("room.get_camera_snapshot", "room-server.camera.get_snapshot") and not settings.privacy.camera_snapshot_enabled:
+        if (app_id == "camera" or "camera" in tags) and not settings.privacy.camera_snapshot_enabled:
             return PolicyResult(
                 decision=PolicyDecision.DENY,
                 reason="Camera snapshot is disabled in privacy settings",

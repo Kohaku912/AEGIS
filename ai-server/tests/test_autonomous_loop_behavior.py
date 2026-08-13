@@ -12,13 +12,21 @@ class _Catalog:
         self._capability_ids = capability_ids or []
 
     def resolve(self, capability_id: str):
+        parts = capability_id.split(".")
+        action = parts[2] if len(parts) > 2 else capability_id
+        tags = ["inventory"] if action in {"list", "status", "read_posts", "search"} else []
+        category = "social_read" if "agora" in capability_id else "read"
         return SimpleNamespace(
-            server_id=capability_id.split(".", 1)[0],
+            server_id=parts[0] if parts else "",
+            app_id=parts[1] if len(parts) > 1 else "",
+            action=action,
             input_schema={"type": "object", "properties": {}, "required": []},
-            operation_category="read",
+            operation_category=category,
             risk_level="read_only",
             side_effects=[],
             title=capability_id,
+            tags=tags,
+            extra={},
         )
 
     def list_for_tools(self, cap_ids: set[str] | list[str]):
