@@ -1,3 +1,0 @@
-{"capability_id": "pc-server.shell.powershell", "category": "tool_failed", "error": "boom", "final_result": "recorded", "repair_id": "repair_dup", "timestamp": 1785471890067}
-{"capability_id": "pc-server.shell.powershell", "category": "tool_failed", "error": "boom", "final_result": "recovered", "repair_id": "repair_dup", "timestamp": 1785471890068}
-{"capability_id": "ai-server.agora.post", "category": "tool_failed", "error": "still broken", "final_result": "needs_followup", "repair_id": "repair_open", "timestamp": 1785471890069}
