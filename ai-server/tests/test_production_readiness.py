@@ -105,36 +105,3 @@ def test_audit_common_classifies_pc_mock_as_guarded_dev_marker() -> None:
     assert "production ToolBroker" in reason
 
 
-def test_capability_dashboard_renders_production_blocker_badge() -> None:
-    from flask import Flask, render_template
-
-    template_dir = Path(__file__).resolve().parents[1] / "src" / "aegis_ai" / "web" / "templates"
-    app = Flask(__name__, template_folder=str(template_dir))
-    capability = {
-        "id": "pc-server.input.mouse_click",
-        "title": "Mouse Click",
-        "origin": "builtin",
-        "server_id": "pc-server",
-        "app_id": "input",
-        "manifest_risk_level": "high",
-        "manifest_requires_approval": True,
-        "override_active": False,
-        "override": {},
-        "risk_level": "HIGH_RISK",
-        "requires_approval": True,
-        "enabled": True,
-        "tags": [],
-        "production_blocker": True,
-    }
-
-    with app.test_request_context("/dashboard/capabilities"):
-        html = render_template(
-            "dashboard/capabilities.html",
-            capabilities=[capability],
-            risk_levels=["READ_ONLY", "HIGH_RISK"],
-            errors=[],
-            production_status={"blocker_count": 1, "runtime_mode": "production"},
-        )
-
-    assert "Production Blocker" in html
-    assert "production" in html

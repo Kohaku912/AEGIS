@@ -37,7 +37,7 @@ docker compose up -d ai-server browser-server room-server dev-server
 
 Write-Host ""
 Write-Host "  AI Dashboard:   http://0.0.0.0:8090" -ForegroundColor White
-Write-Host "  AI Web Chat:    http://0.0.0.0:8091" -ForegroundColor White
+Write-Host "  AI Chat:        http://0.0.0.0:8090/chat" -ForegroundColor White
 Write-Host "  AI gRPC:        0.0.0.0:50051" -ForegroundColor White
 Write-Host "  Browser Server: http://0.0.0.0:50053" -ForegroundColor White
 Write-Host "  Room Server:    gRPC 0.0.0.0:50055" -ForegroundColor White

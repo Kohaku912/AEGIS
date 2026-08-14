@@ -7,7 +7,7 @@ import queue
 import uuid
 from typing import Any
 
-from flask import Blueprint, Response, jsonify, render_template, request
+from flask import Blueprint, Response, jsonify, request
 
 
 def init_approval_routes(owner: Any) -> None:
@@ -15,10 +15,6 @@ def init_approval_routes(owner: Any) -> None:
 
     def _manager():
         return owner._runtime.approval_manager
-
-    @bp.route("/dashboard/approvals")
-    def dashboard_approvals():
-        return render_template("dashboard/approvals.html")
 
     @bp.route("/api/approvals/pending")
     def approvals_pending():

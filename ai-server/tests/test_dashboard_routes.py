@@ -133,17 +133,7 @@ def test_dashboard_token_auth_when_configured(monkeypatch, tmp_path) -> None:
     assert authed.status_code == 200
 
 
-def test_dashboard_personal_ai_page_renders(monkeypatch, tmp_path) -> None:
-    client = _app(monkeypatch, tmp_path).test_client()
-
-    response = client.get("/dashboard/personal-ai")
-
-    assert response.status_code == 200
-    assert b"Personal AI" in response.data
-    assert b"Pending Approvals" in response.data
-
-
-def test_dashboard_prompt_analysis_page_and_api(monkeypatch, tmp_path) -> None:
+def test_prompt_analysis_api(monkeypatch, tmp_path) -> None:
     class FakePromptAnalysisLLM:
         def generate(self, **kwargs):
             payload = json.loads(kwargs["prompt"])
@@ -177,10 +167,6 @@ def test_dashboard_prompt_analysis_page_and_api(monkeypatch, tmp_path) -> None:
     )
     client = dashboard_routes.DashboardApp(runtime=rt).app.test_client()
 
-    page = client.get("/dashboard/prompt-analysis")
-    assert page.status_code == 200
-    assert b"Prompt Analysis" in page.data
-
     response = client.post("/api/prompt-analysis/run", json={"hours": 24, "max_prompts": 5})
     payload = response.get_json()
 
@@ -191,7 +177,7 @@ def test_dashboard_prompt_analysis_page_and_api(monkeypatch, tmp_path) -> None:
     assert (tmp_path / "data" / "reports" / "prompt_usage_latest.html").exists()
 
 
-def test_dashboard_user_state_page_and_api(monkeypatch, tmp_path) -> None:
+def test_user_state_api(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(dashboard_routes, "_DATA_DIR", str(tmp_path / "data"))
     monkeypatch.setattr(dashboard_routes.DashboardApp, "_start_autonomous_loop", lambda self: None)
     rt = _runtime(tmp_path)
@@ -207,10 +193,6 @@ def test_dashboard_user_state_page_and_api(monkeypatch, tmp_path) -> None:
     )
     client = dashboard_routes.DashboardApp(runtime=rt).app.test_client()
 
-    page = client.get("/dashboard/user-state")
-    assert page.status_code == 200
-    assert b"User State" in page.data
-
     current = client.get("/api/user-state/current")
     assert current.status_code == 200
     assert current.get_json()["attention"]["device"] == "pc"
@@ -218,15 +200,6 @@ def test_dashboard_user_state_page_and_api(monkeypatch, tmp_path) -> None:
     events = client.get("/api/user-state/events")
     assert events.status_code == 200
     assert events.get_json()["events"]
-
-
-def test_dashboard_chat_redirects_to_web_chat(monkeypatch, tmp_path) -> None:
-    client = _app(monkeypatch, tmp_path).test_client()
-
-    response = client.get("/chat", headers={"Host": "localhost:8090"})
-
-    assert response.status_code == 302
-    assert response.headers["Location"] == "http://localhost:8091/chat"
 
 
 def test_dashboard_chat_history_broadcasts_to_android(monkeypatch, tmp_path) -> None:
@@ -646,7 +619,7 @@ def test_capability_risk_update_can_weaken_forbidden_and_clears_override(monkeyp
     assert cap.risk_level == RiskLevel.SAFE_ACTION
 
 
-def test_capabilities_page_displays_manifest_override_and_effective_risk(monkeypatch, tmp_path) -> None:
+def test_capabilities_api_reports_manifest_override_and_effective_risk(monkeypatch, tmp_path) -> None:
     rt = _runtime(tmp_path)
     client = dashboard_routes.DashboardApp(runtime=rt).app.test_client()
     manifest_path = tmp_path / "data" / "capabilities" / "builtin" / "pc-server" / "test" / "visible.json"
@@ -670,69 +643,15 @@ def test_capabilities_page_displays_manifest_override_and_effective_risk(monkeyp
         json={"capability_id": "pc-server.test.visible", "risk_level": "APPROVAL_REQUIRED"},
     )
 
-    response = client.get("/dashboard/capabilities")
+    response = client.get("/api/capabilities/list")
 
     assert response.status_code == 200
-    assert b'id="risk-pc-server.test.visible"' in response.data
-    assert b"Manifest" in response.data
-    assert b"Effective" in response.data
-    assert b'data-saved-risk="APPROVAL_REQUIRED"' in response.data
-
-
-def test_dashboard_audit_shows_llm_tool_timeline(monkeypatch, tmp_path) -> None:
-    from aegis_ai.audit import AuditEntry
-    dashboard_app = dashboard_routes.DashboardApp(runtime=_runtime(tmp_path))
-    client = dashboard_app.app.test_client()
-    audit_mgr = dashboard_app._runtime.audit_manager
-    entries_data = [
-        {
-            "entry_id": "a1",
-            "timestamp_ms": 1000,
-            "action": "llm_tool_call",
-            "actor": "llm",
-            "capability_id": "llm.deepseek-chat",
-            "decision": "success",
-            "reason": "",
-            "detail": {
-                "model": "deepseek-chat",
-                "tool_calls": [
-                    {"function": "pc-server__file__search", "arguments": {"path": "C:\\", "pattern": "*.log"}},
-                ],
-                "response_preview": "Investigating the log files now.",
-                "tokens": 123,
-                "duration_ms": 456.7,
-            },
-        },
-        {
-            "entry_id": "a2",
-            "timestamp_ms": 2000,
-            "action": "tool_execution",
-            "actor": "autonomous",
-            "capability_id": "pc-server.file.search",
-            "decision": "ALLOW",
-            "reason": "Autonomous maintenance",
-            "detail": {
-                "execution_status": "execution_error",
-                "error": "Access denied",
-                "duration_ms": 12,
-                "verification_status": "skipped",
-                "output": {"error": "Access denied"},
-            },
-        },
-    ]
-    for e in entries_data:
-        detail = e.pop("detail", {})
-        entry = AuditEntry(**e, detail=detail)
-        audit_mgr.append(entry)
-
-    response = client.get("/dashboard/audit")
-    body = response.data.decode("utf-8")
-
-    assert response.status_code == 200
-    assert "LLM / Tool Timeline" in body
-    assert "Grouped Operations" in body
-    assert "LLM selected 1 tool(s): pc-server__file__search" in body
-    assert "Tool failed: Access denied" in body
+    cap = next(
+        item for item in response.get_json()["capabilities"]
+        if item["id"] == "pc-server.test.visible"
+    )
+    assert cap["risk_level"].upper() == "APPROVAL_REQUIRED"
+    assert cap["requires_approval"] is True
 
 
 def test_audit_context_and_manager_group_entries(monkeypatch, tmp_path) -> None:
@@ -791,66 +710,6 @@ def test_grouped_audit_api_reads_sqlite_audit_manager(monkeypatch, tmp_path) -> 
     assert payload["count"] >= 1
     assert any(group["group_id"] == "api_group_1" for group in payload["groups"])
     assert "operations" in payload
-
-
-def test_dashboard_audit_renders_grouped_cards(monkeypatch, tmp_path) -> None:
-    from aegis_ai.audit.context import audit_group
-
-    dashboard_app = dashboard_routes.DashboardApp(runtime=_runtime(tmp_path))
-    with audit_group("autonomous_1", group_type="autonomous", group_title="Autonomous execution cycle"):
-        dashboard_app._runtime.audit_log.log_decision(
-            action="autonomous_preflight",
-            capability_id="none",
-            decision="SKIP",
-            reason="llm_interval_gate",
-            actor="autonomous",
-        )
-
-    response = dashboard_app.app.test_client().get("/dashboard/audit")
-    body = response.data.decode("utf-8")
-
-    assert response.status_code == 200
-    assert "Grouped Operations" in body
-    assert "Autonomous execution cycle" in body
-    assert "autonomous_1" in body
-
-
-def test_dashboard_errors_shows_audit_and_log_errors(monkeypatch, tmp_path) -> None:
-    client = _app(monkeypatch, tmp_path).test_client()
-    data_dir = tmp_path / "data"
-    data_dir.mkdir(parents=True, exist_ok=True)
-    (data_dir / "audit.jsonl").write_text(
-        json.dumps(
-            {
-                "entry_id": "err1",
-                "timestamp_ms": 1000,
-                "action": "tool_execution",
-                "actor": "autonomous",
-                "capability_id": "pc-server.file.search",
-                "decision": "ALLOW",
-                "reason": "Autonomous maintenance",
-                "detail": {
-                    "execution_status": "execution_error",
-                    "error": "Access denied",
-                    "output": {"error": "Access denied"},
-                },
-            }
-        )
-        + "\n",
-        encoding="utf-8",
-    )
-    (tmp_path / "dashboard_error.log").write_text(
-        "2026-06-16 10:00:00,000 [ERROR] aegis_ai.web.dashboard: Disk full\n",
-        encoding="utf-8",
-    )
-
-    response = client.get("/dashboard/errors")
-    body = response.data.decode("utf-8")
-
-    assert response.status_code == 200
-    assert "Access denied" in body
-    assert "Disk full" in body
-    assert "Server Logs" in body
 
 
 def test_memory_reload_api_returns_summary(monkeypatch, tmp_path) -> None:
@@ -1162,7 +1021,7 @@ def test_memory_page_shows_entries_beyond_old_limits(monkeypatch, tmp_path) -> N
     assert "Fact 34" in fact_contents
 
 
-def test_autonomous_page_shows_more_than_ten_executions(monkeypatch, tmp_path) -> None:
+def test_autonomous_api_returns_more_than_ten_executions(monkeypatch, tmp_path) -> None:
     client = _app(monkeypatch, tmp_path).test_client()
     auto_dir = tmp_path / "data" / "autonomous"
     auto_dir.mkdir(parents=True, exist_ok=True)
@@ -1179,9 +1038,13 @@ def test_autonomous_page_shows_more_than_ten_executions(monkeypatch, tmp_path) -
         )
     log_path.write_text("\n".join(json.dumps(entry) for entry in entries) + "\n", encoding="utf-8")
 
-    response = client.get("/dashboard/autonomous")
-    body = response.data.decode("utf-8")
+    response = client.get("/api/autonomous/logs")
 
     assert response.status_code == 200
-    assert "Action 0" in body
-    assert "Action 11" in body
+    actions = [
+        action["action"]
+        for cycle in response.get_json()["cycles"]
+        for action in cycle["actions"]
+    ]
+    assert "Action 0" in actions
+    assert "Action 11" in actions

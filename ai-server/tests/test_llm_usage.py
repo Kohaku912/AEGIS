@@ -474,7 +474,7 @@ class TestLLMUsageIntegration:
         from aegis_ai.observability.llm_usage.service import LLMUsageService
         from aegis_ai.observability.llm_usage.routes import init_llm_usage_routes
 
-        app = Flask(__name__, template_folder="../src/aegis_ai/web/templates")
+        app = Flask(__name__)
         entries = entries or [_mk_audit_entry(entry_id=f"e{i}") for i in range(3)]
         audit = SimpleNamespace(
             read_recent_for_dashboard=lambda limit=5000: entries,
@@ -482,24 +482,7 @@ class TestLLMUsageIntegration:
         )
         svc = LLMUsageService(audit_manager=audit)
         init_llm_usage_routes(app, svc)
-
-        @app.route("/dashboard/llm-usage")
-        def dashboard_llm_usage():
-            from flask import render_template
-            return render_template("dashboard/llm_usage.html")
-
         return app
-
-    def test_dashboard_page_renders(self):
-        app = self._make_full_app()
-        with app.test_client() as c:
-            r = c.get("/dashboard/llm-usage")
-            assert r.status_code == 200
-            html = r.data.decode()
-            assert "lu-kpis" in html
-            assert "lu-tabs" in html
-            assert "llm_usage.js" in html
-            assert "llm_usage.css" in html
 
     def test_api_summary_with_real_audit(self):
         app = self._make_full_app()

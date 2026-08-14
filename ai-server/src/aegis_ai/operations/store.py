@@ -281,6 +281,9 @@ class OperationStore:
         candidates: list[str] | None = None,
         decision_axes: dict[str, Any] | None = None,
         timestamp_ms: int | None = None,
+        proposed_candidates: list[dict[str, Any]] | None = None,
+        selected_candidate: dict[str, Any] | None = None,
+        max_pressure_mode: bool = False,
     ) -> OperationRecord:
         ts = int(timestamp_ms or _now_ms())
         steps: list[dict[str, Any]] = []
@@ -396,4 +399,9 @@ class OperationStore:
         )
         if decision_axes:
             record.trigger["decision_axes"] = decision_axes
+        if proposed_candidates:
+            record.trigger["proposed_candidates"] = list(proposed_candidates)[:8]
+        if selected_candidate:
+            record.trigger["selected_candidate"] = dict(selected_candidate)
+        record.trigger["max_pressure_mode"] = bool(max_pressure_mode)
         return self.upsert(record)

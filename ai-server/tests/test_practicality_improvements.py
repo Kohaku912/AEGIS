@@ -253,7 +253,6 @@ def test_dashboard_route_modules_are_registered(monkeypatch, tmp_path) -> None:
     assert "dashboard_approval" in blueprint_names
     assert "dashboard_health" in blueprint_names
     assert "dashboard_presentation" in blueprint_names
-    assert "dashboard_llm_usage_page" in blueprint_names
     assert "dashboard_server_status" in blueprint_names
     assert "dashboard_memory" in blueprint_names
     rules = {rule.rule for rule in app.url_map.iter_rules()}
@@ -261,7 +260,7 @@ def test_dashboard_route_modules_are_registered(monkeypatch, tmp_path) -> None:
     assert "/api/autonomous/status" in rules
     assert "/api/approvals/pending" in rules
     assert "/api/health/alerts" in rules
-    assert "/dashboard/llm-usage" in rules
+    assert "/api/llm-usage/summary" in rules
     assert Path("src/aegis_ai/web/routes/chat.py").exists()
     assert Path("src/aegis_ai/web/routes/memory.py").exists()
 

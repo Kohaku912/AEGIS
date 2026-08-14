@@ -28,6 +28,7 @@ def test_record_autonomous_cycle_persists_concrete_summaries(tmp_path) -> None:
     assert "AGORA" in loaded.action_summary or "12件" in loaded.result_summary
     assert loaded.result_status == "success"
     assert "自律実行" not in loaded.action_summary
+    assert loaded.trigger.get("max_pressure_mode") is False
     assert loaded.causal_chain
     assert all("Decision Contextページ" not in str(stage.get("summary") or "") for stage in loaded.causal_chain)
     assert all("Execution completed" not in str(stage.get("summary") or "") for stage in loaded.causal_chain)
@@ -44,6 +45,21 @@ def test_non_action_cycle_records_reason(tmp_path) -> None:
     assert record.result_status == "non_action"
     assert "行動しなかった" in record.action_summary
     assert "ゲーム中" in record.result_summary
+
+
+def test_record_autonomous_cycle_keeps_two_stage_selection_context(tmp_path) -> None:
+    store = OperationStore(data_dir=tmp_path)
+    record = store.record_autonomous_cycle(
+        tasks=[{"capability_id": "ai-server.memory.search", "action": "search"}],
+        results=[{"success": True, "result": "found"}],
+        proposed_candidates=[{"capability_id": "ai-server.memory.search", "goal": "recall"}],
+        selected_candidate={"capability_id": "ai-server.memory.search"},
+        max_pressure_mode=True,
+        timestamp_ms=1_700_000_000_200,
+    )
+    assert record.trigger["max_pressure_mode"] is True
+    assert record.trigger["selected_candidate"]["capability_id"] == "ai-server.memory.search"
+    assert record.trigger["proposed_candidates"][0]["capability_id"] == "ai-server.memory.search"
 
 
 def test_build_causal_chain_omits_placeholder_prose() -> None:

@@ -1,7 +1,7 @@
 """AEGIS unified startup.
 
 Creates one AegisRuntime and injects it into every process-local entry point:
-gRPC, Dashboard, Web Chat, CLI, and the Autonomous Loop.
+gRPC, Dashboard, CLI, and the Autonomous Loop.
 """
 
 from __future__ import annotations
@@ -40,18 +40,6 @@ def start_dashboard(runtime):
     app.run(host="0.0.0.0", port=8090, debug=False)
 
 
-def start_web_chat(runtime):
-    """Start Web Chat in a background thread."""
-    from aegis_ai.interaction.channels.web import WebChatApp
-
-    logger.info("Web Chat: starting on http://0.0.0.0:8091/chat")
-    app = WebChatApp(
-        router=runtime.interaction_router,
-        session_manager=runtime.session_manager,
-    )
-    app.run(host="0.0.0.0", port=8091, debug=False)
-
-
 def start_cli(runtime):
     """Start CLI in the main thread."""
     from aegis_ai.interaction.channels.cli import CLIChannel
@@ -68,7 +56,7 @@ def start_cli(runtime):
     print()
     print("  Interfaces:")
     print("    1. CLI:   type directly in this terminal")
-    print("    2. Web:   http://0.0.0.0:8091/chat")
+    print("    2. Web:   http://0.0.0.0:8090/chat")
     print()
     print("  Monitoring:")
     print("    Dashboard:   http://0.0.0.0:8090/")
@@ -88,7 +76,6 @@ def main():
     threads = [
         threading.Thread(target=start_grpc_server, args=(runtime,), daemon=True),
         threading.Thread(target=start_dashboard, args=(runtime,), daemon=True),
-        threading.Thread(target=start_web_chat, args=(runtime,), daemon=True),
     ]
     for thread in threads:
         thread.start()

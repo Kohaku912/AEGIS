@@ -32,7 +32,7 @@ _JST = timezone(timedelta(hours=9))
 
 _DATA_DIR = str(Path(__file__).resolve().parent.parent.parent.parent / "data")
 
-from flask import Flask, jsonify, redirect, render_template, request
+from flask import Flask, jsonify, request
 from aegis_ai.capability_catalog import aligned_policy, normalize_risk_label
 from aegis_ai.llm.memory_context import build_shared_memory_context
 from aegis_ai.web.auth import install_dashboard_token_auth
@@ -980,10 +980,8 @@ class DashboardApp:
 
             runtime = get_runtime()
         self._runtime = runtime
-        self._app = Flask(__name__, template_folder="templates")
+        self._app = Flask(__name__)
         install_dashboard_token_auth(self._app, exempt_paths={"/health"})
-        self._app.jinja_env.filters["jst"] = _format_jst
-        self._app.jinja_env.globals["format_jst"] = _format_jst
         self._start_time = time.time()
         self._autonomous_loop = runtime.autonomous_loop
         self._chat_event_clients: dict[str, queue.Queue] = {}
@@ -1019,7 +1017,6 @@ class DashboardApp:
         from aegis_ai.web.routes.autonomous import init_autonomous_routes
         from aegis_ai.web.routes.chat import init_chat_routes
         from aegis_ai.web.routes.health import init_health_routes
-        from aegis_ai.web.routes.llm_usage_page import init_llm_usage_page_routes
         from aegis_ai.web.routes.memory import init_memory_routes
         from aegis_ai.web.routes.presentation import init_presentation_routes
         from aegis_ai.web.routes.server_status import init_server_status_routes
@@ -1033,7 +1030,6 @@ class DashboardApp:
         init_health_routes(self, _DATA_DIR)
         init_memory_routes(self)
         init_presentation_routes(self)
-        init_llm_usage_page_routes(self)
         init_server_status_routes(self)
         self._setup_routes()
         init_ui_v2_routes(self)
@@ -1047,27 +1043,33 @@ class DashboardApp:
 
         @self._app.before_request
         def _bind_request_correlation():
-            from flask import request
+            try:
+                from flask import request
 
-            from aegis_ai.audit.context import bind_audit_group, parse_traceparent, new_trace_ids
+                from aegis_ai.audit.context import bind_audit_group, parse_traceparent, new_trace_ids
 
-            headers = {k: v for k, v in request.headers.items()}
-            trace_id, span_id = parse_traceparent(headers.get("traceparent", ""))
-            if not trace_id:
-                trace_id, span_id = new_trace_ids()
-            bind_audit_group(
-                str(request.headers.get("X-Request-ID") or request.path),
-                group_type="http",
-                group_title=str(request.path),
-                trace_id=trace_id,
-                span_id=span_id,
-            )
+                headers = {k: v for k, v in request.headers.items()}
+                trace_id, span_id = parse_traceparent(headers.get("traceparent", ""))
+                if not trace_id:
+                    trace_id, span_id = new_trace_ids()
+                bind_audit_group(
+                    str(request.headers.get("X-Request-ID") or request.path),
+                    group_type="http",
+                    group_title=str(request.path),
+                    trace_id=trace_id,
+                    span_id=span_id,
+                )
+            except Exception:
+                return None
 
         @self._app.teardown_request
         def _clear_request_correlation(_exc):
-            from aegis_ai.audit.context import clear_audit_group
+            try:
+                from aegis_ai.audit.context import clear_audit_group
 
-            clear_audit_group()
+                clear_audit_group()
+            except Exception:
+                return None
 
     def _create_llm_provider(self, audit_log: Any = None) -> Any:
         """Create an LLM provider that honors dashboard settings."""
@@ -1369,277 +1371,9 @@ class DashboardApp:
     def _setup_routes(self) -> None:
         app = self._app
 
-        @app.route("/")
-        @app.route("/dashboard")
-        def home():
-            try:
-                from aegis_ai.web.routes.ui_v2 import ui_v2_available
-
-                if ui_v2_available():
-                    return self._app.view_functions["ui_v2_shell"]()
-            except Exception:
-                pass
-            status = self._get_server_status()
-
-            agora_data = {"configured": False, "unread": 0, "cursor": 0, "recent": ""}
-            try:
-                from aegis_ai.integrations.agora.agora_service import AgoraService
-                svc = AgoraService()
-                if svc.is_configured:
-                    agora_data["configured"] = True
-                    me = svc.get_me()
-                    if hasattr(me, "name"):
-                        agora_data["account"] = me.name
-                        agora_data["account_id"] = me.id
-                    cursor = svc.get_cursor()
-                    if hasattr(cursor, "last_read_post_id"):
-                        agora_data["cursor"] = cursor.last_read_post_id
-                    posts = svc.read_posts(limit=5)
-                    if hasattr(posts, "posts"):
-                        agora_data["recent_count"] = len(posts.posts)
-                        agora_data["recent"] = posts.summarize(max_posts=3)
-                    mentions = svc.read_mentions(limit=5)
-                    if hasattr(mentions, "posts"):
-                        agora_data["mention_count"] = len(mentions.posts)
-            except Exception:
-                pass
-
-            desire_data = {"desires": [], "average_frustration": 0.0}
-            try:
-                from aegis_ai.desire.desire_system import DesireSystem
-                ds = DesireSystem(data_dir=os.path.join(_DATA_DIR, "desires"))
-                ctx = ds.get_context()
-                if ctx:
-                    desire_data["context"] = ctx[:300]
-                desire_data["desires"] = [
-                    {"name": d.name, "value": d.value, "expected": d.expected_value}
-                    for d in list(ds._desires.values())[:8]
-                ] if hasattr(ds, "_desires") else []
-            except Exception:
-                pass
-
-            world_data = {"sections": []}
-            try:
-                from aegis_ai.world.world_state_store import WorldStateStore
-                ws = WorldStateStore()
-                agora_s = ws.state.agora_state
-                if agora_s.last_observation_at > 0:
-                    world_data["agora"] = {
-                        "account": agora_s.me_name,
-                        "cursor": agora_s.last_cursor,
-                        "unread": agora_s.unread_count,
-                        "staleness": agora_s.staleness,
-                    }
-                world_data["task"] = ws.state.task_state.to_context_string()
-                world_data["approval"] = ws.state.approval_state.to_context_string()
-            except Exception:
-                pass
-
-            approval_queue_data = []
-            try:
-                from aegis_ai.approval.approval_queue import ApprovalQueue
-                aq = ApprovalQueue()
-                pending = aq.list_pending()
-                for req in pending[:5]:
-                    approval_queue_data.append({
-                        "id": req.approval_id,
-                        "capability": req.capability_id,
-                        "tool": req.tool_name,
-                        "risk": req.risk_level,
-                        "summary": req.user_facing_summary[:100],
-                    })
-            except Exception:
-                pass
-
-            autonomous_data = {"running": False, "execution_count": 0, "skills_count": 0, "traces_count": 0, "frustration_threshold": 2.0}
-            try:
-                if self._autonomous_loop:
-                    loop_status = self._autonomous_loop.get_status()
-                    autonomous_data["running"] = loop_status.get("running", False)
-                    autonomous_data["execution_count"] = loop_status.get("execution_count", 0)
-                    autonomous_data["frustration_threshold"] = loop_status.get("frustration_threshold", 2.0)
-                sm = _get_mem_backend("skill")
-                autonomous_data["skills_count"] = sm.get_stats().get("total", 0) if sm else 0
-                atm = _get_mem_backend("action_trace")
-                if atm is None:
-                    from aegis_ai.memory.action_trace import ActionTraceMemory
-                    atm = ActionTraceMemory(path=os.path.join(_DATA_DIR, "memory", "action_traces.jsonl"))
-                autonomous_data["traces_count"] = atm.get_stats().get("total_traces", 0)
-            except Exception:
-                pass
-
-            # Emotion state
-            emotion_data = {
-                "urgency": 0, "confidence": 0.5, "uncertainty": 0.5,
-                "fatigue_proxy": 0.0, "risk_sensitivity": 0.5, "novelty_interest": 0.5,
-            }
-            try:
-                from aegis_ai.mind.emotion import Emotion
-                emotion = Emotion(path=os.path.join(_DATA_DIR, "mind_emotion.jsonl"))
-                emotion_data = {
-                    "urgency": emotion.urgency,
-                    "confidence": round(emotion.confidence, 2),
-                    "uncertainty": round(emotion._state.uncertainty, 2),
-                    "fatigue_proxy": round(emotion.fatigue_proxy, 2),
-                    "risk_sensitivity": round(emotion.risk_sensitivity, 2),
-                    "novelty_interest": round(emotion._state.novelty_interest, 2),
-                }
-            except Exception:
-                pass
-
-            memory_stats = {"episodic_count": 0, "semantic_count": 0, "procedural_count": 0, "reflection_count": 0}
-            try:
-                _mem = _get_mem_backend("advanced")
-                if _mem:
-                    _mem_stats = _mem.get_stats()
-                    memory_stats["reflection_count"] = _mem_stats.get("conversations", 0)
-            except Exception:
-                pass
-
-            try:
-                _ep = _get_mem_backend("episodic")
-                if _ep:
-                    _ep_stats = _ep.get_stats()
-                    memory_stats["episodic_count"] = _ep_stats.get("total_episodes", 0)
-            except Exception:
-                pass
-
-            try:
-                _sm = _get_mem_backend("semantic")
-                if _sm:
-                    _sm_stats = _sm.get_stats()
-                    memory_stats["semantic_count"] = _sm_stats.get("total_entries", 0)
-            except Exception:
-                pass
-
-            try:
-                _sk = _get_mem_backend("skill")
-                if _sk:
-                    _sk_stats = _sk.get_stats()
-                    memory_stats["procedural_count"] = _sk_stats.get("total", 0)
-            except Exception:
-                pass
-
-            event_count = 0
-            try:
-                ev_result = self._runtime.event_manager.list_recent(limit=1)
-                event_count = len(ev_result.get("events", []))
-            except Exception:
-                pass
-
-            task_count = 0
-            try:
-                task_count = len(self._runtime.task_manager.list_tasks(limit=1000))
-            except Exception:
-                pass
-
-            settings_snapshot = self._settings_store.get()
-            return render_template("dashboard/home.html",
-                servers=status["servers"],
-                server_summary=status["summary"],
-                event_stats={"total_published": event_count},
-                trigger_stats={"tasks_generated": task_count},
-                pending_approvals=approval_queue_data,
-                memory_summary=memory_stats,
-                settings={
-                    "autonomous_enabled": settings_snapshot.autonomous.autonomous_loop_enabled,
-                    "support_agent_enabled": settings_snapshot.autonomous.support_agent_enabled,
-                    "self_dev_enabled": settings_snapshot.autonomous.self_dev_proposal_enabled,
-                    "privacy_clipboard_enabled": settings_snapshot.privacy.clipboard_capture_enabled,
-                    "privacy_camera_enabled": settings_snapshot.privacy.camera_snapshot_enabled,
-                },
-                agora=agora_data,
-                desires=desire_data,
-                world=world_data,
-                autonomous=autonomous_data,
-                emotion=emotion_data,
-            )
-
-        @app.route("/chat")
-        def web_chat_redirect():
-            from aegis_ai.web.routes.ui_v2 import ui_v2_available
-
-            if ui_v2_available():
-                return redirect("/dashboard")
-            host = request.host.split(":", 1)[0] or "localhost"
-            if host not in {"127.0.0.1", "localhost", "::1"}:
-                return redirect("/dashboard")
-            return redirect(f"http://{host}:8091/chat")
-
-        @app.route("/dashboard/servers")
-        def servers():
-            status = self._get_server_status()
-            return render_template("dashboard/servers.html",
-                servers=status["servers"],
-                summary=status["summary"],
-            )
-
         @app.route("/api/servers")
         def api_servers():
             return jsonify(self._get_server_status())
-
-        @app.route("/dashboard/capabilities")
-        def capabilities():
-            caps = []
-            errors = []
-            production_report = {}
-            production_blocker_ids: set[str] = set()
-
-            try:
-                from aegis_ai.production_readiness import (
-                    blocker_capability_ids,
-                    load_production_blocker_report,
-                    production_blocker_count,
-                    runtime_mode,
-                )
-                production_report = load_production_blocker_report()
-                production_blocker_ids = blocker_capability_ids(production_report)
-                catalog = getattr(self._runtime, "capability_catalog", None)
-                manifests = catalog.list_all() if catalog is not None else self._runtime.folder_registry.list_all()
-                for m in manifests:
-                    risk = normalize_risk_label(m.risk_level)
-                    details = catalog.risk_details(m.capability_id) if catalog is not None else {}
-                    caps.append({
-                        "id": m.capability_id,
-                        "short_name": m.short_name,
-                        "title": m.title,
-                        "description": m.description,
-                        "risk_level": risk,
-                        "manifest_risk_level": getattr(m, "manifest_risk_level", m.risk_level),
-                        "manifest_requires_approval": bool(getattr(m, "manifest_requires_approval", m.requires_approval)),
-                        "override": dict(getattr(m, "override", None) or {}),
-                        "override_active": bool((details or {}).get("override_active")),
-                        "effective": (details or {}).get("effective", {}),
-                        "enabled": bool(getattr(m, "enabled", True)),
-                        "server_id": m.server_id,
-                        "app_id": m.app_id,
-                        "action": m.action,
-                        "origin": m.origin,
-                        "requires_approval": bool(m.requires_approval),
-                        "side_effects": m.side_effects,
-                        "tags": m.tags,
-                        "production_blocker": m.capability_id in production_blocker_ids,
-                    })
-                errors = self._runtime.folder_registry.errors()
-            except Exception as exc:
-                logger.warning("Capabilities load failed: %s", exc)
-
-            risk_levels = ["READ_ONLY", "SAFE_ACTION", "APPROVAL_REQUIRED", "HIGH_RISK", "FORBIDDEN"]
-            try:
-                production_status = {
-                    "runtime_mode": runtime_mode(),
-                    "blocker_count": production_blocker_count(production_report),
-                    "report_corrupted": bool(production_report.get("corrupted")),
-                }
-            except Exception:
-                production_status = {"runtime_mode": "unknown", "blocker_count": 0, "report_corrupted": False}
-
-            return render_template("dashboard/capabilities.html",
-                capabilities=caps,
-                risk_levels=risk_levels,
-                errors=errors,
-                production_status=production_status,
-            )
 
         @app.route("/api/production/readiness")
         def api_production_readiness():
@@ -1850,71 +1584,6 @@ class DashboardApp:
             except Exception as exc:
                 return jsonify({"error": str(exc)}), 500
 
-        @app.route("/dashboard/events")
-        def events():
-            recent_events = []
-            stats = {"total_published": 0, "total_deduplicated": 0}
-            try:
-                result = self._runtime.event_manager.list_recent(limit=100)
-                raw_events = result.get("events", [])
-                now_ms = int(time.time() * 1000)
-                for ev in raw_events:
-                    ts = ev.get("timestamp_ms", 0)
-                    recent_events.append({
-                        "event_id": ev.get("event_id", ""),
-                        "event_type": ev.get("event_type", ""),
-                        "source_server_type": ev.get("source", ev.get("source_server_type", "")),
-                        "severity": ev.get("severity", "info"),
-                        "priority": ev.get("priority", 0),
-                        "age_seconds": max(0, (now_ms - ts) // 1000) if ts > 0 else 0,
-                    })
-                stats["total_published"] = len(recent_events)
-            except Exception as exc:
-                logger.warning("Events load failed: %s", exc)
-            return render_template("dashboard/events.html",
-                events=recent_events,
-                stats=stats,
-            )
-
-        @app.route("/dashboard/tasks")
-        def tasks():
-            all_tasks = []
-            running_tasks = []
-            waiting_tasks = []
-            try:
-                all_tasks = self._runtime.task_manager.list_tasks(limit=100)
-                running_tasks = self._runtime.task_manager.list_running()
-                waiting_tasks = self._runtime.task_manager.list_waiting_approval()
-            except Exception as exc:
-                logger.warning("Tasks load failed: %s", exc)
-
-            status_counts = {}
-            for t in all_tasks:
-                s = t.get("status", "unknown")
-                status_counts[s] = status_counts.get(s, 0) + 1
-
-            return render_template("dashboard/tasks.html",
-                pending_tasks=all_tasks,
-                running_tasks=running_tasks,
-                waiting_approval_tasks=waiting_tasks,
-                trigger_stats={
-                    "tasks_generated": len(all_tasks),
-                    "rules_matched": 0,
-                    "suppressed_by_cooldown": 0,
-                    "suppressed_by_no_match": 0,
-                },
-                status_counts=status_counts,
-            )
-
-        @app.route("/dashboard/support")
-        def support():
-            return render_template("dashboard/support.html")
-
-        @app.route("/dashboard/memory")
-        def memory():
-            snapshot = _load_memory_snapshot()
-            return render_template("dashboard/memory.html", **snapshot)
-
         @app.route("/api/memory/reload", methods=["POST"])
         def api_memory_reload():
             chroma_synced = 0
@@ -1936,107 +1605,6 @@ class DashboardApp:
             except Exception as exc:
                 logger.warning("Memory reload failed: %s", exc)
                 return jsonify({"ok": False, "error": str(exc)}), 500
-
-        @app.route("/dashboard/audit")
-        def audit():
-            from flask import request as flask_req
-            page = int(flask_req.args.get("page", 1))
-            view = flask_req.args.get("view", "grouped")
-            per_page = 20
-            audit_manager = getattr(self._runtime, "audit_manager", None)
-            if (
-                audit_manager is not None
-                and hasattr(audit_manager, "list_groups")
-                and hasattr(audit_manager, "list_recent")
-            ):
-                group_result = audit_manager.list_groups(page=page, per_page=per_page)
-                groups = group_result.get("groups", [])
-                result = audit_manager.list_recent(limit=per_page, page=page)
-                entries = result.get("entries", [])
-                total = result.get("total", 0)
-                total_pages = group_result.get("total_pages", 1) if view != "raw" else result.get("total_pages", 1)
-                if hasattr(audit_manager, "read_recent_for_dashboard"):
-                    all_entries = audit_manager.read_recent_for_dashboard(max_entries=400)
-                else:
-                    all_entries = entries
-            else:
-                all_entries = _load_audit_entries()
-                groups = []
-                total = len(all_entries)
-                start = max(0, (page - 1) * per_page)
-                entries = all_entries[start:start + per_page]
-                total_pages = max(1, (total + per_page - 1) // per_page)
-                group_result = {"total": total, "total_pages": total_pages}
-            for entry in entries:
-                entry["time_str"] = _format_timestamp_ms(entry.get("timestamp_ms", 0))
-                detail = entry.get("detail", {})
-                if isinstance(detail, dict):
-                    parts = []
-                    for key, value in list(detail.items())[:3]:
-                        parts.append(f"{key}={_truncate_text(value, 60)}")
-                    entry["detail_summary"] = ", ".join(parts)
-                else:
-                    entry["detail_summary"] = _truncate_text(detail, 100)
-                entry["detail_pretty"] = _pretty_json(detail)
-            action_counts: dict[str, int] = {}
-            for e in all_entries:
-                action = e.get("action", "unknown")
-                action_counts[action] = action_counts.get(action, 0) + 1
-            action_counts = dict(sorted(action_counts.items(), key=lambda item: item[1], reverse=True))
-            timeline = _build_audit_timeline(entries[:50])
-            return render_template("dashboard/audit.html",
-                entries=entries,
-                groups=groups,
-                view=view,
-                timeline=timeline,
-                page=page,
-                per_page=per_page,
-                total_entries=group_result.get("total", total) if view != "raw" else total,
-                total_pages=total_pages,
-                stats={
-                    "total_entries": total,
-                    "llm_entries": sum(1 for e in all_entries if e.get("action", "").startswith("llm_")),
-                    "tool_entries": sum(1 for e in all_entries if e.get("action") == "tool_execution"),
-                    "error_entries": sum(1 for e in all_entries if _is_error_audit_entry(e)),
-                },
-                action_counts=action_counts,
-            )
-
-        @app.route("/dashboard/errors")
-        def errors():
-            audit_errors = []
-            for entry in reversed(_load_audit_entries()):
-                if not _is_error_audit_entry(entry):
-                    continue
-                detail = entry.get("detail", {}) if isinstance(entry.get("detail"), dict) else {}
-                audit_errors.append({
-                    "time_str": entry.get("time_str", "-"),
-                    "action": entry.get("action", ""),
-                    "capability_id": entry.get("capability_id", ""),
-                    "actor": entry.get("actor", ""),
-                    "decision": entry.get("decision", ""),
-                    "summary": _truncate_text(
-                        detail.get("error")
-                        or detail.get("output")
-                        or entry.get("reason")
-                        or entry.get("detail_summary"),
-                        240,
-                    ),
-                    "reason": entry.get("reason", ""),
-                    "detail_pretty": entry.get("detail_pretty", "{}"),
-                })
-            log_errors = _load_error_log_entries()
-            server_status = self._get_server_status()
-            health_issues = [
-                server for server in server_status["servers"]
-                if server.get("status") in {"OFFLINE", "DEGRADED", "UNCONFIGURED"}
-            ]
-            return render_template(
-                "dashboard/errors.html",
-                audit_errors=audit_errors,
-                log_errors=log_errors,
-                health_issues=health_issues,
-            )
 
         @app.route("/api/audit/stream")
         def audit_stream():
@@ -2179,240 +1747,6 @@ class DashboardApp:
 
             return Response(generate(), mimetype='text/event-stream')
 
-        @app.route("/dashboard/agora")
-        def agora_page():
-            return render_template(
-                "dashboard/agora.html",
-                agora={
-                    "configured": False,
-                    "account": "",
-                    "cursor": 0,
-                    "max_post_id": 0,
-                    "total_posts": 0,
-                    "posts": [],
-                    "mentions": [],
-                },
-            )
-
-        @app.route("/dashboard/desires")
-        def desires_page():
-            desire_data = {"desires": [], "context": ""}
-            try:
-                from aegis_ai.desire.desire_system import DesireSystem
-                ds = DesireSystem(data_dir=os.path.join(_DATA_DIR, "desires"))
-                ds.apply_decay()
-                ds._save()
-                ctx = ds.get_context()
-                if ctx:
-                    desire_data["context"] = ctx
-                if hasattr(ds, "_desires"):
-                    desire_data["desires"] = [{
-                        "name": d.name, "value": d.value,
-                        "expected": d.expected_value,
-                        "frustration": max(0, d.expected_value - d.value),
-                        "pressure": getattr(d, "pressure", 0.0),
-                        "drift_rate": getattr(d, "drift_rate", 0.0),
-                        "last_action_at": getattr(d, "last_action_at", 0),
-                        "last_updated": datetime.fromtimestamp(
-                            d.last_updated_at / 1000, tz=_JST
-                        ).strftime("%Y-%m-%d %H:%M") if d.last_updated_at > 0 else "never",
-                        "decay_rate": d.decay_rate_per_hour,
-                    } for d in ds._desires.values()]
-            except Exception as exc:
-                logger.warning("Desires page error: %s", exc)
-            desire_data["frustration_threshold"] = 5.0
-            if self._autonomous_loop:
-                status = self._autonomous_loop.get_status()
-                desire_data["frustration_threshold"] = status.get("pressure_threshold", 5.0)
-            return render_template("dashboard/desires.html", desires=desire_data)
-
-        @app.route("/dashboard/autonomous")
-        def autonomous_page():
-            import json as json_lib
-            status_data = {
-                "running": False,
-                "execution_count": 0,
-                "last_run_str": "-",
-                "next_run_str": "-",
-                "next_llm_str": "-",
-                "frustration_threshold": 2.0,
-                "llm_interval_ms": 0,
-                "available_capability_count": 0,
-                "selected_tool_count": 0,
-                "last_decision": "",
-                "last_no_action_reason": "",
-            }
-            desire_list = []
-            executions = []
-            observation_data = {"last_str": "-"}
-            curiosity_data = {"level": 0.0, "explorations": 0}
-
-            try:
-                if self._autonomous_loop:
-                    st = self._autonomous_loop.get_status()
-                    status_data["running"] = st.get("running", False)
-                    status_data["execution_count"] = st.get("execution_count", 0)
-                    status_data["frustration_threshold"] = st.get("pressure_threshold", 2.0)
-                    status_data["llm_interval_ms"] = st.get("llm_interval_ms", st.get("min_llm_interval_ms", 0))
-                    status_data["available_capability_count"] = st.get("available_capability_count", 0)
-                    status_data["selected_tool_count"] = st.get("selected_tool_count", 0)
-                    status_data["last_decision"] = st.get("last_decision", "")
-                    status_data["last_no_action_reason"] = st.get("last_no_action_reason", "")
-                    last_ms = st.get("last_run_ms", 0)
-                    next_ms = st.get("next_run_ms", 0)
-                    next_llm_ms = st.get("next_llm_allowed_ms", 0)
-                    if last_ms > 0:
-                        status_data["last_run_str"] = datetime.fromtimestamp(last_ms / 1000, tz=_JST).strftime("%H:%M:%S")
-                    if next_ms > 0:
-                        status_data["next_run_str"] = datetime.fromtimestamp(next_ms / 1000, tz=_JST).strftime("%H:%M:%S")
-                    if next_llm_ms > 0:
-                        status_data["next_llm_str"] = datetime.fromtimestamp(next_llm_ms / 1000, tz=_JST).strftime("%H:%M:%S")
-            except Exception:
-                pass
-
-            try:
-                from aegis_ai.desire.desire_system import DesireSystem
-                ds = DesireSystem(data_dir=os.path.join(_DATA_DIR, "desires"))
-                for name, d in ds.get_all_desires().items():
-                    desire_list.append({
-                        "name": name, "value": d.value, "expected": d.expected_value,
-                        "frustration": max(0, d.expected_value - d.value),
-                    })
-                desire_list.sort(key=lambda x: x["frustration"], reverse=True)
-            except Exception:
-                pass
-
-            try:
-                log_path = os.path.join(_DATA_DIR, "autonomous", "execution_log.jsonl")
-                if os.path.exists(log_path):
-                    with open(log_path, encoding="utf-8") as f:
-                        for line in f:
-                            if line.strip():
-                                entry = json_lib.loads(line)
-                                ts = entry.get("timestamp_ms", 0)
-                                results = entry.get("results", [])
-                                for idx, task in enumerate(entry.get("tasks", [])):
-                                    result = results[idx] if idx < len(results) else {}
-                                    if not result and results:
-                                        result = next(
-                                            (r for r in results if r.get("desire") == task.get("desire")),
-                                            {},
-                                        )
-                                    executions.append({
-                                        "time_str": datetime.fromtimestamp(ts / 1000, tz=_JST).strftime("%H:%M:%S") if ts > 0 else "-",
-                                        "desire": task.get("desire", ""),
-                                        "action": task.get("action", ""),
-                                        "result": str(result.get("result", "")),
-                                        "success": result.get("success", False),
-                                        "what_was_done": task.get("what_was_done", ""),
-                                        "changed_state": task.get("changed_state", ""),
-                                        "not_repeat_unless": task.get("not_repeat_unless", ""),
-                                        "why_this_is_not_repeating": task.get("why_this_is_not_repeating", ""),
-                                        "repetition_check": task.get("repetition_check", {}),
-                                    })
-                executions.reverse()
-            except Exception:
-                pass
-
-            try:
-                from aegis_ai.autonomous.curiosity_exploration import CuriosityDrivenExplorationSystem
-                from aegis_ai.desire.desire_system import DesireSystem
-                ds = DesireSystem(data_dir=os.path.join(_DATA_DIR, "desires"))
-                curiosity = CuriosityDrivenExplorationSystem(desire_system=ds, data_dir=os.path.join(_DATA_DIR, "autonomous"))
-                curiosity_data["level"] = curiosity.curiosity_level
-                curiosity_data["explorations"] = curiosity.get_exploration_stats().get("total_explorations", 0)
-            except Exception:
-                pass
-
-            return render_template("dashboard/autonomous.html",
-                status=status_data, desires=desire_list, executions=executions,
-                observation=observation_data, curiosity=curiosity_data,
-            )
-
-        @app.route("/dashboard/learning")
-        def learning_page():
-            import json as json_lib
-            stats_data = {"total_traces": 0, "total_lessons": 0, "total_workflows": 0, "total_skills": 0}
-            traces_list = []
-            skills_list = []
-            lessons_list = []
-            consolidation_data = {"last_str": "-", "count": 0, "interval_hours": 6}
-
-            try:
-                atm = _get_mem_backend("action_trace")
-                if atm is None:
-                    from aegis_ai.memory.action_trace import ActionTraceMemory
-                    atm = ActionTraceMemory(path=os.path.join(_DATA_DIR, "memory", "action_traces.jsonl"))
-                atm_stats = atm.get_stats()
-                stats_data["total_traces"] = atm_stats.get("total_traces", 0)
-                for t in atm.get_successful(count=10) + atm.get_failed(count=5):
-                    traces_list.append({
-                        "time_str": datetime.fromtimestamp(t.completed_at_ms / 1000, tz=_JST).strftime("%H:%M:%S") if t.completed_at_ms > 0 else "-",
-                        "goal": t.goal, "desire": t.desire_name,
-                        "step_count": len(t.steps), "success": t.success,
-                        "duration_str": f"{t.duration_ms / 1000:.1f}s" if t.duration_ms > 0 else "-",
-                    })
-                traces_list.sort(key=lambda x: x["time_str"], reverse=True)
-            except Exception:
-                pass
-
-            try:
-                sm = _get_mem_backend("skill")
-                sm_stats = sm.get_stats()
-                stats_data["total_skills"] = sm_stats.get("total", 0)
-                for s in sm.get_active():
-                    skills_list.append({
-                        "name": s.name, "success_rate": s.success_rate,
-                        "total_uses": s.success_count + s.failure_count,
-                        "deprecated": s.deprecated, "is_reliable": s.is_reliable,
-                        "last_used_str": datetime.fromtimestamp(s.last_used_at_ms / 1000, tz=_JST).strftime("%m-%d %H:%M") if s.last_used_at_ms > 0 else "never",
-                    })
-                skills_list.sort(key=lambda x: x["success_rate"], reverse=True)
-            except Exception:
-                pass
-
-            try:
-                lm = _get_mem_backend("lesson")
-                lm_stats = lm.get_stats() if hasattr(lm, "get_stats") else {}
-                stats_data["total_lessons"] = lm_stats.get("total", 0)
-                for l in lm.get_recent(count=10) if hasattr(lm, "get_recent") else []:
-                    lessons_list.append({
-                        "time_str": datetime.fromtimestamp(l.created_at_ms / 1000, tz=_JST).strftime("%m-%d %H:%M") if hasattr(l, "created_at_ms") and l.created_at_ms > 0 else "-",
-                        "content": l.content if hasattr(l, "content") else str(l),
-                        "type": l.lesson_type if hasattr(l, "lesson_type") else "-",
-                        "source_goal": l.source_goal if hasattr(l, "source_goal") else "-",
-                    })
-            except Exception:
-                pass
-
-            try:
-                from aegis_ai.memory.sleep_consolidation import SleepConsolidationSystem
-                sleep = SleepConsolidationSystem(data_dir=os.path.join(_DATA_DIR, "memory"))
-                sleep_status = sleep.get_status()
-                consolidation_data["count"] = sleep_status.get("consolidation_count", 0)
-                consolidation_data["interval_hours"] = sleep_status.get("auto_interval_hours", 6)
-                last_ms = sleep_status.get("last_consolidation_ms", 0)
-                if last_ms > 0:
-                    consolidation_data["last_str"] = datetime.fromtimestamp(last_ms / 1000, tz=_JST).strftime("%m-%d %H:%M")
-            except Exception:
-                pass
-
-            return render_template("dashboard/learning.html",
-                stats=stats_data, traces=traces_list, skills=skills_list,
-                lessons=lessons_list, consolidation=consolidation_data,
-            )
-
-        @app.route("/dashboard/prompt-analysis")
-        def prompt_analysis():
-            report_path = Path(getattr(self._runtime, "data_dir", _DATA_DIR)) / "reports" / "prompt_usage_latest.json"
-            report = {}
-            if report_path.exists():
-                try:
-                    report = json.loads(report_path.read_text(encoding="utf-8"))
-                except Exception:
-                    logger.debug("Failed to load prompt usage report", exc_info=True)
-            return render_template("dashboard/prompt_analysis.html", report=report)
-
         @app.route("/api/prompt-analysis/run", methods=["POST"])
         def api_prompt_analysis_run():
             from flask import request as flask_req
@@ -2436,49 +1770,6 @@ class DashboardApp:
                 "json_path": str(json_path),
                 "html_path": str(html_path),
             })
-
-        @app.route("/dashboard/personal-ai")
-        def personal_ai():
-            rt = self._runtime
-            data = {
-                "user_model": {},
-                "hooks": [],
-                "commitments": [],
-                "delegation": {},
-                "situation": {},
-                "interruption": {},
-                "repair": {},
-                "drafts": [],
-                "pending_approvals": [],
-            }
-            try:
-                data["user_model"] = rt.user_model_store.get().to_dict()
-                data["hooks"] = rt.hook_engine.list_hooks()
-                data["commitments"] = rt.commitment_manager.list_commitments()
-                data["delegation"] = rt.delegation_policy.get_summary()
-                data["situation"] = rt.situation_model.get_state()
-                data["interruption"] = rt.interruption_controller.get_status()
-                data["repair"] = rt.repair_manager.get_status()
-                data["drafts"] = rt.social_proxy.list_drafts()
-                data["pending_approvals"] = [r.to_dict() for r in rt.approval_manager.list_pending()]
-            except Exception:
-                logger.debug("Failed to build personal AI dashboard", exc_info=True)
-            return render_template("dashboard/personal_ai.html", **data)
-
-        @app.route("/dashboard/user-state")
-        def user_state_page():
-            rt = self._runtime
-            data = {"state": {}, "events": [], "days": [], "archives": [], "local_key_warning": False}
-            try:
-                data["state"] = rt.user_state_manager.get_current_user_state()
-                data["events"] = rt.user_state_manager.get_recent_events(limit=20)
-                days = rt.user_state_manager.list_days()
-                data["days"] = days.get("days", [])
-                data["archives"] = days.get("archives", [])
-                data["local_key_warning"] = bool(days.get("local_key_warning"))
-            except Exception:
-                logger.debug("Failed to build user state dashboard", exc_info=True)
-            return render_template("dashboard/user_state.html", **data)
 
         @app.route("/api/desires/update", methods=["POST"])
         def api_desires_update():
@@ -2524,44 +1815,4 @@ class DashboardApp:
         @app.route("/health")
         def health():
             return jsonify({"status": "ok", "component": "dashboard"})
-
-
-        @app.route("/dashboard/approvals")
-        def dashboard_approvals():
-            return render_template("dashboard/approvals.html")
-
-        @app.route("/dashboard/presentations")
-        def dashboard_presentations():
-            presentations: list[dict[str, Any]] = []
-            stats = {
-                "total_active": 0,
-                "total_delivered": 0,
-                "total_dismissed": 0,
-            }
-            try:
-                presentations = self._runtime.presentation_manager.list_all(limit=200)
-                for presentation in presentations:
-                    status = str(presentation.get("status", "")).lower()
-                    if status in {"pending", "queued", "active"}:
-                        stats["total_active"] += 1
-                    elif status == "delivered":
-                        stats["total_delivered"] += 1
-                    elif status == "dismissed":
-                        stats["total_dismissed"] += 1
-            except Exception as exc:
-                logger.warning("Presentations load failed: %s", exc)
-            return render_template(
-                "dashboard/presentations.html",
-                presentations=presentations,
-                stats=stats,
-            )
-
-        @app.route("/dashboard/llm-usage")
-        def dashboard_llm_usage():
-            return render_template("dashboard/llm_usage.html")
-
-        @app.route("/dashboard/health")
-        def dashboard_health():
-            """Health alerts dashboard page."""
-            return render_template("dashboard/health.html")
 

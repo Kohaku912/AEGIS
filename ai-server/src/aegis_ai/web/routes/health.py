@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 from typing import Any
 
-from flask import Blueprint, jsonify, render_template
+from flask import Blueprint, jsonify
 
 
 def init_health_routes(owner: Any, data_dir: str) -> None:
@@ -21,10 +21,6 @@ def init_health_routes(owner: Any, data_dir: str) -> None:
             status_manager=getattr(owner._runtime, "status_manager", None),
             data_path=data_dir,
         )
-
-    @bp.route("/dashboard/health")
-    def dashboard_health():
-        return render_template("dashboard/health.html")
 
     @bp.route("/api/health/alerts")
     def health_alerts():

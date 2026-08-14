@@ -103,16 +103,11 @@ def client(monkeypatch, tmp_path):
 
 
 def test_all_dashboard_pages_and_apis(client):
-    sidebar_urls = [
-        "/dashboard", "/dashboard/servers", "/dashboard/capabilities",
-        "/dashboard/events", "/dashboard/tasks", "/dashboard/audit",
-        "/dashboard/errors", "/dashboard/llm-config", "/dashboard/memory",
-        "/dashboard/desires", "/dashboard/autonomous", "/dashboard/learning",
-        "/dashboard/support", "/dashboard/agora",
-    ]
-    for url in sidebar_urls:
+    spa_urls = ["/", "/dashboard", "/dashboard/memory", "/chat", "/settings"]
+    for url in spa_urls:
         resp = client.get(url)
         assert resp.status_code == 200, f"{url} returned {resp.status_code}"
+        assert b"/assets/index-" in resp.data, f"{url} did not serve the SPA shell"
 
     api_urls = [
         "/api/ui/overview",

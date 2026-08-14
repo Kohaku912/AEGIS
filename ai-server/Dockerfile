@@ -20,7 +20,7 @@ RUN pip install --no-cache-dir -e ".[dev]" 2>/dev/null || \
 RUN mkdir -p /app/data /app/evaluation/reports
 
 # Expose ports
-EXPOSE 50051 8090 8091
+EXPOSE 50051 8090
 
 # Default command
 CMD ["python", "-m", "aegis_ai.main"]

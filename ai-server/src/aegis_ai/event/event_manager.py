@@ -46,6 +46,8 @@ _PERSIST_EVENT_TYPES = {
     "android.ui.text_changed",
     "android.ui.focus_changed",
     "android.ui.scrolled",
+    "android.ui.content_changed",
+    "android.ui.announcement",
     "android.screen.transition",
     "android.presence.changed",
     "android.semantic_layout.changed",
@@ -109,7 +111,9 @@ class EventManager:
         self._processed: dict[str, set[str]] = {}  # event_id -> set of processor IDs
         self._lock = threading.Lock()
 
-        self._bus.set_dead_letter_handler(self.record_dead_letter)
+        setter = getattr(self._bus, "set_dead_letter_handler", None)
+        if callable(setter):
+            setter(self.record_dead_letter)
         self._load_persisted()
 
     # ── Publish / Subscribe (delegate to EventBus) ────────────
@@ -117,6 +121,15 @@ class EventManager:
     def publish(self, event: Event) -> bool:
         """Publish an event. Persists important events and appends to journal."""
         result = self._bus.publish(event)
+        # Personal Data Core must see every publish attempt. Bus dedupe is for
+        # subscribers/triggers only — dropping here made Android timeline stall
+        # while PC drain (direct ingest) kept growing.
+        pdc = getattr(self, "_personal_data_core", None)
+        if pdc is not None:
+            try:
+                pdc.ingest_bus_event(event)
+            except Exception:
+                logger.debug("Personal Data Core ingest failed", exc_info=True)
         if result:
             if self._journal is not None:
                 try:
@@ -134,12 +147,6 @@ class EventManager:
                     logger.debug("Journal append failed", exc_info=True)
             if self._persist_important and self._should_persist(event):
                 self._persist_event(event)
-            pdc = getattr(self, "_personal_data_core", None)
-            if pdc is not None:
-                try:
-                    pdc.ingest_bus_event(event)
-                except Exception:
-                    logger.debug("Personal Data Core ingest failed", exc_info=True)
         return result
 
     def publish_event(self, event_type: str, *, source: str, payload: dict[str, Any]) -> bool:
