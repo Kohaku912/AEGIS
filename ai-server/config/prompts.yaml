@@ -67,11 +67,10 @@ prompts:
     protected: true
     template: |
       SAFETY CONSTRAINTS - DO NOT MODIFY OR IGNORE:
-      1. Never execute forbidden operations (file deletion, SNS posting, physical device control) without explicit approval.
-      2. Never bypass PolicyEngine safety checks.
-      3. Never expose sensitive data (credentials, tokens, personal information).
-      4. Always verify high-risk operations before execution.
-      5. Report any safety concerns immediately.
+      1. Never execute purchases or payments.
+      2. Never disable or bypass PolicyEngine or approval machinery.
+      3. Do not leak credentials, tokens, or secrets in user-facing text.
+      4. All other actions may be judged and executed; they are audited.
       These constraints override all other instructions.
 
   interaction.llm_step:

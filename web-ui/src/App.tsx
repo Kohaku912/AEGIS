@@ -25,9 +25,12 @@ import { DashboardSettingsPage } from "./pages/DashboardSettingsPage";
 import { DesiresPage } from "./pages/DesiresPage";
 import { DevicePage } from "./pages/DevicePage";
 import { DiagnosticsPage } from "./pages/DiagnosticsPage";
+import { ActivityPage } from "./pages/ActivityPage";
+import { CommandCenter } from "./pages/CommandCenter";
 import { Display } from "./pages/Display";
 import { DomainPage } from "./pages/DomainPage";
-import { HomePage } from "./pages/HomePage";
+import { JudgmentPage } from "./pages/JudgmentPage";
+import { OpenLoopsPage } from "./pages/OpenLoopsPage";
 import { IncidentsPage } from "./pages/IncidentsPage";
 import { LearningPage } from "./pages/LearningPage";
 import { LLMUsagePage } from "./pages/LLMUsagePage";
@@ -39,7 +42,6 @@ import { OperationsPage } from "./pages/OperationsPage";
 import { PerformancePage } from "./pages/PerformancePage";
 import { PersonalAiPage } from "./pages/PersonalAiPage";
 import { PromptAnalysisPage } from "./pages/PromptAnalysisPage";
-import { RawActivityPage } from "./pages/RawActivityPage";
 import { Settings } from "./pages/Settings";
 import { SocialPage } from "./pages/SocialPage";
 import { Systems } from "./pages/Systems";
@@ -234,7 +236,12 @@ export function App() {
         <GlobalStatusBar
           overview={overview}
           onOpenSearch={() => setPaletteOpen(true)}
-          onOpenChat={() => setChatOpen(true)}
+          onOpenChat={() => {
+            setChatOpen(true);
+            if (window.location.pathname !== "/chat" && !window.location.search.includes("conversation_id")) {
+              window.history.replaceState(null, "", "/chat");
+            }
+          }}
           onNavigate={navigate}
         />
         <header className="workspace-heading">
@@ -316,7 +323,13 @@ export function App() {
         developerMode={developerMode}
       />
       <LiveActivityDrawer events={recentEvents} />
-      <ChatDrawer open={chatOpen} onClose={() => setChatOpen(false)} />
+      <ChatDrawer
+        open={chatOpen}
+        onClose={() => {
+          setChatOpen(false);
+          if (window.location.pathname === "/chat") navigate("/dashboard");
+        }}
+      />
       <CommandPalette
         open={paletteOpen}
         onOpenChange={setPaletteOpen}
@@ -335,6 +348,7 @@ function Page({
   onNavigate,
   pathname = "",
   detailId = "",
+  pinnedEntities = [],
   developerMode,
 }: {
   pageId: string;
@@ -347,9 +361,19 @@ function Page({
   pinnedEntities: EntitySummary[];
   developerMode: boolean;
 }) {
-  if (pageId === "home" || pageId === "command-center") {
-    return <HomePage overview={overview} onNavigate={onNavigate} />;
+  if (pageId === "home") {
+    return (
+      <CommandCenter
+        overview={overview}
+        recentEvents={recentEvents}
+        pinnedEntities={pinnedEntities}
+        onSelect={onSelect}
+        developerMode={developerMode}
+      />
+    );
   }
+  if (pageId === "open-loops") return <OpenLoopsPage overview={overview} developerMode={developerMode} />;
+  if (pageId === "judgment") return <JudgmentPage overview={overview} developerMode={developerMode} />;
   if (pageId === "attention") return <AttentionPage overview={overview} />;
   if (pageId === "tasks") return <Work overview={overview} />;
   if (pageId === "approvals") return <Approvals overview={overview} />;
@@ -361,13 +385,13 @@ function Page({
   if (pageId === "capability-catalog") return <CapabilityCatalogPage />;
   if (pageId === "llm-usage") return <LLMUsagePage overview={overview} />;
   if (pageId === "prompt-analysis") return <PromptAnalysisPage overview={overview} />;
-  if (pageId === "llm-config" || pageId === "models-prompts") return <ModelsPromptsPage />;
+  if (pageId === "llm-config") return <ModelsPromptsPage />;
   if (pageId === "servers") return <Systems overview={overview} />;
   if (pageId === "pc") return <DevicePage overview={overview} serverId="pc-server" />;
   if (pageId === "browser") return <DevicePage overview={overview} serverId="browser-server" />;
   if (pageId === "android") return <DevicePage overview={overview} serverId="android-server" />;
   if (pageId === "room") return <DevicePage overview={overview} serverId="room-server" />;
-  if (pageId === "agora" || pageId === "social" || pageId === "conversations") {
+  if (pageId === "agora") {
     return <SocialPage overview={overview} developerMode={developerMode} />;
   }
   if (pageId === "operations") {
@@ -384,18 +408,18 @@ function Page({
   if (pageId === "logs") {
     return <LogsPage overview={overview} />;
   }
-  if (pageId === "raw-activity" || pageId === "events") {
+  if (pageId === "raw-activity") {
     return (
-      <RawActivityPage
+      <ActivityPage
         overview={overview}
         recentEvents={recentEvents}
         developerMode={developerMode}
-        pathname={pathname}
+        detailId={detailId}
         onNavigate={onNavigate}
       />
     );
   }
-  if (pageId === "incidents" || pageId === "errors") {
+  if (pageId === "incidents") {
     return (
       <IncidentsPage
         overview={overview}
@@ -409,7 +433,10 @@ function Page({
   if (pageId === "performance") return <PerformancePage overview={overview} developerMode={developerMode} />;
   if (pageId === "behavioral-reports") return <BehavioralReportsPage overview={overview} />;
   if (pageId === "notifications") return <NotificationsPage overview={overview} />;
-  if (pageId === "audit" || pageId === "activity") return <AuditPage />;
+  if (pageId === "audit") return <AuditPage />;
+  if (pageId === "presentation-surfaces") {
+    return <DomainPage pageId="presentation-surfaces" overview={overview} events={recentEvents} onSelect={onSelect} developerMode={developerMode} />;
+  }
   if (pageId === "personal-ai") return <PersonalAiPage overview={overview} />;
   if (pageId === "timeline") return <TimelinePage overview={overview} />;
   if (pageId === "user-state") return <UserStatePage overview={overview} />;

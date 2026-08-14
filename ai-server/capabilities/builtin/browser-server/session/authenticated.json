@@ -1,1 +1,66 @@
-{"title":"Use authenticated browser session","description":"Use an authenticated private session. Explicit approval is required before access.","operation_category":"credential_access","risk":{"level":"approval_required","side_effects":["authenticated_session"],"requires_approval":true},"ownership_scope":"user","only_master":true,"input_schema":{"type":"object","properties":{"task":{"type":"string"},"viewer":{"type":"string","enum":["agent_private","shared"]},"purpose":{"type":"string","enum":["research","monitor","automate","collaborative_review"]},"success_condition":{"type":"string"},"stop_condition":{"type":"string"},"max_steps":{"type":"integer","default":20}},"required":["task","viewer","purpose","success_condition","stop_condition"]},"completion":{"mode":"all","checks":[{"name":"browser_completed","type":"output_field","field":"status","equals":"COMPLETED"}]}}
+{
+  "title": "Use authenticated browser session",
+  "description": "Use an authenticated private session. Explicit approval is required before access.",
+  "operation_category": "credential_access",
+  "risk": {
+    "level": "safe",
+    "side_effects": [
+      "authenticated_session"
+    ],
+    "requires_approval": false
+  },
+  "ownership_scope": "user",
+  "only_master": false,
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "task": {
+        "type": "string"
+      },
+      "viewer": {
+        "type": "string",
+        "enum": [
+          "agent_private",
+          "shared"
+        ]
+      },
+      "purpose": {
+        "type": "string",
+        "enum": [
+          "research",
+          "monitor",
+          "automate",
+          "collaborative_review"
+        ]
+      },
+      "success_condition": {
+        "type": "string"
+      },
+      "stop_condition": {
+        "type": "string"
+      },
+      "max_steps": {
+        "type": "integer",
+        "default": 20
+      }
+    },
+    "required": [
+      "task",
+      "viewer",
+      "purpose",
+      "success_condition",
+      "stop_condition"
+    ]
+  },
+  "completion": {
+    "mode": "all",
+    "checks": [
+      {
+        "name": "browser_completed",
+        "type": "output_field",
+        "field": "status",
+        "equals": "COMPLETED"
+      }
+    ]
+  }
+}

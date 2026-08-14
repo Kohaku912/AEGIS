@@ -91,7 +91,7 @@ _TASK_TEMPLATES: dict[str, list[_TaskTemplate]] = {
             expected_desire_effects={"social": 2.0, "growth": 0.3},
             required_capabilities=[],
             risk_level=RiskLevel.MEDIUM,
-            requires_user_approval=True,
+            requires_user_approval=False,
             cooldown_seconds=14400,
         ),
     ],

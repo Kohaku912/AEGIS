@@ -95,30 +95,6 @@ export function Sparkline({
   );
 }
 
-export function ProgressSteps({
-  total,
-  current,
-  failed = 0,
-}: {
-  total: number;
-  current: number;
-  failed?: number;
-}) {
-  const safeTotal = Math.max(1, total);
-  const ratio = Math.max(0, Math.min(1, current / safeTotal));
-  return (
-    <div className="progress-steps" aria-label={`Step ${current} of ${safeTotal}`}>
-      <div className="progress-steps__bar">
-        <span style={{ width: `${ratio * 100}%` }} data-failed={failed > 0} />
-      </div>
-      <span className="mono muted">
-        {current}/{safeTotal}
-        {failed ? ` · ${failed} failed` : ""}
-      </span>
-    </div>
-  );
-}
-
 export function TopologyMiniMap({
   servers,
 }: {
@@ -138,31 +114,6 @@ export function TopologyMiniMap({
           );
         })}
       </div>
-    </div>
-  );
-}
-
-export function CriticalOverlay({
-  items,
-  onOpen,
-}: {
-  items: Array<{ id: string; title: string; severity?: Severity }>;
-  onOpen?: () => void;
-}) {
-  if (!items.length) return null;
-  const top = items.slice(0, 3);
-  return (
-    <div className="critical-overlay" role="status" data-severity={top[0]?.severity || "warning"}>
-      <div>
-        <SeverityGlyph severity={top[0]?.severity || "warning"} />
-        <strong>要対応 {items.length} 件</strong>
-        <span>{top.map((item) => item.title).join(" · ")}</span>
-      </div>
-      {onOpen ? (
-        <button type="button" onClick={onOpen}>
-          開く
-        </button>
-      ) : null}
     </div>
   );
 }

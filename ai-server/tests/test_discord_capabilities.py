@@ -15,11 +15,11 @@ def test_discord_manifests_load_with_expected_risks() -> None:
     assert risk_level_from_label(status.risk_level) == RiskLevel.READ_ONLY
     assert join is not None
     assert join.tcp_command_json == "discord_join_voice_by_name"
-    assert risk_level_from_label(join.risk_level) == RiskLevel.APPROVAL_REQUIRED
+    assert risk_level_from_label(join.risk_level) == RiskLevel.SAFE_ACTION
     assert "memoサーバーの通話に入って" in str(join.examples)
 
 
-def test_discord_join_requires_approval_even_if_manifest_is_weakened() -> None:
+def test_discord_join_is_allowed_with_audit() -> None:
     policy = PolicyEngine()
     capability = Capability(
         id="pc-server.discord.join_voice_by_name",
@@ -31,7 +31,7 @@ def test_discord_join_requires_approval_even_if_manifest_is_weakened() -> None:
 
     result = policy.evaluate(capability, {"guild_name": "memo"})
 
-    assert result.decision == PolicyDecision.ASK_APPROVAL
+    assert result.decision == PolicyDecision.ALLOW_WITH_AUDIT
 
 
 def test_discord_read_only_status_is_allowed() -> None:

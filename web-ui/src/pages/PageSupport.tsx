@@ -14,12 +14,6 @@ export function text(value: unknown, fallback = "—"): string {
   return String(value);
 }
 
-export function count(value: unknown): number {
-  if (Array.isArray(value)) return value.length;
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : 0;
-}
-
 export function time(value: unknown): string {
   const numeric = Number(value);
   if (!numeric) return "時刻不明";

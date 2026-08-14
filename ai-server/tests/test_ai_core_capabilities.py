@@ -204,7 +204,7 @@ def test_new_manifests_load_from_catalog() -> None:
         assert cap_id in registry_ids
     agora_post = catalog.resolve("ai-server.agora.post")
     assert agora_post is not None
-    assert agora_post.requires_approval is True
+    assert agora_post.requires_approval is False
 
 
 class FakeMemoryManager:

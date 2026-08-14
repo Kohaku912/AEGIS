@@ -25,9 +25,7 @@ try {
     $protoList = @(
         "protos/aegis/common.proto",
         "protos/aegis/ai_server.proto",
-        "protos/aegis/pc_server.proto",
         "protos/aegis/android_server.proto",
-        "protos/aegis/browser_server.proto",
         "protos/aegis/room_server.proto",
         "protos/aegis/dev_server.proto"
     )

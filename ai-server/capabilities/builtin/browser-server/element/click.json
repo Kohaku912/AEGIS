@@ -1,1 +1,63 @@
-{"title":"Click browser element","description":"Click a declared element in a private browser session after contextual approval.","operation_category":"web_action","risk":{"level":"approval_required","side_effects":["web_click"],"requires_approval":true},"only_master":true,"input_schema":{"type":"object","properties":{"task":{"type":"string"},"viewer":{"type":"string","enum":["agent_private","shared"]},"purpose":{"type":"string","enum":["automate","collaborative_review"]},"success_condition":{"type":"string"},"stop_condition":{"type":"string"},"max_steps":{"type":"integer","default":10}},"required":["task","viewer","purpose","success_condition","stop_condition"]},"completion":{"mode":"all","checks":[{"name":"browser_completed","type":"output_field","field":"status","equals":"COMPLETED"}]}}
+{
+  "title": "Click browser element",
+  "description": "Click a declared element in a private browser session after contextual approval.",
+  "operation_category": "web_action",
+  "risk": {
+    "level": "safe",
+    "side_effects": [
+      "web_click"
+    ],
+    "requires_approval": false
+  },
+  "only_master": false,
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "task": {
+        "type": "string"
+      },
+      "viewer": {
+        "type": "string",
+        "enum": [
+          "agent_private",
+          "shared"
+        ]
+      },
+      "purpose": {
+        "type": "string",
+        "enum": [
+          "automate",
+          "collaborative_review"
+        ]
+      },
+      "success_condition": {
+        "type": "string"
+      },
+      "stop_condition": {
+        "type": "string"
+      },
+      "max_steps": {
+        "type": "integer",
+        "default": 10
+      }
+    },
+    "required": [
+      "task",
+      "viewer",
+      "purpose",
+      "success_condition",
+      "stop_condition"
+    ]
+  },
+  "completion": {
+    "mode": "all",
+    "checks": [
+      {
+        "name": "browser_completed",
+        "type": "output_field",
+        "field": "status",
+        "equals": "COMPLETED"
+      }
+    ]
+  }
+}

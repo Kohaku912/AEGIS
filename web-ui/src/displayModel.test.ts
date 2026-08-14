@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildDisplayDirectorState, mapUiEventToVisualEvent, serverNeedsDetail, summarizeMemory, summarizeServers, summarizeUserState } from "./displayModel";
+import { buildDisplayDirectorState, mapUiEventToVisualEvent, readableDisplayText, recentDisplayEvents, serverNeedsDetail, summarizeMemory, summarizeServers, summarizeUserState } from "./displayModel";
 import type { ServerItem, UiOverview } from "./types";
 
 function envelope<T>(data: T) {
@@ -95,6 +95,146 @@ describe("display model", () => {
       freshness: "STALE",
       updatedAt: 1234
     });
+  });
+
+  it("falls back to situation string fields when nested user-state labels are empty", () => {
+    const overview = minimalOverview();
+    overview.user_state = envelope({});
+    overview.user_situation = envelope({
+      where: "desk",
+      location: "office",
+      attention: "phone",
+      activity: "reading",
+      updated_at_ms: 99
+    });
+
+    expect(summarizeUserState(overview)).toMatchObject({
+      where: "desk",
+      attention: "phone",
+      activity: "reading",
+      updatedAt: 99
+    });
+  });
+
+  it("keeps leftover P0/P1 items in overlays after takeover claims one", () => {
+    const now = Date.now();
+    const overview = minimalOverview({ generatedAt: now });
+    const state = buildDisplayDirectorState(overview, [
+      {
+        event_id: "crit-1",
+        type: "tool.execution.failed",
+        source_type: "tool.execution.failed",
+        generated_at: now,
+        source_updated_at: now,
+        priority: "P0",
+        persistence: "until_resolved",
+        payload: {},
+        message: "Disk full",
+        severity: "critical"
+      },
+      {
+        event_id: "crit-2",
+        type: "approval.created",
+        source_type: "approval.created",
+        generated_at: now,
+        source_updated_at: now,
+        priority: "P1",
+        persistence: "until_resolved",
+        payload: {},
+        message: "Needs review",
+        severity: "warning"
+      }
+    ]);
+
+    expect(state.takeover).toBeTruthy();
+    expect(state.overlays.some((item) => ["P0", "P1"].includes(String(item.priority)))).toBe(true);
+  });
+
+  it("fills recent display events from presentation_events then operations", () => {
+    const overview = minimalOverview();
+    overview.presentation_events = envelope({
+      items: [{
+        event_id: "pe-1",
+        scene_type: "notice",
+        priority: "P2",
+        severity: "info",
+        source: "test",
+        title: "Presented",
+        summary: "Shown on display",
+        affected_entities: [],
+        persistence: "ephemeral",
+        expires_at: 0,
+        privacy_class: "normal",
+        recommended_surfaces: [],
+        visual_hint: {},
+        available_actions: []
+      }],
+      count: 1
+    });
+    expect(recentDisplayEvents(overview, [])[0]?.title).toBe("Presented");
+
+    overview.presentation_events = envelope({ items: [], count: 0 });
+    overview.activity = envelope({
+      recent: [],
+      groups: [],
+      operations: [{ operation_id: "op-1", title: "Opened file", what_happened: "Opened file", narrative: "Read notes" }],
+      count: 1
+    });
+    expect(recentDisplayEvents(overview, [])[0]?.message).toBe("Read notes");
+  });
+
+  it("humanizes json telemetry and drops user_activity director noise", () => {
+    expect(readableDisplayText('{"active_window_title":"Overwatch","pid":1}', "Event")).toBe("Overwatch");
+    const now = Date.now();
+    const overview = minimalOverview({ generatedAt: now });
+    const state = buildDisplayDirectorState(overview, [
+      {
+        event_id: "noise-1",
+        type: "pc.user_activity.snapshot",
+        source_type: "pc.user_activity.snapshot",
+        generated_at: now,
+        source_updated_at: now,
+        priority: "P2",
+        persistence: "ephemeral",
+        payload: {},
+        message: '{"active_window_title":"Overwatch"}',
+        severity: "info"
+      }
+    ]);
+    expect(state.overlays.some((item) => item.message.includes("{"))).toBe(false);
+    expect(state.ambient.some((item) => item.message.includes("{"))).toBe(false);
+    overview.presentation_events = envelope({
+      items: [{
+        event_id: "pe-2",
+        scene_type: "notice",
+        priority: "P2",
+        severity: "info",
+        source: "test",
+        title: "Presented",
+        summary: "Shown on display",
+        affected_entities: [],
+        persistence: "ephemeral",
+        expires_at: 0,
+        privacy_class: "normal",
+        recommended_surfaces: [],
+        visual_hint: {},
+        available_actions: []
+      }],
+      count: 1
+    });
+    expect(recentDisplayEvents(overview, [
+      {
+        id: "json",
+        priority: "P2",
+        severity: "info",
+        title: "pc.user_activity.snapshot",
+        message: '{"active_window_title":"Overwatch"}',
+        persistence: "ephemeral",
+        createdAt: now,
+        expiresAt: 0,
+        affectedServers: []
+      }
+    ])[0]?.title).toBe("Presented");
   });
 
   it("builds display director takeover from approval and dedupes events", () => {

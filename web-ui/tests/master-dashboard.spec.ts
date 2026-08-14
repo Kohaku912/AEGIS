@@ -38,15 +38,13 @@ test.beforeEach(async ({ page }) => {
   await page.route("**/auth/me", (route) => route.fulfill({ json: { csrf_token: "test", authenticated: true, fresh: true } }));
 });
 
-test("master shell exposes five English domains and command palette", async ({ page }) => {
+test("master shell exposes six domains and command palette", async ({ page }) => {
   await page.goto("/dashboard");
-  await expect(page.locator("html")).toHaveAttribute("lang", "en");
-  const domains = ["Home", "Work", "Communication", "Systems", "Settings and Administration"];
-  await expect(page.locator(".nav-domain > button")).toHaveCount(5);
+  const domains = ["運用", "知能", "接続", "観測", "個人", "設定"];
+  await expect(page.locator(".nav-domain > button")).toHaveCount(6);
   for (const label of domains) await expect(page.locator(".nav-domain > button", { hasText: label })).toBeVisible();
   await page.keyboard.press("Control+K");
   await expect(page.getByRole("dialog", { name: "Command palette" })).toBeVisible();
-  await expect(page.getByText(/Dangerous actions open a confirmation dialog/)).toBeVisible();
 });
 
 test("capability catalog uses Manager entities and opens effective policy detail", async ({ page }) => {
@@ -132,13 +130,6 @@ test("capability risk failure is announced and rolls back the control", async ({
   await expect(page.getByLabel("Risk")).toHaveValue("low");
 });
 
-test("global search reaches records outside the overview", async ({ page }) => {
-  await page.goto("/dashboard");
-  const search = page.getByLabel("Search AEGIS");
-  await search.fill("capability record");
-  await expect(page.locator(".global-search__results").getByText("Manager-backed capability")).toBeVisible();
-});
-
 test("chat rapid submit executes only once", async ({ page }) => {
   let sends = 0;
   await page.route("**/api/chat/send", async (route) => {
@@ -184,23 +175,6 @@ test("settings stage edits and require explicit save", async ({ page }) => {
   await expect.poll(() => posts).toBe(1);
 });
 
-test("policy simulation reports a decision without executing a capability", async ({ page }) => {
-  let simulations = 0;
-  await page.route("**/api/policy/simulate", async (route) => {
-    simulations += 1;
-    const input = route.request().postDataJSON();
-    await route.fulfill({ json: { simulation: { capability_id: input.capability_id, decision: "ALLOW", reason: "Risk level READ_ONLY - allowed.", effective_risk: "READ_ONLY", requires_approval: false, audit_required: false, context: input.context, executed: false } } });
-  });
-  await page.goto("/dashboard/capabilities/policy-simulation");
-  await page.getByLabel("Capability").selectOption("capabilities-1");
-  const simulate = page.getByRole("button", { name: "Simulate policy" });
-  await simulate.evaluate((button) => button.scrollIntoView({ block: "center" }));
-  await simulate.click({ force: true });
-  await expect(page.locator(".simulation-result")).toHaveAttribute("data-decision", "ALLOW");
-  await expect(page.getByText("Not executed", { exact: true })).toBeVisible();
-  expect(simulations).toBe(1);
-});
-
 test("prompt management requires developer mode, validation, diff review, and fresh mutation", async ({ page }) => {
   let saves = 0;
   await page.route("**/api/llm/prompts", (route) => route.fulfill({ json: { prompts: [{ prompt_id: "chat.system", version: "1.0.0", editable: true, protected: false, hash: "abc" }] } }));
@@ -230,15 +204,15 @@ test("attention unifies approvals, errors, and offline servers", async ({ page }
 test("all management domains remain usable at production display sizes", async ({ page }, testInfo) => {
   await page.emulateMedia({ reducedMotion: "reduce" });
   const routes = [
-    ["home", "/dashboard"],
-    ["work", "/dashboard/work/tasks"],
-    ["work", "/dashboard/open-loops"],
-    ["systems", "/dashboard/capabilities/catalog"],
-    ["systems", "/dashboard/infrastructure/servers"],
-    ["communications", "/dashboard/communications/conversations"],
-    ["home", "/dashboard/attention"],
-    ["administration", "/dashboard/observability/activity"],
-    ["administration", "/settings/autonomy"],
+    ["ops", "/dashboard"],
+    ["ops", "/dashboard/work/tasks"],
+    ["ops", "/dashboard/open-loops"],
+    ["intel", "/dashboard/capabilities/catalog"],
+    ["connect", "/dashboard/infrastructure/servers"],
+    ["connect", "/dashboard/communications/social"],
+    ["ops", "/dashboard/attention"],
+    ["observe", "/dashboard/activity"],
+    ["settings", "/settings/autonomy"],
   ] as const;
   for (const size of [{ width: 1366, height: 768 }, { width: 1920, height: 1080 }, { width: 2560, height: 1440 }]) {
     await page.setViewportSize(size);

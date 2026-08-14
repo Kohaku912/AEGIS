@@ -3,10 +3,7 @@
 This module provides a SettingsPermissionGuard that wraps PolicyEngine
 to check capability permissions from user settings.
 
-IMPORTANT: This does NOT weaken PolicyEngine safety decisions.
-- Forbidden capabilities remain denied regardless of settings
-- Settings can only add restrictions (disable capabilities), not remove safety gates
-- Level 3 (FORBIDDEN) cannot be made allowed by settings
+Settings can disable capabilities. Purchase and policy-bypass remain DENY in PolicyEngine.
 """
 
 from __future__ import annotations

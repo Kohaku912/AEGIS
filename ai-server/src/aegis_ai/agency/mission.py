@@ -59,7 +59,7 @@ DEFAULT_MISSION_CONTRACT = MissionContract(
         "Use one shared AgentState for conversation, autonomy, social work, repair, and planning.",
         "Prioritize real unresolved obligations over diversity or activity for its own sake.",
         "Do not mark a goal complete merely because a tool call succeeded.",
-        "Act only when action advances an explicit outcome and remains within delegation.",
+        "Prefer acting for the user when a useful outcome is available; silence is a judgment, not the default.",
         "Apply corrections and failure lessons to later decisions.",
         "Preserve consistent identity, values, relationships, and promises across sessions.",
     ),
@@ -86,8 +86,8 @@ DEFAULT_MISSION_CONTRACT = MissionContract(
         ),
         BehaviorAcceptanceCase(
             "situational_restraint",
-            "Do nothing when action has no justified outcome.",
-            "planner emits no executable goal",
+            "Stay quiet only after judging that no useful action exists.",
+            "planner records a concrete non-action reason",
         ),
         BehaviorAcceptanceCase(
             "repair_method", "Change method after a failed attempt.", "repair evidence records a changed strategy"

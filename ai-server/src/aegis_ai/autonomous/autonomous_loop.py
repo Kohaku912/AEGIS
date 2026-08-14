@@ -37,25 +37,8 @@ _SECRET_TEXT_RE = re.compile(
     r"(?i)(bearer\s+)[A-Za-z0-9._~+/=-]{16,}|(sk-[A-Za-z0-9_-]{20,})|"
     r"((?:token|secret|password|api[_-]?key)\s*[:=]\s*)\S+"
 )
-_TRIVIAL_RESULTS = frozenset(
-    {
-        "no new posts",
-        "done",
-        "no memory found",
-        "ok",
-        "no new messages",
-        "no drafts",
-        "no new data",
-        "no open commitments.",
-        "no open commitments",
-        "memory sleep consolidation has started",
-        "memory sleep consolidation has started.",
-    }
-)
-
-
 def _normalize_result_text(text: str) -> str:
-    """Lower/strip and drop trailing punctuation so trivial matching is stable."""
+    """Lower/strip result text for logging and summaries."""
     value = str(text or "").lower().strip()
     return value.rstrip(" .!。")
 
@@ -94,7 +77,7 @@ class AutonomousLoop:
         settings_resolver: Any = None,
         data_dir: str = "data/autonomous",
         desire_threshold: float = 4.0,
-        max_tasks_per_cycle: int = 3,
+        max_tasks_per_cycle: int = 8,
         fallback_interval_seconds: int = 1800,
         frustration_threshold: float = 2.0,
     ) -> None:
@@ -138,7 +121,7 @@ class AutonomousLoop:
         self._last_observation_ms: int = 0
         # Observation only runs inside an execution cycle (not a 60s poll).
         self._observation_interval_ms: int = int(
-            os.environ.get("AEGIS_OBSERVATION_INTERVAL_MS", str(1_800_000))
+            os.environ.get("AEGIS_OBSERVATION_INTERVAL_MS", "0")
         )
         self._desire_check_interval_ms: int = 60_000  # skip-reason rate limit only
         self._last_desire_check_ms: int = 0
@@ -148,7 +131,7 @@ class AutonomousLoop:
         self._min_execution_interval_ms: int = int(
             os.environ.get("AEGIS_MIN_EXECUTION_INTERVAL_MS", "5000")
         )
-        self._min_llm_interval_ms: int = int(os.environ.get("AEGIS_MIN_LLM_INTERVAL_MS", 1_800_000))
+        self._min_llm_interval_ms: int = int(os.environ.get("AEGIS_MIN_LLM_INTERVAL_MS", "0"))
         self._idle_wake_cap_ms: int = int(os.environ.get("AEGIS_IDLE_WAKE_CAP_MS", "300000"))  # 5 min
         # Reasoning models spend part of this budget on hidden reasoning tokens; a budget
         # that is too small truncates the answer before any tool call is emitted.
@@ -156,7 +139,7 @@ class AutonomousLoop:
             os.environ.get("AEGIS_DECISION_MAX_TOKENS", "2048")
         )
         self._llm_usage_window_ms: int = int(os.environ.get("AEGIS_AUTONOMOUS_LLM_USAGE_WINDOW_MS", 3_600_000))
-        self._llm_usage_token_limit: int = int(os.environ.get("AEGIS_AUTONOMOUS_LLM_USAGE_TOKEN_LIMIT", 80_000))
+        self._llm_usage_token_limit: int = int(os.environ.get("AEGIS_AUTONOMOUS_LLM_USAGE_TOKEN_LIMIT", "0"))
         self._last_llm_call_ms: int = 0
         self._last_decision: str = ""
         self._last_decision_ms: int = 0
@@ -313,29 +296,13 @@ class AutonomousLoop:
         if awaiting:
             return False
 
-        # Terminal outcomes are presentable, but never surface empty/trivial "Done" spam
-        # (e.g. repeated commitment.list with no actionable items).
         result_text = _normalize_result_text(result_record.get("result", ""))
-        capability_id = str(result_record.get("capability_id") or task.get("capability_id") or "")
-        if result_text in _TRIVIAL_RESULTS or (success and len(result_text) < 20 and not obligation_linked):
-            return False
-        if self._is_inventory_capability(capability_id):
-            return False
-        if "already replied" in result_text:
-            return False
-
         if report_when == "terminal" and (success or failed or goal_status in {"failed", "needs_followup", "useful"}):
-            if failed and not obligation_linked and goal_status not in {"failed", "needs_followup"}:
-                # Only surface non-obligation failures when goal verification flagged them.
-                if "timeout" not in result_text and "failed" not in result_text:
-                    return False
             return True
 
         if not success:
             return False
-        if result_text in _TRIVIAL_RESULTS or len(result_text) < 20:
-            return False
-        return True
+        return bool(result_text)
 
     def _summarize_capability_output(self, capability_id: str, output: dict[str, Any]) -> str:
         """Build a human result string; avoid empty success collapsing to 'Done'."""
@@ -616,7 +583,7 @@ class AutonomousLoop:
 
         high_usage, usage_reason = self._llm_usage_high()
         if high_usage:
-            return False, usage_reason
+            logger.info("Autonomous LLM usage high (not blocking): %s", usage_reason)
 
         if has_obligations:
             return True, "priority_obligation"
@@ -923,7 +890,7 @@ class AutonomousLoop:
         results = self._execute_tasks(tasks)
 
         if results:
-            follow_up_results = self._self_regressive_loop(tasks, results, max_iterations=2)
+            follow_up_results = self._self_regressive_loop(tasks, results, max_iterations=8)
             results.extend(follow_up_results)
         else:
             logger.info("Skipping follow-up: no task results")
@@ -1081,7 +1048,7 @@ class AutonomousLoop:
             text = _normalize_result_text(result.get("result", ""))
             if self._is_inventory_capability(cap):
                 continue
-            if text in _TRIVIAL_RESULTS or "no memory" in text:
+            if not text:
                 continue
             return False
         return True
@@ -1382,11 +1349,10 @@ class AutonomousLoop:
         retry: bool = False,
     ) -> Any:
         system_prompt = (
-            "You are AEGIS's initiative evaluator. Prefer a concrete capability when obligations, "
-            "observations, or a useful user situation are present. Consider interruption cost: stay quiet "
-            "only when the user must not be interrupted or there is truly nothing to do. Approval-required "
-            "tools may be selected as proposals and are not executed before approval. Use purpose-specific "
-            "browser capabilities and keep agent-private research off the user's display."
+            "You are AEGIS deciding what to do next. Prefer a concrete capability when obligations, "
+            "observations, or a useful user situation are present. Stay quiet only after judging that "
+            "nothing useful can be done. Use purpose-specific browser capabilities and keep "
+            "agent-private research off the user's display."
         )
         if retry:
             system_prompt += (
@@ -1438,18 +1404,6 @@ class AutonomousLoop:
             for cap_id, option in capability_options.items()
             if option["disposition"] in {"execute_safe", "propose_for_approval"}
         }
-        obligation_kinds = {
-            str(obligation.get("kind") or "").strip().lower()
-            for obligation in priority_obligations
-            if str(obligation.get("kind") or "").strip()
-        }
-        if obligation_kinds:
-            valid_cap_ids = {
-                cap_id
-                for cap_id in valid_cap_ids
-                if not self._inventory_redundant_for_obligations(cap_id, obligation_kinds)
-            }
-
         if not valid_cap_ids:
             logger.error("No valid capabilities available — cannot generate tasks")
             return []
@@ -1493,27 +1447,14 @@ class AutonomousLoop:
             if int(count or 0) > 0
         ]
 
-        if self._capability_retriever is not None:
-            selection = self._capability_retriever.select_for_request(
-                retrieval_query,
-                {},
-                top_k_schema=max(8, self._max_tasks * 2),
-                top_k_summary=50,
-                allowed_ids=valid_cap_ids,
-            )
-            tools = selection.retrieved_schema_tools
-            candidate_ids = list(getattr(selection, "all_candidate_ids", []))
-        else:
-            tools = catalog.list_for_tools(valid_cap_ids)
-            candidate_ids = list(valid_cap_ids)
+        tools = catalog.list_for_tools(valid_cap_ids)
+        candidate_ids = list(valid_cap_ids)
         tools = self._merge_tool_sets(catalog, tools, representative_ids)
-        # If retrieval returned nothing, offer the full available catalog so the LLM
-        # remains free to choose — never hard-block specific capabilities.
         if not tools:
             tools = catalog.list_for_tools(valid_cap_ids)
             candidate_ids = list(valid_cap_ids)
         tools = self._annotate_tools_with_policy(tools, catalog, capability_options)
-        candidate_ids = list(dict.fromkeys([*representative_ids, *candidate_ids]))[:12]
+        candidate_ids = list(dict.fromkeys([*representative_ids, *candidate_ids]))
         self._last_candidate_capability_ids = candidate_ids
         if not tools:
             logger.error("No tools generated from catalog")
@@ -1521,11 +1462,9 @@ class AutonomousLoop:
         valid_tool_names = {tool["function"]["name"] for tool in tools}
 
         obligation_hint = ""
-        if obligation_kinds:
+        if priority_obligations:
             obligation_hint = (
-                "\nOpen obligations are already listed in Shared AgentState — "
-                "do not call an inventory/list capability for them; act on a specific "
-                "obligation_id, or pick a different capability.\n"
+                "\nOpen obligations are listed in Shared AgentState — act on them when useful.\n"
             )
 
         low_list = ", ".join(desire_context)
@@ -1718,18 +1657,7 @@ Operational decision axes (prioritization only; not additional desires):
                 disposition = CapabilityDisposition(str(option.get("disposition") or "unavailable"))
                 decision, initiative_reason = self._initiative_engine.evaluate(candidate, disposition)
                 initiative_decision = decision.value
-                if initiative_decision == "save_for_later" and risk_name in {"read_only", "safe_action"}:
-                    initiative_decision = "execute_now"
-                    initiative_reason = "Postponed work is still safe to run now."
-                if initiative_decision not in {"execute_now", "propose_approval"}:
-                    self._log_audit_event(
-                        action="autonomous_initiative_no_action",
-                        capability_id=cap_id,
-                        decision=initiative_decision.upper(),
-                        reason=initiative_reason,
-                        detail={"candidate": candidate.to_dict()},
-                    )
-                    continue
+                # Score is context only — never veto an LLM-selected capability.
             penalty, penalty_reason = self._recent_failure_penalty(desire, capability_id=cap_id)
             # Soft dampening only — never hard-skip on memory penalty.
             obligation = priority_obligations[i] if i < len(priority_obligations) else None
@@ -2246,10 +2174,6 @@ Operational decision axes (prioritization only; not additional desires):
             if self._should_present_autonomous_result(result_record, task):
                 self._present_autonomous_result(task, result_record)
 
-            result_text = _normalize_result_text(result_record.get("result", ""))
-            if result_text in _TRIVIAL_RESULTS or (len(result_text) < 20 and result_record.get("success", False)):
-                continue
-
             # Execute post_action if defined
             post_action = task.get("post_action")
             if post_action and success and self._broker:
@@ -2291,7 +2215,10 @@ Operational decision axes (prioritization only; not additional desires):
         if str(presentation.get("audience") or "").lower() == "agent_private":
             return
 
-        rt = get_runtime()
+        try:
+            rt = get_runtime()
+        except Exception:
+            return
         presentation_manager = getattr(rt, "presentation_manager", None) if rt is not None else None
         if not hasattr(rt, "presentation_manager") or presentation_manager is None:
             return
@@ -2432,21 +2359,6 @@ Operational decision axes (prioritization only; not additional desires):
             for r in previous_results
         ):
             return []
-        if self._is_inventory_only_cycle(previous_tasks, previous_results):
-            return []
-        # Skip follow-up when all tasks succeeded with trivial results
-        if len(previous_tasks) == len(previous_results):
-            all_trivial = all(
-                r.get("success", False)
-                and (
-                    _normalize_result_text(r.get("result", "")) in _TRIVIAL_RESULTS
-                    or len(_normalize_result_text(r.get("result", ""))) < 20
-                )
-                for r in previous_results
-            )
-            if all_trivial:
-                return []
-
         context_parts = []
         for i, (task, result) in enumerate(zip(previous_tasks, previous_results)):
             structured_output = json.dumps(result.get("full_output", {}), ensure_ascii=False, default=str)[:1500]
@@ -2480,17 +2392,7 @@ Operational decision axes (prioritization only; not additional desires):
             ]
             if part
         )
-        if self._capability_retriever is not None:
-            selection = self._capability_retriever.select_for_request(
-                follow_up_query,
-                {},
-                top_k_schema=8,
-                top_k_summary=50,
-                allowed_ids=valid_cap_ids or None,
-            )
-            tools = selection.retrieved_schema_tools
-        else:
-            tools = catalog.list_for_tools(valid_cap_ids)
+        tools = catalog.list_for_tools(valid_cap_ids)
         if not tools:
             return []
         valid_tool_names = {tool["function"]["name"] for tool in tools}
@@ -2534,7 +2436,7 @@ Rules:
                 return []
 
             valid_tasks = []
-            for tc in result.tool_calls[:2]:
+            for tc in result.tool_calls[: self._max_tasks]:
                 desire = previous_tasks[0].get("desire", "") if previous_tasks else ""
                 normalized = self._normalize_tool_call(
                     catalog=catalog,
@@ -2936,9 +2838,6 @@ Rules:
             action = task.get("action", "Unknown task")
             capability_id = task.get("capability_id", result.get("capability_id", ""))
             observation = result.get("result", "")
-            result_text = _normalize_result_text(result.get("result", ""))
-            if result_text in _TRIVIAL_RESULTS or (len(result_text) < 20 and result.get("success", False)):
-                continue
             desire_name = task.get("desire", "")
             learning_recorded = False
 

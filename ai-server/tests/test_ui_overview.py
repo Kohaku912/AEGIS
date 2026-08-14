@@ -539,6 +539,22 @@ def test_normalize_ui_event_exposes_visual_fields():
     assert "mobile_app" in normalized["presentation_event"]["recommended_surfaces"]
 
 
+def test_normalize_ui_event_humanizes_json_payload_messages():
+    event = SimpleNamespace(
+        event_type="pc.user_activity.snapshot",
+        timestamp=1234,
+        payload={
+            "message": '{"timestamp_ms": 1, "active_window_title": "Overwatch", "app_name": "Overwatch"}',
+            "capability_id": "pc-server.user_activity.snapshot",
+        },
+    )
+
+    normalized = normalize_ui_event(event)
+
+    assert normalized["message"] == "Overwatch"
+    assert "{" not in normalized["message"]
+
+
 def test_activity_operations_prefer_aegis_audit_groups():
     class AuditManager:
         def list_groups(self, page=1, per_page=20, group_type=None, errors_only=False, max_entries=400):

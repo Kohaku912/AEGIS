@@ -21,6 +21,8 @@ export const navigation: NavigationDomain[] = [
     pages: [
       { id: "home", label: "ホーム", path: "/dashboard" },
       { id: "attention", label: "対応待ち", path: "/dashboard/attention" },
+      { id: "open-loops", label: "オープンループ", path: "/dashboard/open-loops" },
+      { id: "judgment", label: "判断", path: "/dashboard/judgment" },
       { id: "tasks", label: "タスク", path: "/dashboard/work/tasks" },
       { id: "approvals", label: "承認", path: "/dashboard/approvals" },
       { id: "autonomous", label: "自律実行", path: "/dashboard/autonomous" },
@@ -51,6 +53,7 @@ export const navigation: NavigationDomain[] = [
       { id: "android", label: "Android", path: "/dashboard/devices/android" },
       { id: "room", label: "Room", path: "/dashboard/devices/room" },
       { id: "agora", label: "AGORA", path: "/dashboard/communications/social" },
+      { id: "presentation-surfaces", label: "Presentation", path: "/dashboard/communications/presentation-surfaces" },
     ],
   },
   {
@@ -61,7 +64,7 @@ export const navigation: NavigationDomain[] = [
     pages: [
       { id: "operations", label: "Operations", path: "/dashboard/operations" },
       { id: "logs", label: "Logs", path: "/dashboard/observability/logs" },
-      { id: "raw-activity", label: "Raw Activity", path: "/dashboard/activity", developerOnly: true },
+      { id: "raw-activity", label: "Activity", path: "/dashboard/activity", developerOnly: true },
       { id: "llm-usage", label: "LLM Usage", path: "/dashboard/observability/llm-usage" },
       { id: "incidents", label: "Incidents & Repairs", path: "/dashboard/incidents" },
       { id: "performance", label: "Performance", path: "/dashboard/observability/performance" },
@@ -117,21 +120,15 @@ const aliases: Array<[RegExp, PageId]> = [
   [/\/dashboard\/intelligence\/memory/, "memory"],
   [/\/dashboard\/intelligence\/models-prompts/, "llm-config"],
   [/\/dashboard\/communications\/social/, "agora"],
+  [/\/dashboard\/communications\/presentation-surfaces/, "presentation-surfaces"],
   [/\/dashboard\/capabilities\/executions/, "capability-catalog"],
   [/\/settings\/autonomy/, "settings-general"],
   [/\/dashboard\/goals/, "agent-state"],
-  [/\/dashboard\/open-loops/, "agent-state"],
-  [/\/dashboard\/continuations/, "agent-state"],
+  [/\/dashboard\/open-loops/, "open-loops"],
+  [/\/dashboard\/judgment/, "judgment"],
+  [/\/dashboard\/continuations/, "judgment"],
   [/\/dashboard\/repairs/, "incidents"],
 ];
-
-/** Extract a detail id from `/prefix/{id}` style paths. */
-export function detailIdFromPath(pathname: string, prefix: string): string {
-  const normalized = prefix.endsWith("/") ? prefix.slice(0, -1) : prefix;
-  if (!pathname.startsWith(`${normalized}/`)) return "";
-  const rest = pathname.slice(normalized.length + 1).split(/[/?#]/, 1)[0];
-  return rest ? decodeURIComponent(rest) : "";
-}
 
 /** Detail IDs for deep-linkable observation pages. */
 export function detailRoute(pathname: string): { page: PageId; detailId: string } | null {

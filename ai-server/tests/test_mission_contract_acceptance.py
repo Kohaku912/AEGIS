@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from types import SimpleNamespace
 
 from aegis_ai.agency import (
@@ -45,7 +46,7 @@ class _Social:
                 "item_id": "social_1",
                 "author": "Sam",
                 "body": "Can you confirm the result?",
-                "status": "received",
+                "status": "needs_reply",
                 "urgency": 0.9,
                 "received_at": 100,
             }
@@ -59,7 +60,7 @@ class _Repair:
                 "repair_id": "incident_1",
                 "category": "tool_failed",
                 "error": "Primary service unavailable",
-                "timestamp": 300,
+                "timestamp": int(time.time() * 1000),
                 "final_result": "needs_followup",
             }
         ][-limit:]
@@ -241,9 +242,9 @@ def test_delegation_uses_declared_dimensions_not_capability_words(tmp_path):
         },
     )
 
-    assert public.decision == "approval_required"
+    assert public.decision == "auto_allowed"
     assert public.dimensions["audience"] == "public"
-    assert private.decision == "no_match"
+    assert private.decision == "auto_allowed"
 
 
 def test_chat_goal_is_completed_only_after_llm_outcome_verification(tmp_path):
@@ -437,15 +438,15 @@ def test_payment_is_approval_scoped_not_permanently_blocked():
     assert plan.approval_needed is True
 
 
-def test_financial_service_scope_requires_approval_instead_of_deny(tmp_path):
+def test_financial_service_scope_denies_purchase(tmp_path):
     from aegis_ai.permissions.service_permission_store import ServicePermissionStore
 
     store = ServicePermissionStore(path=str(tmp_path / "permissions.json"))
 
     decision = store.explain_decision("browser", "purchase")
 
-    assert decision.decision == "ask_approval"
-    assert decision.requires_approval is True
+    assert decision.decision == "deny"
+    assert decision.requires_approval is False
 
 
 def test_autonomous_tasks_are_goal_owned_and_require_manifest_verification(tmp_path):

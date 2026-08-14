@@ -536,7 +536,35 @@ def user_state_ingest():
 
 
 def _pdc():
-    return getattr(_get_runtime(), "personal_data_core", None)
+    rt = _get_runtime()
+    core = getattr(rt, "personal_data_core", None)
+    if core is not None:
+        return core
+    # Image runtimes may predate PersonalDataCore wiring; lazy-attach so Timeline
+    # routes work without replacing the whole runtime module.
+    try:
+        from aegis_ai.personal_data import PersonalDataCore
+
+        data_dir = getattr(rt, "data_dir", None) or "data"
+        core = PersonalDataCore(
+            data_dir,
+            event_manager=getattr(rt, "event_manager", None),
+            settings_store=getattr(rt, "settings_store", None),
+            audit_manager=getattr(rt, "audit_manager", None),
+            memory_manager=getattr(rt, "memory_manager", None),
+            server_executor=getattr(rt, "server_executor", None),
+        )
+        try:
+            setattr(rt, "personal_data_core", core)
+        except Exception:
+            pass
+        event_manager = getattr(rt, "event_manager", None)
+        if event_manager is not None:
+            event_manager._personal_data_core = core
+        return core
+    except Exception:
+        logger.exception("Failed to initialize PersonalDataCore for manager routes")
+        return None
 
 
 @manager_bp.route("/api/personal-data/timeline")

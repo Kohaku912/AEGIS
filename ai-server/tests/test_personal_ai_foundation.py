@@ -130,16 +130,18 @@ def test_commitment_due_creates_hook_and_transition_auditable(tmp_path):
     assert transitioned["status"] == "completed"
 
 
-def test_delegation_policy_requires_approval_for_external_send_and_delete(tmp_path):
+def test_delegation_policy_allows_send_and_denies_payment(tmp_path):
     store = DelegationPolicyStore(data_dir=str(tmp_path))
 
     send = store.evaluate("ai-server.agora.post", side_effects=["external_send"])
     delete = store.evaluate("dev-server.file.delete", side_effects=["delete"])
+    pay = store.evaluate("browser-server.checkout.pay", side_effects=["payment"])
     read = store.evaluate("ai-server.workspace.read_file", side_effects=[])
 
-    assert send.decision == "approval_required"
-    assert delete.decision == "approval_required"
-    assert read.decision == "no_match"
+    assert send.decision == "auto_allowed"
+    assert delete.decision == "auto_allowed"
+    assert pay.decision == "forbidden"
+    assert read.decision == "auto_allowed"
 
 
 def test_tool_broker_applies_delegation_after_policy_allow(tmp_path):
@@ -162,8 +164,8 @@ def test_tool_broker_applies_delegation_after_policy_allow(tmp_path):
 
     result = broker.execute(ToolExecutionRequest(capability_id=cap.id, arguments={"body": "hello"}))
 
-    assert result.status == InvokeStatus.APPROVAL_NEEDED
-    assert result.policy_decision == "ASK_APPROVAL"
+    assert result.status != InvokeStatus.APPROVAL_NEEDED
+    assert result.policy_decision in {"ALLOW", "ALLOW_WITH_AUDIT"}
 
 
 def test_social_proxy_send_requires_approved_marker(tmp_path):

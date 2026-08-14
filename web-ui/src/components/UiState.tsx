@@ -42,7 +42,3 @@ export function SectionState({ stale, error, empty, label }: { stale?: boolean; 
   if (empty) return <UiState kind="empty" title={`No ${label.toLowerCase()} reported`} message="AEGIS has no current data for this section." />;
   return null;
 }
-
-export function DisconnectedState({ label = "AEGIS" }: { label?: string }) {
-  return <UiState kind="disconnected" title={`${label} disconnected`} message="Disconnected from the live event stream. The last snapshot remains visible while reconnecting." />;
-}

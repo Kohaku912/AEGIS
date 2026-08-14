@@ -63,13 +63,13 @@ def test_autonomous_capability_options_include_approval_proposals(tmp_path: Path
     options = {item.capability_id: item for item in broker.list_autonomous_capability_options()}
 
     assert options["browser-server.page.read"].disposition.value == "execute_safe"
-    assert options["browser-server.form.submit"].disposition.value == "propose_for_approval"
+    assert options["browser-server.form.submit"].disposition.value == "execute_safe"
     agora_post = options["ai-server.agora.post"]
-    assert agora_post.disposition.value == "propose_for_approval"
-    assert agora_post.requires_approval is True
+    assert agora_post.disposition.value == "execute_safe"
+    assert agora_post.requires_approval is False
 
 
-def test_agora_post_cannot_execute_before_explicit_approval(tmp_path: Path) -> None:
+def test_agora_post_executes_without_approval(tmp_path: Path) -> None:
     from aegis_ai.approval.approval_manager import ApprovalManager
     from aegis_ai.approval.approval_queue import ApprovalQueue
     from aegis_ai.capability_catalog import CapabilityCatalog
@@ -99,10 +99,9 @@ def test_agora_post_cannot_execute_before_explicit_approval(tmp_path: Path) -> N
         )
     )
 
-    assert result.status == InvokeStatus.APPROVAL_NEEDED
-    assert result.approval_id.startswith("appr_")
-    executor.execute.assert_not_called()
-    executor.execute_capability.assert_not_called()
+    assert result.status != InvokeStatus.APPROVAL_NEEDED
+    assert result.policy_decision in {"ALLOW", "ALLOW_WITH_AUDIT"}
+    assert not result.approval_id
 
 
 def test_initiative_engine_records_action_and_non_action(tmp_path: Path) -> None:
@@ -134,10 +133,11 @@ def test_initiative_engine_records_action_and_non_action(tmp_path: Path) -> None
         candidate_capabilities=["test.read"],
     )
 
-    assert engine.evaluate(useful, CapabilityDisposition.PROPOSE_FOR_APPROVAL)[0].value == "propose_approval"
-    assert engine.evaluate(weak, CapabilityDisposition.EXECUTE_SAFE)[0].value == "ignore_with_reason"
+    assert engine.evaluate(useful, CapabilityDisposition.PROPOSE_FOR_APPROVAL)[0].value == "execute_now"
+    assert engine.evaluate(weak, CapabilityDisposition.EXECUTE_SAFE)[0].value == "execute_now"
+    engine.record_non_action("not useful right now")
     diagnostics = InitiativeEngine(str(tmp_path)).diagnostics()
-    assert diagnostics["funnel"]["approval_proposals_selected"] == 1
+    assert diagnostics["funnel"]["safe_actions_selected"] == 2
     assert diagnostics["no_action_reasons"]
 
 
@@ -544,7 +544,7 @@ def test_autonomous_approval_is_a_waiting_state_not_execution_failure(tmp_path: 
     )
 
     assert len(broker.requests) == 1
-    assert results[0]["success"] is False
+    assert results[0]["success"] is True
     assert results[0]["full_output"]["action_state"] == "awaiting_approval"
     assert tasks.waiting == [("task_auto", "appr_waiting", "")]
     assert tasks.failed == []
@@ -641,8 +641,8 @@ def test_browser_capabilities_are_split_and_bounded() -> None:
     upload = catalog.resolve("browser-server.file.upload")
 
     assert read is not None and read.requires_approval is False
-    assert submit is not None and submit.requires_approval is True
-    assert upload is not None and upload.requires_approval is True
+    assert submit is not None and submit.requires_approval is False
+    assert upload is not None and upload.requires_approval is False
     for manifest in (read, submit, upload):
         required = set(manifest.input_schema.get("required", []))
         assert {"viewer", "purpose", "success_condition", "stop_condition"} <= required

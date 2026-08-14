@@ -187,10 +187,9 @@ def test_decision_axes_keep_four_operational_priorities(tmp_path) -> None:
     assert axes["curiosity"] == 1.0
 
 
-def test_llm_interval_gate_waits_thirty_minutes_by_default(monkeypatch, tmp_path) -> None:
+def test_llm_interval_gate_is_off_by_default(monkeypatch, tmp_path) -> None:
     monkeypatch.delenv("AEGIS_MIN_LLM_INTERVAL_MS", raising=False)
     desire = _PressureDesire()
-    # Gate only applies when pressure is below the threshold (desire fires bypass it).
     desire.dimension.pressure = 1.0
     loop = AutonomousLoop(
         llm_provider=object(),
@@ -198,7 +197,7 @@ def test_llm_interval_gate_waits_thirty_minutes_by_default(monkeypatch, tmp_path
         data_dir=str(tmp_path / "autonomous"),
         fallback_interval_seconds=60,
     )
-    assert loop._min_llm_interval_ms == 1_800_000
+    assert loop._min_llm_interval_ms == 0
     generated: list[bool] = []
     loop._generate_tasks = lambda low: generated.append(True) or []
     loop._execute_tasks = lambda tasks: []
@@ -206,17 +205,10 @@ def test_llm_interval_gate_waits_thirty_minutes_by_default(monkeypatch, tmp_path
     loop._record_experiences = lambda tasks, results: None
     loop._decide_next_interval = lambda results: 60
     loop._log_execution = lambda tasks, results: None
-    # Avoid preflight "all_pressure_below_threshold" short-circuit once the interval opens.
     loop._preflight_check = lambda: (True, "ok")
     loop._get_low_desires = lambda: [{"name": "growth", "gap": 1.0, "pressure": 1.0}]
 
     loop._last_llm_call_ms = int(time.time() * 1000)
-    loop._execute_cycle(force_desire=False)
-    assert generated == []
-    assert loop.get_status()["last_skip_reason"].startswith("llm_interval_gate")
-
-    loop._last_llm_call_ms = int(time.time() * 1000) - loop._min_llm_interval_ms
-    loop._last_pressure_signature = ""
     loop._execute_cycle(force_desire=False)
     assert generated == [True]
 
@@ -622,7 +614,7 @@ def test_no_effect_history_persists_for_reflection(tmp_path) -> None:
     assert reloaded._no_effect_counts.get("ai-server.agora.read_posts") == 1
 
 
-def test_commitment_list_excluded_when_obligations_present(tmp_path) -> None:
+def test_commitment_list_remains_available_when_obligations_present(tmp_path) -> None:
     capability_ids = ["ai-server.commitment.list", "ai-server.memory.search"]
     broker = _Broker(capability_ids)
     captured: list[list[dict]] = []
@@ -647,13 +639,17 @@ def test_commitment_list_excluded_when_obligations_present(tmp_path) -> None:
 
     assert captured
     tool_names = {tool["function"]["name"] for tool in captured[0]}
-    assert "ai_server__commitment__list" not in tool_names
+    assert "ai_server__commitment__list" in tool_names
     assert "ai_server__memory__search" in tool_names
 
 
-def test_follow_up_skipped_after_inventory_only_cycle(tmp_path) -> None:
+def test_follow_up_may_run_after_inventory_cycle(tmp_path) -> None:
+    class _NoFollowUpLLM:
+        def generate_with_tools(self, **_kwargs):
+            return SimpleNamespace(success=True, content="No follow-up needed.", tool_calls=[])
+
     loop = AutonomousLoop(
-        llm_provider=object(),
+        llm_provider=_NoFollowUpLLM(),
         tool_broker=_Broker(["ai-server.commitment.list"]),
         data_dir=str(tmp_path / "autonomous"),
     )

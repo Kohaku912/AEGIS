@@ -8,15 +8,33 @@
   "input_schema": {
     "type": "object",
     "properties": {
-      "text": {"type": "string"}
+      "text": {
+        "type": "string"
+      }
     },
-    "required": ["text"]
+    "required": [
+      "text"
+    ]
   },
-  "risk": {"level": "medium", "side_effects": ["ui_interaction"], "requires_approval": true},
-  "tags": ["builtin", "pc", "action", "keyboard"],
+  "risk": {
+    "level": "safe",
+    "side_effects": [
+      "ui_interaction"
+    ],
+    "requires_approval": false
+  },
+  "tags": [
+    "builtin",
+    "pc",
+    "action",
+    "keyboard"
+  ],
   "completion": {
     "mode": "all",
-    "retry": {"max_attempts": 1, "delay_ms": 200},
+    "retry": {
+      "max_attempts": 1,
+      "delay_ms": 200
+    },
     "on_failure": "retry_or_user_confirmation",
     "checks": [
       {

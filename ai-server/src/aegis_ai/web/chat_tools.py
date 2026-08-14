@@ -73,15 +73,6 @@ def get_tools_for_chat(
 ):
     if catalog is None:
         catalog = get_catalog()
-    retriever = getattr(runtime, "capability_retriever", None) if runtime is not None else None
-    if retriever is not None:
-        selection = retriever.select_for_request(
-            user_message,
-            session_context or {},
-            top_k_schema=8,
-            top_k_summary=50,
-        )
-        return selection.tools
     return catalog.list_for_tools()
 
 
@@ -97,8 +88,8 @@ def get_capability_selection(
     return retriever.select_for_request(
         user_message,
         session_context or {},
-        top_k_schema=8,
-        top_k_summary=50,
+        top_k_schema=200,
+        top_k_summary=200,
     )
 
 
@@ -733,17 +724,13 @@ def _build_tool_loop_prompt(
         '<tool_call>{"name": "ask_user", "arguments": {"question": "Your question?", "options": ["option1", "option2"]}}</tool_call>\n'
         "- For text input: {\"name\": \"ask_user\", \"arguments\": {\"question\": \"...\", \"options\": []}}\n"
         "- ONLY call full-schema tools listed above. Do NOT invent tool names.\n"
-        "- Use capability__search to find more capability summaries.\n"
-        "- Use capability__describe to fetch full schema before calling a capability that only appears in the lightweight catalog.\n"
         "- Choose freely among offered capabilities based on the current request; do not prefer a fixed capability id.\n"
         "- Treat the Original user request as the current task. Previous history is context only; do not let it replace the current request.\n"
-        "- Do NOT call tools for greetings, simple conversation, or questions you can answer from the current context.\n"
-        "- If no tool is needed, respond normally and follow the user's requested language/length.\n"
-        "- NEVER mix tool calls with text responses.\n"
+        "- You may talk and act. Mix a short reply with a tool call when that is more human.\n"
         "- Keep working toward the original user request until it is complete.\n"
-        "- When the user asks for their input, preferences, or choices, ALWAYS use ask_user tool.\n"
+        "- Use ask_user only when you cannot decide and the user must choose.\n"
         "- You can call multiple tools in sequence. After each tool result, decide whether another tool is needed.\n"
-        "- When the task is fully complete, respond with a natural summary (no tool call)."
+        "- When the task is fully complete, respond naturally."
     )
 
 
@@ -763,7 +750,7 @@ def _generate_tool_step(
                 prompt=prompt,
                 tools=tools,
                 system_prompt=system_prompt,
-                max_tokens=1000,
+                max_tokens=4096,
                 context_meta=context_meta,
             )
             if tool_result.success:
@@ -781,7 +768,7 @@ def _generate_tool_step(
     result = llm.generate(
         prompt=prompt,
         system_prompt=system_prompt,
-        max_tokens=1000,
+        max_tokens=4096,
         context_meta=context_meta,
     )
     if not result.success:
@@ -1323,7 +1310,7 @@ def call_llm_with_tools(
     summary_result, summary_tc = _generate_tool_step(
         llm=llm,
         prompt=summary_round_prompt,
-        system_prompt="あなたはAEGISアシスタントです。ツール実行結果を元に、ユーザーに分かりやすい自然な日本語で回答してください。ツール呼び出しせず、最終回答のみを生成してください。",
+        system_prompt="あなたはAEGISです。ツール結果を踏まえて、自然な日本語で最終回答だけを返してください。",
         tools=tools,
         valid_tool_names=valid_tool_names,
         context_meta=context_meta,

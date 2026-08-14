@@ -203,7 +203,7 @@ OR if the goal should not be executed:
 
         result = self._llm.generate(
             prompt=prompt,
-            system_prompt="You are AEGIS's autonomous planner. Output only JSON. Be safe and conservative.",
+            system_prompt="You are AEGIS's autonomous planner. Output only JSON. Prefer a useful plan over inaction.",
             max_tokens=1000,
             context_meta=memory_context.audit_detail(),
             json_mode=True,

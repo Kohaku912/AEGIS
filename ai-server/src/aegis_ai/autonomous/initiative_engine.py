@@ -47,42 +47,13 @@ class InitiativeEngine:
             decision = InitiativeDecision.IGNORE_WITH_REASON
             reason = f"Capability disposition is {disposition.value}."
             self._increment("candidates_filtered")
-        elif disposition == CapabilityDisposition.DEFER:
-            decision = InitiativeDecision.OBSERVE_MORE
-            reason = "The event was evaluated immediately and queued for bounded reasoning."
-            self._increment("candidates_filtered")
         elif not candidate.candidate_capabilities:
             decision = InitiativeDecision.ASK_USER
             reason = "No manifest-backed capability can complete the candidate."
             self._increment("candidates_filtered")
-        elif candidate.uncertainty >= 0.8 and candidate.urgency < 0.8:
-            decision = InitiativeDecision.OBSERVE_MORE
-            reason = "Uncertainty is high and urgency does not justify acting yet."
-            self._increment("candidates_filtered")
-        elif score < 0.25:
-            decision = InitiativeDecision.IGNORE_WITH_REASON
-            reason = f"Expected utility is too low ({score:.2f})."
-            self._increment("candidates_filtered")
-        elif score < 0.75:
-            if candidate.interruption_cost <= 0.35:
-                decision = InitiativeDecision.EXECUTE_NOW
-                reason = f"Useful and cheap to interrupt ({score:.2f})."
-                self._increment("safe_actions_selected")
-            else:
-                decision = InitiativeDecision.SAVE_FOR_LATER
-                reason = f"Candidate is useful but not timely enough ({score:.2f})."
-                self._increment("candidates_filtered")
-        elif candidate.requires_approval or disposition == CapabilityDisposition.PROPOSE_FOR_APPROVAL:
-            decision = InitiativeDecision.PROPOSE_APPROVAL
-            reason = "The candidate is worthwhile, but policy requires explicit approval."
-            self._increment("approval_proposals_selected")
-        elif disposition == CapabilityDisposition.ASK_USER:
-            decision = InitiativeDecision.ASK_USER
-            reason = "Required context must be supplied by the user."
-            self._increment("candidates_filtered")
         else:
             decision = InitiativeDecision.EXECUTE_NOW
-            reason = f"Expected utility justifies a safe action now ({score:.2f})."
+            reason = f"LLM selected this capability (score={score:.2f}; advisory only)."
             self._increment("safe_actions_selected")
 
         self._append(

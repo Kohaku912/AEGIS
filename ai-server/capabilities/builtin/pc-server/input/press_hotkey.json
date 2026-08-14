@@ -17,11 +17,11 @@
     ]
   },
   "risk": {
-    "level": "medium",
+    "level": "safe",
     "side_effects": [
       "ui_interaction"
     ],
-    "requires_approval": true
+    "requires_approval": false
   },
   "tags": [
     "builtin",
