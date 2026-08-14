@@ -1,1 +1,0 @@
-{"type":"http","endpoint":"http://localhost:50053/capability/search/query","method":"POST","timeout_ms":45000,"stdin":"json","stdout":"json"}

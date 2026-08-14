@@ -1,1 +1,0 @@
-{"day": "2026-08-12", "event_id": "user_state_b8fad02b3f04fad4", "event_type": "android.presence.changed", "payload": {"event_type": "android.presence.changed", "gps_available": true, "latitude_bucket": 35.68, "location_accuracy_m": 50, "longitude_bucket": 139.76, "screen_on": true, "wifi_connected": false}, "source": "android-server", "timestamp_ms": 1786540253036}
