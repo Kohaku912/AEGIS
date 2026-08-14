@@ -8,6 +8,7 @@ import {
   mapUiEventToVisualEvent,
   missionPhase,
   normalizeStatus,
+  recentDisplayEvents,
   serverLabel,
   serverNeedsDetail,
   summarizeUserState
@@ -45,8 +46,8 @@ export function Display({ overview: initialOverview }: { overview: UiOverview })
     for (const item of [...director.dock, ...director.ambient]) {
       if (!unique.has(item.id)) unique.set(item.id, item);
     }
-    return [...unique.values()].slice(0, 6);
-  }, [director.ambient, director.dock]);
+    return recentDisplayEvents(overview, [...unique.values()]);
+  }, [director.ambient, director.dock, overview]);
 
   return (
     <main

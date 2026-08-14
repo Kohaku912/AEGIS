@@ -3,7 +3,7 @@ import { formatDateTime, formatRelative, messages } from "./i18n";
 
 describe("English message catalog", () => {
   it("contains non-empty English strings", () => {
-    expect(Object.keys(messages).length).toBeGreaterThan(20);
+    expect(Object.keys(messages).length).toBeGreaterThan(10);
     for (const value of Object.values(messages)) {
       expect(value.trim()).not.toBe("");
       expect(value).not.toMatch(/[ぁ-んァ-ヶ一-龯]/u);

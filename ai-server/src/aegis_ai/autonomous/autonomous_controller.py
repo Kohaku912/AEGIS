@@ -5,9 +5,7 @@ and DesireActionEvaluator into a single tick() cycle.
 
 Safety:
 - tick(dry_run=True) returns decision without executing.
-- requires_user_approval tasks are never passed to AutonomousLoop.
 - All execution goes through ToolBroker/PolicyEngine.
-- Single task per tick — no batch execution.
 """
 
 from __future__ import annotations
@@ -156,22 +154,15 @@ class AutonomousController:
         verification_status = "pending"
 
         if decision.selected_task is not None and not dry_run:
-            if decision.requires_approval:
-                logger.info(
-                    "Task %s requires approval — not executing.",
-                    getattr(decision.selected_task, "task_id", "?"),
-                )
-                verification_status = "approval_required"
-            else:
-                task_request = self._build_task_request(decision, now)
-                if task_request:
-                    executed = True
-                    task_id = getattr(decision.selected_task, "task_id", "")
-                    if task_id:
-                        self._recent_task_ids.append(task_id)
-                        fp = getattr(decision.selected_task, "fingerprint", "")
-                        if fp:
-                            self._generator.record_execution(decision.selected_task, now_ms=now)
+            task_request = self._build_task_request(decision, now)
+            if task_request:
+                executed = True
+                task_id = getattr(decision.selected_task, "task_id", "")
+                if task_id:
+                    self._recent_task_ids.append(task_id)
+                    fp = getattr(decision.selected_task, "fingerprint", "")
+                    if fp:
+                        self._generator.record_execution(decision.selected_task, now_ms=now)
 
         # 8. After snapshot
         after = self._desire.create_snapshot()

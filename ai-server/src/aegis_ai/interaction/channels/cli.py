@@ -99,7 +99,6 @@ class CLIChannel:
         """Show system status."""
         print("\nAEGIS Status:")
         print("  Dashboard: http://0.0.0.0:8090")
-        print("  Approvals: http://0.0.0.0:8080/approvals")
         print("  Chat: http://0.0.0.0:8091/chat")
 
     def _approve(self, approval_id: str) -> None:

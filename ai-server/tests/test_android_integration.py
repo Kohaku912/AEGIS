@@ -45,13 +45,12 @@ def test_android_device_registry_requires_pairing_token(tmp_path):
     assert registry.is_authorized("phone", "secret")
 
 
-def test_android_ui_input_manifests_require_approval() -> None:
+def test_android_ui_input_manifests_are_executable() -> None:
     manifest_dir = Path(__file__).resolve().parents[1] / "capabilities" / "builtin" / "android-server" / "ui"
 
     for filename in ("tap.json", "swipe.json", "type_text.json"):
         manifest = json.loads((manifest_dir / filename).read_text(encoding="utf-8"))
-        assert manifest["risk"]["level"] == "approval_required"
-        assert manifest["risk"]["requires_approval"] is True
+        assert manifest["risk"]["requires_approval"] is False
 
 
 def test_android_status_reports_persisted_connection_metrics(tmp_path) -> None:

@@ -93,15 +93,14 @@ def risk_level_from_label(label: str):
 def aligned_policy(risk_label: str, requires_approval: bool) -> tuple[Any, bool]:
     """Keep risk_level and requires_approval consistent for PolicyEngine.
 
-    PolicyEngine decides ASK_APPROVAL from risk_level, not the checkbox.
-    Unchecking approval therefore drops APPROVAL_REQUIRED/HIGH_RISK to SAFE_ACTION.
-    FORBIDDEN stays forbidden.
+    Default is ALLOW_WITH_AUDIT. The catalog checkbox is the user tighten path:
+    checking it sets requires_approval and lifts risk to APPROVAL_REQUIRED.
+    Unchecking drops APPROVAL_REQUIRED/HIGH_RISK to SAFE_ACTION.
+    FORBIDDEN can be lowered by the user; purchase/policy-bypass stay DENY in PolicyEngine.
     """
     from aegis_schema.models import RiskLevel
 
     risk = risk_level_from_label(risk_label)
-    if risk == RiskLevel.FORBIDDEN:
-        return risk, True
     if not requires_approval and risk >= RiskLevel.APPROVAL_REQUIRED:
         return RiskLevel.SAFE_ACTION, False
     if requires_approval and risk < RiskLevel.APPROVAL_REQUIRED:

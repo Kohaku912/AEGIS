@@ -37,48 +37,13 @@ class BrowserTaskResult:
 class BrowserUseSafetyBoundary:
     """Safety boundary for browser tasks."""
 
-    BLOCKED_PATTERNS = [
-        "captcha", "bypass", "stealth", "proxy",
-        "purchase", "buy", "pay", "subscribe",
-        "spam", "bulk", "mass",
-    ]
-
-    APPROVAL_PATTERNS = [
-        "post", "publish", "send", "submit",
-        "tweet", "dm", "email", "message",
-        "upload", "share",
-    ]
-
-    READ_PATTERNS = [
-        "read", "extract", "get", "fetch", "browse",
-        "navigate", "open", "visit", "search",
-        "summarize", "analyze", "list",
-    ]
-
     def check_task(self, task_description: str) -> dict[str, Any]:
-        """Check if a browser task is allowed."""
-        task_lower = task_description.lower()
-
-        for pattern in self.BLOCKED_PATTERNS:
-            if pattern in task_lower:
-                return {
-                    "allowed": False,
-                    "risk": "BLOCKED",
-                    "reason": f"Task contains blocked pattern: {pattern}",
-                }
-
-        for pattern in self.APPROVAL_PATTERNS:
-            if pattern in task_lower:
-                return {
-                    "allowed": True,
-                    "risk": "APPROVAL_REQUIRED",
-                    "reason": f"Task requires approval: {pattern}",
-                }
-
+        """Keyword nannying is forbidden; PolicyEngine owns purchase/policy-bypass."""
+        _ = task_description
         return {
             "allowed": True,
-            "risk": "READ",
-            "reason": "Read-only task, allowed",
+            "risk": "ALLOW",
+            "reason": "Browser tasks are judged by PolicyEngine, not keyword matching.",
         }
 
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import time
 from dataclasses import asdict, is_dataclass
 from typing import Any
@@ -823,7 +824,10 @@ def _operation_from_autonomous_cycle(cycle: dict[str, Any]) -> dict[str, Any]:
 
 def _causal_chain_from_operation(op: dict[str, Any]) -> list[dict[str, Any]]:
     """Human-readable Trigger → … → Learning chain for one operation."""
-    from aegis_ai.operations import build_causal_chain
+    try:
+        from aegis_ai.operations import build_causal_chain
+    except ImportError:
+        return []
 
     enriched = dict(op)
     if not enriched.get("action_summary"):
@@ -1907,6 +1911,7 @@ def _open_loops(runtime: Any) -> dict[str, Any]:
         "count": len(loops),
         "by_kind": _count_by(loops, "kind"),
         "summary": f"{len(loops)} open loop(s) across tasks, approvals, commitments, social, and incidents",
+        "updated_at": _now_ms(),
     }
 
 
@@ -2711,7 +2716,7 @@ def _event_fields(event_type: str, payload: Any) -> dict[str, Any]:
     status = str(first("status", "state", "decision") or _status_from_event_type(event_type))
     approval_id = str(first("approval_id", "request_id") or "")
     task_id = str(first("task_id") or "")
-    message = str(first("message", "summary", "reason", "error") or event_type)
+    message = _humanize_event_message(first("message", "summary", "reason", "error"), event_type, payload_dict)
     severity = str(first("severity") or _severity_from_event(event_type, status))
     return {
         "capability_id": capability_id,
@@ -2723,6 +2728,28 @@ def _event_fields(event_type: str, payload: Any) -> dict[str, Any]:
         "event_type": event_type,
         "message": _truncate_text(message, limit=300),
     }
+
+
+def _humanize_event_message(raw: Any, event_type: str, payload: dict[str, Any]) -> str:
+    parsed: Any = raw
+    if isinstance(raw, str):
+        text = raw.strip()
+        if text.startswith("{") or text.startswith("["):
+            try:
+                parsed = json.loads(text)
+            except Exception:
+                return event_type
+        elif text:
+            return text
+        else:
+            parsed = payload
+    if isinstance(parsed, dict):
+        for key in ("active_window_title", "app_name", "title", "summary", "label", "reason"):
+            value = parsed.get(key)
+            if value not in (None, ""):
+                return str(value)
+        return event_type
+    return str(raw or event_type)
 
 
 def _server_from_capability_id(capability_id: str) -> str:

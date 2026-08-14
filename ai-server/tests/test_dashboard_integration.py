@@ -115,7 +115,7 @@ def test_all_dashboard_pages_and_apis(client):
         assert resp.status_code == 200, f"{url} returned {resp.status_code}"
 
     api_urls = [
-        "/api/dashboard/overview", "/api/dashboard/capabilities",
+        "/api/ui/overview",
         "/api/tasks", "/api/status", "/api/notifications", "/api/memory/stats",
     ]
     for url in api_urls:

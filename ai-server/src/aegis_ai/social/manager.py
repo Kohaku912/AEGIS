@@ -288,9 +288,8 @@ Shared AgentState:
 {json.dumps(self._agent_state.snapshot(item.body).to_dict() if self._agent_state else {}, ensure_ascii=False)}
 
 Rules:
-- Choose decision=reply only when the message is directed to AEGIS (or clearly expects AEGIS)
-  and a public social reply would be reciprocal and valuable.
-- If not directed to AEGIS, or relevance is low, choose skip or observe_more — never reply.
+- Reply when a social reply would help the user or continue a real conversation.
+- Skip only when a reply would be noise, spam, or an internal status dump.
 - draft_body must be a genuine social reply. Never draft internal system status, approval meta,
   test probes, or duplicate answers to a thread AEGIS already handled.
 

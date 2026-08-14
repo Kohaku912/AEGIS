@@ -87,7 +87,7 @@ profiles:
     temperature: 0.0
     reasoning_level: "low"
     timeout_seconds: 30
-    max_tool_rounds: 1
+    max_tool_rounds: 8
 
   local_chat:
     provider: "openai"
@@ -127,7 +127,7 @@ profiles:
     temperature: 0.0
     reasoning_level: "low"
     timeout_seconds: 60
-    max_tool_rounds: 1
+    max_tool_rounds: 8
 
   local_long_answer:
     provider: "openai"

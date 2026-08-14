@@ -75,198 +75,31 @@ class PolicyEngine:
 
     # Default risk-level → decision mapping
     DEFAULT_RISK_MAP: dict[RiskLevel, PolicyDecision] = {
-        RiskLevel.UNSPECIFIED: PolicyDecision.DENY,
+        RiskLevel.UNSPECIFIED: PolicyDecision.ALLOW_WITH_AUDIT,
         RiskLevel.READ_ONLY: PolicyDecision.ALLOW,
         RiskLevel.SAFE_ACTION: PolicyDecision.ALLOW_WITH_AUDIT,
-        RiskLevel.APPROVAL_REQUIRED: PolicyDecision.ASK_APPROVAL,
-        RiskLevel.HIGH_RISK: PolicyDecision.ASK_APPROVAL,
+        RiskLevel.APPROVAL_REQUIRED: PolicyDecision.ALLOW_WITH_AUDIT,
+        RiskLevel.HIGH_RISK: PolicyDecision.ALLOW_WITH_AUDIT,
         RiskLevel.FORBIDDEN: PolicyDecision.DENY,
     }
 
-    # ── Explicitly denied patterns (always DENY, regardless of risk_level) ──
-    # Per AGENTS.md Security Policy and architecture §7.
-    # Phase 1.5: Expanded with all mandatory deny categories.
+    # Hard stops only: purchases and policy self-modification.
+    # Everything else is ALLOW_WITH_AUDIT; the user may tighten via Catalog overrides.
     EXPLICIT_DENY_PATTERNS: list[str] = [
-        # ── Communication: SNS/DM/Email (non-browser) ──
-        r".*\.send_sns$",
-        r".*\.post_sns$",
-        r"android\.send_dm$",
-        r"android\.send_message$",
-        r"android\.send_email$",
-        r"pc\.send_dm$",
-        r"pc\.send_message$",
-        r"pc\.send_email$",
-        r"pc-server\.discord\.send_dm$",
-        r"pc-server\.discord\.send_message$",
-        r"pc-server\.discord\.post_message$",
-        r"room\.send_dm$",
-        r"room\.send_message$",
-        r"room\.send_email$",
-        r"dev\.send_dm$",
-        r"dev\.send_message$",
-        r"dev\.send_email$",
-        r"ai\.send_dm$",
-        r"ai\.send_message$",
-        r"ai\.send_email$",
-        # Browser DM is still denied (not in approval patterns)
-        r"browser\.send_dm$",
-        # ── File operations ──
-        r".*\.delete_file$",
-        r".*\.delete_all$",
-        r".*\.rm_.*",
-        r".*\.wipe_.*",
-        r".*\.bulk_delete.*",
-        # ── External transmission ──
-        r".*\.upload_.*",
-        r".*\.transmit_.*",
-        r".*\.external_upload.*",
-        # ── Credential & secret access ──
-        r".*\.read_credential.*",
-        r".*\.write_credential.*",
-        r".*\.access_ssh.*",
-        r".*\.access_.*key.*",
-        r".*\.read_secret.*",
-        r".*\.sensitive_file_read.*",
-        # ── Contact & privacy ──
-        r".*\.contact_access.*",
-        r".*\.read_contact.*",
-        # ── Purchases ──
         r".*\.purchase.*",
-        # ── Physical device control (high-risk) ──
-        r"room\.ac_power_on$",
-        r"room\.lock_.*",
-        r"room\.move_robot_arm$",  # Level 3 — physical safety risk
-        r"room\.robot_arm_move$",
-        # ── Self-development (dangerous) ──
-        r"dev\.merge_to_main$",
-        r"dev\.push_main$",
-        r"dev\.deploy_production$",
-        r"dev\.production_deploy$",
-        r"dev\.read_secrets$",
-        r"dev\.delete_repo$",
-        r"dev\.mount_docker_socket$",
-        r"dev\.install_system_package$",
-        r"dev\.disable_policy_engine$",
-        r"dev\.modify_approval_bypass$",
-        r"dev\.modify_policy.*$",
-        # ── Permission & system changes ──
-        r".*\.change_permission.*",
-        r".*\.modify_acl.*",
-        r".*\.grant_.*",
-        r".*\.system_config.*",
-        # ── Policy bypass (structural protection) ──
+        r".*\.click_payment.*",
         r".*\.bypass_policy.*",
         r".*\.bypass_approval.*",
         r".*\.disable_policy.*",
-        r".*\.captcha_bypass.*",
-        r".*\.tos_bypass.*",
-        # ── PC dangerous actions ──
-        r"pc\.delete_file$",
-        r"pc\.bulk_delete$",
-        r"pc\.read_secret_file$",
-        r"pc\.write_system_config$",
-        r"pc\.run_shell.*$",
-        r"pc\.type_password$",
-        r"pc\.click_payment.*$",
+        r".*\.modify_policy.*$",
+        r".*\.disable_policy_engine$",
+        r".*\.modify_approval_bypass$",
+        r"dev\.disable_policy_engine$",
+        r"dev\.modify_approval_bypass$",
+        r"dev\.modify_policy.*$",
         r"pc\.modify_policy.*$",
-        # ── Android dangerous actions ──
-        r"android\.send_sms$",
-        r"android\.send_dm$",
-        r"android\.post_sns$",
-        r"android\.access_contacts$",
-        r"android\.make_call$",
-        r"android\.type_password$",
+        r"pc\.click_payment.*$",
         r"android\.click_payment.*$",
-        r"android\.captcha_bypass$",
-        r"android\.tos_bypass.*$",
-    ]
-
-    # ── Explicitly approval-required patterns ────────────────
-    # Phase 1.5: Expanded with mandatory approval categories.
-    EXPLICIT_APPROVAL_PATTERNS: list[str] = [
-        # Room/Physical control
-        r"room\.ir_send$",
-        r"room\.set_temperature$",
-        r"room\.set_light$",
-        r"room\.send_ir_command$",
-        r"room\.set_air_conditioner$",
-        r"room\.set_smart_plug$",
-        r"room\.get_camera_snapshot$",
-        # Dev server
-        r"dev\.create_pr$",
-        r"dev\.commit_changes$",
-        r"dev\.apply_patch$",
-        r"dev\.create_commit$",
-        r"dev\.create_pull_request$",
-        r"dev\.revert_changes$",
-        # Browser interaction
-        r"browser\.fill_form$",
-        r"browser\.submit_form$",
-        # Browser publish/send (always approval)
-        r"browser\.publish_post$",
-        r"browser\.send_message$",
-        r"browser\.send_email$",
-        # AGORA is an external social channel. Reading/drafting is safe, but
-        # publishing must always remain behind an explicit approval.
-        r"(?:ai-server\.)?agora\.post$",
-        # Browser signup (non-permissive profiles)
-        r"browser\.submit_signup$",
-        # PC operations
-        r"pc\.install_package$",
-        r"pc\.modify_registry$",
-        # PC action operations (Level 2)
-        r"pc\.mouse_click$",
-        r"pc\.keyboard_type$",
-        r"pc\.press_hotkey$",
-        r"pc\.close_window$",
-        r"pc\.write_clipboard$",
-        r"pc\.write_file$",
-        r"pc-server\.discord\.join_voice_by_name$",
-        r"pc-server\.discord\.join_voice_channel$",
-        r"pc-server\.discord\.leave_voice_channel$",
-        r"pc-server\.discord\.select_text_channel$",
-        r"pc-server\.discord\.set_voice_settings$",
-        r"pc-server\.discord\.set_activity$",
-        r"pc\.discord_join_voice_by_name$",
-        r"pc\.discord_join_voice_channel$",
-        r"pc\.discord_leave_voice_channel$",
-        r"pc\.discord_select_text_channel$",
-        r"pc\.discord_set_voice_settings$",
-        r"pc\.discord_set_activity$",
-        # Android action operations (Level 2)
-        r"android\.tap$",
-        r"android\.swipe$",
-        r"android\.type_text$",
-        # Self-dev PR and main-related
-        r"dev\.create_pull_request$",
-    ]
-
-    # ── Permissive-owner-allowed patterns (no approval needed) ──
-    # These are allowed without approval in permissive_owner_assisted profile.
-    # Always audited. Conditions: user logged in, no external send.
-    PERMISSIVE_READ_PATTERNS: list[str] = [
-        r"browser\.read_owned_account_page$",
-        r"browser\.read_messages$",
-        r"browser\.summarize_messages$",
-        r"browser\.draft_reply$",
-        r"browser\.draft_post$",
-        r"browser\.check_signup_risk$",
-        r"browser\.detect_payment_required$",
-        r"browser\.detect_captcha$",
-        r"browser\.detect_identity_verification$",
-        r"browser\.detect_external_publish_action$",
-        r"agora\.get_me$",
-        r"agora\.read_posts$",
-        r"agora\.read_thread_posts$",
-        r"agora\.read_mentions$",
-        r"agora\.get_cursor$",
-        r"agora\.draft_reply$",
-    ]
-
-    # Low-risk signup patterns (allowed in permissive if risk check passes)
-    PERMISSIVE_SIGNUP_PATTERNS: list[str] = [
-        r"browser\.fill_signup_form$",
-        r"browser\.submit_low_risk_signup$",
     ]
 
     def __init__(self, approval_store: ApprovalStore | None = None, data_dir: str = "data") -> None:
@@ -276,11 +109,7 @@ class PolicyEngine:
         self._blocked_patterns: list[re.Pattern] = []
         self._risk_overrides: dict[str, RiskLevel] = {}
         self._explicit_deny: list[re.Pattern] = [re.compile(p) for p in self.EXPLICIT_DENY_PATTERNS]
-        self._explicit_approval: list[re.Pattern] = [re.compile(p) for p in self.EXPLICIT_APPROVAL_PATTERNS]
-        self._permissive_read: list[re.Pattern] = [re.compile(p) for p in self.PERMISSIVE_READ_PATTERNS]
-        self._permissive_signup: list[re.Pattern] = [re.compile(p) for p in self.PERMISSIVE_SIGNUP_PATTERNS]
         self._approval_store = approval_store or ApprovalStore()
-        self._autonomy_profile: str = "permissive_owner_assisted"
         self._data_dir = Path(data_dir)
         self._data_dir.mkdir(parents=True, exist_ok=True)
         self._overrides_path = self._data_dir / "risk_overrides.json"
@@ -288,13 +117,6 @@ class PolicyEngine:
         self._load_overrides()
 
     # ── Public Evaluation API ──────────────────────────────
-
-    def set_autonomy_profile(self, profile: str) -> None:
-        """Set the autonomy profile."""
-        valid = ("conservative", "balanced", "permissive_owner_assisted")
-        if profile in valid:
-            with self._lock:
-                self._autonomy_profile = profile
 
     def evaluate_tool_invocation(
         self,
@@ -309,30 +131,16 @@ class PolicyEngine:
         capability: Capability,
         params: dict[str, Any] | None = None,
     ) -> PolicyResult:
-        """Evaluate an event-triggered action (more conservative)."""
-        result = self._evaluate(capability, params, "event_trigger")
-        if result.decision == PolicyDecision.ASK_APPROVAL:
-            return PolicyResult(
-                decision=PolicyDecision.DENY,
-                reason=f"Event-triggered execution denied: {result.reason}",
-                capability_id=capability.id,
-                risk_level=capability.risk_level,
-                audit_required=True,
-            )
-        return result
+        """Evaluate an event-triggered action (same path as chat/tool invocation)."""
+        return self._evaluate(capability, params, "event_trigger")
 
     def evaluate_autonomous_task(
         self,
         capability: Capability,
         params: dict[str, Any] | None = None,
     ) -> PolicyResult:
-        """Evaluate a self-initiated autonomous task (most conservative)."""
-        result = self._evaluate(capability, params, "autonomous_task")
-        if capability.risk_level == RiskLevel.SAFE_ACTION and result.decision == PolicyDecision.ALLOW:
-            return self._create_approval_result(
-                capability, params, reason_override="Autonomous task requires approval even for SAFE_ACTION."
-            )
-        return result
+        """Evaluate a self-initiated autonomous task (same path as chat/tool invocation)."""
+        return self._evaluate(capability, params, "autonomous_task")
 
     def evaluate(
         self,
@@ -358,7 +166,6 @@ class PolicyEngine:
             rules = list(self._rules.get(cap_id, []))
             global_rules = list(self._global_rules)
             risk_overrides = dict(self._risk_overrides)
-            autonomy_profile = self._autonomy_profile
 
         if cap_id in blocked_ids:
             return PolicyResult(
@@ -398,45 +205,22 @@ class PolicyEngine:
             if result is not None:
                 return self._finalize(result, capability, params)
 
-        # ── Permissive owner-assisted patterns (no approval needed) ──
-        if autonomy_profile == "permissive_owner_assisted":
-            for pattern in self._permissive_read:
-                if pattern.match(cap_id):
-                    return PolicyResult(
-                        decision=PolicyDecision.ALLOW,
-                        reason=f"'{cap_id}' allowed in permissive_owner_assisted (read/draft).",
-                        capability_id=cap_id,
-                        risk_level=RiskLevel.READ_ONLY,
-                        audit_required=True,
-                    )
-            for pattern in self._permissive_signup:
-                if pattern.match(cap_id):
-                    return PolicyResult(
-                        decision=PolicyDecision.ALLOW_WITH_AUDIT,
-                        reason=f"'{cap_id}' allowed in permissive_owner_assisted (low-risk signup).",
-                        capability_id=cap_id,
-                        risk_level=RiskLevel.SAFE_ACTION,
-                        audit_required=True,
-                    )
-
-        for pattern in self._explicit_approval:
-            if pattern.match(cap_id):
-                if not capability.requires_approval:
-                    break
-                if self._approval_store is not None and self._approval_store.is_approved(cap_id):
-                    return PolicyResult(
-                        decision=PolicyDecision.ALLOW,
-                        reason=f"Valid approval exists for '{cap_id}'.",
-                        capability_id=cap_id,
-                        risk_level=capability.risk_level,
-                        audit_required=True,
-                    )
-                return self._create_approval_result(
-                    capability, params, reason_override=f"'{cap_id}' matches explicit approval pattern."
+        # Catalog toggle: user may re-tighten a capability without changing risk maps.
+        if capability.requires_approval:
+            if self._approval_store is not None and self._approval_store.is_approved(cap_id):
+                return PolicyResult(
+                    decision=PolicyDecision.ALLOW,
+                    reason=f"Valid approval exists for '{cap_id}'.",
+                    capability_id=cap_id,
+                    risk_level=capability.risk_level,
+                    audit_required=True,
                 )
+            return self._create_approval_result(
+                capability, params, reason_override=f"'{cap_id}' requires approval (catalog override)."
+            )
 
         effective_risk = risk_overrides.get(cap_id, capability.risk_level)
-        decision = self.DEFAULT_RISK_MAP.get(effective_risk, PolicyDecision.DENY)
+        decision = self.DEFAULT_RISK_MAP.get(effective_risk, PolicyDecision.ALLOW_WITH_AUDIT)
 
         reason_map = {
             PolicyDecision.ALLOW: f"Risk level {effective_risk.name} — allowed.",
@@ -562,8 +346,9 @@ class PolicyEngine:
 
 
 def create_default_policy_engine() -> PolicyEngine:
-    """Create a PolicyEngine with all explicit deny/approval patterns + blocked patterns."""
+    """Create a PolicyEngine with purchase/policy-bypass hard stops."""
     engine = PolicyEngine()
     engine.block_pattern(r".*\.purchase.*")
-    engine.block_pattern(r".*\.production_deploy$")
+    engine.block_pattern(r".*\.bypass_policy.*")
+    engine.block_pattern(r".*\.disable_policy.*")
     return engine

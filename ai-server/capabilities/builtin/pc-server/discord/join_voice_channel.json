@@ -18,8 +18,8 @@
     ]
   },
   "risk": {
-    "level": "medium",
-    "requires_approval": true,
+    "level": "safe",
+    "requires_approval": false,
     "side_effects": [
       "external_service_operation",
       "discord_voice_call_join",

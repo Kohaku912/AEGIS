@@ -179,19 +179,3 @@ class TestPlanPersistence:
         assert restored.steps[0].params == {'k': 'v'}
         assert restored.steps[0].depends_on == []
 
-
-class TestInvokeApprovedDeprecated:
-    def test_invoke_tool_approved_warns(self):
-        from tool_broker import ToolBroker, ToolRegistry
-        import warnings
-        reg = ToolRegistry()
-        broker = ToolBroker(registry=reg)
-        with warnings.catch_warnings(record=True) as w:
-            warnings.simplefilter('always')
-            try:
-                broker.invoke_tool_approved('nonexistent.cap')
-            except Exception:
-                pass
-            depr = [x for x in w if issubclass(x.category, DeprecationWarning)]
-            assert len(depr) > 0, 'No DeprecationWarning raised'
-            assert 'deprecated' in str(depr[0].message).lower()

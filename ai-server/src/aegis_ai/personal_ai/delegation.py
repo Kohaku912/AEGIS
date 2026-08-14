@@ -56,7 +56,7 @@ class DelegationRule:
         return cls(
             rule_id=str(data.get("rule_id") or f"del_{uuid.uuid4().hex[:10]}"),
             capability_pattern=str(data.get("capability_pattern") or "*"),
-            decision=str(data.get("decision") or "approval_required"),
+            decision=str(data.get("decision") or "auto_allowed"),
             operation_category=str(data.get("operation_category") or ""),
             scope=str(data.get("scope") or ""),
             audience=str(data.get("audience") or ""),
@@ -72,17 +72,11 @@ class DelegationRule:
 class DelegationPolicyStore:
     """Persistent personal delegation policy.
 
-    This store can only add restrictions. It never weakens PolicyEngine.
+    Defaults are allow. The user may add restrictions; payment stays denied.
     """
 
     APPROVAL_CATEGORIES = {
-        "external_send",
-        "social_post",
-        "delete",
-        "push",
         "payment",
-        "physical_device",
-        "system_change",
     }
 
     def __init__(
@@ -109,7 +103,7 @@ class DelegationPolicyStore:
             rule = DelegationRule(
                 rule_id=rule_id,
                 capability_pattern=str(patch.get("capability_pattern") or "*"),
-                decision=str(patch.get("decision") or "approval_required"),
+                decision=str(patch.get("decision") or "auto_allowed"),
                 created_at=now,
                 updated_at=now,
             )
@@ -174,22 +168,14 @@ class DelegationPolicyStore:
                     rule_id=rule.rule_id,
                     dimensions=context.to_dict(),
                 )
-        if (
-            context.operation_category in self.APPROVAL_CATEGORIES
-            or context.scope in {"user", "external", "system"}
-            or context.audience in {"shared", "public", "third_party"}
-            or context.content_sensitivity in {"personal", "confidential", "secret"}
-            or context.reversibility in {"difficult", "irreversible"}
-        ):
+        if context.operation_category == "payment":
             return DelegationDecision(
-                decision="approval_required",
-                reason=(
-                    "Delegation contract requires approval for the declared scope, audience, content, or reversibility."
-                ),
-                rule_id="default_delegation_contract",
+                decision="forbidden",
+                reason="Payment and billing remain structurally denied.",
+                rule_id="default_payment_deny",
                 dimensions=context.to_dict(),
             )
-        return DelegationDecision(dimensions=context.to_dict())
+        return DelegationDecision(decision="auto_allowed", dimensions=context.to_dict())
 
     def get_summary(self) -> dict[str, Any]:
         counts: dict[str, int] = {}
@@ -249,23 +235,12 @@ class DelegationPolicyStore:
         now = now_ms()
         defaults = [
             (
-                "del_external_send",
+                "del_payment",
                 "*",
-                "approval_required",
-                "external_send",
-                "External communication must be approved.",
+                "forbidden",
+                "payment",
+                "Payment and billing remain structurally denied.",
             ),
-            (
-                "del_social_post",
-                "*",
-                "approval_required",
-                "social_communication",
-                "Social posting requires an audience-aware approval.",
-            ),
-            ("del_delete", "*", "approval_required", "delete", "Deletion must be approved."),
-            ("del_push", "*", "approval_required", "push", "Git push must be approved."),
-            ("del_payment", "*", "approval_required", "payment", "Payment or billing APIs must be approved."),
-            ("del_physical", "*", "approval_required", "physical_device", "Physical device control must be approved."),
         ]
         self._rules = [
             DelegationRule(
@@ -282,17 +257,46 @@ class DelegationPolicyStore:
         self._save()
 
     def _migrate_builtin_rules(self) -> None:
-        """Keep shipped safety rules current without changing user rules."""
+        """Relax shipped approval defaults; keep payment denied. Leave user rules."""
+        builtin_ids = {
+            "del_external_send",
+            "del_social_post",
+            "del_delete",
+            "del_push",
+            "del_physical",
+        }
         changed = False
+        kept: list[DelegationRule] = []
+        has_payment = False
         for rule in self._rules:
-            if rule.rule_id == "del_social_post" and rule.decision == "allow":
-                rule.decision = "approval_required"
-                rule.description = (
-                    "Social posting requires an audience-aware approval."
-                )
-                rule.updated_at = now_ms()
+            if rule.rule_id == "del_payment":
+                has_payment = True
+                if rule.decision != "forbidden":
+                    rule.decision = "forbidden"
+                    rule.description = "Payment and billing remain structurally denied."
+                    rule.updated_at = now_ms()
+                    changed = True
+                kept.append(rule)
+                continue
+            if rule.rule_id in builtin_ids:
                 changed = True
+                continue
+            kept.append(rule)
+        if not has_payment:
+            kept.append(
+                DelegationRule(
+                    rule_id="del_payment",
+                    capability_pattern="*",
+                    decision="forbidden",
+                    operation_category="payment",
+                    description="Payment and billing remain structurally denied.",
+                    created_at=now_ms(),
+                    updated_at=now_ms(),
+                )
+            )
+            changed = True
         if changed:
+            self._rules = kept
             self._save()
 
     def _load(self) -> None:

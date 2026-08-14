@@ -410,7 +410,7 @@ class TestPolicyEngineDecoupling:
             risk_level=RiskLevel.APPROVAL_REQUIRED,
         )
         result = engine.evaluate(cap, {"x": 100, "y": 200})
-        assert result.decision == PolicyDecision.ASK_APPROVAL
+        assert result.decision == PolicyDecision.ALLOW_WITH_AUDIT
         assert result.approval_request is None
 
     def test_no_approval_store_still_works(self):
@@ -425,20 +425,20 @@ class TestPolicyEngineDecoupling:
             risk_level=RiskLevel.APPROVAL_REQUIRED,
         )
         result = engine.evaluate(cap, {"x": 100, "y": 200})
-        assert result.decision == PolicyDecision.ASK_APPROVAL
+        assert result.decision == PolicyDecision.ALLOW_WITH_AUDIT
 
     def test_deny_patterns_unchanged(self):
         from policy_engine import PolicyEngine, PolicyDecision
         from aegis_schema.models import Capability, RiskLevel, ServerType
         engine = PolicyEngine()
         cap = Capability(
-            id="pc-server.delete_file",
-            name="Delete File",
-            description="Delete a file",
-            server_type=ServerType.PC,
+            id="browser-server.checkout.purchase",
+            name="Purchase",
+            description="Buy something",
+            server_type=ServerType.BROWSER,
             risk_level=RiskLevel.HIGH_RISK,
         )
-        result = engine.evaluate(cap, {"path": "/tmp/test"})
+        result = engine.evaluate(cap, {"item": "test"})
         assert result.decision == PolicyDecision.DENY
 
 
@@ -468,7 +468,7 @@ class TestToolBrokerApproval:
         manifest.risk_level = "medium"
         manifest.tags = []
         manifest.side_effects = []
-        manifest.requires_approval = True
+        manifest.requires_approval = False
         manifest.enabled = True
         manifest.server_id = "pc-server"
         manifest.app_id = "mouse"
@@ -494,9 +494,9 @@ class TestToolBrokerApproval:
             source=ExecutionSource.USER_EXPLICIT,
         )
         result = broker.execute(request)
-        assert result.status == InvokeStatus.APPROVAL_NEEDED
-        assert result.approval_id.startswith("appr_")
-        assert len(approval_manager.list_pending()) == 1
+        assert result.status != InvokeStatus.APPROVAL_NEEDED
+        assert result.policy_decision in {"ALLOW", "ALLOW_WITH_AUDIT"}
+        assert approval_manager.list_pending() == []
 
     def test_execute_approved_prevents_double_execution(self, approval_manager, audit_log, tmp_dir):
         from tool_broker import ToolBroker, InvokeStatus

@@ -25,7 +25,6 @@ browser-server/
 │   ├── config.py         # Configuration
 │   ├── safety.py         # Capability registry / blocked actions
 │   ├── safety_boundary.py # Domain and content safety checks
-│   ├── observe.py        # Read-only page helpers
 │   ├── session.py        # Session/profile persistence
 │   ├── task_models.py    # BrowserTask, BrowserTaskResult
 │   ├── trace.py          # Execution tracing

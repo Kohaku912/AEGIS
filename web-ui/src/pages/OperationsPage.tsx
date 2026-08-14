@@ -29,6 +29,7 @@ export type Operation = {
   target_summary?: string;
   status?: string;
   result_status?: string;
+  priority?: string;
   goal_status?: string;
   verification_status?: string;
   next_action?: string;
@@ -94,7 +95,7 @@ function sourceLabel(op: Operation): string {
   return String(op.kind_label || op.kind || "操作");
 }
 
-function actionTitle(op: Operation): string {
+export function actionTitle(op: Operation): string {
   const text = String(
     op.action_summary || op.what_happened || op.narrative || op.result_summary || op.title || "",
   ).trim();
@@ -133,7 +134,9 @@ export function OperationsPage({ overview, developerMode = false, detailId = "",
         if (!cancelled) setRemoteOps(items as Operation[]);
       })
       .catch((reason) => {
-        if (!cancelled) setError(reason instanceof Error ? reason.message : String(reason));
+        if (!cancelled && !overviewOps.length) {
+          setError(reason instanceof Error ? reason.message : String(reason));
+        }
       });
     return () => {
       cancelled = true;

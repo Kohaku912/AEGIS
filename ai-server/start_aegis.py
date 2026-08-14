@@ -72,7 +72,6 @@ def start_cli(runtime):
     print()
     print("  Monitoring:")
     print("    Dashboard:   http://0.0.0.0:8090/")
-    print("    Approval UI: http://0.0.0.0:8080/ when approval is required")
     print("=" * 60)
     print()
 

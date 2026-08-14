@@ -32,116 +32,103 @@ class PermissionDecision:
 
 # ── Default policies per service/operation ────────────────────
 
+_PAYMENT_OPS = {"purchase", "payment"}
+
+
+def _scope(service: str, operation: str, *, risk: str = "low") -> dict[str, Any]:
+    if operation in _PAYMENT_OPS:
+        return {
+            "service": service,
+            "operation": operation,
+            "allowed": False,
+            "requires_approval": False,
+            "risk_level": "critical",
+        }
+    return {"service": service, "operation": operation, "allowed": True, "risk_level": risk}
+
+
 _DEFAULT_POLICIES: list[dict[str, Any]] = [
-    # Gmail
-    {"service": "gmail", "operation": "read", "allowed": True, "risk_level": "low"},
-    {"service": "gmail", "operation": "search", "allowed": True, "risk_level": "low"},
-    {"service": "gmail", "operation": "summarize", "allowed": True, "risk_level": "low"},
-    {"service": "gmail", "operation": "draft", "allowed": True, "risk_level": "low"},
-    {"service": "gmail", "operation": "edit_draft", "allowed": True, "risk_level": "low"},
-    {"service": "gmail", "operation": "send", "allowed": False, "requires_approval": True, "risk_level": "high"},
-    {"service": "gmail", "operation": "delete", "allowed": False, "requires_approval": True, "risk_level": "high"},
-    {"service": "gmail", "operation": "credential_access", "allowed": False, "risk_level": "critical"},
-    # Calendar
-    {"service": "calendar", "operation": "read", "allowed": True, "risk_level": "low"},
-    {"service": "calendar", "operation": "search", "allowed": True, "risk_level": "low"},
-    {"service": "calendar", "operation": "create", "allowed": False, "requires_approval": True, "risk_level": "medium"},
-    {"service": "calendar", "operation": "update", "allowed": False, "requires_approval": True, "risk_level": "medium"},
-    {"service": "calendar", "operation": "delete", "allowed": False, "requires_approval": True, "risk_level": "high"},
-    # GitHub
-    {"service": "github", "operation": "read", "allowed": True, "risk_level": "low"},
-    {"service": "github", "operation": "search", "allowed": True, "risk_level": "low"},
-    {"service": "github", "operation": "create", "allowed": True, "risk_level": "low"},
-    {"service": "github", "operation": "draft", "allowed": True, "risk_level": "low"},
-    {"service": "github", "operation": "publish", "allowed": False, "requires_approval": True, "risk_level": "high"},
-    {"service": "github", "operation": "send", "allowed": False, "requires_approval": True, "risk_level": "high"},
-    {"service": "github", "operation": "delete", "allowed": False, "requires_approval": True, "risk_level": "high"},
-    {"service": "github", "operation": "change_permission", "allowed": False,
-     "requires_approval": True, "risk_level": "critical"},
-    # SNS
-    {"service": "sns", "operation": "read", "allowed": True, "risk_level": "low"},
-    {"service": "sns", "operation": "draft", "allowed": True, "risk_level": "low"},
-    {"service": "sns", "operation": "send", "allowed": False, "requires_approval": True, "risk_level": "high"},
-    {"service": "sns", "operation": "publish", "allowed": False, "requires_approval": True, "risk_level": "high"},
-    {"service": "sns", "operation": "delete", "allowed": False, "requires_approval": True, "risk_level": "high"},
-    # Discord
-    {"service": "discord", "operation": "read", "allowed": True, "risk_level": "low"},
-    {"service": "discord", "operation": "draft", "allowed": True, "risk_level": "low"},
-    {"service": "discord", "operation": "send", "allowed": False, "requires_approval": True, "risk_level": "high"},
-    {"service": "discord", "operation": "publish", "allowed": False, "requires_approval": True, "risk_level": "high"},
-    # Slack
-    {"service": "slack", "operation": "read", "allowed": True, "risk_level": "low"},
-    {"service": "slack", "operation": "draft", "allowed": True, "risk_level": "low"},
-    {"service": "slack", "operation": "send", "allowed": False, "requires_approval": True, "risk_level": "high"},
-    # X/Twitter
-    {"service": "x_twitter", "operation": "read", "allowed": True, "risk_level": "low"},
-    {"service": "x_twitter", "operation": "draft", "allowed": True, "risk_level": "low"},
-    {"service": "x_twitter", "operation": "publish", "allowed": False, "requires_approval": True, "risk_level": "high"},
-    {"service": "x_twitter", "operation": "send", "allowed": False, "requires_approval": True, "risk_level": "high"},
-    # Notion
-    {"service": "notion", "operation": "read", "allowed": True, "risk_level": "low"},
-    {"service": "notion", "operation": "search", "allowed": True, "risk_level": "low"},
-    {"service": "notion", "operation": "create", "allowed": True, "risk_level": "low"},
-    {"service": "notion", "operation": "update", "allowed": False, "requires_approval": True, "risk_level": "medium"},
-    {"service": "notion", "operation": "delete", "allowed": False, "requires_approval": True, "risk_level": "high"},
-    # Cloud Storage
-    {"service": "cloud_storage", "operation": "read", "allowed": True, "risk_level": "low"},
-    {"service": "cloud_storage", "operation": "search", "allowed": True, "risk_level": "low"},
-    {"service": "cloud_storage", "operation": "download", "allowed": True, "risk_level": "low"},
-    {"service": "cloud_storage", "operation": "upload", "allowed": False,
-     "requires_approval": True, "risk_level": "medium"},
-    {"service": "cloud_storage", "operation": "share", "allowed": False,
-     "requires_approval": True, "risk_level": "high"},
-    {"service": "cloud_storage", "operation": "delete", "allowed": False,
-     "requires_approval": True, "risk_level": "high"},
-    {"service": "cloud_storage", "operation": "change_permission",
-     "allowed": False, "requires_approval": True, "risk_level": "critical"},
-    # Browser
-    {"service": "browser", "operation": "read", "allowed": True, "risk_level": "low"},
-    {"service": "browser", "operation": "search", "allowed": True, "risk_level": "low"},
-    {"service": "browser", "operation": "draft", "allowed": True, "risk_level": "low"},
-    {"service": "browser", "operation": "send", "allowed": False, "requires_approval": True, "risk_level": "high"},
-    {"service": "browser", "operation": "publish", "allowed": False, "requires_approval": True, "risk_level": "high"},
-    {"service": "browser", "operation": "purchase", "allowed": False,
-     "requires_approval": True, "risk_level": "critical"},
-    {"service": "browser", "operation": "login", "allowed": False, "requires_approval": True, "risk_level": "high"},
-    # File System
-    {"service": "file_system", "operation": "read", "allowed": True, "risk_level": "low"},
-    {"service": "file_system", "operation": "create", "allowed": True, "risk_level": "low"},
-    {"service": "file_system", "operation": "update", "allowed": False,
-     "requires_approval": True, "risk_level": "medium"},
-    {"service": "file_system", "operation": "delete", "allowed": False,
-     "requires_approval": True, "risk_level": "high"},
-    # PC
-    {"service": "pc", "operation": "read", "allowed": True, "risk_level": "low"},
-    {"service": "pc", "operation": "send", "allowed": False, "requires_approval": True, "risk_level": "high"},
-    {"service": "pc", "operation": "delete", "allowed": False, "requires_approval": True, "risk_level": "high"},
-    {"service": "pc", "operation": "credential_access", "allowed": False, "risk_level": "critical"},
-    # Android
-    {"service": "android", "operation": "read", "allowed": True, "risk_level": "low"},
-    {"service": "android", "operation": "send", "allowed": False, "requires_approval": True, "risk_level": "high"},
-    {"service": "android", "operation": "delete", "allowed": False, "requires_approval": True, "risk_level": "high"},
-    # AGORA
-    {"service": "agora", "operation": "read", "allowed": True, "risk_level": "low"},
-    {"service": "agora", "operation": "search", "allowed": True, "risk_level": "low"},
-    {"service": "agora", "operation": "summarize", "allowed": True, "risk_level": "low"},
-    {"service": "agora", "operation": "draft", "allowed": True, "risk_level": "low"},
-    {"service": "agora", "operation": "update", "allowed": True, "risk_level": "low"},
-    {"service": "agora", "operation": "send", "allowed": False,
-     "requires_approval": True, "risk_level": "high"},
-    {"service": "agora", "operation": "delete", "allowed": False, "risk_level": "critical"},
-    # External API
-    {"service": "external_api", "operation": "read", "allowed": True, "risk_level": "low"},
-    {"service": "external_api", "operation": "send", "allowed": False, "requires_approval": True, "risk_level": "high"},
-    {"service": "external_api", "operation": "purchase", "allowed": False,
-     "requires_approval": True, "risk_level": "critical"},
-    # Financial/Universal
-    {"service": "*", "operation": "purchase", "allowed": False,
-     "requires_approval": True, "risk_level": "critical"},
-    {"service": "*", "operation": "payment", "allowed": False,
-     "requires_approval": True, "risk_level": "critical"},
-    {"service": "*", "operation": "credential_access", "allowed": False, "risk_level": "critical"},
-    {"service": "*", "operation": "admin", "allowed": False, "risk_level": "critical"},
+    _scope("gmail", "read"),
+    _scope("gmail", "search"),
+    _scope("gmail", "summarize"),
+    _scope("gmail", "draft"),
+    _scope("gmail", "edit_draft"),
+    _scope("gmail", "send"),
+    _scope("gmail", "delete"),
+    _scope("gmail", "credential_access"),
+    _scope("calendar", "read"),
+    _scope("calendar", "search"),
+    _scope("calendar", "create"),
+    _scope("calendar", "update"),
+    _scope("calendar", "delete"),
+    _scope("github", "read"),
+    _scope("github", "search"),
+    _scope("github", "create"),
+    _scope("github", "draft"),
+    _scope("github", "publish"),
+    _scope("github", "send"),
+    _scope("github", "delete"),
+    _scope("github", "change_permission"),
+    _scope("sns", "read"),
+    _scope("sns", "draft"),
+    _scope("sns", "send"),
+    _scope("sns", "publish"),
+    _scope("sns", "delete"),
+    _scope("discord", "read"),
+    _scope("discord", "draft"),
+    _scope("discord", "send"),
+    _scope("discord", "publish"),
+    _scope("slack", "read"),
+    _scope("slack", "draft"),
+    _scope("slack", "send"),
+    _scope("x_twitter", "read"),
+    _scope("x_twitter", "draft"),
+    _scope("x_twitter", "publish"),
+    _scope("x_twitter", "send"),
+    _scope("notion", "read"),
+    _scope("notion", "search"),
+    _scope("notion", "create"),
+    _scope("notion", "update"),
+    _scope("notion", "delete"),
+    _scope("cloud_storage", "read"),
+    _scope("cloud_storage", "search"),
+    _scope("cloud_storage", "download"),
+    _scope("cloud_storage", "upload"),
+    _scope("cloud_storage", "share"),
+    _scope("cloud_storage", "delete"),
+    _scope("cloud_storage", "change_permission"),
+    _scope("browser", "read"),
+    _scope("browser", "search"),
+    _scope("browser", "draft"),
+    _scope("browser", "send"),
+    _scope("browser", "publish"),
+    _scope("browser", "purchase"),
+    _scope("browser", "login"),
+    _scope("file_system", "read"),
+    _scope("file_system", "create"),
+    _scope("file_system", "update"),
+    _scope("file_system", "delete"),
+    _scope("pc", "read"),
+    _scope("pc", "send"),
+    _scope("pc", "delete"),
+    _scope("pc", "credential_access"),
+    _scope("android", "read"),
+    _scope("android", "send"),
+    _scope("android", "delete"),
+    _scope("agora", "read"),
+    _scope("agora", "search"),
+    _scope("agora", "summarize"),
+    _scope("agora", "draft"),
+    _scope("agora", "update"),
+    _scope("agora", "send"),
+    _scope("agora", "delete"),
+    _scope("external_api", "read"),
+    _scope("external_api", "send"),
+    _scope("external_api", "purchase"),
+    _scope("*", "purchase"),
+    _scope("*", "payment"),
+    _scope("*", "credential_access"),
+    _scope("*", "admin"),
 ]
 
 
@@ -261,15 +248,6 @@ class ServicePermissionStore:
                 requires_approval=default_decision == "ask_approval",
             )
 
-        if scope.requires_approval:
-            return PermissionDecision(
-                decision="ask_approval",
-                reason=f"Scope {scope.scope_id} requires approval for {service}:{operation}.",
-                scope_id=scope.scope_id,
-                risk_level=scope.risk_level,
-                requires_approval=True,
-            )
-
         if not scope.allowed:
             return PermissionDecision(
                 decision="deny",
@@ -277,6 +255,15 @@ class ServicePermissionStore:
                 scope_id=scope.scope_id,
                 category=_guess_category(operation).value,
                 risk_level=scope.risk_level,
+            )
+
+        if scope.requires_approval:
+            return PermissionDecision(
+                decision="ask_approval",
+                reason=f"Scope {scope.scope_id} requires approval for {service}:{operation}.",
+                scope_id=scope.scope_id,
+                risk_level=scope.risk_level,
+                requires_approval=True,
             )
 
         if source not in scope.allowed_sources:

@@ -1,4 +1,5 @@
-﻿import type { ApprovalItem, AttentionItem, DisplayDirectorItem, DisplayDirectorState, ServerItem, UiEvent, UiOverview, VisualEvent } from "./types";
+﻿import { isUiActivityNoise } from "./activityNoise";
+import type { ApprovalItem, AttentionItem, DisplayDirectorItem, DisplayDirectorState, ServerItem, UiEvent, UiOverview, VisualEvent } from "./types";
 
 export const CORE_SERVER_IDS = ["ai-server", "pc-server", "android-server", "browser-server", "room-server", "dev-server"] as const;
 
@@ -68,7 +69,7 @@ export function mapUiEventToVisualEvent(event: UiEvent): VisualEvent {
     capabilityId,
     status,
     severity: event.severity || "info",
-    message: event.safe_message || event.message || type,
+    message: readableDisplayText(event.safe_message || event.message, type),
     createdAt,
     expiresAt: event.expires_at || createdAt + durationMs
   };
@@ -78,7 +79,9 @@ export function buildDisplayDirectorState(overview: UiOverview, events: UiEvent[
   const displayScene = asRecord(overview.display_scene?.data);
   const now = Date.now();
   const sceneTakeover = asRecord(displayScene.takeover);
-  const eventItems = dedupeDirectorItems(events.map((event) => directorItemFromEvent(event)).filter(Boolean) as DisplayDirectorItem[]);
+  const eventItems = dedupeDirectorItems(
+    events.filter((event) => !isUiActivityNoise(event)).map((event) => directorItemFromEvent(event)).filter(Boolean) as DisplayDirectorItem[],
+  );
   const serverQueueItems = displayQueueDirectorItems(overview);
   const attentionItemsForDisplay = attentionItems(overview).map((item) => directorItemFromAttention(item));
   const presentationItems = presentationDirectorItems(overview);
@@ -123,6 +126,9 @@ export function buildDisplayDirectorState(overview: UiOverview, events: UiEvent[
     ...all.filter((item) => item.id !== takeover?.id && String(item.priority) === "P2"),
     ...serverOfflineItems
   ].slice(0, 5);
+  const criticalOverlays = all.filter(
+    (item) => item.id !== takeover?.id && ["P0", "P1"].includes(String(item.priority)) && !isServerOffline(item),
+  );
 
   return {
     sceneMode: String(displayScene.phase || displayScene.mode || missionPhase(overview)),
@@ -130,7 +136,7 @@ export function buildDisplayDirectorState(overview: UiOverview, events: UiEvent[
     offline: Boolean(displayScene.offline || String(overview.core.data.health || "").toUpperCase() === "OFFLINE"),
     stale: Boolean(overview.freshness.stale || displayScene.stale),
     takeover,
-    overlays: warningItems,
+    overlays: [...criticalOverlays, ...warningItems].slice(0, 8),
     dock: all.filter((item) => item.id !== takeover?.id && item.persistence !== "ephemeral" && !isServerOffline(item)).slice(0, 6),
     ambient: [
       ...all.filter((item) => item.id !== takeover?.id && item.persistence === "ephemeral" && !isServerOffline(item)),
@@ -194,8 +200,43 @@ export interface DisplayUserState {
   updatedAt: number;
 }
 
+function firstText(...values: unknown[]): string {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return "";
+}
+
+export function readableDisplayText(value: unknown, fallback = ""): string {
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    const record = value as Record<string, unknown>;
+    return firstText(record.active_window_title, record.app_name, record.title, record.summary, record.label, record.message) || fallback;
+  }
+  const text = String(value ?? "").trim();
+  if (!text) return fallback;
+  if (text.startsWith("{") || text.startsWith("[")) {
+    try {
+      return readableDisplayText(JSON.parse(text), fallback);
+    } catch {
+      return fallback;
+    }
+  }
+  return text;
+}
+
+function isDirectorNoise(item: DisplayDirectorItem): boolean {
+  const hay = `${item.title} ${item.message}`.toLowerCase();
+  if (hay.includes("user_activity") || hay.includes("telemetry") || hay.includes("heartbeat")) return true;
+  return item.message.trim().startsWith("{") || item.message.trim().startsWith("[");
+}
+
 export function summarizeUserState(overview: UiOverview): DisplayUserState {
-  const state = asRecord(overview.user_state.data);
+  const section = overview.user_state || overview.user_situation || overview.situation;
+  const state = {
+    ...asRecord(overview.situation?.data),
+    ...asRecord(overview.user_situation?.data),
+    ...asRecord(overview.user_state?.data),
+  };
   const where = asRecord(state.where);
   const attention = asRecord(state.attention);
   const activity = asRecord(state.activity);
@@ -204,35 +245,44 @@ export function summarizeUserState(overview: UiOverview): DisplayUserState {
     .filter(Boolean)
     .join(" / ");
   return {
-    where: String(where.label || "Not reported"),
-    whereConfidence: formatConfidence(where.confidence),
-    attention: attentionLabel || "Not reported",
-    attentionConfidence: formatConfidence(attention.confidence),
-    activity: String(activity.label || "Not reported"),
-    activityConfidence: formatConfidence(activity.confidence),
-    freshness: overview.user_state.stale ? "STALE" : "LIVE",
-    updatedAt: Number(state.updated_at_ms || overview.user_state.source_updated_at || 0)
+    where: firstText(where.label, state.where, state.location, state.summary) || "Not reported",
+    whereConfidence: formatConfidence(where.confidence || state.where_confidence),
+    attention: firstText(attentionLabel, state.attention) || "Not reported",
+    attentionConfidence: formatConfidence(attention.confidence || state.attention_confidence),
+    activity: firstText(activity.label, state.activity, state.current_activity) || "Not reported",
+    activityConfidence: formatConfidence(activity.confidence || state.activity_confidence),
+    freshness: section?.stale ? "STALE" : "LIVE",
+    updatedAt: Number(state.updated_at_ms || section?.source_updated_at || 0)
   };
 }
 
-export function taskBuckets(overview: UiOverview): Array<{ id: string; label: string; count: number; items: Array<Record<string, unknown>> }> {
-  const task = overview.current_task.data;
-  const tasks = overview.tasks?.data;
-  const commitments = overview.commitments.data.items || [];
-  const hasActive = Boolean(task.task_id || task.title);
-  const active = tasks?.active?.length ? tasks.active : hasActive ? [task as unknown as Record<string, unknown>] : [];
-  const waiting = tasks?.waiting?.length ? tasks.waiting : hasActive && (overview.approvals.data.pending_count > 0 || task.blocked_reason) ? [task as unknown as Record<string, unknown>] : [];
-  return [
-    { id: "active", label: "Active", count: active.length, items: active },
-    { id: "waiting", label: "Waiting", count: waiting.length, items: waiting },
-    { id: "scheduled", label: "Scheduled", count: tasks?.scheduled?.length || 0, items: tasks?.scheduled || [] },
-    { id: "research", label: "Research", count: taskContains(task, "browser-server") ? active.length : 0, items: taskContains(task, "browser-server") ? active : [] },
-    { id: "self-development", label: "Self-development", count: taskContains(task, "dev-server") ? active.length : 0, items: taskContains(task, "dev-server") ? active : [] },
-    { id: "commitments", label: "Commitments", count: commitments.length, items: commitments },
-    { id: "delegated", label: "Delegated", count: (tasks?.recent || []).filter((item) => Boolean(item.server_id || item.assignee || item.delegated_to)).length, items: (tasks?.recent || []).filter((item) => Boolean(item.server_id || item.assignee || item.delegated_to)) },
-    { id: "completed", label: "Completed", count: (tasks?.recent || []).filter((item) => String(item.status || "").toLowerCase() === "completed").length || countSteps(task, "completed"), items: [] },
-    { id: "failed", label: "Failed", count: (tasks?.recent || []).filter((item) => String(item.status || "").toLowerCase() === "failed").length || countSteps(task, "failed"), items: [] }
-  ];
+export function recentDisplayEvents(overview: UiOverview, directorItems: DisplayDirectorItem[]): DisplayDirectorItem[] {
+  const readable = directorItems.filter((item) => !isDirectorNoise(item)).slice(0, 6);
+  if (readable.length) return readable;
+  const fromPresentations = (overview.presentation_events?.data.items || []).map((item, index) => ({
+    id: String(item.event_id || `presentation-${index}`),
+    priority: String(item.priority || "P3"),
+    severity: String(item.severity || "info"),
+    title: String(item.title || "Event"),
+    message: readableDisplayText(item.summary || item.detail || item.title, "Event"),
+    persistence: String(item.persistence || "ephemeral"),
+    createdAt: Number(overview.generated_at || 0),
+    expiresAt: Number(item.expires_at || 0),
+    affectedServers: [] as string[],
+  }));
+  const readablePresentations = fromPresentations.filter((item) => !isDirectorNoise(item));
+  if (readablePresentations.length) return readablePresentations.slice(0, 6);
+  return (overview.activity?.data.operations || []).slice(0, 6).map((op, index) => ({
+    id: String(op.operation_id || `operation-${index}`),
+    priority: String(op.priority || (op.error_count ? "P1" : "P3")),
+    severity: Number(op.error_count || 0) > 0 ? "warning" : "info",
+    title: String(op.what_happened || op.narrative || op.title || "Operation"),
+    message: readableDisplayText(op.narrative || op.what_happened || op.summary || op.title, "Operation"),
+    persistence: "attention_dock",
+    createdAt: Number(op.updated_at || op.started_at || overview.generated_at || 0),
+    expiresAt: 0,
+    affectedServers: [] as string[],
+  }));
 }
 
 export function approvalBuckets(approvals: ApprovalItem[]): Array<{ id: string; label: string; items: ApprovalItem[] }> {
@@ -285,8 +335,8 @@ function directorItemFromEvent(event: UiEvent): DisplayDirectorItem | undefined 
     id: event.dedupe_key || event.event_id || visualEvent.id,
     priority,
     severity: presentation?.severity || event.severity || visualEvent.severity || "info",
-    title: presentation?.title || event.safe_title || event.type || "AEGIS event",
-    message: presentation?.summary || event.safe_message || event.message || event.source_type || "AEGIS event",
+    title: readableDisplayText(presentation?.title || event.safe_title || event.type, "AEGIS event"),
+    message: readableDisplayText(presentation?.summary || event.safe_message || event.message, event.source_type || "AEGIS event"),
     persistence: presentation?.persistence || event.persistence || (priority === "P0" || priority === "P1" ? "until_resolved" : priority === "P2" ? "attention_dock" : "ephemeral"),
     createdAt: event.occurred_at || event.source_updated_at || event.generated_at || Date.now(),
     expiresAt: presentation?.expires_at || event.expires_at || visualEvent.expiresAt,
@@ -335,12 +385,22 @@ function presentationDirectorItems(overview: UiOverview): DisplayDirectorItem[] 
     ["P3", "ephemeral", data.ambient]
   ];
   return groups.flatMap(([priority, persistence, items]) =>
-    (items || []).map((item) => ({
+    (items || []).filter((item) => !isDirectorNoise({
+      id: String(item.presentation_id || item.id || item.title || "presentation"),
+      priority,
+      severity: "info",
+      title: String(item.title || ""),
+      message: String(item.summary || item.status || ""),
+      persistence,
+      createdAt: 0,
+      expiresAt: 0,
+      affectedServers: [],
+    })).map((item) => ({
       id: String(item.presentation_id || item.id || `${priority}-${item.title || "presentation"}`),
       priority,
       severity: priority === "P0" ? "critical" : priority === "P2" ? "warning" : "info",
-      title: String(item.title || "Presentation"),
-      message: String(item.summary || item.status || "Presentation update"),
+      title: readableDisplayText(item.title, "Presentation"),
+      message: readableDisplayText(item.summary || item.status, "Presentation update"),
       persistence,
       createdAt: Number(item.created_at || overview.generated_at),
       expiresAt: Number(item.expires_at || 0),
@@ -360,8 +420,8 @@ function displayQueueDirectorItems(overview: UiOverview): DisplayDirectorItem[] 
       id: String(record.id || record.event_id || record.title || "display-queue-item"),
       priority: String(presentation.priority || priority),
       severity: String(presentation.severity || record.severity || "info"),
-      title: String(presentation.title || record.title || "AEGIS signal"),
-      message: String(presentation.summary || record.message || record.title || "AEGIS signal"),
+      title: readableDisplayText(presentation.title || record.title, "AEGIS signal"),
+      message: readableDisplayText(presentation.summary || record.message || record.title, "AEGIS signal"),
       persistence: String(presentation.persistence || record.persistence || (priority === "P0" || priority === "P1" ? "until_resolved" : "attention_dock")),
       createdAt: Number(record.created_at || record.updated_at || Date.now()),
       expiresAt: Number(presentation.expires_at || record.expires_at || 0),
@@ -452,15 +512,6 @@ function normalizeVisualEffect(effect: unknown): VisualEvent["effect"] | "" {
 
 function normalizeApprovalStatus(item: ApprovalItem): string {
   return String(item.status || "pending").toUpperCase();
-}
-
-function taskContains(task: { capability_id?: string; steps?: Array<Record<string, unknown>> }, fragment: string): boolean {
-  if (String(task.capability_id || "").includes(fragment)) return true;
-  return Boolean((task.steps || []).some((step) => String(step.capability_id || step.name || "").includes(fragment)));
-}
-
-function countSteps(task: { steps?: Array<Record<string, unknown>> }, status: string): number {
-  return (task.steps || []).filter((step) => String(step.status || "").toLowerCase() === status).length;
 }
 
 function asRecord(value: unknown): Record<string, unknown> {

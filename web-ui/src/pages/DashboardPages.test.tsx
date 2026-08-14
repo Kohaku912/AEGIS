@@ -95,8 +95,20 @@ describe("dashboard v2 pages", () => {
       "personal",
       "settings",
     ]);
+    expect(navigation.find((domain) => domain.id === "ops")?.pages.map((page) => page.id)).toEqual([
+      "home",
+      "attention",
+      "open-loops",
+      "judgment",
+      "tasks",
+      "approvals",
+      "autonomous",
+      "desires",
+      "agent-state",
+    ]);
     expect(navigation.find((domain) => domain.id === "observe")?.pages.map((page) => page.id)).toEqual([
       "operations",
+      "logs",
       "raw-activity",
       "llm-usage",
       "incidents",
@@ -131,6 +143,7 @@ describe("dashboard v2 pages", () => {
     const data = overview();
 
     const { unmount } = render(<CommandCenter overview={data} recentEvents={[event()]} />);
+    expect(screen.getByTestId("cognitive-field-mock")).toBeInTheDocument();
     expect(screen.getByText("Inspect desktop")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Open related conversation" })).toHaveAttribute(
       "href",
@@ -165,6 +178,12 @@ describe("dashboard v2 pages", () => {
     expect(screen.getByText("実行履歴")).toBeInTheDocument();
     expect(screen.getByText("Inspect desktop")).toBeInTheDocument();
     expect(screen.getAllByText("Captured a screenshot of the desktop.").length).toBeGreaterThan(0);
+
+    const loops = render(<OpenLoopsPage overview={data} />);
+    expect(screen.getByText("Open Loops")).toBeInTheDocument();
+    loops.unmount();
+    render(<JudgmentPage overview={data} />);
+    expect(screen.getByText("Judgment")).toBeInTheDocument();
   });
 });
 

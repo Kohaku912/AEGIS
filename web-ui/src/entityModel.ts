@@ -19,12 +19,6 @@ export function entitiesFromOverview(overview: UiOverview, events: UiEvent[] = [
   return [...unique.values()];
 }
 
-export function searchEntities(entities: EntitySummary[], query: string): EntitySummary[] {
-  const value = query.trim().toLocaleLowerCase();
-  if (!value) return entities.slice(0, 12);
-  return entities.filter((item) => [item.title, item.subtitle, item.type, item.status, ...item.tags].join(" ").toLocaleLowerCase().includes(value)).slice(0, 30);
-}
-
 function entity(data: Record<string, unknown>, type: string, id: string, title: string): EntitySummary {
   const status = String(data.status || data.phase || data.state || "available");
   const severity = String(data.severity || (status.toLowerCase().includes("fail") || status.toLowerCase().includes("offline") ? "warning" : "normal"));

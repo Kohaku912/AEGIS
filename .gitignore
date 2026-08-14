@@ -23,10 +23,24 @@ build/
 .pytest*
 
 # ---- Test temp dirs ----
+.tmp/
 .tmp-pytest-*/
 **/.pytest-tmp/
 **/.tmp-pytest-*/
 .tmp_*/
+tmp_pytest/
+tmp_pytest_local/
+ai-server/tmp_pytest/
+ai-server/tmp_pytest_local/
+
+# ---- Accidental root copies of ai-server modules ----
+/autonomous_loop.py
+/core_capabilities.py
+/tool_broker.py
+/fulfillment.py
+/pc_overlay.py
+/duckduckgo_search.py
+/executor.json
 
 # ---- IDE ----
 .vscode/

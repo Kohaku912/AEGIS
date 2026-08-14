@@ -143,9 +143,8 @@ def test_android_ui_tree_reports_data_or_permission_gap() -> None:
         assert "accessibility" in output.get("missing_permissions", [])
 
 
-def test_android_ui_input_manifests_require_approval() -> None:
+def test_android_ui_input_manifests_are_executable() -> None:
     root = Path(__file__).resolve().parents[1] / "capabilities" / "builtin" / "android-server" / "ui"
     for name in ("tap.json", "swipe.json", "type_text.json"):
         manifest = json.loads((root / name).read_text(encoding="utf-8"))
-        assert manifest["risk"]["level"] == "approval_required"
-        assert manifest["risk"]["requires_approval"] is True
+        assert manifest["risk"]["requires_approval"] is False

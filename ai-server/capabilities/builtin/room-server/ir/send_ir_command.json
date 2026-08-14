@@ -25,15 +25,17 @@
         "description": "Matches Arduino sendNEC repeat count (default 3)."
       }
     },
-    "required": ["ir_code"]
+    "required": [
+      "ir_code"
+    ]
   },
   "risk": {
-    "level": "approval_required",
+    "level": "safe",
     "side_effects": [
       "physical_device_control",
       "ir_transmit"
     ],
-    "requires_approval": true,
+    "requires_approval": false,
     "approval_mode": "explicit"
   },
   "tags": [

@@ -68,7 +68,7 @@ ai-server/
 - `call_llm_with_tools()` — LLM with tool calling support
 - `ask_user` tool for user input during task execution
 - DeepSeek native format parsing support
-- **Recursive multi-step tool calling** (max 5 rounds)
+- **Recursive multi-step tool calling** (max 15 rounds)
 - XML tag format support (`<pc-server__shell__powershell><command>...</command></pc-server__shell__powershell>`)
 - Error handling with retry logic
 
@@ -91,7 +91,7 @@ ai-server/
 - `_generate_tasks()` uses CapabilityCatalog.list_for_tools()
 - `_generate_follow_up_tasks()` with tool calling
 - `_update_desires()` uses fulfillment rules (delta-based)
-- Pressure-based trigger with `AEGIS_MIN_LLM_INTERVAL_MS` gating
+- Pressure-based trigger; LLM interval gate is off by default
 
 ### Dashboard (`src/aegis_ai/web/`)
 
@@ -108,7 +108,6 @@ ai-server/
 |----------|--------|---------|
 | `/api/chat/send` | POST | Send message (tool calling, ask_user support) |
 | `/api/chat/respond` | POST | Respond to ask_user question |
-| `/api/chat/stream` | POST | Send message (streaming, tool calling) |
 | `/api/chat/history` | GET | Get chat history |
 | `/api/chat/clear` | POST | Clear chat history |
 
@@ -197,3 +196,4 @@ AEGIS output layer for rich user-facing content. NOT a state viewer — it deliv
 11. **Recursive tool calling loop**: LLM can call multiple tools in sequence, results are fed back to LLM for next decision
 12. **Multiple tool call formats**: Supports `<tool_call>`, DeepSeek DSML, XML tag, and plain JSON formats
 13. **Browser verification detection**: Browser agent detects CAPTCHA/phone verification and returns `needs_user_input` to pause for user intervention
+14. **Full-authority defaults**: PolicyEngine allows with audit except purchases and policy bypass/disable. Catalog `requires_approval` remains the user tighten path.

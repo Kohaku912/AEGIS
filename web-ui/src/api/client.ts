@@ -124,20 +124,6 @@ export type AuditPageResult = {
   eventTypes?: Array<{ event_type: string; count: number }>;
 };
 
-export async function fetchAuditEntries(page = 1, limit = 50): Promise<AuditPageResult> {
-  const response = await fetch(`/api/audit?${new URLSearchParams({ page: String(page), limit: String(limit) })}`, {
-    credentials: "include",
-  });
-  const payload = await requireJson<Record<string, unknown>>(response, "Could not load logs");
-  return {
-    items: Array.isArray(payload.entries) ? payload.entries as Array<Record<string, unknown>> : [],
-    page: Number(payload.page || page),
-    limit: Number(payload.per_page || limit),
-    total: Number(payload.total || 0),
-    totalPages: Number(payload.total_pages || 1),
-  };
-}
-
 export async function fetchAuditGroups(page = 1, limit = 30): Promise<AuditPageResult> {
   const response = await fetch(`/api/audit/grouped?${new URLSearchParams({ page: String(page), limit: String(limit) })}`, {
     credentials: "include",
@@ -231,25 +217,6 @@ export async function searchPersonalData(query: string, limit = 10_000, device =
   return { items, page: 1, limit, total, totalPages: 1 };
 }
 
-export async function fetchActivityLogs(page = 1, limit = 30): Promise<AuditPageResult> {
-  const response = await fetch(`/api/audit/grouped?${new URLSearchParams({ page: String(page), limit: String(limit) })}`, {
-    credentials: "include",
-  });
-  const payload = await requireJson<Record<string, unknown>>(response, "Could not load activity logs");
-  const operations = Array.isArray(payload.operations)
-    ? payload.operations as Array<Record<string, unknown>>
-    : Array.isArray(payload.groups)
-      ? payload.groups as Array<Record<string, unknown>>
-      : [];
-  return {
-    items: operations,
-    page: Number(payload.page || page),
-    limit: Number(payload.per_page || limit),
-    total: Number(payload.total ?? payload.count ?? operations.length),
-    totalPages: Number(payload.total_pages || 1),
-  };
-}
-
 export async function fetchOperations(limit = 40): Promise<Array<Record<string, unknown>>> {
   const response = await fetch(`/api/operations?${new URLSearchParams({ limit: String(limit) })}`, {
     credentials: "include",
@@ -310,19 +277,6 @@ export async function runTaskAction(taskId: string, action: string, confirmed = 
   return requireJson<Record<string, unknown>>(response, "Task action failed", [202]);
 }
 
-export async function simulatePolicy(input: Record<string, unknown>): Promise<Record<string, unknown>> {
-  const csrf = String((await fetchAuthMe()).csrf_token || "");
-  const response = await fetch("/api/policy/simulate", {
-    method: "POST",
-    credentials: "include",
-    headers: { "Content-Type": "application/json", "X-CSRF-Token": csrf },
-    body: JSON.stringify(input)
-  });
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(String(payload.error || response.status));
-  return payload;
-}
-
 async function promptMutation(path: string, method: string, body: Record<string, unknown>): Promise<Record<string, unknown>> {
   const csrf = String((await fetchAuthMe()).csrf_token || "");
   const response = await fetch(path, {
@@ -368,19 +322,6 @@ export async function rollbackPrompt(promptId: string, revisionId: string): Prom
   return promptMutation(`/api/llm/prompts/${encodeURIComponent(promptId)}/rollback`, "POST", { revision_id: revisionId });
 }
 
-export async function updateManagedRule(kind: "hooks" | "delegations", id: string, patch: Record<string, unknown>, confirmed = false): Promise<Record<string, unknown>> {
-  const csrf = String((await fetchAuthMe()).csrf_token || "");
-  const response = await fetch(`/api/${kind}/${encodeURIComponent(id)}`, {
-    method: "PATCH",
-    credentials: "include",
-    headers: { "Content-Type": "application/json", "X-CSRF-Token": csrf },
-    body: JSON.stringify({ patch, confirmed })
-  });
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok && response.status !== 202) throw new Error(String(payload.error || response.status));
-  return payload;
-}
-
 function normalizeEntity(item: EntitySummary & { related_ids?: string[]; badges?: string[]; detail?: Record<string, unknown>; risk_level?: string }): EntitySummary {
   const updated = Date.parse(String(item.updated_at || ""));
   const status = String(item.status || "unknown");
@@ -417,14 +358,60 @@ export function createRequestId(): string {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 }
 
-export async function sendChat(message: string, requestId = createRequestId()): Promise<Record<string, unknown>> {
+export type ChatHistoryEntry = {
+  timestamp?: number;
+  timestamp_ms?: number;
+  message_id?: string;
+  user?: string;
+  bot?: string;
+  conversation_id?: string;
+};
+
+export type ChatSendResult = {
+  response?: string;
+  message?: string;
+  request_id?: string;
+  needs_user_input?: boolean;
+  question?: string;
+  options?: string[];
+  pending_context?: Record<string, unknown>;
+  approval_needed?: boolean;
+  approval_id?: string;
+  tool_results?: Array<{ function?: string; success?: boolean; result?: string }>;
+};
+
+export async function fetchChatHistory(): Promise<ChatHistoryEntry[]> {
+  const response = await fetch("/api/chat/history", { credentials: "include" });
+  const payload = await requireJson<ChatHistoryEntry[] | { items?: ChatHistoryEntry[] }>(
+    response,
+    "Could not load chat history",
+  );
+  return Array.isArray(payload) ? payload : payload.items || [];
+}
+
+export async function sendChat(message: string, requestId = createRequestId()): Promise<ChatSendResult> {
+  const csrf = String((await fetchAuthMe()).csrf_token || "");
   const response = await fetch("/api/chat/send", {
     method: "POST",
     credentials: "include",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", "X-CSRF-Token": csrf },
     body: JSON.stringify({ text: message, request_id: requestId })
   });
-  return requireJson<Record<string, unknown>>(response, "Could not send the chat message");
+  return requireJson<ChatSendResult>(response, "Could not send the chat message");
+}
+
+export async function respondChat(
+  answer: string,
+  pendingContext: Record<string, unknown> = {},
+): Promise<ChatSendResult> {
+  const csrf = String((await fetchAuthMe()).csrf_token || "");
+  const response = await fetch("/api/chat/respond", {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", "X-CSRF-Token": csrf },
+    body: JSON.stringify({ response: answer, pending_context: pendingContext }),
+  });
+  return requireJson<ChatSendResult>(response, "Could not continue the chat");
 }
 
 export type SavedView = {

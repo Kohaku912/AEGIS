@@ -276,31 +276,4 @@ def init_chat_routes(owner: Any) -> None:
         except Exception as exc:
             return _chat_error(exc, str(data.get("request_id") or ""))
 
-    @bp.route("/api/chat/stream", methods=["POST"])
-    def chat_stream():
-        data = request.get_json(silent=True) or {}
-        text = data.get("text", "").strip()
-        if not text:
-            return jsonify({"error": "No text provided"}), 400
-        task_id = _create_chat_task(text)
-
-        def generate():
-            try:
-                result = _run_chat(text, task_id=task_id)
-                response_text = result["response"]
-                for i in range(0, len(response_text), 10):
-                    yield f"data: {json.dumps({'type': 'text', 'content': response_text[i : i + 10]})}\n\n"
-                _save_chat(text, response_text)
-                if task_id and not result.get("approval_needed"):
-                    goal_meta = _finalize_chat_task(task_id, text, result)
-                else:
-                    goal_meta = {}
-                yield f"data: {json.dumps({'type': 'done', **goal_meta})}\n\n"
-            except Exception as exc:
-                if task_id:
-                    owner._runtime.task_manager.fail_task(task_id, error=str(exc))
-                yield f"data: {json.dumps({'type': 'error', 'content': str(exc)})}\n\n"
-
-        return Response(generate(), mimetype="text/event-stream")
-
     owner.app.register_blueprint(bp)

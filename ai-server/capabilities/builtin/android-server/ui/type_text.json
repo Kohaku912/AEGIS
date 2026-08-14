@@ -17,11 +17,11 @@
     ]
   },
   "risk": {
-    "level": "approval_required",
+    "level": "safe",
     "side_effects": [
       "keyboard_input"
     ],
-    "requires_approval": true,
+    "requires_approval": false,
     "approval_mode": "explicit"
   },
   "tags": [

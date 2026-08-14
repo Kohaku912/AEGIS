@@ -7,7 +7,8 @@ import { CognitiveField } from "../components/cognitive-field/CognitiveField";
 import { Freshness } from "../components/Freshness";
 import { SectionState } from "../components/UiState";
 import { StatusBadge } from "../components/StatusBadge";
-import { missionPhase, serverLabel, serverNeedsDetail, summarizeMemory, summarizeServers } from "../displayModel";
+import { mapUiEventToVisualEvent, missionPhase, serverLabel, serverNeedsDetail, summarizeMemory, summarizeServers, summarizeUserState } from "../displayModel";
+import { actionTitle, type Operation } from "./OperationsPage";
 import type { EntitySummary, UiEvent, UiOverview } from "../types";
 
 type Props = {
@@ -18,12 +19,14 @@ type Props = {
   developerMode?: boolean;
 };
 
-export function CommandCenter({ overview, pinnedEntities = [], onSelect, developerMode = false }: Props) {
+export function CommandCenter({ overview, recentEvents = [], pinnedEntities = [], onSelect, developerMode = false }: Props) {
   const core = overview.core.data;
   const servers = overview.servers.data.items || [];
   const task = overview.current_task.data;
   const usage = overview.usage.data;
   const user = overview.user_situation?.data || overview.user_state.data || {};
+  const userState = summarizeUserState(overview);
+  const userLabel = situationUserLabel(user, userState);
   const commitments = overview.commitments.data.items || [];
   const errors = overview.errors?.data.items || [];
   const connection = overview.connection?.data || {};
@@ -37,15 +40,16 @@ export function CommandCenter({ overview, pinnedEntities = [], onSelect, develop
   const problemServers = servers.filter((server) => serverNeedsDetail(server));
   const phase = missionPhase(overview);
   const criticalCount = [...(overview.attention.data.items || []), ...errors].filter((item) => String(item.severity || "").toLowerCase() === "critical").length;
-  const operations = overview.activity?.data.operations || [];
+  const operations = (overview.activity?.data.operations || []) as Operation[];
+  const visualEvents = (recentEvents || []).slice(0, 12).map((event) => mapUiEventToVisualEvent(event));
   const timeline = (
     operations.length
       ? operations.map((op) => ({
           id: String(op.operation_id || op.title || "operation"),
-          title: `${op.kind_label || op.kind || "Operation"}: ${op.title || "Untitled"}`,
+          title: actionTitle(op),
           message: String(op.narrative || op.what_happened || op.summary || ""),
           priority: String(op.priority || (op.error_count ? "P1" : "P3")),
-          status: String(op.status || ""),
+          status: String(op.status || op.result_status || ""),
           steps: op.steps || [],
         }))
       : (overview.activity?.data.groups || [])
@@ -168,7 +172,7 @@ export function CommandCenter({ overview, pinnedEntities = [], onSelect, develop
             activityLevel={Number(core.activity_level || 1)}
             confidence={String(core.confidence || "medium")}
             servers={servers}
-            visualEvents={[]}
+            visualEvents={visualEvents}
             activeServerId={String(task.capability_id || "").split(".", 1)[0]}
             nextServerId={nextServerFromTask(task)}
             approvalServerIds={(overview.approvals.data.pending || []).map((approval) => String(approval.capability_id || "").split(".", 1)[0])}
@@ -180,7 +184,7 @@ export function CommandCenter({ overview, pinnedEntities = [], onSelect, develop
         <section className="panel command-situation command-span-4">
           <div className="panel__header"><h2>Situation</h2><UserRound size={16} /></div>
           <div className="metric-list">
-            <Row label="User" value={String(user.summary || user.availability || "No data yet")} />
+            <Row label="User" value={userLabel} />
             <Row label="Open loops" value={String(overview.open_loops?.data.summary || `${openLoops.length} open`)} />
             <Row label="AGORA pending" value={String((social.agora as Record<string, unknown> | undefined)?.pending_count ?? (social.pending_decisions as unknown[] | undefined)?.length ?? 0)} />
             <Row label="Open goals" value={String(goals.open_count ?? (goals.open as unknown[] | undefined)?.length ?? 0)} />
@@ -295,5 +299,14 @@ function nextServerFromTask(task: { steps?: Array<Record<string, unknown>> }): s
 function freshProps(section: { generated_at: number; source_updated_at: number; stale: boolean } | undefined) {
   if (!section) return { generatedAt: 0, sourceUpdatedAt: 0, stale: true };
   return { generatedAt: section.generated_at, sourceUpdatedAt: section.source_updated_at, stale: section.stale };
+}
+
+function situationUserLabel(user: Record<string, unknown>, userState: ReturnType<typeof summarizeUserState>): string {
+  if (typeof user.summary === "string" && user.summary.trim()) return user.summary.trim();
+  if (user.availability === true) return "Available";
+  const parts = [userState.where, userState.attention, userState.activity].filter(
+    (value) => value && value !== "Not reported" && value.toLowerCase() !== "unknown",
+  );
+  return parts.join(" · ") || "No data yet";
 }
 

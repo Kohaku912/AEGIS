@@ -5,8 +5,15 @@ import os
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
+import pytest
+
 from aegis_ai.web import dashboard_routes
 from aegis_ai.web import chat_tools
+
+
+@pytest.fixture(autouse=True)
+def _jinja_fallback_ui(monkeypatch) -> None:
+    monkeypatch.setenv("AEGIS_UI_VERSION", "v1")
 
 
 def _runtime(tmp_path):

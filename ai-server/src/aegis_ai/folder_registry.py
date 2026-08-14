@@ -55,7 +55,7 @@ class CapabilityManifest:
     aliases: list[str] = field(default_factory=list)
     examples: list[Any] = field(default_factory=list)
     short_name: str = ""
-    only_master: bool = True
+    only_master: bool = False
     tcp_command: str = ""
     tcp_command_json: str = ""
     completion: dict[str, Any] = field(default_factory=dict)
@@ -247,7 +247,7 @@ class FolderCapabilityRegistry:
             aliases=data.get("aliases", []),
             examples=data.get("examples", []),
             short_name=short,
-            only_master=data.get("only_master", True),
+            only_master=data.get("only_master", False),
             tcp_command=data.get("tcp_command", ""),
             tcp_command_json=data.get("tcp_command_json", ""),
             completion=data.get("completion", {}),

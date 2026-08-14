@@ -80,15 +80,14 @@ def test_room_client_custom_ir_override_sends_ir_command() -> None:
     assert stub.ir_requests[0].ir_code == "0xD001:0x21"
 
 
-def test_room_light_manifest_loads_and_requires_approval() -> None:
+def test_room_light_manifest_loads_without_approval() -> None:
     catalog = CapabilityCatalog(capabilities_dir="capabilities", apps_dir="apps")
     manifest = catalog.resolve("room-server.light.set_light")
 
     assert manifest is not None
     assert manifest.server_id == "room-server"
-    assert manifest.risk_level == "approval_required"
-    assert manifest.requires_approval is True
+    assert manifest.requires_approval is False
 
     capabilities = {cap.id: cap for cap in catalog.to_tool_registry_capabilities()}
-    assert capabilities["room-server.light.set_light"].requires_approval is True
+    assert capabilities["room-server.light.set_light"].requires_approval is False
 
