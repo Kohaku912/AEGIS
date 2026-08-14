@@ -37,7 +37,6 @@ def test_entry_points_share_runtime_instances(monkeypatch) -> None:
 
     from aegis_ai.grpc_server import AegisAIServicer
     from aegis_ai.interaction.channels.cli import CLIChannel
-    from aegis_ai.interaction.channels.web import WebChatApp
     from aegis_ai.runtime import get_runtime, reset_runtime_for_tests
     from aegis_ai.web.dashboard_routes import DashboardApp
 
@@ -45,13 +44,10 @@ def test_entry_points_share_runtime_instances(monkeypatch) -> None:
     runtime = get_runtime()
 
     dashboard = DashboardApp(runtime=runtime)
-    web_chat = WebChatApp(router=runtime.interaction_router, session_manager=runtime.session_manager)
     cli = CLIChannel(router=runtime.interaction_router, session_manager=runtime.session_manager)
     servicer = AegisAIServicer(runtime)
 
     assert dashboard._runtime is runtime
-    assert web_chat._router is runtime.interaction_router
-    assert web_chat._sessions is runtime.session_manager
     assert cli._router is runtime.interaction_router
     assert cli._sessions is runtime.session_manager
     assert servicer._runtime is runtime

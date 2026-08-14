@@ -62,8 +62,6 @@ class PasskeyConfig:
             origins = [
                 "http://localhost:8090",
                 "http://127.0.0.1:8090",
-                "http://localhost:8091",
-                "http://127.0.0.1:8091",
             ]
         if not origins and production:
             origins = [f"https://{rp_id}", f"https://aegis.{rp_id}"]

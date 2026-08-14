@@ -40,7 +40,7 @@ COPY --from=web-ui-build /ai-server/src/aegis_ai/web/static/ui-v2 ./src/aegis_ai
 RUN pip install --no-cache-dir --no-deps -e .
 RUN mkdir -p /app/data /app/evaluation/reports
 
-EXPOSE 50051 8090 8091
+EXPOSE 50051 8090
 
 HEALTHCHECK --interval=15s --timeout=5s --retries=5 --start-period=20s \
     CMD python -c "import grpc; from generated.aegis import ai_server_pb2_grpc, common_pb2; ch=grpc.insecure_channel('localhost:50051'); r=ai_server_pb2_grpc.AIServerStub(ch).HealthCheck(common_pb2.HealthCheckRequest(server_id='docker-health'), timeout=3); raise SystemExit(0 if r.status.code == 0 else 1)"

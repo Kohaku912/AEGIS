@@ -24,8 +24,9 @@ class AegisAccessibilityService : AccessibilityService() {
 
     companion object {
         private const val TAG = "AegisAccessibility"
-        private const val ACTIVITY_PUSH_THROTTLE_MS = 5_000L
-        private const val SCROLL_THROTTLE_MS = 1_000L
+        // Keep activity snapshots frequent so Timeline stays complete.
+        private const val ACTIVITY_PUSH_THROTTLE_MS = 1_000L
+        private const val SCROLL_THROTTLE_MS = 250L
         private const val SCREENSHOT_THROTTLE_MS = 5_000L
         var instance: AegisAccessibilityService? = null
             private set
@@ -93,18 +94,31 @@ class AegisAccessibilityService : AccessibilityService() {
     private fun pushPersonalDataEvent(event: AccessibilityEvent, packageName: String) {
         val now = System.currentTimeMillis()
         val eventType = when (event.eventType) {
-            AccessibilityEvent.TYPE_VIEW_CLICKED -> "android.ui.tapped"
-            AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED -> "android.ui.text_changed"
-            AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> "android.screen.transition"
-            AccessibilityEvent.TYPE_VIEW_FOCUSED -> "android.ui.focus_changed"
+            AccessibilityEvent.TYPE_VIEW_CLICKED,
+            AccessibilityEvent.TYPE_VIEW_LONG_CLICKED,
+            AccessibilityEvent.TYPE_VIEW_SELECTED -> "android.ui.tapped"
+            AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED,
+            AccessibilityEvent.TYPE_VIEW_TEXT_SELECTION_CHANGED -> "android.ui.text_changed"
+            AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED,
+            AccessibilityEvent.TYPE_WINDOWS_CHANGED -> "android.screen.transition"
+            AccessibilityEvent.TYPE_VIEW_FOCUSED,
+            AccessibilityEvent.TYPE_VIEW_ACCESSIBILITY_FOCUSED -> "android.ui.focus_changed"
             AccessibilityEvent.TYPE_VIEW_SCROLLED -> "android.ui.scrolled"
+            AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED -> "android.ui.content_changed"
+            AccessibilityEvent.TYPE_NOTIFICATION_STATE_CHANGED -> "android.notification.posted"
+            AccessibilityEvent.TYPE_ANNOUNCEMENT -> "android.ui.announcement"
             else -> return
         }
         if (eventType == "android.ui.scrolled") {
             if (now - lastScrollPushMs < SCROLL_THROTTLE_MS) return
             lastScrollPushMs = now
-        } else if (event.eventType != AccessibilityEvent.TYPE_VIEW_CLICKED) {
-            if (now - lastPersonalDataPushMs < 250L) return
+        } else if (eventType == "android.ui.content_changed") {
+            // Content-change floods; keep light throttle but still record.
+            if (now - lastPersonalDataPushMs < 100L) return
+        } else if (event.eventType != AccessibilityEvent.TYPE_VIEW_CLICKED &&
+            event.eventType != AccessibilityEvent.TYPE_VIEW_LONG_CLICKED
+        ) {
+            if (now - lastPersonalDataPushMs < 50L) return
         }
         lastPersonalDataPushMs = now
 
@@ -125,6 +139,9 @@ class AegisAccessibilityService : AccessibilityService() {
                 "android.ui.text_changed" -> "text"
                 "android.ui.focus_changed" -> "focus"
                 "android.ui.scrolled" -> "scroll"
+                "android.ui.content_changed" -> "content"
+                "android.notification.posted" -> "notification"
+                "android.ui.announcement" -> "announcement"
                 else -> "window"
             })
             .put("timestamp_ms", now)

@@ -378,20 +378,23 @@ class AegisGrpcClient private constructor(
 
     fun pushUserActivity(payloadJson: String) {
         scope.launch {
+            val stamp = System.currentTimeMillis()
             sendEvent(
                 eventType = "android.user_activity.changed",
                 payloadJson = payloadJson,
-                dedupeKey = "android.user_activity.changed:${config.deviceId}:${payloadJson.hashCode()}",
+                dedupeKey = "android.user_activity.changed:${config.deviceId}:$stamp:${payloadJson.hashCode()}",
             )
         }
     }
 
     fun pushPersonalData(eventType: String, payloadJson: String) {
         scope.launch {
+            // Include timestamp so EventBus dedupe does not drop rapid UI streams.
+            val stamp = System.currentTimeMillis()
             sendEvent(
                 eventType = eventType,
                 payloadJson = payloadJson,
-                dedupeKey = "$eventType:${config.deviceId}:${payloadJson.hashCode()}",
+                dedupeKey = "$eventType:${config.deviceId}:$stamp:${payloadJson.hashCode()}",
             )
         }
     }

@@ -1,7 +1,6 @@
 """Settings UI Routes — Flask routes for settings web interface.
 
 Provides:
-- GET  /settings          → Settings UI page
 - GET  /api/settings      → Get all settings as JSON
 - POST /api/settings/<section> → Update a section
 - POST /api/settings/reset     → Reset to defaults
@@ -14,15 +13,11 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from flask import Blueprint, jsonify, render_template, request
+from flask import Blueprint, jsonify, request
 
 logger = logging.getLogger("aegis_ai.web.settings_ui")
 
-settings_ui_bp = Blueprint(
-    "settings_ui",
-    __name__,
-    template_folder="templates",
-)
+settings_ui_bp = Blueprint("settings_ui", __name__)
 
 # These will be set by the app factory
 _settings_store = None
@@ -34,12 +29,6 @@ def init_settings_ui(settings_store: Any, audit_log: Any = None) -> None:
     global _settings_store, _audit_log
     _settings_store = settings_store
     _audit_log = audit_log
-
-
-@settings_ui_bp.route("/settings")
-def settings_page():
-    """Render the settings page."""
-    return render_template("settings/index.html")
 
 
 @settings_ui_bp.route("/api/settings", methods=["GET"])

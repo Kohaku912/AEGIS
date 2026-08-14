@@ -76,9 +76,9 @@ def init_ui_v2_routes(owner: Any) -> None:
     @app.route("/display/presentations")
     def display_v2_shell():
         _require_display_read()
-        if ui_v2_available():
-            return _spa_index()
-        return owner.app.jinja_env.get_or_select_template("display/presentations.html").render()
+        if not ui_v2_available():
+            abort(404)
+        return _spa_index()
 
     @app.route("/display/overview")
     def display_overview():

@@ -228,37 +228,117 @@ def test_same_pressure_signature_does_not_block_high_pressure_llm(tmp_path) -> N
     assert reason == "ok"
 
 
-class _NoActionThenToolLLM:
-    def __init__(self, tool_name: str) -> None:
-        self.tool_name = tool_name
+def _cap_candidate(cap_id: str, desire: str = "user_support") -> dict:
+    return {
+        "capability_id": cap_id,
+        "arguments": {},
+        "desire": desire,
+        "goal": f"use {cap_id}",
+        "why_now": "pressure",
+        "expected_effect": "useful",
+    }
+
+
+def _tool_call(cap_id: str) -> dict:
+    return {"function": cap_id.replace(".", "__").replace("-", "_"), "arguments": {}}
+
+
+class _TwoStageLLM:
+    def __init__(
+        self,
+        *,
+        candidates: list[dict] | dict,
+        tool_calls: list | None = None,
+        select_content: str = "",
+        empty_select_then_tool: bool = False,
+        select_success: bool = True,
+        select_error: str = "",
+        finish_reason: str = "",
+    ) -> None:
+        self.candidates = candidates
+        self.tool_calls = tool_calls
+        self.select_content = select_content
+        self.empty_select_then_tool = empty_select_then_tool
+        self.select_success = select_success
+        self.select_error = select_error
+        self.finish_reason = finish_reason
+        self.propose_calls = 0
+        self.select_calls = 0
         self.calls = 0
+        self.propose_kwargs: list[dict] = []
+        self.select_kwargs: list[dict] = []
+        self.call_order: list[str] = []
+
+    def generate_json(self, **kwargs):
+        self.propose_calls += 1
+        self.call_order.append("propose")
+        self.propose_kwargs.append(kwargs)
+        if isinstance(self.candidates, dict):
+            return self.candidates
+        return {"candidates": self.candidates}
 
     def generate_with_tools(self, **kwargs):
+        tools = kwargs.get("tools") or []
+        names = {str((tool.get("function") or {}).get("name") or "") for tool in tools}
+        if "submit_candidates" in names:
+            self.propose_calls += 1
+            self.call_order.append("propose")
+            self.propose_kwargs.append(kwargs)
+            payload = self.candidates if isinstance(self.candidates, dict) else {"candidates": self.candidates}
+            return SimpleNamespace(
+                success=True,
+                content="",
+                tool_calls=[{"function": "submit_candidates", "arguments": payload}],
+            )
+        self.select_calls += 1
         self.calls += 1
-        if self.calls == 1:
-            return SimpleNamespace(success=True, content="", tool_calls=[])
+        self.call_order.append("select")
+        self.select_kwargs.append(kwargs)
+        if not self.select_success:
+            return SimpleNamespace(
+                success=False,
+                error=self.select_error or "fail",
+                content="",
+                tool_calls=[],
+            )
+        if self.empty_select_then_tool and self.select_calls == 1:
+            return SimpleNamespace(
+                success=True,
+                content="",
+                tool_calls=[],
+                finish_reason=self.finish_reason,
+            )
         return SimpleNamespace(
             success=True,
-            content="",
-            tool_calls=[{"function": self.tool_name, "arguments": {}}],
+            content=self.select_content,
+            tool_calls=list(self.tool_calls or []),
+            finish_reason=self.finish_reason,
         )
 
 
-class _NoActionLLM:
-    def __init__(self) -> None:
-        self.calls = 0
+class _NoActionThenToolLLM(_TwoStageLLM):
+    def __init__(self, cap_id: str) -> None:
+        super().__init__(
+            candidates=[_cap_candidate(cap_id)],
+            tool_calls=[_tool_call(cap_id)],
+            empty_select_then_tool=True,
+        )
 
-    def generate_with_tools(self, **kwargs):
-        self.calls += 1
-        return SimpleNamespace(success=True, content="No action.", tool_calls=[])
+
+class _NoActionLLM(_TwoStageLLM):
+    def __init__(self, cap_id: str = "ai-server.memory.search") -> None:
+        super().__init__(
+            candidates=[_cap_candidate(cap_id)],
+            tool_calls=[],
+            select_content="No action.",
+        )
 
 
 def test_empty_tool_response_is_retried_once(tmp_path) -> None:
     """An empty body with no tool call is not a decision — retry once for an answer."""
     capability_ids = ["ai-server.memory.search"]
     broker = _Broker(capability_ids)
-    tool_name = capability_ids[0].replace(".", "__").replace("-", "_")
-    llm = _NoActionThenToolLLM(tool_name)
+    llm = _NoActionThenToolLLM(capability_ids[0])
     loop = AutonomousLoop(
         llm_provider=llm,
         desire_system=_PressureDesire(),
@@ -359,8 +439,7 @@ def test_representative_capability_is_included_when_retriever_misses(tmp_path) -
         "room-server.environment.get_environment",
     ]
     broker = _Broker(capability_ids)
-    tool_name = "browser_server__page__read"
-    llm = _NoActionThenToolLLM(tool_name)
+    llm = _NoActionThenToolLLM("browser-server.page.read")
 
     class _Retriever:
         def select_for_request(self, *args, **kwargs):
@@ -387,8 +466,7 @@ def test_llm_choice_is_not_vetoed_by_no_effect_history(tmp_path) -> None:
     """Past no_effect counts are observational only — never a hard denylist."""
     capability_ids = ["ai-server.agora.read_posts", "ai-server.memory.search"]
     broker = _Broker(capability_ids)
-    tool_name = "ai_server__agora__read_posts"
-    llm = _NoActionThenToolLLM(tool_name)
+    llm = _NoActionThenToolLLM("ai-server.agora.read_posts")
 
     loop = AutonomousLoop(
         llm_provider=llm,
@@ -617,15 +695,14 @@ def test_no_effect_history_persists_for_reflection(tmp_path) -> None:
 def test_commitment_list_remains_available_when_obligations_present(tmp_path) -> None:
     capability_ids = ["ai-server.commitment.list", "ai-server.memory.search"]
     broker = _Broker(capability_ids)
-    captured: list[list[dict]] = []
-
-    class _CapturingLLM:
-        def generate_with_tools(self, **kwargs):
-            captured.append(list(kwargs.get("tools") or []))
-            return SimpleNamespace(success=True, content="No action needed.", tool_calls=[])
+    llm = _TwoStageLLM(
+        candidates=[_cap_candidate("ai-server.memory.search")],
+        tool_calls=[],
+        select_content="No action needed.",
+    )
 
     loop = AutonomousLoop(
-        llm_provider=_CapturingLLM(),
+        llm_provider=llm,
         desire_system=_PressureDesire(),
         tool_broker=broker,
         data_dir=str(tmp_path / "autonomous"),
@@ -637,10 +714,12 @@ def test_commitment_list_remains_available_when_obligations_present(tmp_path) ->
 
     loop._generate_tasks([{"name": "user_support", "gap": 5.0, "pressure": 8.0}])
 
-    assert captured
-    tool_names = {tool["function"]["name"] for tool in captured[0]}
-    assert "ai_server__commitment__list" in tool_names
-    assert "ai_server__memory__search" in tool_names
+    assert llm.propose_calls == 1
+    propose_prompt = loop._last_propose_prompt
+    assert "ai-server.commitment.list" in propose_prompt
+    assert "ai-server.memory.search" in propose_prompt
+    assert "ai-server.commitment.list" in loop.get_status()["candidate_capability_ids"]
+    assert "ai-server.memory.search" in loop.get_status()["candidate_capability_ids"]
 
 
 def test_follow_up_may_run_after_inventory_cycle(tmp_path) -> None:
@@ -738,3 +817,292 @@ def test_no_effect_experience_is_not_recorded_as_learning(tmp_path) -> None:
     )
 
     assert recorded == []
+
+
+def test_safe_span_does_not_abort_when_tracing_breaks(monkeypatch) -> None:
+    from aegis_ai.autonomous import autonomous_loop as loop_mod
+
+    class _Boom:
+        def __enter__(self):
+            raise AttributeError("trace_id")
+
+        def __exit__(self, *args):
+            return False
+
+    monkeypatch.setattr(
+        "aegis_ai.observability.otel_tracing.start_span",
+        lambda *args, **kwargs: _Boom(),
+    )
+    ran = False
+    with loop_mod._safe_span("test"):
+        ran = True
+    assert ran is True
+
+
+def test_propose_uses_submit_candidates_tool(tmp_path) -> None:
+    llm = _TwoStageLLM(
+        candidates=[_cap_candidate("ai-server.memory.search")],
+        tool_calls=[_tool_call("ai-server.memory.search")],
+    )
+    loop = AutonomousLoop(
+        llm_provider=llm,
+        desire_system=_PressureDesire(),
+        tool_broker=_Broker(["ai-server.memory.search"]),
+        data_dir=str(tmp_path / "autonomous"),
+    )
+    loop._log_audit_event = lambda **kwargs: None
+    tasks = loop._generate_tasks([{"name": "user_support", "gap": 5.0, "pressure": 8.0}])
+    assert llm.call_order == ["propose", "select"]
+    assert "submit_candidates" in {
+        str((tool.get("function") or {}).get("name") or "")
+        for tool in llm.propose_kwargs[0]["tools"]
+    }
+    assert tasks[0]["capability_id"] == "ai-server.memory.search"
+
+
+def test_two_stage_proposal_then_selection_picks_one(tmp_path) -> None:
+    capability_ids = [
+        "ai-server.memory.search",
+        "ai-server.agora.read_posts",
+        "browser-server.page.read",
+    ]
+    llm = _TwoStageLLM(
+        candidates=[_cap_candidate(cap_id) for cap_id in capability_ids],
+        tool_calls=[_tool_call("ai-server.memory.search"), _tool_call("browser-server.page.read")],
+    )
+    loop = AutonomousLoop(
+        llm_provider=llm,
+        desire_system=_PressureDesire(),
+        tool_broker=_Broker(capability_ids),
+        data_dir=str(tmp_path / "autonomous"),
+    )
+    loop._log_audit_event = lambda **kwargs: None
+
+    tasks = loop._generate_tasks([{"name": "user_support", "gap": 5.0, "pressure": 8.0}])
+
+    assert llm.call_order == ["propose", "select"]
+    assert len(tasks) == 1
+    assert tasks[0]["capability_id"] == "ai-server.memory.search"
+    select_tools = {tool["function"]["name"] for tool in llm.select_kwargs[0]["tools"]}
+    assert select_tools == {
+        "ai_server__memory__search",
+        "ai_server__agora__read_posts",
+        "browser_server__page__read",
+    }
+    status = loop.get_status()
+    assert status["selected_tool_count"] == 1
+    assert status["selected_candidate"]["capability_id"] == "ai-server.memory.search"
+    assert status["max_pressure_mode"] is False
+    assert len(status["proposed_candidates"]) == 3
+
+
+def test_cannot_select_capability_outside_proposed_list(tmp_path) -> None:
+    llm = _TwoStageLLM(
+        candidates=[_cap_candidate("ai-server.memory.search")],
+        tool_calls=[_tool_call("ai-server.agora.read_posts")],
+    )
+    loop = AutonomousLoop(
+        llm_provider=llm,
+        desire_system=_PressureDesire(),
+        tool_broker=_Broker(["ai-server.memory.search", "ai-server.agora.read_posts"]),
+        data_dir=str(tmp_path / "autonomous"),
+    )
+    loop._log_audit_event = lambda **kwargs: None
+
+    tasks = loop._generate_tasks([{"name": "user_support", "gap": 5.0, "pressure": 8.0}])
+
+    assert tasks == []
+    assert loop.get_status()["last_decision"] == "no_valid_tasks"
+    select_tools = {tool["function"]["name"] for tool in llm.select_kwargs[0]["tools"]}
+    assert "ai_server__agora__read_posts" not in select_tools
+    assert "ai_server__memory__search" in select_tools
+
+
+def test_normal_pressure_allows_reasoned_no_action(tmp_path) -> None:
+    llm = _TwoStageLLM(
+        candidates={"candidates": [], "no_action_reason": "user is focused and nothing is urgent"},
+        tool_calls=[_tool_call("ai-server.memory.search")],
+    )
+    loop = AutonomousLoop(
+        llm_provider=llm,
+        desire_system=_PressureDesire(),
+        tool_broker=_Broker(["ai-server.memory.search"]),
+        data_dir=str(tmp_path / "autonomous"),
+    )
+    loop._log_audit_event = lambda **kwargs: None
+
+    tasks = loop._generate_tasks([{"name": "user_support", "gap": 5.0, "pressure": 8.0}])
+
+    assert tasks == []
+    assert llm.select_calls == 0
+    status = loop.get_status()
+    assert status["last_decision"] == "no_action"
+    assert "nothing is urgent" in status["last_no_action_reason"]
+    assert "MAX PRESSURE" not in loop._last_propose_system_prompt
+    assert "no_action_reason" in loop._last_propose_prompt
+
+
+def test_max_pressure_prompts_forbid_inaction_but_do_not_force_a_pick(tmp_path) -> None:
+    llm = _TwoStageLLM(
+        candidates=[_cap_candidate("ai-server.memory.search")],
+        tool_calls=[],
+        select_content="Still declining.",
+    )
+    loop = AutonomousLoop(
+        llm_provider=llm,
+        desire_system=_PressureDesire(),
+        tool_broker=_Broker(["ai-server.memory.search"]),
+        data_dir=str(tmp_path / "autonomous"),
+    )
+    loop._log_audit_event = lambda **kwargs: None
+
+    tasks = loop._generate_tasks([{"name": "growth", "gap": 8.0, "pressure": 10.0}])
+
+    assert tasks == []
+    assert llm.propose_calls == 1
+    assert llm.select_calls == 1
+    status = loop.get_status()
+    assert status["max_pressure_mode"] is True
+    assert status["selected_tool_count"] == 0
+    assert status["last_decision"] == "no_action"
+    for text in (
+        loop._last_propose_system_prompt,
+        loop._last_propose_prompt,
+        loop._last_select_system_prompt,
+        loop._last_select_prompt,
+    ):
+        assert "MAX PRESSURE" in text
+        assert "Do not choose no_action" in text
+    assert "no_action_reason" not in loop._last_propose_prompt
+    assert "Select no capability" not in loop._last_select_prompt
+
+
+def test_max_pressure_does_not_bypass_missing_provider_or_empty_catalog(tmp_path) -> None:
+    desire = _PressureDesire()
+    desire.dimension.pressure = 10.0
+    no_llm = AutonomousLoop(
+        desire_system=desire,
+        data_dir=str(tmp_path / "autonomous-no-llm"),
+    )
+    should_proceed, reason = no_llm._preflight_check()
+    assert should_proceed is False
+    assert reason == "provider_unavailable"
+
+    llm = _TwoStageLLM(candidates=[_cap_candidate("ai-server.memory.search")], tool_calls=[_tool_call("ai-server.memory.search")])
+    empty = AutonomousLoop(
+        llm_provider=llm,
+        desire_system=desire,
+        tool_broker=_Broker([]),
+        data_dir=str(tmp_path / "autonomous-empty"),
+    )
+    empty._log_audit_event = lambda **kwargs: None
+    tasks = empty._generate_tasks([{"name": "growth", "gap": 8.0, "pressure": 10.0}])
+    assert tasks == []
+    assert llm.propose_calls == 0
+    assert llm.select_calls == 0
+
+
+def test_max_pressure_does_not_bypass_provider_circuit(monkeypatch, tmp_path) -> None:
+    desire = _PressureDesire()
+    desire.dimension.pressure = 10.0
+    loop = AutonomousLoop(
+        llm_provider=object(),
+        desire_system=desire,
+        data_dir=str(tmp_path / "autonomous"),
+    )
+    monkeypatch.setattr(
+        "aegis_ai.llm.provider_circuit.PROVIDER_CIRCUIT",
+        SimpleNamespace(is_open=lambda: True, remaining_ms=lambda: 12_000),
+    )
+
+    should_proceed, reason = loop._preflight_check()
+
+    assert should_proceed is False
+    assert "llm_provider_circuit_open" in reason
+
+
+def test_max_pressure_still_routes_approval_and_hard_stops_through_broker(tmp_path) -> None:
+    from tool_broker import InvokeStatus, ToolExecutionResult
+
+    class _PolicyBroker(_ExecutingBroker):
+        def __init__(self) -> None:
+            super().__init__(["ai-server.memory.search", "pc-server.commerce.purchase"])
+            self.requests: list = []
+
+        def execute(self, request):
+            self.requests.append(request)
+            if request.capability_id == "pc-server.commerce.purchase":
+                return ToolExecutionResult(
+                    status=InvokeStatus.DENIED,
+                    error="purchase hard-stop",
+                    policy_decision="DENY",
+                )
+            return ToolExecutionResult(
+                status=InvokeStatus.APPROVAL_NEEDED,
+                approval_id="appr-1",
+            )
+
+    broker = _PolicyBroker()
+    loop = AutonomousLoop(
+        tool_broker=broker,
+        data_dir=str(tmp_path / "autonomous"),
+    )
+
+    approved = loop._execute_tasks(
+        [{"desire": "growth", "action": "search", "capability_id": "ai-server.memory.search", "arguments": {}}]
+    )
+    denied = loop._execute_tasks(
+        [{"desire": "growth", "action": "buy", "capability_id": "pc-server.commerce.purchase", "arguments": {}}]
+    )
+
+    assert broker.requests
+    assert approved[0]["success"] is True
+    assert "Awaiting approval" in approved[0]["result"]
+    assert denied[0]["success"] is False
+    assert "purchase hard-stop" in denied[0]["result"]
+
+
+def test_failed_and_no_effect_keep_max_pressure(monkeypatch, tmp_path) -> None:
+    desire = _PressureDesire()
+    desire.dimension.pressure = 10.0
+    loop = AutonomousLoop(desire_system=desire, data_dir=str(tmp_path / "autonomous"))
+
+    monkeypatch.setattr(
+        "aegis_ai.desire.fulfillment.evaluate_task_result",
+        lambda **kwargs: TaskResult(
+            tool_success=False,
+            task_effect=TaskEffect.FAILED,
+            desire_delta_hint={"growth": -0.3},
+            summary="Failed",
+            details={"evaluator": "llm"},
+        ),
+    )
+    loop._update_desires(
+        [{"desire": "growth", "capability_id": "ai-server.memory.search", "success": False, "full_output": {}}]
+    )
+    assert desire.reductions == []
+    assert desire.dimension.pressure == 10.0
+
+    monkeypatch.setattr(
+        "aegis_ai.desire.fulfillment.evaluate_task_result",
+        lambda **kwargs: TaskResult(
+            tool_success=True,
+            task_effect=TaskEffect.NO_EFFECT,
+            desire_delta_hint={"growth": 0.0},
+            summary="No effect",
+            details={"evaluator": "llm"},
+        ),
+    )
+    loop._update_desires(
+        [
+            {
+                "desire": "growth",
+                "capability_id": "ai-server.agora.read_posts",
+                "success": True,
+                "full_output": {"result": "No new posts"},
+            }
+        ]
+    )
+    assert desire.reductions == []
+    assert desire.dimension.pressure == 10.0
+

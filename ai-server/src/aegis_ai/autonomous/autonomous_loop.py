@@ -15,12 +15,14 @@ Usage:
 from __future__ import annotations
 
 import hashlib
+import inspect
 import json
 import logging
 import os
 import re
 import threading
 import time
+from contextlib import nullcontext
 from pathlib import Path
 from typing import Any
 
@@ -37,6 +39,82 @@ _SECRET_TEXT_RE = re.compile(
     r"(?i)(bearer\s+)[A-Za-z0-9._~+/=-]{16,}|(sk-[A-Za-z0-9_-]{20,})|"
     r"((?:token|secret|password|api[_-]?key)\s*[:=]\s*)\S+"
 )
+_MAX_PRESSURE = 10.0
+_PROPOSE_MIN = 3
+_PROPOSE_MAX = 5
+_MAX_PRESSURE_INSTRUCTION = (
+    "MAX PRESSURE: at least one desire is at the ceiling (10.0). "
+    "Inaction is not acceptable. You must produce a concrete, allowed action now. "
+    "Do not choose no_action. Purchases, PolicyEngine bypass, and unapproved "
+    "high-risk actions remain forbidden."
+)
+
+
+def _safe_span(name: str, **attributes: Any):
+    """Tracing must never abort an autonomous cycle."""
+    try:
+        from aegis_ai.observability.otel_tracing import start_span
+
+        inner = start_span(name, **attributes)
+    except Exception:
+        return nullcontext()
+
+    class _Guarded:
+        def __enter__(self):
+            try:
+                return inner.__enter__()
+            except Exception:
+                self._failed = True
+                return None
+
+        def __exit__(self, *args):
+            if getattr(self, "_failed", False):
+                return False
+            try:
+                return inner.__exit__(*args)
+            except Exception:
+                return False
+
+    return _Guarded()
+
+
+# region agent log
+def _debug_log(hypothesis: str, message: str, data: dict[str, Any]) -> None:
+    """Debug-mode instrumentation (session 41397a)."""
+    try:
+        path = os.environ.get("AEGIS_DEBUG_LOG", "debug-41397a.log")
+        with open(path, "a", encoding="utf-8") as handle:
+            handle.write(
+                json.dumps(
+                    {
+                        "sessionId": "41397a",
+                        "runId": os.environ.get("AEGIS_DEBUG_RUN", "run1"),
+                        "hypothesisId": hypothesis,
+                        "location": "autonomous_loop.py",
+                        "message": message,
+                        "data": data,
+                        "timestamp": int(time.time() * 1000),
+                    },
+                    ensure_ascii=False,
+                    default=str,
+                )
+                + "\n"
+            )
+    except Exception:
+        pass
+# endregion
+
+
+def _accepts_kwarg(func: Any, name: str) -> bool:
+    try:
+        parameters = inspect.signature(func).parameters
+    except (TypeError, ValueError):
+        return False
+    if name in parameters:
+        return True
+    return any(p.kind is inspect.Parameter.VAR_KEYWORD for p in parameters.values())
+
+
 def _normalize_result_text(text: str) -> str:
     """Lower/strip result text for logging and summaries."""
     value = str(text or "").lower().strip()
@@ -148,6 +226,13 @@ class AutonomousLoop:
         self._selected_tool_count: int = 0
         self._last_no_action_reason: str = ""
         self._last_candidate_capability_ids: list[str] = []
+        self._last_proposed_candidates: list[dict[str, Any]] = []
+        self._last_selected_candidate: dict[str, Any] = {}
+        self._max_pressure_mode: bool = False
+        self._last_propose_system_prompt: str = ""
+        self._last_select_system_prompt: str = ""
+        self._last_propose_prompt: str = ""
+        self._last_select_prompt: str = ""
         self._last_decision_axes: dict[str, float] = {
             "user_commitment": 0.0,
             "system_health": 0.0,
@@ -1340,6 +1425,190 @@ class AutonomousLoop:
                 seen.add(name)
         return merged
 
+    def _max_pressure_active(self, low_desires: list[dict[str, Any]]) -> bool:
+        return any(float(item.get("pressure") or 0.0) >= _MAX_PRESSURE for item in low_desires)
+
+    def _call_propose_candidates_llm(
+        self,
+        *,
+        prompt: str,
+        memory_meta: dict[str, Any],
+        must_act: bool,
+    ) -> dict[str, Any]:
+        system_prompt = (
+            "You propose candidate actions. Call submit_candidates with 3 to 5 distinct actions. "
+            "Do not call any other tool."
+        )
+        if must_act:
+            system_prompt = f"{system_prompt} {_MAX_PRESSURE_INSTRUCTION}"
+        self._last_propose_system_prompt = system_prompt
+        self._last_propose_prompt = prompt
+        generate_with_tools = getattr(self._llm, "generate_with_tools", None)
+        if callable(generate_with_tools):
+            submit_tool = {
+                "type": "function",
+                "function": {
+                    "name": "submit_candidates",
+                    "description": "Submit 3 to 5 distinct candidate actions.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "candidates": {
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "capability_id": {"type": "string"},
+                                        "arguments": {"type": "object"},
+                                        "desire": {"type": "string"},
+                                        "goal": {"type": "string"},
+                                        "why_now": {"type": "string"},
+                                        "expected_effect": {"type": "string"},
+                                    },
+                                    "required": ["capability_id"],
+                                },
+                            },
+                            "no_action_reason": {"type": "string"},
+                        },
+                    },
+                },
+            }
+            tool_kwargs: dict[str, Any] = {
+                "prompt": prompt,
+                "tools": [submit_tool],
+                "system_prompt": system_prompt,
+                "max_tokens": self._decision_max_tokens,
+                "context_meta": memory_meta,
+            }
+            if _accepts_kwarg(generate_with_tools, "profile"):
+                tool_kwargs["profile"] = "decision"
+            # region agent log
+            _debug_log(
+                "A,C",
+                "propose_request",
+                {
+                    "llm": type(self._llm).__name__,
+                    "prompt_len": len(prompt),
+                    "system_len": len(system_prompt),
+                    "max_tokens": self._decision_max_tokens,
+                    "must_act": must_act,
+                    "has_profile_kwarg": "profile" in tool_kwargs,
+                },
+            )
+            # endregion
+            try:
+                result = generate_with_tools(**tool_kwargs)
+            except Exception as exc:
+                logger.warning("candidate generate_with_tools failed: %s", exc)
+                result = None
+            tool_calls = list(getattr(result, "tool_calls", None) or []) if result is not None else []
+            content = str(getattr(result, "content", "") or "") if result is not None else ""
+            # region agent log
+            _debug_log(
+                "A,B,D",
+                "propose_response_1",
+                {
+                    "result_is_none": result is None,
+                    "success": getattr(result, "success", None),
+                    "error": str(getattr(result, "error", "") or "")[:300],
+                    "finish_reason": str(getattr(result, "finish_reason", "") or ""),
+                    "model_used": str(getattr(result, "model_used", "") or ""),
+                    "tokens_used": getattr(result, "tokens_used", None),
+                    "content_len": len(content),
+                    "content_head": content[:300],
+                    "tool_call_names": [
+                        (tc.get("function") if isinstance(tc, dict) else type(tc).__name__) for tc in tool_calls
+                    ],
+                    "first_arg_type": type(tool_calls[0].get("arguments")).__name__ if tool_calls else "",
+                    "first_arg_head": str(tool_calls[0].get("arguments"))[:300] if tool_calls else "",
+                },
+            )
+            # endregion
+            if result is not None and not tool_calls and not content.strip():
+                logger.warning("Propose returned empty — retrying once for submit_candidates")
+                retry_kwargs = dict(tool_kwargs)
+                retry_kwargs["system_prompt"] = f"{system_prompt} You must call submit_candidates now."
+                try:
+                    result = generate_with_tools(**retry_kwargs)
+                except Exception as exc:
+                    logger.warning("candidate generate_with_tools retry failed: %s", exc)
+                    result = None
+                tool_calls = list(getattr(result, "tool_calls", None) or []) if result is not None else []
+                content = str(getattr(result, "content", "") or "") if result is not None else ""
+                # region agent log
+                _debug_log(
+                    "A,B",
+                    "propose_response_retry",
+                    {
+                        "result_is_none": result is None,
+                        "success": getattr(result, "success", None),
+                        "error": str(getattr(result, "error", "") or "")[:300],
+                        "finish_reason": str(getattr(result, "finish_reason", "") or ""),
+                        "tokens_used": getattr(result, "tokens_used", None),
+                        "content_len": len(content),
+                        "content_head": content[:300],
+                        "tool_call_names": [
+                            (tc.get("function") if isinstance(tc, dict) else type(tc).__name__)
+                            for tc in tool_calls
+                        ],
+                    },
+                )
+                # endregion
+            if tool_calls:
+                tc = tool_calls[0]
+                raw_args = tc.get("arguments")
+                function = tc.get("function")
+                if raw_args is None and isinstance(function, dict):
+                    raw_args = function.get("arguments")
+                if isinstance(raw_args, str):
+                    try:
+                        raw_args = extract_json_object(raw_args)
+                    except Exception:
+                        raw_args = {}
+                if isinstance(raw_args, dict) and (
+                    "candidates" in raw_args or raw_args.get("no_action_reason")
+                ):
+                    return raw_args
+            content = str(getattr(result, "content", "") or "") if result is not None else ""
+            logger.info(
+                "Propose tool path produced no candidates (tool_calls=%s content_len=%d)",
+                [
+                    (tc.get("function") if isinstance(tc, dict) else type(tc).__name__)
+                    for tc in tool_calls
+                ],
+                len(content),
+            )
+            if content.strip():
+                try:
+                    return extract_json_object(content)
+                except Exception:
+                    return {"error": "json_parse_failed", "raw": content}
+            return {"candidates": [], "no_action_reason": "LLM proposed no candidates"}
+
+        generate = getattr(self._llm, "generate", None)
+        if not callable(generate):
+            return {"error": "generation_failed"}
+        gen_kwargs: dict[str, Any] = {
+            "prompt": prompt,
+            "system_prompt": system_prompt,
+            "max_tokens": self._decision_max_tokens,
+            "context_meta": memory_meta,
+        }
+        if _accepts_kwarg(generate, "profile"):
+            gen_kwargs["profile"] = "decision"
+        try:
+            response = generate(**gen_kwargs)
+        except Exception as exc:
+            logger.warning("candidate generate() failed: %s", exc)
+            return {"error": str(exc) or "generation_failed"}
+        content = str(getattr(response, "content", "") or "")
+        if not getattr(response, "success", False) or not content.strip():
+            return {"error": getattr(response, "error", None) or "generation_failed"}
+        try:
+            return extract_json_object(content)
+        except Exception:
+            return {"error": "json_parse_failed", "raw": content}
+
     def _call_task_generation_llm(
         self,
         *,
@@ -1347,20 +1616,30 @@ class AutonomousLoop:
         tools: list[dict[str, Any]],
         memory_meta: dict[str, Any],
         retry: bool = False,
+        must_act: bool = False,
     ) -> Any:
-        system_prompt = (
-            "You are AEGIS deciding what to do next. Prefer a concrete capability when obligations, "
-            "observations, or a useful user situation are present. Stay quiet only after judging that "
-            "nothing useful can be done. Use purpose-specific browser capabilities and keep "
-            "agent-private research off the user's display."
-        )
-        if retry:
-            system_prompt += (
-                " Re-evaluate once for a missed useful action. Choose a tool unless interruption is "
-                "forbidden or no offered capability can help. State the concrete reason if you still decline."
+        if must_act:
+            system_prompt = (
+                "You are AEGIS selecting the next action from the proposed candidates. "
+                f"{_MAX_PRESSURE_INSTRUCTION} "
+                "Call exactly one of the offered tools. Do not reply with a decline."
             )
-        from aegis_ai.llm.router import accepts_kwarg
-
+            if retry:
+                system_prompt += " You must call one offered tool now."
+        else:
+            system_prompt = (
+                "You are AEGIS selecting the next action from the proposed candidates. "
+                "Prefer a concrete capability when obligations, observations, or a useful "
+                "user situation are present. Stay quiet only after judging that nothing "
+                "useful can be done. Call at most one tool."
+            )
+            if retry:
+                system_prompt += (
+                    " Re-evaluate once for a missed useful action. Choose a tool unless interruption is "
+                    "forbidden or no offered capability can help. State the concrete reason if you still decline."
+                )
+        self._last_select_system_prompt = system_prompt
+        self._last_select_prompt = prompt
         call_kwargs: dict[str, Any] = {
             "prompt": prompt,
             "tools": tools,
@@ -1368,16 +1647,225 @@ class AutonomousLoop:
             "max_tokens": self._decision_max_tokens,
             "context_meta": memory_meta,
         }
-        # The "decision" profile keeps reasoning low so the token budget is spent on the
-        # tool call rather than on hidden reasoning.
-        if accepts_kwarg(self._llm.generate_with_tools, "profile"):
+        if _accepts_kwarg(self._llm.generate_with_tools, "profile"):
             call_kwargs["profile"] = "decision"
         return self._llm.generate_with_tools(**call_kwargs)
+
+    def _normalize_proposed_candidates(
+        self,
+        raw: dict[str, Any],
+        *,
+        valid_cap_ids: set[str],
+        low_desires: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        items = raw.get("candidates") if isinstance(raw, dict) else None
+        # region agent log
+        _debug_log(
+            "E",
+            "normalize_input",
+            {
+                "raw_keys": sorted(raw.keys()) if isinstance(raw, dict) else type(raw).__name__,
+                "items_type": type(items).__name__,
+                "items_n": len(items) if isinstance(items, list) else 0,
+                "proposed_ids": [
+                    str(item.get("capability_id") or "") for item in items if isinstance(item, dict)
+                ][:10]
+                if isinstance(items, list)
+                else [],
+                "valid_cap_ids_n": len(valid_cap_ids),
+                "valid_sample": sorted(valid_cap_ids)[:10],
+            },
+        )
+        # endregion
+        if not isinstance(items, list):
+            return []
+        top_desire = str(low_desires[0].get("name") or "") if low_desires else ""
+        out: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for item in items[:_PROPOSE_MAX]:
+            if not isinstance(item, dict):
+                continue
+            cap_id = str(item.get("capability_id") or "").strip()
+            if not cap_id or cap_id not in valid_cap_ids or cap_id in seen:
+                continue
+            args = item.get("arguments")
+            if not isinstance(args, dict):
+                args = {}
+            seen.add(cap_id)
+            out.append(
+                {
+                    "capability_id": cap_id,
+                    "arguments": args,
+                    "desire": str(item.get("desire") or top_desire),
+                    "goal": str(item.get("goal") or ""),
+                    "why_now": str(item.get("why_now") or ""),
+                    "expected_effect": str(item.get("expected_effect") or ""),
+                }
+            )
+        return out
+
+    def _record_no_action(
+        self,
+        reason: str,
+        *,
+        source: str,
+        candidate_ids: list[str],
+        decision_axes: dict[str, float],
+    ) -> None:
+        logger.info("LLM no_action: %s", reason)
+        self._last_decision = "no_action"
+        self._last_skip_reason = f"no_action: {reason}"
+        self._last_no_action_reason = reason
+        self._selected_tool_count = 0
+        self._consecutive_no_action += 1
+        self._log_audit_event(
+            action="autonomous_no_action",
+            capability_id="none",
+            decision="IGNORE_WITH_REASON",
+            reason=reason,
+            detail={
+                "source": source,
+                "llm_reason": reason,
+                "candidate_capability_ids": candidate_ids[:50],
+                "proposed_candidates": self._last_proposed_candidates[:8],
+                "max_pressure_mode": self._max_pressure_mode,
+            },
+        )
+        if self._initiative_engine is not None:
+            self._initiative_engine.record_non_action(
+                reason,
+                {
+                    "source": source,
+                    "candidate_capability_ids": candidate_ids[:50],
+                    "decision_axes": decision_axes,
+                    "max_pressure_mode": self._max_pressure_mode,
+                },
+            )
+
+    def _build_executable_task(
+        self,
+        *,
+        cap_id: str,
+        args: dict[str, Any],
+        manifest: Any,
+        desire: str,
+        low_desires: list[dict[str, Any]],
+        capability_options: dict[str, dict[str, Any]],
+        pending_observations: list[dict[str, Any]],
+        priority_obligations: list[dict[str, Any]],
+        desire_guides: list[dict[str, Any]],
+        proposed: dict[str, Any] | None = None,
+        index: int = 0,
+    ) -> dict[str, Any] | None:
+        schema = manifest.input_schema or {}
+        required = schema.get("required", [])
+        missing = [item for item in required if item not in args or not args[item]]
+        if missing:
+            logger.warning("LLM task missing required args for %s: %s", cap_id, missing)
+            return None
+        option = capability_options.get(cap_id, {})
+        initiative_decision = "execute_now"
+        initiative_reason = "InitiativeEngine is not configured."
+        pressure = float(
+            low_desires[index].get("pressure", 5.0)
+            if index < len(low_desires)
+            else low_desires[0].get("pressure", 5.0)
+            if low_desires
+            else 5.0
+        )
+        if self._initiative_engine is not None:
+            from aegis_ai.autonomous.models import ActionCandidate, CapabilityDisposition
+
+            risk_name = str(option.get("risk_level") or "").lower()
+            risk_cost = {
+                "read_only": 0.0,
+                "safe_action": 0.1,
+                "approval_required": 0.35,
+                "high_risk": 0.7,
+            }.get(risk_name, 0.2)
+            candidate = ActionCandidate(
+                candidate_id=f"candidate_{int(time.time() * 1000)}_{index}",
+                goal=str((proposed or {}).get("goal") or f"Advance the {desire} objective with {cap_id}"),
+                why_now=str((proposed or {}).get("why_now") or f"{desire} pressure is {pressure:.1f}"),
+                trigger="homeostatic",
+                expected_benefit=min(1.0, pressure / 10.0),
+                urgency=min(1.0, pressure / 10.0),
+                relevance=0.7 if (pending_observations or priority_obligations) else 0.45,
+                continuity_value=0.55 if (pending_observations or priority_obligations) else 0.0,
+                commitment_value=0.6 if priority_obligations else 0.0,
+                risk=risk_cost,
+                uncertainty=0.2,
+                interruption_cost=self._current_interruption_cost(),
+                repetition=0.0,
+                candidate_capabilities=[cap_id],
+                visibility=str(args.get("viewer") or "agent_private"),
+                requires_approval=bool(option.get("requires_approval", False)),
+                success_condition={"manifest_completion": bool(getattr(manifest, "completion", {}))},
+                stop_condition={"bounded_by_manifest": True},
+            )
+            disposition = CapabilityDisposition(str(option.get("disposition") or "unavailable"))
+            decision, initiative_reason = self._initiative_engine.evaluate(candidate, disposition)
+            initiative_decision = decision.value
+        penalty, penalty_reason = self._recent_failure_penalty(desire, capability_id=cap_id)
+        obligation = priority_obligations[index] if index < len(priority_obligations) else None
+        guide = next((item for item in desire_guides if item.get("desire") == desire), {})
+        goal = str((proposed or {}).get("goal") or "").strip() or self._resolve_task_goal(
+            desire=desire,
+            pending_observations=pending_observations,
+            obligation=obligation,
+            guide=guide,
+            index=index,
+        )
+        manifest_completion = dict(getattr(manifest, "completion", {}) or {})
+        success_condition = str(args.get("success_condition") or "")
+        if not success_condition:
+            success_condition = (
+                "The capability's manifest completion checks pass and its result "
+                "provides evidence for the autonomous outcome."
+                if manifest_completion
+                else "Independent verification demonstrates the autonomous outcome."
+            )
+        return {
+            "desire": desire,
+            "action": f"Advance goal with {cap_id}",
+            "goal": goal,
+            "success_condition": success_condition,
+            "obligation_ids": (
+                [str(obligation.get("obligation_id") or "")]
+                if obligation and obligation.get("obligation_id")
+                else []
+            ),
+            "presentation": {
+                "report_when": "terminal",
+                "audience": ("agent_private" if str(args.get("viewer") or "") == "agent_private" else "user"),
+            },
+            "delegation_context": {
+                "operation_category": str(getattr(manifest, "operation_category", "") or "general"),
+                "scope": str(getattr(manifest, "ownership_scope", "") or "aegis"),
+                "audience": ("private" if str(args.get("viewer") or "") == "agent_private" else "user"),
+                "content_sensitivity": str(getattr(manifest, "content_sensitivity", "") or "normal"),
+                "reversibility": str(getattr(manifest, "reversibility", "") or "reversible"),
+            },
+            "capability_id": cap_id,
+            "arguments": args,
+            "expected_impact": max(0.1, 0.5 - min(penalty, 0.4)),
+            "memory_penalty": penalty,
+            "memory_penalty_reason": penalty_reason,
+            "why_this_is_not_repeating": "",
+            "initiative_decision": initiative_decision,
+            "initiative_reason": initiative_reason,
+            "why_now": str((proposed or {}).get("why_now") or ""),
+        }
 
     def _generate_tasks(self, low_desires: list[dict[str, Any]]) -> list[dict[str, Any]]:
         if not self._llm:
             logger.error("No LLM provider — cannot generate tasks")
             return []
+
+        must_act = self._max_pressure_active(low_desires)
+        self._max_pressure_mode = must_act
+        self._last_proposed_candidates = []
+        self._last_selected_candidate = {}
 
         desire_context = []
         priority_obligations = self._priority_obligations()[:12]
@@ -1387,7 +1875,9 @@ class AutonomousLoop:
                 + json.dumps(priority_obligations, ensure_ascii=False)[:2000]
             )
         for d in low_desires[: self._max_tasks]:
-            desire_context.append(f"{d['name']}:gap={d['gap']:.1f}")
+            desire_context.append(
+                f"{d['name']}:gap={float(d.get('gap') or 0):.1f}:pressure={float(d.get('pressure') or 0):.1f}"
+            )
         pending_observations = list(self._pending_actionable_observations[:5])
         if pending_observations:
             desire_context.append("\nActionable observations:")
@@ -1411,7 +1901,6 @@ class AutonomousLoop:
         catalog = None
         if self._broker and hasattr(self._broker, "_catalog") and self._broker._catalog:
             catalog = self._broker._catalog
-
         if not catalog:
             logger.error("No capability catalog available — cannot generate tasks")
             return []
@@ -1436,7 +1925,6 @@ class AutonomousLoop:
 
         action_history = self._build_action_history_summary(max_entries=10)
         recent_caps = self._recent_capability_ids(max_entries=8)
-        # Observational history only — never used to veto LLM tool choice.
         recent_no_effect_outcomes = [
             {"capability_id": cap, "no_effect_count": count}
             for cap, count in sorted(
@@ -1447,45 +1935,40 @@ class AutonomousLoop:
             if int(count or 0) > 0
         ]
 
-        tools = catalog.list_for_tools(valid_cap_ids)
-        candidate_ids = list(valid_cap_ids)
-        tools = self._merge_tool_sets(catalog, tools, representative_ids)
-        if not tools:
-            tools = catalog.list_for_tools(valid_cap_ids)
-            candidate_ids = list(valid_cap_ids)
-        tools = self._annotate_tools_with_policy(tools, catalog, capability_options)
-        candidate_ids = list(dict.fromkeys([*representative_ids, *candidate_ids]))
+        candidate_ids = list(dict.fromkeys([*representative_ids, *valid_cap_ids]))
         self._last_candidate_capability_ids = candidate_ids
-        if not tools:
-            logger.error("No tools generated from catalog")
-            return []
-        valid_tool_names = {tool["function"]["name"] for tool in tools}
-
         obligation_hint = ""
         if priority_obligations:
             obligation_hint = (
                 "\nOpen obligations are listed in Shared AgentState — act on them when useful.\n"
             )
-
         low_list = ", ".join(desire_context)
-        prompt = f"""Low desires: {low_list}
+        propose_rules = (
+            f"Propose {_PROPOSE_MIN} to {_PROPOSE_MAX} distinct candidate actions that would satisfy "
+            "the pressured desires. Use only listed capability ids. Return JSON "
+            '{"candidates":[{"capability_id":"...","arguments":{},"desire":"...","goal":"...","why_now":"...","expected_effect":"..."}]}.'
+        )
+        if must_act:
+            propose_rules += f" {_MAX_PRESSURE_INSTRUCTION} Returning an empty candidates list is not allowed."
+        else:
+            propose_rules += (
+                ' If nothing useful can be done without interrupting the user, return '
+                '{"candidates":[],"no_action_reason":"..."}.'
+            )
+
+        propose_prompt = f"""Low desires: {low_list}
 {obligation_hint}
 Recent: {action_history}
 
 Recent capability ids tried (context only; you may still choose them): {json.dumps(recent_caps, ensure_ascii=False)}
 Recent outcomes judged no_effect (context only; not a ban list): {json.dumps(recent_no_effect_outcomes, ensure_ascii=False)}
 
-Select up to {self._max_tasks} capabilities to advance an explicit outcome.
+{propose_rules}
 Resolve supplied incidents, commitments, and social obligations before optional desire work.
-You are free to choose any offered capability, including ones recently tried, when that still
-advances a pressured desire or obligation.
 Social-channel posts (e.g. AGORA) are only for reciprocal social responses when someone
 expects or warrants a reply — never for internal incidents, timeouts, permissions, approval
 meta, system status dumps, or meaningless probes. Route internal status to presentations
 or the dashboard instead of public social posts.
-Prefer a capability when observations or obligations exist. Select no capability only when the
-user must not be interrupted or no offered tool can advance a real outcome.
-Choose an action when its expected value exceeds risk, interruption, cost, and uncertainty.
 
 Desire action guides:
 {json.dumps(desire_guides, ensure_ascii=False)}
@@ -1502,58 +1985,149 @@ Capability policy (approval proposals are valid selections but are not executed 
 Operational decision axes (prioritization only; not additional desires):
 {json.dumps(decision_axes, ensure_ascii=False)}"""
 
-        prompt, memory_meta = self._build_shared_llm_prompt(
+        propose_prompt, memory_meta = self._build_shared_llm_prompt(
             query=retrieval_query,
-            base_prompt=prompt,
+            base_prompt=propose_prompt,
             profile="decision",
             has_social_actions=self._has_social_actions(valid_cap_ids),
         )
 
         self._last_decision = "llm_requested"
-        from aegis_ai.observability.otel_tracing import start_span
+        logger.info("Proposing autonomous candidates (max_pressure=%s)", must_act)
+        with _safe_span("aegis.autonomous.generate_tasks", decision="task_proposal"):
+            proposed_raw = self._call_propose_candidates_llm(
+                prompt=propose_prompt,
+                memory_meta=memory_meta,
+                must_act=must_act,
+            )
+        self._last_llm_call_ms = int(time.time() * 1000)
+        self._last_decision_ms = self._last_llm_call_ms
+        if isinstance(proposed_raw, dict) and proposed_raw.get("error") and "candidates" not in proposed_raw:
+            logger.error("LLM candidate proposal failed: %s", proposed_raw.get("error"))
+            self._last_decision = "llm_error"
+            self._last_skip_reason = f"llm_error: {proposed_raw.get('error')}"
+            return []
 
-        with start_span("aegis.autonomous.generate_tasks", decision="task_selection"):
+        proposed = self._normalize_proposed_candidates(
+            proposed_raw if isinstance(proposed_raw, dict) else {},
+            valid_cap_ids=valid_cap_ids,
+            low_desires=low_desires,
+        )
+        self._last_proposed_candidates = proposed
+        logger.info(
+            "Proposed %d autonomous candidates; selecting one (max_pressure=%s)",
+            len(proposed),
+            must_act,
+        )
+        # region agent log
+        _debug_log(
+            "E",
+            "generate_tasks_after_normalize",
+            {
+                "must_act": must_act,
+                "proposed_n": len(proposed),
+                "proposed_ids": [item["capability_id"] for item in proposed],
+                "raw_error": str((proposed_raw or {}).get("error") or "") if isinstance(proposed_raw, dict) else "",
+                "raw_no_action_reason": str((proposed_raw or {}).get("no_action_reason") or "")[:200]
+                if isinstance(proposed_raw, dict)
+                else "",
+            },
+        )
+        # endregion
+        if not proposed:
+            reason = ""
+            if isinstance(proposed_raw, dict):
+                reason = str(proposed_raw.get("no_action_reason") or "").strip()
+            if must_act:
+                self._last_decision = "no_valid_tasks"
+                self._last_skip_reason = "no_valid_tasks"
+                self._last_no_action_reason = reason or "LLM returned no usable candidates at max pressure"
+                self._selected_tool_count = 0
+                self._consecutive_no_action += 1
+                return []
+            self._record_no_action(
+                reason or "LLM proposed no candidates",
+                source="task_proposal",
+                candidate_ids=candidate_ids,
+                decision_axes=decision_axes,
+            )
+            return []
+
+        proposed_ids = [item["capability_id"] for item in proposed]
+        tools = self._annotate_tools_with_policy(
+            catalog.list_for_tools(proposed_ids),
+            catalog,
+            capability_options,
+        )
+        if not tools:
+            logger.error("No tools generated from proposed candidates")
+            self._last_decision = "no_valid_tasks"
+            self._last_skip_reason = "no_valid_tasks"
+            return []
+        valid_tool_names = {tool["function"]["name"] for tool in tools}
+        select_rules = (
+            "Call exactly one tool corresponding to one of the proposed candidates. "
+            "Do not invent a capability outside this list."
+        )
+        if must_act:
+            select_rules += f" {_MAX_PRESSURE_INSTRUCTION} Do not decline."
+        else:
+            select_rules += (
+                " Select no capability only when the user must not be interrupted "
+                "or no proposed tool can advance a real outcome."
+            )
+        select_prompt = f"""Low desires: {low_list}
+
+Proposed candidates:
+{json.dumps(proposed, ensure_ascii=False)}
+
+{select_rules}"""
+        select_prompt, memory_meta = self._build_shared_llm_prompt(
+            query=retrieval_query,
+            base_prompt=select_prompt,
+            profile="decision",
+            has_social_actions=self._has_social_actions(set(proposed_ids)),
+        )
+
+        with _safe_span("aegis.autonomous.generate_tasks", decision="task_selection"):
             result = self._call_task_generation_llm(
-                prompt=prompt,
+                prompt=select_prompt,
                 tools=tools,
                 memory_meta=memory_meta,
+                must_act=must_act,
             )
-        # Stamp interval only after a real LLM attempt completes.
         self._last_llm_call_ms = int(time.time() * 1000)
         self._last_decision_ms = self._last_llm_call_ms
 
         if not result.success:
-            logger.error("LLM task generation failed: %s", getattr(result, "error", "unknown"))
+            logger.error("LLM task selection failed: %s", getattr(result, "error", "unknown"))
             self._last_decision = "llm_error"
             self._last_skip_reason = f"llm_error: {getattr(result, 'error', 'unknown')}"
             return []
 
-        # An empty body with no tool call is not a decision. Retry once with an explicit
-        # demand for either a tool call or a stated reason, and treat a truncated
-        # response as a provider error so it never masquerades as deliberate non-action.
         if not result.tool_calls and not str(result.content or "").strip():
             if str(getattr(result, "finish_reason", "") or "") == "length":
                 logger.error(
-                    "LLM task generation truncated (max_tokens=%d exhausted by reasoning) — "
+                    "LLM task selection truncated (max_tokens=%d exhausted by reasoning) — "
                     "treating as provider error, not non-action",
                     self._decision_max_tokens,
                 )
                 self._last_decision = "llm_error"
                 self._last_skip_reason = "llm_error: response truncated before any output"
                 return []
-
             logger.warning("LLM returned an empty decision — retrying once for an explicit answer")
-            with start_span("aegis.autonomous.generate_tasks", decision="task_selection_retry"):
+            with _safe_span("aegis.autonomous.generate_tasks", decision="task_selection_retry"):
                 result = self._call_task_generation_llm(
-                    prompt=prompt,
+                    prompt=select_prompt,
                     tools=tools,
                     memory_meta=memory_meta,
                     retry=True,
+                    must_act=must_act,
                 )
             self._last_llm_call_ms = int(time.time() * 1000)
             self._last_decision_ms = self._last_llm_call_ms
             if not result.success:
-                logger.error("LLM task generation retry failed: %s", getattr(result, "error", "unknown"))
+                logger.error("LLM task selection retry failed: %s", getattr(result, "error", "unknown"))
                 self._last_decision = "llm_error"
                 self._last_skip_reason = f"llm_error: {getattr(result, 'error', 'unknown')}"
                 return []
@@ -1565,182 +2139,92 @@ Operational decision axes (prioritization only; not additional desires):
 
         if not result.tool_calls:
             reason = str(result.content or "").strip()[:200] or "LLM chose not to act"
-            logger.info("LLM no_action: %s", reason)
-            self._last_decision = "no_action"
-            self._last_skip_reason = f"no_action: {reason}"
-            self._last_no_action_reason = reason
-            self._selected_tool_count = 0
-            self._consecutive_no_action += 1
-            self._log_audit_event(
-                action="autonomous_no_action",
-                capability_id="none",
-                decision="IGNORE_WITH_REASON",
-                reason=reason,
-                detail={
-                    "source": "task_generation",
-                    "llm_reason": reason,
-                    "candidate_capability_ids": candidate_ids[:50],
-                },
+            self._record_no_action(
+                reason,
+                source="task_selection",
+                candidate_ids=proposed_ids,
+                decision_axes=decision_axes,
             )
-            if self._initiative_engine is not None:
-                self._initiative_engine.record_non_action(
-                    reason,
-                    {
-                        "source": "task_generation",
-                        "candidate_capability_ids": candidate_ids[:50],
-                        "decision_axes": decision_axes,
-                    },
-                )
             return []
 
-        valid_tasks = []
         top_desire = low_desires[0]["name"] if low_desires else ""
-        for i, tc in enumerate(result.tool_calls[: self._max_tasks]):
-            desire = low_desires[i]["name"] if i < len(low_desires) else top_desire
-            normalized = self._normalize_tool_call(
-                catalog=catalog,
-                tool_call=tc,
-                valid_tool_names=valid_tool_names,
-                source="task_generation",
-                related_desire=desire,
-            )
-            if normalized is None:
-                continue
-            cap_id, args, manifest = normalized
-            schema = manifest.input_schema or {}
-            required = schema.get("required", [])
-            missing = [r for r in required if r not in args or not args[r]]
-            if missing:
-                logger.warning("LLM task missing required args for %s: %s", cap_id, missing)
-                continue
-            option = capability_options.get(cap_id, {})
-            initiative_decision = "execute_now"
-            initiative_reason = "InitiativeEngine is not configured."
-            if self._initiative_engine is not None:
-                from aegis_ai.autonomous.models import ActionCandidate, CapabilityDisposition
-
-                pressure = float(
-                    low_desires[i].get("pressure", 5.0)
-                    if i < len(low_desires)
-                    else low_desires[0].get("pressure", 5.0)
-                    if low_desires
-                    else 5.0
-                )
-                risk_name = str(option.get("risk_level") or "").lower()
-                risk_cost = {
-                    "read_only": 0.0,
-                    "safe_action": 0.1,
-                    "approval_required": 0.35,
-                    "high_risk": 0.7,
-                }.get(risk_name, 0.2)
-                interruption_cost = self._current_interruption_cost()
-                candidate = ActionCandidate(
-                    candidate_id=f"candidate_{int(time.time() * 1000)}_{i}",
-                    goal=f"Advance the {desire} objective with {cap_id}",
-                    why_now=f"{desire} pressure is {pressure:.1f}",
-                    trigger="homeostatic",
-                    expected_benefit=min(1.0, pressure / 10.0),
-                    urgency=min(1.0, pressure / 10.0),
-                    relevance=0.7 if (pending_observations or priority_obligations) else 0.45,
-                    continuity_value=0.55 if (pending_observations or priority_obligations) else 0.0,
-                    commitment_value=0.6 if priority_obligations else 0.0,
-                    risk=risk_cost,
-                    uncertainty=0.2,
-                    interruption_cost=interruption_cost,
-                    repetition=0.0,
-                    candidate_capabilities=[cap_id],
-                    visibility=str(args.get("viewer") or "agent_private"),
-                    requires_approval=bool(option.get("requires_approval", False)),
-                    success_condition={"manifest_completion": bool(getattr(manifest, "completion", {}))},
-                    stop_condition={"bounded_by_manifest": True},
-                )
-                disposition = CapabilityDisposition(str(option.get("disposition") or "unavailable"))
-                decision, initiative_reason = self._initiative_engine.evaluate(candidate, disposition)
-                initiative_decision = decision.value
-                # Score is context only — never veto an LLM-selected capability.
-            penalty, penalty_reason = self._recent_failure_penalty(desire, capability_id=cap_id)
-            # Soft dampening only — never hard-skip on memory penalty.
-            obligation = priority_obligations[i] if i < len(priority_obligations) else None
-            guide = next(
-                (item for item in desire_guides if item.get("desire") == desire),
-                {},
-            )
-            goal = self._resolve_task_goal(
-                desire=desire,
-                pending_observations=pending_observations,
-                obligation=obligation,
-                guide=guide,
-                index=i,
-            )
-            manifest_completion = dict(getattr(manifest, "completion", {}) or {})
-            success_condition = str(args.get("success_condition") or "")
-            if not success_condition:
-                success_condition = (
-                    "The capability's manifest completion checks pass and its result "
-                    "provides evidence for the autonomous outcome."
-                    if manifest_completion
-                    else "Independent verification demonstrates the autonomous outcome."
-                )
-            valid_tasks.append(
-                {
-                    "desire": desire,
-                    "action": f"Advance goal with {cap_id}",
-                    "goal": goal,
-                    "success_condition": success_condition,
-                    "obligation_ids": (
-                        [str(obligation.get("obligation_id") or "")]
-                        if obligation and obligation.get("obligation_id")
-                        else []
-                    ),
-                    "presentation": {
-                        "report_when": "terminal",
-                        "audience": ("agent_private" if str(args.get("viewer") or "") == "agent_private" else "user"),
-                    },
-                    "delegation_context": {
-                        "operation_category": str(getattr(manifest, "operation_category", "") or "general"),
-                        "scope": str(getattr(manifest, "ownership_scope", "") or "aegis"),
-                        "audience": ("private" if str(args.get("viewer") or "") == "agent_private" else "user"),
-                        "content_sensitivity": str(getattr(manifest, "content_sensitivity", "") or "normal"),
-                        "reversibility": str(getattr(manifest, "reversibility", "") or "reversible"),
-                    },
-                    "capability_id": cap_id,
-                    "arguments": args,
-                    "expected_impact": max(0.1, 0.5 - min(penalty, 0.4)),
-                    "memory_penalty": penalty,
-                    "memory_penalty_reason": penalty_reason,
-                    "why_this_is_not_repeating": "",
-                    "initiative_decision": initiative_decision,
-                    "initiative_reason": initiative_reason,
-                }
-            )
-
-        if not valid_tasks:
-            logger.warning("LLM returned no valid tasks")
+        tc = result.tool_calls[0]
+        normalized = self._normalize_tool_call(
+            catalog=catalog,
+            tool_call=tc,
+            valid_tool_names=valid_tool_names,
+            source="task_selection",
+            related_desire=top_desire,
+        )
+        if normalized is None:
             self._last_decision = "no_valid_tasks"
             self._last_skip_reason = "no_valid_tasks"
-            self._last_no_action_reason = "LLM returned tool calls that could not be normalized into executable tasks"
+            self._last_no_action_reason = "LLM selected a capability outside the proposed candidates"
             self._selected_tool_count = 0
             self._consecutive_no_action += 1
-        else:
-            self._last_decision = "action_selected"
-            self._last_skip_reason = ""
-            self._last_no_action_reason = ""
-            self._selected_tool_count = len(valid_tasks)
-            self._consecutive_no_action = 0
-            self._log_audit_event(
-                action="autonomous_action_selected",
-                capability_id=",".join(task["capability_id"] for task in valid_tasks),
-                decision="ALLOW",
-                reason="LLM selected autonomous actions for pressured desires",
-                detail={
-                    "selected_capability_ids": [task["capability_id"] for task in valid_tasks],
-                    "candidate_capability_ids": candidate_ids[:50],
-                    "desire_guides": desire_guides,
-                    "intrinsic_hints": intrinsic_hints,
-                    "recent_no_effect_outcomes": recent_no_effect_outcomes,
-                    "recent_capability_ids": recent_caps[:20],
-                },
-            )
+            return []
+        cap_id, args, manifest = normalized
+        proposed_match = next((item for item in proposed if item["capability_id"] == cap_id), None)
+        if proposed_match is None:
+            logger.warning("LLM selected %s which was not in proposed candidates", cap_id)
+            self._last_decision = "no_valid_tasks"
+            self._last_skip_reason = "no_valid_tasks"
+            self._last_no_action_reason = "LLM selected a capability outside the proposed candidates"
+            self._selected_tool_count = 0
+            self._consecutive_no_action += 1
+            return []
+        if proposed_match.get("arguments") and not args:
+            args = dict(proposed_match["arguments"])
+        desire = str(proposed_match.get("desire") or top_desire)
+        task = self._build_executable_task(
+            cap_id=cap_id,
+            args=args,
+            manifest=manifest,
+            desire=desire,
+            low_desires=low_desires,
+            capability_options=capability_options,
+            pending_observations=pending_observations,
+            priority_obligations=priority_obligations,
+            desire_guides=desire_guides,
+            proposed=proposed_match,
+            index=0,
+        )
+        if task is None:
+            self._last_decision = "no_valid_tasks"
+            self._last_skip_reason = "no_valid_tasks"
+            self._last_no_action_reason = "Selected candidate could not be normalized into an executable task"
+            self._selected_tool_count = 0
+            self._consecutive_no_action += 1
+            return []
+
+        valid_tasks = [task]
+        self._last_selected_candidate = {
+            "capability_id": cap_id,
+            "desire": desire,
+            "goal": task.get("goal") or proposed_match.get("goal") or "",
+            "why_now": proposed_match.get("why_now") or "",
+        }
+        self._last_decision = "action_selected"
+        self._last_skip_reason = ""
+        self._last_no_action_reason = ""
+        self._selected_tool_count = 1
+        self._consecutive_no_action = 0
+        self._log_audit_event(
+            action="autonomous_action_selected",
+            capability_id=cap_id,
+            decision="ALLOW",
+            reason="LLM selected one autonomous action from proposed candidates",
+            detail={
+                "selected_capability_ids": [cap_id],
+                "proposed_candidates": proposed,
+                "candidate_capability_ids": candidate_ids[:50],
+                "desire_guides": desire_guides,
+                "intrinsic_hints": intrinsic_hints,
+                "recent_no_effect_outcomes": recent_no_effect_outcomes,
+                "recent_capability_ids": recent_caps[:20],
+                "max_pressure_mode": must_act,
+            },
+        )
         return valid_tasks
 
     def _recent_capability_ids(self, max_entries: int = 8) -> list[str]:
@@ -2411,8 +2895,6 @@ Rules:
 - If no follow-up is needed, do not call any tools
 - You may choose the same capability again when that still advances the outcome"""
 
-        from aegis_ai.llm.router import accepts_kwarg
-
         follow_up_kwargs: dict[str, Any] = {
             "prompt": prompt,
             "tools": tools,
@@ -2426,7 +2908,7 @@ Rules:
             "max_tokens": self._decision_max_tokens,
             "context_meta": None,
         }
-        if accepts_kwarg(self._llm.generate_with_tools, "profile"):
+        if _accepts_kwarg(self._llm.generate_with_tools, "profile"):
             follow_up_kwargs["profile"] = "decision"
 
         try:
@@ -3093,6 +3575,9 @@ Rules:
                 candidates=list(self._last_candidate_capability_ids[-20:]),
                 decision_axes=dict(self._last_decision_axes),
                 timestamp_ms=int(time.time() * 1000),
+                proposed_candidates=list(self._last_proposed_candidates[-8:]),
+                selected_candidate=dict(self._last_selected_candidate),
+                max_pressure_mode=bool(self._max_pressure_mode),
             )
         except Exception:
             logger.debug("Failed to persist operation record", exc_info=True)
@@ -3121,6 +3606,9 @@ Rules:
                 "selected_tool_count": self._selected_tool_count,
                 "last_no_action_reason": self._last_no_action_reason,
                 "candidate_capability_ids": self._last_candidate_capability_ids[-50:],
+                "proposed_candidates": list(self._last_proposed_candidates[-8:]),
+                "selected_candidate": dict(self._last_selected_candidate),
+                "max_pressure_mode": self._max_pressure_mode,
                 "decision_axes": dict(self._last_decision_axes),
                 "consecutive_no_action": self._consecutive_no_action,
                 "last_skip_reason": self._last_skip_reason,

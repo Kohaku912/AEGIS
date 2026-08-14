@@ -1,7 +1,6 @@
 """LLM Config Routes — Flask routes for LLM configuration management.
 
 Provides:
-- GET  /dashboard/llm-config     → LLM Config UI page
 - GET  /api/llm/profiles         → List LLM profiles
 - GET  /api/llm/prompts          → List all prompts
 - GET  /api/llm/prompts/<id>     → Get a single prompt
@@ -16,15 +15,11 @@ import hashlib
 import logging
 from typing import Any
 
-from flask import Blueprint, jsonify, render_template, request
+from flask import Blueprint, jsonify, request
 
 logger = logging.getLogger("aegis_ai.web.llm_config")
 
-llm_config_bp = Blueprint(
-    "llm_config",
-    __name__,
-    template_folder="templates",
-)
+llm_config_bp = Blueprint("llm_config", __name__)
 
 _prompt_registry = None
 _settings_resolver = None
@@ -36,11 +31,6 @@ def init_llm_config(prompt_registry: Any, settings_resolver: Any, audit_log: Any
     _prompt_registry = prompt_registry
     _settings_resolver = settings_resolver
     _audit_log = audit_log
-
-
-@llm_config_bp.route("/dashboard/llm-config")
-def llm_config_page():
-    return render_template("dashboard/llm_config.html")
 
 
 @llm_config_bp.route("/api/llm/profiles", methods=["GET"])

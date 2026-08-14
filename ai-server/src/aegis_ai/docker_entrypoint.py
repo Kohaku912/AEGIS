@@ -1,6 +1,6 @@
 """Docker entry point for AEGIS Core.
 
-Runs gRPC, Dashboard, and Web Chat in one container without starting the CLI.
+Runs gRPC and the Dashboard in one container without starting the CLI.
 """
 
 from __future__ import annotations
@@ -41,17 +41,6 @@ def _start_dashboard(runtime) -> None:
     DashboardApp(runtime=runtime).run(host=host, port=8090, debug=False)
 
 
-def _start_web_chat(runtime) -> None:
-    from aegis_ai.interaction.channels.web import WebChatApp
-
-    host = os.getenv("AEGIS_WEB_CHAT_HOST", "0.0.0.0")
-    WebChatApp(router=runtime.interaction_router, session_manager=runtime.session_manager).run(
-        host=host,
-        port=8091,
-        debug=False,
-    )
-
-
 def _refresh_status_after_start(runtime) -> None:
     """Refresh cached status after sockets have had time to bind."""
     for _ in range(5):
@@ -84,7 +73,6 @@ def main() -> None:
     threads = [
         threading.Thread(target=_start_grpc, args=(runtime,), daemon=True, name="aegis-grpc"),
         threading.Thread(target=_start_dashboard, args=(runtime,), daemon=True, name="aegis-dashboard"),
-        threading.Thread(target=_start_web_chat, args=(runtime,), daemon=True, name="aegis-web-chat"),
     ]
     for thread in threads:
         thread.start()

@@ -8,7 +8,6 @@ $ports = @(
     @{Port=50052; Name="PC Server (health)"},
     @{Port=50053; Name="Browser Server (gRPC)"},
     @{Port=8090;  Name="Dashboard"},
-    @{Port=8091;  Name="Web Chat"},
     @{Port=8080;  Name="Approval UI"}
 )
 
