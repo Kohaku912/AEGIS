@@ -32,11 +32,13 @@ class RetentionManager:
         audit_log: Any = None,
         approval_store: Any = None,
         settings_store: Any = None,
+        memory_store: Any = None,
     ) -> None:
         self._episodic = episodic_memory
         self._audit = audit_log
         self._approval = approval_store
         self._settings = settings_store
+        self._store = memory_store
 
     def cleanup_expired(self) -> dict[str, int]:
         """Clean up expired data based on retention policies.
@@ -54,11 +56,21 @@ class RetentionManager:
         if self._episodic and self._settings:
             settings = self._settings.get()
             retention_days = settings.memory.episodic_retention_days
-            cutoff_ms = int(time.time() * 1000) - (retention_days * 86400 * 1000)
-            episodes = self._episodic.list_recent(100000)
-            old_count = sum(1 for e in episodes if e.timestamp_ms < cutoff_ms)
-            cleaned["old_episodes"] = old_count
-            # Note: actual deletion would need a method on EpisodicMemory
+            max_age_ms = retention_days * 86400 * 1000
+            prune = getattr(self._episodic, "prune_expired", None)
+            if callable(prune):
+                try:
+                    cleaned["old_episodes"] = int(prune(max_age_ms=max_age_ms) or 0)
+                except TypeError:
+                    cleaned["old_episodes"] = int(prune() or 0)
+            else:
+                cutoff_ms = int(time.time() * 1000) - max_age_ms
+                episodes = self._episodic.list_recent(100000)
+                cleaned["old_episodes"] = sum(1 for e in episodes if e.timestamp_ms < cutoff_ms)
+
+        # Clean expired unified-store records (desire/failure lessons, preferences)
+        if self._store is not None and hasattr(self._store, "prune_expired"):
+            cleaned["expired_store"] = int(self._store.prune_expired() or 0)
 
         pdc = getattr(self, "_personal_data_core", None)
         if pdc is not None:
@@ -87,10 +99,15 @@ class RetentionManager:
         return status
 
     def delete_memory_entry(self, memory_type: str, entry_id: str) -> bool:
-        """Delete a specific memory entry (user-requested).
-
-        Returns True if deleted.
-        """
-        # This is a placeholder — actual deletion depends on memory implementation
-        # For JSONL-based memory, would need to rewrite the file
+        """Delete a specific memory entry (user-requested)."""
+        backend = self._episodic
+        if backend is None:
+            return False
+        if memory_type in {"entity", "entities"} and hasattr(backend, "delete_entity"):
+            return bool(backend.delete_entity(entry_id))
+        if memory_type in {"fact", "facts"} and hasattr(backend, "delete_fact"):
+            return bool(backend.delete_fact(entry_id))
+        deleter = getattr(backend, "delete", None)
+        if callable(deleter):
+            return bool(deleter(entry_id))
         return False

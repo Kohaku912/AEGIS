@@ -119,7 +119,7 @@ fn main() {
         "Commands: health, screenshot, active_window, windows, os_info, screen_size, clipboard"
     );
     println!("          show_overlay, hide_overlay, launch_app, focus_window");
-    println!("          mouse_move, mouse_click, keyboard_type, press_hotkey (approval required)");
+    println!("          mouse_move, mouse_click, keyboard_type, press_hotkey (runtime-enabled)");
     println!("          discord_status, discord_get_guilds, discord_join_voice_by_name");
     println!("          capabilities, quit");
     println!();
@@ -140,7 +140,7 @@ fn print_help() {
     println!("Options:");
     println!("  --port <PORT>              Health endpoint port (default: 50052)");
     println!("  --bind <ADDR>              Bind address (default: 127.0.0.1)");
-    println!("  --enable-real-pc-actions   Enable real mouse/keyboard (requires approval)");
+    println!("  --enable-real-pc-actions   Enable real mouse/keyboard actions");
     println!("  --help                     Show this help");
     println!();
     println!("Observe capabilities (Level 0):");

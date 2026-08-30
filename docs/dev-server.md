@@ -1,138 +1,102 @@
 # Dev Server — Design & Usage
 
-> **Status**: Code-backed dev server (gRPC, sandboxed repo operations)
-> **Language**: Python (AEGIS Core integration via `dev_server_client.py`)
-> **Sandbox**: Workspace directory isolation (OpenHands/SWE-agent inspired)
+> **Status**: Implemented gRPC service (sandboxed repo operations)
+> **Language**: Python (`dev-server/src/dev_server.py`)
+> **AI Server client**: `ai-server/src/aegis_ai/integrations/dev/grpc_client.py`
+> **Sandbox**: Workspace directory isolation; argv subprocess (no shell)
 
 ## Overview
 
-The Dev Server provides AEGIS with sandboxed self-development capabilities.
-The runtime exposes repo status/diff/test/lint/branch/patch/commit/PR/revert helpers through a gRPC service.
-Main merge is **FORBIDDEN** — user is the only merge authority.
+The Dev Server gives AEGIS sandboxed self-development on a mounted git
+workspace. It exposes repo status, diff, test, lint, branch, patch, commit,
+PR, and revert through gRPC on port **50056**.
 
-## Implemented Capabilities
+Main merge / direct commit to `main` or `master` is **FORBIDDEN**. The user
+is the only merge authority.
 
-### Observe (Level 0 — READ_ONLY)
+## Implemented Capabilities (proto RPCs)
 
-| Capability | Status |
-|-----------|--------|
-| `dev.get_repo_status` | ✅ Mock provider |
-| `dev.get_diff` | ✅ Mock provider |
-| `dev.read_file` | ✅ Mock provider + path safety |
-| `dev.search_code` | ✅ Mock provider |
+Canonical IDs are `dev-server.<app>.<action>`.
 
-### Action (Level 1 — SAFE_ACTION)
+### Observe
 
-| Capability | Status |
-|-----------|--------|
-| `dev.create_branch` | ✅ Mock provider |
-| `dev.run_tests` | ✅ Mock provider + auto-detect language |
-| `dev.run_lint` | ✅ Mock provider + auto-detect language |
+| Capability | RPC | Notes |
+|-----------|-----|-------|
+| `dev-server.repo.status` | `GetRepoStatus` | Branch, commit, porcelain files, ahead/behind |
+| `dev-server.diff.get_diff` | `GetDiff` | Per-file unified diff vs base (`main`/`master`) |
+| `dev-server.test.get_results` | `GetTestResults` | Last `RunTests` result (empty if none) |
+| `dev-server.system.health_check` | `HealthCheck` | Online + uptime |
 
-### Action (Level 2 — APPROVAL_REQUIRED)
+`read_file` / `search_code` are **not** in `dev_server.proto` and are not exposed.
 
-| Capability | Status |
-|-----------|--------|
-| `dev.apply_patch` | ✅ Mock provider + Approval UI |
-| `dev.create_commit` | ✅ Mock provider + Approval UI |
-| `dev.create_pull_request` | ✅ Mock provider + Approval UI + GITHUB_TOKEN |
-| `dev.revert_changes` | ✅ Mock provider + Approval UI |
+### Action
+
+| Capability | RPC | Notes |
+|-----------|-----|-------|
+| `dev-server.branch.create` | `CreateBranch` | Switch existing or `git switch -c` from base |
+| `dev-server.test.run_tests` | `RunTests` | Language auto-detect; missing toolchain returns error |
+| `dev-server.lint.run_lint` | `RunLint` | Language auto-detect or explicit linter |
+| `dev-server.patch.apply` | `ApplyPatch` | Unified diff via `git apply`, else write `file_path` |
+| `dev-server.git.create_commit` | `CreateCommit` | Denied on `main`/`master`; skipped denied paths |
+| `dev-server.pr.create` | `CreatePullRequest` | `gh` + `GITHUB_TOKEN`, else manual instructions |
+| `dev-server.git.revert_changes` | `RevertChanges` | `git restore` / `clean`, or `git revert --no-edit` |
 
 ### Explicitly Denied
 
-| Capability | Reason |
-|-----------|--------|
-| `dev.push_main` | Direct push to main forbidden |
-| `dev.merge_to_main` | User is only merge authority |
-| `dev.deploy_production` | Production deploy forbidden |
-| `dev.read_secrets` | Secrets access forbidden |
-| `dev.delete_repo` | Repo deletion forbidden |
-| `dev.disable_policy_engine` | Policy bypass forbidden |
-| `dev.modify_approval_bypass` | Approval bypass forbidden |
-| `dev.install_system_package` | System modification forbidden |
-| `dev.mount_docker_socket` | Docker socket access forbidden |
-
-## Technology Decisions
-
-| 項目 | 選択 |
-|------|------|
-| Sandbox | **OpenHands/SWE-agent参考**（ワークスペース分離 + subprocess） |
-| GitHub PR | **PR作成まで実装**（`GITHUB_TOKEN` 環境変数） |
-| Token | **`GITHUB_TOKEN` 環境変数のみ** |
-| test/lint | **全言語 auto-detect**（Python, Kotlin, TypeScript, Rust） |
-| SelfDevAgent | **フル自動（PR作成まで、merge のみユーザー）** |
+| Action | Reason |
+|--------|--------|
+| Direct commit / push / merge to main | User is only merge authority |
+| `git reset --hard` | Destructive; not exposed |
+| Secrets (`.env`, keys, credentials) | Path denylist |
+| Production deploy / docker.sock / package install | Not in the API |
 
 ## Language Auto-Detection
 
-The Dev Server auto-detects the project language by indicator files:
+The server detects language from indicator files in the **target** directory
+(`ai-server` by default, or repo root when `target=all`):
 
 | Language | Indicators | Test Command | Lint Command |
 |----------|-----------|-------------|-------------|
-| Python | `pyproject.toml`, `setup.py` | `pytest` | `ruff check .` |
+| Python | `pyproject.toml`, `setup.py` | `python -m pytest` | `ruff check .` |
 | Kotlin | `build.gradle.kts` | `./gradlew test` | `./gradlew ktlintCheck` |
 | TypeScript | `tsconfig.json` | `npm test` | `npx eslint .` |
 | JavaScript | `package.json` | `npm test` | `npx eslint .` |
 | Rust | `Cargo.toml` | `cargo test` | `cargo clippy` |
 
-## Self-Development Workflow
+The default image includes git, Python, pytest, ruff, and `gh`. Node / JDK /
+Rust are not bundled; those commands fail with `toolchain missing`.
 
+## Safety Constraints
+
+- All git/test/lint/gh calls use argv lists (`shell=False`)
+- `extra_args` is `shlex`-split; shell metacharacters are rejected
+- Paths must stay inside `AEGIS_REPO_PATH` (`/workspace` in Docker)
+- Denied path fragments: `.env`, credentials, SSH keys, `.git/config`
+- Docker socket is not mounted
+
+## Runtime
+
+- Compose service `dev-server` listens on `50056`
+- Repo is mounted write-capable at `/workspace`
+- Production overlay puts this service behind the `dev` profile and lists it
+  in `AEGIS_DISABLED_SERVERS` by default. Start with:
+
+```bash
+docker compose --profile dev up -d --no-deps dev-server
 ```
-1. ANALYZE   — Read Reflection Log, find improvement opportunities
-2. PROPOSE   — Create improvement proposal with risk assessment
-3. BRANCH    — Create git branch (e.g., aegis/improve-event-bus)
-4. PATCH     — Apply code changes (unified diff)
-5. TEST      — Run test suite (auto-detect language)
-6. LINT      — Run linter (auto-detect language)
-7. COMMIT    — Create git commit
-8. PR        — Create GitHub pull request (requires GITHUB_TOKEN)
-9. REFLECT   — Write reflection to ReflectionLog
-```
-
-### Safety Constraints
-
-- **main merge is FORBIDDEN** — `dev.merge_to_main` is in PolicyEngine deny patterns
-- **PR creation requires Level 2 approval** — goes through Approval UI
-- **Test failure → revert** — changes are reverted if tests fail
-- **Lint failure → revert** — changes are reverted if lint fails
-- **All attempts audited** — every step logged to AuditLog
-
-## Current Dev Server Runtime
-
-- Dev Server runs as a Docker Compose gRPC service on `50056`.
-- The repository is mounted write-capable at `/workspace` by design.
-- Docker socket is not mounted and must remain unavailable.
-- Safe read/status operations may be automatic; writes and code execution remain subject to policy and approval gates.
-- **Reflection written** — success/failure recorded in ReflectionLog
-
-## File Safety
-
-### Denied Paths
-
-| Pattern | Reason |
-|---------|--------|
-| `.env`, `.env.local` | Environment secrets |
-| `credentials.json` | Credentials |
-| `.pem`, `.key`, `.crt` | Certificates |
-| `id_rsa`, `id_ed25519` | SSH keys |
 
 ## GitHub PR Integration
 
-When `GITHUB_TOKEN` environment variable is set:
-- `dev.create_pull_request` creates a real GitHub PR
-- Uses `gh` CLI or GitHub API
-
-When `GITHUB_TOKEN` is NOT set:
-- `dev.create_pull_request` returns instructions for manual PR creation
-- Branch and commit are still created locally
+When `GITHUB_TOKEN` is set **and** `gh` is on PATH, `CreatePullRequest` runs
+`gh pr create`. Otherwise the RPC returns the equivalent `gh` command for
+manual use. Branch and commit still happen locally.
 
 ## Testing
 
 ```bash
-cd ai-server
+cd dev-server
+pytest tests/test_dev_server.py -q
 
-# Dev Server E2E
-pytest tests/test_dev_server_e2e.py -v
-
-# All tests
-pytest --ignore=tests/test_approval_ui.py --ignore=tests/test_android_local.py -v
+# Live gRPC probe (server already running)
+python ../scripts/e2e/dev-real-probe.py 127.0.0.1 50056
 ```

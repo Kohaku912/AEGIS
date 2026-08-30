@@ -517,3 +517,4 @@ See individual AGENTS.md files for each server:
 - `browser-server/AGENTS.md` — Browser Server details
 - `android-server/AGENTS.md` — Android Server details
 - `room-server/AGENTS.md` — Room Server details
+- `dev-server/AGENTS.md` — Dev Server details

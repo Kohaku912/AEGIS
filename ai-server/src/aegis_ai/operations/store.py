@@ -304,7 +304,12 @@ class OperationStore:
             success = bool(result.get("success", True)) if result else False
             if not success or str(out).lower().startswith("failed"):
                 any_failed = True
-            if "awaiting approval" in out.lower() or "approval" in str(result.get("status") or "").lower():
+            step_needs_approval = (
+                "awaiting approval" in out.lower()
+                or str(result.get("status") or "").lower() in {"awaiting_approval", "approval_required"}
+                or str(result.get("action_state") or "").lower() == "awaiting_approval"
+            )
+            if step_needs_approval:
                 any_approval = True
             if cap:
                 linked_caps.append(cap)
@@ -327,7 +332,7 @@ class OperationStore:
                     "input_summary": json.dumps(task.get("arguments") or {}, ensure_ascii=False)[:180],
                     "output_summary": out[:280],
                     "changed_state": state[:200],
-                    "status": "failed" if not success else ("awaiting_approval" if any_approval else "ok"),
+                    "status": "failed" if not success else ("awaiting_approval" if step_needs_approval else "ok"),
                     "timestamp_ms": ts,
                     "summary": (out or done)[:220],
                     "narrative": (out or done)[:220],

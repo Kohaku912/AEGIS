@@ -3,7 +3,7 @@
   "description": "Create a social reaction on an external website after approval.",
   "operation_category": "social_communication",
   "risk": {
-    "level": "safe",
+    "level": "audited_action",
     "side_effects": [
       "social_reaction"
     ],

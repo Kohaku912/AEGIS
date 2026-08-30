@@ -1455,10 +1455,12 @@ def _errors(runtime: Any) -> dict[str, Any]:
                 "timeout",
                 "connection",
             )
-            if (
-                server_statuses.get(server_id) == "ONLINE" or recovered_after_error
-            ) and any(marker in error_text for marker in connectivity_markers):
-                continue
+            if server_statuses.get(server_id) in {"ONLINE", "DISABLED", "UNCONFIGURED"} or recovered_after_error:
+                if any(marker in error_text for marker in connectivity_markers) or any(
+                    marker in error_text
+                    for marker in ("errors resolving", "name or service not known", "getaddrinfo")
+                ):
+                    continue
             capability_health = (
                 server_snapshot.get("capability_health") or {}
             )

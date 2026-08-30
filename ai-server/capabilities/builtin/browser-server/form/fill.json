@@ -3,7 +3,7 @@
   "description": "Fill a declared web form. Approval protects personal or secret data from unattended entry.",
   "operation_category": "data_entry",
   "risk": {
-    "level": "safe",
+    "level": "audited_action",
     "side_effects": [
       "form_data_entry"
     ],

@@ -42,6 +42,7 @@ class _AutonomousToolLLM:
         self.tool_calls = tool_calls
         self.context_meta: dict[str, object] | None = None
         self.prompt = ""
+        self.calls = 0
 
     def generate_with_tools(
         self,
@@ -51,9 +52,30 @@ class _AutonomousToolLLM:
         max_tokens: int = 0,
         context_meta: dict[str, object] | None = None,
     ) -> SimpleNamespace:
+        self.calls += 1
         self.prompt = prompt
         self.context_meta = context_meta
-        return SimpleNamespace(success=True, tool_calls=self.tool_calls, error="")
+        if self.calls == 1:
+            return SimpleNamespace(
+                success=True,
+                content="",
+                error="",
+                tool_calls=[
+                    {
+                        "function": "submit_candidates",
+                        "arguments": {
+                            "candidates": [
+                                {
+                                    "capability_id": "ai-server.memory.save",
+                                    "arguments": {"text": "note"},
+                                    "desire": "reliability",
+                                }
+                            ]
+                        },
+                    }
+                ],
+            )
+        return SimpleNamespace(success=True, tool_calls=self.tool_calls, content="", error="")
 
 
 class _FakeCatalog:
@@ -160,6 +182,17 @@ def test_shared_memory_context_includes_recent_failures_without_query_hits(tmp_p
         visibility=Visibility.LLM_VISIBLE.value,
         sensitivity=Sensitivity.NORMAL.value,
     ))
+    store.add_memory(MemoryRecord(
+        memory_type=MemoryType.DESIRE_LESSON.value,
+        title="social: ai-server.agora.read_posts -> useful",
+        content="Goal: catch up on AGORA. Outcome: 3 new posts.",
+        source=MemorySource.SYSTEM_OBSERVATION.value,
+        related_desire="social",
+        confidence=0.8,
+        importance=0.7,
+        visibility=Visibility.LLM_VISIBLE.value,
+        sensitivity=Sensitivity.NORMAL.value,
+    ))
 
     decision = build_shared_memory_context(query="unrelated topic", data_dir=str(data_dir), profile="decision")
     summary = build_shared_memory_context(query="unrelated topic", data_dir=str(data_dir), profile="summary")
@@ -168,9 +201,11 @@ def test_shared_memory_context_includes_recent_failures_without_query_hits(tmp_p
     assert "Repeated recent failures:" in decision.text
     assert "ACTION TRACE HINTS:" in decision.text
     assert "Failure lessons:" in decision.text
+    assert "Desire lessons:" in decision.text
     assert "User preferences:" in decision.text
     assert "ACTION TRACE HINTS:" not in summary.text
     assert "User preferences:" not in summary.text
+    assert "Desire lessons:" in summary.text
 
 
 def test_autonomous_loop_rejects_invalid_tool_calls_and_audits_them(tmp_path) -> None:

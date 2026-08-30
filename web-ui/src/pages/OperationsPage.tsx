@@ -279,6 +279,15 @@ function OperationDetail({
   const result = String(operation.result_status || operation.status || "recorded");
   const chain = operation.causal_chain || [];
   const steps = operation.steps || [];
+  const trigger = operation.trigger || {};
+  const proposed = Array.isArray(trigger.proposed_candidates)
+    ? (trigger.proposed_candidates as Array<Record<string, unknown>>)
+    : [];
+  const selected =
+    trigger.selected_candidate && typeof trigger.selected_candidate === "object"
+      ? (trigger.selected_candidate as Record<string, unknown>)
+      : null;
+  const maxPressure = Boolean(trigger.max_pressure_mode);
   const tasks = linkedList(operation, "task");
   const approvals = linkedList(operation, "approval");
   const repairs = linkedList(operation, "repair");
@@ -305,6 +314,33 @@ function OperationDetail({
         <div><dt>次の行動</dt><dd>{operation.next_action || operation.wait_reason || "—"}</dd></div>
         <div><dt>所要時間</dt><dd>{formatDuration(operation.duration_ms)}</dd></div>
       </dl>
+
+      {maxPressure || selected || proposed.length ? (
+        <section className="operation-steps">
+          <div className="panel__header"><h3>二段階判断</h3></div>
+          <dl className="human-facts compact">
+            <div><dt>最大圧モード</dt><dd>{maxPressure ? "はい" : "いいえ"}</dd></div>
+            <div>
+              <dt>選択した候補</dt>
+              <dd>
+                {selected
+                  ? String(selected.capability_id || selected.title || selected.action || JSON.stringify(selected))
+                  : "—"}
+              </dd>
+            </div>
+          </dl>
+          {proposed.length ? (
+            <ol>
+              {proposed.map((candidate, index) => (
+                <li key={`${operation.operation_id}-candidate-${index}`}>
+                  {String(candidate.capability_id || candidate.title || candidate.action || `候補 ${index + 1}`)}
+                  {candidate.reason ? <small>{String(candidate.reason)}</small> : null}
+                </li>
+              ))}
+            </ol>
+          ) : null}
+        </section>
+      ) : null}
 
       <ol className="causal-chain">
         {chain.map((stage) => (

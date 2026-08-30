@@ -3,7 +3,7 @@
   "description": "Click a declared element in a private browser session after contextual approval.",
   "operation_category": "web_action",
   "risk": {
-    "level": "safe",
+    "level": "audited_action",
     "side_effects": [
       "web_click"
     ],

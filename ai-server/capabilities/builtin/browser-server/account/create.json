@@ -3,7 +3,7 @@
   "description": "Create an external account after explicit approval. Payment and CAPTCHA bypass remain forbidden.",
   "operation_category": "account_change",
   "risk": {
-    "level": "safe",
+    "level": "audited_action",
     "side_effects": [
       "account_creation"
     ],

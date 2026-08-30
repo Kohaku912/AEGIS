@@ -374,6 +374,26 @@ class TestSleepManager:
         status = sleep_manager.get_status()
         assert status["state"] == "idle"
 
+    def test_idle_trigger_does_not_deadlock(self):
+        import threading
+
+        from aegis_ai.memory.sleep import SleepManager
+
+        manager = SleepManager(idle_threshold_s=0)
+        manager._last_activity_ms = 0
+        result = []
+        trigger_thread = threading.Thread(
+            target=lambda: result.append(manager.check_triggers()),
+            daemon=True,
+        )
+
+        trigger_thread.start()
+        trigger_thread.join(timeout=1)
+        manager.close()
+
+        assert not trigger_thread.is_alive()
+        assert result == [True]
+
     def test_start_sleep(self, sleep_manager):
         success = sleep_manager.start_sleep(reason="test")
         assert success is True

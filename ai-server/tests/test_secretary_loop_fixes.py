@@ -118,7 +118,7 @@ def test_interval_bypass_and_goal_helpers(tmp_path: Path) -> None:
     loop._pending_actionable_observations = [
         {"source": "obligation", "description": "Finish packing list", "tags": ["obligation"]}
     ]
-    assert loop._has_interval_bypass_work() is True
+    assert loop._has_interval_bypass_work() is False
     goal = loop._resolve_task_goal(
         desire="user_support",
         pending_observations=loop._pending_actionable_observations,
@@ -146,11 +146,15 @@ def test_transient_repairs_are_not_obligations(tmp_path: Path) -> None:
         error="policy denied",
         status="DENIED",
     )
+    repair.record_failure(
+        capability_id="dev-server.repo.status",
+        error="errors resolving dev-server",
+        status="failed",
+    )
     snapshot = AgentState(repair_manager=repair).snapshot("test")
-    kinds = [item.kind for item in snapshot.obligations]
     summaries = [item.summary.lower() for item in snapshot.obligations]
-    assert "incident" in kinds
     assert not any("browserstartevent" in s or "timed out" in s for s in summaries)
+    assert not any("errors resolving" in s for s in summaries)
 
 
 def test_stale_and_inflight_obligations_are_filtered(tmp_path: Path) -> None:

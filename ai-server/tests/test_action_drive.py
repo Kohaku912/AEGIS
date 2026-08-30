@@ -14,7 +14,7 @@ def test_unknown_event_applies_pressure_delta(tmp_path) -> None:
     assert engine.get_pressure("user_support") >= 1.2
 
 
-def test_preflight_allows_pending_observations(tmp_path) -> None:
+def test_preflight_requires_desire_pressure(tmp_path) -> None:
     desire = SimpleNamespace(
         apply_decay=lambda: None,
         get_pressure_state=lambda: {"user_support": {"pressure": 0.2}},
@@ -28,8 +28,8 @@ def test_preflight_allows_pending_observations(tmp_path) -> None:
         {"source": "social.inbox.received", "tags": ["event"], "description": "new mail"}
     ]
     ok, reason = loop._preflight_check()
-    assert ok is True
-    assert reason == "pending_observation"
+    assert ok is False
+    assert reason.startswith("all_pressure_below_threshold")
 
 
 def test_evaluate_event_queues_tagged_work(tmp_path) -> None:
@@ -44,8 +44,9 @@ def test_evaluate_event_queues_tagged_work(tmp_path) -> None:
     assert result["queued"] is True
     queued = loop._pending_actionable_observations[0]
     assert "event" in queued["tags"]
-    assert loop._has_interval_bypass_work() is True
-
+    # Queued work must not authorize an LLM cycle without desire pressure.
+    assert loop._has_interval_bypass_work() is False
+    assert loop._preflight_check()[0] is False
 
 def test_cheap_interrupt_saves_become_execute_now(tmp_path) -> None:
     engine = InitiativeEngine(str(tmp_path / "initiative"))

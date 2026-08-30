@@ -85,7 +85,10 @@ DEFAULT_DESIRE_DIMENSIONS: dict[str, dict[str, Any]] = {
         "safety_category": "general",
     },
     "social": {
-        "description": "Need for AGORA interaction, conversation, human connection.",
+        "description": (
+            "Need for meaningful conversation and human connection across available social channels, "
+            "including authenticated browser-based SNS and AGORA."
+        ),
         "expected_value": 6.0,
         "decay_rate_per_hour": 0.10,
         "recovery_rate": 0.25,

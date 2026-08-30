@@ -186,6 +186,11 @@ def get_runtime(config: Config | None = None) -> AegisRuntime:
         return _RUNTIME
 
 
+def peek_runtime() -> AegisRuntime | None:
+    """Return the live runtime without constructing one."""
+    return _RUNTIME
+
+
 def reset_runtime_for_tests() -> None:
     """Reset the runtime singleton for tests."""
     global _RUNTIME
@@ -390,6 +395,7 @@ def _build_runtime(config: Config) -> AegisRuntime:
     from aegis_ai.memory.workflow_memory import WorkflowMemory
     from aegis_ai.memory.experiential import ExperientialMemory
     from aegis_ai.memory.person_memory import PersonMemory
+    from aegis_ai.memory.memory_store import MemoryStore
 
     memory_dir = os.path.join(data_dir, "memory")
     advanced_memory = AdvancedMemory(data_dir=memory_dir, llm_provider=llm_gateway)
@@ -400,6 +406,8 @@ def _build_runtime(config: Config) -> AegisRuntime:
     workflow_memory = WorkflowMemory(path=os.path.join(memory_dir, "workflows.jsonl"))
     experiential_memory = ExperientialMemory(data_dir=memory_dir, llm_provider=llm_gateway)
     person_memory = PersonMemory(path=os.path.join(memory_dir, "persons.jsonl"))
+    memory_store = MemoryStore(data_dir=os.path.join(data_dir, "memory_store"))
+    context_builder._memory_store = memory_store
 
     from aegis_ai.journal.journal_store import JournalStore
     from aegis_ai.journal.projector import JournalProjector
@@ -665,6 +673,7 @@ def _build_runtime(config: Config) -> AegisRuntime:
         workflow_memory=workflow_memory,
         experiential_memory=experiential_memory,
         person_memory=person_memory,
+        memory_store=memory_store,
         llm_gateway=llm_gateway,
         event_manager=event_manager,
     )
@@ -709,6 +718,8 @@ def _build_runtime(config: Config) -> AegisRuntime:
         core_client._personal["personal_data_core"] = personal_data_core
     tool_broker.set_repair_manager(repair_manager)
     execution_engine._repair_manager = repair_manager
+    from aegis_ai.backup.retention import RetentionManager
+
     sleep_manager = SleepManager(
         memory_manager=memory_manager,
         event_manager=event_manager,
@@ -716,6 +727,13 @@ def _build_runtime(config: Config) -> AegisRuntime:
         llm_gateway=llm_gateway,
     )
     sleep_manager._personal_data_core = personal_data_core
+    sleep_manager._retention = RetentionManager(
+        episodic_memory=episodic_memory,
+        audit_log=audit_log,
+        approval_store=approval_store,
+        settings_store=settings_store,
+        memory_store=memory_store,
+    )
     if core_client is not None and hasattr(core_client, "_personal"):
         core_client._personal["sleep_manager"] = sleep_manager
 
@@ -896,10 +914,13 @@ def _create_autonomous_loop(runtime: AegisRuntime) -> Any:
     semantic_mem = mm.get_backend("semantic")
     person_mem = mm.get_backend("person")
 
+    from aegis_ai.reflection.reflection_engine import ReflectionEngine
+
     loop = AutonomousLoop(
         llm_provider=runtime.llm_gateway,
         desire_system=desire,
         memory_system=advanced_memory,
+        reflection_engine=ReflectionEngine(memory_store=mm.get_backend("store")),
         tool_broker=runtime.tool_broker,
         experiential_memory=experiential,
         affect_system=affect,

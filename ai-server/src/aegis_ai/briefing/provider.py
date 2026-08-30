@@ -142,10 +142,29 @@ class DailyBriefingProvider:
         return briefing
 
     def _get_system_health(self) -> BriefingSection:
-        """Get system health summary."""
+        """Get system health summary from StatusManager when available."""
+        snapshot = None
+        try:
+            from aegis_ai.runtime import get_runtime
+
+            status_manager = getattr(get_runtime(), "status_manager", None)
+            if status_manager is not None and hasattr(status_manager, "get_snapshot"):
+                snapshot = status_manager.get_snapshot()
+        except Exception:
+            snapshot = None
+        if isinstance(snapshot, dict) and snapshot:
+            lines = []
+            for name, info in snapshot.items():
+                if isinstance(info, dict):
+                    lines.append(f"- {name}: {info.get('status', 'unknown')}")
+                else:
+                    lines.append(f"- {name}: {info}")
+            content = "\n".join(lines)
+        else:
+            content = "Status snapshot unavailable."
         return BriefingSection(
             title="System Health",
-            content="All systems operational. AEGIS Core running.",
+            content=content,
             priority="normal",
             source="system",
         )

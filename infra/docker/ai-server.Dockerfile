@@ -15,10 +15,12 @@ LABEL org.aegis.version="0.1.0"
 
 WORKDIR /app
 
+ARG AEGIS_SOURCE_REVISION=unknown
 ENV PYTHONUNBUFFERED=1 \
     PYTHONPATH=/app/src \
     AEGIS_GRPC_HOST=0.0.0.0 \
-    AEGIS_GRPC_PORT=50051
+    AEGIS_GRPC_PORT=50051 \
+    AEGIS_SOURCE_REVISION=$AEGIS_SOURCE_REVISION
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \

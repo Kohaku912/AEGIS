@@ -214,6 +214,11 @@ def test_repair_manager_classifies_and_records_failures(tmp_path):
         error="Android server is unavailable",
         status="failed",
     )
+    dns = manager.record_failure(
+        capability_id="dev-server.repo.status",
+        error="errors resolving dev-server",
+        status="failed",
+    )
     permission = manager.record_failure(
         capability_id="android-server.screen.get_ui_tree",
         error="Android permission missing: accessibility",
@@ -226,6 +231,8 @@ def test_repair_manager_classifies_and_records_failures(tmp_path):
     assert down["final_result"] == "infra_noise"
     assert unavailable["category"] == "server_down"
     assert unavailable["final_result"] == "infra_noise"
+    assert dns["category"] == "server_down"
+    assert dns["final_result"] == "infra_noise"
     assert permission["category"] == "permission"
     assert permission["final_result"] == "not_retryable"
     assert len(manager.list_history()) >= 4

@@ -7,12 +7,17 @@ alwaysApply: true
 
 After any code change that affects runtime behavior or the dashboard UI, deploy to the Ubuntu AI Server before ending the turn. Do not wait for the user to ask.
 
-## Deploy path
+## Deploy path (canonical)
+
+Image rebuild is the source of truth. Partial `docker cp` into a running container causes revision drift.
 
 1. **web-ui changes**: `cd web-ui && npm run build` (writes `ai-server/src/aegis_ai/web/static/ui-v2`).
-2. Copy changed Python modules and/or `ui-v2` to Ubuntu via `.aegis-local/copy-ubuntu.ps1` and install with `.aegis-local/ssh-ubuntu.ps1`.
-3. Sync into the running container `aegis-ai-server-1` (`docker cp` into `/app/...`) and restart: `docker restart aegis-ai-server-1`.
-4. Verify with a short health check (`docker ps`, optional `curl`/`grep` for new symbols).
+2. On Ubuntu, rebuild and recreate `ai-server`:
+   - `AEGIS_SOURCE_REVISION=$(git rev-parse --short HEAD) docker compose build --build-arg AEGIS_SOURCE_REVISION=$AEGIS_SOURCE_REVISION ai-server`
+   - `docker compose up -d --force-recreate --no-deps ai-server`
+   - or `bash scripts/ubuntu/start.sh` / `.\scripts\rebuild-ai-server.ps1`
+3. Verify `/health` includes `revision`, and `docker logs aegis-ai-server-1` shows `Starting AEGIS Core (revision=...)`.
+4. **Emergency only**: copy a single module with `.aegis-local/copy-ubuntu.ps1` + `docker cp`, then rebuild at the next opportunity. Do not leave a patched container as production.
 
 ## Scope
 

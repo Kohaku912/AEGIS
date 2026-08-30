@@ -60,23 +60,14 @@ Code NEVER inspects user text for keywords.
 - Chat requests go through PolicyEngine (no bypass)
 - User text is NOT treated as system prompt
 - Tool requests redirect to Approval UI
-- Web Chat is localhost only
+- Chat is served by the Dashboard SPA at `/chat`
 - External channel approvals require additional auth
 
 ## Usage
 
 ### Web Chat
 
-```bash
-cd ai-server
-python -c "
-from aegis_ai.interaction import InteractionRouter, WebChatApp
-router = InteractionRouter()
-app = WebChatApp(router=router)
-app.run(host='0.0.0.0', port=8091)
-"
-# Open http://0.0.0.0:8091/chat
-```
+Open `http://localhost:8090/chat` on the Dashboard. The standalone WebChatApp on port 8091 has been removed.
 
 ### CLI
 

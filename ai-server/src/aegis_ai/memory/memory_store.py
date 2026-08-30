@@ -153,6 +153,13 @@ class MemoryStore:
         self._save()
         return True
 
+    def delete(self, memory_id: str) -> bool:
+        if memory_id not in self._records:
+            return False
+        del self._records[memory_id]
+        self._save()
+        return True
+
     def correct_memory(
         self,
         memory_id: str,

@@ -231,6 +231,7 @@ class EpisodicMemory:
             if summary:
                 ep.summary = summary
                 ep.summary_generated = True
+            self._rewrite()
 
     def link_episodes(self, ep_id1: str, ep_id2: str) -> None:
         """Create a bidirectional link between episodes."""
@@ -258,3 +259,27 @@ class EpisodicMemory:
             "categories": {cat: sum(1 for e in self._episodes if e.category == cat) for cat in set(e.category for e in self._episodes)},
             "average_importance": sum(e.importance for e in self._episodes) / total if total else 0,
         }
+
+    def prune_expired(self, now_ms: int | None = None, max_age_ms: int = 30 * 86400 * 1000) -> int:
+        cutoff = (now_ms if now_ms is not None else int(time.time() * 1000)) - max_age_ms
+        keep = [ep for ep in self._episodes if ep.timestamp_ms >= cutoff]
+        removed = len(self._episodes) - len(keep)
+        if not removed:
+            return 0
+        self._episodes = keep
+        self._index = {ep.episode_id: ep for ep in keep}
+        self._rewrite()
+        return removed
+
+    def delete(self, episode_id: str) -> bool:
+        if episode_id not in self._index:
+            return False
+        self._episodes = [ep for ep in self._episodes if ep.episode_id != episode_id]
+        self._index.pop(episode_id, None)
+        self._rewrite()
+        return True
+
+    def _rewrite(self) -> None:
+        with open(self._path, "w", encoding="utf-8") as handle:
+            for episode in self._episodes:
+                handle.write(json.dumps(episode.to_dict(), ensure_ascii=False) + "\n")

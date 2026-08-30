@@ -362,12 +362,24 @@ class AgentState:
                 latest_by_key[key] = item
 
         active: list[dict[str, Any]] = []
+        connectivity_noise = (
+            "errors resolving",
+            "name or service not known",
+            "getaddrinfo",
+            "nodename nor servname",
+            "connection refused",
+            "server is disabled",
+            "server is unconfigured",
+        )
         for item in latest_by_key.values():
             final_result = str(item.get("final_result") or "")
             category = str(item.get("category") or "")
+            error = str(item.get("error") or "").lower()
             if final_result in terminal_results:
                 continue
             if category in noise_categories:
+                continue
+            if any(marker in error for marker in connectivity_noise):
                 continue
             # Ignore ancient unresolved repair ghosts that no longer drive action.
             ts = int(item.get("timestamp") or 0)

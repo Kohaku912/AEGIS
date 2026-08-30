@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+from aegis_ai.desire.desire_system import DEFAULT_DESIRE_DIMENSIONS, DesireSnapshot
 from aegis_ai.desire.fulfillment import TaskEffect, evaluate_task_result
+from aegis_ai.desire.intrinsic_task_generator import IntrinsicTaskGenerator
 
 
 class _EvaluatorLLM:
@@ -13,6 +15,23 @@ class _EvaluatorLLM:
     def generate(self, **kwargs):
         self.calls += 1
         return SimpleNamespace(success=True, content=self.content)
+
+
+def test_social_desire_teaches_browser_sns_as_an_agora_alternative() -> None:
+    snapshot = DesireSnapshot(
+        timestamp=0,
+        average_frustration=8.0,
+        max_frustration=8.0,
+        top_unsatisfied_desires=["social"],
+        desires={"social": {"pressure": 8.0}},
+    )
+
+    tasks = IntrinsicTaskGenerator(now_ms=0).generate(snapshot)
+    guidance = " ".join(f"{task.title} {task.description}" for task in tasks)
+
+    assert "browser-based SNS" in DEFAULT_DESIRE_DIMENSIONS["social"]["description"]
+    assert "authenticated browser-based SNS" in guidance
+    assert "appropriate social channel" in guidance
 
 
 def test_llm_evaluator_controls_task_effect() -> None:

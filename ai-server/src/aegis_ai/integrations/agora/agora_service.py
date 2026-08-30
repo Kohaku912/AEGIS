@@ -6,6 +6,7 @@ import json
 import logging
 import re
 import time
+from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any
 
@@ -30,11 +31,28 @@ _SECRET_PATTERN = re.compile(
 _COOLDOWN_SECONDS = 60
 _MAX_REPLIED_TO = 200
 _MAX_RECENT_BODIES = 40
+_NEAR_DUPLICATE_RATIO = 0.88
+_BODY_SNIPPET_CHARS = 180
 
 
 def _has_secret(text: str) -> bool:
     return bool(_SECRET_PATTERN.search(text))
 
+
+def normalize_post_body(text: str) -> str:
+    """Collapse whitespace for duplicate comparison (not keyword matching)."""
+    return " ".join(str(text or "").split()).casefold()
+
+
+def bodies_are_near_duplicates(left: str, right: str, *, threshold: float = _NEAR_DUPLICATE_RATIO) -> bool:
+    """True when two bodies are exact or near-paraphrase duplicates."""
+    a = normalize_post_body(left)
+    b = normalize_post_body(right)
+    if not a or not b:
+        return False
+    if a == b:
+        return True
+    return SequenceMatcher(None, a, b).ratio() >= threshold
 
 class AgoraService:
     """High-level AGORA operations with safety checks."""
@@ -233,6 +251,36 @@ Recent reply_to ids already answered by AEGIS:
         replied = {int(x) for x in (self._guard.get("replied_to_ids") or []) if str(x).isdigit() or isinstance(x, int)}
         return int(reply_to) in replied
 
+    def post_avoidance_context(self, *, body_limit: int = 8, reply_limit: int = 40) -> dict[str, Any]:
+        """Facts the draft LLM should see before inventing another AGORA message."""
+        recent_bodies = [str(b).strip() for b in (self._guard.get("recent_bodies") or []) if str(b).strip()]
+        replied = [
+            int(x)
+            for x in (self._guard.get("replied_to_ids") or [])
+            if str(x).lstrip("-").isdigit() or isinstance(x, int)
+        ]
+        snippets = [body[:_BODY_SNIPPET_CHARS] for body in recent_bodies[-max(1, body_limit):]]
+        return {
+            "replied_to_ids": replied[-max(1, reply_limit):],
+            "recent_bodies": snippets,
+            "guidance": (
+                "Do not reply_to any id in replied_to_ids. "
+                "Do not draft a body that restates or paraphrases recent_bodies; "
+                "write a fresh message only when there is new substance, otherwise skip posting."
+            ),
+        }
+
+    def matches_recent_body(self, body: str) -> bool:
+        """True when body is exact or near-duplicate of a recent AEGIS post."""
+        candidate = str(body or "").strip()
+        if not candidate:
+            return False
+        recent_bodies = [str(b).strip() for b in (self._guard.get("recent_bodies") or []) if str(b).strip()]
+        last_body = str(self._guard.get("last_post_body") or "").strip()
+        if last_body:
+            recent_bodies = [*recent_bodies, last_body]
+        return any(bodies_are_near_duplicates(candidate, prior) for prior in recent_bodies)
+
     def _structural_block(self, *, body: str, reply_to: int | None) -> dict[str, Any] | None:
         now = time.time()
         last_time = float(self._guard.get("last_post_time") or 0.0)
@@ -240,15 +288,10 @@ Recent reply_to ids already answered by AEGIS:
             remaining = int(_COOLDOWN_SECONDS - (now - last_time))
             return {"error": "cooldown", "message": f"Post cooldown active. Wait {remaining}s."}
 
-        last_body = str(self._guard.get("last_post_body") or "")
-        if last_body and last_body.strip() == body.strip():
-            return {"error": "duplicate", "message": "Duplicate post body detected. Posting denied."}
-
-        recent_bodies = [str(b).strip() for b in (self._guard.get("recent_bodies") or [])]
-        if body.strip() in recent_bodies:
+        if self.matches_recent_body(body):
             return {
                 "error": "duplicate",
-                "message": "Duplicate of a recent AEGIS post body. Posting denied.",
+                "message": "Near-duplicate of a recent AEGIS post body. Posting denied.",
             }
 
         if reply_to is not None and self.has_replied_to(int(reply_to)):

@@ -126,6 +126,7 @@ class SleepManager:
     def check_triggers(self) -> bool:
         """Check if sleep should be triggered. Returns True if triggered."""
         now_ms = int(time.time() * 1000)
+        reason = ""
 
         with self._lock:
             if self._state == SleepState.RUNNING:
@@ -133,13 +134,14 @@ class SleepManager:
 
             idle_ms = now_ms - self._last_activity_ms
             if idle_ms > self._idle_threshold * 1000:
-                return self.start_sleep(reason="idle_timeout")
-
-            if self._scheduled_ms > 0 and now_ms >= self._scheduled_ms:
+                reason = "idle_timeout"
+            elif self._scheduled_ms > 0 and now_ms >= self._scheduled_ms:
                 self._scheduled_ms = 0
-                return self.start_sleep(reason="scheduled")
+                reason = "scheduled"
 
-        return False
+        # start_sleep acquires the same lock; call it only after releasing the
+        # trigger-state lock or the autonomous loop deadlocks after an idle hour.
+        return self.start_sleep(reason=reason) if reason else False
 
     # ── Internal ──────────────────────────────────────────────
 
@@ -166,6 +168,17 @@ class SleepManager:
                 summary["consolidation"] = consolidation_results
                 summary["lessons_extracted"] = consolidation_results.get("lessons_extracted", 0)
                 summary["memories_archived"] = consolidation_results.get("episodes_summarized", 0)
+
+            retention = getattr(self, "_retention", None)
+            if retention is not None and hasattr(retention, "cleanup_expired"):
+                summary["retention"] = retention.cleanup_expired()
+            elif self._memory_manager is not None:
+                store = self._memory_manager.get_backend("store")
+                if store is not None and hasattr(store, "prune_expired"):
+                    summary["expired_store"] = store.prune_expired()
+                episodic = self._memory_manager.get_backend("episodic")
+                if episodic is not None and hasattr(episodic, "prune_expired"):
+                    summary["episodes_pruned"] = episodic.prune_expired()
 
             pdc = getattr(self, "_personal_data_core", None)
             if pdc is not None:

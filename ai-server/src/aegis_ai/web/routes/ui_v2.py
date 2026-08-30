@@ -51,6 +51,8 @@ def init_ui_v2_routes(owner: Any) -> None:
             return None
         if path.startswith(("/login", "/auth", "/health", "/webauthn", "/.well-known")):
             return None
+        if path.startswith("/dashboard/security"):
+            return None
         if path in _SPA_JSON_EXEMPT:
             return None
         if path == "/" or any(path == root or path.startswith(root + "/") for root in _SPA_ROOTS):
