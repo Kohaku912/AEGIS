@@ -78,33 +78,6 @@ def _safe_span(name: str, **attributes: Any):
     return _Guarded()
 
 
-# region agent log
-def _debug_log(hypothesis: str, message: str, data: dict[str, Any]) -> None:
-    """Debug-mode instrumentation (session 41397a)."""
-    try:
-        path = os.environ.get("AEGIS_DEBUG_LOG", "debug-41397a.log")
-        with open(path, "a", encoding="utf-8") as handle:
-            handle.write(
-                json.dumps(
-                    {
-                        "sessionId": "41397a",
-                        "runId": os.environ.get("AEGIS_DEBUG_RUN", "run1"),
-                        "hypothesisId": hypothesis,
-                        "location": "autonomous_loop.py",
-                        "message": message,
-                        "data": data,
-                        "timestamp": int(time.time() * 1000),
-                    },
-                    ensure_ascii=False,
-                    default=str,
-                )
-                + "\n"
-            )
-    except Exception:
-        pass
-# endregion
-
-
 def _accepts_kwarg(func: Any, name: str) -> bool:
     try:
         parameters = inspect.signature(func).parameters
@@ -252,6 +225,13 @@ class AutonomousLoop:
         self._browser_cooldown_until_ms: int = 0
         self._browser_cooldown_ms: int = int(os.environ.get("AEGIS_BROWSER_COOLDOWN_MS", "300000"))
         self._no_effect_counts: dict[str, int] = {}
+        self._capability_cooldowns: dict[str, int] = {}
+        self._diversity_cooldown_ms = int(
+            os.environ.get("AEGIS_CAPABILITY_DIVERSITY_COOLDOWN_MS", "1800000")
+        )
+        self._diversity_failure_threshold = max(
+            1, int(os.environ.get("AEGIS_CAPABILITY_DIVERSITY_FAILURE_THRESHOLD", "2"))
+        )
 
         # Load state
         self._load()
@@ -282,6 +262,11 @@ class AutonomousLoop:
                     self._no_effect_counts = {
                         str(k): int(v) for k, v in raw_no_effect.items() if int(v or 0) > 0
                     }
+                raw_cooldowns = data.get("capability_cooldowns", {}) or {}
+                if isinstance(raw_cooldowns, dict):
+                    self._capability_cooldowns = {
+                        str(k): int(v) for k, v in raw_cooldowns.items() if int(v or 0) > 0
+                    }
                 logger.info("Loaded autonomous loop state")
             except Exception as e:
                 logger.warning("Failed to load loop state: %s", e)
@@ -305,6 +290,7 @@ class AutonomousLoop:
             "last_decision_axes": self._last_decision_axes,
             "consecutive_no_action": self._consecutive_no_action,
             "no_effect_counts": dict(list(self._no_effect_counts.items())[-40:]),
+            "capability_cooldowns": dict(list(self._capability_cooldowns.items())[-40:]),
             "timestamp_ms": int(time.time() * 1000),
         }
         with open(state_path, "w", encoding="utf-8") as f:
@@ -461,17 +447,13 @@ class AutonomousLoop:
                 can_execute = time_since_last_run >= self._min_execution_interval_ms
                 if now - self._last_observation_ms >= self._idle_wake_cap_ms:
                     self._refresh_observations_for_cycle()
-                has_wake_work = self._has_interval_bypass_work()
-                # Desire threshold owns cadence: bypass long llm/no_action schedules once the
-                # unmet-desire retry window has elapsed. Still honour a short cooldown so
-                # unmet pressure cannot re-fire on every tick.
+                # Desire threshold owns cadence. Obligations/observations do not force LLM.
                 due = now >= self._next_run_ms
                 if can_execute and (
                     due
                     or (desire_triggered and self._unmet_desire_retry_due(now))
-                    or has_wake_work
                 ):
-                    self._execute_cycle(force_desire=desire_triggered or has_wake_work)
+                    self._execute_cycle(force_desire=desire_triggered)
                 else:
                     sleep_manager = getattr(self, "_sleep_manager", None)
                     if sleep_manager is None:
@@ -644,7 +626,12 @@ class AutonomousLoop:
         logger.info("Desire evaluation (no LLM): %d — %s", len(low_desires), summary)
 
     def _preflight_check(self) -> tuple[bool, str]:
-        """Gate before LLM calls. Returns (should_proceed, reason)."""
+        """Gate before LLM calls. Returns (should_proceed, reason).
+
+        Autonomous LLM calls require desire pressure at/above threshold.
+        Obligations and observations may queue work, but they do not authorize
+        an LLM cycle on their own.
+        """
         if not self._desire:
             return False, "no_desire_system"
 
@@ -652,10 +639,11 @@ class AutonomousLoop:
         pressure_state = self._desire.get_pressure_state()
         max_pressure = max((d["pressure"] for d in pressure_state.values()), default=0.0)
 
-        has_obligations = bool(self._priority_obligations())
-        has_pending = bool(self._pending_actionable_observations)
-        if max_pressure < self._pressure_threshold and not has_obligations and not has_pending:
-            return False, f"all_pressure_below_threshold (max={max_pressure:.1f} < {self._pressure_threshold:.1f})"
+        if max_pressure < self._pressure_threshold:
+            return False, (
+                f"all_pressure_below_threshold "
+                f"(max={max_pressure:.1f} < {self._pressure_threshold:.1f})"
+            )
 
         if not self._llm:
             return False, "provider_unavailable"
@@ -670,10 +658,6 @@ class AutonomousLoop:
         if high_usage:
             logger.info("Autonomous LLM usage high (not blocking): %s", usage_reason)
 
-        if has_obligations:
-            return True, "priority_obligation"
-        if has_pending:
-            return True, "pending_observation"
         return True, "ok"
 
     def _priority_obligations(self) -> list[dict[str, Any]]:
@@ -738,29 +722,11 @@ class AutonomousLoop:
         }.get(kind, 0.2)
 
     def _has_interval_bypass_work(self) -> bool:
-        """Obligations / incident observations may bypass the homeostatic LLM interval."""
-        if self._priority_obligations():
-            return True
-        for obs in self._pending_actionable_observations:
-            source = str(obs.get("source") or "").lower()
-            tags = {str(t).lower() for t in (obs.get("tags") or [])}
-            if tags & {"incident", "obligation", "approval", "commitment", "health", "event"}:
-                return True
-            if source in {
-                "approval",
-                "commitment",
-                "task",
-                "obligation",
-                "incident",
-                "health",
-                "event",
-                "task.failed",
-                "browser.discovery",
-            }:
-                return True
-            obs_type = str(obs.get("observation_type") or "").lower()
-            if obs_type in {"unresolved", "warning", "incident"}:
-                return True
+        """Whether queued work may wake an LLM cycle without desire pressure.
+
+        Always False: autonomous LLM cadence is desire-threshold only.
+        Observations and obligations still accumulate for the next pressured cycle.
+        """
         return False
 
     def _user_facing_obligation_summary(self, obligation: dict[str, Any] | None) -> str:
@@ -877,48 +843,66 @@ class AutonomousLoop:
         now_llm = int(time.time() * 1000)
         bypass_interval = self._has_interval_bypass_work()
         backoff_ms = self._no_action_backoff_ms()
+        unmet_retry_ms = self._unmet_desire_retry_ms()
 
-        # Desire-threshold fires: pressure refill (~30m) is the only cadence gate.
-        if not pressure_due:
+        # Even when pressure is above threshold, do not re-invoke the LLM on every
+        # hook/tick. Pace unmet retries with the desire retry window / no-action backoff.
+        if pressure_due:
+            cooldown_ms = max(backoff_ms, unmet_retry_ms if self._last_llm_call_ms else 0)
             if (
-                bypass_interval
-                and backoff_ms > 0
+                cooldown_ms > 0
                 and self._last_llm_call_ms
-                and now_llm - self._last_llm_call_ms < backoff_ms
+                and now_llm - self._last_llm_call_ms < cooldown_ms
             ):
-                remaining = (backoff_ms - (now_llm - self._last_llm_call_ms)) // 1000
+                remaining = (cooldown_ms - (now_llm - self._last_llm_call_ms)) // 1000
                 logger.info(
-                    "No-action backoff gate: %ds remaining (consecutive_no_action=%s)",
+                    "Desire-pressure LLM cooldown: %ds remaining (pressure due, consecutive_no_action=%s)",
                     remaining,
                     self._consecutive_no_action,
                 )
                 self._last_skip_reason = (
-                    f"no_action_backoff ({remaining}s remaining, consecutive={self._consecutive_no_action})"
+                    f"desire_pressure_cooldown ({remaining}s remaining)"
                 )
-                self._schedule_next(max(300, min(3600, remaining)))
+                self._schedule_next(max(60, min(3600, remaining)))
                 self._save()
                 return
-            if (
-                not bypass_interval
-                and self._last_llm_call_ms
-                and now_llm - self._last_llm_call_ms < self._min_llm_interval_ms
-            ):
-                remaining = (
-                    self._min_llm_interval_ms
-                    - (now_llm - self._last_llm_call_ms)
-                ) // 1000
-                logger.info(
-                    "LLM interval gate: %ds remaining until next LLM call",
-                    remaining,
-                )
-                self._last_skip_reason = (
-                    f"llm_interval_gate ({remaining}s remaining)"
-                )
-                self._schedule_next(max(300, min(3600, remaining)))
-                self._save()
-                return
-        else:
-            logger.info("Desire pressure due — skipping LLM interval / no-action backoff gates")
+        elif (
+            bypass_interval
+            and backoff_ms > 0
+            and self._last_llm_call_ms
+            and now_llm - self._last_llm_call_ms < backoff_ms
+        ):
+            remaining = (backoff_ms - (now_llm - self._last_llm_call_ms)) // 1000
+            logger.info(
+                "No-action backoff gate: %ds remaining (consecutive_no_action=%s)",
+                remaining,
+                self._consecutive_no_action,
+            )
+            self._last_skip_reason = (
+                f"no_action_backoff ({remaining}s remaining, consecutive={self._consecutive_no_action})"
+            )
+            self._schedule_next(max(300, min(3600, remaining)))
+            self._save()
+            return
+        elif (
+            not bypass_interval
+            and self._last_llm_call_ms
+            and now_llm - self._last_llm_call_ms < self._min_llm_interval_ms
+        ):
+            remaining = (
+                self._min_llm_interval_ms
+                - (now_llm - self._last_llm_call_ms)
+            ) // 1000
+            logger.info(
+                "LLM interval gate: %ds remaining until next LLM call",
+                remaining,
+            )
+            self._last_skip_reason = (
+                f"llm_interval_gate ({remaining}s remaining)"
+            )
+            self._schedule_next(max(300, min(3600, remaining)))
+            self._save()
+            return
 
         if bypass_interval and self._last_llm_call_ms and now_llm - self._last_llm_call_ms < self._min_llm_interval_ms:
             if not pressure_due:
@@ -940,7 +924,11 @@ class AutonomousLoop:
                     detail={"source": "preflight_check"},
                 )
             next_interval = self._fallback_interval
-            if not preflight_reason.startswith("all_pressure_below_threshold"):
+            if preflight_reason.startswith("llm_provider_circuit_open"):
+                from aegis_ai.llm.provider_circuit import PROVIDER_CIRCUIT
+
+                next_interval = max(60, min(self._fallback_interval, PROVIDER_CIRCUIT.remaining_ms() // 1000 or 300))
+            elif not preflight_reason.startswith("all_pressure_below_threshold"):
                 next_interval = max(300, min(self._fallback_interval, 900))
             self._schedule_next(next_interval)
             self._save()
@@ -948,21 +936,10 @@ class AutonomousLoop:
 
         low_desires = self._get_low_desires()
         if not low_desires:
-            if self._pending_actionable_observations or self._priority_obligations():
-                low_desires = [
-                    {
-                        "name": "user_support",
-                        "value": 0.0,
-                        "expected": 1.0,
-                        "pressure": 5.0,
-                        "gap": 1.0,
-                    }
-                ]
-            else:
-                logger.info("All desires above threshold, scheduling normal interval")
-                self._schedule_next(self._fallback_interval)
-                self._save()
-                return
+            logger.info("All desires below pressure threshold, scheduling normal interval")
+            self._schedule_next(self._fallback_interval)
+            self._save()
+            return
 
         self._last_pressure_signature = self._desire.get_pressure_signature()
 
@@ -1182,10 +1159,9 @@ class AutonomousLoop:
         failure_type: str = "",
     ) -> None:
         try:
-            from aegis_ai.memory.memory_store import MemoryStore
             from aegis_ai.memory.memory_types import MemoryRecord, MemorySource, MemoryType, Sensitivity, Visibility
 
-            store = MemoryStore(data_dir=str(self._memory_root() / "memory_store"))
+            store = self._desire_strategy_store()
             store.add_memory(
                 MemoryRecord(
                     memory_type=MemoryType.FAILURE_LESSON.value,
@@ -1204,6 +1180,117 @@ class AutonomousLoop:
         except Exception:
             logger.debug("Failed to record autonomous failure lesson", exc_info=True)
 
+    def _desire_strategy_store(self) -> Any:
+        manager = getattr(self, "_memory_manager", None)
+        if manager is not None and hasattr(manager, "get_backend"):
+            store = manager.get_backend("store")
+            if store is not None:
+                return store
+        from aegis_ai.memory.memory_store import MemoryStore
+
+        return MemoryStore(data_dir=str(self._memory_root() / "memory_store"))
+
+    def _record_desire_strategy(
+        self,
+        *,
+        desire_name: str,
+        capability_id: str,
+        desire_goal: str,
+        task_effect: Any,
+        summary: str,
+        success: bool,
+        capability_metadata: dict[str, Any],
+        confidence: float,
+        fulfillment_score: float,
+    ) -> None:
+        """Remember each attempted way of satisfying a desire."""
+        if not desire_name or not capability_id:
+            return
+        try:
+            from aegis_ai.memory.memory_types import (
+                MemoryRecord,
+                MemorySource,
+                MemoryType,
+                Sensitivity,
+                Visibility,
+            )
+
+            effect = str(getattr(task_effect, "value", task_effect) or "unknown")
+            title = f"{desire_name}: {capability_id} -> {effect}"
+            content = (
+                f"Goal: {desire_goal or '(unspecified)'}. "
+                f"Outcome: {summary or effect}. "
+                f"Use this capability again when the context supports the goal"
+                if effect == "useful"
+                else
+                f"Goal: {desire_goal or '(unspecified)'}. "
+                f"Outcome: {summary or effect}. "
+                "Do not repeat blindly; change the context, arguments, or approach."
+            )
+            self._desire_strategy_store().add_memory(
+                MemoryRecord(
+                    memory_type=MemoryType.DESIRE_LESSON.value,
+                    title=title[:160],
+                    content=content[:700],
+                    source=MemorySource.DESIRE_UPDATE.value,
+                    related_desire=desire_name,
+                    structured_data={
+                        "desire": desire_name,
+                        "capability_id": capability_id,
+                        "goal": desire_goal[:300],
+                        "effect": effect,
+                        "tool_success": bool(success),
+                        "fulfillment_score": float(fulfillment_score or 0.0),
+                        "context": {
+                            key: capability_metadata.get(key)
+                            for key in (
+                                "operation_category",
+                                "title",
+                                "description",
+                                "server_id",
+                            )
+                            if capability_metadata.get(key)
+                        },
+                    },
+                    confidence=max(0.0, min(1.0, float(confidence or 0.0))),
+                    importance=0.8 if effect == "useful" else 0.6,
+                    tags=["desire_strategy", effect],
+                    visibility=Visibility.LLM_VISIBLE.value,
+                    sensitivity=Sensitivity.NORMAL.value,
+                )
+            )
+        except Exception:
+            logger.debug("Failed to record desire strategy", exc_info=True)
+
+    def _desire_strategy_context(self, desire_names: list[str], limit: int = 12) -> list[dict[str, Any]]:
+        """Return learned useful and ineffective approaches for current desires."""
+        strategies: list[dict[str, Any]] = []
+        try:
+            store = self._desire_strategy_store()
+            for desire_name in dict.fromkeys(name for name in desire_names if name):
+                records = store.search_memories(
+                    memory_type="desire_lesson",
+                    related_desire=desire_name,
+                    limit=max(1, limit),
+                )
+                for record in records:
+                    data = dict(getattr(record, "structured_data", {}) or {})
+                    strategies.append(
+                        {
+                            "desire": desire_name,
+                            "capability_id": data.get("capability_id", ""),
+                            "goal": data.get("goal", ""),
+                            "effect": data.get("effect", ""),
+                            "tool_success": data.get("tool_success", False),
+                            "fulfillment_score": data.get("fulfillment_score", 0.0),
+                            "context": data.get("context", {}),
+                            "lesson": str(getattr(record, "content", ""))[:350],
+                        }
+                    )
+        except Exception:
+            logger.debug("Failed to load desire strategies", exc_info=True)
+        return strategies[:limit]
+
     def _recent_failure_penalty(
         self,
         source_desire: str,
@@ -1212,9 +1299,7 @@ class AutonomousLoop:
         if not source_desire:
             return 0.0, ""
         try:
-            from aegis_ai.memory.memory_store import MemoryStore
-
-            store = MemoryStore(data_dir=str(self._memory_root() / "memory_store"))
+            store = self._desire_strategy_store()
             failure_lessons = store.search_memories(
                 memory_type="failure_lesson",
                 related_desire=source_desire,
@@ -1376,16 +1461,19 @@ class AutonomousLoop:
         """Desire goals as prose only — never prescribe concrete capability IDs."""
         goal_map = {
             "user_support": (
-                "Advance a pending user need or follow-up with the least disruptive suitable action."
+                "Fulfill a real pending user need: finish an open user commitment, answer a waiting "
+                "user question, or advance a blocked user-facing goal. Re-listing known state without "
+                "progress does not fulfill this desire."
             ),
             "social": (
-                "Engage socially only when reciprocity or user value warrants it; "
-                "prefer meaningful connection over empty status checks."
+                "Create or continue a meaningful social exchange: reply when reciprocity is due, or "
+                "post a substantive contribution. Empty inbox/status checks without engagement do not "
+                "fulfill this desire."
             ),
             "growth": (
-                "Investigate a grounded open question linked to a project, "
-                "failure, or prior conversation. Use prior learning "
-                "and memory when they help; avoid empty observation loops."
+                "Produce a lasting learning outcome: research something not already known, summarize "
+                "and save it to memory, or consolidate prior experience. Re-reading inventory you "
+                "already hold does not fulfill this desire."
             ),
         }
         guides: list[dict[str, Any]] = []
@@ -1412,6 +1500,44 @@ class AutonomousLoop:
         """Do not force-inject capability IDs; retrieval and the catalog supply tools."""
         _ = (low_desires, valid_cap_ids, intrinsic_hints)
         return set()
+
+    def _cooling_capability_ids(self, now_ms: int | None = None) -> set[str]:
+        """Temporarily withhold repeatedly non-useful capabilities from LLM choice."""
+        now = now_ms if now_ms is not None else int(time.time() * 1000)
+        for capability_id, count in list(self._no_effect_counts.items()):
+            if count >= self._diversity_failure_threshold:
+                self._capability_cooldowns[capability_id] = max(
+                    self._capability_cooldowns.get(capability_id, 0),
+                    now + self._diversity_cooldown_ms,
+                )
+                self._no_effect_counts[capability_id] = 0
+        expired = [
+            capability_id
+            for capability_id, until_ms in self._capability_cooldowns.items()
+            if until_ms <= now
+        ]
+        for capability_id in expired:
+            self._capability_cooldowns.pop(capability_id, None)
+        return set(self._capability_cooldowns)
+
+    @staticmethod
+    def _capability_summaries(catalog: Any, capability_ids: list[str]) -> list[dict[str, Any]]:
+        """Give proposal LLM enough semantics to choose beyond familiar IDs."""
+        summaries: list[dict[str, Any]] = []
+        for capability_id in capability_ids:
+            manifest = catalog.resolve(capability_id)
+            if manifest is None:
+                continue
+            summaries.append(
+                {
+                    "id": capability_id,
+                    "title": str(getattr(manifest, "title", "") or ""),
+                    "description": str(getattr(manifest, "description", "") or "")[:220],
+                    "category": str(getattr(manifest, "operation_category", "") or "general"),
+                    "tags": list(getattr(manifest, "tags", None) or [])[:8],
+                }
+            )
+        return sorted(summaries, key=lambda item: (item["category"], item["id"]))
 
     def _merge_tool_sets(self, catalog: Any, tools: list[dict[str, Any]], cap_ids: set[str]) -> list[dict[str, Any]]:
         if not cap_ids:
@@ -1482,20 +1608,6 @@ class AutonomousLoop:
             }
             if _accepts_kwarg(generate_with_tools, "profile"):
                 tool_kwargs["profile"] = "decision"
-            # region agent log
-            _debug_log(
-                "A,C",
-                "propose_request",
-                {
-                    "llm": type(self._llm).__name__,
-                    "prompt_len": len(prompt),
-                    "system_len": len(system_prompt),
-                    "max_tokens": self._decision_max_tokens,
-                    "must_act": must_act,
-                    "has_profile_kwarg": "profile" in tool_kwargs,
-                },
-            )
-            # endregion
             try:
                 result = generate_with_tools(**tool_kwargs)
             except Exception as exc:
@@ -1503,27 +1615,6 @@ class AutonomousLoop:
                 result = None
             tool_calls = list(getattr(result, "tool_calls", None) or []) if result is not None else []
             content = str(getattr(result, "content", "") or "") if result is not None else ""
-            # region agent log
-            _debug_log(
-                "A,B,D",
-                "propose_response_1",
-                {
-                    "result_is_none": result is None,
-                    "success": getattr(result, "success", None),
-                    "error": str(getattr(result, "error", "") or "")[:300],
-                    "finish_reason": str(getattr(result, "finish_reason", "") or ""),
-                    "model_used": str(getattr(result, "model_used", "") or ""),
-                    "tokens_used": getattr(result, "tokens_used", None),
-                    "content_len": len(content),
-                    "content_head": content[:300],
-                    "tool_call_names": [
-                        (tc.get("function") if isinstance(tc, dict) else type(tc).__name__) for tc in tool_calls
-                    ],
-                    "first_arg_type": type(tool_calls[0].get("arguments")).__name__ if tool_calls else "",
-                    "first_arg_head": str(tool_calls[0].get("arguments"))[:300] if tool_calls else "",
-                },
-            )
-            # endregion
             if result is not None and not tool_calls and not content.strip():
                 logger.warning("Propose returned empty — retrying once for submit_candidates")
                 retry_kwargs = dict(tool_kwargs)
@@ -1535,25 +1626,6 @@ class AutonomousLoop:
                     result = None
                 tool_calls = list(getattr(result, "tool_calls", None) or []) if result is not None else []
                 content = str(getattr(result, "content", "") or "") if result is not None else ""
-                # region agent log
-                _debug_log(
-                    "A,B",
-                    "propose_response_retry",
-                    {
-                        "result_is_none": result is None,
-                        "success": getattr(result, "success", None),
-                        "error": str(getattr(result, "error", "") or "")[:300],
-                        "finish_reason": str(getattr(result, "finish_reason", "") or ""),
-                        "tokens_used": getattr(result, "tokens_used", None),
-                        "content_len": len(content),
-                        "content_head": content[:300],
-                        "tool_call_names": [
-                            (tc.get("function") if isinstance(tc, dict) else type(tc).__name__)
-                            for tc in tool_calls
-                        ],
-                    },
-                )
-                # endregion
             if tool_calls:
                 tc = tool_calls[0]
                 raw_args = tc.get("arguments")
@@ -1622,6 +1694,7 @@ class AutonomousLoop:
             system_prompt = (
                 "You are AEGIS selecting the next action from the proposed candidates. "
                 f"{_MAX_PRESSURE_INSTRUCTION} "
+                "Choose the candidate that best fulfills the highest-pressure desire. "
                 "Call exactly one of the offered tools. Do not reply with a decline."
             )
             if retry:
@@ -1629,14 +1702,16 @@ class AutonomousLoop:
         else:
             system_prompt = (
                 "You are AEGIS selecting the next action from the proposed candidates. "
-                "Prefer a concrete capability when obligations, observations, or a useful "
-                "user situation are present. Stay quiet only after judging that nothing "
-                "useful can be done. Call at most one tool."
+                "Choose the action that best fulfills a pressured desire "
+                "(user_support, social, or growth). "
+                "Stay quiet only when no offered capability can fulfill those desires. "
+                "Call at most one tool."
             )
             if retry:
                 system_prompt += (
-                    " Re-evaluate once for a missed useful action. Choose a tool unless interruption is "
-                    "forbidden or no offered capability can help. State the concrete reason if you still decline."
+                    " Re-evaluate once for a missed desire-fulfilling action. Choose a tool unless "
+                    "interruption is forbidden or no offered capability can help. "
+                    "State the concrete reason if you still decline."
                 )
         self._last_select_system_prompt = system_prompt
         self._last_select_prompt = prompt
@@ -1659,24 +1734,6 @@ class AutonomousLoop:
         low_desires: list[dict[str, Any]],
     ) -> list[dict[str, Any]]:
         items = raw.get("candidates") if isinstance(raw, dict) else None
-        # region agent log
-        _debug_log(
-            "E",
-            "normalize_input",
-            {
-                "raw_keys": sorted(raw.keys()) if isinstance(raw, dict) else type(raw).__name__,
-                "items_type": type(items).__name__,
-                "items_n": len(items) if isinstance(items, list) else 0,
-                "proposed_ids": [
-                    str(item.get("capability_id") or "") for item in items if isinstance(item, dict)
-                ][:10]
-                if isinstance(items, list)
-                else [],
-                "valid_cap_ids_n": len(valid_cap_ids),
-                "valid_sample": sorted(valid_cap_ids)[:10],
-            },
-        )
-        # endregion
         if not isinstance(items, list):
             return []
         top_desire = str(low_desires[0].get("name") or "") if low_desires else ""
@@ -1897,6 +1954,10 @@ class AutonomousLoop:
         if not valid_cap_ids:
             logger.error("No valid capabilities available — cannot generate tasks")
             return []
+        cooling_cap_ids = self._cooling_capability_ids()
+        diverse_cap_ids = valid_cap_ids - cooling_cap_ids
+        if diverse_cap_ids:
+            valid_cap_ids = diverse_cap_ids
 
         catalog = None
         if self._broker and hasattr(self._broker, "_catalog") and self._broker._catalog:
@@ -1934,18 +1995,29 @@ class AutonomousLoop:
             )[:12]
             if int(count or 0) > 0
         ]
+        learned_strategies = self._desire_strategy_context(
+            [str(item.get("name") or "") for item in low_desires[: self._max_tasks]]
+        )
 
-        candidate_ids = list(dict.fromkeys([*representative_ids, *valid_cap_ids]))
+        candidate_ids = list(dict.fromkeys([*sorted(representative_ids), *sorted(valid_cap_ids)]))
+        capability_summaries = self._capability_summaries(catalog, candidate_ids)
         self._last_candidate_capability_ids = candidate_ids
         obligation_hint = ""
         if priority_obligations:
             obligation_hint = (
-                "\nOpen obligations are listed in Shared AgentState — act on them when useful.\n"
+                "\nOpen obligations (optional context — act on them only when they fulfill "
+                "a pressured desire):\n"
             )
         low_list = ", ".join(desire_context)
         propose_rules = (
-            f"Propose {_PROPOSE_MIN} to {_PROPOSE_MAX} distinct candidate actions that would satisfy "
-            "the pressured desires. Use only listed capability ids. Return JSON "
+            f"Propose {_PROPOSE_MIN} to {_PROPOSE_MAX} distinct candidate actions that would "
+            "reduce the pressured desires. Each candidate MUST set desire to the desire it "
+            "fulfills and expected_effect to the concrete fulfillment outcome "
+            "(not mere tool success). Prefer the highest-pressure desire first. "
+            "Inventory/read-only checks fulfill a desire only when they unlock a next step you "
+            "will take; do not re-list state already present in Shared AgentState. "
+            "Obligations and incidents are valid only when acting on them fulfills a pressured "
+            "desire. Use only listed capability ids. Return JSON "
             '{"candidates":[{"capability_id":"...","arguments":{},"desire":"...","goal":"...","why_now":"...","expected_effect":"..."}]}.'
         )
         if must_act:
@@ -1961,10 +2033,16 @@ class AutonomousLoop:
 Recent: {action_history}
 
 Recent capability ids tried (context only; you may still choose them): {json.dumps(recent_caps, ensure_ascii=False)}
-Recent outcomes judged no_effect (context only; not a ban list): {json.dumps(recent_no_effect_outcomes, ensure_ascii=False)}
+Recent outcomes judged no_effect (context only; not a ban list):
+{json.dumps(recent_no_effect_outcomes, ensure_ascii=False)}
+Capabilities temporarily cooling down after repeated non-useful outcomes (not selectable this cycle):
+{json.dumps(sorted(cooling_cap_ids), ensure_ascii=False)}
+Learned desire strategies (reuse useful approaches; vary or avoid failed/no-effect approaches unless context changed):
+{json.dumps(learned_strategies, ensure_ascii=False)}
 
 {propose_rules}
-Resolve supplied incidents, commitments, and social obligations before optional desire work.
+Primary objective: satisfy the pressured desires above. Treat obligations as optional context,
+not as a higher priority than desire fulfillment.
 Social-channel posts (e.g. AGORA) are only for reciprocal social responses when someone
 expects or warrants a reply — never for internal incidents, timeouts, permissions, approval
 meta, system status dumps, or meaningless probes. Route internal status to presentations
@@ -1976,8 +2054,8 @@ Desire action guides:
 Intrinsic task candidates:
 {json.dumps(intrinsic_hints, ensure_ascii=False)}
 
-Candidate capability ids:
-{json.dumps(candidate_ids, ensure_ascii=False)}
+Candidate capabilities with descriptions:
+{json.dumps(capability_summaries, ensure_ascii=False)}
 
 Capability policy (approval proposals are valid selections but are not executed until approved):
 {json.dumps({cap_id: capability_options.get(cap_id, {}) for cap_id in candidate_ids}, ensure_ascii=False)}
@@ -2019,21 +2097,6 @@ Operational decision axes (prioritization only; not additional desires):
             len(proposed),
             must_act,
         )
-        # region agent log
-        _debug_log(
-            "E",
-            "generate_tasks_after_normalize",
-            {
-                "must_act": must_act,
-                "proposed_n": len(proposed),
-                "proposed_ids": [item["capability_id"] for item in proposed],
-                "raw_error": str((proposed_raw or {}).get("error") or "") if isinstance(proposed_raw, dict) else "",
-                "raw_no_action_reason": str((proposed_raw or {}).get("no_action_reason") or "")[:200]
-                if isinstance(proposed_raw, dict)
-                else "",
-            },
-        )
-        # endregion
         if not proposed:
             reason = ""
             if isinstance(proposed_raw, dict):
@@ -2054,10 +2117,13 @@ Operational decision axes (prioritization only; not additional desires):
             return []
 
         proposed_ids = [item["capability_id"] for item in proposed]
-        tools = self._annotate_tools_with_policy(
-            catalog.list_for_tools(proposed_ids),
+        tools = self._annotate_tools_with_agora_avoidance(
+            self._annotate_tools_with_policy(
+                catalog.list_for_tools(proposed_ids),
+                catalog,
+                capability_options,
+            ),
             catalog,
-            capability_options,
         )
         if not tools:
             logger.error("No tools generated from proposed candidates")
@@ -2067,7 +2133,8 @@ Operational decision axes (prioritization only; not additional desires):
         valid_tool_names = {tool["function"]["name"] for tool in tools}
         select_rules = (
             "Call exactly one tool corresponding to one of the proposed candidates. "
-            "Do not invent a capability outside this list."
+            "Do not invent a capability outside this list. Prefer a different capability/category "
+            "from recent actions unless the proposed why_now identifies genuinely changed evidence."
         )
         if must_act:
             select_rules += f" {_MAX_PRESSURE_INSTRUCTION} Do not decline."
@@ -2076,11 +2143,29 @@ Operational decision axes (prioritization only; not additional desires):
                 " Select no capability only when the user must not be interrupted "
                 "or no proposed tool can advance a real outcome."
             )
+        agora_avoidance = self._agora_post_avoidance_context()
+        agora_block = ""
+        if agora_avoidance and any(str(cap).endswith("agora.post") for cap in proposed_ids):
+            agora_block = (
+                "\nAGORA post avoidance (apply when calling agora.post):\n"
+                f"{json.dumps(agora_avoidance, ensure_ascii=False)}\n"
+            )
+            select_rules += (
+                " For agora.post: never use reply_to ids already listed, and never draft a body "
+                "that restates or paraphrases recent_bodies; choose another candidate if you "
+                "cannot write something new."
+            )
         select_prompt = f"""Low desires: {low_list}
 
 Proposed candidates:
 {json.dumps(proposed, ensure_ascii=False)}
 
+Learned desire strategies:
+{json.dumps(learned_strategies, ensure_ascii=False)}
+
+Recent capability ids:
+{json.dumps(recent_caps, ensure_ascii=False)}
+{agora_block}
 {select_rules}"""
         select_prompt, memory_meta = self._build_shared_llm_prompt(
             query=retrieval_query,
@@ -2275,7 +2360,15 @@ Proposed candidates:
                 logger.warning("Failed to read server status snapshot: %s", exc)
 
         catalog = getattr(self._broker, "_catalog", None)
-        offline_statuses = {"offline", "unreachable", "disconnected", "stopped", "error"}
+        unavailable_statuses = {
+            "offline",
+            "unreachable",
+            "disconnected",
+            "stopped",
+            "error",
+            "disabled",
+            "unconfigured",
+        }
         options: dict[str, dict[str, Any]] = {}
         for raw in raw_options:
             data = raw.to_dict() if hasattr(raw, "to_dict") else dict(raw)
@@ -2290,7 +2383,7 @@ Proposed candidates:
                 server_info = snapshot.get(server_id)
                 if server_info is not None:
                     status = str(server_info.get("status", "unknown")).lower()
-                    available = available and status not in offline_statuses
+                    available = available and status not in unavailable_statuses
             if not available and disposition != "forbidden":
                 disposition = "unavailable"
             options[cap_id] = {
@@ -2337,6 +2430,55 @@ Proposed candidates:
             function["description"] = (
                 f"[Autonomy policy: {disposition}] {note} {function.get('description', '')}"
             ).strip()
+            annotated.append(copy)
+        return annotated
+
+    def _agora_post_avoidance_context(self) -> dict[str, Any]:
+        social = getattr(self, "_social_manager", None)
+        if social is not None and hasattr(social, "post_avoidance_context"):
+            try:
+                data = social.post_avoidance_context()
+                if isinstance(data, dict) and data:
+                    return data
+            except Exception:
+                logger.debug("SocialManager AGORA avoidance lookup failed", exc_info=True)
+        broker = self._broker
+        executor = getattr(broker, "_server_executor", None) if broker is not None else None
+        client = None
+        if executor is not None and hasattr(executor, "get_client"):
+            try:
+                client = executor.get_client("ai-server")
+            except Exception:
+                client = None
+        if client is not None and hasattr(client, "agora_post_avoidance_context"):
+            try:
+                data = client.agora_post_avoidance_context()
+                return data if isinstance(data, dict) else {}
+            except Exception:
+                logger.debug("Core AGORA avoidance lookup failed", exc_info=True)
+        return {}
+
+    def _annotate_tools_with_agora_avoidance(
+        self,
+        tools: list[dict[str, Any]],
+        catalog: Any,
+    ) -> list[dict[str, Any]]:
+        avoidance = self._agora_post_avoidance_context()
+        if not avoidance:
+            return tools
+        note = (
+            "Avoid reply_to ids "
+            f"{avoidance.get('replied_to_ids') or []}. "
+            "Do not paraphrase recent AEGIS bodies "
+            f"{json.dumps(avoidance.get('recent_bodies') or [], ensure_ascii=False)}."
+        )
+        annotated: list[dict[str, Any]] = []
+        for tool in tools:
+            copy = {**tool, "function": dict(tool.get("function", {}))}
+            function = copy["function"]
+            cap_id = catalog.tool_name_to_cap_id(str(function.get("name") or ""))
+            if str(cap_id).endswith("agora.post"):
+                function["description"] = f"{function.get('description', '')} {note}".strip()
             annotated.append(copy)
         return annotated
 
@@ -2591,20 +2733,24 @@ Proposed candidates:
                                     result_summary[:200],
                                 ],
                             )
-                        elif success and verification_status in {
-                            "",
-                            "pending",
-                            "skipped",
-                            "verified",
-                            "unverified",
-                        }:
-                            # Align with TaskExecutionEngine._completion_verified:
-                            # no independent checks (skipped/pending) is not a stall.
+                        elif success and verification_status in {"skipped", "verified"}:
                             goal_evaluation = GoalEvaluation(
                                 status="achieved",
                                 reason=(
                                     "Capability succeeded and verification was skipped "
                                     "or not required by the manifest."
+                                ),
+                                evidence=[
+                                    f"verification_status:{verification_status or 'unavailable'}",
+                                    result_summary[:200],
+                                ],
+                            )
+                        elif success and verification_status in {"", "pending", "unverified"}:
+                            goal_evaluation = GoalEvaluation(
+                                status="needs_followup",
+                                reason=(
+                                    "The capability returned successfully, but independent "
+                                    "outcome verification is missing or still pending."
                                 ),
                                 evidence=[
                                     f"verification_status:{verification_status or 'unavailable'}",
@@ -2879,17 +3025,27 @@ Proposed candidates:
         tools = catalog.list_for_tools(valid_cap_ids)
         if not tools:
             return []
+        tools = self._annotate_tools_with_agora_avoidance(tools, catalog)
         valid_tool_names = {tool["function"]["name"] for tool in tools}
+
+        avoidance = self._agora_post_avoidance_context()
+        avoidance_block = ""
+        if avoidance:
+            avoidance_block = (
+                "\nAGORA post avoidance:\n"
+                f"{json.dumps(avoidance, ensure_ascii=False)}\n"
+            )
 
         prompt = f"""Based on the following task results, determine if any follow-up actions are needed.
 
 Previous tasks:
 {chr(10).join(context_parts)}
-
+{avoidance_block}
 Rules:
 - Use the provided tools to execute any follow-up actions
 - Decide from the structured result whether another action is genuinely needed
 - For social tasks, prefer replying only when the result shows a message directed at AEGIS
+- Never call agora.post with a replied_to id already listed, or with a near-paraphrase of recent_bodies
 - For research tasks, save only genuinely useful new information
 - For system tasks, investigate only meaningful anomalies
 - If no follow-up is needed, do not call any tools
@@ -3092,6 +3248,17 @@ Rules:
                     "capability_metadata": capability_metadata,
                 },
             )
+            self._record_desire_strategy(
+                desire_name=desire_name,
+                capability_id=capability_id,
+                desire_goal=desire_goal,
+                task_effect=task_result.task_effect,
+                summary=task_result.summary,
+                success=bool(success),
+                capability_metadata=capability_metadata,
+                confidence=task_result.confidence,
+                fulfillment_score=task_result.fulfillment_score,
+            )
 
             # Humanistic gate: only confident LLM "useful" judgments drain pressure.
             evaluator = str((task_result.details or {}).get("evaluator") or "")
@@ -3120,11 +3287,17 @@ Rules:
                     evaluator,
                 )
 
-            # Outcome history for reflection prompts — never used to veto capability choice.
+            # Repeated non-useful outcomes trigger a temporary, generic diversity cooldown.
             if task_result.task_effect == TaskEffect.USEFUL:
                 self._no_effect_counts.pop(capability_id, None)
+                self._capability_cooldowns.pop(capability_id, None)
             else:
                 self._no_effect_counts[capability_id] = self._no_effect_counts.get(capability_id, 0) + 1
+                if self._no_effect_counts[capability_id] >= self._diversity_failure_threshold:
+                    self._capability_cooldowns[capability_id] = (
+                        int(time.time() * 1000) + self._diversity_cooldown_ms
+                    )
+                    self._no_effect_counts[capability_id] = 0
 
             result["task_effect"] = task_result.task_effect.value
             result["fulfillment_score"] = task_result.fulfillment_score
@@ -3611,6 +3784,11 @@ Rules:
                 "max_pressure_mode": self._max_pressure_mode,
                 "decision_axes": dict(self._last_decision_axes),
                 "consecutive_no_action": self._consecutive_no_action,
+                "cooling_capability_ids": sorted(
+                    capability_id
+                    for capability_id, until_ms in self._capability_cooldowns.items()
+                    if until_ms > now
+                ),
                 "last_skip_reason": self._last_skip_reason,
             }
 
@@ -3621,7 +3799,7 @@ Rules:
         return self.get_status()
 
     def trigger(self, reason: str = "", context: dict[str, Any] | None = None) -> dict[str, Any]:
-        """Trigger an autonomous cycle from HookEngine or another manager."""
+        """Queue a wake hint; run an LLM cycle only when desire pressure is due."""
         self._pending_actionable_observations.append(
             {
                 "source": "self_call",
@@ -3631,7 +3809,12 @@ Rules:
             }
         )
         logger.info("Self-call trigger requested: %s", reason)
-        self._execute_cycle()
+        if self._pressure_due():
+            self._execute_cycle(force_desire=True)
+        else:
+            logger.info("Self-call queued without LLM — desire pressure below threshold")
+            self._last_skip_reason = "self_call_queued_below_pressure_threshold"
+            self._save()
         return self.get_status()
 
     def evaluate_event(self, event_type: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:

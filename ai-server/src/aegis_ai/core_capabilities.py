@@ -48,8 +48,10 @@ class AegisCoreCapabilityClient:
         social_manager = self._personal.get("social_manager")
         if social_manager is not None:
             social_manager.set_cursor_updater("agora", self._agora.update_cursor)
+            if hasattr(social_manager, "set_post_avoidance_provider"):
+                social_manager.set_post_avoidance_provider(self._agora.post_avoidance_context)
         llm = self._personal.get("llm") or self._personal.get("llm_provider")
-        if llm is not None:
+        if llm is not None and hasattr(self._agora, "set_llm"):
             self._agora.set_llm(llm)
         self._refresh_agora_self_authors()
 
@@ -141,6 +143,11 @@ class AegisCoreCapabilityClient:
                 data_dir=str(self._data_dir),
                 llm_provider=self._personal.get("llm_provider"),
             )
+            manager = self._personal.get("memory_manager")
+            if manager is not None and result.ok and "person_memory" not in result.saved_to:
+                content = str(params.get("content", params.get("text", "")) or "").strip()
+                if content and manager.write_memory(content, memory_type="episodic", tags=["memory.save"]):
+                    result.saved_to.append("episodic")
             return result.to_dict()
         if capability_id.endswith(".search"):
             query = str(params.get("query") or "").strip()
@@ -336,6 +343,10 @@ class AegisCoreCapabilityClient:
                 "suitability": judgment,
             }
         return {"ok": True, "suitability": judgment}
+
+    def agora_post_avoidance_context(self) -> dict[str, Any]:
+        """Expose recent AEGIS posts / reply targets so callers avoid regenerating them."""
+        return self._agora.post_avoidance_context()
 
     def _refresh_agora_self_authors(self) -> None:
         """Wire SocialManager own-author skip from live AGORA identity."""

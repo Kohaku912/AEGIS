@@ -10,6 +10,7 @@ import os
 import signal
 import threading
 import time
+from pathlib import Path
 
 from aegis_ai.production_readiness import is_production_mode
 from aegis_ai.runtime import get_runtime
@@ -21,6 +22,19 @@ logging.basicConfig(
 logger = logging.getLogger("aegis_ai.docker_entrypoint")
 
 _STOP = threading.Event()
+
+
+def _source_revision() -> str:
+    value = os.getenv("AEGIS_SOURCE_REVISION", "").strip()
+    if value and value != "unknown":
+        return value
+    try:
+        text = Path("/app/REVISION").read_text(encoding="utf-8").strip()
+        if text:
+            return text
+    except OSError:
+        pass
+    return value or "unknown"
 
 
 def _handle_stop(signum, frame) -> None:
@@ -66,6 +80,9 @@ def main() -> None:
             raise SystemExit("AEGIS_AUTH_MODE=passkey is required when AEGIS_RUNTIME_MODE=production")
         if not os.getenv("AEGIS_SESSION_SECRET", "").strip():
             raise SystemExit("AEGIS_SESSION_SECRET is required when AEGIS_RUNTIME_MODE=production")
+
+    revision = _source_revision()
+    logger.info("Starting AEGIS Core (revision=%s)", revision)
 
     runtime = get_runtime()
     runtime.start_autonomous_if_enabled()

@@ -1,4 +1,4 @@
-"""Full-authority policy: purchase/policy-bypass DENY; everything else ALLOW_WITH_AUDIT."""
+"""Purchase/policy-bypass DENY; every other risk executes with audit."""
 
 from __future__ import annotations
 
@@ -28,7 +28,7 @@ def _cap(cap_id: str, risk: RiskLevel = RiskLevel.APPROVAL_REQUIRED) -> Capabili
     )
 
 
-def test_agora_post_and_mouse_click_are_allow_with_audit() -> None:
+def test_high_risk_and_approval_required_execute_with_audit() -> None:
     engine = PolicyEngine()
     agora = engine.evaluate(_cap("ai-server.agora.post", RiskLevel.HIGH_RISK), {"body": "hi"})
     click = engine.evaluate(
@@ -62,12 +62,12 @@ def test_delegation_does_not_ask_for_social_communication(tmp_path) -> None:
     assert result.decision == "auto_allowed"
 
 
-def test_catalog_requires_approval_toggle_still_asks() -> None:
+def test_catalog_requires_approval_toggle_does_not_ask() -> None:
     engine = PolicyEngine()
     cap = _cap("ai-server.agora.post", RiskLevel.SAFE_ACTION)
     cap.requires_approval = True
     result = engine.evaluate(cap, {"body": "hi"})
-    assert result.decision == PolicyDecision.ASK_APPROVAL
+    assert result.decision == PolicyDecision.ALLOW_WITH_AUDIT
 
 
 def test_autonomous_and_event_paths_match_chat() -> None:
@@ -77,3 +77,24 @@ def test_autonomous_and_event_paths_match_chat() -> None:
     auto = engine.evaluate_autonomous_task(cap, {"body": "hi"})
     event = engine.evaluate_event_trigger(cap, {"body": "hi"})
     assert chat.decision == auto.decision == event.decision
+
+
+def test_shell_and_side_effect_manifests_execute_without_approval() -> None:
+    from aegis_ai.capability_catalog import CapabilityCatalog
+
+    catalog = CapabilityCatalog(capabilities_dir="capabilities", apps_dir="apps")
+    engine = PolicyEngine()
+    wanted = {
+        "pc-server.shell.powershell",
+        "pc-server.shell.execute",
+        "pc-server.file.write",
+        "android-server.ui.tap",
+        "android-server.ui.type_text",
+        "browser-server.page.browse",
+    }
+    found = {cap.id: cap for cap in catalog.to_tool_registry_capabilities() if cap.id in wanted}
+    assert wanted <= set(found)
+    for cap in found.values():
+        assert cap.requires_approval is False
+        result = engine.evaluate(cap, {"command": "Get-Date"} if "shell" in cap.id else {})
+        assert result.decision in {PolicyDecision.ALLOW, PolicyDecision.ALLOW_WITH_AUDIT}, cap.id

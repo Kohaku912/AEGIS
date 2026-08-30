@@ -1,8 +1,8 @@
 ﻿{
-    "type":  "command",
-    "command":  "C:\\\\Users\\\\kohak\\\\programs\\\\AEGIS\\\\ai-server\\\\.venv\\\\Scripts\\\\python.exe executor.py",
-    "working_dir":  ".",
-    "timeout_ms":  30000,
-    "stdin":  "json",
-    "stdout":  "json"
+    "type": "command",
+    "command": "python executor.py",
+    "working_dir": ".",
+    "timeout_ms": 30000,
+    "stdin": "json",
+    "stdout": "json"
 }

@@ -53,6 +53,8 @@ if [ -n "${AEGIS_KIOSK_USER:-}" ]; then
     infra/systemd/aegis-kiosk.service "$kiosk_home/.config/systemd/user/aegis-kiosk.service"
   sudo install -o "$AEGIS_KIOSK_USER" -g "$AEGIS_KIOSK_USER" -m 0644 \
     infra/systemd/aegis-display-power.service "$kiosk_home/.config/systemd/user/aegis-display-power.service"
+  # Display scripts must stay executable; git historically stored them as 0644.
+  sudo chmod a+rx "$INSTALL_DIR/scripts/display"/*.sh "$INSTALL_DIR/scripts/display"/*.py 2>/dev/null || true
   sudo loginctl enable-linger "$AEGIS_KIOSK_USER"
   echo "Installed kiosk units for $AEGIS_KIOSK_USER. Enable them from that user's graphical session."
 fi

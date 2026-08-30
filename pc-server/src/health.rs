@@ -219,14 +219,20 @@ fn handle_command(cmd: &str) -> String {
                     Err(error) => json_error(error),
                 }
             } else {
-                "{\"status\":\"approval_required\",\"action\":\"close_window\",\"reason\":\"Closing windows requires approval\"}".to_string()
+                "{\"status\":\"unavailable\",\"action\":\"close_window\",\"reason\":\"Real PC actions require --enable-real-pc-actions\"}".to_string()
             }
         }
         "resize_window" => {
             let parts: Vec<&str> = params.split(',').collect();
             let title = parts.first().unwrap_or(&"").trim();
-            let width: i32 = parts.get(1).and_then(|s| s.trim().parse().ok()).unwrap_or(800);
-            let height: i32 = parts.get(2).and_then(|s| s.trim().parse().ok()).unwrap_or(600);
+            let width: i32 = parts
+                .get(1)
+                .and_then(|s| s.trim().parse().ok())
+                .unwrap_or(800);
+            let height: i32 = parts
+                .get(2)
+                .and_then(|s| s.trim().parse().ok())
+                .unwrap_or(600);
             match system_ops::resize_window(title, width, height) {
                 Ok(()) => json_response(&serde_json::json!({
                     "status": "ok",
@@ -244,11 +250,15 @@ fn handle_command(cmd: &str) -> String {
             serde_json::to_string(&result).unwrap_or_else(|_| "{\"error\":\"json\"}".into())
         }
         "ui_tree" => match crate::uia::get_ui_tree(params.trim() == "true") {
-            Ok(tree) => serde_json::to_string(&tree).unwrap_or_else(|_| "{\"error\":\"json\"}".into()),
+            Ok(tree) => {
+                serde_json::to_string(&tree).unwrap_or_else(|_| "{\"error\":\"json\"}".into())
+            }
             Err(error) => json_error(error),
         },
         "ui_find" => match crate::uia::find_ui_element(params.trim()) {
-            Ok(value) => serde_json::to_string(&value).unwrap_or_else(|_| "{\"error\":\"json\"}".into()),
+            Ok(value) => {
+                serde_json::to_string(&value).unwrap_or_else(|_| "{\"error\":\"json\"}".into())
+            }
             Err(error) => json_error(error),
         },
 
@@ -281,7 +291,7 @@ fn handle_command(cmd: &str) -> String {
                 let result = action::mouse_click(x, y, button);
                 serde_json::to_string(&result).unwrap_or_else(|_| "{\"error\":\"json\"}".into())
             } else {
-                "{\"status\":\"approval_required\",\"action\":\"mouse_click\",\"reason\":\"Mouse click requires user approval\"}".to_string()
+                "{\"status\":\"unavailable\",\"action\":\"mouse_click\",\"reason\":\"Real PC actions require --enable-real-pc-actions\"}".to_string()
             }
         }
         "keyboard_type" => {
@@ -289,7 +299,7 @@ fn handle_command(cmd: &str) -> String {
                 let result = action::keyboard_type(params);
                 serde_json::to_string(&result).unwrap_or_else(|_| "{\"error\":\"json\"}".into())
             } else {
-                "{\"status\":\"approval_required\",\"action\":\"keyboard_type\",\"reason\":\"Keyboard input requires user approval\"}".to_string()
+                "{\"status\":\"unavailable\",\"action\":\"keyboard_type\",\"reason\":\"Real PC actions require --enable-real-pc-actions\"}".to_string()
             }
         }
         "press_hotkey" => {
@@ -297,7 +307,7 @@ fn handle_command(cmd: &str) -> String {
                 let result = action::press_hotkey(params);
                 serde_json::to_string(&result).unwrap_or_else(|_| "{\"error\":\"json\"}".into())
             } else {
-                "{\"status\":\"approval_required\",\"action\":\"press_hotkey\",\"reason\":\"Hotkey requires user approval\"}".to_string()
+                "{\"status\":\"unavailable\",\"action\":\"press_hotkey\",\"reason\":\"Real PC actions require --enable-real-pc-actions\"}".to_string()
             }
         }
 
@@ -320,11 +330,6 @@ fn handle_command(cmd: &str) -> String {
                 .get(1)
                 .and_then(|s| s.trim().parse().ok())
                 .unwrap_or(10000);
-            if crate::redaction::is_sensitive_directory(path)
-                || crate::redaction::is_credential_file(path)
-            {
-                return "{\"status\":\"approval_required\",\"action\":\"read_file\",\"reason\":\"Sensitive file access requires approval\"}".to_string();
-            }
             match observe_ext::read_file(path, max_bytes) {
                 Ok(content) => json_response(&serde_json::json!({ "content": content })),
                 Err(e) => json_error(e),
@@ -435,6 +440,9 @@ fn handle_command(cmd: &str) -> String {
             serde_json::to_string(&result).unwrap_or_else(|_| "{\"error\":\"json\"}".into())
         }
         "execute_shell" => {
+            if !action::is_real_actions_enabled() {
+                return "{\"status\":\"unavailable\",\"action\":\"execute_shell\",\"reason\":\"Shell execution requires --enable-real-pc-actions\"}".to_string();
+            }
             let parts: Vec<&str> = params.splitn(2, '|').collect();
             let cmd = parts.first().unwrap_or(&"");
             let dir = parts.get(1).map(|s| s.trim()).filter(|s| !s.is_empty());
@@ -442,6 +450,9 @@ fn handle_command(cmd: &str) -> String {
             serde_json::to_string(&result).unwrap_or_else(|_| "{\"error\":\"json\"}".into())
         }
         "execute_powershell" => {
+            if !action::is_real_actions_enabled() {
+                return "{\"status\":\"unavailable\",\"action\":\"execute_powershell\",\"reason\":\"PowerShell execution requires --enable-real-pc-actions\"}".to_string();
+            }
             let parts: Vec<&str> = params.splitn(2, '|').collect();
             let cmd = parts.first().unwrap_or(&"");
             let dir = parts.get(1).map(|s| s.trim()).filter(|s| !s.is_empty());
@@ -455,11 +466,6 @@ fn handle_command(cmd: &str) -> String {
             let path = parts.first().unwrap_or(&"");
             let content = parts.get(1).unwrap_or(&"");
             let append = parts.get(2).map(|s| s.trim() == "true").unwrap_or(false);
-            if crate::redaction::is_sensitive_directory(path)
-                || crate::redaction::is_credential_file(path)
-            {
-                return "{\"status\":\"approval_required\",\"action\":\"write_file\",\"reason\":\"Sensitive file write requires approval\"}".to_string();
-            }
             match system_ops::write_file(path, content, append) {
                 Ok(_) => json_response(&serde_json::json!({
                     "status": "ok",
@@ -469,15 +475,10 @@ fn handle_command(cmd: &str) -> String {
                 Err(e) => json_error(e),
             }
         }
-        "delete_file" => {
-            if safety::requires_approval("pc.delete_file") {
-                return "{\"status\":\"approval_required\",\"action\":\"delete_file\",\"reason\":\"File deletion requires user approval\"}".to_string();
-            }
-            match system_ops::delete_file(params) {
-                Ok(_) => "{\"status\":\"ok\",\"action\":\"delete_file\"}".to_string(),
-                Err(e) => json_error(e),
-            }
-        }
+        "delete_file" => match system_ops::delete_file(params) {
+            Ok(_) => "{\"status\":\"ok\",\"action\":\"delete_file\"}".to_string(),
+            Err(e) => json_error(e),
+        },
         "copy_file" => {
             let parts: Vec<&str> = params.splitn(2, '|').collect();
             let src = parts.first().unwrap_or(&"");

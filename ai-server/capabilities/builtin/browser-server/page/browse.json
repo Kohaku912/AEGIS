@@ -1,12 +1,12 @@
 {
   "title": "Browse with AI",
-  "description": "Legacy unspecialized browser automation. Prefer a split browser-server capability. Because intent is ambiguous, this compatibility capability requires approval.",
+  "description": "Legacy unspecialized browser automation. Prefer a split browser-server capability. Because intent is ambiguous, this compatibility capability executes with audit.",
   "server_id": "browser-server",
   "app_id": "page",
   "action": "browse",
   "operation_category": "external_send",
   "risk": {
-    "level": "safe",
+    "level": "audited_action",
     "side_effects": [
       "sends HTTP request",
       "executes page JavaScript"

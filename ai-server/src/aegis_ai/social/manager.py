@@ -81,6 +81,7 @@ class SocialManager:
         self._self_author_names = self_author_names or set()
         self._cursor_updaters: dict[str, Callable[[int], Any]] = {}
         self._relationship_provider: Callable[[SocialInboxItem], dict[str, Any]] | None = None
+        self._post_avoidance_provider: Callable[[], dict[str, Any]] | None = None
         self._agent_state: Any = None
         self._processing_lock = threading.RLock()
         self._processing_ids: set[str] = set()
@@ -108,6 +109,20 @@ class SocialManager:
     def set_agent_state(self, agent_state: Any) -> None:
         """Use the same state snapshot as conversation and autonomy."""
         self._agent_state = agent_state
+
+    def set_post_avoidance_provider(self, provider: Callable[[], dict[str, Any]] | None) -> None:
+        """Optional AGORA (or other) avoidance facts for draft generation."""
+        self._post_avoidance_provider = provider
+
+    def post_avoidance_context(self) -> dict[str, Any]:
+        if self._post_avoidance_provider is None:
+            return {}
+        try:
+            data = self._post_avoidance_provider()
+        except Exception:
+            logger.debug("post avoidance provider failed", exc_info=True)
+            return {}
+        return data if isinstance(data, dict) else {}
 
     def set_self_authors(
         self,
@@ -269,6 +284,40 @@ class SocialManager:
     def triage(self, item_id: str, *, relationship: dict[str, Any] | None = None) -> SocialInboxItem:
         item = self._require(item_id)
         item.relationship = relationship or item.relationship
+        if self._has_active_or_completed_reply(item):
+            item.decision = "skip"
+            item.status = SocialInboxStatus.SKIPPED
+            item.draft_body = ""
+            item.decision_reason = (
+                "Reply-once: an approval or completed reply already exists for this message."
+            )
+            saved = self._save(item)
+            self._publish("social.inbox.triaged", saved)
+            self._advance_processed_cursor(item.channel)
+            return saved
+
+        avoidance = self.post_avoidance_context()
+        replied_ids = {
+            int(x)
+            for x in (avoidance.get("replied_to_ids") or [])
+            if str(x).lstrip("-").isdigit() or isinstance(x, int)
+        }
+        try:
+            external_id = int(item.external_message_id)
+        except (TypeError, ValueError):
+            external_id = 0
+        if external_id and external_id in replied_ids:
+            item.decision = "skip"
+            item.status = SocialInboxStatus.SKIPPED
+            item.draft_body = ""
+            item.decision_reason = (
+                f"Already replied to post #{external_id}; skipped before drafting."
+            )
+            saved = self._save(item)
+            self._publish("social.inbox.triaged", saved)
+            self._advance_processed_cursor(item.channel)
+            return saved
+
         if self._llm is None:
             item.status = SocialInboxStatus.RETRY_PENDING
             item.decision = "observe_more"
@@ -287,11 +336,16 @@ Relationship context:
 Shared AgentState:
 {json.dumps(self._agent_state.snapshot(item.body).to_dict() if self._agent_state else {}, ensure_ascii=False)}
 
+Post avoidance (do not re-answer or paraphrase these):
+{json.dumps(avoidance, ensure_ascii=False)}
+
 Rules:
 - Reply when a social reply would help the user or continue a real conversation.
-- Skip only when a reply would be noise, spam, or an internal status dump.
-- draft_body must be a genuine social reply. Never draft internal system status, approval meta,
-  test probes, or duplicate answers to a thread AEGIS already handled.
+- Skip when AEGIS already answered this message id, when a reply would be noise/spam,
+  or when the only draft you can write would restate a recent AEGIS body.
+- draft_body must be a genuine social reply with new substance. Never draft internal
+  system status, approval meta, test probes, duplicate answers, or near-paraphrases
+  of recent AEGIS posts listed above.
 
 Return:
 {{
@@ -324,6 +378,13 @@ Return:
                 item.status = SocialInboxStatus.SKIPPED
                 item.draft_body = ""
                 item.decision_reason = "Reply chosen without draft body; skipped."
+            elif self._draft_matches_recent_bodies(draft, avoidance):
+                item.decision = "skip"
+                item.status = SocialInboxStatus.SKIPPED
+                item.draft_body = ""
+                item.decision_reason = (
+                    "Draft was a near-duplicate of a recent AEGIS post; skipped before posting."
+                )
             else:
                 item.status = SocialInboxStatus.NEEDS_REPLY
                 item.draft_body = draft
@@ -340,6 +401,13 @@ Return:
         self._publish("social.inbox.triaged", item)
         self._advance_processed_cursor(item.channel)
         return item
+
+    @staticmethod
+    def _draft_matches_recent_bodies(draft: str, avoidance: dict[str, Any]) -> bool:
+        from aegis_ai.integrations.agora.agora_service import bodies_are_near_duplicates
+
+        recent = [str(b) for b in (avoidance.get("recent_bodies") or []) if str(b).strip()]
+        return any(bodies_are_near_duplicates(draft, prior) for prior in recent)
 
     def process_new_items(
         self,

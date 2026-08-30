@@ -73,8 +73,12 @@ _TASK_TEMPLATES: dict[str, list[_TaskTemplate]] = {
     ],
     "social": [
         _TaskTemplate(
-            title="Read AGORA posts and check for mentions",
-            description="Read recent AGORA posts, check for mentions directed at AEGIS.",
+            title="Check social channels for directed interactions",
+            description=(
+                "Check available social channels, including authenticated browser-based SNS and AGORA, "
+                "for replies, mentions, or conversations directed at AEGIS. Prefer the channel with "
+                "fresh evidence instead of repeatedly polling one service."
+            ),
             expected_desire_effects={"social": 1.5, "user_support": 0.3},
             required_capabilities=[],
             risk_level=RiskLevel.NONE,
@@ -82,11 +86,13 @@ _TASK_TEMPLATES: dict[str, list[_TaskTemplate]] = {
             cooldown_seconds=1800,
         ),
         _TaskTemplate(
-            title="Consider a directed AGORA social reply",
+            title="Respond through the appropriate social channel",
             description=(
                 "Only when there is a directed social obligation or clear reciprocity, "
-                "consider a genuine AGORA reply. Do not cold-open, post system status, "
-                "or invent a message without a social reason."
+                "consider a genuine reply or reaction where the interaction occurred. Browser-based "
+                "SNS may be used through an authenticated session with the available social reaction "
+                "or posting action. Read the context before acting; do not cold-open, post system "
+                "status, or invent a message without a social reason."
             ),
             expected_desire_effects={"social": 2.0, "growth": 0.3},
             required_capabilities=[],

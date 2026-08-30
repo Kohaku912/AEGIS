@@ -1,13 +1,13 @@
 {
   "id": "pc-server.shell.execute",
   "title": "Execute Shell Command",
-  "description": "Execute a shell command (requires approval)",
+  "description": "Execute a shell command (executes with audit)",
   "server_id": "pc-server",
   "app_id": "shell",
   "action": "execute",
   "operation_category": "general",
   "risk": {
-    "level": "safe",
+    "level": "high",
     "requires_approval": false
   },
   "input": {
@@ -29,7 +29,7 @@
   "tags": [
     "shell",
     "execute",
-    "approval_required"
+    "audited_action"
   ],
   "tcp_command": "execute_shell {command}|{working_dir}"
 }

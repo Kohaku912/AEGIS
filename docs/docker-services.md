@@ -2,7 +2,7 @@
 
 This compose setup runs the containerized AEGIS services:
 
-- `ai-server`: gRPC `50051`, Dashboard `8090`, Web Chat `8091`
+- `ai-server`: gRPC `50051`, Dashboard `8090` (SPA chat at `/chat`)
 - `browser-server`: HTTP `50053`
 - `room-server`: gRPC `50055`
 - `dev-server`: gRPC `50056`
@@ -63,7 +63,7 @@ docker compose logs -f ai-server browser-server room-server dev-server
 Expected endpoints:
 
 - Dashboard: `http://localhost:8090`
-- Web Chat: `http://localhost:8091`
+- Chat: `http://localhost:8090/chat`
 - Browser health: `http://localhost:50053/health`
 - AI gRPC: `localhost:50051`
 - Room gRPC: `localhost:50055`
@@ -75,14 +75,7 @@ Expected endpoints:
 - The AI container reaches peer services by Compose DNS: `browser-server`, `room-server`, and `dev-server`.
 - PC Server remains host-native and is reached from containers through `host.docker.internal:50052`.
 - Android is not a container. Install the APK on the device and connect it to exposed AI gRPC `50051`.
-- `AEGIS_MIN_LLM_INTERVAL_MS` defaults to `1800000`, so high-pressure autonomous desire cycles can ask the LLM at most once every 30 minutes.
-- `AGORA_TOKEN`, LLM keys, and Android pairing tokens must come from `.env`; never bake them into images.
-
-## Current Canonical Topology
-
-- Docker Compose owns `ai-server`, `browser-server`, `room-server`, and `dev-server`.
-- The AI container reaches peer services by Compose DNS: `browser-server`, `room-server`, and `dev-server`.
-- PC Server remains host-native and is reached from containers through `host.docker.internal:50052`.
-- Android is not a container. Install the APK on the device and connect it to exposed AI gRPC `50051`.
+- Canonical deploy is image rebuild (`scripts/rebuild-ai-server.ps1` or `scripts/ubuntu/start.sh`). Partial `docker cp` is emergency-only.
+- `/health` reports `revision` from `AEGIS_SOURCE_REVISION`.
 - `AEGIS_MIN_LLM_INTERVAL_MS` defaults to `1800000`, so high-pressure autonomous desire cycles can ask the LLM at most once every 30 minutes.
 - `AGORA_TOKEN`, LLM keys, and Android pairing tokens must come from `.env`; never bake them into images.

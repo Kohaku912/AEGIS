@@ -160,22 +160,46 @@ class MemoryManager:
     ) -> list[dict[str, Any]]:
         """Search across all memory backends."""
         results: list[dict[str, Any]] = []
-        types = types or ["episodic", "semantic", "lesson", "skill", "workflow", "preference"]
+        types = types or [
+            "episodic",
+            "semantic",
+            "lesson",
+            "skill",
+            "workflow",
+            "preference",
+            "desire_lesson",
+            "failure_lesson",
+        ]
+        per = max(1, limit // max(len(types), 1) + 1)
 
         for mem_type in types:
             backend = self._select_backend(mem_type)
             if backend is None:
                 continue
             try:
+                hits: list[Any] = []
                 if hasattr(backend, "search_memories"):
-                    store_type = "user_preference" if mem_type == "preference" else mem_type
-                    hits = backend.search_memories(query=query, memory_type=store_type, limit=limit // len(types) + 1)
-                    for h in hits:
-                        results.append(self._normalize_hit(h, mem_type, "search"))
+                    store_type = "user_preference" if mem_type in {"preference", "user_preference"} else mem_type
+                    hits = backend.search_memories(query=query, memory_type=store_type, limit=per)
                 elif hasattr(backend, "search"):
-                    hits = backend.search(query, limit=limit // len(types) + 1)
-                    for h in hits:
-                        results.append(self._normalize_hit(h, mem_type, "search"))
+                    try:
+                        hits = backend.search(query, limit=per)
+                    except TypeError:
+                        hits = backend.search(query)
+                elif hasattr(backend, "recall_similar"):
+                    hits = backend.recall_similar(query, count=per)
+                elif hasattr(backend, "get_relevant"):
+                    try:
+                        hits = backend.get_relevant(query, count=per)
+                    except TypeError:
+                        hits = backend.get_relevant(query)
+                elif hasattr(backend, "find_relevant"):
+                    try:
+                        hits = backend.find_relevant(query, count=per)
+                    except TypeError:
+                        hits = backend.find_relevant(query)
+                for h in hits or []:
+                    results.append(self._normalize_hit(h, mem_type, "search"))
             except Exception:
                 logger.debug("Search failed for %s", mem_type, exc_info=True)
 
@@ -186,14 +210,21 @@ class MemoryManager:
         if query:
             return self.search_memory(query, types=["episodic", "experience", "conversation"], limit=limit)
         results: list[dict[str, Any]] = []
-        if self._episodic and hasattr(self._episodic, "list_recent"):
-            try:
-                results.extend(
-                    {"type": "episodic", "content": str(item)[:500], "source": "recent"}
-                    for item in self._episodic.list_recent(limit)
-                )
-            except Exception:
-                logger.debug("Episodic recent lookup failed", exc_info=True)
+        if self._episodic is None:
+            return results[:limit]
+        try:
+            if hasattr(self._episodic, "recall_recent"):
+                items = self._episodic.recall_recent(count=limit)
+            elif hasattr(self._episodic, "list_recent"):
+                items = self._episodic.list_recent(limit)
+            else:
+                items = []
+            results.extend(
+                {"type": "episodic", "content": str(item)[:500], "source": "recent"}
+                for item in items
+            )
+        except Exception:
+            logger.debug("Episodic recent lookup failed", exc_info=True)
         return results[:limit]
 
     def search_semantic(self, query: str, limit: int = 10) -> list[dict[str, Any]]:
@@ -227,8 +258,13 @@ class MemoryManager:
         """Build memory context for a task."""
         parts: list[str] = []
 
-        if self._episodic and hasattr(self._episodic, "list_recent"):
-            recent = self._episodic.list_recent(5)
+        if self._episodic is not None:
+            if hasattr(self._episodic, "recall_recent"):
+                recent = self._episodic.recall_recent(count=5)
+            elif hasattr(self._episodic, "list_recent"):
+                recent = self._episodic.list_recent(5)
+            else:
+                recent = []
             if recent:
                 parts.append("Recent episodes:")
                 for ep in recent:
@@ -291,18 +327,26 @@ class MemoryManager:
 
             if self._episodic is not None:
                 try:
-                    from aegis_ai.memory.episodic import Episode
-
-                    summary = f"User: {user_msg[:240]}"
-                    if bot_msg:
-                        summary += f" | AEGIS: {bot_msg[:240]}"
-                    self._episodic.add(
-                        Episode(
-                            summary=summary,
+                    if hasattr(self._episodic, "record"):
+                        self._episodic.record(
+                            action=user_msg[:1000] or "chat",
+                            observation=bot_msg[:1000],
                             category="conversation",
-                            detail={"source": source, "user": user_msg[:1000], "bot": bot_msg[:1000]},
+                            tags=["chat", source],
                         )
-                    )
+                    else:
+                        from aegis_ai.memory.episodic import Episode
+
+                        summary = f"User: {user_msg[:240]}"
+                        if bot_msg:
+                            summary += f" | AEGIS: {bot_msg[:240]}"
+                        self._episodic.add(
+                            Episode(
+                                summary=summary,
+                                category="conversation",
+                                detail={"source": source, "user": user_msg[:1000], "bot": bot_msg[:1000]},
+                            )
+                        )
                     result["episodic"] = True
                 except Exception:
                     logger.exception("Episodic conversation encode failed")
@@ -319,7 +363,7 @@ class MemoryManager:
         """Classify content into memory type. Uses LLM if available."""
         if self._llm is not None:
             try:
-                memory_types = "episodic, semantic, skill, lesson, workflow, preference, person"
+                memory_types = "episodic, semantic, skill, lesson, workflow, preference, person, desire_lesson"
                 result = self._llm.generate(
                     prompt=f"Classify this into one of: {memory_types}\n\n{content[:500]}",
                     max_tokens=20,
@@ -332,21 +376,31 @@ class MemoryManager:
                     text = str(result.get("text") or result.get("content") or "").strip().lower()
                 else:
                     text = str(result or "").strip().lower()
-                for t in ["episodic", "semantic", "skill", "lesson", "workflow", "preference", "person"]:
+                for t in ["desire_lesson", "episodic", "semantic", "skill", "lesson", "workflow", "preference", "person"]:
                     if t in text:
                         return t
             except Exception:
                 pass
         return "episodic"
 
+    _STORE_DEDUP_TYPES = (
+        "failure_lesson",
+        "approval_lesson",
+        "desire_lesson",
+        "safety_lesson",
+        "user_preference",
+    )
+
     def deduplicate(self) -> int:
         """Merge duplicate memories. Returns count merged."""
         count = 0
         if self._store and hasattr(self._store, "merge_similar_lessons"):
-            try:
-                count = self._store.merge_similar_lessons()
-            except Exception:
-                logger.debug("Dedup failed", exc_info=True)
+            for memory_type in self._STORE_DEDUP_TYPES:
+                try:
+                    merged = self._store.merge_similar_lessons(memory_type)
+                    count += len(merged) if merged else 0
+                except Exception:
+                    logger.debug("Dedup failed for %s", memory_type, exc_info=True)
         return count
 
     def forget(self, memory_id: str) -> bool:
@@ -493,6 +547,11 @@ class MemoryManager:
             "workflow": self._workflow,
             "person": self._person,
             "preference": self._store,
+            "user_preference": self._store,
+            "desire_lesson": self._store,
+            "failure_lesson": self._store,
+            "approval_lesson": self._store,
+            "safety_lesson": self._store,
             "experience": self._experiential,
             "conversation": self._advanced,
         }

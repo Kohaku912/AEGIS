@@ -141,10 +141,12 @@ def test_autonomous_loop_no_60s_idle_poll(tmp_path) -> None:
     sleep_s = loop._compute_idle_sleep_seconds(now)
     assert sleep_s >= 60
     assert loop._min_execution_interval_ms < 60_000
-    assert loop._observation_interval_ms >= 300_000
+    # Observation polling is disabled by default; wake is desire/schedule driven.
+    assert loop._observation_interval_ms == 0
+    assert loop._idle_wake_cap_ms >= 60_000
 
 
-def test_desire_trigger_not_blocked_by_llm_gate(tmp_path) -> None:
+def test_desire_trigger_respects_unmet_llm_cooldown(tmp_path) -> None:
     from aegis_ai.desire.desire_system import DesireSystem
 
     desire = DesireSystem(data_dir=str(tmp_path / "desire"))
@@ -161,7 +163,6 @@ def test_desire_trigger_not_blocked_by_llm_gate(tmp_path) -> None:
     loop._next_run_ms = now + 1_700_000
     loop._consecutive_no_action = 10
     assert loop._pressure_due() is True
-    # Desire fire must proceed; gates are skipped inside execute when pressure due.
     calls: list[bool] = []
 
     def _fake_generate(low_desires):
@@ -172,10 +173,17 @@ def test_desire_trigger_not_blocked_by_llm_gate(tmp_path) -> None:
 
     loop._generate_tasks = _fake_generate  # type: ignore[method-assign]
     loop._llm = object()
+
+    # Recent LLM call: pressure due must still cool down (no per-minute hammering).
+    loop._execute_cycle(force_desire=True)
+    assert calls == []
+    assert "desire_pressure_cooldown" in loop._last_skip_reason
+
+    # After unmet retry window: desire-threshold fire proceeds.
+    loop._consecutive_no_action = 0
+    loop._last_llm_call_ms = now - loop._unmet_desire_retry_ms() - 1_000
     loop._execute_cycle(force_desire=True)
     assert calls == [True]
-    assert loop._consecutive_no_action == 0 or loop._last_decision == "no_action"
-
 
 def test_apply_decay_persists_pressure(tmp_path) -> None:
     from aegis_ai.desire.desire_system import DesireSystem

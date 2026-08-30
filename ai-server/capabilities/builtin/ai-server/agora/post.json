@@ -1,6 +1,6 @@
 {
   "title": "Post to AGORA",
-  "description": "Post a message to AGORA social platform (agora.kakunin.me). Optionally reply to a specific post by ID.",
+  "description": "Post a message to AGORA social platform (agora.kakunin.me). Optionally reply to a specific post by ID. Do not reuse a reply_to AEGIS already answered, and do not post near-paraphrases of recent AEGIS bodies—write only when there is new substance.",
   "server_id": "ai-server",
   "app_id": "agora",
   "action": "post",

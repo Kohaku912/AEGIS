@@ -1814,5 +1814,15 @@ class DashboardApp:
 
         @app.route("/health")
         def health():
-            return jsonify({"status": "ok", "component": "dashboard"})
+            revision = os.getenv("AEGIS_SOURCE_REVISION", "").strip()
+            if not revision or revision == "unknown":
+                try:
+                    revision = Path("/app/REVISION").read_text(encoding="utf-8").strip() or revision
+                except OSError:
+                    pass
+            return jsonify({
+                "status": "ok",
+                "component": "dashboard",
+                "revision": revision or "unknown",
+            })
 

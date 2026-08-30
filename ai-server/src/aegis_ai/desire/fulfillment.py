@@ -55,8 +55,13 @@ DESIRE_FULFILLMENT = {
         },
     },
     "social": {
-        "description": "Social interactions, with posting/replying stronger than passive reading",
+        "description": (
+            "Meaningful social interaction across browser-based SNS, AGORA, and other available channels; "
+            "reciprocal replies and context-aware reactions are stronger than passive reading"
+        ),
         "conditions": {
+            "meaningful_social_reply_or_post": 1.0,
+            "context_aware_social_reaction": 0.7,
             "posted_to_agora": 1.0,
             "replied_to_mention": 0.9,
             "read_new_posts": 0.0,

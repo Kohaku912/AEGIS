@@ -165,6 +165,32 @@ def test_available_capabilities_use_status_manager_not_localhost(tmp_path) -> No
     assert loop.get_status()["available_capability_count"] == 4
 
 
+def test_disabled_and_unconfigured_servers_are_unavailable(tmp_path) -> None:
+    broker = _Broker(
+        [
+            "ai-server.memory.search",
+            "dev-server.repo.status",
+            "room-server.environment.get_environment",
+        ]
+    )
+    loop = AutonomousLoop(
+        tool_broker=broker,
+        status_manager=_StatusManager(
+            {
+                "dev-server": "disabled",
+                "room-server": "unconfigured",
+            }
+        ),
+        data_dir=str(tmp_path / "autonomous"),
+    )
+
+    available = loop._available_capability_ids()
+
+    assert "ai-server.memory.search" in available
+    assert "dev-server.repo.status" not in available
+    assert "room-server.environment.get_environment" not in available
+
+
 def test_decision_axes_keep_four_operational_priorities(tmp_path) -> None:
     loop = AutonomousLoop(
         desire_system=_PressureDesire(),
@@ -462,11 +488,13 @@ def test_representative_capability_is_included_when_retriever_misses(tmp_path) -
     assert "browser-server.page.read" in loop.get_status()["candidate_capability_ids"]
 
 
-def test_llm_choice_is_not_vetoed_by_no_effect_history(tmp_path) -> None:
-    """Past no_effect counts are observational only — never a hard denylist."""
+def test_repeated_no_effect_capability_cools_down_and_alternative_remains(tmp_path) -> None:
     capability_ids = ["ai-server.agora.read_posts", "ai-server.memory.search"]
     broker = _Broker(capability_ids)
-    llm = _NoActionThenToolLLM("ai-server.agora.read_posts")
+    llm = _TwoStageLLM(
+        candidates=[_cap_candidate(capability_id, desire="social") for capability_id in capability_ids],
+        tool_calls=[_tool_call("ai-server.memory.search")],
+    )
 
     loop = AutonomousLoop(
         llm_provider=llm,
@@ -476,12 +504,32 @@ def test_llm_choice_is_not_vetoed_by_no_effect_history(tmp_path) -> None:
     )
     loop._no_effect_counts["ai-server.agora.read_posts"] = 5
     loop._log_audit_event = lambda **kwargs: None
-    loop._check_repetition = lambda tasks, _history: tasks  # type: ignore[method-assign]
 
     tasks = loop._generate_tasks([{"name": "social", "gap": 5.0, "pressure": 8.0}])
 
     assert tasks
-    assert tasks[0]["capability_id"] == "ai-server.agora.read_posts"
+    assert tasks[0]["capability_id"] == "ai-server.memory.search"
+    assert "ai-server.agora.read_posts" not in loop.get_status()["candidate_capability_ids"]
+    assert "ai-server.agora.read_posts" in loop._last_propose_prompt
+    assert "temporarily cooling down" in loop._last_propose_prompt
+
+
+def test_proposal_prompt_includes_capability_semantics_and_diversity_rule(tmp_path) -> None:
+    capability_ids = ["ai-server.commitment.list", "ai-server.memory.search"]
+    loop = AutonomousLoop(
+        llm_provider=_NoActionLLM("ai-server.memory.search"),
+        desire_system=_PressureDesire(),
+        tool_broker=_Broker(capability_ids),
+        data_dir=str(tmp_path / "autonomous"),
+    )
+    loop._log_audit_event = lambda **kwargs: None
+
+    loop._generate_tasks([{"name": "growth", "gap": 5.0, "pressure": 8.0}])
+
+    assert "Candidate capabilities with descriptions:" in loop._last_propose_prompt
+    assert '"category": "read"' in loop._last_propose_prompt
+    assert "span at least two operation categories" in loop._last_propose_prompt
+    assert "do not re-list state already present" in loop._last_propose_prompt
 
 
 def test_useful_result_reduces_pressure(monkeypatch, tmp_path) -> None:
@@ -692,6 +740,88 @@ def test_no_effect_history_persists_for_reflection(tmp_path) -> None:
     assert reloaded._no_effect_counts.get("ai-server.agora.read_posts") == 1
 
 
+def test_diversity_cooldown_persists_and_expires(tmp_path) -> None:
+    desire = _PressureDesire()
+    loop = AutonomousLoop(desire_system=desire, data_dir=str(tmp_path / "autonomous"))
+    now = int(time.time() * 1000)
+    loop._capability_cooldowns["ai-server.agora.read_posts"] = now + 60_000
+    loop._save()
+
+    reloaded = AutonomousLoop(desire_system=desire, data_dir=str(tmp_path / "autonomous"))
+
+    assert "ai-server.agora.read_posts" in reloaded._cooling_capability_ids(now)
+    assert "ai-server.agora.read_posts" not in reloaded._cooling_capability_ids(now + 60_001)
+
+
+def test_desire_strategies_remember_outcomes_and_inform_selection(monkeypatch, tmp_path) -> None:
+    desire = _PressureDesire()
+    capability_ids = ["ai-server.memory.search", "ai-server.agora.read_posts"]
+    llm = _TwoStageLLM(
+        candidates=[_cap_candidate("ai-server.memory.search", "growth")],
+        tool_calls=[_tool_call("ai-server.memory.search")],
+    )
+    loop = AutonomousLoop(
+        llm_provider=llm,
+        desire_system=desire,
+        tool_broker=_Broker(capability_ids),
+        data_dir=str(tmp_path / "autonomous"),
+    )
+    loop._memory_root = lambda: tmp_path
+    loop._log_audit_event = lambda **kwargs: None
+    outcomes = iter(
+        [
+            TaskResult(
+                tool_success=True,
+                task_effect=TaskEffect.USEFUL,
+                fulfillment_score=0.8,
+                pressure_reduction=0.5,
+                confidence=0.9,
+                summary="Found reusable project knowledge",
+                details={"evaluator": "llm"},
+            ),
+            TaskResult(
+                tool_success=True,
+                task_effect=TaskEffect.NO_EFFECT,
+                fulfillment_score=0.0,
+                confidence=0.8,
+                summary="No new social activity",
+                details={"evaluator": "llm"},
+            ),
+        ]
+    )
+    monkeypatch.setattr(
+        "aegis_ai.desire.fulfillment.evaluate_task_result",
+        lambda **kwargs: next(outcomes),
+    )
+
+    loop._update_desires(
+        [
+            {
+                "desire": "growth",
+                "goal": "reuse project knowledge",
+                "capability_id": "ai-server.memory.search",
+                "success": True,
+                "full_output": {"result": "knowledge"},
+            },
+            {
+                "desire": "growth",
+                "goal": "find something new",
+                "capability_id": "ai-server.agora.read_posts",
+                "success": True,
+                "full_output": {"posts": []},
+            },
+        ]
+    )
+
+    strategies = loop._desire_strategy_context(["growth"])
+    assert {item["effect"] for item in strategies} == {"useful", "no_effect"}
+    assert {item["capability_id"] for item in strategies} == set(capability_ids)
+
+    loop._generate_tasks([{"name": "growth", "gap": 5.0, "pressure": 8.0}])
+    assert "Found reusable project knowledge" in loop._last_propose_prompt
+    assert "Do not repeat blindly" in loop._last_select_prompt
+
+
 def test_commitment_list_remains_available_when_obligations_present(tmp_path) -> None:
     capability_ids = ["ai-server.commitment.list", "ai-server.memory.search"]
     broker = _Broker(capability_ids)
@@ -762,7 +892,7 @@ def test_decide_next_interval_retries_after_no_effect_success(tmp_path) -> None:
     assert interval < loop._fallback_interval
 
 
-def test_needs_followup_updates_outcome_history(monkeypatch, tmp_path) -> None:
+def test_needs_followup_starts_diversity_cooldown_after_repeat(monkeypatch, tmp_path) -> None:
     desire = _PressureDesire()
     loop = AutonomousLoop(desire_system=desire, data_dir=str(tmp_path / "autonomous"))
     loop._no_effect_counts["ai-server.commitment.list"] = 1
@@ -790,7 +920,8 @@ def test_needs_followup_updates_outcome_history(monkeypatch, tmp_path) -> None:
         ]
     )
 
-    assert loop._no_effect_counts.get("ai-server.commitment.list", 0) >= 2
+    assert loop._no_effect_counts.get("ai-server.commitment.list", 0) == 0
+    assert "ai-server.commitment.list" in loop._capability_cooldowns
 
 
 def test_no_effect_experience_is_not_recorded_as_learning(tmp_path) -> None:

@@ -3,7 +3,7 @@
   "description": "Upload a declared file to an external website after approval.",
   "operation_category": "external_send",
   "risk": {
-    "level": "safe",
+    "level": "audited_action",
     "side_effects": [
       "file_upload"
     ],

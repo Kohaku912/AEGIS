@@ -3,7 +3,7 @@
   "description": "Submit a web form and create an external side effect after approval.",
   "operation_category": "external_send",
   "risk": {
-    "level": "safe",
+    "level": "audited_action",
     "side_effects": [
       "form_submission"
     ],

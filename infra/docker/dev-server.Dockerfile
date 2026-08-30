@@ -10,10 +10,17 @@ ENV PYTHONUNBUFFERED=1 \
     DEV_SERVER_PORT=50056 \
     AEGIS_REPO_PATH=/workspace
 
+ARG GH_VERSION=2.74.1
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
     curl \
     git \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && curl -fsSL "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_amd64.tar.gz" \
+        | tar -xz -C /tmp \
+    && mv /tmp/gh_${GH_VERSION}_linux_amd64/bin/gh /usr/local/bin/gh \
+    && rm -rf /tmp/gh_${GH_VERSION}_linux_amd64 \
+    && gh --version
 
 COPY dev-server/pyproject.toml ./pyproject.toml
 COPY dev-server/src ./src

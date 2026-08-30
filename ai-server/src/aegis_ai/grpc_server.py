@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import threading
 import time
 import uuid
@@ -205,6 +206,15 @@ class AegisAIServicer(ai_server_pb2_grpc.AIServerServicer):
 
     def InvokeTool(self, request, context):
         from tool_broker import ExecutionSource, ToolExecutionRequest
+
+        authorized, auth_message = self._authorize_invoke_tool(request, context)
+        if not authorized:
+            return common_pb2.ToolInvocationResult(
+                status=Status(code=16, message=auth_message),
+                capability_id=request.capability_id,
+                invocation_id=request.invocation_id,
+                error=auth_message,
+            )
 
         try:
             params = json.loads(request.params_json or "{}")
@@ -504,6 +514,27 @@ class AegisAIServicer(ai_server_pb2_grpc.AIServerServicer):
             records=records[-max_records:],
         )
 
+    def _authorize_invoke_tool(self, request: Any, context: grpc.ServicerContext | None) -> tuple[bool, str]:
+        """Loopback, invoke token, or paired Android auth. Remote unauthenticated calls are denied."""
+        if _peer_is_loopback(context):
+            return True, "ok"
+        token = os.getenv("AEGIS_GRPC_INVOKE_TOKEN", "").strip()
+        provided = _metadata_value(context, "x-aegis-invoke-token")
+        if token and provided == token:
+            return True, "ok"
+        android_manager = getattr(self._runtime, "android_manager", None)
+        if android_manager is not None and hasattr(android_manager, "validate_direct_rpc_auth"):
+            auth = getattr(request, "auth", None)
+            ok, _, message = android_manager.validate_direct_rpc_auth(auth)
+            if ok:
+                return True, "ok"
+            if token:
+                return False, "InvokeTool requires x-aegis-invoke-token or paired device auth"
+            return False, message
+        if token:
+            return False, "InvokeTool requires x-aegis-invoke-token"
+        return False, "InvokeTool is restricted to loopback unless AEGIS_GRPC_INVOKE_TOKEN is set"
+
     def _validate_android_direct_rpc_auth(
         self,
         request: Any,
@@ -564,6 +595,23 @@ def serve(
         logger.info("Stopping gRPC server...")
     finally:
         server.stop(grace=5).wait(timeout=5)
+
+
+def _peer_is_loopback(context: grpc.ServicerContext | None) -> bool:
+    if context is None:
+        return True
+    peer = str(getattr(context, "peer", lambda: "")() or "").lower()
+    return any(marker in peer for marker in ("127.0.0.1", "[::1]", "localhost", "ipv6:::1"))
+
+
+def _metadata_value(context: grpc.ServicerContext | None, key: str) -> str:
+    if context is None or not hasattr(context, "invocation_metadata"):
+        return ""
+    needle = key.lower()
+    for meta_key, meta_value in context.invocation_metadata() or ():
+        if str(meta_key).lower() == needle:
+            return str(meta_value)
+    return ""
 
 
 def _risk_from_safety(safety_level: int) -> RiskLevel:

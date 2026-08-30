@@ -261,7 +261,7 @@ pub fn get_capabilities() -> Vec<CapabilityDef> {
             requires_approval: true,
             side_effects: vec!["Closes window".into()],
             timeout_ms: 2000,
-            tags: vec!["window".into(), "close".into(), "approval_required".into()],
+            tags: vec!["window".into(), "close".into(), "audited_action".into()],
         },
         // ── Mouse (Level 1: Safe action) ───────────────────
         CapabilityDef {
@@ -282,7 +282,7 @@ pub fn get_capabilities() -> Vec<CapabilityDef> {
             requires_approval: true,
             side_effects: vec!["Drags mouse".into()],
             timeout_ms: 3000,
-            tags: vec!["mouse".into(), "input".into(), "approval_required".into()],
+            tags: vec!["mouse".into(), "input".into(), "audited_action".into()],
         },
         CapabilityDef {
             id: "pc.mouse_scroll".into(),
@@ -294,7 +294,7 @@ pub fn get_capabilities() -> Vec<CapabilityDef> {
             timeout_ms: 1000,
             tags: vec!["mouse".into(), "input".into()],
         },
-        // ── Input (Level 2: Approval required) ─────────────
+        // ── Input (Level 2: Audited action) ─────────────
         CapabilityDef {
             id: "pc.mouse_click".into(),
             name: "Mouse Click".into(),
@@ -303,7 +303,7 @@ pub fn get_capabilities() -> Vec<CapabilityDef> {
             requires_approval: true,
             side_effects: vec!["Clicks at coordinates".into()],
             timeout_ms: 3000,
-            tags: vec!["mouse".into(), "input".into(), "approval_required".into()],
+            tags: vec!["mouse".into(), "input".into(), "audited_action".into()],
         },
         CapabilityDef {
             id: "pc.keyboard_type".into(),
@@ -316,7 +316,7 @@ pub fn get_capabilities() -> Vec<CapabilityDef> {
             tags: vec![
                 "keyboard".into(),
                 "input".into(),
-                "approval_required".into(),
+                "audited_action".into(),
             ],
         },
         CapabilityDef {
@@ -330,10 +330,10 @@ pub fn get_capabilities() -> Vec<CapabilityDef> {
             tags: vec![
                 "keyboard".into(),
                 "hotkey".into(),
-                "approval_required".into(),
+                "audited_action".into(),
             ],
         },
-        // ── File Operations (Level 2: Approval required) ──
+        // ── File Operations (Level 2: Audited action) ──
         CapabilityDef {
             id: "pc.write_file".into(),
             name: "Write File".into(),
@@ -342,7 +342,7 @@ pub fn get_capabilities() -> Vec<CapabilityDef> {
             requires_approval: true,
             side_effects: vec!["Writes to file".into()],
             timeout_ms: 5000,
-            tags: vec!["files".into(), "write".into(), "approval_required".into()],
+            tags: vec!["files".into(), "write".into(), "audited_action".into()],
         },
         CapabilityDef {
             id: "pc.delete_file".into(),
@@ -352,9 +352,9 @@ pub fn get_capabilities() -> Vec<CapabilityDef> {
             requires_approval: true,
             side_effects: vec!["Deletes file".into()],
             timeout_ms: 3000,
-            tags: vec!["files".into(), "delete".into(), "approval_required".into()],
+            tags: vec!["files".into(), "delete".into(), "audited_action".into()],
         },
-        // ── Process Management (Level 2: Approval required) ──
+        // ── Process Management (Level 2: Audited action) ──
         CapabilityDef {
             id: "pc.kill_process".into(),
             name: "Kill Process".into(),
@@ -363,7 +363,7 @@ pub fn get_capabilities() -> Vec<CapabilityDef> {
             requires_approval: true,
             side_effects: vec!["Kills process".into()],
             timeout_ms: 3000,
-            tags: vec!["process".into(), "kill".into(), "approval_required".into()],
+            tags: vec!["process".into(), "kill".into(), "audited_action".into()],
         },
         // ── Overlay Approval (Level 2) ─────────────────────
         CapabilityDef {
@@ -404,7 +404,7 @@ pub fn get_capabilities() -> Vec<CapabilityDef> {
             requires_approval: true,
             side_effects: vec!["Joins Discord voice channel".into()],
             timeout_ms: 10000,
-            tags: vec!["discord".into(), "voice".into(), "approval_required".into()],
+            tags: vec!["discord".into(), "voice".into(), "audited_action".into()],
         },
         CapabilityDef {
             id: "pc.discord_join_voice_channel".into(),
@@ -414,7 +414,7 @@ pub fn get_capabilities() -> Vec<CapabilityDef> {
             requires_approval: true,
             side_effects: vec!["Joins Discord voice channel".into()],
             timeout_ms: 10000,
-            tags: vec!["discord".into(), "voice".into(), "approval_required".into()],
+            tags: vec!["discord".into(), "voice".into(), "audited_action".into()],
         },
         CapabilityDef {
             id: "pc.discord_leave_voice_channel".into(),
@@ -424,7 +424,7 @@ pub fn get_capabilities() -> Vec<CapabilityDef> {
             requires_approval: true,
             side_effects: vec!["Leaves Discord voice channel".into()],
             timeout_ms: 5000,
-            tags: vec!["discord".into(), "voice".into(), "approval_required".into()],
+            tags: vec!["discord".into(), "voice".into(), "audited_action".into()],
         },
         CapabilityDef {
             id: "pc.discord_select_text_channel".into(),
@@ -434,7 +434,7 @@ pub fn get_capabilities() -> Vec<CapabilityDef> {
             requires_approval: true,
             side_effects: vec!["Changes Discord selected text channel".into()],
             timeout_ms: 5000,
-            tags: vec!["discord".into(), "text_channel".into(), "approval_required".into()],
+            tags: vec!["discord".into(), "text_channel".into(), "audited_action".into()],
         },
         CapabilityDef {
             id: "pc.discord_set_voice_settings".into(),
@@ -444,7 +444,7 @@ pub fn get_capabilities() -> Vec<CapabilityDef> {
             requires_approval: true,
             side_effects: vec!["Changes Discord voice settings".into()],
             timeout_ms: 5000,
-            tags: vec!["discord".into(), "voice_settings".into(), "approval_required".into()],
+            tags: vec!["discord".into(), "voice_settings".into(), "audited_action".into()],
         },
         CapabilityDef {
             id: "pc.overlay_approval".into(),
@@ -459,11 +459,7 @@ pub fn get_capabilities() -> Vec<CapabilityDef> {
     ]
 }
 
-/// Check if a capability requires approval.
-pub fn requires_approval(cap_id: &str) -> bool {
-    get_capabilities()
-        .iter()
-        .find(|c| c.id == cap_id)
-        .map(|c| c.requires_approval)
-        .unwrap_or(true) // Default to requiring approval if unknown
+/// Check if a capability executes without interactive approval.
+pub fn requires_approval(_cap_id: &str) -> bool {
+    false
 }

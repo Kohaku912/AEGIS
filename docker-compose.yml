@@ -9,6 +9,8 @@ services:
     build:
       context: .
       dockerfile: infra/docker/ai-server.Dockerfile
+      args:
+        AEGIS_SOURCE_REVISION: ${AEGIS_SOURCE_REVISION:-unknown}
     image: aegis/ai-server:local
     env_file:
       - .env
@@ -58,6 +60,8 @@ services:
       TEMPORAL_NAMESPACE: ${TEMPORAL_NAMESPACE:-default}
       TEMPORAL_TASK_QUEUE: ${TEMPORAL_TASK_QUEUE:-aegis-tasks}
       AEGIS_ANDROID_PAIRING_TOKEN: ${AEGIS_ANDROID_PAIRING_TOKEN:-}
+      AEGIS_GRPC_INVOKE_TOKEN: ${AEGIS_GRPC_INVOKE_TOKEN:-}
+      AEGIS_SOURCE_REVISION: ${AEGIS_SOURCE_REVISION:-unknown}
       AEGIS_LAN_SCAN_ENABLED: ${AEGIS_LAN_SCAN_ENABLED:-true}
       AEGIS_LAN_SCAN_PREFIX: ${AEGIS_LAN_SCAN_PREFIX:-}
       AEGIS_NEIGHBOR_TABLE_PATH: ${AEGIS_NEIGHBOR_TABLE_PATH:-/app/data/neighbors.json}

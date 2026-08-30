@@ -29,6 +29,24 @@ def test_preference_write_search_update_and_forget_are_real(tmp_path):
     assert manager.get_memory(memory_id) is None
 
 
+def test_search_memory_finds_desire_lesson(tmp_path):
+    from aegis_ai.memory.memory_types import MemoryRecord, MemoryType
+
+    store = MemoryStore(tmp_path / "memory-store")
+    store.add_memory(
+        MemoryRecord(
+            memory_type=MemoryType.DESIRE_LESSON.value,
+            title="social: agora.read_posts -> useful",
+            content="Caught up on AGORA.",
+            importance=0.8,
+        )
+    )
+    manager = MemoryManager(memory_store=store)
+    hits = manager.search_memory("AGORA", types=["desire_lesson"], limit=5)
+    assert hits
+    assert hits[0]["memory_type"] == "desire_lesson"
+
+
 def test_forget_does_not_report_mock_success_without_owning_backend():
     manager = MemoryManager()
     assert manager.forget("missing") is False

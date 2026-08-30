@@ -141,15 +141,25 @@ def _action_trace_lines(data_dir: Path, limit: int = 3) -> tuple[list[str], int]
     return lines, len(failed) + len(successful)
 
 
+def _resolve_memory_store(data_dir: Path) -> Any:
+    try:
+        from aegis_ai.runtime import peek_runtime
+
+        runtime = peek_runtime()
+        manager = getattr(runtime, "memory_manager", None) if runtime is not None else None
+        store = manager.get_backend("store") if manager is not None and hasattr(manager, "get_backend") else None
+        if store is not None:
+            return store
+    except Exception as exc:
+        logger.debug("Runtime MemoryStore lookup failed: %s", exc)
+    from aegis_ai.memory.memory_store import MemoryStore
+
+    return MemoryStore(data_dir=str(data_dir / "memory_store"))
+
+
 def _memory_store_lines(data_dir: Path, query: str, profile: str) -> tuple[list[str], dict[str, int]]:
     try:
-        from aegis_ai.memory.memory_store import MemoryStore
-    except Exception as exc:
-        logger.debug("MemoryStore import failed: %s", exc)
-        return [], {}
-
-    try:
-        store = MemoryStore(data_dir=str(data_dir / "memory_store"))
+        store = _resolve_memory_store(data_dir)
     except Exception as exc:
         logger.debug("MemoryStore load failed: %s", exc)
         return [], {}
@@ -179,6 +189,7 @@ def _memory_store_lines(data_dir: Path, query: str, profile: str) -> tuple[list[
 
     _append_records("Failure lessons:", "failure_lesson", 3, min_importance=0.4)
     _append_records("Approval lessons:", "approval_lesson", 2, min_importance=0.4)
+    _append_records("Desire lessons:", "desire_lesson", 4, min_importance=0.3)
     if profile == "decision":
         _append_records("User preferences:", "user_preference", 3)
     return lines, counts

@@ -57,6 +57,43 @@ class EpisodicMemory:
             eps = [e for e in eps if e.category == category]
         return eps[-n:] if n < len(eps) else eps
 
+    def prune_expired(self, now_ms: int | None = None, max_age_ms: int = 30 * 86400 * 1000) -> int:
+        cutoff = (now_ms if now_ms is not None else int(time.time() * 1000)) - max_age_ms
+        with self._lock:
+            keep = [e for e in self._episodes if e.timestamp_ms >= cutoff]
+            removed = len(self._episodes) - len(keep)
+            if removed:
+                self._episodes = keep
+                self._rewrite()
+            return removed
+
+    def delete(self, episode_id: str) -> bool:
+        with self._lock:
+            keep = [e for e in self._episodes if e.episode_id != episode_id]
+            if len(keep) == len(self._episodes):
+                return False
+            self._episodes = keep
+            self._rewrite()
+            return True
+
+    def _rewrite(self) -> None:
+        with open(self._path, "w", encoding="utf-8") as handle:
+            for episode in self._episodes:
+                handle.write(
+                    json.dumps(
+                        {
+                            "episode_id": episode.episode_id,
+                            "summary": episode.summary,
+                            "category": episode.category,
+                            "events": episode.events,
+                            "detail": episode.detail,
+                            "timestamp_ms": episode.timestamp_ms,
+                        },
+                        ensure_ascii=False,
+                    )
+                    + "\n"
+                )
+
     def search(self, query: str, n: int = 20) -> list[Episode]:
         query_lower = query.lower()
         with self._lock:

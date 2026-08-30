@@ -24,6 +24,10 @@ def test_get_runtime_returns_shared_singleton(monkeypatch, tmp_path) -> None:
     assert first.event_bus is second.event_bus
     assert first.audit_log is second.audit_log
     assert first.llm_router is second.llm_router
+    store = first.memory_manager.get_backend("store")
+    assert store is not None
+    assert store is first.context_builder._memory_store
+    assert getattr(first.sleep_manager, "_retention", None) is not None
 
     reset_runtime_for_tests()
     third = get_runtime()
@@ -123,6 +127,74 @@ def test_grpc_servicer_uses_runtime_state(monkeypatch) -> None:
     assert json.loads(invoke_response.output_json) == {"ok": True}
     assert calls == [("ai-server.test.echo", {"value": "hello"})]
     reset_runtime_for_tests()
+
+
+def test_invoke_tool_denies_remote_without_token(monkeypatch) -> None:
+    monkeypatch.delenv("AEGIS_GRPC_INVOKE_TOKEN", raising=False)
+    from generated.aegis import common_pb2
+    from aegis_ai.grpc_server import AegisAIServicer
+
+    runtime = SimpleNamespace(config=None, android_manager=None, tool_broker=SimpleNamespace())
+    servicer = AegisAIServicer(runtime)
+    request = common_pb2.ToolInvocationRequest(
+        capability_id="ai-server.test.echo",
+        invocation_id="inv_denied",
+        caller="remote",
+        params_json="{}",
+    )
+
+    class RemoteContext:
+        def peer(self) -> str:
+            return "ipv4:10.0.0.8:55555"
+
+        def invocation_metadata(self):
+            return ()
+
+    response = servicer.InvokeTool(request, RemoteContext())
+    assert response.status.code == 16
+    assert "loopback" in response.error.lower() or "token" in response.error.lower()
+
+
+def test_invoke_tool_allows_remote_with_token(monkeypatch) -> None:
+    monkeypatch.setenv("AEGIS_GRPC_INVOKE_TOKEN", "invoke-secret")
+    from generated.aegis import common_pb2
+    from aegis_ai.grpc_server import AegisAIServicer
+
+    calls: list[str] = []
+
+    def fake_execute(request):
+        calls.append(request.capability_id)
+        return SimpleNamespace(
+            success=True,
+            output={"ok": True},
+            error="",
+            duration_ms=1,
+            request_id=request.request_id or "inv_ok",
+        )
+
+    runtime = SimpleNamespace(
+        config=None,
+        android_manager=None,
+        tool_broker=SimpleNamespace(execute=fake_execute),
+    )
+    servicer = AegisAIServicer(runtime)
+    request = common_pb2.ToolInvocationRequest(
+        capability_id="ai-server.test.echo",
+        invocation_id="inv_ok",
+        caller="remote",
+        params_json="{}",
+    )
+
+    class RemoteContext:
+        def peer(self) -> str:
+            return "ipv4:10.0.0.8:55555"
+
+        def invocation_metadata(self):
+            return (("x-aegis-invoke-token", "invoke-secret"),)
+
+    response = servicer.InvokeTool(request, RemoteContext())
+    assert response.status.code == 0
+    assert calls == ["ai-server.test.echo"]
 
 
 def test_grpc_send_chat_preserves_response_shape(monkeypatch, tmp_path) -> None:

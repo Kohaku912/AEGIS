@@ -120,8 +120,16 @@ class MemoryConsolidator:
 
     def _consolidate_episodic(self) -> int:
         """Archive old episodic memories."""
-        # Placeholder - archive memories older than 30 days
-        return 0
+        episodic = self._episodic
+        if episodic is None:
+            return 0
+        prune = getattr(episodic, "prune_expired", None)
+        if not callable(prune):
+            return 0
+        try:
+            return int(prune() or 0)
+        except TypeError:
+            return 0
 
     def _generate_reflection(self) -> int:
         """Generate reflection from recent activity."""

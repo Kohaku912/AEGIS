@@ -19,22 +19,21 @@ The Chat UI provides a web-based chat interface for interacting with AEGIS.
 ## Access
 
 ```
-http://0.0.0.0:8091/chat
+http://localhost:8090/chat
 ```
 
 ## API
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/chat` | GET | Chat interface |
-| `/chat/send` | POST | Send message (JSON: `{text, user_id, session_id}`) |
-| `/chat/history` | GET | Get conversation history |
-| `/chat/sessions` | GET | List sessions |
+| `/chat` | GET | Chat interface (SPA) |
+| `/api/chat/send` | POST | Send message |
+| `/api/chat/history` | GET | Get conversation history |
 | `/health` | GET | Health check |
 
 ## Security
 
-- Localhost only (0.0.0.0)
-- No external exposure
+- Served by the Dashboard on port 8090
+- Auth follows Dashboard passkey/session settings
 - Requests go through PolicyEngine
 - Tool requests redirect to Approval UI

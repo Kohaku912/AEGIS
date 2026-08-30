@@ -6,16 +6,35 @@
   "app_id": "file",
   "action": "write",
   "operation_category": "general",
-  "risk": {"level": "safe"},
+  "risk": {
+    "level": "audited_action",
+    "requires_approval": false
+  },
   "input": {
     "type": "object",
     "properties": {
-      "path": {"type": "string", "description": "Destination file path"},
-      "content": {"type": "string", "description": "Text content to write"},
-      "append": {"type": "boolean", "description": "Append instead of overwrite", "default": false}
+      "path": {
+        "type": "string",
+        "description": "Destination file path"
+      },
+      "content": {
+        "type": "string",
+        "description": "Text content to write"
+      },
+      "append": {
+        "type": "boolean",
+        "description": "Append instead of overwrite",
+        "default": false
+      }
     },
-    "required": ["path", "content"]
+    "required": [
+      "path",
+      "content"
+    ]
   },
-  "tags": ["files", "write"],
+  "tags": [
+    "files",
+    "write"
+  ],
   "tcp_command": "write_file {path}|{content}|{append}"
 }

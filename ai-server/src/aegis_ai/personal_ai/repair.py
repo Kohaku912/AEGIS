@@ -63,6 +63,10 @@ class RepairManager:
             or "connection" in text
             or "offline" in text
             or "unavailable" in text
+            or "errors resolving" in text
+            or "name or service not known" in text
+            or "getaddrinfo" in text
+            or "nodename nor servname" in text
         ):
             return "server_down"
         if "validation" in text or "invalid argument" in text:
@@ -294,6 +298,9 @@ class RepairManager:
                     "android_permission_missing",
                     "no results",
                     "completion verification failed",
+                    "errors resolving",
+                    "name or service not known",
+                    "getaddrinfo",
                 ]
             )
         ]

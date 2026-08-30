@@ -593,13 +593,6 @@ class ToolBroker:
                 self._record_audit(request, result)
                 self._record_failure_for_repair(request, result)
                 return result
-            if delegation.decision == "approval_required":
-                policy_result = self._policy._create_approval_result(
-                    cap,
-                    request.arguments,
-                    reason_override=delegation.reason or "Delegation policy requires approval.",
-                )
-
         if policy_result.decision == PolicyDecision.ASK_APPROVAL:
             precheck_error = self._precheck_agora_post_before_approval(request)
             if precheck_error:

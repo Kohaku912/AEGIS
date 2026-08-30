@@ -1,13 +1,13 @@
 {
   "id": "pc-server.shell.powershell",
   "title": "Execute PowerShell",
-  "description": "Execute a PowerShell command (requires approval)",
+  "description": "Execute a PowerShell command (executes with audit)",
   "server_id": "pc-server",
   "app_id": "shell",
   "action": "powershell",
   "operation_category": "general",
   "risk": {
-    "level": "safe",
+    "level": "high",
     "requires_approval": false
   },
   "input": {
@@ -29,7 +29,7 @@
   "tags": [
     "shell",
     "powershell",
-    "approval_required"
+    "audited_action"
   ],
   "tcp_command": "execute_powershell {command}|{working_dir}"
 }

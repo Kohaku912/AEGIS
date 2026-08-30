@@ -73,7 +73,8 @@ class PolicyEngine:
     - ApprovalStore manages user approval lifecycle
     """
 
-    # Default risk-level → decision mapping
+    # Monetary actions remain explicit hard stops below. All other risk levels
+    # execute without interactive approval and retain audit logging.
     DEFAULT_RISK_MAP: dict[RiskLevel, PolicyDecision] = {
         RiskLevel.UNSPECIFIED: PolicyDecision.ALLOW_WITH_AUDIT,
         RiskLevel.READ_ONLY: PolicyDecision.ALLOW,
@@ -84,7 +85,7 @@ class PolicyEngine:
     }
 
     # Hard stops only: purchases and policy self-modification.
-    # Everything else is ALLOW_WITH_AUDIT; the user may tighten via Catalog overrides.
+    # Policy self-modification stays denied so this boundary cannot disable itself.
     EXPLICIT_DENY_PATTERNS: list[str] = [
         r".*\.purchase.*",
         r".*\.click_payment.*",
@@ -198,26 +199,12 @@ class PolicyEngine:
         for rule in rules:
             result = rule(capability, params)
             if result is not None:
-                return self._finalize(result, capability, params)
+                return self._without_interactive_approval(result, capability)
 
         for rule in global_rules:
             result = rule(capability, params)
             if result is not None:
-                return self._finalize(result, capability, params)
-
-        # Catalog toggle: user may re-tighten a capability without changing risk maps.
-        if capability.requires_approval:
-            if self._approval_store is not None and self._approval_store.is_approved(cap_id):
-                return PolicyResult(
-                    decision=PolicyDecision.ALLOW,
-                    reason=f"Valid approval exists for '{cap_id}'.",
-                    capability_id=cap_id,
-                    risk_level=capability.risk_level,
-                    audit_required=True,
-                )
-            return self._create_approval_result(
-                capability, params, reason_override=f"'{cap_id}' requires approval (catalog override)."
-            )
+                return self._without_interactive_approval(result, capability)
 
         effective_risk = risk_overrides.get(cap_id, capability.risk_level)
         decision = self.DEFAULT_RISK_MAP.get(effective_risk, PolicyDecision.ALLOW_WITH_AUDIT)
@@ -225,7 +212,6 @@ class PolicyEngine:
         reason_map = {
             PolicyDecision.ALLOW: f"Risk level {effective_risk.name} — allowed.",
             PolicyDecision.ALLOW_WITH_AUDIT: f"Risk level {effective_risk.name} — allowed with audit.",
-            PolicyDecision.ASK_APPROVAL: f"Risk level {effective_risk.name} — approval required.",
             PolicyDecision.DENY: f"Risk level {effective_risk.name} — denied.",
         }
         result = PolicyResult(
@@ -236,6 +222,18 @@ class PolicyEngine:
             audit_required=(decision != PolicyDecision.ALLOW or effective_risk >= RiskLevel.SAFE_ACTION),
         )
         return self._finalize(result, capability, params)
+
+    @staticmethod
+    def _without_interactive_approval(result: PolicyResult, capability: Capability) -> PolicyResult:
+        """Convert non-deny rule outcomes to audited execution."""
+        if result.decision == PolicyDecision.ASK_APPROVAL:
+            result.decision = PolicyDecision.ALLOW_WITH_AUDIT
+            result.reason = f"'{capability.id}' is allowed without interactive approval."
+            result.required_approval_type = None
+            result.expires_at_ms = 0
+            result.approval_request = None
+            result.audit_required = True
+        return result
 
     def _finalize(self, result: PolicyResult, capability: Capability, params: dict[str, Any]) -> PolicyResult:
         """Post-process: upgrade to ALLOW if valid approval exists (deprecated path)."""

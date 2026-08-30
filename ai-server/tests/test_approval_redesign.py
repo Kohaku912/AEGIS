@@ -398,7 +398,7 @@ class TestApprovalFanout:
 
 class TestPolicyEngineDecoupling:
 
-    def test_ask_approval_without_approval_request(self):
+    def test_non_monetary_action_executes_without_approval_request(self):
         from policy_engine import PolicyEngine, PolicyDecision
         from aegis_schema.models import Capability, RiskLevel, ServerType
         engine = PolicyEngine()
@@ -446,9 +446,11 @@ class TestPolicyEngineDecoupling:
 
 class TestToolBrokerApproval:
 
-    def test_execute_creates_approval_via_manager(self, approval_manager, audit_log, tmp_dir):
+    def test_execute_bypasses_approval_manager_for_non_monetary_action(
+        self, approval_manager, audit_log, tmp_dir
+    ):
         from tool_broker import ToolBroker, ToolExecutionRequest, ExecutionSource, InvokeStatus
-        from policy_engine import PolicyEngine
+        from policy_engine import PolicyDecision, PolicyEngine
         from tool_registry import ToolRegistry
         from aegis_schema.models import RiskLevel
 
@@ -459,7 +461,9 @@ class TestToolBrokerApproval:
             policy_engine=policy,
             audit_log=audit_log,
             approval_manager=approval_manager,
+            server_executor=MagicMock(),
         )
+        broker._server_executor.execute.return_value = {"ok": True}
 
         manifest = MagicMock()
         manifest.capability_id = "pc-server.mouse.mouse_click"
@@ -468,7 +472,7 @@ class TestToolBrokerApproval:
         manifest.risk_level = "medium"
         manifest.tags = []
         manifest.side_effects = []
-        manifest.requires_approval = False
+        manifest.requires_approval = True
         manifest.enabled = True
         manifest.server_id = "pc-server"
         manifest.app_id = "mouse"
@@ -494,8 +498,8 @@ class TestToolBrokerApproval:
             source=ExecutionSource.USER_EXPLICIT,
         )
         result = broker.execute(request)
-        assert result.status != InvokeStatus.APPROVAL_NEEDED
-        assert result.policy_decision in {"ALLOW", "ALLOW_WITH_AUDIT"}
+        assert result.status == InvokeStatus.SUCCESS
+        assert result.policy_result.decision == PolicyDecision.ALLOW_WITH_AUDIT
         assert approval_manager.list_pending() == []
 
     def test_execute_approved_prevents_double_execution(self, approval_manager, audit_log, tmp_dir):
