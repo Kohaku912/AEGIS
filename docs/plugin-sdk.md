@@ -114,11 +114,13 @@ pytest tests/ -v
 
 ## Creating a New Capability Server
 
-Use the scaffold generator:
+Use the scaffold generator. It reads the server roster from `aegis_schema` to derive the
+capability prefix, so that must be importable — run it from the repo root with `ai-server/src`
+on `PYTHONPATH`:
 
 ```bash
-cd tools/create-capability-server
-python create_server.py --name weather --type room --port 50060
+PYTHONPATH=ai-server/src python tools/create-capability-server/create_server.py \
+    --name weather --type room --port 50060
 ```
 
 `--type` selects which AEGIS server hosts the generated capabilities, so it is also the
@@ -126,7 +128,7 @@ python create_server.py --name weather --type room --port 50060
 `--type` is refused rather than written into a file that will not import. `--name` only names
 the server and its files.
 
-This creates:
-- Server implementation with capability registration
-- Test skeleton
-- README
+This creates three files:
+- `{name}_server.py` — server implementation with capability registration
+- `tests/test_{name}_server.py` — test skeleton
+- `README.md`

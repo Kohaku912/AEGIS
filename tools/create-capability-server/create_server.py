@@ -1,13 +1,13 @@
 """Create Capability Server — scaffold generator for new AEGIS capability servers.
 
-Generates:
-- Server implementation with capability registration
-- Proto file stub
-- Test skeleton
-- Documentation skeleton
+Generates exactly three files — ``{name}_server.py``, ``tests/test_{name}_server.py`` and
+``README.md``. (This list used to claim a fourth, a "proto file stub", which it has never written;
+``test_capability_id_contract.py`` now runs the documented command and imports what it produces.)
 
 Usage:
-    python create_server.py --name weather --type room --port 50060
+    # ``aegis_schema`` supplies the roster this derives the prefix from, so it must be importable.
+    PYTHONPATH=ai-server/src python tools/create-capability-server/create_server.py \\
+        --name weather --type room --port 50060
 
 ``--type`` selects which AEGIS server hosts the generated capabilities, so it also decides the
 ``server_prefix`` they are built with. ``--name`` only names the server and its files. Before

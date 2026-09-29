@@ -1631,6 +1631,38 @@ import しており、クラス本体では遅延できない）— 両者の一
 - **MSYS の `/tmp` は Windows の Python には存在しないパス。** `mktemp -d` の戻り値をそのまま
   `--output` に渡すと `\tmp\...` として解決され `FileNotFoundError`。`$TEMP` 由来の Windows パスを使う。
 
+**残置の回収（同日、A-2 の続き）。** 上のピンには「記録したが未処理」の残置が 1 つあり、それを直す
+過程で scaffold の自己申告の欠陥が 2 つ出た。3 つとも**同じ型**（主張はあるが誰も走らせない／
+検査が片方向しか見ていない）:
+
+| # | 主張 | 実測 |
+|---|---|---|
+| **R1** | 断り文が「許される prefix」を列挙している | 旧 assert は `for x in ALLOWED: assert x in message`。**追加を見られない**（SDK が拒否する prefix を列挙しても緑）うえ、`"room" in "...'room-server'..."` は `True` なので**短い形と長い形を区別できない** |
+| **R2** | scaffold の docstring は生成物 **4** つ（"Proto file stub" を含む） | **3** つしか書かない — proto stub は存在しない |
+| **R3** | `python create_server.py --name … --type …` | `aegis_schema` が import できないと**失敗**する（説明付き `SystemExit`）。`--type` から prefix を導出するので `ai-server/src` が要るのに、Usage も `docs/plugin-sdk.md` も書いていなかった |
+
+**R1 の直し方。** メッセージからタプルを **parse して丸ごと比較**する（`_listed_prefixes`）。
+**変異（ピン単体 baseline 46 passed）:**
+
+| 変異 | 落ちたもの |
+|---|---|
+| ① メッセージが prefix を 1 つ落とす | 拒否テスト 4 本 |
+| ② メッセージが SDK の拒否する prefix を**追加**する | 拒否テスト 4 本 |
+| ③ メッセージを手書きで書き直す（長い形→短い形） | 拒否テスト 4 本 |
+| ④ `_listed_prefixes` が常に名簿を返す（parse をやめる） | `test_the_listed_prefixes_parser_reads_the_message_not_a_constant` **1 本だけ** |
+| **期待外れ（緑が正解）**: 旧 assert + 変異② | **緑** — 旧 assert は追加を見ていなかった |
+
+最後の行が「厳しくした形が効いている」証拠。これが無いと cosmetic な書き換えと区別できない。
+
+**R2/R3 の直し方。** 生成物一覧を 3 つに直し、Usage に `PYTHONPATH=ai-server/src` を明記。
+**R3 は散文の訂正で終わらせず走らせた** — `test_the_documented_scaffold_command_can_actually_run`
+が docstring から `PYTHONPATH=...` を抜き、**継承した `PYTHONPATH` を消した環境**でその値だけを
+入れて scaffold を subprocess 実行し、生成物が出ることを assert する。Usage から PYTHONPATH を
+消せば赤くなる（型 11）。
+
+**実測。** SDK **69 → 71 passed**（+2 = 新テスト 2 本。R1 の書き換えはテスト数を増やさない）。
+ruff は当該 2 ファイルとも clean。ai-server は対象ファイルを含まないので再実行していない。
+
 ---
 
 ## 6. 参照

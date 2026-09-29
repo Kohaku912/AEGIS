@@ -25,7 +25,9 @@ from __future__ import annotations
 
 import ast
 import importlib.util
+import os
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -124,6 +126,33 @@ def _load_module(path: Path, name: str):
     return module
 
 
+def _listed_prefixes(message: str) -> tuple[str, ...]:
+    """The prefixes the refusal *lists* as allowed, parsed out of the message.
+
+    The message renders ``ALLOWED_SERVER_PREFIXES``, so the rendered tuple is the claim under
+    test — and a substring check cannot read it. ``"room" in "...'room-server'..."`` is ``True``,
+    so a message that spelled every prefix in its *short* form would pass one; and a message
+    listing an **extra** prefix the SDK still refuses passes one too, which sends the caller to a
+    spelling that fails. Parse the tuple and compare it whole, so both directions fail.
+    """
+    marker = "must be one of "
+    start = message.find(marker)
+    assert start != -1, f"the refusal no longer says what the prefix must be one of: {message}"
+    tail = message[start + len(marker) :]
+    depth = 0
+    for index, char in enumerate(tail):
+        if char == "(":
+            depth += 1
+        elif char == ")":
+            depth -= 1
+            if depth == 0:
+                parsed = ast.literal_eval(tail[: index + 1])
+                assert isinstance(parsed, tuple), f"the listed prefixes are not a tuple: {parsed!r}"
+                assert all(isinstance(p, str) for p in parsed), f"non-string prefix: {parsed!r}"
+                return parsed
+    raise AssertionError(f"the refusal's prefix list has unbalanced parentheses: {message}")
+
+
 # ── 1. One rule, shared with the schema ──────────────────────────────────────
 
 
@@ -196,8 +225,27 @@ def test_a_third_party_prefix_is_refused_by_name(prefix: str) -> None:
     message = str(excinfo.value)
     assert prefix in message, f"the refusal does not name the offending prefix: {message}"
     assert "is not an AEGIS server" in message
-    for allowed in ALLOWED_SERVER_PREFIXES:
-        assert allowed in message, f"the refusal does not list the allowed prefix {allowed!r}"
+    listed = _listed_prefixes(message)
+    assert listed == _ROSTER_PREFIXES, (
+        f"the refusal lists {listed!r}, but the roster declares {_ROSTER_PREFIXES!r}. An omitted "
+        "prefix sends the caller to a spelling that still fails; an *added* one sends them to a "
+        "spelling the SDK would refuse just the same. Compare the parsed set, not substrings — a "
+        "substring check cannot tell 'room' from 'room-server' (B-14)."
+    )
+
+
+def test_the_listed_prefixes_parser_reads_the_message_not_a_constant() -> None:
+    """Guard the guard: a parser that answered ``_ROSTER_PREFIXES`` regardless is a tautology.
+
+    Both sides of the equality above derive from ``PREFIXES_BY_TYPE_WITH_RETIRED``, so the check
+    only means anything if the parser really reads the *message*. Feed it a message listing a
+    different set and it must answer with that set — and refuse to answer one that lists none.
+    """
+    assert _listed_prefixes(
+        "the prefix must be one of ('room', 'pc'); use the segments after the first"
+    ) == ("room", "pc")
+    with pytest.raises(AssertionError):
+        _listed_prefixes("the prefix must be one of nothing in particular")
 
 
 def test_the_refusal_is_the_sdks_own_not_pydantics() -> None:
@@ -328,3 +376,51 @@ def test_the_scaffold_refuses_a_type_that_is_not_a_server() -> None:
     with pytest.raises(SystemExit) as excinfo:
         scaffold._host_for_type("weather")
     assert "unknown --type" in str(excinfo.value)
+
+
+def test_the_documented_scaffold_command_can_actually_run(tmp_path: Path) -> None:
+    """The Usage line was a command nobody ran, and it could not run (bug class 11).
+
+    ``create_server.py`` derives the capability prefix from ``aegis_schema.roster``, so the shared
+    schema must be importable — but the documented invocation never said so, and the generator
+    exits with a ``SystemExit`` explaining the omission. Run the documented invocation in a
+    subprocess with the inherited ``PYTHONPATH`` **removed**, so the only thing putting the schema
+    on the path is the instruction the docstring itself gives. The instruction is the claim; this
+    is the run.
+
+    The argument list is exercised by the scaffold tests above — what this one adds is the
+    *environment* the docstring documents.
+    """
+    docstring = ast.get_docstring(ast.parse(_SCAFFOLD.read_text(encoding="utf-8", newline="")))
+    assert docstring, "create_server.py no longer has a module docstring to check"
+    documented = re.search(r"PYTHONPATH=(\S+)", docstring)
+    assert documented is not None, (
+        "the scaffold's Usage line does not say how to make aegis_schema importable, so the "
+        "command it documents fails with a SystemExit (B-14 residue)"
+    )
+
+    env = {key: value for key, value in os.environ.items() if key != "PYTHONPATH"}
+    env["PYTHONPATH"] = documented.group(1)
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(_SCAFFOLD),
+            "--name",
+            "weather",
+            "--type",
+            "room",
+            "--port",
+            "50060",
+            "--output",
+            str(tmp_path),
+        ],
+        cwd=_REPO,
+        env=env,
+        capture_output=True,
+        check=False,
+    )
+    stderr = result.stderr.decode("utf-8", errors="replace")
+    assert result.returncode == 0, f"the documented command failed:\n{stderr}"
+    assert (tmp_path / "weather_server.py").is_file(), (
+        f"the documented command reported success but wrote nothing:\n{stderr}"
+    )
