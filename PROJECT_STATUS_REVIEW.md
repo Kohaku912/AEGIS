@@ -154,10 +154,16 @@
 
 ```
 branch: cf-grpc-and-goal-hygiene   (フラット名 — A-5 で改名済み。未 push — 先行数は下記コマンドで確認)
-最新コミット: 03434ae  docs(record): A-5 / A-8 / A-10 executed, and the object-loss incident recorded
+最新コミット: 26b9988  feat(sdk): A-2 — the SDK refuses third-party capability prefixes explicitly
 作業ツリー: clean（`query` は A-8 で削除済み）
 stash: 0 件
+リモート ref: origin/cursor/cf-grpc-and-goal-hygiene — **入れ子名**（読めるが書けない。B-6）
 ```
+
+> **リモート側は入れ子名のまま。** ローカルのブランチは A-5 でフラット名にしたが、**リモートの ref は
+> `origin/cursor/cf-grpc-and-goal-hygiene`** で、これは**読める**（B-6 が壊すのは *書き込み* だけ）。
+> したがって先行数のコマンドは**入れ子名で書く**。origin の tip は HEAD の祖先なので
+> （`git merge-base --is-ancestor origin/cursor/cf-grpc-and-goal-hygiene HEAD`）、push は fast-forward。
 
 > **先行コミット数は本節に書かない。** これは**コミットのたびに増える量**で、書いた瞬間から
 > 古くなる（型 9 / 型 13）。正確な値は:
