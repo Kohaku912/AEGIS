@@ -84,6 +84,8 @@
 | **A-6** | `aegis_ai/permissions/` の去就（**B-16**） | ① 削除 ② 配線 ③ 現状維持（固定済み） | **③**。②は**強制承認ゲートの復活**でオーナー境界違反。①はいつでもできる | なし（固定済みなので急がない） |
 | **A-7** | **未 push のコミットを push するか** | ① push ② 保留 | **①**。**2026-09-29 に実行を試みたが、この環境に資格情報が無く失敗した**（`could not read Username for 'https://github.com'` — `gh` 未ログイン・SSH 鍵無し・helper は対話専用）。**判断は済んでおり、残っているのはオーナーの認証操作だけ** | リモートに何も届いていない（作業喪失リスクは解消済みだが共有されていない）。**件数はこの表に書かない** — コミットのたびに増える量なので、書けば即座に古くなる（この節自身の設計「測定値を書かない」にも反する） |
 
+| **A-11** | **`ReflectionEngine.approval_decisions` 引数の去就** | ① 引数と、それを読む 3 分岐を削除 ② 呼び出し元を配線 ③ 現状維持（固定して記録） | **③**（A-6 と同じ理由）。②は「承認判断の記録」を復活させる**製品判断**で、D4=(b)（強制ゲート削除・任意の確認は維持）と整合するかを先に決める必要がある。①はいつでもできる | **この行は §0.2 に無かった** — §5.1 が「保留」と書いたまま登録簿に移されていなかった。**実測 2026-09-30**: `approval_decisions` の出現 **12 箇所すべてが `reflection_engine.py` の内部**（宣言・既定 `None`→`[]`・それを読む 3 分岐 `_classify_outcome` / `_identify_root_cause` / `_classify_failure`）。**呼び出し元が 1 つも無い**（`runtime.py:1624` は `memory_store=` しか渡さない）ので 3 分岐は到達不能。引数があるだけで「承認判断が反映される」と読める（型 6 の引数版） |
+
 #### B. 定義が要る（挙動が動く）
 
 | # | 問い | 選択肢 | 推奨と理由 |
@@ -239,7 +241,7 @@ stash: 0 件
 | multi-user / plugin marketplace | ❌ 未着手（v1 スコープ外） |
 | Docker 全体検証 | ⚠️ compose と Dockerfile はあるがマルチサービス実機検証が未完 |
 
-### 3.3 承認時代の残骸（削除か配線かのオーナー判断待ち）
+### 3.3 承認時代の残骸（棚卸し記録 — 残る判断は §0.2）
 
 > **2026-09-29 更新 — 下の表は 2026-09-28 の棚卸し記録。** その後の P1-5 で:
 > **#1 `AutonomyProfile` / #3 `dialogue/` / #4 `research/` / #9 `{room,android}_server_client.py` は
@@ -248,9 +250,16 @@ stash: 0 件
 > **「動くゲート」**で配線すると目標に反し、後者は**未使用ではなく主張が偽**なので、消す前に記録が要る。
 > **#8 `BrowserSafetyBoundary` は削除対象から外した** — 休眠しているだけで本来効くべき層で、
 > **egress 半分は P1-7 で閉じた**（`a5c2cdc`）。
-> **残るオーナー判断は #5・#6・#7 の個別メンバーと、#2 / #10 の最終的な去就。**
+> **残るオーナー判断は 4 件だけ**: #2 `permissions/`（**A-6**）・#10 `evaluation/`（**B-2**）・
+> `motivation_arbiter` を含む到達不能な経路（**B-3**）・`reflection_engine` の死んだ
+> `approval_decisions` 引数（**A-11**）。**#6 `risk.approval_mode` と #7
+> `ConfirmationStore.mark_executed/mark_failed` は下の §5.1 の実測で「消費されている」「生きた
+> 契約」と判明したので判断は要らない** — この行は長く 6 件を「判断待ち」と書いていた。
+> **正典は §0.2**（この行はその写しだった）。
 
-いずれも**誰も読まない/呼ばない**ことが確認済みの面です。
+**下の表は 2026-09-28 時点の判定**で、その後の実測で**7 面中 4 面が誤り**と判明しています（上の更新
+ブロックと §5.1）。**「誰も読まない/呼ばない」を表から読み取らないでください** — 面ごとに実測が
+必要で、実際 `permissions/` と `reflection_engine` は**生きたテストとランタイム経路**を持っていました。
 
 | # | 対象 | 問題 |
 |---|---|---|
@@ -359,7 +368,7 @@ stash: 0 件
 | **P1-2** | **不可逆台帳の UI を接続する** | 事前ゲートの代替が API 止まり。Phase 3 からの持ち越し | ✅ **完了**（`c0c5845`） |
 | **P1-3** | **`AutonomyProfile` を削除 or 配線する** | 虚偽の安全主張は「宣言されているが効いていない」型の最悪例。**配線は選べない**（プロファイルのはしごは Phase 5b で削除した承認機構そのもので、配線するとオーナー境界に違反する）。よって**削除** | ✅ **完了**。`AutonomyProfile` を削除し、検出器を自動発見化。`test_the_retired_autonomy_profile_stays_retired` が不在と `# Always forbidden (structural)` の消滅を固定 |
 | **P1-4** | **`pc-server.file.read` / `write_file` にパス検査を入れる** | 実害（秘密鍵が読める） | ✅ **完了**（`f8293a9`） |
-| **P1-5** | **残骸 8 面の削除/配線を決める**（§3.3） | 判断待ちが溜まるほど、次の実装が誤った前提の上に乗る。ただし **#8 `BrowserSafetyBoundary` は削除対象から外す** — P1-7 の調査で、休眠しているだけで本来効くべき層だと判明したため（他 7 面とは性質が違う） | 🔄 **実施中**。棚卸しで**当初リストの 4 面が誤りと判明**（§5.1）。参照ゼロを実測で確認した 4 面（`dialogue/`・`research/`・`{room,android}_server_client.py`、計 13 ファイル / 3,136 行）は削除、残りは「モジュール削除」ではなく個別メンバーの判定へ。**`dev-server` 残骸は解消済み**（`952caaa`、§5.2 の追記）— 名簿は `aegis_schema/roster.py` の 1 つになり、`dev-server` を綴るモジュールは 6 → 3、記録ドリフトは 5 → 2 サイト。残る個別メンバー（`permissions/`・`reflection_engine`・`requires_approval_for`・`motivation_arbiter`・`risk.approval_mode`・`ConfirmationStore`）はオーナー判断待ち |
+| **P1-5** | **残骸 8 面の削除/配線を決める**（§3.3） | 判断待ちが溜まるほど、次の実装が誤った前提の上に乗る。ただし **#8 `BrowserSafetyBoundary` は削除対象から外す** — P1-7 の調査で、休眠しているだけで本来効くべき層だと判明したため（他 7 面とは性質が違う） | 🔄 **実施中**。棚卸しで**当初リストの 4 面が誤りと判明**（§5.1）。参照ゼロを実測で確認した 4 面（`dialogue/`・`research/`・`{room,android}_server_client.py`、計 13 ファイル / 3,136 行）は削除、残りは「モジュール削除」ではなく個別メンバーの判定へ。**`dev-server` 残骸は解消済み**（`952caaa`、§5.2 の追記）— 名簿は `aegis_schema/roster.py` の 1 つになり、`dev-server` を綴るモジュールは 6 → 3、記録ドリフトは 5 → 2 サイト。残る個別メンバーは **§5.1 の実測で 3 つに絞られた**: `permissions/`（**A-6**）・`motivation_arbiter`（**B-3**、経路全体で 1 判断）・`reflection_engine` の死んだ `approval_decisions` 引数（**A-11**）。**`requires_approval_for`・`risk.approval_mode`・`ConfirmationStore.mark_executed/mark_failed` は「生きた契約／消費されている」と実測されたので判断は要らない** — この行は長く 6 件を「オーナー判断待ち」と並べていた。**正典は §0.2** |
 | **P1-6** | **Horvitz 型の割り込み期待効用モデル**（提案 P1-14） | 現行は手書きのしきい値のはしご。提案自身が「まず手設計の期待効用から始め、データが溜まってから学習へ」と述べている | ✅ **完了**。`InterruptionController.decide` を `net = benefit × P(receptive) − cost` に置換し、`net > 0` で発話。**宣言された規則（emergency_stop・例外カテゴリ・critical・静穏時間・proactive 不許可）はハードゲートのまま**でモデルを経由しないことをテストで固定。判断ログに**内訳**（benefit / p_receptive / cost / net / occupancy）を載せ、**報告された数値から決定を再計算できる**ことを assert — これが「効用の衣を着たはしご」への退行を防ぐ。学習と HandRaiser は P1-14 自身の理由で対象外 |
 | **P1-7** | **browser-server の休眠した安全層をどうするか決める**（旧題: stealth / bulk signup の実効化） | 調べた結果、**「書かれていない」のではなく「書かれているが誰も見ていない」**だった。`BrowserSafetyBoundary` は構築され `get_actions_taken()` だけが読まれ、**4 つの `check_*` は `src/` から一度も呼ばれない**（`actions_taken` も常に空）。`use_proxy_for_evasion` / `bulk_signup` は全タスクの `forbidden_actions` に入っているが、効かせるはずの `check_action` が死んでいる。**一括配線はできない**: `check_page_observation` の `APPROVAL_BOUNDARIES` が publish/submit/upload/account_creation に `needs_approval=True` を返すため、配線すると**強制承認ゲートが復活**しオーナー境界に違反する。加えて `check_action` は**こちらの action 語彙**で比較するので browser-use の action 名と一致せず、そのまま入れると全アクションが止まる。**単一制約への実害**: `check_domain`（＝ナビゲーション毎の egress 検査）も死んでおり、事前検査 `_navigation_egress_denied` は**宣言された target のみ**を見るので、タスク途中の任意ホストへの遷移は再検査されない | ✅ **完了**（`a5c2cdc`）。**案①（egress 検査だけ配線）を採用**。`BrowserProfile.allowed_domains` を `egress.navigation_allowlist()` から導出し、browser-use の `SecurityWatchdog`（遷移前 veto・リダイレクト再検査・不正タブ閉鎖）に施行させる。**承認意味論も action 語彙の翻訳も不要**なので、強制ゲートは削除のまま・休眠層も休眠のまま（`test_safety_boundary_dormancy.py` は無変更で緑）。パターンは完全一致か `*.suffix` のみ — `192.168.*` は公開 DNS 名 `192.168.evil.com` も通すため、私有 IP は**宣言されたときだけ**許可する。休眠は `browser-server/tests/test_safety_boundary_dormancy.py` が発見＋等式で固定 |
 
@@ -1553,12 +1562,12 @@ ai-server **1756 → 1758 passed / 31 skipped**（**+2 = 新規 2 関数**、実
 |---|---|
 | P2-0 | ✅ **完了** — `scripts/test-all-suites.ps1` を追加。**制約ゲート（`test-ai-server.ps1`）に委譲**したうえで SDK 25 / room 14 / browser 100 を走らせる。**今まで誰も走らせていなかった 139 テスト**が対象になり、「SDK が 6 件赤のまま誰も気づかない」原因が消える。`web-ui`（vitest / playwright）は node ツールチェーンとブラウザ実体が要るため対象外のまま。**注**: この環境の PowerShell ツールは**ネイティブ実行ファイルを起動できない**（`& python` も `& hostname.exe` も出力・`$LASTEXITCODE` とも空。エラーも出ない）ため、**スクリプト自体は実行検証できていない** — AST パースで構文を、Bash から各スイートを個別に実行して中身を検証した（§0 のスキルに記録） |
 | P2-1 | ✅ **完了** — `docs/status.md` / `implementation-status.md` / `backlog.md` / `roadmap.md` の 4 本を **`docs/status.md` 1 本に統合**（61 → 58 ファイル）。**新文書は測定値を一切持たない**設計にした — 数値は `PROJECT_STATUS_REVIEW.md` と `AGENTS.md` を指すだけなので、**型 9（同じ量を 2 箇所に書く）の入口が存在しない**。参照 5 箇所（`README.md` 3 行 → 1 行、`docs/architecture.md`、`IMPROVEMENT_PROPOSAL.md` ×2）も同時に更新 |
-| P2-2 | ⏸ **実測済み・オーナー確認待ち** — `.aegis-local/` は **1.4 GB**。**git 管理外**（`.gitignore` 済み）で削除は不可逆。**検証済み**: SHA 名のアーカイブ **16 本はすべて履歴に実在**（`git cat-file -e`、欠落 **0**）＝ `git archive` で再生成できる。**だが残り約 21 本は説明的な名前で SHA を持たない**（`aegis-ui-v2-display-deploy.tar.gz`・`aegis-network-recovery-ui.tar.gz` 等）ため、**名前からは再生成できない** — つまり削除は「全部が再生成可能」ではない。**スキャンのみ実施、削除は確認後** |
+| P2-2 | ✅ **完了**（**A-4**、2026-09-29）— `.aegis-local/` の **1.4 GB を削除**（オーナー判断「削除する／全部」）。git 管理外で削除は不可逆なので、先に**再生成可能性を実測**した: SHA 名のアーカイブ **16 本はすべて履歴に実在**（`git cat-file -e`、欠落 **0**）＝ `git archive` で再生成できるが、**残り約 21 本は説明的な名前で SHA を持たない**ため**名前からは再生成できない** — つまり「全部が再生成可能」ではなかった。**2026-09-30 実測**: ディレクトリは**空で再出現**（0 ファイル / 0 バイト）。`src/` に書き込むコードは無く、参照はテスト 2 本（`.gitignore` 検査・走査の `_SKIP_DIRS`）だけ |
 | P2-3 | ✅ **完了**（`b32f396`）— 「`approval` で再 grep する運用」を**実測**に置き換えた（§5.5）。**57 文書が approval に言及、48 が訂正バナーを持つ**。残る 9 のうち **8 は ADR（定義上、履歴記録）か本文で自訂正済み**で、**誤りは 1 件だけ**だった: `README.md`。玄関が退役したはしごを掲げ、コードと正反対を書いていた。検出器は**書かず**（除外リストは検出したい欠陥そのもの）、誤っていた 1 箇所をコードに対して固定 |
 | P2-4 | **未決の論点**: `/approve` `/modify-and-approve` `/cancel` の **fresh passkey（15 分）が比例しているか**（「最小の割り込み」として重い） |
 | P2-5 | 長期: vision のローカル化 / gRPC TLS 統合 / Room 実機プロバイダ / cross-device context / 音声 I/O / multi-user |
 | P2-6 | ⏸ **実測済み・オーナー確認待ち**（`d4aae94`）— `aegis_ai/evaluation/` の死んだ部分グラフ（1,104 行）を**削除するか配線するか**。`495105e` 自身がオーナー判断待ちに含めている。**配線するなら期待の書き直しが製品判断**（`delete_file` → `ALLOW_WITH_AUDIT` は**今は正しい**）。固定済みなので**急がない**（§5.7） |
-| P2-7 | ⏸ **実測済み・オーナー確認待ち**（`7866d85`）— ① コスト表の中央 2 値を入れ替えるか（B-11。**自律ループの発火間隔が動く**）② 自律的な結果の `expected_usefulness` / `interruption_cost` に実値を入れるか（B-17。**判定の第 3 項が今は定数**）③ 同名フィールドの既定値 **0.0 / 0.2 / 0.5** を 1 つに寄せるか。どれも 1 行の変更だが挙動の判断（§5.8） |
+| P2-7 | ⏸ **B-1 と同じ判断**（**正典は §0.2 の B-1**）— ① コスト表の中央 2 値を入れ替えるか（**自律ループの発火間隔が動く**）② 自律的な結果の `expected_usefulness` / `interruption_cost` に実値を入れるか（**判定の第 3 項が今は定数**）。~~③ 同名フィールドの既定値 **0.0 / 0.2 / 0.5** を 1 つに寄せる~~ **③ は撤回**（2026-09-29 実測: 3 値は同じ量の 3 既定値ではなく「分からない」の 3 種類だった — §5.8 / §4.3 型 3）。① と ② は 1 行の変更だが挙動の判断 |
 
 ---
 
