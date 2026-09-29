@@ -446,10 +446,13 @@ def test_a_dev_capability_is_still_constructible_so_the_enum_member_is_live() ->
 def test_the_id_prefix_allowlist_is_a_closed_set() -> None:
     """B-14: the id prefix is an allowlist, and it is what locks out third parties.
 
-    ``define_capability(server_prefix="weather", ...)`` — the SDK's own documented example —
-    cannot construct a ``Capability``. This pins the lock so that widening it is a visible
-    decision rather than an accident, and so the SDK's promise ("tools for building AEGIS
-    capability servers") stays honestly described as unmet until the lock or the promise changes.
+    This pins the lock so that widening it is a visible decision rather than an accident.
+    The SDK used to promise the opposite — ``define_capability(server_prefix="weather", ...)``
+    was its own documented example, and it could not construct a ``Capability``. Since
+    2026-09-29 (register A-2 ②) the SDK refuses such a prefix itself, by name, before pydantic
+    sees the id, so the lock and the promise now agree; the SDK side is pinned by
+    ``packages/aegis-sdk-python/tests/test_capability_id_contract.py``. Widening this pattern
+    still turns both red.
     """
     with pytest.raises(Exception) as excinfo:
         Capability(

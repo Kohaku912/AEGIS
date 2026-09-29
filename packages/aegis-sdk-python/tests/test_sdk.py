@@ -1,7 +1,15 @@
-"""Tests for AEGIS Plugin SDK."""
+"""Tests for AEGIS Plugin SDK.
+
+These build capabilities under the ``room`` prefix. Until 2026-09-29 every one of them used
+``dev`` instead — the server retired in Phase 9 — because ``server_type`` defaulted to
+``ServerType.DEV`` and no other prefix built with default arguments (B-14). The identity was
+borrowed from a deleted server, not chosen; the suite no longer depends on it.
+"""
 
 from __future__ import annotations
 
+from aegis_schema.models import RiskLevel, ServerType
+from policy_engine import PolicyDecision
 
 from aegis_sdk.capability import define_capability
 from aegis_sdk.events import EventClient, make_dedupe_key, make_event
@@ -13,9 +21,6 @@ from aegis_sdk.testing import (
     run_event_push_check,
     run_policy_flow_check,
 )
-from aegis_schema.models import RiskLevel, ServerType
-from policy_engine import PolicyDecision
-
 
 # ═══════════════════════════════════════════════════════════════
 # 1. Capability Definition Helper
@@ -28,21 +33,21 @@ class TestDefineCapability:
     def test_read_only_capability(self):
         """READ_ONLY capability is created correctly."""
         cap = define_capability(
-            server_prefix="dev",
+            server_prefix="room",
             action="get_weather",
             name="Get Weather",
             description="Retrieve weather data.",
             risk_level=RiskLevel.READ_ONLY,
             tags=["weather", "observe"],
         )
-        assert cap.id == "dev.get_weather"
+        assert cap.id == "room.get_weather"
         assert cap.risk_level == RiskLevel.READ_ONLY
         assert cap.requires_approval is False
 
     def test_approval_required_capability(self):
         """APPROVAL_REQUIRED capability has requires_approval=True."""
         cap = define_capability(
-            server_prefix="dev",
+            server_prefix="room",
             action="set_alert",
             name="Set Alert",
             description="Set an alert.",
@@ -50,7 +55,7 @@ class TestDefineCapability:
             side_effects=["notification"],
             tags=["alert", "action"],
         )
-        assert cap.id == "dev.set_alert"
+        assert cap.id == "room.set_alert"
         assert cap.risk_level == RiskLevel.APPROVAL_REQUIRED
         assert cap.requires_approval is True
 
@@ -59,7 +64,7 @@ class TestDefineCapability:
         import pytest
         with pytest.raises(ValueError, match="side_effects"):
             define_capability(
-                server_prefix="dev",
+                server_prefix="room",
                 action="bad_cap",
                 name="Bad",
                 description="Missing side effects",
@@ -71,7 +76,7 @@ class TestDefineCapability:
         import pytest
         with pytest.raises(ValueError, match="forbidden"):
             define_capability(
-                server_prefix="dev",
+                server_prefix="room",
                 action="send_sns",
                 name="Send SNS",
                 description="Post to social media",
@@ -90,7 +95,7 @@ class TestSafetyValidator:
     def test_valid_capability(self):
         """Valid capability has no errors."""
         errors = validate_capability_definition(
-            cap_id="dev.get_forecast",
+            cap_id="room.get_forecast",
             name="Get Forecast",
             description="Get weather forecast",
             risk_level=RiskLevel.READ_ONLY,
@@ -102,7 +107,7 @@ class TestSafetyValidator:
     def test_unspecified_risk_rejected(self):
         """UNSPECIFIED risk level is rejected."""
         errors = validate_capability_definition(
-            cap_id="dev.cap",
+            cap_id="room.cap",
             name="Test",
             description="Test",
             risk_level=RiskLevel.UNSPECIFIED,
@@ -114,7 +119,7 @@ class TestSafetyValidator:
     def test_forbidden_risk_rejected(self):
         """FORBIDDEN risk level is rejected."""
         errors = validate_capability_definition(
-            cap_id="dev.cap",
+            cap_id="room.cap",
             name="Test",
             description="Test",
             risk_level=RiskLevel.FORBIDDEN,
@@ -126,7 +131,7 @@ class TestSafetyValidator:
     def test_forbidden_pattern_rejected(self):
         """Capability matching forbidden pattern is rejected."""
         errors = validate_capability_definition(
-            cap_id="dev.send_sns",
+            cap_id="room.send_sns",
             name="Send SNS",
             description="Post to SNS",
             risk_level=RiskLevel.READ_ONLY,
@@ -138,7 +143,7 @@ class TestSafetyValidator:
     def test_missing_description_rejected(self):
         """Missing description is rejected."""
         errors = validate_capability_definition(
-            cap_id="dev.cap",
+            cap_id="room.cap",
             name="Test",
             description="",
             risk_level=RiskLevel.READ_ONLY,
@@ -150,7 +155,7 @@ class TestSafetyValidator:
     def test_level2_missing_side_effects(self):
         """Level 2+ without side_effects is rejected."""
         errors = validate_capability_definition(
-            cap_id="dev.cap",
+            cap_id="room.cap",
             name="Test",
             description="Test",
             risk_level=RiskLevel.APPROVAL_REQUIRED,
@@ -161,7 +166,7 @@ class TestSafetyValidator:
 
     def test_forbidden_proximity_warning(self):
         """check_forbidden_proximity returns warnings for similar names."""
-        warnings = check_forbidden_proximity("dev.delete_something")
+        warnings = check_forbidden_proximity("room.delete_something")
         assert len(warnings) >= 1
 
 
@@ -180,7 +185,7 @@ class TestRegistrationClient:
         registry = ToolRegistry()
         client = RegistrationClient(
             server_id="test-server",
-            server_type=ServerType.DEV,
+            server_type=ServerType.ROOM,
         )
         assert client.register_server(registry) is True
         assert client.is_registered is True
@@ -193,19 +198,19 @@ class TestRegistrationClient:
         registry = ToolRegistry()
         client = RegistrationClient(
             server_id="test-server",
-            server_type=ServerType.DEV,
+            server_type=ServerType.ROOM,
         )
         client.register_server(registry)
 
         cap = define_capability(
-            server_prefix="dev",
+            server_prefix="room",
             action="hello",
             name="Hello",
             description="Say hello",
             risk_level=RiskLevel.READ_ONLY,
         )
         assert client.register_capability(registry, cap) is True
-        assert registry.get_capability("dev.hello") is not None
+        assert registry.get_capability("room.hello") is not None
 
     def test_unregister(self):
         """Unregistration removes server and capabilities."""
@@ -214,11 +219,11 @@ class TestRegistrationClient:
         registry = ToolRegistry()
         client = RegistrationClient(
             server_id="test-server",
-            server_type=ServerType.DEV,
+            server_type=ServerType.ROOM,
         )
         client.register_server(registry)
         cap = define_capability(
-            server_prefix="dev", action="hello",
+            server_prefix="room", action="hello",
             name="Hello", description="Say hello",
             risk_level=RiskLevel.READ_ONLY,
         )
@@ -253,12 +258,12 @@ class TestEventClient:
         """make_event creates valid events."""
         event = make_event(
             event_type="test.event",
-            server_type=ServerType.DEV,
+            server_type=ServerType.ROOM,
             server_id="test-server",
             payload={"key": "value"},
         )
         assert event.event_type == "test.event"
-        assert event.source_server_type == ServerType.DEV
+        assert event.source_server_type == ServerType.ROOM
 
     def test_make_dedupe_key(self):
         """make_dedupe_key creates deterministic keys."""
@@ -281,16 +286,16 @@ class TestMockAEGISCore:
         core = MockAEGISCore()
 
         cap = define_capability(
-            server_prefix="dev", action="hello",
+            server_prefix="room", action="hello",
             name="Hello", description="Say hello",
             risk_level=RiskLevel.READ_ONLY,
         )
         core.register_capability(cap)
 
         # Register mock executor
-        core.broker.register_mock("dev.hello", lambda cap, p: {"greeting": "Hello!"})
+        core.broker.register_mock("room.hello", lambda cap, p: {"greeting": "Hello!"})
 
-        result = core.invoke_capability("dev.hello")
+        result = core.invoke_capability("room.hello")
         assert result["success"] is True
         assert result["output"]["greeting"] == "Hello!"
 
@@ -303,14 +308,14 @@ class TestMockAEGISCore:
         # ALLOW_WITH_AUDIT (see ai-server/tests/test_approval_redesign.py). Only
         # FORBIDDEN (hard DENY) and the monetary hard-stop patterns still block.
         cap = define_capability(
-            server_prefix="dev", action="dangerous",
+            server_prefix="room", action="dangerous",
             name="Dangerous", description="A dangerous action",
             risk_level=RiskLevel.APPROVAL_REQUIRED,
             side_effects=["side_effect"],
         )
         core.register_capability(cap)
 
-        result = core.invoke_capability("dev.dangerous")
+        result = core.invoke_capability("room.dangerous")
         assert result["status"] == "SUCCESS"
         assert result["policy_decision"] == "ALLOW_WITH_AUDIT"
 
@@ -319,7 +324,7 @@ class TestMockAEGISCore:
         core = MockAEGISCore()
         event = make_event(
             event_type="test.event",
-            server_type=ServerType.DEV,
+            server_type=ServerType.ROOM,
             server_id="test-server",
         )
         accepted = core.publish_event(event)
@@ -337,12 +342,12 @@ class TestHelperFunctions:
 
         server_info = ServerInfo(
             server_id="test-server",
-            server_type=ServerType.DEV,
+            server_type=ServerType.ROOM,
             status=ServerStatus.ONLINE,
         )
         caps = [
             define_capability(
-                server_prefix="dev", action="hello",
+                server_prefix="room", action="hello",
                 name="Hello", description="Say hello",
                 risk_level=RiskLevel.READ_ONLY,
             ),
@@ -354,7 +359,7 @@ class TestHelperFunctions:
         """run_policy_flow_check helper works."""
         core = MockAEGISCore()
         cap = define_capability(
-            server_prefix="dev", action="hello",
+            server_prefix="room", action="hello",
             name="Hello", description="Say hello",
             risk_level=RiskLevel.READ_ONLY,
         )
@@ -371,7 +376,7 @@ class TestHelperFunctions:
         """An unrecognised decision is reported, not silently accepted."""
         core = MockAEGISCore()
         cap = define_capability(
-            server_prefix="dev", action="hello",
+            server_prefix="room", action="hello",
             name="Hello", description="Say hello",
             risk_level=RiskLevel.READ_ONLY,
         )
@@ -384,7 +389,7 @@ class TestHelperFunctions:
         core = MockAEGISCore()
         event = make_event(
             event_type="test.event",
-            server_type=ServerType.DEV,
+            server_type=ServerType.ROOM,
             server_id="test-server",
         )
         errors = run_event_push_check(core, event, expected_accepted=True)

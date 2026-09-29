@@ -81,7 +81,6 @@
 
 | # | 問い | 選択肢 | 推奨と理由 | 決まらないと何が止まるか |
 |---|---|---|---|---|
-| **A-2** | SDK に任意 prefix を許すか、第三者 prefix は不可と明示するか（**B-14**） | ① スキーマの regex を緩める ② SDK が明示的に断る | **どちらでもよいが、今の「第三者サーバを謳って黙って禁じる」は最悪の組合せ** | `docs/plugin-sdk.md` の Quick Start・scaffold の生成コード・同梱 example が**全部動かないまま** |
 | **A-6** | `aegis_ai/permissions/` の去就（**B-16**） | ① 削除 ② 配線 ③ 現状維持（固定済み） | **③**。②は**強制承認ゲートの復活**でオーナー境界違反。①はいつでもできる | なし（固定済みなので急がない） |
 | **A-7** | **未 push のコミットを push するか** | ① push ② 保留 | **①**。**2026-09-29 に実行を試みたが、この環境に資格情報が無く失敗した**（`could not read Username for 'https://github.com'` — `gh` 未ログイン・SSH 鍵無し・helper は対話専用）。**判断は済んでおり、残っているのはオーナーの認証操作だけ** | リモートに何も届いていない（作業喪失リスクは解消済みだが共有されていない）。**件数はこの表に書かない** — コミットのたびに増える量なので、書けば即座に古くなる（この節自身の設計「測定値を書かない」にも反する） |
 
@@ -281,7 +280,7 @@ stash: 0 件
 | **B-11** | **「割り込みやすさ」の写像が 2 箇所に別々にある** — `personal_ai/interruption.py` の `_RECEPTIVITY`（受容確率）と `autonomous_loop.py:704` の `_current_interruption_cost()`（コスト軸）が、**同じ `SituationModel.interruptibility` を別々の数値表で写像**している。値も一致しない（コスト側 suppress 0.9 / important_only 0.55 / batch_later 0.4 / interruptible 0.1 に対し、受容確率は 0.05 / 0.35 / 0.20 / 0.90 — 補数関係にもなっていない） | ⚠️ **記録済み・未修正**（P1-6 の副産物）。用途が違う（自律ループの発火判断 vs 通知の割り込み判断）ので直ちに誤りではないが、**片方を調整しても他方が追随しない**。揃えるなら「interruptibility → 割り込みやすさ」の単一の表を `SituationModel` 側に置いて両者が参照するのが筋。**今は触らない** — 自律ループの発火間隔は挙動そのもので P1-6 の範囲外 |
 | **B-12** | **`FORBIDDEN_CAPABILITIES` は、それが守るフィールドとは別の id 方言で書かれている** — 39 件のうち canonical な形（`server.app.action`）は **8 件だけ**（すべて `pc-server.*`）。残り **31 件は `browser.send_email` のような「短縮 prefix + app_id なし」**。実測で **39 件すべてが `catalog.resolve()`（canonical + alias を解決する唯一の関数）で解決不能**。`validate_settings_change` は**完全一致**で比較するため、**canonical 形で書かれた同じ意図は素通りする**（実測: `per_capability["browser.send_email"]` → 1 件 / `per_capability["browser-server.social.send_email"]` → **0 件**）。守る相手の 1 つ `per_capability` は `permissions.py:89` が **canonical id** で引くので、**短縮形の 31 件は誰も使わない鍵空間を見ており、canonical な 8 件は正しい鍵空間だが存在しない capability を指している**。**今回さらに判明**: ① 生きた 128 capability のうち**禁止 action を持つものは 0 件** — つまり**今は守る相手が存在しない**（だから見えない）。② **3 つのループのうち `disabled_capabilities` のループは本体が `pass`** で、エラーを 1 件も積めない（AST で確認）— 実効は 3 中 2。③ その 2 つが拒否するのは**そもそも no-op な設定項目だけ**（短縮形の鍵はゲートに引かれない）。④ `EXPLICIT_DENY_PATTERNS` が覆うのは **39 件中 5 件**（支払いとポリシー自己改変のみ）で、残りは**別機構**が担っている（egress 系はネットワーク層の egress ゲート、FORBIDDEN を自称するものは `DEFAULT_RISK_MAP`、CAPTCHA/TOS はプロンプト）— **制約は危うくない、この一覧が危うい** | ⚠️ **記録済み・ピン済み・未修正**（`tests/test_forbidden_capabilities_dialect.py`、7 関数 / 13 ケース、**変異 6/6 捕捉**）。ピンは方言構成・解決不能性・素通りする witness・`pass` ループ・ゲートの鍵の形・パターン被覆を**等式と実測**で固定する。**この測定は「修復」ではなく「削除」に傾く** — 守る相手が 0 件、3 ループ中 2 つが無効、名前は何も指していない。**2026-09-29 に「削除」で決着した**（A-1）。削除したものは 39 件の一覧とそれを参照する 3 ループ、`CapabilityPermissions.allowlist`、`config/settings.json` の `"allowlist": []`。ピンは `tests/test_forbidden_capabilities_stay_retired.py`（11 ケース、**変異 14/14 捕捉**）に置換 — **「定数が消えた」だけでは弱い**（システムを弱めれば満たされる）ので、実物の `ToolBroker` が未登録 id を `NOT_FOUND`（ポリシー評価の**前**）で拒否すること、生きたゲートが `capability.id` を鍵にすること、`EXPLICIT_DENY_PATTERNS` が支払い・egress 迂回・ポリシー自己改変の 3 意図群に今も一致することを併せて固定する。`docs/permissions.md` / `pc-safety.md` / `android-safety.md` / `dev-safety.md` も訂正済み |
 | **B-13** | **`CapabilityPermissions.allowlist` を消費する者がいない** — 説明は「Capability IDs explicitly allowed (**bypass other checks**)」だが、`settings/permissions.py` が読むのは `disabled_capabilities`（:47）・`denylist`（:56）・`per_capability`（:89）の 3 つだけで、**`allowlist` を読む決定は存在しない**。唯一の参照は `validate_settings_change` 自身（＝自分を検閲するためだけに読む）。**検出器がこれを見逃す理由も特定**: `test_ineffective_flags.py` の `_readers()` は **src 内の識別子テキスト一致**なので、「バリデータが検査のために属性に触れる」を**読者として数えてしまう** | ⚠️ **記録済み・検出器で固定**。`tests/test_guarded_settings_fields.py` が「**バリデータが守るフィールドは、バリデータの外に消費者を持つこと**」を assert する（守られる集合は `validation.py` を AST で解析、消費者は `src/` を走査して発見、現在の穴は理由付きで記録し、**観測と記録の一致を等式で固定**）。変異 5 種すべて捕捉 — 新たに守られたのに消費者がいないフィールド / 記録の削除 / 消費者が付いたのに記録が残る / 走査が誤った属性形を読む / バリデータが守るのをやめる。B-12 と同じ面。オーナー境界の観点では**機能しなかった承認機構の残骸**だったので、**A-1（2026-09-29）で `allowlist` を削除**し、`FORBIDDEN_CAPABILITIES` の 3 ループも同時に消えた。**検出器は守る対象を `*.capabilities.<field>` から全設定セクションへ拡張され、その場で 2 件目の生きた欠陥を発見した** — `max_autonomous_runs_per_hour` はバリデータだけに読まれ、他に消費者がいない（自律ループはハードコードされた予算で動く）。**既存の死にフラグ検出器が見逃していた**のは、識別子走査がバリデータを「読者」と数えるため — 2 つの検出器が同じフィールドに別の答えを返すのはこの理由で、効果について正しいのはこちら。`_RECORDED_GAPS` に記録し、§0.2 の B に追加した |
-| **B-14** | **SDK では第三者サーバの capability を作れない** — `define_capability(server_prefix="weather", ...)` は **`capability.py` 自身の docstring にある例**だが、`Capability.id` の `pattern`（`models.py:124`）が prefix を **12 種（6 サーバ × 長短）に固定**しているため **pydantic ValidationError で落ちる**（実測）。しかも **SDK 自身の検証器はこれを通す**（`safety.py:98` の `^[a-z][a-z0-9_]*\.[a-z][a-z0-9_]*$` は任意 prefix を許容）＝**2 つの検証器が矛盾**し、しかも**両方向**に食い違う: SDK は `weather.` を通して `ai-server.` を弾き（`-` が文字クラスに無い）、スキーマはその逆。**加えて `define_capability` は `server_type` を既定 `DEV` のまま prefix から導出しない**ので、既定引数で通る prefix は **`dev` ただ 1 つ** — つまり **Phase 9 で削除したサーバの身元を借りたときだけ通る**（実測）。`docs/plugin-sdk.md` の Quick Start・`capability.py` の docstring・`examples/example-weather-server`（**import すら通らない**）・`tools/create-capability-server` が生成する `server_prefix="{prefix}"` がすべて同じ穴に落ちる。**SDK のテストが緑なのは、既存 11 件すべてが `dev` を名乗っているから** | ⚠️ **記録済み・ピン済み・未修正**（`tests/test_capability_id_contract.py`、8 関数 / 23 ケース、**変異 5/5 捕捉**）。ピンは両方の regex を**実物から発見**する（スキーマは `Capability.model_fields["id"].metadata`、SDK は `safety.py` の AST）ので、コピーが本体から乖離できない。**食い違いそのもの**を等式で固定するため、どちらを直しても落ちる。修正は「regex を緩める（任意 prefix を許す）」か「SDK 側で明示的に断る」の二択で、**どちらも製品判断** |
+| **B-14** | **SDK では第三者サーバの capability を作れない** — `define_capability(server_prefix="weather", ...)` は **`capability.py` 自身の docstring にある例**だが、`Capability.id` の `pattern`（`models.py:124`）が prefix を **12 種（6 サーバ × 長短）に固定**しているため **pydantic ValidationError で落ちる**（実測）。しかも **SDK 自身の検証器はこれを通す**（`safety.py:98` の `^[a-z][a-z0-9_]*\.[a-z][a-z0-9_]*$` は任意 prefix を許容）＝**2 つの検証器が矛盾**し、しかも**両方向**に食い違う: SDK は `weather.` を通して `ai-server.` を弾き（`-` が文字クラスに無い）、スキーマはその逆。**加えて `define_capability` は `server_type` を既定 `DEV` のまま prefix から導出しない**ので、既定引数で通る prefix は **`dev` ただ 1 つ** — つまり **Phase 9 で削除したサーバの身元を借りたときだけ通る**（実測）。`docs/plugin-sdk.md` の Quick Start・`capability.py` の docstring・`examples/example-weather-server`（**import すら通らない**）・`tools/create-capability-server` が生成する `server_prefix="{prefix}"` がすべて同じ穴に落ちる。**SDK のテストが緑なのは、既存 11 件すべてが `dev` を名乗っているから** | ✅ **解決済み**（2026-09-29、A-2 ②、§5.18）— 二択のうち **「SDK が第三者 prefix を明示的に断る」** を選んだ。`safety.py` は自前の regex を捨てて `aegis_schema.models.CAPABILITY_ID_PATTERN` を **import** する（規則が 1 つになる）。`define_capability` は `server_type` を prefix から**導出**する（既定 `None`、引数で矛盾を渡すと拒否）。docstring の例・同梱 example・scaffold の生成物は**説明ではなく実行**で検証される。ピンは「食い違い」から「契約」へ**張り替えた**（`tests/test_capability_id_contract.py`、**変異 5/5 捕捉**）。上の記述は**修正前**の状態 |
 | **B-15** | **サーバ名簿が 15 箇所に複製されていた**（11 ファイル、値の型は 5 種: `ServerType` / 短縮 prefix / 有効フラグ / id prefix / host:port。AST で計測）。うち **5 箇所が削除済み `dev-server` を今も列挙**していた（`capability_catalog.py:70`・`:379`、`models.py:215`、`permissions.py:66`、`ui_overview.py:3388`）。**「dev-server 残骸」の実体はこれ** — 個別の消し忘れではなく、**名簿に単一の定義が無いこと**の症状。**ただし実装前の測定で前提が 2 つ崩れた**: ① `server_id → ServerType` の写像は **5 コピー**あり、うち **2 つは既に食い違っていた**（`tool_broker.py` は `dev-server` を持たず、`capability_catalog.py` は持っていた）— 「5 箇所を直す」ではなく「5 コピーが 1 つになる」。② 15 箇所のうち **3 箇所は名簿ではない** — `situation.py:51/189/204` は**状況ソース**の語彙で、`ai-server` を `"webhook"` に写し、`:189` は `"status."`（サーバですらない）を含む。**キーが同じだけの別物**。`alert_manager.py` の 4 サーバも意図的（**サーバは自分を健康診断できない**） | ✅ **解消済み（`952caaa`、2026-09-29）** — `aegis_schema/roster.py` が単一の定義。6 サイト（`capability_catalog.py` ×2 / `prompt_regression.py` / `dashboard_legacy.py` / `models.py` / `tool_broker.py`）が import する。**6 つの写像すべて HEAD と値が同一**であることを確認（＝純粋なリファクタ）。退職サーバは `RETIRED_SERVER_ROSTER` に **1 回だけ**書き、`**` 展開で 3 サイトに折り込む（`dev-server` を綴るモジュールは 6 → 3）。名簿リテラルは **15 → 10 箇所 / 11 → 7 ファイル**、記録ドリフトは **5 → 2 サイト**。検出器は事実の移動に追随させた（`_id_consistency_map()` は AST のローカルではなく名簿を読む。失った「dict リテラルは 1 つ」ガードは、それが守っていた不変量 `test_the_validator_names_no_server_of_its_own` に置き換え）。**測定で 2 つのアサーションを撤回した** — ① `PREFIX_BY_ID` と `_PREFIX_MAP` の比較は**両辺が同じ tuple 由来**なので絶対に落ちない（変異 `room → rm` で緑のままだった）。短縮 prefix は代わりに **id 許可リスト**（別の宣言）と突き合わせる。② manifest の `server_id` と id prefix の比較も同じ理由で無効（`folder_registry` が両方を**パスから**導出し、JSON とパスの不一致は `list_all()` に届く前に**拒否**される）。真の不変量「拒否が 0 件」は既に `test_manifest_schemas.py` が固定している。**変異 12/12 捕捉**（各変異が期待どおりのテストで落ちることを観測、原ファイルはバイト単位で復元） |
 | **B-16** | **3 つ目の承認サーフェスが「動くゲート」として休眠している** — `aegis_ai/permissions/`（4 モジュール）は `{"decision": "ask_approval", "requires_approval": True}` を返す**完成した強制ゲート**。`_category_default()` は `MEDIUM_RISK_WRITE` / `HIGH_RISK_EXTERNAL_EFFECT` / `DESTRUCTIVE` / `FINANCIAL_OR_LEGAL` の 4 分類に `ask_approval` を返し、**最終フォールバックも `ask_approval`**（未知の操作は保守側に倒れる）。`ServicePermissionStore` は `default_*` の purchase/payment スコープを**読み込み時に `requires_approval = True` に永続化**する（`:318-324`）。**パッケージ外からの import は 0 件**（`src/` 全体を AST 走査。他のヒットは gitignore 済みの `.aegis-local/` スナップショットのみ）。B-8（browser-server の休眠安全層）と同型だが、**より危険なのは「動く」こと**: `tests/test_goal_alignment.py` と `test_mission_contract_acceptance.py` がゲート意味論を assert して緑なので、**配線すると「よく支えられている」ように見える** | ⚠️ **記録済み・固定**（P1-5 後半）。`test_forced_gate_stays_retired.py` を 3 サーフェス目に拡張 — 実行経路 7 モジュールが import しないこと（parametrize）、**パッケージ自身だけが import する**こと（非空性 assert ＋ 観測集合と記録集合の一致）、そして**なぜ配線してはならないか**（今も `ask_approval` を返すこと）を記録。**変異 4 種すべて捕捉**（実行経路への import 追加 / 非実行経路への追加 / prefix 一致を等価に狭める / `MEDIUM_RISK_WRITE` を `allow` にする）。**削除ではなく固定を選んだ** — 削除するか配線するかはオーナー判断（配線は目標に反する） |
 | **B-17** | **`PresentationRoutingPolicy` の「割り込む価値があるか」判定が定数になっている** — 最後の判定は `should_interrupt = important and not occupied and context.expected_usefulness >= context.interruption_cost`。第 3 項の 2 つの被演算子は `autonomous_loop.py:3065-3066` が**同じ既定値**で埋める（`float(task.get(..., 0.5) or 0.5)` が両方）が、**リポジトリのどこもその 2 つのキーを task に書かない**（`src/` 全体の dict リテラル走査で、書き込みは `_present_autonomous_result` 内の**プレゼンテーション payload への転記 2 箇所だけ** — task 構築側ではない）。したがって比較は常に `0.5 >= 0.5` = **真**で、`should_interrupt` は実質 `important and not occupied` に退化する。**生きた経路**（`routing_policy.py:78`）の欠陥で、死んだモジュールの話ではない。フィールド自体は生きている（`expected_usefulness` を 0.4 に下げると判定は反転する）= **既定値が答えを決めている**。加えて `>=` は等しい既定値どうしで**割り込む側に倒れる**。さらに同名フィールドが**3 つの既定値**を持つ — `ActionCandidate` は **0.0**、コスト表のフォールバックは **0.2**、`PresentationRoutingContext` は **0.5**（`0.0` は `src/` では生成されず、テストだけが到達する。§5.8 の訂正を参照） | ⚠️ **記録済み・固定**（`d4aae94` の副産物）。ピン `tests/test_interruption_cost_vocabulary.py`（8 テスト、**変異 8/8 捕捉**）。修正は「自律的な結果の usefulness とは何か」の設計判断なのでオーナー案件 |
@@ -322,7 +321,7 @@ stash: 0 件
 8. **同じ名簿・同じ写像が多数のコピーに散る** — 1 箇所直しても他が追随しない（B-11 の 2 つの割り込み写像、B-15 のサーバ名簿）。**「残骸が消し忘れられている」と見えたら、まず名簿の単一性を疑う**。B-15 は **A-3 で解消**（`952caaa`）。ただし**実測で数え方が 2 つ崩れた**: 「15 箇所」のうち **3 箇所は同じ鍵を持つ*別の語彙***（`situation.py` は `ai-server → "webhook"` と写す状況ソースの表で、`"status."`＝サーバですらない値も持つ）、「同じ写像の 5 コピー」のうち **2 つは既に食い違っていた**。**コピーを数えるときは、値の型ではなく *写像の向きと余域* で数える** — 同じ `server_id → X` でも X が違えば別の事実である
 9. **同じ量を 1 つの成果物の中で 2 回書くと、必ず自己矛盾する** — `docs/architecture.md` は冒頭で「53 capabilities / 157 passed」、**同じファイルの**末尾の状態表で「128 capabilities / 1550 passed」と書いていた（✅ 修正済み）。片方だけ更新されるので、**読者はどちらも信じられなくなる**。対策は「測定値を書き写さない」か「**日付付きで書き、不変量ではないと明示する**」のどちらか。**「現在のコードで検証済み」という日付の無い宣言は、この型の入口**（`BUG_REPORT.md` が無事なのは調査日が明記されているから）
 10. **死んだコードの中の偽の主張は、テストでは捕まらない** — `aegis_schema/validation.py` は **128 件すべて**の capability に「tags に `risk:<level>` を入れよ（**Policy Engine のフィルタリングのため**）」と警告していたが、**capability を risk タグで絞る機構は存在しない**（✅ 削除済み）。**走らないコードは振る舞いを持たない**ので、テストは何も言えない。したがって**削除する前に中身を読む** — 消すだけでは、同じ偽の主張が別の場所で再生される。あわせて **100% の入力で発火する警告は警告ではない**: 配線すれば 128 件の雑音になるだけで、**「配線しても何も得られない」ことは `0 errors / 133 warnings` を実測して初めて分かる**
-11. **誰も走らせない成果物は検証されない** — `examples/example-weather-server` は **import すら通らない**状態で出荷されていたが、**テストもスクリプトも CI もこのファイルを参照していなかった**ので誰も気づかなかった（B-14）。同梱の example・scaffold（`tools/create-capability-server`）が生成するテンプレート・`tools/` 配下は「動くはず」と思われているが、**走らせる者がいなければ 1 行目から壊れていても緑のまま**である。型 8（スイートが走っていない、P2-0）の兄弟で、こちらは**コードではなく成果物**についての話。**「参照されているか」ではなく「実行されているか」を問う**
+11. **誰も走らせない成果物は検証されない** — `examples/example-weather-server` は **import すら通らない**状態で出荷されていたが、**テストもスクリプトも CI もこのファイルを参照していなかった**ので誰も気づかなかった（B-14）。同梱の example・scaffold（`tools/create-capability-server`）が生成するテンプレート・`tools/` 配下は「動くはず」と思われているが、**走らせる者がいなければ 1 行目から壊れていても緑のまま**である。型 8（スイートが走っていない、P2-0）の兄弟で、こちらは**コードではなく成果物**についての話。**「参照されているか」ではなく「実行されているか」を問う**。**（2026-09-29 追記）この型の実例だった 2 つは、いま SDK のピンが実際に import して実行する**（`test_capability_id_contract.py` の `test_the_shipped_example_server_runs_end_to_end` は example を登録・呼び出しまで通し、`test_the_scaffold_generates_a_server_that_builds` は scaffold を生成して生成物を import する）。**型そのものは残る** — `tools/` の他のスクリプトと `web-ui` の Playwright はまだ誰も走らせていない
 12. **検査は在るが、報告できない** — ガードが存在し、呼ばれ、実行されるのに、**1 件も指摘を出せない**。3 つの形を実測した（B-12・B-19）: ① **本体が `pass`** — `validate_settings_change` の 3 ループのうち 1 つは `if … in FORBIDDEN_CAPABILITIES: pass` で、条件が真でも何も積まない（実効 3 中 2）。② **誰も使わない語彙と比較する** — 一覧の 39 件は短縮 prefix、ゲートが引く鍵は canonical なので、**同じ意図を正しい綴りで書くと素通りする**（`browser.send_email` → 1 件 / `browser-server.social.send_email` → 0 件）。③ **フォールバックが緩い側** — `server_enabled_map.get(prefix, True)` は不明な prefix を「有効」と読む（B-19）。**型 1（宣言されているが効いていない）の検査版**で、判定は「ガードがあるか」ではなく「**このガードはどの入力で発火するか**」— 実測で **witness を 1 件作って発火させる**。発火しない witness しか作れないなら、それはガードではなく**装飾**である。**発火しないガードは、削除の判断が済んだら消す** — ①〜③ のうち ①② は A-1 で削除済み（§5.13）
 13. **測らずに差分で作った数は、測定値ではない** — §4.1 の B-7 は「**12 モデル / 95 フィールド**」と書いていたが、実測は当時 **11 / 94**。**モデル数は削除前の値をそのまま残し**（`AutonomyProfile` の削除後も 12 のまま）、**フィールド数は 106 からその 11 だけを引いた手計算**で、親の `AEGISSettings.autonomy` という**参照フィールド 1 つを引き忘れていた**（106 − 11 − 1 = 94）。型 9 の変種だが**機構が違う** — 型 9 は「同じ量を 2 箇所に書く」、こちらは「**1 箇所にしか書いていないが、書く前に測っていない**」。したがって「同じ量を 2 回書くな」では防げず、**編集の前に必ず走らせる**しかない。**差分の算式を書くなら、その差分の根拠も測る**
 14. **検査に見えて検査でない（恒真のアサーション）** — 比較の**両辺が同じ出所から導出**されていると、その assert は**絶対に落ちない**。A-3 の実装中に **2 件**書いてしまい、**どちらも変異を当てた瞬間に発覚**した: ① `PREFIX_BY_ID == {s: _PREFIX_MAP[s] for s in SERVER_IDS}` — `_PREFIX_MAP` は `PREFIX_BY_ID` から**導出**されるので、短縮 prefix を `room → rm` に壊しても**両辺が一緒に動いて緑**。② 「manifest の `server_id` と id prefix が一致すること」— `folder_registry._derive_ids` が `server_id` を**パスから**取り、`capability_id` も**同じ dict から**組み立てるので**構造上**一致する。**判定法は「その assert を落とすには、どのファイルの何を変えればよいか 1 つ挙げられるか」**。挙げられないなら検査ではなく**検査の形をした恒真式**である。**変異は「テストが load-bearing か」ではなく「アサーションが load-bearing か」を測る道具**なので、テストを書いたら**その場で必ず 1 つ当てる**（この 2 件は §5.2 の追記のとおり撤回し、スタブとして残さなかった）。なお ② の真の不変量（manifest の**拒否が 0 件**）は**別ファイルで既に固定済み**だった — **重複した落ちないテストを足すことは、検査を増やすことではなく負債を増やすこと**である
@@ -453,8 +452,8 @@ live 経路に無い安全サブシステムを含んでいた:
 | ~~`settings/validation.py:24-27` `dev.*` 10 件~~ | ~~`FORBIDDEN_CAPABILITIES`~~ | ✅ **削除済み**（A-1、2026-09-29、§5.13）— 方言問題（B-12）に加え dev capability が存在しえないため、**一覧ごと削除**した |
 | ~~`aegis_schema/validation.py:151`~~ | dev_caps の警告 | ✅ **削除済み**（下記）— この警告は**一度も走らない関数**の中にあった |
 | `policy_engine.py:120,127` `dev.*` パターン | `EXPLICIT_DENY_PATTERNS` | ❌ 到達不能（ただしパターンなので他サーバには効く） |
-| `packages/aegis-sdk-python/aegis_sdk/capability.py:37` | `server_type: ServerType = ServerType.DEV` | ⚠️ **到達可能かつ load-bearing** — SDK の既定値（B-14） |
-| `packages/aegis-sdk-python/tests/test_sdk.py` | prefix を `dev` と名乗る | ⚠️ **これが無いと SDK テストが落ちる** |
+| `packages/aegis-sdk-python/aegis_sdk/capability.py:37` | ~~`server_type: ServerType = ServerType.DEV`~~ | ✅ **解消済み**（A-2、§5.18）— 既定は `None` になり、prefix から**導出**される。prefix と矛盾する `server_type` を渡すと拒否される |
+| `packages/aegis-sdk-python/tests/test_sdk.py` | ~~prefix を `dev` と名乗る~~ | ✅ **解消済み**（A-2、§5.18）— 生きたサーバの prefix（`room`）へ移した。借り物の身元だった |
 
 **ついでに判明した、dev-server とは独立の欠陥:**
 
@@ -469,8 +468,10 @@ live 経路に無い安全サブシステムを含んでいた:
   128 件の偽警告が出るだけだった。manifest 検証の仕事は `tests/test_manifest_schemas.py` が
   **データに対して**正しく担っており（CI で走る）、そちらと**二重の真実源**になるだけ。
   削除は `tests/test_schema_validator_stays_retired.py`（5 テスト、**変異 4 種すべて捕捉**）で固定。
-- **SDK の既定値が削除済みサーバ**（B-14）— `ServerType.DEV` が既定なので、第三者 prefix は
-  `Capability.id` の regex に弾かれる。**SDK 自身の docstring の例が動かない**ことを実行して確認。
+- ~~**SDK の既定値が削除済みサーバ**（B-14）— `ServerType.DEV` が既定なので、第三者 prefix は
+  `Capability.id` の regex に弾かれる。**SDK 自身の docstring の例が動かない**ことを実行して確認。~~
+  → ✅ **解消済み**（A-2 ②、§5.18）— SDK が第三者 prefix を**明示的に断り**、`server_type` は
+  prefix から導出する。docstring の例・同梱 example・scaffold の生成物は**実行で**検証される。
 
 **ドリフト検出器を追加した** — `ai-server/tests/test_server_roster.py`（20 テスト）。
 名簿リテラルを **AST で発見**し、**live なサーバは capability カタログから発見**する
@@ -498,8 +499,10 @@ live なサーバだけの新規名簿は**正しく緑のまま**（偽陽性�
    2 箇所は**消すと fail-open** なので、先にデフォルトを明示するのが筋。
 3. **B-12/B-13 の決着** — `allowlist` を削除するか配線するか。削除するなら
    `FORBIDDEN_CAPABILITIES` は `per_capability` 専用になるので、**照合を action ベースに変える**のが筋。
-4. **B-14 の決着** — SDK に任意 prefix を許すか、第三者 prefix は不可と明示するか。
-   **どちらでもよいが、現状の「第三者サーバを謳って黙って禁じる」は最悪の組合せ。**
+4. ~~**B-14 の決着** — SDK に任意 prefix を許すか、第三者 prefix は不可と明示するか。
+   **どちらでもよいが、現状の「第三者サーバを謳って黙って禁じる」は最悪の組合せ。**~~
+   → ✅ **決着済み**（2026-09-29、A-2 ②、§5.18）— **SDK が明示的に断る**側。上の 3 つの欠陥は
+   すべて解消し、§5.2 の表の行も閉じた。
 
 #### A-3 の実施 — 名簿を 1 つにする（2026-09-29、`952caaa`）
 
@@ -1550,6 +1553,77 @@ ai-server **1756 → 1758 passed / 31 skipped**（**+2 = 新規 2 関数**、実
 | P2-5 | 長期: vision のローカル化 / gRPC TLS 統合 / Room 実機プロバイダ / cross-device context / 音声 I/O / multi-user |
 | P2-6 | ⏸ **実測済み・オーナー確認待ち**（`d4aae94`）— `aegis_ai/evaluation/` の死んだ部分グラフ（1,104 行）を**削除するか配線するか**。`495105e` 自身がオーナー判断待ちに含めている。**配線するなら期待の書き直しが製品判断**（`delete_file` → `ALLOW_WITH_AUDIT` は**今は正しい**）。固定済みなので**急がない**（§5.7） |
 | P2-7 | ⏸ **実測済み・オーナー確認待ち**（`7866d85`）— ① コスト表の中央 2 値を入れ替えるか（B-11。**自律ループの発火間隔が動く**）② 自律的な結果の `expected_usefulness` / `interruption_cost` に実値を入れるか（B-17。**判定の第 3 項が今は定数**）③ 同名フィールドの既定値 **0.0 / 0.2 / 0.5** を 1 つに寄せるか。どれも 1 行の変更だが挙動の判断（§5.8） |
+
+---
+
+### 5.18 A-2 — SDK が第三者 prefix を「明示的に断る」側で決着（2026-09-29）
+
+**決めたこと。** オーナーは A-2 の二択のうち **②「SDK が明示的に断る」** を選んだ。スキーマの
+allowlist はそのまま（id 空間は名簿のもの）で、SDK が**呼び出し地点で**断る。
+
+**実装に入って分けた 3 つの欠陥。** §4.1 の B-14 は「SDK とスキーマが両方向に食い違う」と記録して
+いたが、直す対象は 3 つあった:
+
+| # | 欠陥 | 直し方 |
+|---|---|---|
+| 1 | SDK が**開いたクラス**の regex を持っていた（`^[a-z][a-z0-9_]*\.[a-z][a-z0-9_]*$`）ので、任意 prefix を通していた | `safety.py` の自前 regex を**削除**し、`aegis_schema.models.CAPABILITY_ID_PATTERN` を **import** する。**規則が 1 つ**になる |
+| 2 | 拒否の**言い方が悪い** — 素の pydantic `ValidationError` が「呼び手が指定していない `server_type`」を名指ししていた | prefix が名簿に無ければ、**prefix を名指しして許される 12 個を列挙**する `ValueError` を SDK が投げる。`ValidationError` は `ValueError` の派生なので**型だけでは足りない** — テストは `type(exc) is ValueError` を assert する |
+| 3 | `server_type` が既定 `ServerType.DEV`（Phase 9 で削除したサーバ）で、prefix から導出していなかった。**既定引数で通る prefix は `dev` ただ 1 つ** | 既定を `None` にし、名簿から**導出**する。prefix と矛盾する `server_type` を明示したら拒否する |
+
+**規則を 1 つにするために名前を与えた。** `models.py:124` の pattern はリテラルだったので
+`CAPABILITY_ID_PATTERN` という定数にし、`Field(pattern=...)` がそれを参照するようにした。
+**バイト単位で同一**であること、`test_server_roster.py` が読む「先頭の選択肢」の形が保たれることを
+**測ってから**進めた。名簿から**導出**しない理由は循環（`roster` が `ServerType` をこのモジュールから
+import しており、クラス本体では遅延できない）— 両者の一致は既存の等式テストが守っている。
+
+**動かないまま出荷されていた 3 つの成果物。** B-14 の実害はここだった:
+
+| 成果物 | 直した内容 |
+|---|---|
+| `docs/plugin-sdk.md` の Quick Start | `server_prefix="weather"` → `room-server`、`action` に `weather.` を前置。**id の規則**の節を追加 |
+| `examples/example-weather-server/weather_server.py` | **import すら通らなかった**。`room-server.weather.{get_forecast,get_current}` に。I001 も解消 |
+| `tools/create-capability-server` | `--name` を prefix にしていた（`--name weather` は必ず落ちる）。**`--type` から名簿経由で導出**し、未知の `--type` は拒否。既定 `dev` → `room`。`--type room-server` が `ServerType.ROOM-SERVER` に化けないよう、大文字化ではなく名簿から member 名を引く |
+
+**正準形の確認（実装前の測定）。** `folder_registry._derive_ids` は id を
+`{server_id}.{app_id}.{action}` として**パスから**導出し、`capability_catalog.py:11` は
+`pc.screenshot.get_screenshot` を **old prefix** と呼ぶ。つまり正準は**長い形**（`room-server`）で、
+短い形（`room`）は別名。だから例と scaffold は長い形にした。
+
+**ピンは「食い違い」から「契約」へ張り替えた。** 旧ピンは両方向の食い違いを等式で固定していたので、
+どちらかを直すと**必ず落ちる**設計だった（それが役目）。いまは逆で、**一致そのもの**を固定する:
+
+- SDK が持つ id 規則は 1 つで、それはスキーマの定数（`safety.py` に inline regex が戻れば落ちる）
+- 12 個の id 標本について **SDK の判定 == スキーマの判定**（かつ標本が**両方の判定を含む**ことを assert）
+- 第三者 prefix は**名前を挙げて**断られ、しかも `type(exc) is ValueError`
+- **12 prefix すべて**が既定引数で構築できる（旧: `dev` のみ）
+- **成果物を実行する** — docstring の例は AST で抜いて実行、example は import して登録・呼び出しまで、
+  scaffold は生成して生成物を import
+
+**実測（2026-09-29）。** SDK **48 → 69 passed**（+21。うちピン単体は **23 → 44 ケース**、成果物の実行系が
+4 本）。ai-server **1758 passed / 31 skipped**（変更前と同数 — `models.py` の定数化は挙動を変えていない）。
+`test_sdk.py` の 11 件が名乗っていた `dev` を **`room` に移した**（借り物の身元を返した）。ruff は SDK で
+6 → 3 件（残り 3 件は既存: `registration.py` の BLE001 ×2、`testing.py` の I001）。
+
+**変異 5/5 捕捉**（ピン単体で baseline 44 passed、各変異の落ち方を実測）:
+
+| 変異 | 落ちたもの |
+|---|---|
+| ① 丁寧な断りを消す（prefix 検査が発火しない） | 拒否テスト 4 本。**一致テストは落ちない** — 断りを消しても pydantic が同じ id を拒否するので、**最終判定は一致したまま**だから。つまり「SDK が自分で断る」ことを固定しているのは拒否テストであって一致テストではない |
+| ② `server_type` の既定を `DEV` に戻す | 導出テスト 18 本 |
+| ③ `safety.py` に自前 regex を戻す（**挙動は変えない** no-op として置く） | `test_the_sdk_carries_no_second_id_pattern` **1 本だけ** — 規則 1 つの検出器が単独で効いている |
+| ④ docstring の例を `weather` に戻す | `test_the_docstring_example_builds` **1 本だけ** |
+| ⑤ scaffold の prefix を `--name` に戻す | `test_the_scaffold_generates_a_server_that_builds` **1 本だけ** |
+
+**副産物の教訓（同日 2 件、いずれも道具の使い方）。**
+
+- **同じファイルへの編集を並列に投げると、片方が消える。** この作業中に **4 回**起きた（scaffold で 2 回、
+  example で 1 回、`capability.py` の docstring で 1 回）。`Edit` は**成功を返すのに内容が入っていない**
+  ので、**編集後は必ずその領域を読み返す**（§1.0d の「構造編集の後は読み返す」と同じ規律）。
+  **とくに厄介なのは、消えた編集が「妥当な別解」だった場合** — `capability.py` の docstring は
+  `room` のまま残ったが `room` も許される prefix なので、**テストは緑のまま**だった。緑は「意図どおり」
+  の証拠にならない。
+- **MSYS の `/tmp` は Windows の Python には存在しないパス。** `mktemp -d` の戻り値をそのまま
+  `--output` に渡すと `\tmp\...` として解決され `FileNotFoundError`。`$TEMP` 由来の Windows パスを使う。
 
 ---
 

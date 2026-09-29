@@ -1,43 +1,24 @@
-"""B-14: the SDK and the schema disagree about what a capability id may be.
+"""B-14: the SDK and the schema now agree about what a capability id may be — pin the agreement.
 
-**This file records an unresolved product call. It is not a fix.** Nothing here changes
-either validator; the assertions pin the *current* disagreement so that resolving it in
-either direction is a visible decision rather than a silent drift.
+**This file used to pin the opposite.** Until 2026-09-29 it asserted that the SDK's id regex and
+the schema's id pattern disagreed *in both directions*, so that fixing either side turned it red.
+The owner chose option ② of the register's A-2 row — **make the SDK refuse third-party prefixes
+explicitly and say so** — so the disagreement is gone and this file now pins the contract that
+replaced it:
 
-There is one id space, not two: ``define_capability`` returns an
-``aegis_schema.models.Capability``, the same model whose ``id`` field the schema constrains.
-But the SDK validates the id first, with its own regex, and the two disagree **in both
-directions**:
+1. There is **one rule**, ``aegis_schema.models.CAPABILITY_ID_PATTERN``. The SDK imports it; it
+   does not carry a second regex. The SDK accepts exactly what the schema accepts.
+2. A prefix outside the roster is refused by **name**, as a plain ``ValueError``, before pydantic
+   ever sees the id.
+3. ``server_type`` is **derived** from the prefix. It used to default to ``ServerType.DEV`` and
+   never be derived, so with default arguments only ``dev`` built — the server deleted in Phase 9.
+4. The three artefacts that drifted under the old rule — the docstring example, the shipped
+   example server, and the scaffold's output — **build**, and are executed here rather than
+   described.
 
-===========  ==============================================  =========  ========
-id           shape                                           SDK regex  schema
-===========  ==============================================  =========  ========
-``weather.get_forecast``            the SDK's own docstring example    accepts  rejects
-``my_server.read_sensor``           the SDK's own ``server_prefix`` help  accepts  rejects
-``ai-server.get_forecast``          a roster prefix, short form        rejects  accepts
-``pc-server.screenshot.get_screenshot``  the canonical 3-segment form  rejects  accepts
-===========  ==============================================  =========  ========
-
-The SDK pattern is an **open class** (``[a-z][a-z0-9_]*``) — any lowercase prefix, exactly one
-dot. The schema pattern is a **closed allowlist** of 12 prefixes, any number of segments. They
-are therefore not merely different in size; each accepts ids the other refuses.
-
-Consequences, all measured 2026-09-29:
-
-- ``docs/plugin-sdk.md``'s Quick Start and ``capability.py``'s docstring both use
-  ``server_prefix="weather"`` — that call raises a raw ``pydantic`` ``ValidationError``.
-- ``examples/example-weather-server/weather_server.py`` cannot be **imported at all**.
-- ``tools/create-capability-server`` emits ``server_prefix="{prefix}"``, so every generated
-  server raises at import unless the user happened to choose ``dev``.
-- ``define_capability`` defaults ``server_type=ServerType.DEV`` and never derives it from
-  ``server_prefix``, so even a legitimate roster prefix needs an explicit ``server_type`` the
-  SDK neither documents as required nor supplies. With default arguments, **only ``dev`` builds** —
-  i.e. the SDK works out of the box solely for the server deleted in Phase 9.
-- All 11 pre-existing SDK tests borrow that identity (``server_prefix="dev"``), which is why
-  this is green.
-
-The two product options — widen the schema pattern to admit third-party prefixes, or make the
-SDK refuse them explicitly and say so — are recorded in ``PROJECT_STATUS_REVIEW.md`` §4.1 (B-14).
+Every test below fails if its half is reverted; the ones that execute an artefact exist because
+the artefacts were shipped broken for as long as nothing ran them (bug class 11 in
+``PROJECT_STATUS_REVIEW.md`` §4.3: *nobody runs it, so nothing checks it*).
 """
 
 from __future__ import annotations
@@ -45,42 +26,120 @@ from __future__ import annotations
 import ast
 import importlib.util
 import re
+import sys
 from pathlib import Path
 
 import pytest
-from aegis_schema.models import Capability, RiskLevel, ServerType
-from aegis_sdk.capability import define_capability
+from aegis_schema.models import CAPABILITY_ID_PATTERN, Capability, RiskLevel, ServerType
+from aegis_schema.roster import PREFIXES_BY_TYPE_WITH_RETIRED
+
+from aegis_sdk import ALLOWED_SERVER_PREFIXES, SERVER_TYPE_BY_PREFIX, define_capability
+from aegis_sdk.testing import MockAEGISCore
 
 _SDK_PACKAGE = Path(__file__).resolve().parents[1]
+_REPO = _SDK_PACKAGE.parents[1]
+_CAPABILITY_PY = _SDK_PACKAGE / "aegis_sdk" / "capability.py"
 _SAFETY_PY = _SDK_PACKAGE / "aegis_sdk" / "safety.py"
+_EXAMPLE = _REPO / "examples" / "example-weather-server" / "weather_server.py"
+_SCAFFOLD = _REPO / "tools" / "create-capability-server" / "create_server.py"
+
+#: The prefixes the roster declares, flattened — the SDK's allowed set must equal this, not
+#: resemble it. Derived here as well so the comparison is between two independent expressions.
+_ROSTER_PREFIXES: tuple[str, ...] = tuple(
+    prefix for prefixes in PREFIXES_BY_TYPE_WITH_RETIRED.values() for prefix in prefixes
+)
+
+#: Ids that used to be judged differently by the two validators, plus the shapes around them.
+#: Each is split at its first dot into ``(server_prefix, action)`` to drive ``define_capability``,
+#: which rebuilds exactly the same id.
+_ID_CORPUS: tuple[str, ...] = (
+    "weather.get_forecast",  # the SDK's own old docstring example: was SDK-accepts/schema-rejects
+    "my_server.read_sensor",  # the old ``server_prefix`` help text: same
+    "ai-server.get_forecast",  # a roster prefix, short form: was SDK-rejects/schema-accepts
+    "pc-server.screenshot.get_screenshot",  # the canonical 3-segment form: same
+    "room-server.weather.get_forecast",  # the shape the example and docs now use
+    "room.get_forecast",
+    "dev.thing",
+    "pc-server.a.b.c.d",  # any number of trailing segments
+    "pcs.get_forecast",  # looks like a prefix, is not one
+    "weather-server.thing",  # a plausible-looking server that is not in the roster
+    "pc-server.Bad",  # uppercase segment
+    "pc-server.",  # empty action
+    ".get_forecast",  # empty prefix
+)
 
 
-# ── Discovery: read both patterns from the thing that enforces them ───────────
-
-
-def _schema_id_pattern() -> str:
-    """The pattern the *live* ``Capability`` model enforces on ``id``.
-
-    Read off the model rather than copied, so a copy cannot drift from the constraint.
-    """
-    for meta in Capability.model_fields["id"].metadata:
-        pattern = getattr(meta, "pattern", None)
-        if pattern:
-            return str(pattern)
-    raise AssertionError(
-        "Capability.id no longer carries a pattern constraint — B-14 has changed shape; "
-        "re-derive this pin instead of deleting it."
+def _build(cap_id: str) -> Capability:
+    """Build ``cap_id`` through the SDK, splitting it the same way the SDK joins it."""
+    prefix, _, action = cap_id.partition(".")
+    return define_capability(
+        server_prefix=prefix,
+        action=action,
+        name="Thing",
+        description="Probe capability, used only to pin the id contract.",
+        risk_level=RiskLevel.READ_ONLY,
     )
 
 
-def _sdk_id_pattern() -> str:
-    """The pattern the SDK's own validator enforces.
+def _sdk_accepts(cap_id: str) -> bool:
+    """Whether the SDK lets ``cap_id`` through — *any* refusal counts, not just the id one."""
+    try:
+        _build(cap_id)
+    except ValueError:
+        return False
+    return True
 
-    It is an inline literal inside ``validate_capability_definition``, so it is not
-    importable; read it from source by AST.
+
+def _docstring_call_source() -> str:
+    """The ``define_capability(...)`` call inside ``capability.py``'s own module docstring.
+
+    Read from source so the documented example cannot drift from a working call: the call is
+    extracted by balancing parentheses, parsed as an expression, and executed by the test below.
     """
+    module = ast.parse(_CAPABILITY_PY.read_text(encoding="utf-8", newline=""))
+    docstring = ast.get_docstring(module)
+    assert docstring, "capability.py no longer has a module docstring to check"
+
+    start = docstring.find("define_capability(")
+    assert start != -1, "the module docstring no longer shows a define_capability() call"
+    call = docstring[start:]
+    depth = 0
+    for index, char in enumerate(call):
+        if char == "(":
+            depth += 1
+        elif char == ")":
+            depth -= 1
+            if depth == 0:
+                return call[: index + 1]
+    raise AssertionError("the documented define_capability() call has unbalanced parentheses")
+
+
+def _load_module(path: Path, name: str):
+    """Import a file by path, so an artefact outside the package can be executed."""
+    spec = importlib.util.spec_from_file_location(name, path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+# ── 1. One rule, shared with the schema ──────────────────────────────────────
+
+
+def test_the_schema_field_enforces_the_named_pattern() -> None:
+    """The constant is not a copy — it is what the live model validates against."""
+    live = Capability.model_fields["id"].metadata[0].pattern
+    assert live == CAPABILITY_ID_PATTERN, (
+        "Capability.id no longer uses CAPABILITY_ID_PATTERN, so the SDK and the model are two "
+        "rules again — which is the defect this file exists to prevent (B-14)."
+    )
+
+
+def test_the_sdk_carries_no_second_id_pattern() -> None:
+    """``safety.py`` must not re-spell the rule. A second regex is how the drift started."""
     tree = ast.parse(_SAFETY_PY.read_text(encoding="utf-8", newline=""))
-    literals = [
+    inline = [
         node.args[0].value
         for node in ast.walk(tree)
         if isinstance(node, ast.Call)
@@ -90,179 +149,182 @@ def _sdk_id_pattern() -> str:
         and isinstance(node.args[0], ast.Constant)
         and isinstance(node.args[0].value, str)
     ]
-    assert len(literals) == 1, (
-        f"expected exactly one re.match string literal in safety.py, found {literals!r} — "
-        "if the id check moved, move this pin with it"
+    assert inline == [], (
+        f"safety.py matches an inline regex literal again: {inline!r}. The id rule belongs to "
+        "aegis_schema.models.CAPABILITY_ID_PATTERN; import it instead."
     )
-    return str(literals[0])
 
 
-def _alternation_of(pattern: str) -> tuple[str, ...] | None:
-    """The prefix alternation of a pattern, or ``None`` when it has none.
+def test_the_allowed_prefixes_are_the_roster() -> None:
+    """The SDK's allowlist is derived from the roster, so it cannot drift from it (B-15)."""
+    assert ALLOWED_SERVER_PREFIXES == _ROSTER_PREFIXES
+    assert len(ALLOWED_SERVER_PREFIXES) == 12
 
-    ``None`` is the meaningful answer: it means the pattern is an open class, not an allowlist.
+
+@pytest.mark.parametrize("cap_id", _ID_CORPUS)
+def test_the_sdk_judges_every_id_exactly_as_the_schema_does(cap_id: str) -> None:
+    """The whole point of the fix: one id space, one verdict.
+
+    Before it, ``weather.get_forecast`` was SDK-accepts/schema-rejects and
+    ``pc-server.screenshot.get_screenshot`` was the reverse.
     """
-    match = re.search(r"\(([^()]*\|[^()]*)\)", pattern)
-    return tuple(match.group(1).split("|")) if match else None
+    assert _sdk_accepts(cap_id) is bool(re.match(CAPABILITY_ID_PATTERN, cap_id)), (
+        f"{cap_id!r}: the SDK and the schema disagree again — that is B-14 coming back"
+    )
 
 
-_SCHEMA_PATTERN = _schema_id_pattern()
-_SDK_PATTERN = _sdk_id_pattern()
-
-# The schema's allowlist as of 2026-09-29, 6 servers x {short, long} form.
-_RECORDED_SCHEMA_PREFIXES: tuple[str, ...] = (
-    "ai-server",
-    "pc-server",
-    "browser-server",
-    "android-server",
-    "room-server",
-    "dev-server",
-    "pc",
-    "android",
-    "browser",
-    "room",
-    "dev",
-    "ai",
-)
+def test_the_corpus_still_contains_both_verdicts() -> None:
+    """Guard the guard: a corpus that is all-accept or all-reject would prove nothing."""
+    verdicts = {bool(re.match(CAPABILITY_ID_PATTERN, cap_id)) for cap_id in _ID_CORPUS}
+    assert verdicts == {True, False}
 
 
-def _builds_with_default_arguments(prefix: str) -> bool:
-    """Does ``define_capability`` succeed for ``prefix`` without the caller tuning anything?"""
-    try:
+# ── 2. The refusal, by name ──────────────────────────────────────────────────
+
+
+@pytest.mark.parametrize("prefix", ["weather", "my_server", "weather-server", "pcs"])
+def test_a_third_party_prefix_is_refused_by_name(prefix: str) -> None:
+    """The decision (A-2 ②): refuse explicitly, naming the prefix and the allowed set."""
+    with pytest.raises(ValueError) as excinfo:
         define_capability(
             server_prefix=prefix,
-            action="thing",
-            name="Thing",
-            description="Probe capability, used only to measure the default path.",
-            risk_level=RiskLevel.READ_ONLY,
-        )
-    except Exception:
-        return False
-    return True
-
-
-# ── The two patterns themselves ──────────────────────────────────────────────
-
-
-def test_the_schema_id_is_a_closed_allowlist_of_the_recorded_prefixes() -> None:
-    """Widening the schema to admit third-party prefixes must fail here."""
-    prefixes = _alternation_of(_SCHEMA_PATTERN)
-    assert prefixes is not None, "the schema pattern is no longer an allowlist"
-    assert set(prefixes) == set(_RECORDED_SCHEMA_PREFIXES)
-
-
-def test_the_sdk_id_is_an_open_class_not_an_allowlist() -> None:
-    """The SDK pattern accepts *any* lowercase prefix — that is the whole disagreement."""
-    assert _alternation_of(_SDK_PATTERN) is None
-
-
-@pytest.mark.parametrize(
-    ("cap_id", "note"),
-    [
-        ("weather.get_forecast", "the SDK's own documented example"),
-        ("my_server.read_sensor", "the SDK's own server_prefix help text"),
-        ("ai-server.get_forecast", "a roster prefix in its short form"),
-        ("pc-server.screenshot.get_screenshot", "the canonical 3-segment form"),
-    ],
-)
-def test_the_two_patterns_disagree(cap_id: str, note: str) -> None:
-    """Each of these is accepted by exactly one of the two validators."""
-    sdk_verdict = bool(re.match(_SDK_PATTERN, cap_id))
-    schema_verdict = bool(re.match(_SCHEMA_PATTERN, cap_id))
-    assert sdk_verdict != schema_verdict, (
-        f"{cap_id!r} ({note}) is now judged the same by both validators — "
-        "if that is the fix, delete this pin and update B-14"
-    )
-
-
-def test_the_sdk_refuses_every_long_form_roster_prefix() -> None:
-    """``-`` is not in the SDK's character class, so all six ``*-server`` prefixes are refused.
-
-    This is the half of the disagreement that no ``server_prefix`` choice can work around.
-    """
-    long_form = tuple(p for p in _RECORDED_SCHEMA_PREFIXES if "-" in p)
-    assert len(long_form) == 6
-    for prefix in long_form:
-        assert re.match(_SCHEMA_PATTERN, f"{prefix}.get_thing"), prefix
-        assert not re.match(_SDK_PATTERN, f"{prefix}.get_thing"), prefix
-
-
-# ── The behavioural half: what a user actually gets ──────────────────────────
-
-
-@pytest.mark.parametrize("prefix", _RECORDED_SCHEMA_PREFIXES)
-def test_default_arguments_build_only_for_the_deleted_servers_prefix(prefix: str) -> None:
-    """``define_capability`` defaults ``server_type`` to DEV and never derives it.
-
-    So a roster prefix builds only when the caller also passes the matching ``server_type``.
-    With defaults, exactly one prefix works — ``dev``, whose server was deleted in Phase 9.
-    """
-    assert _builds_with_default_arguments(prefix) is (prefix == "dev")
-
-
-def test_only_one_prefix_survives_the_default_path() -> None:
-    """The summary form of the parametrised test above, so the set is asserted by equality."""
-    survivors = tuple(p for p in _RECORDED_SCHEMA_PREFIXES if _builds_with_default_arguments(p))
-    assert survivors == ("dev",)
-
-
-def test_a_live_prefix_needs_an_explicit_server_type_the_sdk_never_derives() -> None:
-    """The failure names a server_type the caller never chose, and never mentions the prefix."""
-    with pytest.raises(Exception) as excinfo:
-        define_capability(
-            server_prefix="pc",
-            action="screenshot",
-            name="Screenshot",
-            description="Take a screenshot.",
-            risk_level=RiskLevel.READ_ONLY,
-        )
-    message = str(excinfo.value)
-    assert "should start with one of ('dev', 'dev-server')" in message
-    assert "server_type=DEV" in message
-
-    # ...and the very same call works once the caller supplies the mapping the SDK does not.
-    cap = define_capability(
-        server_prefix="pc",
-        action="screenshot",
-        name="Screenshot",
-        description="Take a screenshot.",
-        risk_level=RiskLevel.READ_ONLY,
-        server_type=ServerType.PC,
-    )
-    assert cap.id == "pc.screenshot"
-
-
-def test_the_documented_example_cannot_be_built() -> None:
-    """``server_prefix="weather"`` is the SDK's own docstring example and the docs' Quick Start.
-
-    It fails on the *schema's* field constraint, so the user sees a raw pydantic error rather
-    than the SDK's friendly ``ValueError``. (``ValidationError`` subclasses ``ValueError``, so
-    the SDK's documented ``Raises: ValueError`` is technically honoured — the message is not.)
-    """
-    with pytest.raises(Exception) as excinfo:
-        define_capability(
-            server_prefix="weather",
             action="get_forecast",
             name="Get Weather Forecast",
             description="Retrieve weather forecast for a location.",
             risk_level=RiskLevel.READ_ONLY,
         )
     message = str(excinfo.value)
-    assert "weather.get_forecast" in message
-    assert "string_pattern_mismatch" in message or "match pattern" in message
+    assert prefix in message, f"the refusal does not name the offending prefix: {message}"
+    assert "is not an AEGIS server" in message
+    for allowed in ALLOWED_SERVER_PREFIXES:
+        assert allowed in message, f"the refusal does not list the allowed prefix {allowed!r}"
 
 
-def test_the_shipped_example_server_cannot_be_imported() -> None:
-    """``examples/example-weather-server`` raises at import, and nothing in the repo imports it.
+def test_the_refusal_is_the_sdks_own_not_pydantics() -> None:
+    """``ValidationError`` subclasses ``ValueError``, so ``pytest.raises`` alone proves nothing.
 
-    No test, script or CI job referenced this file, which is how it stayed broken.
+    The old failure was a raw pydantic error naming ``server_type`` the caller never chose.
     """
-    example = _SDK_PACKAGE.parents[1] / "examples" / "example-weather-server" / "weather_server.py"
-    assert example.is_file(), f"the shipped example moved or was deleted: {example}"
+    with pytest.raises(ValueError) as excinfo:
+        define_capability(
+            server_prefix="weather",
+            action="get_forecast",
+            name="W",
+            description="d",
+            risk_level=RiskLevel.READ_ONLY,
+        )
+    assert type(excinfo.value) is ValueError, (
+        f"the refusal is {type(excinfo.value).__name__}, not the SDK's own ValueError — the id "
+        "check is being left to pydantic again"
+    )
+    assert "server_type" not in str(excinfo.value), (
+        "the refusal names a server_type the caller never chose, which is the old symptom"
+    )
 
-    spec = importlib.util.spec_from_file_location("_b14_example_server", example)
-    assert spec is not None and spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    with pytest.raises(Exception) as excinfo:
-        spec.loader.exec_module(module)
-    assert "weather.get_forecast" in str(excinfo.value)
+
+# ── 3. server_type is derived, not defaulted to a deleted server ─────────────
+
+
+@pytest.mark.parametrize("prefix", _ROSTER_PREFIXES)
+def test_default_arguments_build_for_every_roster_prefix(prefix: str) -> None:
+    """Used to hold for ``dev`` alone — i.e. only for the server deleted in Phase 9."""
+    cap = define_capability(
+        server_prefix=prefix,
+        action="thing",
+        name="Thing",
+        description="Built with default arguments only.",
+        risk_level=RiskLevel.READ_ONLY,
+    )
+    assert cap.id == f"{prefix}.thing"
+    assert cap.server_type is SERVER_TYPE_BY_PREFIX[prefix]
+
+
+def test_the_derived_server_type_is_the_one_the_prefix_names() -> None:
+    """The summary form of the test above, so the whole mapping is asserted by equality."""
+    derived = {
+        prefix: SERVER_TYPE_BY_PREFIX[prefix]
+        for prefix in _ROSTER_PREFIXES
+    }
+    assert derived["pc"] is ServerType.PC
+    assert derived["pc-server"] is ServerType.PC
+    assert derived["room-server"] is ServerType.ROOM
+    assert derived["ai"] is ServerType.AI
+
+
+def test_a_server_type_the_prefix_does_not_name_is_refused() -> None:
+    """``server_type`` is still an override, so a contradictory one must be caught, not honoured."""
+    with pytest.raises(ValueError) as excinfo:
+        define_capability(
+            server_prefix="pc",
+            action="screenshot",
+            name="Screenshot",
+            description="Take a screenshot.",
+            risk_level=RiskLevel.READ_ONLY,
+            server_type=ServerType.ROOM,
+        )
+    assert "names server_type PC" in str(excinfo.value)
+
+
+# ── 4. The artefacts that drifted, executed rather than described ────────────
+
+
+def test_the_docstring_example_builds() -> None:
+    """``capability.py``'s own usage example is executed, not eyeballed."""
+    source = _docstring_call_source()
+    node = ast.parse(source, mode="eval")
+    namespace = {"define_capability": define_capability, "RiskLevel": RiskLevel}
+    cap = eval(compile(node, "<capability.py docstring>", "eval"), namespace)
+    assert re.match(CAPABILITY_ID_PATTERN, cap.id), f"the documented example builds {cap.id!r}"
+    assert cap.server_type is SERVER_TYPE_BY_PREFIX[cap.id.split(".")[0]]
+
+
+def test_the_shipped_example_server_runs_end_to_end() -> None:
+    """``examples/example-weather-server`` could not even be imported, and nothing imported it."""
+    assert _EXAMPLE.is_file(), f"the shipped example moved or was deleted: {_EXAMPLE}"
+    module = _load_module(_EXAMPLE, "_b14_example_server")
+
+    ids = sorted(cap.id for cap in module.ALL_CAPABILITIES)
+    assert ids == ["room-server.weather.get_current", "room-server.weather.get_forecast"]
+
+    core = MockAEGISCore()
+    server = module.WeatherServer()
+    assert server.register(core.registry) is True
+    assert core.registry.get_capability("room-server.weather.get_forecast") is not None
+
+    forecast = server.get_forecast("Tokyo")
+    assert forecast["temp_c"] == 22.5
+    assert server.publish_weather_update(core.event_bus, "tokyo", 22.5) is True
+
+
+def test_the_scaffold_generates_a_server_that_builds(tmp_path: Path) -> None:
+    """Every generated server used to raise at import unless ``--name`` was a roster prefix."""
+    scaffold = _load_module(_SCAFFOLD, "_b14_scaffold")
+    created = scaffold.create_server_scaffold("weather", "room", 50060, str(tmp_path))
+    assert len(created) == 3
+
+    module = _load_module(tmp_path / "weather_server.py", "_b14_generated_server")
+    ids = [cap.id for cap in module.ALL_CAPABILITIES]
+    assert ids == ["room-server.weather.example"], (
+        "the scaffold used the app name as the capability prefix again"
+    )
+
+    core = MockAEGISCore()
+    assert module.WeatherServer().register(core.registry) is True
+    assert core.registry.get_capability("room-server.weather.example") is not None
+
+
+@pytest.mark.parametrize("server_type", ["room", "room-server", "pc-server", "ai"])
+def test_the_scaffold_accepts_every_roster_spelling(server_type: str) -> None:
+    """``--type room-server`` must not be upper-cased into the non-existent ``ROOM-SERVER``."""
+    scaffold = _load_module(_SCAFFOLD, "_b14_scaffold_spellings")
+    prefix, member = scaffold._host_for_type(server_type)
+    assert prefix in _ROSTER_PREFIXES
+    assert member in {m.name for m in ServerType}
+
+
+def test_the_scaffold_refuses_a_type_that_is_not_a_server() -> None:
+    """Better a refusal than a file that will not import — the old failure mode."""
+    scaffold = _load_module(_SCAFFOLD, "_b14_scaffold_refusal")
+    with pytest.raises(SystemExit) as excinfo:
+        scaffold._host_for_type("weather")
+    assert "unknown --type" in str(excinfo.value)

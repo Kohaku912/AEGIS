@@ -2,6 +2,15 @@
 
 This server provides weather data as read-only capabilities.
 No approval required, no side effects.
+
+**Where the ids come from.** A capability id is namespaced by the AEGIS server that *hosts* it —
+``<server_id>.<app_id>.<action>``, which is also the layout of ``capabilities/<origin>/`` — and
+AEGIS's roster of servers is fixed, so ``server_prefix`` must be one of the roster's own names.
+This example contributes a ``weather`` app to ``room-server``, so its ids are
+``room-server.weather.get_forecast``: ``server_prefix`` names the *host*, and the app's own
+namespace goes in ``action``. ``server_id`` below is this process's own name, which nothing
+pattern-checks. A prefix of your own — ``server_prefix="weather"``, as this file used to say —
+is refused by the SDK, because the schema's allowlist would reject the id at registration anyway.
 """
 
 from __future__ import annotations
@@ -9,19 +18,18 @@ from __future__ import annotations
 import time
 from typing import Any
 
+from aegis_schema.models import EventPriority, RiskLevel, ServerType
 from aegis_sdk import (
     EventClient,
     RegistrationClient,
     define_capability,
 )
-from aegis_schema.models import EventPriority, RiskLevel, ServerType
-
 
 # ── Capabilities ─────────────────────────────────────────────
 
 GET_FORECAST = define_capability(
-    server_prefix="weather",
-    action="get_forecast",
+    server_prefix="room-server",
+    action="weather.get_forecast",
     name="Get Weather Forecast",
     description="Retrieve weather forecast for a location.",
     risk_level=RiskLevel.READ_ONLY,
@@ -44,8 +52,8 @@ GET_FORECAST = define_capability(
 )
 
 GET_CURRENT_WEATHER = define_capability(
-    server_prefix="weather",
-    action="get_current",
+    server_prefix="room-server",
+    action="weather.get_current",
     name="Get Current Weather",
     description="Get current weather conditions.",
     risk_level=RiskLevel.READ_ONLY,

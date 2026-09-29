@@ -23,8 +23,8 @@ from aegis_schema.models import RiskLevel, ServerType
 
 # Define a capability
 cap = define_capability(
-    server_prefix="weather",
-    action="get_forecast",
+    server_prefix="room-server",
+    action="weather.get_forecast",
     name="Get Weather Forecast",
     description="Retrieve weather forecast for a location.",
     risk_level=RiskLevel.READ_ONLY,
@@ -43,6 +43,23 @@ client.register_capability(registry, cap)
 events = EventClient(ServerType.ROOM, "weather-server")
 events.publish(event_bus, "weather.forecast_updated", {"temp_c": 25})
 ```
+
+### What `server_prefix` may be
+
+A capability id is namespaced by the AEGIS server that **hosts** the capability, and AEGIS's
+roster of servers is fixed — so `server_prefix` must be one of `aegis_sdk.ALLOWED_SERVER_PREFIXES`
+(`ai`, `ai-server`, `pc`, `pc-server`, `android`, `android-server`, `browser`, `browser-server`,
+`room`, `room-server`, `dev`, `dev-server`).
+
+**Your own prefix is refused, by name, at the call site.** `server_prefix="weather"` raises
+`ValueError: ... 'weather' is not an AEGIS server ...` rather than surfacing a pydantic error
+about a `server_type` you never chose — an id outside the roster cannot be registered or invoked
+anyway, so the SDK says so immediately. Put your own namespace in `action`: the example above
+builds `room-server.weather.get_forecast`, and `server_type` is derived from the prefix (you do
+not pass it).
+
+The canonical id shape is `{server_id}.{app_id}.{action}`, e.g.
+`room-server.weather.get_forecast`; the short prefix (`room`) is an accepted alias.
 
 ## SDK Components
 
@@ -103,6 +120,11 @@ Use the scaffold generator:
 cd tools/create-capability-server
 python create_server.py --name weather --type room --port 50060
 ```
+
+`--type` selects which AEGIS server hosts the generated capabilities, so it is also the
+`server_prefix` they are built with (`--type room` → `room-server.<name>.<action>`); an unknown
+`--type` is refused rather than written into a file that will not import. `--name` only names
+the server and its files.
 
 This creates:
 - Server implementation with capability registration

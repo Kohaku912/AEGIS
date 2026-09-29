@@ -110,6 +110,28 @@ class Status(BaseModel):
 # Core Protocol Messages
 # ═══════════════════════════════════════════════════════════════
 
+#: The one rule for what a capability id may be: a leading alternation over the roster's
+#: prefixes, then one or more lowercase ``[a-z0-9_]`` segments.
+#:
+#: It is a **named constant** so that the two places that must enforce it — this model and the
+#: Plugin SDK's ``validate_capability_definition`` — share one declaration instead of two. Until
+#: 2026-09-29 the SDK had its own regex (``^[a-z][a-z0-9_]*\.[a-z][a-z0-9_]*$``, an *open class*
+#: admitting any prefix) and the two disagreed **in both directions**: the SDK accepted
+#: ``weather.get_forecast`` — its own documented example — which this pattern refuses, and
+#: refused ``ai-server.get_forecast``, which this pattern accepts. Two validators for one id
+#: space is the defect; this constant is the fix (B-14).
+#:
+#: The alternation is spelled out rather than derived from ``aegis_schema.roster`` because
+#: ``roster`` imports ``ServerType`` from this module, so a module-level import back would be a
+#: cycle — and a class body cannot defer one. ``tests/test_server_roster.py``
+#: (``test_the_id_pattern_admits_exactly_the_roster_prefixes``) asserts this alternation and the
+#: roster name **exactly the same set**, so the duplication cannot drift.
+CAPABILITY_ID_PATTERN = (
+    r"^(ai-server|pc-server|browser-server|android-server|room-server|dev-server"
+    r"|pc|android|browser|room|dev|ai)\.[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)*$"
+)
+
+
 class Capability(BaseModel):
     """A single capability that a server can perform.
 
@@ -121,7 +143,7 @@ class Capability(BaseModel):
     id: str = Field(
         ...,
         description="Unique ID: '{server_id}.{app_id}.{action}' (e.g. 'pc-server.screenshot.get_screenshot')",
-        pattern=r"^(ai-server|pc-server|browser-server|android-server|room-server|dev-server|pc|android|browser|room|dev|ai)\.[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)*$",
+        pattern=CAPABILITY_ID_PATTERN,
     )
     name: str = Field(..., min_length=1, max_length=128, description="Human-readable name")
     description: str = Field(..., min_length=1, max_length=1024, description="What this does")
