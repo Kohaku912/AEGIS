@@ -4,6 +4,16 @@ WORKDIR /web-ui
 
 COPY web-ui/package*.json ./
 RUN if [ -f package-lock.json ]; then npm ci; else npm install; fi
+# Phase L6 fix: docker COPY adds files but never removes files that have
+# been deleted from the source tree. Stale files in older image layers
+# (e.g. HomePage.tsx, GlobalSearch.tsx, PolicySimulationPage.tsx) keep
+# tsc -b happy at file-presence level but cause TS2305 "Module has no
+# exported member X" because they import symbols that no longer exist in
+# the new source. Wipe the previous web-ui tree (except node_modules) before
+# re-copying.
+RUN find /web-ui -mindepth 1 -maxdepth 1 \
+    ! -name 'node_modules' \
+    -exec rm -rf {} +
 COPY web-ui ./
 COPY design-tokens /design-tokens
 RUN npm run build
@@ -28,9 +38,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 COPY ai-server/pyproject.toml ./pyproject.toml
+# Install runtime dependencies only. The `[dev]` extra (ruff, grpcio-tools,
+# mypy) is intentionally NOT installed here: no runtime module imports them
+# (proto stubs are committed under src/generated), and shipping build tooling
+# in the production image needlessly enlarges the attack surface.
 RUN mkdir -p src/aegis_ai \
     && touch src/aegis_ai/__init__.py \
-    && pip install --no-cache-dir ".[dev]" flask pyyaml requests
+    && pip install --no-cache-dir . flask pyyaml requests
 
 COPY ai-server/src ./src
 COPY ai-server/config ./config

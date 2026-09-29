@@ -372,7 +372,6 @@ class AegisForegroundService : Service() {
             notificationConversationId = reply.conversationId.ifBlank { notificationConversationId }
             val content = when {
                 !reply.ok -> "Chat failed: ${reply.error}"
-                reply.approvalNeeded -> reply.response.ifBlank { "Approval required: ${reply.approvalId}" }
                 reply.response.isNotBlank() -> reply.response
                 else -> "AEGIS returned an empty response"
             }

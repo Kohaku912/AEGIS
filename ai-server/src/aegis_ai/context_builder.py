@@ -85,6 +85,7 @@ class Context:
     memory_top_k: int = 0
     memory_reason: str = ""
     decision_context: dict[str, Any] = field(default_factory=dict)
+    user_understanding: dict[str, Any] = field(default_factory=dict)
 
     def usage_meta(self) -> dict[str, Any]:
         """Return LLM Usage metadata for audit records."""
@@ -126,6 +127,7 @@ class ContextBuilder:
         multimodal_llm: Any = None,
         capability_retriever: Any = None,
         settings_resolver: Any = None,
+        user_understanding_service: Any = None,
     ) -> None:
         self._event_bus = event_bus
         self._episodic = episodic_memory
@@ -150,6 +152,7 @@ class ContextBuilder:
         self._goals_list: list[str] = []
         self._last_context: Context | None = None
         self._settings_resolver = settings_resolver
+        self._user_understanding_service = user_understanding_service
         self._multimodal_llm = multimodal_llm or self._create_default_multimodal_llm()
         self._media_summary_cache: OrderedDict[str, str] = OrderedDict()
 
@@ -280,6 +283,16 @@ class ContextBuilder:
                 due = self._commitment_manager.due_commitments()
                 if due:
                     policy_lines.append("Due commitments: " + ", ".join(str(c.get("title", "")) for c in due[:3]))
+            except Exception:
+                pass
+        if self._user_understanding_service:
+            try:
+                understanding = self._user_understanding_service.build_snapshot(triggering_query)
+                ctx.user_understanding = (
+                    understanding.to_dict() if hasattr(understanding, "to_dict") else dict(understanding)
+                )
+                if hasattr(understanding, "to_context_string"):
+                    policy_lines.append(understanding.to_context_string())
             except Exception:
                 pass
         if self._agent_state:
@@ -711,6 +724,7 @@ class ContextBuilder:
             + sum(len(s) for s in ctx.pending_tasks)
             + len(ctx.dialogue_policy)
             + len(ctx.agora_summary)
+            + len(json.dumps(ctx.user_understanding, ensure_ascii=False, default=str))
         )
 
     def _annotate_usage(self, ctx: Context, triggering_query: str = "") -> None:

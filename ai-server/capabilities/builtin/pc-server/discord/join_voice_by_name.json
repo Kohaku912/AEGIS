@@ -1,6 +1,6 @@
 {
   "title": "Discord Join Voice By Name",
-  "description": "Join a Discord voice channel by server/guild name and optional channel name. Use this for requests like 「memoサーバーの通話に入って」 by passing guild_name as memo and channel_name only when the user specifies one. Requires approval.",
+  "description": "Join a Discord voice channel by server/guild name and optional channel name. Use this for requests like 「memoサーバーの通話に入って」 by passing guild_name as memo and channel_name only when the user specifies one.",
   "server_id": "pc-server",
   "app_id": "discord",
   "action": "join_voice_by_name",
@@ -30,6 +30,12 @@
       "presence_change"
     ]
   },
+  "ownership_scope": "external",
+  "reversibility": "recoverable",
+  "destructive_effects": [],
+  "data_loss_risk": "none",
+  "active_work_loss_risk": "none",
+  "blast_radius": "single",
   "tags": [
     "discord",
     "voice",

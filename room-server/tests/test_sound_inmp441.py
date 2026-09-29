@@ -30,7 +30,7 @@ def test_rms_from_s32() -> None:
 def test_stereo_left_channel() -> None:
     # left=1<<22, right=0
     raw = struct.pack("<ii", 1 << 22, 0)
-    rms, peak = _rms_peak_from_s32le(raw, channels=2, channel_index=0)
+    _rms, peak = _rms_peak_from_s32le(raw, channels=2, channel_index=0)
     assert peak > 0.4
     rms_r, peak_r = _rms_peak_from_s32le(raw, channels=2, channel_index=1)
     assert peak_r == 0.0

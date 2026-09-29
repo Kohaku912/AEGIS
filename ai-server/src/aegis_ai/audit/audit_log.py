@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 '''Audit Log - SQLite-backed, append-only, immutable decision record.'''
 
 from __future__ import annotations
@@ -191,7 +190,7 @@ class AuditLog:
             try:
                 self._conn.close()
             except Exception:
-                pass
+                logger.debug("Failed to close audit SQLite connection", exc_info=True)
             self._conn = None
 
     def _init_db(self) -> None:
@@ -230,6 +229,9 @@ class AuditLog:
                     try:
                         records.append(json.loads(line))
                     except Exception:
+                        # Malformed audit lines are skipped, but must not be
+                        # silent: they indicate corrupted audit history.
+                        logger.debug("Skipping malformed audit JSONL line", exc_info=True)
                         continue
             if not records:
                 return

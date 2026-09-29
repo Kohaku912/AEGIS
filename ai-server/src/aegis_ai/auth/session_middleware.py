@@ -21,7 +21,11 @@ def install_passkey_auth(app: Any, *, data_dir: str | Path = "data/auth", exempt
     """Install passkey-only auth routes and middleware."""
 
     production = os.getenv("AEGIS_RUNTIME_MODE", "development").strip().lower() == "production"
-    auth_mode = os.getenv("AEGIS_AUTH_MODE", "passkey" if production else "passkey").strip().lower()
+    # This installer always installs passkey auth, so the default mode is
+    # "passkey" regardless of runtime mode. Non-production escape hatches
+    # (token / disabled) are resolved by ``web.auth.install_dashboard_token_auth``
+    # before this function is called.
+    auth_mode = os.getenv("AEGIS_AUTH_MODE", "passkey").strip().lower()
     if auth_mode != "passkey":
         if production:
             raise RuntimeError("AEGIS_AUTH_MODE=passkey is required in production.")

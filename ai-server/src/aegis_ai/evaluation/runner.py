@@ -138,8 +138,6 @@ class EvaluationRunner:
 
         if invoke_result.success:
             result.actual_outcome = "SUCCESS"
-        elif invoke_result.status.name == "APPROVAL_NEEDED":
-            result.actual_outcome = "APPROVAL_REQUIRED"
         elif invoke_result.status.name == "DENIED":
             result.actual_outcome = "DENIED"
         else:

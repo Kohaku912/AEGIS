@@ -266,7 +266,6 @@ class SocialManager:
         if not external_id:
             return False
         blocking = {
-            SocialInboxStatus.AWAITING_APPROVAL,
             SocialInboxStatus.DRAFTED,
             SocialInboxStatus.REPLIED,
         }
@@ -284,18 +283,6 @@ class SocialManager:
     def triage(self, item_id: str, *, relationship: dict[str, Any] | None = None) -> SocialInboxItem:
         item = self._require(item_id)
         item.relationship = relationship or item.relationship
-        if self._has_active_or_completed_reply(item):
-            item.decision = "skip"
-            item.status = SocialInboxStatus.SKIPPED
-            item.draft_body = ""
-            item.decision_reason = (
-                "Reply-once: an approval or completed reply already exists for this message."
-            )
-            saved = self._save(item)
-            self._publish("social.inbox.triaged", saved)
-            self._advance_processed_cursor(item.channel)
-            return saved
-
         avoidance = self.post_avoidance_context()
         replied_ids = {
             int(x)
@@ -306,17 +293,7 @@ class SocialManager:
             external_id = int(item.external_message_id)
         except (TypeError, ValueError):
             external_id = 0
-        if external_id and external_id in replied_ids:
-            item.decision = "skip"
-            item.status = SocialInboxStatus.SKIPPED
-            item.draft_body = ""
-            item.decision_reason = (
-                f"Already replied to post #{external_id}; skipped before drafting."
-            )
-            saved = self._save(item)
-            self._publish("social.inbox.triaged", saved)
-            self._advance_processed_cursor(item.channel)
-            return saved
+        active_reply_exists = self._has_active_or_completed_reply(item)
 
         if self._llm is None:
             item.status = SocialInboxStatus.RETRY_PENDING
@@ -339,13 +316,27 @@ Shared AgentState:
 Post avoidance (do not re-answer or paraphrase these):
 {json.dumps(avoidance, ensure_ascii=False)}
 
+Advisory posting history:
+{json.dumps({
+    "external_message_id": external_id,
+    "already_replied_to_external_id": bool(external_id and external_id in replied_ids),
+    "active_or_completed_reply_exists": active_reply_exists,
+}, ensure_ascii=False)}
+
 Rules:
-- Reply when a social reply would help the user or continue a real conversation.
+- Default to skip unless a reply is clearly useful.
+- Reply only when a social reply would materially help the other person, answer a clear question,
+  or continue a real conversation that would feel rude to ignore.
 - Skip when AEGIS already answered this message id, when a reply would be noise/spam,
-  or when the only draft you can write would restate a recent AEGIS body.
+  when the message is just lightweight acknowledgement/praise with no real conversational need,
+  when AEGIS has already been posting frequently, or when the only draft you can write would restate a recent AEGIS body.
+- Prefer one thoughtful reply over several small replies. If silence is socially acceptable, choose skip.
 - draft_body must be a genuine social reply with new substance. Never draft internal
   system status, approval meta, test probes, duplicate answers, or near-paraphrases
   of recent AEGIS posts listed above.
+- draft_body should be concise, specific, and human-natural. Avoid over-explaining, stacked disclaimers,
+  or performative friendliness. Usually 1-4 sentences is enough.
+- Treat these as social norms and judgment aids, not hard prohibitions. AEGIS should still decide case by case.
 
 Return:
 {{
@@ -462,7 +453,7 @@ Return:
         if self._has_active_or_completed_reply(item):
             item.status = SocialInboxStatus.SKIPPED
             item.decision_reason = (
-                "Reply-once: an approval or completed reply already exists for this message."
+                "Reply-once: a draft or completed reply already exists for this message."
             )
             saved = self._save(item)
             self._advance_processed_cursor(item.channel)
@@ -501,10 +492,7 @@ Return:
             },
         )
         result = self._broker.execute(request)
-        if result.status == InvokeStatus.APPROVAL_NEEDED and result.approval_id:
-            item.approval_id = result.approval_id
-            item.status = SocialInboxStatus.AWAITING_APPROVAL
-        elif result.success:
+        if result.success:
             self._apply_reply_result(item, result.output)
         else:
             item.status = SocialInboxStatus.FAILED
@@ -514,32 +502,6 @@ Return:
             self._advance_processed_cursor(item.channel)
         self._publish("social.reply.proposed", item)
         return item
-
-    def handle_approval_event(self, event: dict[str, Any]) -> None:
-        request = event.get("request")
-        metadata = getattr(request, "metadata", {}) if request is not None else {}
-        item_id = str(metadata.get("social_inbox_item_id") or "")
-        if not item_id:
-            return
-        item = self._store.get(item_id)
-        if item is None:
-            return
-        event_type = str(event.get("event_type") or "")
-        if event_type in {"rejected", "cancelled", "expired"}:
-            item.status = SocialInboxStatus.SKIPPED
-            item.decision_reason = f"Reply approval {event_type}"
-            self._save(item)
-            self._advance_processed_cursor(item.channel)
-        elif event_type == "failed":
-            item.status = SocialInboxStatus.FAILED
-            item.decision_reason = "Approved reply execution failed"
-            self._save(item)
-            self._advance_processed_cursor(item.channel)
-        elif event_type == "executed":
-            output = dict(metadata.get("execution_result") or {})
-            self._apply_reply_result(item, output)
-            self._save(item)
-            self._advance_processed_cursor(item.channel)
 
     def list_items(self, status: str = "", limit: int = 200) -> list[dict[str, Any]]:
         return [item.to_dict() for item in self._store.list(status=status, limit=limit)]
@@ -599,7 +561,10 @@ Return:
         for attempt in range(2):
             result = self._llm.generate(
                 prompt=current_prompt,
-                system_prompt="You are AEGIS SocialManager. Make a reasoned social decision and return JSON only.",
+                system_prompt=(
+                    "You are AEGIS SocialManager. Teach socially restrained, non-spammy behavior without turning it into "
+                    "rigid hard rules. Make a reasoned social decision and return JSON only."
+                ),
                 json_mode=True,
                 profile="decision",
             )

@@ -23,6 +23,12 @@
     ],
     "requires_approval": false
   },
+  "ownership_scope": "user",
+  "reversibility": "recoverable",
+  "destructive_effects": [],
+  "data_loss_risk": "none",
+  "active_work_loss_risk": "none",
+  "blast_radius": "single",
   "tags": [
     "builtin",
     "pc",

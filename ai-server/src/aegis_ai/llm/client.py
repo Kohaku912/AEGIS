@@ -89,10 +89,10 @@ class MockLLMClient(LLMClient):
         elif "delete" in ctx_lower or "remove" in ctx_lower:
             return LLMThought(
                 summary="File deletion requested",
-                assessment="HIGH RISK — requires approval",
+                assessment="HIGH RISK — irreversible",
                 recommended_action="Delete file using pc-server.file.delete",
                 confidence=0.6,
-                risks_identified=["Permanent data loss", "Requires user approval"],
+                risks_identified=["Permanent data loss"],
             )
         else:
             return LLMThought(
@@ -124,14 +124,14 @@ class MockLLMClient(LLMClient):
                 goal="Run test suite",
                 steps=[{
                     "description": "Execute the project test suite",
-                    "capability_id": "dev-server.test.run_tests",
+                    "capability_id": "ai-server.test.run_pytest",
                     "params": {"target": "all"},
                     "expected_result": "Test results with pass/fail counts",
                     "risk": "LEVEL_1_SAFE_ACT",
                 }],
                 fallback_steps=[{
                     "description": "Check individual test file",
-                    "capability_id": "dev-server.test.run_tests",
+                    "capability_id": "ai-server.test.run_pytest",
                     "params": {"target": "ai-server"},
                 }],
                 risk_assessment="Low risk — sandboxed execution",

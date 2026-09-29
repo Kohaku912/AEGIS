@@ -37,6 +37,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from aegis_ai.memory.retrieval_scoring import combined_text_score
+
 logger = logging.getLogger("aegis_ai.memory.skill")
 
 
@@ -194,60 +196,46 @@ class SkillMemory:
         self._persist(skill)
         return skill
 
+    def _score_skill(self, goal: str, skill: Skill) -> float:
+        score = combined_text_score(
+            goal,
+            texts=[
+                skill.name,
+                skill.description,
+                skill.activation_conditions,
+                skill.goal_pattern.replace("|", " "),
+                skill.termination_conditions,
+                skill.failure_handling,
+                " ".join(skill.tags),
+            ],
+            importance=skill.importance + skill.success_rate * 0.25,
+            confidence=skill.confidence,
+            timestamp_ms=skill.last_used_at_ms or skill.updated_at_ms or skill.created_at_ms,
+        )
+        if score <= 0:
+            return 0.0
+        if skill.is_reliable:
+            score += 0.2
+        return score + skill.success_rate * 0.2
+
     def find_skill(self, goal: str) -> Skill | None:
         """Find the best matching skill for a goal."""
-        goal_lower = goal.lower()
         best: tuple[float, Skill] | None = None
         for skill in self._skills.values():
             if skill.deprecated:
                 continue
-            score = 0.0
-            # Activation conditions match
-            if skill.activation_conditions:
-                cond_words = set(skill.activation_conditions.lower().split())
-                goal_words = set(goal_lower.split())
-                overlap = len(cond_words & goal_words)
-                score += overlap * 0.2
-            # Goal pattern match
-            if skill.goal_pattern:
-                pattern_words = skill.goal_pattern.lower().replace("|", " ").split()
-                if any(pw in goal_lower for pw in pattern_words):
-                    score += 0.4
-            # Name similarity
-            name_words = set(skill.name.lower().split())
-            score += len(name_words & set(goal_lower.split())) * 0.2
-            # Reliability boost
-            if skill.is_reliable:
-                score += 0.2
-            # Success rate
-            score += skill.success_rate * 0.15
-            # Recency
-            if skill.last_used_at_ms > 0:
-                age_hours = (time.time() * 1000 - skill.last_used_at_ms) / 3_600_000
-                recency = max(0, 1.0 - age_hours / 168)
-                score += recency * 0.1
-            if score > 0.3:
-                if best is None or score > best[0]:
-                    best = (score, skill)
+            score = self._score_skill(goal, skill)
+            if score > 0.35 and (best is None or score > best[0]):
+                best = (score, skill)
         return best[1] if best else None
 
     def find_relevant(self, goal: str, count: int = 3) -> list[Skill]:
         """Find multiple relevant skills."""
-        goal_lower = goal.lower()
         scored: list[tuple[float, Skill]] = []
         for skill in self._skills.values():
             if skill.deprecated:
                 continue
-            score = 0.0
-            text = f"{skill.name} {skill.description} {skill.activation_conditions}".lower()
-            for word in goal_lower.split():
-                if word in text:
-                    score += 0.2
-            if skill.goal_pattern:
-                for pw in skill.goal_pattern.lower().replace("|", " ").split():
-                    if pw in goal_lower:
-                        score += 0.3
-            score += skill.success_rate * 0.2
+            score = self._score_skill(goal, skill)
             if score > 0.2:
                 scored.append((score, skill))
         scored.sort(key=lambda x: x[0], reverse=True)

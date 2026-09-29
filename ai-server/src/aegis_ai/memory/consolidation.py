@@ -45,7 +45,6 @@ class MemoryConsolidator:
 
         Returns summary of what was consolidated.
         """
-        start = time.time()
         results = {
             "semantic_merged": 0,
             "persona_updated": 0,

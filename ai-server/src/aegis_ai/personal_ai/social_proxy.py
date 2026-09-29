@@ -106,6 +106,34 @@ class SocialProxy:
         sender = os.getenv("AEGIS_SMTP_FROM", username)
         if not host or not sender:
             return {"ok": False, "error": "SMTP is not configured.", "code": "SMTP_NOT_CONFIGURED"}
+
+        # ── Egress gate (the single constraint) ────────────────────────────────
+        # An outbound email carries the user's information to an external mail
+        # server. Denied by default; fails closed if the gate cannot be consulted.
+        try:
+            from aegis_ai.egress import EgressRequest, get_egress_gate
+
+            allowed = get_egress_gate().allow(
+                EgressRequest(
+                    destination=f"{host}:{port}",
+                    purpose="email.send",
+                    component="personal_ai.social_proxy",
+                    data_summary="email subject, body and recipient",
+                )
+            )
+        except Exception:
+            allowed = False
+        if not allowed:
+            self._audit("email_egress_denied", {"to": str(draft.get("to") or ""), "host": host})
+            return {
+                "ok": False,
+                "error": (
+                    f"Egress denied for SMTP host {host}:{port}. "
+                    "The user's information must not leave the local environment."
+                ),
+                "code": "EGRESS_DENIED",
+            }
+
         msg = EmailMessage()
         msg["From"] = sender
         msg["To"] = str(draft.get("to") or "")

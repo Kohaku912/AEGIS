@@ -1,11 +1,21 @@
 """Retention — manages data lifecycle and cleanup.
 
-Handles:
-- Episodic memory retention
-- Notification retention
-- Screenshot retention
-- Audit retention
-- Expired approval cleanup
+Measured 2026-09-29 (B-20), this class *enforces* one retention and *reports* two:
+
+- **Episodic memory retention — enforced.** `cleanup_expired` reads
+  `settings.memory.episodic_retention_days` and prunes against it (line ~49).
+- **Notification retention — reported only.** `notification_text_retention_hours` is
+  read by `get_retention_status()` for the dashboard; nothing prunes notifications.
+- **Screenshot retention — reported only.** Same: `get_retention_status()` reads
+  `screenshot_retention_hours`. The purge that actually runs lives in
+  `personal_data/core.py`, driven by `personal_data/policy.py`.
+- **Audit retention — not implemented.** `self._audit` is stored in `__init__` and
+  never read by any method, including `cleanup_expired`.
+
+This docstring used to list all four as "Handles:", which read as four working
+retentions. The two "reported only" lines are the shape to watch: a value that reaches
+the dashboard but no decision looks implemented from the UI. Pinned by
+`tests/test_settings_edit_path_enforces_schema_bounds.py`.
 """
 
 from __future__ import annotations
@@ -21,7 +31,6 @@ class RetentionManager:
         manager = RetentionManager(
             episodic_memory=episodic,
             audit_log=audit,
-            approval_store=approval_store,
         )
         cleaned = manager.cleanup_expired()
     """
@@ -30,13 +39,11 @@ class RetentionManager:
         self,
         episodic_memory: Any = None,
         audit_log: Any = None,
-        approval_store: Any = None,
         settings_store: Any = None,
         memory_store: Any = None,
     ) -> None:
         self._episodic = episodic_memory
         self._audit = audit_log
-        self._approval = approval_store
         self._settings = settings_store
         self._store = memory_store
 
@@ -46,11 +53,6 @@ class RetentionManager:
         Returns dict with counts of cleaned items.
         """
         cleaned: dict[str, int] = {}
-
-        # Clean expired approvals
-        if self._approval:
-            count = self._approval.expire_old_requests()
-            cleaned["expired_approvals"] = count
 
         # Clean old episodic memories
         if self._episodic and self._settings:
@@ -91,10 +93,6 @@ class RetentionManager:
         if self._episodic:
             episodes = self._episodic.list_recent(100000)
             status["total_episodes"] = len(episodes)
-
-        if self._approval:
-            pending = self._approval.get_pending()
-            status["pending_approvals"] = len(pending)
 
         return status
 

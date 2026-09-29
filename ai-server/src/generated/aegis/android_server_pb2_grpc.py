@@ -6,7 +6,7 @@ import warnings
 from generated.aegis import android_server_pb2 as aegis_dot_android__server__pb2
 from generated.aegis import common_pb2 as aegis_dot_common__pb2
 
-GRPC_GENERATED_VERSION = '1.81.1'
+GRPC_GENERATED_VERSION = '1.84.0'
 GRPC_VERSION = grpc.__version__
 _version_not_supported = False
 
@@ -114,11 +114,6 @@ class AndroidServerStub:
                 '/aegis.AndroidServer/ShowOverlay',
                 request_serializer=aegis_dot_android__server__pb2.AndroidShowOverlayRequest.SerializeToString,
                 response_deserializer=aegis_dot_android__server__pb2.AndroidShowOverlayResponse.FromString,
-                _registered_method=True)
-        self.RequestApproval = channel.unary_unary(
-                '/aegis.AndroidServer/RequestApproval',
-                request_serializer=aegis_dot_android__server__pb2.AndroidApprovalRequest.SerializeToString,
-                response_deserializer=aegis_dot_android__server__pb2.AndroidApprovalResponse.FromString,
                 _registered_method=True)
         self.EmergencyStop = channel.unary_unary(
                 '/aegis.AndroidServer/EmergencyStop',
@@ -234,12 +229,6 @@ class AndroidServerServicer:
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
-    def RequestApproval(self, request, context):
-        """Missing associated documentation comment in .proto file."""
-        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
-        context.set_details('Method not implemented!')
-        raise NotImplementedError('Method not implemented!')
-
     def EmergencyStop(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
@@ -335,11 +324,6 @@ def add_AndroidServerServicer_to_server(servicer, server):
                     servicer.ShowOverlay,
                     request_deserializer=aegis_dot_android__server__pb2.AndroidShowOverlayRequest.FromString,
                     response_serializer=aegis_dot_android__server__pb2.AndroidShowOverlayResponse.SerializeToString,
-            ),
-            'RequestApproval': grpc.unary_unary_rpc_method_handler(
-                    servicer.RequestApproval,
-                    request_deserializer=aegis_dot_android__server__pb2.AndroidApprovalRequest.FromString,
-                    response_serializer=aegis_dot_android__server__pb2.AndroidApprovalResponse.SerializeToString,
             ),
             'EmergencyStop': grpc.unary_unary_rpc_method_handler(
                     servicer.EmergencyStop,
@@ -784,33 +768,6 @@ class AndroidServer:
             '/aegis.AndroidServer/ShowOverlay',
             aegis_dot_android__server__pb2.AndroidShowOverlayRequest.SerializeToString,
             aegis_dot_android__server__pb2.AndroidShowOverlayResponse.FromString,
-            options,
-            channel_credentials,
-            insecure,
-            call_credentials,
-            compression,
-            wait_for_ready,
-            timeout,
-            metadata,
-            _registered_method=True)
-
-    @staticmethod
-    def RequestApproval(request,
-            target,
-            options=(),
-            channel_credentials=None,
-            call_credentials=None,
-            insecure=False,
-            compression=None,
-            wait_for_ready=None,
-            timeout=None,
-            metadata=None):
-        return grpc.experimental.unary_unary(
-            request,
-            target,
-            '/aegis.AndroidServer/RequestApproval',
-            aegis_dot_android__server__pb2.AndroidApprovalRequest.SerializeToString,
-            aegis_dot_android__server__pb2.AndroidApprovalResponse.FromString,
             options,
             channel_credentials,
             insecure,

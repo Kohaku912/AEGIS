@@ -10,6 +10,7 @@ Minimal implementation:
 
 from __future__ import annotations
 
+import ipaddress
 import json
 import logging
 import os
@@ -19,6 +20,7 @@ import uuid
 from concurrent import futures
 from types import SimpleNamespace
 from typing import Any
+from urllib.parse import unquote
 
 import grpc
 
@@ -226,27 +228,21 @@ class AegisAIServicer(ai_server_pb2_grpc.AIServerServicer):
                 error=str(exc),
             )
 
-        if request.is_approved and request.approval_id:
-            result = self._runtime.tool_broker.execute_approved(request.approval_id)
-            output = result.output
-            success = result.success
-            error = result.error
-            duration_ms = result.duration_ms
-            invocation_id = result.request_id or request.invocation_id
-        else:
-            tool_request = ToolExecutionRequest(
-                request_id=request.invocation_id,
-                capability_id=request.capability_id,
-                arguments=params,
-                source=ExecutionSource.USER_EXPLICIT,
-                reason=f"gRPC invocation by {request.caller or 'unknown'}",
-            )
-            result = self._runtime.tool_broker.execute(tool_request)
-            output = result.output
-            success = result.success
-            error = result.error
-            duration_ms = int(result.duration_ms)
-            invocation_id = result.request_id
+        # Approval is no longer a constraint: every invocation takes the same
+        # path through ToolBroker (egress gate + policy hard stops).
+        tool_request = ToolExecutionRequest(
+            request_id=request.invocation_id,
+            capability_id=request.capability_id,
+            arguments=params,
+            source=ExecutionSource.USER_EXPLICIT,
+            reason=f"gRPC invocation by {request.caller or 'unknown'}",
+        )
+        result = self._runtime.tool_broker.execute(tool_request)
+        output = result.output
+        success = result.success
+        error = result.error
+        duration_ms = int(result.duration_ms)
+        invocation_id = result.request_id
 
         return common_pb2.ToolInvocationResult(
             status=Status(code=0 if success else 1, message="ok" if success else error),
@@ -255,7 +251,6 @@ class AegisAIServicer(ai_server_pb2_grpc.AIServerServicer):
             output_json=json.dumps(output or {}, ensure_ascii=False),
             error=error,
             duration_ms=int(duration_ms),
-            was_approved=request.is_approved,
         )
 
     def SendChat(self, request, context):
@@ -298,8 +293,6 @@ class AegisAIServicer(ai_server_pb2_grpc.AIServerServicer):
             status=Status(code=0 if ok else 1, message="ok" if ok else str(result.get("error", ""))),
             conversation_id=result.get("conversation_id", conversation_id),
             response=response_text,
-            approval_needed=bool(result.get("approval_needed", False)),
-            approval_id=result.get("approval_id", ""),
             tool_results_json=tool_results_json(result),
         )
 
@@ -393,77 +386,16 @@ class AegisAIServicer(ai_server_pb2_grpc.AIServerServicer):
             if hasattr(event_manager, "unsubscribe"):
                 event_manager.unsubscribe(subscriber_id)
 
-    # ── Approval ─────────────────────────────────────────────
-
-    def RequestApproval(self, request, context):
-        tool_request = SimpleNamespace(
-            request_id=f"grpc_{uuid.uuid4().hex[:10]}",
-            task_id="",
-            step_id="",
-            source="grpc",
-            source_desire="",
-            frustration=0.0,
-            capability_id=request.capability_id,
-            tool_name=request.tool_name,
-            arguments={"payload_preview": request.payload_preview},
-            risk_level=_risk_from_safety(request.safety_level),
-        )
-        policy_result = SimpleNamespace(
-            reason=request.risk_explanation or request.human_readable_summary or request.requested_action,
-        )
-        req = self._runtime.approval_manager.create_request(tool_request, policy_result)
-        return _approval_to_proto(req)
-
-    def ResolveApproval(self, request, context):
-        auth_ok, _, auth_message = self._validate_android_direct_rpc_auth(
-            request,
-            context,
-            fallback_device_id=request.user,
-        )
-        if not auth_ok:
-            return ai_server_pb2.ResolveApprovalResponse(
-                status=Status(code=16, message=auth_message),
-                approval_id=request.approval_id,
-            )
-        if request.rejected:
-            if request.global_reject:
-                req = self._runtime.approval_manager.global_reject(
-                    request.approval_id,
-                    channel=request.surface_id or "grpc",
-                    user=request.user or "user",
-                    reason=request.reason,
-                )
-            else:
-                req = self._runtime.approval_manager.reject(
-                    request.approval_id,
-                    channel=request.surface_id or "grpc",
-                    user=request.user or "user",
-                    reason=request.reason,
-                )
-        else:
-            req = self._runtime.approval_manager.approve(
-                request.approval_id,
-                channel=request.surface_id or "grpc",
-                user=request.user or "user",
-            )
-        ok = req is not None
-        return ai_server_pb2.ResolveApprovalResponse(
-            status=Status(code=0 if ok else 1, message="ok" if ok else "approval not found"),
-            approval_id=request.approval_id,
-        )
-
-    def ListPendingApprovals(self, request, context):
-        auth_ok, _, auth_message = self._validate_android_direct_rpc_auth(request, context)
-        if not auth_ok:
-            return ai_server_pb2.ListPendingApprovalsResponse(
-                status=Status(code=16, message=auth_message),
-                approvals=[],
-            )
-        approvals = [_approval_to_proto(req) for req in self._runtime.approval_manager.list_pending()]
-        return ai_server_pb2.ListPendingApprovalsResponse(
-            status=Status(code=0, message="ok"),
-            approvals=approvals,
-        )
+    # ── Approval RPCs (deleted) ──────────────────────────────
+    #
+    # `RequestApproval` / `ResolveApproval` / `ListPendingApprovals` used to
+    # stand here as inert stubs returning code 12. They have now been removed
+    # from `protos/aegis/ai_server.proto` as well (2026-09-28), so there is
+    # nothing left to serve and nothing for a client to call.
+    #
+    # Asking the user is still supported — it lives in `aegis_ai.confirmation`
+    # (dashboard) and the Android approval overlay. Neither of those blocks
+    # execution; they inform what AEGIS does next.
 
     # ── Audit ────────────────────────────────────────────────
 
@@ -600,8 +532,41 @@ def serve(
 def _peer_is_loopback(context: grpc.ServicerContext | None) -> bool:
     if context is None:
         return True
-    peer = str(getattr(context, "peer", lambda: "")() or "").lower()
-    return any(marker in peer for marker in ("127.0.0.1", "[::1]", "localhost", "ipv6:::1"))
+    host = _peer_host(context)
+    if not host:
+        return False
+    if host == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
+def _peer_host(context: grpc.ServicerContext | None) -> str:
+    if context is None:
+        return "127.0.0.1"
+    peer = str(getattr(context, "peer", lambda: "")() or "").strip()
+    if not peer:
+        return ""
+    transport, sep, remainder = peer.partition(":")
+    if not sep:
+        return ""
+    if transport in {"unix", "unix-abstract"}:
+        return "localhost"
+    host_port = remainder.strip()
+    if not host_port:
+        return ""
+    if transport == "ipv6":
+        if host_port.startswith("["):
+            end = host_port.find("]")
+            host = host_port[1:end] if end >= 0 else host_port[1:]
+        else:
+            maybe_host, split, maybe_port = host_port.rpartition(":")
+            host = maybe_host if split and maybe_port.isdigit() else host_port
+    else:
+        host = host_port.rsplit(":", 1)[0] if ":" in host_port else host_port
+    return unquote(host).strip().strip("[]").lower()
 
 
 def _metadata_value(context: grpc.ServicerContext | None, key: str) -> str:
@@ -646,7 +611,6 @@ def _capability_from_proto(cap: common_pb2.Capability) -> Capability:
         input_schema=cap.input_schema or "{}",
         output_schema=cap.output_schema or "{}",
         risk_level=risk,
-        requires_approval=cap.requires_approval,
         side_effects=list(cap.side_effects),
         timeout_ms=cap.timeout_ms,
         tags=list(cap.tags),
@@ -663,7 +627,6 @@ def _capability_to_proto(cap: Capability) -> common_pb2.Capability:
         input_schema=cap.input_schema,
         output_schema=cap.output_schema,
         safety_level=_safety_from_risk(cap.risk_level),
-        requires_approval=cap.requires_approval,
         side_effects=list(cap.side_effects),
         tags=list(cap.tags),
         timeout_ms=cap.timeout_ms,
@@ -736,44 +699,4 @@ def _event_from_proto(event: common_pb2.Event) -> Event:
         correlation_id=event.correlation_id,
         requires_attention=event.requires_attention,
         attributes=dict(event.attributes),
-    )
-
-
-def _approval_to_proto(req: Any) -> common_pb2.ApprovalRequest:
-    status_map = {
-        "pending": common_pb2.APPROVAL_STATUS_PENDING,
-        "approved": common_pb2.APPROVAL_STATUS_APPROVED,
-        "modified": common_pb2.APPROVAL_STATUS_APPROVED,
-        "rejected": common_pb2.APPROVAL_STATUS_REJECTED,
-        "expired": common_pb2.APPROVAL_STATUS_EXPIRED,
-    }
-    status_value = status_map.get(getattr(req, "status", ""), common_pb2.APPROVAL_STATUS_UNSPECIFIED)
-    risk_safety_map = {
-        "read_only": common_pb2.LEVEL_0_READ,
-        "safe_action": common_pb2.LEVEL_1_SAFE_ACT,
-        "approval_required": common_pb2.LEVEL_2_APPROVAL,
-        "high_risk": common_pb2.LEVEL_3_RESTRICTED,
-        "medium": common_pb2.LEVEL_2_APPROVAL,
-        "high": common_pb2.LEVEL_3_RESTRICTED,
-        "low": common_pb2.LEVEL_0_READ,
-        "safe": common_pb2.LEVEL_1_SAFE_ACT,
-    }
-    risk_level = getattr(req, "risk_level", "")
-    return common_pb2.ApprovalRequest(
-        approval_id=req.approval_id,
-        capability_id=req.capability_id,
-        tool_name=req.tool_name,
-        requested_action=getattr(req, "requested_action", "")
-        or getattr(req, "tool_name", "")
-        or getattr(req, "capability_id", ""),
-        human_readable_summary=getattr(req, "human_readable_summary", "")
-        or getattr(req, "user_facing_summary", ""),
-        risk_explanation=getattr(req, "risk_explanation", "")
-        or getattr(req, "approval_reason", ""),
-        payload_preview=getattr(req, "payload_preview", "")
-        or getattr(req, "arguments_summary", ""),
-        safety_level=risk_safety_map.get(str(risk_level), common_pb2.LEVEL_2_APPROVAL),
-        status=status_value,
-        created_at_ms=getattr(req, "created_at", getattr(req, "created_at_ms", 0)),
-        expires_at_ms=getattr(req, "expires_at", getattr(req, "expires_at_ms", 0)),
     )

@@ -1,5 +1,11 @@
 # AEGIS UI Instruction Summary
 
+> ⚠️ **Goal change (2026-09-27)**: the only constraint is now **"the user's information must never
+> leave the local environment."** Approval, reversibility, policy, and reliability-proof are **no
+> longer constraints**. Any "requires approval" / "Level 2" language below is a **risk annotation**,
+> not a gate. See [`GOAL-CHANGE.md`](GOAL-CHANGE.md).
+
+
 This file is a readable implementation summary of `UI_Instruction.md` for
 environments where the original Japanese file is displayed with mojibake.
 

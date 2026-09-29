@@ -13,6 +13,12 @@
     ],
     "requires_approval": false
   },
+  "ownership_scope": "external",
+  "reversibility": "unknown",
+  "destructive_effects": [],
+  "data_loss_risk": "unknown",
+  "active_work_loss_risk": "unknown",
+  "blast_radius": "unknown",
   "tags": [
     "browser",
     "web",

@@ -1,5 +1,10 @@
 # AI Server — AGENTS.md
 
+> ⚠️ **Goal change (2026-09-27)**: the only constraint is now **"the user's information must never
+> leave the local environment."** Approval, reversibility, policy, and reliability-proof are **no
+> longer constraints**. The **egress gate** (`src/aegis_ai/egress/`) is the single enforcement point.
+> See [`docs/GOAL-CHANGE.md`](../docs/GOAL-CHANGE.md).
+
 ## Purpose
 
 The AI Server is the **central brain** of AEGIS. It handles:
@@ -8,7 +13,8 @@ The AI Server is the **central brain** of AEGIS. It handles:
 - Desire system (pressure-based 3-desire system)
 - Autonomous loop (desire-driven task execution)
 - Dashboard (Flask web UI with streaming chat)
-- Policy engine (deterministic safety gates)
+- **Egress gate** (deny-by-default control for all outbound transmission — the single constraint)
+- Risk annotations (deterministic; approval is no longer a gate)
 
 ## Technology Stack
 
@@ -29,7 +35,8 @@ ai-server/
 │   ├── autonomous/       # Autonomous loop, planner, curiosity
 │   ├── llm/              # LLM gateway/router/settings/prompt/cost tracking
 │   ├── web/              # Dashboard, auth, chat service, manager routes
-│   └── policy_engine.py  # Safety gates
+│   ├── egress/           # Egress gate — the single constraint (deny by default)
+│   └── policy_engine.py  # Deterministic risk annotation + egress/purchase hard stops
 ├── capabilities/         # Capability definitions (JSON manifests)
 │   ├── builtin/
 │   │   ├── pc-server/
@@ -196,4 +203,6 @@ AEGIS output layer for rich user-facing content. NOT a state viewer — it deliv
 11. **Recursive tool calling loop**: LLM can call multiple tools in sequence, results are fed back to LLM for next decision
 12. **Multiple tool call formats**: Supports `<tool_call>`, DeepSeek DSML, XML tag, and plain JSON formats
 13. **Browser verification detection**: Browser agent detects CAPTCHA/phone verification and returns `needs_user_input` to pause for user intervention
-14. **Full-authority defaults**: PolicyEngine allows with audit except purchases and policy bypass/disable. Catalog `requires_approval` remains the user tighten path.
+14. **The single constraint — egress**: All outbound transmission goes through `aegis_ai/egress/` and is **denied by default**. `external_egress_allowed`, `external_llm_allowed`, `web_search_allowed` all default to `False`; a non-empty `egress_allowed_hosts` is required for any external host. There is **no consent exception**. Startup refuses to run when egress is open.
+15. **Approval is not a constraint**: The PolicyEngine now produces **risk annotations** and enforces only the **egress** and **purchase/payment** hard stops. `requires_approval` in the catalog is a user-tightening hint, not a gate.
+16. The current full-authority blocker matrix is documented in `docs/full-authority-blocker-matrix.md` (approval rows there are historical).

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { buildDisplayDirectorState, mapUiEventToVisualEvent, readableDisplayText, recentDisplayEvents, serverNeedsDetail, summarizeMemory, summarizeServers, summarizeUserState } from "./displayModel";
-import type { ServerItem, UiOverview } from "./types";
+import { buildDisplayDirectorState, eventAgentSessionId, liveOverlayPriority, mapUiEventToVisualEvent, pickLiveOverlayEvent, pickLiveOverlayEventForAgent, readableDisplayText, recentDisplayEvents, serverNeedsDetail, summarizeMemory, summarizeServers, summarizeTokenUsage, summarizeUserState } from "./displayModel";
+import type { ServerItem, UiEvent, UiOverview } from "./types";
 
 function envelope<T>(data: T) {
   return { generated_at: 1, source_updated_at: 1, status: "ok" as const, stale: false, error: "", data };
@@ -506,3 +506,288 @@ function minimalOverview(options: { generatedAt?: number; freshnessStale?: boole
     freshness: makeEnvelope({}, Boolean(options.freshnessStale))
   };
 }
+
+function eventOf(overrides: Partial<UiEvent>): UiEvent {
+  return {
+    event_id: "ev-1",
+    type: "activity.updated",
+    source_type: "activity.updated",
+    generated_at: 1,
+    source_updated_at: 1,
+    payload: {},
+    ...overrides
+  };
+}
+
+describe("live overlay priority (Phase D2, instruction.md §20)", () => {
+  it("approval.created is the highest priority", () => {
+    expect(liveOverlayPriority(eventOf({ type: "approval.created" }))).toBe(0);
+    expect(liveOverlayPriority(eventOf({ type: "approval.pending" }))).toBe(0);
+  });
+
+  it("failures rank above tool completions", () => {
+    const failure = liveOverlayPriority(eventOf({ type: "agent.failed" }));
+    const toolFailed = liveOverlayPriority(eventOf({ type: "tool.execution.failed" }));
+    const toolDone = liveOverlayPriority(eventOf({ type: "agent.tool.completed", payload: { ok: true } }));
+    const toolDoneFailed = liveOverlayPriority(eventOf({ type: "agent.tool.completed", payload: { ok: false } }));
+    expect(failure).toBe(1);
+    expect(toolFailed).toBe(1);
+    expect(toolDoneFailed).toBe(1);
+    expect(toolDone).toBe(4);
+    expect(failure).toBeLessThan(toolDone);
+  });
+
+  it("critical severity is treated as a failure even if type is benign", () => {
+    expect(liveOverlayPriority(eventOf({ type: "activity.updated", severity: "critical" }))).toBe(1);
+  });
+
+  it("agent.waiting and agent.verifying are mid-high priority", () => {
+    expect(liveOverlayPriority(eventOf({ type: "agent.waiting" }))).toBe(2);
+    expect(liveOverlayPriority(eventOf({ type: "agent.verifying" }))).toBe(2);
+  });
+
+  it("agent.thinking is below tool events", () => {
+    expect(liveOverlayPriority(eventOf({ type: "agent.thinking" }))).toBe(5);
+    expect(liveOverlayPriority(eventOf({ type: "agent.tool.started" }))).toBe(3);
+  });
+
+  it("activity.updated is the lowest explicit priority", () => {
+    expect(liveOverlayPriority(eventOf({ type: "activity.updated" }))).toBe(8);
+  });
+});
+
+describe("pickLiveOverlayEvent (Phase D2)", () => {
+  it("returns undefined for empty or noise-only events", () => {
+    expect(pickLiveOverlayEvent([])).toBeUndefined();
+    expect(
+      pickLiveOverlayEvent([
+        eventOf({ type: "android.snapshot", source_type: "android.snapshot", event_id: "and-1" }),
+      ]),
+    ).toBeUndefined();
+  });
+
+  it("picks approval over failure and over tool started", () => {
+    const approval = eventOf({ event_id: "a", type: "approval.created", generated_at: 100, payload: { capability_id: "x" } });
+    const failure = eventOf({ event_id: "b", type: "agent.failed", generated_at: 200 });
+    const tool = eventOf({ event_id: "c", type: "agent.tool.started", generated_at: 300 });
+    expect(pickLiveOverlayEvent([tool, failure, approval])?.event_id).toBe("a");
+  });
+
+  it("picks the most recent event when priorities are equal", () => {
+    const newer = eventOf({ event_id: "newer", type: "agent.thinking", generated_at: 500 });
+    const older = eventOf({ event_id: "older", type: "agent.thinking", generated_at: 100 });
+    expect(pickLiveOverlayEvent([older, newer])?.event_id).toBe("newer");
+  });
+
+  it("promotes a failed tool completion above a fresh thinking event", () => {
+    const thinking = eventOf({ event_id: "think", type: "agent.thinking", generated_at: 1000 });
+    const toolFailed = eventOf({ event_id: "tool-fail", type: "agent.tool.completed", payload: { ok: false }, generated_at: 1 });
+    expect(pickLiveOverlayEvent([thinking, toolFailed])?.event_id).toBe("tool-fail");
+  });
+});
+
+describe("eventAgentSessionId (Phase D8, instruction.md §19)", () => {
+  it("prefers payload._trace_ids.agent_session_id over payload.agent_session_id", () => {
+    const event = eventOf({
+      event_id: "x",
+      type: "agent.thinking",
+      payload: {
+        agent_session_id: "fallback",
+        _trace_ids: { agent_session_id: "primary" },
+      },
+    });
+    expect(eventAgentSessionId(event)).toBe("primary");
+  });
+
+  it("falls back to payload.agent_session_id when _trace_ids is missing", () => {
+    const event = eventOf({
+      event_id: "x",
+      type: "agent.thinking",
+      payload: { agent_session_id: "from-payload" },
+    });
+    expect(eventAgentSessionId(event)).toBe("from-payload");
+  });
+
+  it("returns empty string when no session id is present", () => {
+    const event = eventOf({ event_id: "x", type: "agent.thinking" });
+    expect(eventAgentSessionId(event)).toBe("");
+  });
+});
+
+describe("pickLiveOverlayEventForAgent (Phase D8, instruction.md §19, §20)", () => {
+  it("returns undefined for empty or noise-only events", () => {
+    expect(pickLiveOverlayEventForAgent([])).toBeUndefined();
+    expect(
+      pickLiveOverlayEventForAgent([
+        eventOf({ type: "android.snapshot", source_type: "android.snapshot", event_id: "and-1" }),
+      ]),
+    ).toBeUndefined();
+  });
+
+  it("groups by agent_session_id and picks the highest-priority session", () => {
+    const sessionAThinking = eventOf({
+      event_id: "a-think",
+      type: "agent.thinking",
+      generated_at: 500,
+      payload: { agent_session_id: "session-A" },
+    });
+    const sessionAApproval = eventOf({
+      event_id: "a-approval",
+      type: "approval.created",
+      generated_at: 100,
+      payload: { agent_session_id: "session-A" },
+    });
+    const sessionBTool = eventOf({
+      event_id: "b-tool",
+      type: "agent.tool.started",
+      generated_at: 800,
+      payload: { agent_session_id: "session-B" },
+    });
+    // 複数 agent_session 並列 → Approval 優先 (session-A の approval が勝つ)
+    expect(pickLiveOverlayEventForAgent([sessionAThinking, sessionAApproval, sessionBTool])?.event_id).toBe("a-approval");
+  });
+
+  it("prefers a session with fresher high-priority event over an older one", () => {
+    const sessionAOld = eventOf({
+      event_id: "a-old",
+      type: "agent.thinking",
+      generated_at: 100,
+      payload: { agent_session_id: "session-A" },
+    });
+    const sessionBApproval = eventOf({
+      event_id: "b-approval",
+      type: "approval.created",
+      generated_at: 200,
+      payload: { agent_session_id: "session-B" },
+    });
+    // session-B の方が優先度高いので勝つ
+    expect(pickLiveOverlayEventForAgent([sessionAOld, sessionBApproval])?.event_id).toBe("b-approval");
+  });
+
+  it("promotes failed tool completion from a different session above thinking", () => {
+    const sessionAThinking = eventOf({
+      event_id: "a-think",
+      type: "agent.thinking",
+      generated_at: 1000,
+      payload: { agent_session_id: "session-A" },
+    });
+    const sessionBToolFailed = eventOf({
+      event_id: "b-tool-fail",
+      type: "agent.tool.completed",
+      payload: { ok: false, agent_session_id: "session-B" },
+      generated_at: 1,
+    });
+    expect(pickLiveOverlayEventForAgent([sessionAThinking, sessionBToolFailed])?.event_id).toBe("b-tool-fail");
+  });
+
+  it("treats events without agent_session_id as a single (unassigned) group", () => {
+    const thinkingNoSession = eventOf({
+      event_id: "no-sess-think",
+      type: "agent.thinking",
+      generated_at: 100,
+    });
+    const sessionATool = eventOf({
+      event_id: "a-tool",
+      type: "agent.tool.started",
+      generated_at: 200,
+      payload: { agent_session_id: "session-A" },
+    });
+    // session-A の方が優先度高い (Tool started < Thinking) ので session-A の tool が勝つ
+    expect(pickLiveOverlayEventForAgent([thinkingNoSession, sessionATool])?.event_id).toBe("a-tool");
+  });
+});
+
+describe("summarizeTokenUsage (Phase D9 — instruction.md §25)", () => {
+  it("returns zero summary for empty or events without token info", () => {
+    const usage = summarizeTokenUsage([]);
+    expect(usage.event_count).toBe(0);
+    expect(usage.input_tokens).toBe(0);
+    expect(usage.output_tokens).toBe(0);
+    expect(usage.cached_tokens).toBe(0);
+    expect(usage.estimated_cost_usd).toBe(0);
+    expect(usage.model).toBe("");
+
+    const usage2 = summarizeTokenUsage([eventOf({ type: "agent.thinking" })]);
+    expect(usage2.event_count).toBe(0);
+  });
+
+  it("reads token_usage object from payload", () => {
+    const event = eventOf({
+      type: "agent.completed",
+      payload: {
+        token_usage: {
+          input_tokens: 1000,
+          output_tokens: 200,
+          cached_tokens: 50,
+          model: "gpt-4o",
+          estimated_cost_usd: 0.0123,
+        },
+      },
+    });
+    const usage = summarizeTokenUsage([event]);
+    expect(usage.event_count).toBe(1);
+    expect(usage.input_tokens).toBe(1000);
+    expect(usage.output_tokens).toBe(200);
+    expect(usage.cached_tokens).toBe(50);
+    expect(usage.estimated_cost_usd).toBeCloseTo(0.0123);
+    expect(usage.model).toBe("gpt-4o");
+  });
+
+  it("reads scalar token fields from payload directly", () => {
+    const event = eventOf({
+      type: "agent.completed",
+      payload: {
+        input_tokens: 500,
+        output_tokens: 100,
+        cached_tokens: 25,
+        cost: 0.005,
+        model: "claude-3-5-sonnet",
+      },
+    });
+    const usage = summarizeTokenUsage([event]);
+    expect(usage.event_count).toBe(1);
+    expect(usage.input_tokens).toBe(500);
+    expect(usage.output_tokens).toBe(100);
+    expect(usage.cached_tokens).toBe(25);
+    expect(usage.estimated_cost_usd).toBeCloseTo(0.005);
+    expect(usage.model).toBe("claude-3-5-sonnet");
+  });
+
+  it("supports OpenAI-compatible usage fields (prompt_tokens / completion_tokens)", () => {
+    const event = eventOf({
+      type: "agent.completed",
+      payload: {
+        usage: { prompt_tokens: 800, completion_tokens: 150 },
+        model: "gpt-3.5-turbo",
+      },
+    });
+    const usage = summarizeTokenUsage([event]);
+    expect(usage.event_count).toBe(1);
+    expect(usage.input_tokens).toBe(800);
+    expect(usage.output_tokens).toBe(150);
+    expect(usage.model).toBe("gpt-3.5-turbo");
+  });
+
+  it("aggregates token usage across multiple events", () => {
+    const events = [
+      eventOf({
+        type: "agent.completed",
+        payload: { input_tokens: 100, output_tokens: 50, cost: 0.001, model: "gpt-4o" },
+      }),
+      eventOf({
+        type: "agent.completed",
+        payload: { input_tokens: 200, output_tokens: 80, cost: 0.002, model: "gpt-4o" },
+      }),
+      eventOf({
+        type: "agent.thinking", // 集計対象外
+        payload: { text: "ignore me" },
+      }),
+    ];
+    const usage = summarizeTokenUsage(events);
+    expect(usage.event_count).toBe(2);
+    expect(usage.input_tokens).toBe(300);
+    expect(usage.output_tokens).toBe(130);
+    expect(usage.estimated_cost_usd).toBeCloseTo(0.003);
+    expect(usage.model).toBe("gpt-4o");
+  });
+});

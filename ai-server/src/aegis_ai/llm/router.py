@@ -369,14 +369,47 @@ class LLMRouter:
             return LLMResponse(success=False, error=str(e), request_id=request.request_id)
 
     def _select_provider(self, task_type: TaskType) -> str:
-        """Select provider based on task type and settings."""
-        # Check settings for external LLM permission
+        """Select provider based on task type, egress gate, and settings.
+
+        The egress gate is consulted first: while it is closed (the default under the
+        single constraint), only a local provider may be selected — even if a settings
+        flag has been flipped. This prevents the retired "declared but ineffective"
+        class of bug.
+        """
+        from aegis_ai.egress import EgressRequest, get_egress_gate
+
+        gate = get_egress_gate()
         if self._settings:
             settings = self._settings.get()
             if not settings.privacy.external_llm_allowed:
                 return self._find_local_provider() or self._default_provider
 
+        # Even when the settings flag is on, the gate must permit the destination.
+        if not gate.allow(
+            EgressRequest(
+                destination=self._provider_destination(self._default_provider),
+                purpose="llm.chat",
+                component="llm.router",
+                data_summary="LLM prompt and memory context",
+            )
+        ):
+            return self._find_local_provider() or self._default_provider
+
         return self._default_provider
+
+    def _provider_destination(self, provider_name: str) -> str:
+        """Best-effort destination for a registered provider, for egress checks."""
+        with self._lock:
+            provider = self._providers.get(provider_name)
+        base_url = str(
+            getattr(provider, "_base_url", None) or getattr(provider, "base_url", "") or ""
+        )
+        if base_url:
+            return base_url
+        # A cloud provider without an explicit base_url uses the SDK default.
+        if provider_name in ("mock", "ollama", "local"):
+            return "http://localhost"
+        return "https://api.openai.com"
 
     def _find_local_provider(self) -> str:
         """Find a local/mock provider."""

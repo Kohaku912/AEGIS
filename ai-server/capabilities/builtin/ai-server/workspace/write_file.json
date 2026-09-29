@@ -12,6 +12,12 @@
     ],
     "requires_approval": false
   },
+  "ownership_scope": "user",
+  "reversibility": "difficult",
+  "destructive_effects": ["data_overwrite"],
+  "data_loss_risk": "medium",
+  "active_work_loss_risk": "low",
+  "blast_radius": "single",
   "input_schema": {
     "type": "object",
     "properties": {

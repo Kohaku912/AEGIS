@@ -28,8 +28,8 @@ fun ApprovalsScreen(client: AegisGrpcClient, approvals: List<ApprovalItem>, onRe
         if (approvals.isEmpty()) {
             item {
                 EmptyState(
-                    title = "No pending approvals",
-                    body = "Actions that need explicit confirmation will appear here with risk, target, preview, task, and expiration.",
+                    title = "Nothing to confirm",
+                    body = "When AEGIS decides to ask you something, the question appears here with its risk, target, preview, and the reason it is asking.",
                     modifier = Modifier.fillMaxWidth(),
                 )
             }

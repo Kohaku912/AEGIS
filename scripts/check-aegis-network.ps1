@@ -63,7 +63,7 @@ $ports = @(
     @{Port=50051; Name="AI Server"},
     @{Port=50052; Name="PC Server"},
     @{Port=50053; Name="Browser Server"},
-    @{Port=8090;  Name="Dashboard"},
+    @{Port=8090;  Name="Dashboard"}
 )
 
 foreach ($p in $ports) {

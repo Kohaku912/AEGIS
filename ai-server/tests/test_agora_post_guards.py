@@ -63,17 +63,16 @@ class _ReplyDraftLLM:
         return SimpleNamespace(success=True, content=json.dumps(payload))
 
 
-def test_exact_duplicate_body_is_blocked(tmp_path) -> None:
+def test_exact_duplicate_body_is_advisory_only(tmp_path) -> None:
     client = _FakeClient()
     svc = AgoraService(client=client, data_dir=tmp_path / "social", llm=_SuitableLLM())
     assert isinstance(svc.create_post(body="hello friends"), AgoraPost)
-    svc._guard["last_post_time"] = 0.0
-    svc._save_guard()
-    blocked = svc.create_post(body="hello friends", already_approved=True)
-    assert blocked.get("error") == "duplicate"
+    posted = svc.create_post(body="hello friends", already_approved=True)
+    assert isinstance(posted, AgoraPost)
+    assert len(client.posts) == 2
 
 
-def test_near_duplicate_body_is_blocked(tmp_path) -> None:
+def test_near_duplicate_helper_still_detects_similarity(tmp_path) -> None:
     client = _FakeClient()
     svc = AgoraService(client=client, data_dir=tmp_path / "social", llm=_SuitableLLM())
     first = (
@@ -86,24 +85,19 @@ def test_near_duplicate_body_is_blocked(tmp_path) -> None:
     )
     assert bodies_are_near_duplicates(first, near)
     assert isinstance(svc.create_post(body=first), AgoraPost)
-    svc._guard["last_post_time"] = 0.0
-    svc._save_guard()
-    blocked = svc.create_post(body=near, already_approved=True)
-    assert blocked.get("error") == "duplicate"
-    assert "Near-duplicate" in str(blocked.get("message") or "")
+    posted = svc.create_post(body=near, already_approved=True)
+    assert isinstance(posted, AgoraPost)
 
 
-def test_structural_duplicate_reply_to_is_blocked(tmp_path) -> None:
+def test_reply_to_history_is_tracked_as_advice_only(tmp_path) -> None:
     client = _FakeClient()
     svc = AgoraService(client=client, data_dir=tmp_path / "social", llm=_SuitableLLM())
     first = svc.create_post(body="Thanks for the tip about chromadb.", reply_to=315)
     assert isinstance(first, AgoraPost)
-    svc._guard["last_post_time"] = 0.0
-    svc._save_guard()
-    blocked = svc.create_post(body="Another chromadb note.", reply_to=315, already_approved=True)
-    assert isinstance(blocked, dict)
-    assert blocked.get("error") == "duplicate_reply"
-    assert len(client.posts) == 1
+    posted = svc.create_post(body="Another chromadb note.", reply_to=315, already_approved=True)
+    assert isinstance(posted, AgoraPost)
+    assert len(client.posts) == 2
+    assert svc.has_replied_to(315) is True
 
 
 def test_post_avoidance_context_lists_replied_and_recent(tmp_path) -> None:
@@ -113,19 +107,43 @@ def test_post_avoidance_context_lists_replied_and_recent(tmp_path) -> None:
     ctx = svc.post_avoidance_context()
     assert 410 in ctx["replied_to_ids"]
     assert any("Fresh social note" in body for body in ctx["recent_bodies"])
-    assert "Do not reply_to" in ctx["guidance"]
+    assert ctx["recent_post_count_30m"] >= 1
+    assert "not hard rules" in ctx["guidance"]
 
 
-def test_unsuitable_body_blocked_before_approval_path(tmp_path) -> None:
+def test_post_avoidance_context_reports_recent_cadence_without_blocking(tmp_path) -> None:
+    client = _FakeClient()
+    svc = AgoraService(client=client, data_dir=tmp_path / "social", llm=_SuitableLLM())
+    assert isinstance(svc.create_post(body="First thoughtful reply.", reply_to=101), AgoraPost)
+    assert isinstance(svc.create_post(body="Second thoughtful reply.", reply_to=102, already_approved=True), AgoraPost)
+    assert isinstance(svc.create_post(body="Third thoughtful reply.", reply_to=103, already_approved=True), AgoraPost)
+    assert isinstance(svc.create_post(body="Fourth reply would be too much.", reply_to=104, already_approved=True), AgoraPost)
+    ctx = svc.post_avoidance_context()
+    assert ctx["recent_post_count_30m"] >= 4
+
+
+def test_post_avoidance_context_reports_recent_top_level_posts_without_blocking(tmp_path) -> None:
+    client = _FakeClient()
+    svc = AgoraService(client=client, data_dir=tmp_path / "social", llm=_SuitableLLM())
+    assert isinstance(svc.create_post(body="Public project update about memory architecture."), AgoraPost)
+    assert isinstance(svc.create_post(body="Public project update about AGORA etiquette guardrails.", already_approved=True), AgoraPost)
+    assert isinstance(
+        svc.create_post(body="Public project update about autonomous loop selection changes.", already_approved=True),
+        AgoraPost,
+    )
+    ctx = svc.post_avoidance_context()
+    assert ctx["recent_top_level_count_6h"] >= 3
+
+
+def test_unsuitable_body_is_not_hard_blocked(tmp_path) -> None:
     client = _FakeClient()
     svc = AgoraService(client=client, data_dir=tmp_path / "social", llm=_UnsuitableLLM())
-    blocked = svc.create_post(body="AEGIS: system status timeout approval pending")
-    assert blocked.get("error") == "blocked"
-    assert "suitability" in blocked
-    assert client.posts == []
+    posted = svc.create_post(body="AEGIS: system status timeout approval pending")
+    assert isinstance(posted, AgoraPost)
+    assert len(client.posts) == 1
 
 
-def test_already_approved_skips_suitability_but_keeps_structure(tmp_path) -> None:
+def test_already_approved_skips_suitability(tmp_path) -> None:
     client = _FakeClient()
     svc = AgoraService(client=client, data_dir=tmp_path / "social", llm=_UnsuitableLLM())
     posted = svc.create_post(
@@ -163,7 +181,7 @@ def test_reply_once_skips_second_propose(tmp_path) -> None:
         thread_id="1",
         author="friend",
         body="question",
-        status=SocialInboxStatus.AWAITING_APPROVAL,
+        status=SocialInboxStatus.DRAFTED,
         draft_body="first draft",
     )
     second = SocialInboxItem(
@@ -183,13 +201,13 @@ def test_reply_once_skips_second_propose(tmp_path) -> None:
     assert "Reply-once" in result.decision_reason
 
 
-def test_triage_skips_already_replied_before_llm(tmp_path) -> None:
+def test_triage_treats_already_replied_as_advice_not_hard_skip(tmp_path) -> None:
     calls = {"n": 0}
 
     class _CountingLLM:
         def generate(self, **kwargs):
             calls["n"] += 1
-            return SimpleNamespace(success=True, content="{}")
+            return SimpleNamespace(success=True, content='{"decision":"observe_more","reason":"already replied, so probably no need"}')
 
     manager = SocialManager(data_dir=str(tmp_path / "inbox"), llm=_CountingLLM())
     manager.set_post_avoidance_provider(
@@ -207,8 +225,8 @@ def test_triage_skips_already_replied_before_llm(tmp_path) -> None:
     manager._store.update(item)
     result = manager.triage("social_c")
     assert result.status == SocialInboxStatus.SKIPPED
-    assert "Already replied" in result.decision_reason
-    assert calls["n"] == 0
+    assert "already replied" in result.decision_reason.lower()
+    assert calls["n"] == 1
 
 
 def test_triage_skips_near_duplicate_draft(tmp_path) -> None:

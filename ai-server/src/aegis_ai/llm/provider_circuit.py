@@ -6,6 +6,7 @@ so autonomous loops stop hammering the API until cooldown expires.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import threading
@@ -17,6 +18,92 @@ logger = logging.getLogger("aegis_ai.llm.provider_circuit")
 
 _DEFAULT_FAILURES = int(os.environ.get("AEGIS_LLM_BALANCE_FAILURES", "1"))
 _DEFAULT_COOLDOWN_MS = int(os.environ.get("AEGIS_LLM_BALANCE_COOLDOWN_MS", str(30 * 60 * 1000)))
+_BALANCE_CODES = {
+    "insufficient_quota",
+    "insufficient_funds",
+    "credit_balance_exhausted",
+    "organization_spend_limit_exceeded",
+    "project_spend_limit_exceeded",
+    "organization_usage_limit_exceeded",
+}
+_BALANCE_TYPES = {
+    "insufficient_quota",
+    "insufficient_balance",
+    "payment_required",
+}
+_BALANCE_TEXT_MARKERS = (
+    "insufficient balance",
+    "billing hard limit",
+    "exceeded your current quota",
+    "payment required",
+)
+
+
+def _normalized_text(value: Any) -> str:
+    return " ".join(str(value or "").strip().lower().split())
+
+
+def _parse_json_object(value: Any) -> dict[str, Any]:
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, bytes):
+        value = value.decode("utf-8", errors="ignore")
+    if not isinstance(value, str):
+        return {}
+    text = value.strip()
+    if not text.startswith("{"):
+        return {}
+    try:
+        parsed = json.loads(text)
+    except Exception:
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def _response_payload(response: Any) -> dict[str, Any]:
+    if response is None:
+        return {}
+    try:
+        payload = response.json()
+    except Exception:
+        payload = {}
+    if isinstance(payload, dict):
+        return payload
+    for attr in ("text", "content"):
+        candidate = _parse_json_object(getattr(response, attr, ""))
+        if candidate:
+            return candidate
+    return {}
+
+
+def _error_terms(error: Any) -> tuple[set[str], set[str]]:
+    codes: set[str] = set()
+    types: set[str] = set()
+    for candidate in (
+        getattr(error, "code", ""),
+        getattr(error, "type", ""),
+    ):
+        normalized = _normalized_text(candidate)
+        if normalized:
+            codes.add(normalized)
+            types.add(normalized)
+    payload = {}
+    body = getattr(error, "body", None)
+    if isinstance(body, dict):
+        payload = body
+    else:
+        payload = _parse_json_object(body)
+    if not payload:
+        payload = _response_payload(getattr(error, "response", None))
+    detail = payload.get("error") if isinstance(payload.get("error"), dict) else payload
+    if isinstance(detail, dict):
+        code = _normalized_text(detail.get("code"))
+        err_type = _normalized_text(detail.get("type"))
+        if code:
+            codes.add(code)
+        if err_type:
+            types.add(err_type)
+    return codes, types
 
 
 def is_balance_error(error: Any) -> bool:
@@ -27,25 +114,17 @@ def is_balance_error(error: Any) -> bool:
         status = getattr(response, "status_code", None)
     if status == 402:
         return True
-
-    body = ""
-    response = getattr(error, "response", None)
-    if response is not None:
-        try:
-            body = str(getattr(response, "text", "") or getattr(response, "content", "") or "")
-        except Exception:
-            body = ""
-    text = f"{error} {body}".lower()
-    markers = (
-        "402",
-        "insufficient balance",
-        "insufficient_quota",
-        "insufficient_funds",
-        "billing hard limit",
-        "exceeded your current quota",
-        "payment required",
-    )
-    return any(marker in text for marker in markers)
+    codes, types = _error_terms(error)
+    if codes & _BALANCE_CODES:
+        return True
+    if types & _BALANCE_TYPES:
+        return True
+    if status == 429 and (codes or types):
+        return False
+    text = _normalized_text(error)
+    if not text:
+        return False
+    return any(marker in text for marker in _BALANCE_TEXT_MARKERS)
 
 
 class LlmProviderCircuit:
@@ -158,7 +237,12 @@ def provider_origin(base_url: str | None) -> str:
     """Return a stable provider origin for circuit isolation."""
     value = str(base_url or "https://api.openai.com").strip().rstrip("/")
     parsed = urlsplit(value if "://" in value else f"https://{value}")
-    return f"{parsed.scheme.lower()}://{parsed.netloc.lower()}" or value.lower()
+    netloc = parsed.netloc.lower()
+    if not netloc:
+        # Malformed / host-less URL: fall back to the raw value so distinct
+        # inputs still map to distinct circuit keys instead of "https://".
+        return value.lower()
+    return f"{parsed.scheme.lower()}://{netloc}"
 
 
 class ProviderCircuitRegistry:

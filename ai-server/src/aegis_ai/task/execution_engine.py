@@ -24,7 +24,6 @@ class TaskFinalState(Enum):
     ALL_COMPLETED = "all_completed"
     HAS_FAILED = "has_failed"
     HAS_REQUIRES_OBSERVATION = "has_requires_observation"
-    HAS_NEEDS_APPROVAL = "has_needs_approval"
     HAS_PENDING = "has_pending"
     HAS_RUNNING = "has_running"
     HAS_WAITING_DEPENDENCY = "has_waiting_dependency"
@@ -42,7 +41,6 @@ class TaskExecutionEngine:
         self,
         task_manager: TaskManager,
         tool_broker: Any = None,
-        approval_manager: Any = None,
         llm_gateway: Any = None,
         prompt_registry: Any = None,
         settings_resolver: Any = None,
@@ -55,7 +53,6 @@ class TaskExecutionEngine:
     ) -> None:
         self._task_manager = task_manager
         self._tool_broker = tool_broker
-        self._approval_manager = approval_manager
         self._llm_gateway = llm_gateway
         self._prompt_registry = prompt_registry
         self._settings_resolver = settings_resolver
@@ -70,9 +67,6 @@ class TaskExecutionEngine:
     def evaluate_plan_state(self, plan: TaskPlan) -> TaskFinalState:
         if not plan.steps:
             return TaskFinalState.EMPTY
-        for step in plan.steps:
-            if step.status == StepStatus.NEEDS_APPROVAL:
-                return TaskFinalState.HAS_NEEDS_APPROVAL
         for step in plan.steps:
             if step.status == StepStatus.FAILED:
                 return TaskFinalState.HAS_FAILED
@@ -138,10 +132,7 @@ class TaskExecutionEngine:
         if not task:
             return
         current = task["status"]
-        if state == TaskFinalState.HAS_NEEDS_APPROVAL:
-            if current != "waiting_approval":
-                self._task_manager.wait_for_approval(task_id)
-        elif state == TaskFinalState.HAS_FAILED:
+        if state == TaskFinalState.HAS_FAILED:
             if current not in ("failed",):
                 self._task_manager.fail_task(task_id, error="Step(s) failed")
         elif state == TaskFinalState.HAS_REQUIRES_OBSERVATION:
@@ -215,7 +206,7 @@ class TaskExecutionEngine:
                     metadata["workflow_id"] = workflow_id
                     task["metadata"] = metadata
                 return ExecutionResponse(
-                    text=f"Durable workflow started ({workflow_id}). Use /api/tasks/{task_id}/continue to resume after approval.",
+                    text=f"Durable workflow started ({workflow_id}). The workflow runs autonomously; no approval signal is required.",
                     task_id=task_id,
                 )
             except Exception as exc:
@@ -224,7 +215,7 @@ class TaskExecutionEngine:
         results: list[str] = []
 
         for step in plan.steps:
-            if step.status not in (StepStatus.PENDING, StepStatus.APPROVED):
+            if step.status != StepStatus.PENDING:
                 continue
             if step.depends_on:
                 deps_met = all(
@@ -238,10 +229,7 @@ class TaskExecutionEngine:
             self._task_manager.set_current_step(task_id, step.step_id)
             step_result = self._execute_step(task_id, step, plan)
             results.append(step_result)
-            if step.status == StepStatus.NEEDS_APPROVAL:
-                self.apply_task_state(task_id, plan)
-                return ExecutionResponse(text="\n".join(results), task_id=task_id)
-            elif step.status == StepStatus.FAILED:
+            if step.status == StepStatus.FAILED:
                 self._task_manager.update_step_status(task_id, step.step_id, "failed", error=step.error)
                 self.apply_task_state(task_id, plan)
                 return ExecutionResponse(text="\n".join(results), task_id=task_id)
@@ -311,11 +299,71 @@ class TaskExecutionEngine:
                 step.error = "Browser step is missing a canonical capability_id"
                 return f"[FAIL] {step.description}: {step.error}"
             return self._execute_tool_step(task_id, step)
+        if step.action_type == "agent_delegate" or (
+            step.capability_id and step.capability_id.startswith("ai-server.agent.")
+        ):
+            return self._execute_agent_step(task_id, step, plan)
         if step.action_type == "tool_invoke" and step.capability_id:
             return self._execute_tool_step(task_id, step)
         if step.action_type.startswith("llm_"):
             return self._execute_llm_step(task_id, step, plan)
         return f"[INFO] {step.description}"
+
+    def _execute_agent_step(self, task_id: str, step: PlanStep, plan: TaskPlan) -> str:
+        """Phase 3: `ai-server.agent.*` capability を AgentBackend にルーティング."""
+        from aegis_ai.agents.runtime.executor import is_agent_capability, run_agent_step
+
+        if not step.capability_id or not is_agent_capability(step.capability_id):
+            step.status = StepStatus.FAILED
+            step.error = "agent_delegate step is missing canonical ai-server.agent.* capability_id"
+            return f"[FAIL] {step.description}: {step.error}"
+
+        # AegisRuntime を取得 (TaskExecutionEngine は runtime を直接持たない設計なので
+        # global singleton を取る)
+        try:
+            from aegis_ai.runtime import get_runtime
+
+            runtime = get_runtime()
+        except Exception:  # noqa: BLE001
+            runtime = None
+        backend = runtime.get_agent_backend() if runtime is not None else None
+        if backend is None:
+            step.status = StepStatus.FAILED
+            step.error = "agent backend is not registered (agents.enabled=false?)"
+            return f"[FAIL] {step.description}: {step.error}"
+
+        # 同期経路で run_agent_step を呼ぶ (TaskExecutionEngine は同期前提).
+        import asyncio as _asyncio
+
+        try:
+            coro = run_agent_step(step, plan, backend=backend)
+            try:
+                _asyncio.get_running_loop()
+                in_running_loop = True
+            except RuntimeError:
+                in_running_loop = False
+            if in_running_loop:
+                # すでにイベントループが動いている場合は別スレッドで実行
+                import concurrent.futures
+
+                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                    future = pool.submit(_asyncio.run, coro)
+                    future.result()
+            else:
+                _asyncio.run(coro)
+        except Exception as exc:  # noqa: BLE001
+            step.status = StepStatus.FAILED
+            step.error = f"agent step crashed: {exc!r}"
+            logger.exception("agent step crashed")
+            return f"[FAIL] {step.description}: {step.error}"
+
+        if step.status == StepStatus.COMPLETED:
+            return f"[OK] {step.description}"
+        if step.status == StepStatus.REQUIRES_OBSERVATION:
+            return f"[OBSERVE] {step.description}: {step.error}"
+        if step.status == StepStatus.SKIPPED:
+            return f"[SKIP] {step.description}: {step.error}"
+        return f"[FAIL] {step.description}: {step.error}"
 
     def _execute_tool_step(self, task_id: str, step: PlanStep, capability_override: str = "") -> str:
         from tool_broker import ExecutionSource, InvokeStatus, ToolExecutionRequest
@@ -349,12 +397,6 @@ class TaskExecutionEngine:
             step.status = StepStatus.COMPLETED
             step.result = self._tool_result_with_verification(result)
             return f"[OK] {step.description}"
-        elif result.status == InvokeStatus.APPROVAL_NEEDED:
-            step.status = StepStatus.NEEDS_APPROVAL
-            approval_id = result.approval_id
-            self._task_manager.wait_for_approval(task_id, step.step_id, approval_id)
-            self._task_manager.set_waiting_approval(task_id, step.step_id, approval_id)
-            return f"[APPROVAL] {step.description} -- approval_id={approval_id}"
         else:
             step.status = StepStatus.FAILED
             step.error = result.error
@@ -394,76 +436,6 @@ class TaskExecutionEngine:
             step.status = StepStatus.FAILED
             return f"[ERROR] LLM step: {e}"
 
-    def pause_for_approval(self, task_id: str, step_id: str, approval_id: str) -> dict[str, Any] | None:
-        return self._task_manager.wait_for_approval(task_id, step_id, approval_id)
-
-    def resume_after_approval(self, approval_id: str) -> ExecutionResponse:
-        if not self._approval_manager:
-            return ExecutionResponse(text="ApprovalManager not available")
-        request = self._approval_manager.get(approval_id)
-        if request is None:
-            return ExecutionResponse(text=f"Approval {approval_id} not found")
-        if request.status not in ("approved", "modified"):
-            return ExecutionResponse(text=f"Approval {approval_id} not approved (status={request.status})")
-        task_id = request.task_id
-        step_id = request.step_id
-        if not self._tool_broker:
-            return ExecutionResponse(text="ToolBroker not available", task_id=task_id)
-        if request.tool_args_hash and request.arguments:
-            from aegis_ai.approval.approval_types import compute_args_hash
-
-            current_hash = compute_args_hash(request.arguments)
-            if current_hash != request.tool_args_hash:
-                self._approval_manager.mark_failed(approval_id, "Arguments tampered after approval")
-                if task_id:
-                    self._task_manager.fail_task(task_id, error="Approval arguments tampered")
-                return ExecutionResponse(
-                    text=f"[DENIED] Approval {approval_id}: arguments were tampered", task_id=task_id
-                )
-        result = self._tool_broker.execute_approved(approval_id)
-        if task_id and step_id:
-            if result.success:
-                tool_request = self._tool_request_from_approval(request, result)
-                plan_step = self._find_plan_step(task_id, step_id)
-                result = self._ensure_completion_verification(tool_request, result, plan_step)
-                if self._requires_observation(result):
-                    error = self._completion_failure_message(result)
-                    self._task_manager.update_step_status(task_id, step_id, "requires_observation", error=error)
-                    self._task_manager.pause_task(task_id)
-                    self._record_failure_for_repair(tool_request, result)
-                    return ExecutionResponse(text=f"[OBSERVE] Step {step_id}: {error}", task_id=task_id)
-                if not self._completion_verified(result):
-                    error = self._completion_failure_message(result)
-                    self._task_manager.update_step_status(task_id, step_id, "failed", error=error)
-                    self._task_manager.fail_task(task_id, error=f"Step {step_id} failed verification: {error}")
-                    self._record_failure_for_repair(tool_request, result)
-                    return ExecutionResponse(text=f"[VERIFY] Step {step_id}: {error}", task_id=task_id)
-                self._task_manager.resume_after_approval(task_id, step_id)
-                self._task_manager.update_step_status(
-                    task_id,
-                    step_id,
-                    "completed",
-                    result=self._tool_result_with_verification(result),
-                )
-                self._task_manager.set_waiting_approval(task_id, "", "")
-                return self._continue_after_step(task_id, step_id)
-            else:
-                self._task_manager.update_step_status(task_id, step_id, "failed", error=result.error)
-                self._task_manager.fail_task(task_id, error=f"Step {step_id} failed after approval: {result.error}")
-                return ExecutionResponse(text=f"[FAIL] Step {step_id} failed: {result.error}", task_id=task_id)
-        if task_id:
-            if result.success:
-                self._task_manager.complete_task(
-                    task_id,
-                    result_summary=f"Approved capability completed: {request.capability_id}",
-                )
-            else:
-                self._task_manager.fail_task(
-                    task_id,
-                    error=result.error or "Approved capability execution failed",
-                )
-        return ExecutionResponse(text=f"[OK] Approval {approval_id} executed", task_id=task_id)
-
     def _continue_after_step(self, task_id: str, completed_step_id: str) -> ExecutionResponse:
         plan = self._plans.get(task_id)
         if plan is None:
@@ -490,10 +462,7 @@ class TaskExecutionEngine:
             self._task_manager.set_current_step(task_id, step.step_id)
             step_result = self._execute_step(task_id, step, plan)
             results.append(step_result)
-            if step.status == StepStatus.NEEDS_APPROVAL:
-                self.apply_task_state(task_id, plan)
-                return ExecutionResponse(text="\n".join(results), task_id=task_id)
-            elif step.status == StepStatus.FAILED:
+            if step.status == StepStatus.FAILED:
                 self._task_manager.update_step_status(task_id, step.step_id, "failed", error=step.error)
                 self.apply_task_state(task_id, plan)
                 return ExecutionResponse(text="\n".join(results), task_id=task_id)
@@ -514,12 +483,14 @@ class TaskExecutionEngine:
         metadata = dict(task.get("metadata") or {})
         workflow_id = str(metadata.get("workflow_id") or "")
         if workflow_id and self._temporal is not None and getattr(self._temporal, "enabled", False):
-            try:
-                self._temporal.signal_approval_sync(workflow_id)
-                return ExecutionResponse(text=f"Approval signal sent to workflow {workflow_id}", task_id=task_id)
-            except Exception as exc:
-                logger.warning("Temporal continue signal failed: %s", exc)
-        if task["status"] not in ("running", "waiting_approval", "paused"):
+            # The durable workflow never waits for a human decision any more, so
+            # there is nothing to signal. Returning here also prevents the
+            # in-process engine from racing the workflow over the same steps.
+            return ExecutionResponse(
+                text=f"Durable workflow {workflow_id} runs autonomously; no approval signal is required.",
+                task_id=task_id,
+            )
+        if task["status"] not in ("running", "paused"):
             return ExecutionResponse(text=f"Task {task_id} not in executable state (status={task['status']})")
         plan = self._plans.get(task_id)
         if plan is None:
@@ -537,7 +508,6 @@ class TaskExecutionEngine:
                     "completed": StepStatus.COMPLETED,
                     "failed": StepStatus.FAILED,
                     "requires_observation": StepStatus.REQUIRES_OBSERVATION,
-                    "needs_approval": StepStatus.NEEDS_APPROVAL,
                     "running": StepStatus.RUNNING,
                     "cancelled": StepStatus.SKIPPED,
                     "pending": StepStatus.PENDING,
@@ -564,7 +534,7 @@ class TaskExecutionEngine:
         task = self._task_manager.get_task(task_id)
         if task:
             for step in task.get("steps", []):
-                if step.get("status") in ("running", "pending", "needs_approval"):
+                if step.get("status") in ("running", "pending"):
                     self._task_manager.update_step_status(task_id, step["step_id"], "cancelled")
         return self._task_manager.cancel_task(task_id, reason)
 
@@ -605,7 +575,6 @@ class TaskExecutionEngine:
                     "completed": StepStatus.COMPLETED,
                     "failed": StepStatus.FAILED,
                     "requires_observation": StepStatus.REQUIRES_OBSERVATION,
-                    "needs_approval": StepStatus.NEEDS_APPROVAL,
                     "running": StepStatus.RUNNING,
                     "cancelled": StepStatus.SKIPPED,
                     "pending": StepStatus.PENDING,
@@ -687,29 +656,6 @@ class TaskExecutionEngine:
 
     def _requires_observation(self, result: Any) -> bool:
         return self._verification_status(result) == "requires_observation"
-
-    def _tool_request_from_approval(self, approval_request: Any, result: Any) -> Any:
-        from tool_broker import ExecutionSource, ToolExecutionRequest
-
-        return ToolExecutionRequest(
-            request_id=getattr(result, "request_id", "") or getattr(approval_request, "request_id", ""),
-            task_id=getattr(approval_request, "task_id", ""),
-            step_id=getattr(approval_request, "step_id", ""),
-            capability_id=getattr(approval_request, "capability_id", ""),
-            tool_name=getattr(approval_request, "tool_name", ""),
-            arguments=dict(getattr(approval_request, "arguments", {}) or {}),
-            source=ExecutionSource.USER_EXPLICIT,
-            reason=f"Approved execution: {getattr(approval_request, 'approval_reason', '')}",
-        )
-
-    def _find_plan_step(self, task_id: str, step_id: str) -> PlanStep | None:
-        plan = self._plans.get(task_id)
-        if plan is None:
-            return None
-        for step in plan.steps:
-            if step.step_id == step_id:
-                return step
-        return None
 
     def _record_verification_event(self, verification_request: Any, verification: Any) -> None:
         if self._event_manager is None:

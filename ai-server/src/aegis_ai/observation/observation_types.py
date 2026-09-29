@@ -24,7 +24,6 @@ class ObservationTarget(Enum):
     PC = "pc"
     BROWSER = "browser"
     ANDROID = "android"
-    DEV_SERVER = "dev_server"
 
 
 class ObservationPurpose(Enum):

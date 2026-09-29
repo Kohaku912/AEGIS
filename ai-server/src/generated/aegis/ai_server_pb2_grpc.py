@@ -7,7 +7,7 @@ from generated.aegis import ai_server_pb2 as aegis_dot_ai__server__pb2
 from generated.aegis import android_server_pb2 as aegis_dot_android__server__pb2
 from generated.aegis import common_pb2 as aegis_dot_common__pb2
 
-GRPC_GENERATED_VERSION = '1.81.1'
+GRPC_GENERATED_VERSION = '1.84.0'
 GRPC_VERSION = grpc.__version__
 _version_not_supported = False
 
@@ -28,10 +28,8 @@ if _version_not_supported:
 
 
 class AIServerStub:
-    """═══════════════════════════════════════════════════════════════
-    AI Server Service
-    ═══════════════════════════════════════════════════════════════
-
+    """══════════════════════════════════════════════════════════════╁E    AI Server Service
+    ══════════════════════════════════════════════════════════════╁E
     """
 
     def __init__(self, channel):
@@ -115,21 +113,6 @@ class AIServerStub:
                 request_serializer=aegis_dot_ai__server__pb2.UiEventStreamRequest.SerializeToString,
                 response_deserializer=aegis_dot_ai__server__pb2.UiEvent.FromString,
                 _registered_method=True)
-        self.RequestApproval = channel.unary_unary(
-                '/aegis.AIServer/RequestApproval',
-                request_serializer=aegis_dot_ai__server__pb2.RequestApprovalRequest.SerializeToString,
-                response_deserializer=aegis_dot_common__pb2.ApprovalRequest.FromString,
-                _registered_method=True)
-        self.ResolveApproval = channel.unary_unary(
-                '/aegis.AIServer/ResolveApproval',
-                request_serializer=aegis_dot_ai__server__pb2.ResolveApprovalRequest.SerializeToString,
-                response_deserializer=aegis_dot_ai__server__pb2.ResolveApprovalResponse.FromString,
-                _registered_method=True)
-        self.ListPendingApprovals = channel.unary_unary(
-                '/aegis.AIServer/ListPendingApprovals',
-                request_serializer=aegis_dot_ai__server__pb2.ListPendingApprovalsRequest.SerializeToString,
-                response_deserializer=aegis_dot_ai__server__pb2.ListPendingApprovalsResponse.FromString,
-                _registered_method=True)
         self.WriteAuditLog = channel.unary_unary(
                 '/aegis.AIServer/WriteAuditLog',
                 request_serializer=aegis_dot_common__pb2.AuditRecord.SerializeToString,
@@ -148,10 +131,8 @@ class AIServerStub:
 
 
 class AIServerServicer:
-    """═══════════════════════════════════════════════════════════════
-    AI Server Service
-    ═══════════════════════════════════════════════════════════════
-
+    """══════════════════════════════════════════════════════════════╁E    AI Server Service
+    ══════════════════════════════════════════════════════════════╁E
     """
 
     def RegisterServer(self, request, context):
@@ -242,25 +223,6 @@ class AIServerServicer:
         raise NotImplementedError('Method not implemented!')
 
     def StreamUiEvents(self, request, context):
-        """Missing associated documentation comment in .proto file."""
-        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
-        context.set_details('Method not implemented!')
-        raise NotImplementedError('Method not implemented!')
-
-    def RequestApproval(self, request, context):
-        """── Approval ──────────────────────────────────────────────
-        """
-        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
-        context.set_details('Method not implemented!')
-        raise NotImplementedError('Method not implemented!')
-
-    def ResolveApproval(self, request, context):
-        """Missing associated documentation comment in .proto file."""
-        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
-        context.set_details('Method not implemented!')
-        raise NotImplementedError('Method not implemented!')
-
-    def ListPendingApprovals(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -364,21 +326,6 @@ def add_AIServerServicer_to_server(servicer, server):
                     request_deserializer=aegis_dot_ai__server__pb2.UiEventStreamRequest.FromString,
                     response_serializer=aegis_dot_ai__server__pb2.UiEvent.SerializeToString,
             ),
-            'RequestApproval': grpc.unary_unary_rpc_method_handler(
-                    servicer.RequestApproval,
-                    request_deserializer=aegis_dot_ai__server__pb2.RequestApprovalRequest.FromString,
-                    response_serializer=aegis_dot_common__pb2.ApprovalRequest.SerializeToString,
-            ),
-            'ResolveApproval': grpc.unary_unary_rpc_method_handler(
-                    servicer.ResolveApproval,
-                    request_deserializer=aegis_dot_ai__server__pb2.ResolveApprovalRequest.FromString,
-                    response_serializer=aegis_dot_ai__server__pb2.ResolveApprovalResponse.SerializeToString,
-            ),
-            'ListPendingApprovals': grpc.unary_unary_rpc_method_handler(
-                    servicer.ListPendingApprovals,
-                    request_deserializer=aegis_dot_ai__server__pb2.ListPendingApprovalsRequest.FromString,
-                    response_serializer=aegis_dot_ai__server__pb2.ListPendingApprovalsResponse.SerializeToString,
-            ),
             'WriteAuditLog': grpc.unary_unary_rpc_method_handler(
                     servicer.WriteAuditLog,
                     request_deserializer=aegis_dot_common__pb2.AuditRecord.FromString,
@@ -403,10 +350,8 @@ def add_AIServerServicer_to_server(servicer, server):
 
  # This class is part of an EXPERIMENTAL API.
 class AIServer:
-    """═══════════════════════════════════════════════════════════════
-    AI Server Service
-    ═══════════════════════════════════════════════════════════════
-
+    """══════════════════════════════════════════════════════════════╁E    AI Server Service
+    ══════════════════════════════════════════════════════════════╁E
     """
 
     @staticmethod
@@ -804,87 +749,6 @@ class AIServer:
             '/aegis.AIServer/StreamUiEvents',
             aegis_dot_ai__server__pb2.UiEventStreamRequest.SerializeToString,
             aegis_dot_ai__server__pb2.UiEvent.FromString,
-            options,
-            channel_credentials,
-            insecure,
-            call_credentials,
-            compression,
-            wait_for_ready,
-            timeout,
-            metadata,
-            _registered_method=True)
-
-    @staticmethod
-    def RequestApproval(request,
-            target,
-            options=(),
-            channel_credentials=None,
-            call_credentials=None,
-            insecure=False,
-            compression=None,
-            wait_for_ready=None,
-            timeout=None,
-            metadata=None):
-        return grpc.experimental.unary_unary(
-            request,
-            target,
-            '/aegis.AIServer/RequestApproval',
-            aegis_dot_ai__server__pb2.RequestApprovalRequest.SerializeToString,
-            aegis_dot_common__pb2.ApprovalRequest.FromString,
-            options,
-            channel_credentials,
-            insecure,
-            call_credentials,
-            compression,
-            wait_for_ready,
-            timeout,
-            metadata,
-            _registered_method=True)
-
-    @staticmethod
-    def ResolveApproval(request,
-            target,
-            options=(),
-            channel_credentials=None,
-            call_credentials=None,
-            insecure=False,
-            compression=None,
-            wait_for_ready=None,
-            timeout=None,
-            metadata=None):
-        return grpc.experimental.unary_unary(
-            request,
-            target,
-            '/aegis.AIServer/ResolveApproval',
-            aegis_dot_ai__server__pb2.ResolveApprovalRequest.SerializeToString,
-            aegis_dot_ai__server__pb2.ResolveApprovalResponse.FromString,
-            options,
-            channel_credentials,
-            insecure,
-            call_credentials,
-            compression,
-            wait_for_ready,
-            timeout,
-            metadata,
-            _registered_method=True)
-
-    @staticmethod
-    def ListPendingApprovals(request,
-            target,
-            options=(),
-            channel_credentials=None,
-            call_credentials=None,
-            insecure=False,
-            compression=None,
-            wait_for_ready=None,
-            timeout=None,
-            metadata=None):
-        return grpc.experimental.unary_unary(
-            request,
-            target,
-            '/aegis.AIServer/ListPendingApprovals',
-            aegis_dot_ai__server__pb2.ListPendingApprovalsRequest.SerializeToString,
-            aegis_dot_ai__server__pb2.ListPendingApprovalsResponse.FromString,
             options,
             channel_credentials,
             insecure,

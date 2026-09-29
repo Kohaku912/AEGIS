@@ -1,16 +1,42 @@
 [Unit]
-Description=AEGIS production stack
-After=docker.service network-online.target
-Requires=docker.service
+Description=AEGIS production stack (host execution — §37)
+Documentation=https://github.com/kohaku/AEGIS/blob/main/instruction.md
+After=network-online.target
 Wants=network-online.target
+# 旧 Type=oneshot (docker compose up) からの移行版。
+# AEGIS 本体 (ai-server / browser-server / room-server) は host 上で直接実行。
+# Docker に残るのは補助サービス (temporal / postgres / jaeger / mcp-gateway) のみ。
 
 [Service]
-Type=oneshot
-WorkingDirectory=/opt/aegis
-RemainAfterExit=yes
-ExecStart=/usr/bin/env bash scripts/ubuntu/start.sh
-ExecStop=/usr/bin/docker compose -f docker-compose.yml -f docker-compose.production.yml down
-TimeoutStartSec=300
+Type=simple
+User=aegis
+Group=aegis
+WorkingDirectory=/opt/aegis/ai-server
+Environment="PYTHONPATH=/opt/aegis/ai-server/src"
+Environment="AEGIS_RUNTIME_MODE=production"
+Environment="AEGIS_BIND_HOST=127.0.0.1"
+# Optional: bearer token, deepseek/openai key, etc.
+EnvironmentFile=-/etc/aegis/aegis.env
+ExecStart=/usr/bin/python3 -m aegis_ai.main
+Restart=on-failure
+RestartSec=5s
+TimeoutStopSec=30s
+# メモリ cap (4GB) — 過剰消費時の OOM 防止
+MemoryMax=4G
+MemoryHigh=3G
+
+# Hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/aegis /opt/aegis/ai-server/data
+# Network は必要 (gRPC inbound / outbound両方)
+PrivateNetwork=false
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=aegis
 
 [Install]
 WantedBy=multi-user.target

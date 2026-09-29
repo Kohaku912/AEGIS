@@ -17,6 +17,23 @@ from aegis_ai.briefing.provider import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _never_leak_the_runtime_singleton():
+    """``generate_briefing`` reaches for the real runtime, so never leave it running.
+
+    ``DailyBriefingProvider`` reads system health from ``get_runtime().status_manager``,
+    which *builds* the runtime if the singleton is empty — starting the status manager's
+    ``status-check`` thread as a side effect. That thread then kept probing the network
+    and writing the endpoint resolver's process-global cache for the rest of the session.
+    See ``tests/conftest.py`` for the guard that catches this.
+    """
+    yield
+
+    from aegis_ai.runtime import reset_runtime_for_tests
+
+    reset_runtime_for_tests()
+
+
 class TestWeatherCodes:
     def test_clear_sky(self):
         assert _WEATHER_CODES[0] == "Clear sky"
@@ -45,7 +62,7 @@ class TestGetWeather:
         assert "25" in section.content
         assert "Tokyo" in section.content
 
-    def test_cache_expired(self):
+    def test_cache_expired(self, monkeypatch):
         provider = DailyBriefingProvider()
         provider._weather_cache = {"temperature": 20}
         provider._weather_cache_ts = time.time() - 600
@@ -62,13 +79,28 @@ class TestGetWeather:
         }
         mock_resp.raise_for_status = MagicMock()
 
+        # The fetch itself is gated; this test is about cache expiry, so allow the
+        # egress check explicitly rather than depending on the default (closed).
+        monkeypatch.setattr("aegis_ai.briefing.provider._weather_egress_allowed", lambda _url: True)
+
         with patch("httpx.get", return_value=mock_resp):
             section = provider._get_weather()
             assert "Overcast" in section.content
             assert "30" in section.content
 
-    def test_network_error(self):
+    def test_weather_is_not_fetched_when_egress_denied(self, monkeypatch):
+        """Coordinates must not leave the environment: default (closed) => no fetch."""
         provider = DailyBriefingProvider()
+        monkeypatch.setattr("aegis_ai.briefing.provider._weather_egress_allowed", lambda _url: False)
+
+        with patch("httpx.get") as mock_get:
+            section = provider._get_weather()
+            mock_get.assert_not_called()
+        assert "unavailable" in section.content.lower()
+
+    def test_network_error(self, monkeypatch):
+        provider = DailyBriefingProvider()
+        monkeypatch.setattr("aegis_ai.briefing.provider._weather_egress_allowed", lambda _url: True)
         with patch("httpx.get", side_effect=Exception("Network error")):
             section = provider._get_weather()
             assert "unavailable" in section.content.lower()

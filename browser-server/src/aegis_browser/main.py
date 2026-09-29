@@ -532,7 +532,8 @@ class BrowserHandler(BaseHTTPRequestHandler):
         except Exception as e:
             return {"error": str(e)}
 
-    def log_message(self, format, *args):
+    # Signature must match http.server.BaseHTTPRequestHandler.log_message.
+    def log_message(self, format, *args):  # noqa: A002
         logger.info(format % args)
 
 

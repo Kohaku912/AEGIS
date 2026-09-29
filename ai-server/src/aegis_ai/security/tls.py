@@ -9,7 +9,8 @@ Note: For MVP, TLS is optional. Local network trust is the default.
 from __future__ import annotations
 
 import logging
-import os
+import shutil
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -82,14 +83,39 @@ def generate_self_signed_cert(
     cert_path = str(output_path / "server.crt")
     key_path = str(output_path / "server.key")
 
-    # Check if openssl is available
-    if os.system("openssl version > /dev/null 2>&1") == 0:
-        os.system(
-            f'openssl req -x509 -newkey rsa:2048 -keyout "{key_path}" '
-            f'-out "{cert_path}" -days 365 -nodes '
-            f'-subj "/CN={common_name}" 2>/dev/null'
-        )
-    else:
+    # Locate openssl in a cross-platform way. The previous implementation
+    # shelled out with POSIX-only redirections (``> /dev/null``), which made
+    # the check always fail on Windows even when openssl was installed.
+    openssl = shutil.which("openssl")
+    if openssl is None:
         logger.warning("OpenSSL not found — cannot generate self-signed cert")
+        return cert_path, key_path
+
+    try:
+        # Argument-list execution (no shell) avoids command injection through
+        # ``common_name`` and behaves identically on every platform.
+        subprocess.run(
+            [
+                openssl,
+                "req",
+                "-x509",
+                "-newkey",
+                "rsa:2048",
+                "-keyout",
+                key_path,
+                "-out",
+                cert_path,
+                "-days",
+                "365",
+                "-nodes",
+                "-subj",
+                f"/CN={common_name}",
+            ],
+            check=True,
+            capture_output=True,
+            timeout=60,
+        )
+    except (subprocess.SubprocessError, OSError) as exc:
+        logger.warning("Failed to generate self-signed cert: %s", exc)
 
     return cert_path, key_path

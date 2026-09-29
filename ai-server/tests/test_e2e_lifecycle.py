@@ -54,7 +54,12 @@ def managers(tmp_path):
 
 class TestE2ELifecycle:
 
-    def test_full_approval_lifecycle(self, managers):
+    def test_full_task_lifecycle(self, managers):
+        """created → running → paused → running → completed.
+
+        The old approval leg (waiting_approval / resume_after_approval) is gone:
+        approval is no longer a constraint (2026-09-27).
+        """
         tm = managers.task_manager
         am = managers.audit_manager
 
@@ -65,15 +70,10 @@ class TestE2ELifecycle:
         tm.start_task(task_id)
         assert tm.get_task(task_id)["status"] == "running"
 
-        tm.wait_for_approval(task_id, approval_id="appr_e2e_001")
-        assert tm.get_task(task_id)["status"] == "waiting_approval"
-        assert tm.get_task(task_id)["related_approval_id"] == "appr_e2e_001"
+        tm.pause_task(task_id)
+        assert tm.get_task(task_id)["status"] == "paused"
 
-        waiting = tm.list_waiting_approval()
-        assert len(waiting) == 1
-        assert waiting[0]["task_id"] == task_id
-
-        tm.resume_after_approval(task_id)
+        tm.start_task(task_id)
         assert tm.get_task(task_id)["status"] == "running"
 
         tm.complete_task(task_id, result_summary="Feature deployed successfully")
@@ -85,15 +85,14 @@ class TestE2ELifecycle:
         assert "task_created" in actions
         assert "task_completed" in actions
 
-    def test_approval_reject_cancels_task(self, managers):
+    def test_running_task_can_be_cancelled(self, managers):
         tm = managers.task_manager
 
         task = tm.create_task(title="Delete production data", source="user")
         task_id = task["task_id"]
         tm.start_task(task_id)
-        tm.wait_for_approval(task_id, approval_id="appr_e2e_002")
 
-        tm.cancel_task(task_id, reason="approval rejected")
+        tm.cancel_task(task_id, reason="user changed their mind")
         assert tm.get_task(task_id)["status"] == "cancelled"
 
     def test_autonomous_task_lifecycle(self, managers):

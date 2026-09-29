@@ -2,7 +2,28 @@
 
 ## Status
 
-Accepted
+Accepted — **superseded in part (2026-09-27)**
+
+> ⚠️ **Update (2026-09-27)**: The goal was narrowed to a **single constraint** — the user's
+> information must never leave the local environment. **Approval is no longer a constraint.**
+>
+> This ADR's *approval* distinctions are therefore historical. What survives:
+> - **`publish_or_send_external`** — now split: **external** publish/send is blocked by the
+>   **egress gate** (the single constraint); **local** publish/send is allowed without approval.
+> - **`purchase_or_paid_subscription`** — remains a **hard stop** (kept per D1=(b); an irreversible
+>   financial loss is a separate axis from privacy).
+> - **`captcha_or_anti_bot`** — remains forbidden.
+> - Everything else that was "requires approval" becomes **auto** (with post-hoc audit visibility).
+>
+> **Update (2026-09-28)**: the `autonomy` settings section that was meant to implement these profiles
+> has been **deleted**. Nothing read it — 10 of its 11 fields had no reader anywhere in `src/` — so
+> the profiles were never configurable in the first place, and its
+> `# Always forbidden (structural)` comment claimed a guarantee nothing enforced. The tables below
+> are descriptive only; [`docs/permissions.md`](../permissions.md) now lists the layers that actually
+> decide. Pinned by
+> `tests/test_ineffective_flags.py::test_the_retired_autonomy_profile_stays_retired`.
+>
+> See [`docs/GOAL-CHANGE.md`](../GOAL-CHANGE.md) and [`IMPROVEMENT_PROPOSAL.md`](../../IMPROVEMENT_PROPOSAL.md) §9.
 
 ## Context
 

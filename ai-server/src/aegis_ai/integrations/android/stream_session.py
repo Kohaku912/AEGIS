@@ -126,7 +126,7 @@ class AndroidStreamSession:
             }
         if not result.ok:
             code = result.result.get("code") if isinstance(result.result, dict) else ""
-            return {
+            payload = {
                 "error": result.error or "Android command failed",
                 "code": code or "ANDROID_COMMAND_FAILED",
                 "status_code": result.status_code,
@@ -134,6 +134,12 @@ class AndroidStreamSession:
                 "command_id": command_id,
                 "result": result.result,
             }
+            # The device reports which permission is missing on its own errors. Hoist it so the
+            # payload shape matches the Core-side path (manager.invoke_capability) and callers can
+            # rely on `missing_permissions` whichever side detected the gap.
+            if isinstance(result.result, dict) and result.result.get("missing_permissions"):
+                payload["missing_permissions"] = result.result["missing_permissions"]
+            return payload
         output = dict(result.result)
         output.setdefault("command_id", command_id)
         output.setdefault("connection_mode", self.connection_mode)

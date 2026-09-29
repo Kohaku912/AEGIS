@@ -7,9 +7,21 @@
 #   - JSON serialization via .model_dump_json()
 #   - JSON Schema generation via .model_json_schema()
 #   - Strict validation on construction
+#
+# This package used to also export a validator (``validation.py``:
+# ``validate_capability`` / ``validate_capabilities_batch`` /
+# ``validate_capability_json`` / ``ValidationResult``). It was deleted on
+# 2026-09-29: it had no caller, no test, and no external consumer, and run
+# over all 128 live capabilities it reported **zero** errors. See
+# ``tests/test_schema_validator_stays_retired.py`` for the evidence, and
+# ``tests/test_manifest_schemas.py`` for the checks that own this job.
+#
+# ``ApprovalRequirement`` was deleted on 2026-09-29 as well. It described "what
+# approval is needed before executing a capability" and was the **only** model
+# here with no protobuf counterpart, while having zero consumers repo-wide. See
+# ``tests/test_schema_mirrors_the_protobuf_schema.py``.
 
 from aegis_schema.models import (
-    ApprovalRequirement,
     Capability,
     Event,
     EventPriority,
@@ -20,12 +32,6 @@ from aegis_schema.models import (
     ServerType,
     Status,
     Tool,
-)
-from aegis_schema.validation import (
-    ValidationResult,
-    validate_capabilities_batch,
-    validate_capability,
-    validate_capability_json,
 )
 
 __all__ = [
@@ -39,12 +45,6 @@ __all__ = [
     "Capability",
     "Tool",
     "ServerInfo",
-    "ApprovalRequirement",
     "Event",
     "Status",
-    # Validation
-    "validate_capability",
-    "validate_capabilities_batch",
-    "validate_capability_json",
-    "ValidationResult",
 ]

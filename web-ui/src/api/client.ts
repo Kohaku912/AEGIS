@@ -154,6 +154,134 @@ export async function fetchJournalEvents(page = 1, limit = 50): Promise<AuditPag
   };
 }
 
+function asCounts(value: unknown): Record<string, number> {
+  if (!value || typeof value !== "object") return {};
+  const counts: Record<string, number> = {};
+  for (const [key, count] of Object.entries(value as Record<string, unknown>)) {
+    counts[key] = Number(count || 0);
+  }
+  return counts;
+}
+
+export type IrreversibilityLedger = {
+  totalCapabilities: number;
+  threshold: string;
+  includeUnknown: boolean;
+  byReversibility: Record<string, number>;
+  byOwnershipScope: Record<string, number>;
+  byBlastRadius: Record<string, number>;
+  byDataLossRisk: Record<string, number>;
+  byDestructiveEffect: Record<string, number>;
+  irreversible: string[];
+  declaresUnknown: string[];
+  reportable: Array<Record<string, unknown>>;
+};
+
+export async function fetchIrreversibilityLedger(
+  threshold = "difficult",
+  includeUnknown = true,
+): Promise<IrreversibilityLedger> {
+  const params = new URLSearchParams({ threshold, include_unknown: String(includeUnknown) });
+  const response = await fetch(`/api/audit/irreversible?${params}`, { credentials: "include" });
+  const payload = await requireJson<Record<string, unknown>>(response, "Could not load the irreversibility ledger");
+  const reportable = Array.isArray(payload.reportable)
+    ? (payload.reportable as Array<Record<string, unknown>>)
+    : [];
+  return {
+    totalCapabilities: Number(payload.total_capabilities || 0),
+    threshold: String(payload.threshold || threshold),
+    includeUnknown: Boolean(payload.include_unknown ?? includeUnknown),
+    byReversibility: asCounts(payload.by_reversibility),
+    byOwnershipScope: asCounts(payload.by_ownership_scope),
+    byBlastRadius: asCounts(payload.by_blast_radius),
+    byDataLossRisk: asCounts(payload.by_data_loss_risk),
+    byDestructiveEffect: asCounts(payload.by_destructive_effect),
+    irreversible: Array.isArray(payload.irreversible) ? (payload.irreversible as string[]).map(String) : [],
+    declaresUnknown: Array.isArray(payload.declares_unknown)
+      ? (payload.declares_unknown as string[]).map(String)
+      : [],
+    reportable,
+  };
+}
+
+export type IrreversibleOccurrences = {
+  entries: Array<Record<string, unknown>>;
+  total: number;
+  scanned: number;
+  threshold: string;
+  watchedCapabilities: number;
+};
+
+export async function fetchIrreversibleOccurrences(
+  threshold = "difficult",
+  includeUnknown = true,
+  page = 1,
+  limit = 50,
+): Promise<IrreversibleOccurrences> {
+  const params = new URLSearchParams({
+    threshold,
+    include_unknown: String(includeUnknown),
+    page: String(page),
+    limit: String(limit),
+  });
+  const response = await fetch(`/api/audit/irreversible/occurrences?${params}`, { credentials: "include" });
+  const payload = await requireJson<Record<string, unknown>>(response, "Could not load irreversible occurrences");
+  const entries = Array.isArray(payload.entries) ? (payload.entries as Array<Record<string, unknown>>) : [];
+  return {
+    entries,
+    total: Number(payload.total ?? entries.length),
+    scanned: Number(payload.scanned || 0),
+    threshold: String(payload.threshold || threshold),
+    watchedCapabilities: Number(payload.watched_capabilities || 0),
+  };
+}
+
+export type InterruptionStatus = {
+  emergencyStop: boolean;
+  batchedCount: number;
+  batched: Array<Record<string, unknown>>;
+};
+
+function asInterruptionStatus(payload: Record<string, unknown>): InterruptionStatus {
+  return {
+    emergencyStop: Boolean(payload.emergency_stop),
+    batchedCount: Number(payload.batched_count || 0),
+    batched: Array.isArray(payload.batched) ? (payload.batched as Array<Record<string, unknown>>) : [],
+  };
+}
+
+export async function fetchInterruptionStatus(): Promise<InterruptionStatus> {
+  const response = await fetch("/api/interruption", { credentials: "include" });
+  return asInterruptionStatus(
+    await requireJson<Record<string, unknown>>(response, "Could not load the interruption state"));
+}
+
+/**
+ * Release everything the interruption controller is holding.
+ *
+ * The server hands the held items back rather than delivering them itself, so the
+ * caller is responsible for showing them.
+ */
+export async function releaseInterruptionBatch(): Promise<Array<Record<string, unknown>>> {
+  const payload = await csrfJson<{ items?: Array<Record<string, unknown>> }>(
+    "/api/interruption/flush",
+    "POST",
+    {},
+    "Could not release the held notifications",
+  );
+  return Array.isArray(payload.items) ? payload.items : [];
+}
+
+export async function setInterruptionEmergencyStop(active: boolean): Promise<InterruptionStatus> {
+  return asInterruptionStatus(
+    await csrfJson<Record<string, unknown>>(
+      "/api/interruption/emergency-stop",
+      "POST",
+      { active },
+      "Could not change the interruption state",
+    ));
+}
+
 export async function fetchPersonalDataTimeline(
   page = 1,
   limit = 50,
@@ -265,6 +393,20 @@ export async function resetCapabilityRisk(capabilityId: string): Promise<Record<
   return requireJson<Record<string, unknown>>(response, "Could not reset the capability policy");
 }
 
+async function csrfJson<T>(path: string, method: string, body?: Record<string, unknown>, fallback = "Request failed"): Promise<T> {
+  const csrf = String((await fetchAuthMe()).csrf_token || "");
+  const response = await fetch(path, {
+    method,
+    credentials: "include",
+    headers: {
+      "Content-Type": "application/json",
+      "X-CSRF-Token": csrf,
+    },
+    body: JSON.stringify(body || {}),
+  });
+  return requireJson<T>(response, fallback);
+}
+
 export async function runControlAction(action: string, confirmed = false): Promise<Record<string, unknown>> {
   const csrf = String((await fetchAuthMe()).csrf_token || "");
   const response = await fetch("/api/ui/control-actions", { method: "POST", credentials: "include", headers: { "Content-Type": "application/json", "X-CSRF-Token": csrf }, body: JSON.stringify({ action, confirmed }) });
@@ -275,6 +417,167 @@ export async function runTaskAction(taskId: string, action: string, confirmed = 
   const csrf = String((await fetchAuthMe()).csrf_token || "");
   const response = await fetch(`/api/tasks/${encodeURIComponent(taskId)}/actions`, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json", "X-CSRF-Token": csrf }, body: JSON.stringify({ action, confirmed }) });
   return requireJson<Record<string, unknown>>(response, "Task action failed", [202]);
+}
+
+export async function fetchManagerTasks(options: {
+  status?: string;
+  source?: string;
+  limit?: number;
+} = {}): Promise<Array<Record<string, unknown>>> {
+  const params = new URLSearchParams();
+  if (options.status) params.set("status", options.status);
+  if (options.source) params.set("source", options.source);
+  params.set("limit", String(options.limit || 50));
+  const response = await fetch(`/api/tasks?${params.toString()}`, { credentials: "include" });
+  const payload = await requireJson<{ tasks?: Array<Record<string, unknown>> }>(
+    response,
+    "Could not load tasks",
+  );
+  return payload.tasks || [];
+}
+
+export async function continueTask(taskId: string): Promise<Record<string, unknown>> {
+  return csrfJson<Record<string, unknown>>(
+    `/api/tasks/${encodeURIComponent(taskId)}/continue`,
+    "POST",
+    {},
+    "Could not continue the task",
+  );
+}
+
+export type DashboardNotification = {
+  notification_id?: string;
+  id?: string;
+  title?: string;
+  message?: string;
+  summary?: string;
+  href?: string;
+  severity?: string;
+  status?: string;
+  read?: boolean;
+  created_at?: number;
+  updated_at?: number;
+  [key: string]: unknown;
+};
+
+export async function fetchNotifications(unreadOnly = false, limit = 50): Promise<DashboardNotification[]> {
+  const params = new URLSearchParams({ limit: String(limit) });
+  if (unreadOnly) params.set("unread", "true");
+  const response = await fetch(`/api/notifications?${params}`, { credentials: "include" });
+  const payload = await requireJson<{ notifications?: DashboardNotification[] }>(response, "Could not load notifications");
+  return payload.notifications || [];
+}
+
+export async function markNotificationRead(notificationId: string): Promise<DashboardNotification> {
+  return csrfJson<DashboardNotification>(
+    `/api/notifications/${encodeURIComponent(notificationId)}/read`,
+    "POST",
+    {},
+    "Could not mark the notification as read",
+  );
+}
+
+export async function dismissNotification(notificationId: string): Promise<DashboardNotification> {
+  return csrfJson<DashboardNotification>(
+    `/api/notifications/${encodeURIComponent(notificationId)}/dismiss`,
+    "POST",
+    {},
+    "Could not dismiss the notification",
+  );
+}
+
+export type AutonomousStatus = Record<string, unknown>;
+
+export async function fetchAutonomousStatus(): Promise<AutonomousStatus> {
+  const response = await fetch("/api/autonomous/status", { credentials: "include" });
+  return requireJson<AutonomousStatus>(response, "Could not load autonomous status");
+}
+
+export async function triggerAutonomous(): Promise<Record<string, unknown>> {
+  return csrfJson<Record<string, unknown>>("/api/autonomous/trigger", "POST", {}, "Could not trigger autonomy");
+}
+
+export async function startAutonomous(): Promise<Record<string, unknown>> {
+  return csrfJson<Record<string, unknown>>("/api/autonomous/start", "POST", {}, "Could not start autonomy");
+}
+
+export async function stopAutonomous(): Promise<Record<string, unknown>> {
+  return csrfJson<Record<string, unknown>>("/api/autonomous/stop", "POST", {}, "Could not stop autonomy");
+}
+
+export async function fetchAutonomousThreshold(): Promise<{ threshold?: number }> {
+  const response = await fetch("/api/autonomous/threshold", { credentials: "include" });
+  return requireJson<{ threshold?: number }>(response, "Could not load the threshold");
+}
+
+export async function updateAutonomousThreshold(threshold: number): Promise<Record<string, unknown>> {
+  return csrfJson<Record<string, unknown>>(
+    "/api/autonomous/threshold",
+    "POST",
+    { threshold },
+    "Could not update the threshold",
+  );
+}
+
+export async function generateAutonomousDailyPlan(date = ""): Promise<Record<string, unknown>> {
+  return csrfJson<Record<string, unknown>>(
+    "/api/autonomous/daily-plan",
+    "POST",
+    date ? { date } : {},
+    "Could not generate the daily plan",
+  );
+}
+
+export async function fetchMemorySleepStatus(): Promise<Record<string, unknown>> {
+  const response = await fetch("/api/memory/sleep/status", { credentials: "include" });
+  return requireJson<Record<string, unknown>>(response, "Could not load sleep status");
+}
+
+export async function triggerMemorySleep(): Promise<Record<string, unknown>> {
+  return csrfJson<Record<string, unknown>>("/api/memory/sleep", "POST", {}, "Could not start memory sleep");
+}
+
+export async function checkStatusNow(): Promise<Record<string, unknown>> {
+  return csrfJson<Record<string, unknown>>("/api/status/check-now", "POST", {}, "Could not refresh system status");
+}
+
+export async function fetchUserStateCurrent(): Promise<Record<string, unknown>> {
+  const response = await fetch("/api/user-state/current", { credentials: "include" });
+  return requireJson<Record<string, unknown>>(response, "Could not load the current user state");
+}
+
+export async function fetchUserStateEvents(limit = 10): Promise<{ events?: Array<Record<string, unknown>> }> {
+  const response = await fetch(`/api/user-state/events?${new URLSearchParams({ limit: String(limit) })}`, {
+    credentials: "include",
+  });
+  return requireJson<{ events?: Array<Record<string, unknown>> }>(response, "Could not load user state events");
+}
+
+export async function fetchUserStateDays(): Promise<Record<string, unknown>> {
+  const response = await fetch("/api/user-state/days", { credentials: "include" });
+  return requireJson<Record<string, unknown>>(response, "Could not load user state days");
+}
+
+export async function archiveUserState(): Promise<Record<string, unknown>> {
+  return csrfJson<Record<string, unknown>>("/api/user-state/archive/run", "POST", {}, "Could not archive user state");
+}
+
+export async function pollUserStatePc(): Promise<Record<string, unknown>> {
+  return csrfJson<Record<string, unknown>>("/api/user-state/poll-pc", "POST", {}, "Could not poll the PC state");
+}
+
+export async function fetchRepairStatus(): Promise<Record<string, unknown>> {
+  const response = await fetch("/api/repair", { credentials: "include" });
+  return requireJson<Record<string, unknown>>(response, "Could not load repair status");
+}
+
+export async function setRepairDisabled(disabled: boolean): Promise<Record<string, unknown>> {
+  return csrfJson<Record<string, unknown>>(
+    "/api/repair/disable",
+    "POST",
+    { disabled },
+    "Could not update the repair mode",
+  );
 }
 
 async function promptMutation(path: string, method: string, body: Record<string, unknown>): Promise<Record<string, unknown>> {
@@ -349,6 +652,221 @@ export function displayReadQuery(): string {
   return token ? `?display_token=${encodeURIComponent(token)}` : "";
 }
 
+// ---------------------------------------------------------------------------
+// Agent Sessions (Phase D4 / DASHBOARD_REFINED_PLAN.md §3 Phase D4)
+// ---------------------------------------------------------------------------
+
+export type AgentSessionSummary = {
+  agent_session_id: string;
+  task_id: string;
+  first_event_ms: number;
+  last_event_ms: number;
+  event_count: number;
+  kinds: string[];
+  status: "running" | "completed" | "failed" | "unknown";
+  summary: string;
+  // Phase D5 — Policy / Approval 表示統合
+  policy_allow_count: number;
+  policy_ask_count: number;
+  policy_deny_count: number;
+  highest_risk: string;
+  approval_count: number;
+  pending_approval: boolean;
+  causal_summary?: string;
+  root_cause?: AgentSessionRootCause | null;
+  milestones?: AgentSessionMilestone[];
+};
+
+export type AgentSessionRootCause = {
+  kind: string;
+  summary: string;
+  timestamp_ms: number;
+  trace_id: string;
+  parent_id: string;
+  activity_id: string;
+  category: string;
+  confidence: number;
+};
+
+export type AgentSessionMilestone = {
+  key: string;
+  kind: string;
+  label: string;
+  variant: string;
+  timestamp_ms: number;
+  trace_id: string;
+  parent_id: string;
+  activity_id: string;
+};
+
+export type AgentSessionChainItem = {
+  key: string;
+  kind: string;
+  timestamp_ms: number;
+  summary: string;
+  status: string;
+  trace_id: string;
+  parent_id: string;
+  activity_id: string;
+  depth: number;
+};
+
+export type AgentSessionList = {
+  generated_at: number;
+  count: number;
+  sessions: AgentSessionSummary[];
+};
+
+export type AgentSessionDetail = {
+  generated_at: number;
+  agent_session_id: string;
+  found: boolean;
+  summary: AgentSessionSummary;
+  events: Array<Record<string, unknown>>;
+  causal_chain?: AgentSessionChainItem[];
+};
+
+export type AgentSessionEvents = {
+  generated_at: number;
+  agent_session_id: string;
+  count: number;
+  kinds: string[] | null;
+  events: Array<Record<string, unknown>>;
+};
+
+export async function fetchAgentSessions(limit = 50): Promise<AgentSessionList> {
+  const response = await fetch(`/api/ui/agent-sessions?${new URLSearchParams({ limit: String(limit) })}`, {
+    credentials: "include",
+  });
+  return requireJson<AgentSessionList>(response, "Could not load agent sessions");
+}
+
+export async function fetchAgentSession(agentSessionId: string, limit = 500): Promise<AgentSessionDetail> {
+  const response = await fetch(`/api/ui/agent-sessions/${encodeURIComponent(agentSessionId)}?${new URLSearchParams({ limit: String(limit) })}`, {
+    credentials: "include",
+  });
+  return requireJson<AgentSessionDetail>(response, "Could not load agent session", [404]);
+}
+
+export async function fetchAgentSessionEvents(
+  agentSessionId: string,
+  kinds: string[],
+  limit = 500,
+): Promise<AgentSessionEvents> {
+  const params = new URLSearchParams({ limit: String(limit) });
+  if (kinds.length) params.set("kinds", kinds.join(","));
+  const response = await fetch(`/api/ui/agent-sessions/${encodeURIComponent(agentSessionId)}/events?${params}`, {
+    credentials: "include",
+  });
+  return requireJson<AgentSessionEvents>(response, "Could not load agent session events");
+}
+
+// ---------------------------------------------------------------------------
+// L1 / L2 / L3 panels (DASHBOARD_V3_PLAN.md Phase L6)
+//
+// L1 = 知覚 / Router / 常時稼働
+// L2 = Autonomous Mind / 自律思考
+// L3 = Deep Reasoner / 深層推論
+//
+// 各 layer の event を EventManager.persisted events から読み取り専用で取得する。
+// バックエンド実装: aegis_ai.web.routes.l1_routes / l2_routes / l3_routes
+// ---------------------------------------------------------------------------
+
+export type LlmLayer = "L1" | "L2" | "L3";
+
+export type LlmEvent = {
+  event_id?: string;
+  type?: string;
+  source?: string;
+  timestamp?: number;
+  payload?: Record<string, unknown>;
+  [key: string]: unknown;
+};
+
+export type LlmEventsResponse = {
+  generated_at: number;
+  layer: LlmLayer;
+  count: number;
+  kinds: string[] | null;
+  events: LlmEvent[];
+};
+
+export type LlmEventsStats = {
+  generated_at: number;
+  layer: LlmLayer;
+  total: number;
+  by_kind: Record<string, number>;
+};
+
+export async function fetchL1Events(kinds: string[] = [], limit = 200): Promise<LlmEventsResponse> {
+  const params = new URLSearchParams({ limit: String(limit) });
+  if (kinds.length) params.set("kinds", kinds.join(","));
+  const response = await fetch(`/api/l1/events?${params}`, { credentials: "include" });
+  return requireJson<LlmEventsResponse>(response, "Could not load L1 events");
+}
+
+export async function fetchL1EventsRecent(limit = 1): Promise<LlmEventsResponse> {
+  const response = await fetch(`/api/l1/events/recent?${new URLSearchParams({ limit: String(limit) })}`, {
+    credentials: "include",
+  });
+  return requireJson<LlmEventsResponse>(response, "Could not load L1 recent events");
+}
+
+export async function fetchL1EventsStats(): Promise<LlmEventsStats> {
+  const response = await fetch("/api/l1/events/stats", { credentials: "include" });
+  return requireJson<LlmEventsStats>(response, "Could not load L1 stats");
+}
+
+export async function fetchL2Events(kinds: string[] = [], limit = 200): Promise<LlmEventsResponse> {
+  const params = new URLSearchParams({ limit: String(limit) });
+  if (kinds.length) params.set("kinds", kinds.join(","));
+  const response = await fetch(`/api/l2/events?${params}`, { credentials: "include" });
+  return requireJson<LlmEventsResponse>(response, "Could not load L2 events");
+}
+
+export async function fetchL2EventsRecent(limit = 1): Promise<LlmEventsResponse> {
+  const response = await fetch(`/api/l2/events/recent?${new URLSearchParams({ limit: String(limit) })}`, {
+    credentials: "include",
+  });
+  return requireJson<LlmEventsResponse>(response, "Could not load L2 recent events");
+}
+
+export async function fetchL2EventsStats(): Promise<LlmEventsStats> {
+  const response = await fetch("/api/l2/events/stats", { credentials: "include" });
+  return requireJson<LlmEventsStats>(response, "Could not load L2 stats");
+}
+
+export async function fetchL3Events(kinds: string[] = [], limit = 200): Promise<LlmEventsResponse> {
+  const params = new URLSearchParams({ limit: String(limit) });
+  if (kinds.length) params.set("kinds", kinds.join(","));
+  const response = await fetch(`/api/l3/events?${params}`, { credentials: "include" });
+  return requireJson<LlmEventsResponse>(response, "Could not load L3 events");
+}
+
+export async function fetchL3EventsRecent(limit = 1): Promise<LlmEventsResponse> {
+  const response = await fetch(`/api/l3/events/recent?${new URLSearchParams({ limit: String(limit) })}`, {
+    credentials: "include",
+  });
+  return requireJson<LlmEventsResponse>(response, "Could not load L3 recent events");
+}
+
+export async function fetchL3EventsStats(): Promise<LlmEventsStats> {
+  const response = await fetch("/api/l3/events/stats", { credentials: "include" });
+  return requireJson<LlmEventsStats>(response, "Could not load L3 stats");
+}
+
+/**
+ * event_type / event_id 文字列から layer (L1 / L2 / L3 / MCP) を推定する。
+ * Live Overlay のラベル ("L1: ..." / "L2: ..." / "L3: ..." / "MCP: ...") に使う。
+ */
+export function inferLayerFromEvent(eventType: string | undefined | null): LlmLayer | "MCP" {
+  const value = String(eventType || "");
+  if (value.startsWith("l1.")) return "L1";
+  if (value.startsWith("l2.")) return "L2";
+  if (value.startsWith("l3.")) return "L3";
+  return "MCP";
+}
+
 export function createRequestId(): string {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") return crypto.randomUUID();
   if (typeof crypto !== "undefined" && typeof crypto.getRandomValues === "function") {
@@ -375,8 +893,6 @@ export type ChatSendResult = {
   question?: string;
   options?: string[];
   pending_context?: Record<string, unknown>;
-  approval_needed?: boolean;
-  approval_id?: string;
   tool_results?: Array<{ function?: string; success?: boolean; result?: string }>;
 };
 

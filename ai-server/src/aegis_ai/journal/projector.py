@@ -6,6 +6,7 @@ import json
 import logging
 from typing import Any
 
+from aegis_ai.event.helpers import resolve_relation_ids
 from aegis_schema.models import Event, EventPriority, ServerType
 
 logger = logging.getLogger("aegis_ai.journal.projector")
@@ -21,7 +22,12 @@ class JournalProjector:
     def project(self, entry: dict[str, Any]) -> None:
         event_type = str(entry.get("event_type") or "")
         payload = entry.get("payload") if isinstance(entry.get("payload"), dict) else {}
-        aggregate_id = str(entry.get("aggregate_id") or "")
+        aggregate_id, correlation_id = resolve_relation_ids(
+            payload=payload,
+            event_id=str(entry.get("event_id") or f"journal_{entry.get('sequence', 0)}"),
+            correlation_id=str(entry.get("correlation_id") or ""),
+            aggregate_id=str(entry.get("aggregate_id") or ""),
+        )
         if self._event_manager is not None and event_type:
             try:
                 summary = Event(
@@ -32,7 +38,7 @@ class JournalProjector:
                     timestamp_ms=int(entry.get("timestamp_ms") or 0),
                     payload_json=json.dumps(payload, ensure_ascii=False),
                     priority=EventPriority.NORMAL,
-                    correlation_id=str(entry.get("correlation_id") or aggregate_id),
+                    correlation_id=correlation_id,
                 )
                 # Write UI summary directly (bypass 24h trim on hot path).
                 self._event_manager.record_summary(summary, full_payload=payload)

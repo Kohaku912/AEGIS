@@ -49,6 +49,28 @@ class AgoraClient:
         if not self._token:
             return {"error": "authentication_required", "message": "AGORA_TOKEN is not set."}
         url = f"{self._base_url}{path}"
+
+        # AGORA is an external service. The single constraint denies transmitting the
+        # user's data (posts, drafts, account identity) to it by default.
+        from aegis_ai.egress import EgressRequest, get_egress_gate
+
+        if not get_egress_gate().allow(
+            EgressRequest(
+                destination=url,
+                purpose="agora.request",
+                component="integrations.agora.client",
+                data_summary="AGORA API request (may include user posts or identity)",
+            )
+        ):
+            logger.warning("AGORA request refused by the egress gate")
+            return {
+                "error": "egress_denied",
+                "message": (
+                    "AGORA is unreachable: the request would leave the local environment "
+                    "(the single constraint)."
+                ),
+            }
+
         try:
             with httpx.Client(timeout=self._timeout) as client:
                 resp = client.request(method, url, headers=self._headers(), **kwargs)

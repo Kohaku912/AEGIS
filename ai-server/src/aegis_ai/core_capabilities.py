@@ -8,7 +8,7 @@ import mimetypes
 import os
 import threading
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 from aegis_ai.integrations.agora.agora_service import AgoraService
 from aegis_ai.integrations.agora.agora_types import AgoraFetchResult, AgoraPost
@@ -26,7 +26,7 @@ class AegisCoreCapabilityClient:
 
     IMAGE_MAX_BYTES = 5 * 1024 * 1024
     READ_MAX_BYTES = 10 * 1024 * 1024
-    ALLOWED_IMAGE_MIMES = {"image/png", "image/jpeg", "image/webp", "image/gif"}
+    ALLOWED_IMAGE_MIMES: ClassVar[set[str]] = {"image/png", "image/jpeg", "image/webp", "image/gif"}
 
     def __init__(self, *, data_dir: str, server_executor: Any, personal_managers: dict[str, Any] | None = None) -> None:
         self._data_dir = Path(data_dir).resolve()
@@ -35,6 +35,11 @@ class AegisCoreCapabilityClient:
         self._workspace.mkdir(parents=True, exist_ok=True)
         self._server_executor = server_executor
         self._personal = personal_managers or {}
+        # Phase 5a: AEGIS's own questions to the user. This is the only place in the
+        # execution path that holds the store, and `_confirmation` is restricted to
+        # asking, reading and reporting — never answering. See
+        # tests/test_forced_gate_stays_retired.py, which pins that restriction.
+        self._confirmations = self._personal.get("confirmation_store")
         social_dir = self._data_dir / "social"
         try:
             self._agora = AgoraService(data_dir=social_dir)
@@ -89,6 +94,8 @@ class AegisCoreCapabilityClient:
             return self._repair(capability_id, params)
         if capability_id.startswith("ai-server.presentation."):
             return self._presentation(capability_id, params)
+        if capability_id.startswith("ai-server.confirmation."):
+            return self._confirmation(capability_id, params)
         if capability_id.startswith("ai-server.personal_data."):
             return self._personal_data(capability_id, params)
         if capability_id == "ai-server.search.web":
@@ -809,3 +816,111 @@ class AegisCoreCapabilityClient:
                 dict(params.get("action") or {}),
             )
         return {"ok": False, "error": "Unsupported presentation capability"}
+
+    #: Fields ``ai-server.confirmation.request`` accepts from the LLM. Everything the
+    #: dashboard renders is here; the store fills in ids and timestamps.
+    _CONFIRMATION_FIELDS: ClassVar[tuple[str, ...]] = (
+        "summary",
+        "reason",
+        "capability_id",
+        "tool_name",
+        "risk",
+        "target",
+        "preview",
+        "expected_effect",
+        "side_effects",
+        "task_id",
+        "step_id",
+    )
+
+    def _confirmation(self, capability_id: str, params: dict[str, Any]) -> dict[str, Any]:
+        """``ai-server.confirmation.*`` — AEGIS's own questions to the user.
+
+        The one place in the execution path that touches the confirmation store, and it
+        is deliberately limited to the two things AEGIS legitimately needs: **ask**
+        (``request``) and **read** (``list``). It may never answer its own question —
+        ``approve`` / ``reject`` / ``cancel`` / ``resolve`` belong to the user, and
+        ``tests/test_forced_gate_stays_retired.py`` pins that they are not reachable from
+        here.
+
+        ``ConfirmationStore`` also defines ``mark_executed()`` / ``mark_failed()``, which
+        an earlier revision of this docstring listed as reachable from here. They are not:
+        no branch below calls them, and only ``request`` and ``list`` manifests exist. So
+        AEGIS cannot report its own outcome either, and the ``executed`` / ``failed``
+        statuses are declared but unproduced. Wiring them up would add a capability and is
+        a decision, not a doc fix.
+
+        Nothing here blocks. ``request`` records the question and returns immediately;
+        no capability waits for the answer, and no other capability's outcome depends on
+        it. That is the difference between this and the retired approval gate.
+
+        Calls go through ``self._confirmations`` rather than a local alias on purpose:
+        ``tests/test_forced_gate_stays_retired.py`` scans this file for the forbidden
+        method names, and an alias would let one slip past the scan.
+        """
+        if self._confirmations is None:
+            return {"ok": False, "error": "ConfirmationStore unavailable"}
+
+        if capability_id.endswith(".request"):
+            summary = str(params.get("summary") or "").strip()
+            if not summary:
+                return {"ok": False, "error": "summary is required: state what you are asking"}
+            fields: dict[str, Any] = {
+                key: params[key]
+                for key in self._CONFIRMATION_FIELDS
+                if params.get(key) not in (None, "")
+            }
+            fields["summary"] = summary
+            expires_at = params.get("expires_at")
+            if expires_at not in (None, ""):
+                try:
+                    fields["expires_at"] = int(expires_at)
+                except (TypeError, ValueError):
+                    return {"ok": False, "error": "expires_at must be epoch milliseconds"}
+            item = self._confirmations.request(**fields)
+            return {
+                "ok": True,
+                "approval_id": item.approval_id,
+                "status": item.status,
+                "expires_at": item.expires_at,
+                "task_effect_hint": "no_effect",
+                "note": (
+                    "The question is now visible to the user. Nothing is blocked: continue "
+                    "with what you can already do, and read the answer later with "
+                    "ai-server.confirmation.list."
+                ),
+            }
+
+        if capability_id.endswith(".list"):
+            approval_id = str(params.get("approval_id") or "").strip()
+            if approval_id:
+                found = self._confirmations.get(approval_id)
+                if found is None:
+                    return {"ok": False, "error": f"unknown confirmation {approval_id}"}
+                return {"ok": True, "confirmation": found.to_dict()}
+
+            status = str(params.get("status") or "pending").strip().lower()
+            try:
+                limit = int(params.get("limit") or 20)
+            except (TypeError, ValueError):
+                limit = 20
+            limit = min(max(limit, 1), 100)
+
+            if status == "pending":
+                items = self._confirmations.pending()[:limit]
+            elif status in {"any", ""}:
+                items = self._confirmations.all(limit=limit)
+            else:
+                items = [
+                    item
+                    for item in self._confirmations.all(limit=1000)
+                    if item.status == status
+                ][:limit]
+            return {
+                "ok": True,
+                "status": status,
+                "count": len(items),
+                "confirmations": [item.to_dict() for item in items],
+            }
+
+        return {"ok": False, "error": "Unsupported confirmation capability"}

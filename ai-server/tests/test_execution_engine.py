@@ -1,11 +1,13 @@
-"""E2E tests for TaskExecutionEngine — approval-aware step execution.
+"""E2E tests for TaskExecutionEngine — step execution after approval removal.
 
-Tests cover:
-1. user request → task created → tool approval needed → task waiting_approval
-2. approve → same step resumes → task completed
-3. reject → task failed
-4. approval waiting task not accidentally completed
-5. tampered tool args detected after approval
+Approval is no longer a constraint (2026-09-27). These tests used to cover
+"tool approval needed → task waiting_approval → approve → resume". They now
+cover the replacement behaviour:
+
+1. every step goes straight through ToolBroker (the egress gate is the boundary)
+2. a step that pauses (requires observation) does not complete the task
+3. an execution error fails the task
+4. the engine exposes no approval surface at all
 """
 
 from __future__ import annotations
@@ -22,6 +24,7 @@ from tool_broker import InvokeStatus
 @pytest.fixture
 def task_manager():
     from aegis_ai.task.task_manager import TaskManager
+
     return TaskManager(data_dir=tempfile.mkdtemp())
 
 
@@ -31,27 +34,24 @@ def mock_broker():
 
 
 @pytest.fixture
-def mock_approval_manager():
-    return MagicMock()
-
-
-@pytest.fixture
-def engine(task_manager, mock_broker, mock_approval_manager):
+def engine(task_manager, mock_broker):
     from aegis_ai.agency.goal_service import GoalLifecycleService
     from aegis_ai.task.execution_engine import TaskExecutionEngine
+
     verifier = MagicMock()
     verifier.generate.return_value = MagicMock(
         success=True,
-        content=json.dumps({
-            "status": "achieved",
-            "reason": "Independent test evidence confirms the outcome.",
-            "evidence": ["all planned steps produced successful results"],
-        }),
+        content=json.dumps(
+            {
+                "status": "achieved",
+                "reason": "Independent test evidence confirms the outcome.",
+                "evidence": ["all planned steps produced successful results"],
+            }
+        ),
     )
     return TaskExecutionEngine(
         task_manager=task_manager,
         tool_broker=mock_broker,
-        approval_manager=mock_approval_manager,
         goal_service=GoalLifecycleService(
             task_manager=task_manager,
             llm_gateway=verifier,
@@ -61,6 +61,7 @@ def engine(task_manager, mock_broker, mock_approval_manager):
 
 def _make_plan(capability_id="test.cap", action_type="tool_invoke"):
     from aegis_ai.task_plan import PlanStep, TaskPlan
+
     return TaskPlan(
         plan_id="plan_1",
         interpreted_request="test request",
@@ -82,136 +83,62 @@ def _success_result():
         status=InvokeStatus.SUCCESS,
         output={"result": "ok"},
         error="",
-        approval_id="",
         request_id="req_1",
     )
 
 
-def _approval_result(approval_id="appr_test_1"):
-    return MagicMock(
-        success=False,
-        status=InvokeStatus.APPROVAL_NEEDED,
-        error="needs approval",
-        approval_id=approval_id,
-        request_id="req_1",
-        output={},
-    )
+class TestApprovalIsGone:
+    """Regression guards for the Phase 2 approval removal."""
+
+    def test_engine_has_no_approval_surface(self):
+        from aegis_ai.task.execution_engine import TaskExecutionEngine
+
+        for name in (
+            "resume_after_approval",
+            "pause_for_approval",
+            "_tool_request_from_approval",
+            "_find_plan_step",
+        ):
+            assert not hasattr(TaskExecutionEngine, name), name
+
+    def test_engine_constructor_rejects_approval_manager(self):
+        from aegis_ai.task.execution_engine import TaskExecutionEngine
+
+        with pytest.raises(TypeError):
+            TaskExecutionEngine(task_manager=MagicMock(), approval_manager=MagicMock())
+
+    def test_final_state_has_no_approval_member(self):
+        from aegis_ai.task.execution_engine import TaskFinalState
+
+        assert not hasattr(TaskFinalState, "HAS_NEEDS_APPROVAL")
+
+    def test_step_status_has_no_approval_members(self):
+        from aegis_ai.task_plan import StepStatus
+
+        assert not hasattr(StepStatus, "NEEDS_APPROVAL")
+        assert not hasattr(StepStatus, "APPROVED")
+
+    def test_task_status_has_no_waiting_approval(self):
+        from aegis_ai.task.task_manager import TaskStatus
+
+        assert not hasattr(TaskStatus, "WAITING_APPROVAL")
 
 
-class TestApprovalFlow:
-    def test_approval_needed_task_waiting(self, engine, task_manager, mock_broker):
-        mock_broker.execute.return_value = _approval_result()
-        task = task_manager.create_task(title="test", source="test")
-        task_id = task["task_id"]
-        task_manager.start_task(task_id)
-
-        plan = _make_plan()
-        response = engine.execute_task(task_id, plan)
-
-        task_result = task_manager.get_task(task_id)
-        assert task_result["status"] == "waiting_approval"
-        assert "APPROVAL" in response.text
-
-    def test_approve_then_complete(self, engine, task_manager, mock_broker, mock_approval_manager):
-        approval_id = "appr_resume_1"
-        mock_broker.execute.return_value = _approval_result(approval_id)
-
-        task = task_manager.create_task(title="test", source="test")
-        task_id = task["task_id"]
-        task_manager.start_task(task_id)
-
-        plan = _make_plan()
-        engine.execute_task(task_id, plan)
-
-        mock_approval_manager.get.return_value = MagicMock(
-            status="approved",
-            task_id=task_id,
-            step_id="s1",
-            capability_id="test.cap",
-            arguments={"key": "value"},
-            tool_args_hash="abc123",
-        )
-        mock_broker.execute_approved.return_value = _success_result()
-
-        from aegis_ai.approval.approval_types import compute_args_hash
-        mock_approval_manager.get.return_value.tool_args_hash = compute_args_hash({"key": "value"})
-
-        response = engine.resume_after_approval(approval_id)
-
-        task_result = task_manager.get_task(task_id)
-        assert task_result["status"] == "completed"
-        assert "completed" in response.text.lower() or "ok" in response.text.lower()
-
-    def test_reject_task_failed(self, engine, task_manager, mock_broker, mock_approval_manager):
-        approval_id = "appr_reject_1"
-        mock_broker.execute.return_value = _approval_result(approval_id)
-
-        task = task_manager.create_task(title="test", source="test")
-        task_id = task["task_id"]
-        task_manager.start_task(task_id)
-
-        plan = _make_plan()
-        engine.execute_task(task_id, plan)
-
-        task_manager.fail_task(task_id, error="Approval rejected")
-        task_result = task_manager.get_task(task_id)
-        assert task_result["status"] == "failed"
-
-
-class TestApprovalNotCompleted:
-    def test_waiting_approval_cannot_complete(self, task_manager):
-        task = task_manager.create_task(title="test", source="test")
-        task_id = task["task_id"]
-        task_manager.start_task(task_id)
-        task_manager.wait_for_approval(task_id, "s1", "appr_1")
-
-        result = task_manager.complete_task(task_id)
-        assert result is None
-        task_result = task_manager.get_task(task_id)
-        assert task_result["status"] == "waiting_approval"
-
-    def test_step_transitions_enforced(self, task_manager):
+class TestStepTransitions:
+    def test_requires_observation_blocks_completion(self, task_manager):
         task = task_manager.create_task(title="test", source="test")
         task_id = task["task_id"]
         task_manager.start_task(task_id)
 
         task_manager.add_step(task_id, "s1", "test step")
         task_manager.update_step_status(task_id, "s1", "running")
-        task_manager.update_step_status(task_id, "s1", "needs_approval")
+        task_manager.update_step_status(task_id, "s1", "requires_observation")
 
         result = task_manager.update_step_status(task_id, "s1", "completed")
         assert result is None
 
         step = task_manager.get_step(task_id, "s1")
-        assert step["status"] == "needs_approval"
-
-
-class TestTamperedArgs:
-    def test_tampered_args_detected(self, engine, task_manager, mock_broker, mock_approval_manager):
-        approval_id = "appr_tamper_1"
-        mock_broker.execute.return_value = _approval_result(approval_id)
-
-        task = task_manager.create_task(title="test", source="test")
-        task_id = task["task_id"]
-        task_manager.start_task(task_id)
-
-        plan = _make_plan()
-        engine.execute_task(task_id, plan)
-
-        from aegis_ai.approval.approval_types import compute_args_hash
-        mock_approval_manager.get.return_value = MagicMock(
-            status="approved",
-            task_id=task_id,
-            step_id="s1",
-            capability_id="test.cap",
-            arguments={"key": "tampered_value"},
-            tool_args_hash=compute_args_hash({"key": "original_value"}),
-        )
-
-        response = engine.resume_after_approval(approval_id)
-
-        assert "DENIED" in response.text or "tampered" in response.text.lower()
-        mock_broker.execute_approved.assert_not_called()
+        assert step["status"] == "requires_observation"
 
 
 class TestTaskExecution:
@@ -223,6 +150,7 @@ class TestTaskExecution:
         task_manager.start_task(task_id)
 
         from aegis_ai.task_plan import PlanStep, TaskPlan
+
         plan = TaskPlan(
             plan_id="plan_1",
             interpreted_request="test",
@@ -232,7 +160,7 @@ class TestTaskExecution:
             ],
         )
 
-        response = engine.execute_task(task_id, plan)
+        engine.execute_task(task_id, plan)
         task_result = task_manager.get_task(task_id)
         assert task_result["status"] == "completed"
         assert mock_broker.execute.call_count == 2
@@ -243,7 +171,6 @@ class TestTaskExecution:
             status=InvokeStatus.EXECUTION_ERROR,
             output={},
             error="tool failed",
-            approval_id="",
             request_id="req_1",
         )
 
@@ -252,20 +179,15 @@ class TestTaskExecution:
         task_manager.start_task(task_id)
 
         plan = _make_plan()
-        response = engine.execute_task(task_id, plan)
+        engine.execute_task(task_id, plan)
 
         task_result = task_manager.get_task(task_id)
         assert task_result["status"] == "failed"
 
-    def test_cancel_task(self, engine, task_manager, mock_broker):
-        mock_broker.execute.return_value = _approval_result()
-
+    def test_cancel_task(self, engine, task_manager):
         task = task_manager.create_task(title="test", source="test")
         task_id = task["task_id"]
         task_manager.start_task(task_id)
-
-        plan = _make_plan()
-        engine.execute_task(task_id, plan)
 
         engine.cancel_task(task_id, reason="user cancelled")
         task_result = task_manager.get_task(task_id)

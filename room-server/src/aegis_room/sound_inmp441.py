@@ -22,7 +22,6 @@ import struct
 import subprocess
 import time
 from dataclasses import dataclass, field
-from typing import Any
 
 
 def now_ms() -> int:

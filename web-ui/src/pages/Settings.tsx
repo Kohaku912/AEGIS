@@ -12,8 +12,12 @@ export function Settings({ overview, sectionId }: { overview: UiOverview; sectio
   const [staged, setStaged] = useState<Record<string, string | number | boolean>>({});
   const [resetArmed, setResetArmed] = useState(false);
   const [history, setHistory] = useState<Array<{ key: string; before: unknown; after: unknown; at: number }>>([]);
-  const editable = useMemo(() => editableSettings(settings).filter((item) => !sectionId || settingMatchesSection(item, sectionId)), [settings, sectionId]);
-  const selectedSection = sectionId ? sections.find((section) => section.id === sectionId) : undefined;
+  // `general` is the generic Settings entry. `settingSections` defines no such
+  // section, so treat it (and an absent id) as "show every section" instead of
+  // filtering every control away.
+  const activeSection = sectionId && sectionId !== "general" ? sectionId : undefined;
+  const editable = useMemo(() => editableSettings(settings).filter((item) => !activeSection || settingMatchesSection(item, activeSection)), [settings, activeSection]);
+  const selectedSection = activeSection ? sections.find((section) => section.id === activeSection) : undefined;
 
   useEffect(() => {
     let cancelled = false;
@@ -93,7 +97,7 @@ export function Settings({ overview, sectionId }: { overview: UiOverview; sectio
           <a className="primary-button" href="/dashboard/security/passkeys"><KeyRound size={16} /> Passkeys</a>
         </div>
         <div className="settings-grid">
-          {sections.filter((section) => !sectionId || section.id === sectionId).map((section) => {
+          {sections.filter((section) => !activeSection || section.id === activeSection).map((section) => {
             const Icon = icons[section.id] || SlidersHorizontal;
             return (
               <article className="settings-tile" key={section.id}>
@@ -199,6 +203,10 @@ export function Settings({ overview, sectionId }: { overview: UiOverview; sectio
 }
 
 function editableSettings(settings: Record<string, unknown>): Array<{ section: string; key: string; label: string; value: string | number | boolean }> {
+  // Only keys that exist in `GET /api/settings` belong here. This set is consulted with
+  // payload keys, so an entry naming no field can never match and silently does nothing.
+  // Five such entries were removed on 2026-09-29 (register A-10); the check that keeps
+  // them out lives in ai-server/tests/test_settings_ui_matches_the_schema.py.
   const preferred = new Set([
     "autonomous_loop_enabled",
     "support_agent_enabled",
@@ -209,12 +217,7 @@ function editableSettings(settings: Record<string, unknown>): Array<{ section: s
     "room_server_enabled",
     "dev_server_enabled",
     "clipboard_capture_enabled",
-    "camera_snapshot_enabled",
-    "display_privacy_mode",
-    "notifications_enabled",
-    "daily_budget_usd",
-    "monthly_budget_usd",
-    "memory_budget_tokens"
+    "camera_snapshot_enabled"
   ]);
   const result: Array<{ section: string; key: string; label: string; value: string | number | boolean }> = [];
   for (const [section, rawSection] of Object.entries(settings)) {

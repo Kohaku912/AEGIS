@@ -37,3 +37,22 @@ def test_verification_service_records_to_canonical_audit_manager(tmp_path) -> No
     assert entries[0]["actor"] == "user_explicit"
     assert entries[0]["decision"] == "verified"
     assert entries[0]["detail"]["task_id"] == "task-1"
+
+
+def test_verify_none_returns_unverified_with_recovery_hint() -> None:
+    service = VerificationService()
+    request = VerificationRequest(
+        verification_id="verification-none-1",
+        request_id="request-none-1",
+        capability_id="pc-server.agent.delegate",
+        tool_name="agent.run",
+        verification_strategy=VerificationStrategy.NONE,
+    )
+
+    result = service.verify(request)
+
+    assert result.status == VerificationStatus.UNVERIFIED
+    assert result.confidence == 0.2
+    assert "not independently verified" in result.reason
+    assert result.suggested_recovery
+    assert "capability_id=pc-server.agent.delegate" in result.evidence

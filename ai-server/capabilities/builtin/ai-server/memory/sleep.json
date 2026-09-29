@@ -6,6 +6,12 @@
   "action": "sleep",
   "operation_category": "memory",
   "risk": {"level": "low", "side_effects": [], "requires_approval": false},
+  "ownership_scope": "aegis",
+  "reversibility": "difficult",
+  "destructive_effects": ["data_overwrite", "memory_delete"],
+  "data_loss_risk": "low",
+  "active_work_loss_risk": "none",
+  "blast_radius": "bulk",
     "tags": ["builtin", "memory", "consolidation", "sleep"],
   "examples": [
     {"user": "睡眠して", "arguments": {"reason": "user requested sleep"}},

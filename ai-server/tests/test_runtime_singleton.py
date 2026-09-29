@@ -5,6 +5,30 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def _never_leak_the_runtime_singleton():
+    """Boot the real runtime, but never leave it running.
+
+    ``get_runtime()`` starts a ``status-check`` daemon thread. That thread is not an
+    idle poller: it re-resolves pc-server/room-server with ``allow_lan_scan=True``, so
+    it probes the real LAN and records the result in the endpoint resolver's
+    process-global cache. Tests in this module boot the runtime and several of them
+    never reset it, so the thread used to outlive them and corrupt
+    ``tests/test_endpoint_resolver.py``, which asserts on that same cache.
+
+    ``AegisRuntime.stop()`` now stops the thread; this fixture makes sure ``stop()``
+    is actually reached at the end of every test in the module. The conftest leak
+    guard would otherwise name each offending test individually.
+    """
+    yield
+
+    from aegis_ai.runtime import reset_runtime_for_tests
+
+    reset_runtime_for_tests()
+
 
 def test_get_runtime_returns_shared_singleton(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("LLM_API_KEY", "")
@@ -98,7 +122,16 @@ def test_grpc_servicer_uses_runtime_state(monkeypatch) -> None:
     )
     push_response = servicer.PushEvent(ai_server_pb2.PushEventRequest(event=event), None)
     assert push_response.status.code == 0
-    assert runtime.event_bus.list_recent_events(1)[-1].event_id == "evt_runtime_test"
+    # Read a wide window: pushing one event may trigger a variable number of
+    # downstream pipeline events (l1.observation -> l1.decision -> ... -> l2.*),
+    # so asserting membership within the top 5 is not a stable invariant.
+    # The invariant that matters is that the pushed event reached the runtime bus.
+    recent_events = runtime.event_bus.list_recent_events(50)
+    recent_ids = [item.event_id for item in recent_events]
+    recent_types = [item.event_type for item in recent_events]
+    assert "evt_runtime_test" in recent_ids
+    assert "l1.observation" in recent_types
+    assert "l1.decision" in recent_types
 
     calls: list[tuple[str, dict[str, str]]] = []
 
@@ -197,6 +230,24 @@ def test_invoke_tool_allows_remote_with_token(monkeypatch) -> None:
     assert calls == ["ai-server.test.echo"]
 
 
+def test_peer_is_loopback_parses_grpc_peer_formats() -> None:
+    from aegis_ai.grpc_server import _peer_is_loopback
+
+    class LoopbackContext:
+        def __init__(self, peer_value: str) -> None:
+            self._peer_value = peer_value
+
+        def peer(self) -> str:
+            return self._peer_value
+
+    assert _peer_is_loopback(LoopbackContext("ipv4:127.0.0.1:50051")) is True
+    assert _peer_is_loopback(LoopbackContext("ipv6:[::1]:50051")) is True
+    assert _peer_is_loopback(LoopbackContext("dns:localhost:50051")) is True
+    assert _peer_is_loopback(LoopbackContext("unix:/tmp/aegis.sock")) is True
+    assert _peer_is_loopback(LoopbackContext("dns:localhost.attacker:50051")) is False
+    assert _peer_is_loopback(LoopbackContext("ipv4:10.0.0.8:50051")) is False
+
+
 def test_grpc_send_chat_preserves_response_shape(monkeypatch, tmp_path) -> None:
     from generated.aegis import ai_server_pb2, common_pb2
     from aegis_ai.grpc_server import AegisAIServicer
@@ -226,8 +277,6 @@ def test_grpc_send_chat_preserves_response_shape(monkeypatch, tmp_path) -> None:
         return {
             "conversation_id": conversation_id,
             "response": "画面にはホーム画面が表示されています。",
-            "approval_needed": True,
-            "approval_id": "appr_1",
             "tool_results": [{"function": "android-server__screen__get_screenshot", "success": True}],
         }
 
@@ -247,8 +296,11 @@ def test_grpc_send_chat_preserves_response_shape(monkeypatch, tmp_path) -> None:
     assert response.status.code == 0
     assert response.conversation_id == "conv_1"
     assert response.response == "画面にはホーム画面が表示されています。"
-    assert response.approval_needed is True
-    assert response.approval_id == "appr_1"
+    # The forced approval gate is gone, and as of 2026-09-28 so are its wire
+    # fields: `ChatResponse` no longer declares `approval_needed` / `approval_id`
+    # at all, rather than keeping them permanently empty.
+    assert not hasattr(response, "approval_needed")
+    assert not hasattr(response, "approval_id")
     assert json.loads(response.tool_results_json)[0]["success"] is True
     assert fake_android.messages
     assert "画面にはホーム画面" in (tmp_path / "data" / "chat_history.jsonl").read_text(encoding="utf-8")
@@ -346,7 +398,6 @@ def test_grpc_mobile_dashboard_state_reads_shared_history(monkeypatch, tmp_path)
 
 
 def test_shared_components_thread_safety_smoke(tmp_path) -> None:
-    from approval import ApprovalStore
     from event_bus import EventBus
     from tool_registry import ToolRegistry
 
@@ -355,7 +406,6 @@ def test_shared_components_thread_safety_smoke(tmp_path) -> None:
 
     registry = ToolRegistry()
     bus = EventBus()
-    approvals = ApprovalStore()
     audit = AuditLog(path=str(tmp_path / "audit.jsonl"))
 
     def worker(index: int) -> None:
@@ -378,8 +428,6 @@ def test_shared_components_thread_safety_smoke(tmp_path) -> None:
                 priority=EventPriority.NORMAL,
             )
         )
-        req = approvals.create_request(capability_id=cap_id)
-        approvals.approve_once(req.approval_id)
         audit.append(AuditEntry(action="thread_smoke", capability_id=cap_id, decision="ALLOW"))
 
     with ThreadPoolExecutor(max_workers=8) as executor:
@@ -387,6 +435,322 @@ def test_shared_components_thread_safety_smoke(tmp_path) -> None:
 
     assert len(registry) == 20
     assert bus.pending_count() == 20
-    assert len(approvals.get_approved_capabilities()) == 20
     assert len(audit.read_all()) == 20
     assert Path(tmp_path / "audit.db").exists()
+
+
+def test_run_l1_pipeline_publishes_observation_decision_and_escalation() -> None:
+    from aegis_ai.runtime import _get_recent_l1_summaries, _run_l1_pipeline_for_event
+
+    published: list[tuple[str, str, dict[str, object]]] = []
+
+    class FakeEventManager:
+        def publish_event(self, event_type: str, *, source: str, payload: dict[str, object]) -> bool:
+            published.append((event_type, source, dict(payload)))
+            return True
+
+    obs = SimpleNamespace(
+        event_id="evt-l1-1",
+        meaning="New inbox item needs attention",
+        value=0.8,
+        priority=0.7,
+        required_intelligence=SimpleNamespace(value="high"),
+        confidence=0.9,
+        raw={"meaning": "New inbox item needs attention"},
+    )
+    decision = SimpleNamespace(
+        event_id="evt-l1-1",
+        action=SimpleNamespace(
+            type=SimpleNamespace(value="escalate"),
+            capability_id="",
+            args={},
+            reason="needs deeper reasoning",
+        ),
+        reasoning="L1 escalates to L2",
+        observation=obs,
+    )
+
+    class FakeL1Router:
+        def observe(self, event, *, event_id="", context_capsule=None):
+            assert event["type"] == "social.inbox.received"
+            assert event_id == "evt-l1-1"
+            assert isinstance(context_capsule, dict)
+            return obs
+
+        def decide(self, observation):
+            assert observation is obs
+            return decision
+
+        def escalate(self, observation, *, reason=""):
+            assert observation is obs
+            return SimpleNamespace(
+                to_payload=lambda: {
+                    "event_id": "evt-l1-1",
+                    "reason": reason,
+                    "problem": obs.meaning,
+                }
+            )
+
+    runtime = SimpleNamespace(
+        l1_router=FakeL1Router(),
+        l1_executor=None,
+        event_manager=FakeEventManager(),
+    )
+    event = SimpleNamespace(
+        event_id="evt-l1-1",
+        event_type="social.inbox.received",
+        payload_json='{"message":"hello"}',
+        timestamp_ms=1234,
+        source_server_id="android-server",
+        source_server_type=SimpleNamespace(name="ANDROID"),
+    )
+
+    returned = _run_l1_pipeline_for_event(runtime, event)
+
+    assert returned is decision
+    assert [kind for kind, _, _ in published] == ["l1.observation", "l1.decision", "l1.escalation"]
+    summaries = _get_recent_l1_summaries(runtime, limit=5)
+    assert summaries[-1]["event_type"] == "social.inbox.received"
+    assert summaries[-1]["meaning"] == "New inbox item needs attention"
+    assert summaries[-1]["action_type"] == "escalate"
+
+
+def test_run_l1_pipeline_executes_low_risk_capability_action() -> None:
+    from aegis_ai.runtime import _run_l1_pipeline_for_event
+
+    published: list[str] = []
+
+    class FakeEventManager:
+        def publish_event(self, event_type: str, *, source: str, payload: dict[str, object]) -> bool:
+            published.append(event_type)
+            return True
+
+    obs = SimpleNamespace(
+        event_id="evt-l1-cap-1",
+        meaning="Capture a safe snapshot",
+        value=0.6,
+        priority=0.4,
+        required_intelligence=SimpleNamespace(value="low"),
+        confidence=0.8,
+        raw={},
+    )
+    decision = SimpleNamespace(
+        event_id="evt-l1-cap-1",
+        action=SimpleNamespace(
+            type=SimpleNamespace(value="capability"),
+            capability_id="pc-server.screenshot.get_screenshot",
+            args={"display": 0},
+            reason="simple low-risk observation",
+        ),
+        reasoning="L1 can handle this directly",
+        observation=obs,
+    )
+
+    class FakeL1Router:
+        def observe(self, event, *, event_id="", context_capsule=None):
+            assert context_capsule["user_state"]["current_activity"] == "coding"
+            assert context_capsule["task_state"]["active_task_count"] == 1
+            return obs
+
+        def decide(self, observation):
+            return decision
+
+    class FakeL1Executor:
+        def execute(self, capability_id, args, *, event_id=""):
+            assert capability_id == "pc-server.screenshot.get_screenshot"
+            assert args == {"display": 0}
+            assert event_id == "evt-l1-cap-1"
+            return SimpleNamespace(
+                to_payload=lambda: {
+                    "capability_id": capability_id,
+                    "event_id": event_id,
+                    "success": True,
+                }
+            )
+
+    runtime = SimpleNamespace(
+        l1_router=FakeL1Router(),
+        l1_executor=FakeL1Executor(),
+        event_manager=FakeEventManager(),
+        user_state_manager=SimpleNamespace(
+            get_current_user_state=lambda: {
+                "attention": {"device": "pc", "app": "vscode"},
+                "activity": {"label": "coding", "confidence": 0.8},
+            }
+        ),
+        task_manager=SimpleNamespace(
+            list_tasks=lambda limit=20: [
+                {"task_id": "t1", "status": "running", "title": "Investigate L1"}
+            ]
+        ),
+    )
+    event = SimpleNamespace(
+        event_id="evt-l1-cap-1",
+        event_type="android.permission.changed",
+        payload_json="{}",
+        timestamp_ms=99,
+        source_server_id="android-server",
+        source_server_type=SimpleNamespace(name="ANDROID"),
+    )
+
+    _run_l1_pipeline_for_event(runtime, event)
+
+    assert published == [
+        "l1.observation",
+        "l1.decision",
+        "l1.capability.invoked",
+        "l1.capability.completed",
+    ]
+
+
+def test_l1_routing_helpers_cover_user_activity_and_exclude_internal_noise() -> None:
+    from aegis_ai.runtime import (
+        _should_route_to_l1_background,
+        _should_route_to_l1_immediate,
+    )
+
+    assert _should_route_to_l1_immediate("android.user_activity.changed") is True
+    assert _should_route_to_l1_immediate("android.foreground_app.changed") is True
+    assert _should_route_to_l1_immediate("android.current_app_changed") is True
+    assert _should_route_to_l1_immediate("pc.user_activity.snapshot") is True
+    assert _should_route_to_l1_immediate("browser.user_activity.changed") is True
+    assert _should_route_to_l1_immediate("hook.matched") is True
+    assert _should_route_to_l1_immediate("self_call") is True
+
+    assert _should_route_to_l1_background("memory.written") is True
+    assert _should_route_to_l1_background("notification.sent") is True
+    assert _should_route_to_l1_background("presentation.created") is False
+    assert _should_route_to_l1_background("l1.observation") is False
+    assert _should_route_to_l1_background("android.user_activity.changed") is False
+
+
+def test_immediate_user_activity_events_are_not_debounced(monkeypatch) -> None:
+    monkeypatch.setenv("LLM_API_KEY", "")
+    monkeypatch.setenv("LLM_BASE_URL", "")
+
+    from generated.aegis import ai_server_pb2, common_pb2
+    from aegis_ai.grpc_server import AegisAIServicer
+    from aegis_ai.intake.l1_models import (
+        L1Action,
+        L1ActionType,
+        L1Decision,
+        L1Observation,
+        RequiredIntelligence,
+    )
+    from aegis_ai.runtime import get_runtime, reset_runtime_for_tests
+
+    reset_runtime_for_tests()
+    runtime = get_runtime()
+    servicer = AegisAIServicer(runtime)
+
+    observe_calls: list[str] = []
+
+    def fake_observe(event, *, event_id="", context_capsule=None):
+        observe_calls.append(event_id)
+        return L1Observation(
+            event_id=event_id,
+            meaning="pc activity",
+            value=0.9,
+            priority=0.9,
+            required_intelligence=RequiredIntelligence.LOW,
+            confidence=0.9,
+            raw={"summary_bucket": "user_state", "observed_action": "editing code", "possible_intent": "continue coding"},
+        )
+
+    def fake_decide(observation):
+        return L1Decision(
+            action=L1Action(type=L1ActionType.OBSERVE, reason="observe"),
+            reasoning="user activity should still be observed",
+            observation=observation,
+        )
+
+    runtime.l1_router.observe = fake_observe
+    runtime.l1_router.decide = fake_decide
+
+    for idx in range(3):
+        event = common_pb2.Event(
+            event_id=f"evt_user_activity_{idx}",
+            event_type="pc.user_activity.snapshot",
+            source_server_type=common_pb2.SERVER_TYPE_PC,
+            source_server_id="pc-server",
+            payload_json=json.dumps({"activity": "coding", "window_title": f"file{idx}.py"}),
+            priority=common_pb2.EVENT_PRIORITY_NORMAL,
+        )
+        push_response = servicer.PushEvent(ai_server_pb2.PushEventRequest(event=event), None)
+        assert push_response.status.code == 0
+
+    assert observe_calls == [
+        "evt_user_activity_0",
+        "evt_user_activity_1",
+        "evt_user_activity_2",
+    ]
+    reset_runtime_for_tests()
+
+
+def test_build_l1_context_capsule_compacts_runtime_state() -> None:
+    from aegis_ai.runtime import _build_l1_context_capsule
+
+    runtime = SimpleNamespace(
+        _recent_l1_summaries=[
+            {
+                "event_type": "social.inbox.received",
+                "summary_bucket": "task_candidate",
+                "meaning": "Need to reply to user",
+                "action_type": "escalate",
+                "priority": 0.9,
+            }
+        ],
+        user_state_manager=SimpleNamespace(
+            get_current_user_state=lambda: {
+                "attention": {"device": "pc", "app": "vscode"},
+                "activity": {"label": "coding", "confidence": 0.8},
+            }
+        ),
+        user_understanding_service=SimpleNamespace(
+            get_latest_snapshot=lambda: {
+                "summary": "attention=pc, activity=coding, open_commitments=2",
+                "identity_profile": {
+                    "attention_device": "pc",
+                    "current_activity": "coding",
+                },
+                "constraints": {"focus_mode": True},
+                "likely_next_actions": [{"title": "Finish current patch"}],
+                "predicted_deficits": [{"title": "Need regression verification"}],
+            }
+        ),
+        status_manager=SimpleNamespace(
+            get_snapshot=lambda: {
+                "browser-server": {"status": "degraded"},
+                "pc-server": {"status": "online"},
+            }
+        ),
+        situation_model=SimpleNamespace(
+            get_state=lambda: {"state": "focused", "interruptibility": "low"}
+        ),
+        task_manager=SimpleNamespace(
+            list_tasks=lambda limit=20: [
+                {"task_id": "t1", "status": "running", "title": "Investigate L1"},
+                {"task_id": "t2", "status": "completed", "title": "Done"},
+            ]
+        ),
+        commitment_manager=SimpleNamespace(
+            list_commitments=lambda status="open": [
+                {"kind": "reply", "summary": "Reply to user", "due_at_ms": 123}
+            ]
+        ),
+        personal_data_core=SimpleNamespace(
+            recent_facts=lambda limit=3: [
+                {"statement": "User is currently coding", "confidence": 0.9}
+            ]
+        ),
+    )
+
+    capsule = _build_l1_context_capsule(runtime, {"type": "pc.user_activity.snapshot", "activity": "coding"})
+
+    assert capsule["user_state"]["current_activity"] == "coding"
+    assert capsule["user_understanding"]["focus_mode"] is True
+    assert capsule["world_state"]["degraded_server_count"] == 1
+    assert capsule["task_state"]["active_task_count"] == 1
+    assert capsule["pending_obligations"][0]["summary"] == "Reply to user"
+    assert capsule["recent_l1"][0]["summary_bucket"] == "task_candidate"
+    assert capsule["recent_facts"][0]["statement"] == "User is currently coding"

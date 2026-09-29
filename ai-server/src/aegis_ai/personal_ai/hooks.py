@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import threading
-import time
 import uuid
 import json
 from dataclasses import dataclass, field
@@ -52,7 +51,7 @@ class Hook:
         return self.__dict__.copy()
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "Hook":
+    def from_dict(cls, data: dict[str, Any]) -> Hook:
         return cls(
             hook_id=str(data.get("hook_id") or f"hook_{uuid.uuid4().hex[:10]}"),
             name=str(data.get("name") or "Hook"),

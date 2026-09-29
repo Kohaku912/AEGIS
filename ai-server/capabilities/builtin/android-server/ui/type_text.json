@@ -24,6 +24,12 @@
     "requires_approval": false,
     "approval_mode": "explicit"
   },
+  "ownership_scope": "user",
+  "reversibility": "difficult",
+  "destructive_effects": ["data_overwrite"],
+  "data_loss_risk": "low",
+  "active_work_loss_risk": "low",
+  "blast_radius": "single",
   "tags": [
     "builtin",
     "android",

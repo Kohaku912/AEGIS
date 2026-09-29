@@ -38,13 +38,13 @@ test.beforeEach(async ({ page }) => {
   await page.route("**/auth/me", (route) => route.fulfill({ json: { csrf_token: "test", authenticated: true, fresh: true } }));
 });
 
-test("master shell exposes six domains and command palette", async ({ page }) => {
+test("master shell exposes four domains and command palette", async ({ page }) => {
   await page.goto("/dashboard");
-  const domains = ["運用", "知能", "接続", "観測", "個人", "設定"];
-  await expect(page.locator(".nav-domain > button")).toHaveCount(6);
+  const domains = ["Cockpit", "Trace", "Personal", "Settings"];
+  await expect(page.locator(".nav-domain > button")).toHaveCount(4);
   for (const label of domains) await expect(page.locator(".nav-domain > button", { hasText: label })).toBeVisible();
   await page.keyboard.press("Control+K");
-  await expect(page.getByRole("dialog", { name: "Command palette" })).toBeVisible();
+  await expect(page.getByRole("dialog", { name: "横断検索" })).toBeVisible();
 });
 
 test("capability catalog uses Manager entities and opens effective policy detail", async ({ page }) => {
@@ -138,7 +138,7 @@ test("chat rapid submit executes only once", async ({ page }) => {
     await route.fulfill({ json: { response: "Accepted", request_id: "e2e" } });
   });
   await page.goto("/dashboard");
-  await page.getByLabel("Talk to AEGIS").click();
+  await page.getByLabel("Chatを開く").click();
   await page.getByRole("textbox", { name: "Message", exact: true }).fill("Run exactly once");
   await page.locator(".chat-form").evaluate((form) => {
     (form as HTMLFormElement).requestSubmit();
@@ -197,20 +197,24 @@ test("prompt management requires developer mode, validation, diff review, and fr
 
 test("attention unifies approvals, errors, and offline servers", async ({ page }) => {
   await page.goto("/dashboard/attention");
-  await expect(page.getByRole("heading", { name: "Needs Attention", level: 1 })).toBeVisible();
-  await expect(page.getByText("No items currently need attention.")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "対応待ち", level: 1 })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "要対応", level: 2 })).toBeVisible();
+  await expect(page.getByText("この分類に対応事項はありません。")).toBeVisible();
 });
 
 test("all management domains remain usable at production display sizes", async ({ page }, testInfo) => {
+  // 9 routes x 3 viewport sizes with a screenshot each — this exceeds the default
+  // 30s budget on the emulated android-mobile project, so allow triple the time.
+  test.slow();
   await page.emulateMedia({ reducedMotion: "reduce" });
   const routes = [
-    ["ops", "/dashboard"],
-    ["ops", "/dashboard/work/tasks"],
-    ["ops", "/dashboard/open-loops"],
-    ["intel", "/dashboard/capabilities/catalog"],
-    ["connect", "/dashboard/infrastructure/servers"],
-    ["connect", "/dashboard/communications/social"],
-    ["ops", "/dashboard/attention"],
+    ["cockpit", "/dashboard"],
+    ["cockpit", "/dashboard/work/tasks"],
+    ["cockpit", "/dashboard/open-loops"],
+    ["cockpit", "/dashboard/capabilities/catalog"],
+    ["cockpit", "/dashboard/infrastructure/servers"],
+    ["cockpit", "/dashboard/communications/social"],
+    ["cockpit", "/dashboard/attention"],
     ["observe", "/dashboard/activity"],
     ["settings", "/settings/autonomy"],
   ] as const;
@@ -219,13 +223,22 @@ test("all management domains remain usable at production display sizes", async (
     for (const [domain, path] of routes) {
       await page.goto(path);
       await expect(page.locator(".master-shell")).toHaveAttribute("data-domain", domain);
-      const overflow = await page.evaluate(() => ({
-        horizontal: document.documentElement.scrollWidth - document.documentElement.clientWidth,
-        content: Math.max(0, ...[...document.querySelectorAll<HTMLElement>(".master-content *:not(.cognitive-field__accessible-summary)")].map((node) => node.scrollWidth - node.clientWidth)),
-        offenders: [...document.querySelectorAll<HTMLElement>(".master-content *:not(.cognitive-field__accessible-summary)")]
-          .map((node) => ({ name: `${node.tagName.toLowerCase()}.${node.className}`, overflow: node.scrollWidth - node.clientWidth }))
-          .filter((item) => item.overflow > 8).sort((left, right) => right.overflow - left.overflow).slice(0, 4),
-      }));
+      // `scrollWidth - clientWidth` is only meaningful for boxes: inline elements
+      // always report clientWidth 0, which would flag every inline span. Restrict the
+      // check to non-inline elements so it measures real overflow.
+      const overflow = await page.evaluate(() => {
+        const boxes = [...document.querySelectorAll<HTMLElement>(".master-content *:not(.cognitive-field__accessible-summary)")]
+          .filter((node) => getComputedStyle(node).display !== "inline");
+        return {
+          horizontal: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+          content: Math.max(0, ...boxes.map((node) => node.scrollWidth - node.clientWidth)),
+          offenders: boxes
+            .map((node) => ({ name: `${node.tagName.toLowerCase()}.${node.className}`, overflow: node.scrollWidth - node.clientWidth }))
+            .filter((item) => item.overflow > 8)
+            .sort((left, right) => right.overflow - left.overflow)
+            .slice(0, 4),
+        };
+      });
       expect(overflow.horizontal, `${domain} page viewport overflow at ${size.width}`).toBeLessThanOrEqual(2);
       expect(overflow.content, `${domain} component overflow at ${size.width}: ${JSON.stringify(overflow.offenders)}`).toBeLessThanOrEqual(8);
       await testInfo.attach(`${domain}-${size.width}x${size.height}`, { body: await page.screenshot(), contentType: "image/png" });

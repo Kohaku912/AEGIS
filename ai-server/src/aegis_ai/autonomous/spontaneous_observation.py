@@ -101,7 +101,6 @@ class SpontaneousObservationSystem:
         person_memory: Any = None,
         action_trace: Any = None,
         status_manager: Any = None,
-        approval_manager: Any = None,
         task_manager: Any = None,
         agent_state: Any = None,
         user_state_manager: Any = None,
@@ -116,7 +115,6 @@ class SpontaneousObservationSystem:
         self._person = person_memory
         self._action_trace = action_trace
         self._status_manager = status_manager
-        self._approval_manager = approval_manager
         self._task_manager = task_manager
         self._agent_state = agent_state
         self._user_state_manager = user_state_manager
@@ -423,31 +421,6 @@ class SpontaneousObservationSystem:
         obs: list[Observation] = []
         now_ms = int(time.time() * 1000)
 
-        if self._approval_manager is not None and hasattr(self._approval_manager, "list_pending"):
-            try:
-                pending = self._approval_manager.list_pending() or []
-                count = len(pending)
-                if count > 0:
-                    sample = pending[0]
-                    summary = getattr(sample, "capability_id", None) or getattr(sample, "title", "") or "approval"
-                    obs.append(
-                        Observation(
-                            observation_id=f"obs_{os.urandom(4).hex()}",
-                            timestamp_ms=now_ms,
-                            observation_type="unresolved",
-                            source="approval",
-                            description=f"{count} pending approval(s); oldest/newest sample: {summary}",
-                            importance=0.85 if count >= 5 else 0.75,
-                            novelty=0.2,
-                            actionable=True,
-                            suggested_action="Present an approval digest to the user without auto-approving",
-                            related_desire="user_support",
-                            tags=["approval", "obligation", "incident"],
-                        )
-                    )
-            except Exception:
-                logger.debug("Approval observation failed", exc_info=True)
-
         if self._agent_state is not None:
             try:
                 obligations = self._agent_state.snapshot("observation").obligations
@@ -480,7 +453,10 @@ class SpontaneousObservationSystem:
                         t
                         for t in (self._task_manager.list_tasks() or [])
                         if str(getattr(t, "status", getattr(t, "state", "")) or "").lower()
-                        in {"waiting_approval", "wait_for_approval", "paused", "waiting"}
+                        # "waiting_approval" / "wait_for_approval" were removed together
+                        # with the approval flow (2026-09-27). No task can hold those
+                        # statuses any more, so matching on them could never succeed.
+                        in {"paused", "waiting"}
                     ][:5]
                 elif hasattr(self._task_manager, "get_waiting"):
                     waiting = list(self._task_manager.get_waiting() or [])[:5]
@@ -491,7 +467,7 @@ class SpontaneousObservationSystem:
                             timestamp_ms=now_ms,
                             observation_type="unresolved",
                             source="task",
-                            description=f"{len(waiting)} task(s) waiting on approval or resume",
+                            description=f"{len(waiting)} task(s) waiting to resume",
                             importance=0.8,
                             novelty=0.2,
                             actionable=True,
@@ -544,10 +520,9 @@ class SpontaneousObservationSystem:
             except Exception:
                 logger.debug("User state observation failed", exc_info=True)
 
-        # Room/Dev unconfigured: surface as attention, not pressure driver.
+        # Room unconfigured: surface as attention, not pressure driver.
         for server_id, env_flag in (
             ("room-server", "ROOM_SERVER_ENABLED"),
-            ("dev-server", "DEV_SERVER_ENABLED"),
         ):
             raw = os.environ.get(env_flag, "true").strip().lower()
             if raw in {"0", "false", "no", "off", "disabled", "unconfigured"}:

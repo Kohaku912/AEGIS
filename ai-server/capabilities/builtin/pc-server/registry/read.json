@@ -7,6 +7,12 @@
   "action": "read",
   "operation_category": "read_only",
   "risk": {"level": "read_only"},
+  "ownership_scope": "system",
+  "reversibility": "fully_reversible",
+  "destructive_effects": [],
+  "data_loss_risk": "none",
+  "active_work_loss_risk": "none",
+  "blast_radius": "single",
   "input": {
     "type": "object",
     "properties": {

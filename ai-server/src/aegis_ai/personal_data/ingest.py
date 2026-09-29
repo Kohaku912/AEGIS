@@ -28,7 +28,7 @@ def now_ms() -> int:
 
 
 def entity_id(kind: str, name: str) -> str:
-    digest = hashlib.sha256(f"{kind}:{name.lower()}".encode("utf-8")).hexdigest()[:16]
+    digest = hashlib.sha256(f"{kind}:{name.lower()}".encode()).hexdigest()[:16]
     return f"ent_{kind}_{digest}"
 
 
@@ -59,6 +59,9 @@ def sanitize_value_payload(payload: dict[str, Any]) -> dict[str, Any]:
     if _is_secret_control(out):
         out["classification_hint"] = "secret"
         out["control_kind"] = "password"
+        for key in ("value", "text", "input_text"):
+            if key in out:
+                out[key] = ""
     for key in ("value", "text", "input_text", "control_name", "title", "window_title", "active_window_title"):
         if is_replacement_text(out.get(key)):
             out[key] = ""
@@ -305,7 +308,7 @@ def _map_event_type(event_type: str, payload: dict[str, Any]) -> str:
         if mouse > 0:
             return "pc.input.clicked"
         return "pc.window.focused"
-    if event_type == "android.foreground_app.changed":
+    if event_type in {"android.foreground_app.changed", "android.current_app_changed"}:
         return "android.app.foreground"
     if event_type == "android.user_activity.changed":
         if payload.get("a11y_event") == "click":

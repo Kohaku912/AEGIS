@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 from aegis_ai.personal_ai.storage import JsonStateFile, now_ms
 
@@ -45,7 +45,7 @@ class ContinuationRecord:
 class ContinuationManager:
     """Persist one chain across propose, execute, verify, present, and learn."""
 
-    TERMINAL_STATES = {"completed", "rejected", "expired", "failed", "cancelled"}
+    TERMINAL_STATES: ClassVar[set[str]] = {"completed", "rejected", "expired", "failed", "cancelled"}
 
     def __init__(self, data_dir: str) -> None:
         self._state_file = JsonStateFile(Path(data_dir) / "continuations.json", {"records": {}})

@@ -1,0 +1,50 @@
+{
+  "title": "Ask the User to Confirm",
+  "description": "Raise a confirmation: record a question for the user and surface it in the dashboard. Use this when you judge that the user should decide for themselves - an irreversible step, an ambiguous goal, or a genuinely new kind of action. This is your own initiative, not a permission check: it blocks nothing, nothing waits for the answer, and no other capability depends on it. Raise the question, then carry on with whatever you can already do. Never call this because a manifest, a risk level or a rule says approval is required, and never call it for work the user has already delegated to you.",
+  "server_id": "ai-server",
+  "app_id": "confirmation",
+  "action": "request",
+  "operation_category": "confirmation",
+  "risk": {"level": "low", "side_effects": [], "requires_approval": false},
+  "ownership_scope": "aegis",
+  "reversibility": "fully_reversible",
+  "destructive_effects": [],
+  "data_loss_risk": "none",
+  "active_work_loss_risk": "none",
+  "blast_radius": "single",
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "summary": {
+        "type": "string",
+        "description": "One line the user reads first: what you are asking, in their language."
+      },
+      "reason": {
+        "type": "string",
+        "description": "Why you are asking instead of deciding - what you are unsure about."
+      },
+      "capability_id": {
+        "type": "string",
+        "description": "The capability you intend to use, if the question concerns one."
+      },
+      "tool_name": {"type": "string", "description": "The tool you intend to use, if any."},
+      "risk": {
+        "type": "string",
+        "description": "Your own assessment of the intended action. Shown to the user; never used to decide anything."
+      },
+      "target": {"type": "string", "description": "What the intended action would affect."},
+      "preview": {"type": "string", "description": "What the user would see happen."},
+      "expected_effect": {"type": "string", "description": "The outcome you expect."},
+      "side_effects": {"type": "string", "description": "Anything else the action would change."},
+      "task_id": {"type": "string", "description": "The task this question belongs to, if any."},
+      "step_id": {"type": "string", "description": "The step this question belongs to, if any."},
+      "expires_at": {
+        "type": "integer",
+        "description": "Optional deadline in epoch milliseconds. Defaults to 30 minutes from now."
+      }
+    },
+    "required": ["summary"],
+    "additionalProperties": false
+  },
+  "tags": ["confirmation", "interruption", "personal-ai", "write"]
+}

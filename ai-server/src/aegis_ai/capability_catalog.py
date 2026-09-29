@@ -20,6 +20,8 @@ import time
 from pathlib import Path
 from typing import Any
 
+from aegis_schema.roster import PREFIX_BY_ID_WITH_RETIRED
+
 from aegis_ai.capability_overrides import CapabilityOverrideStore
 from aegis_ai.folder_registry import (
     CapabilityManifest,
@@ -30,12 +32,26 @@ from aegis_ai.folder_registry import (
 
 logger = logging.getLogger("aegis_ai.capability_catalog")
 
+# Module-level cache for the ``CapabilityCatalog.instance()`` singleton.
+_GLOBAL_CATALOG: CapabilityCatalog | None = None
+
+#: Manifest ``risk.level`` label -> ``aegis_schema.models.RiskLevel`` enum name.
+#:
+#: A label that is **not** listed here does not raise: ``normalize_risk_label()``
+#: falls back to ``READ_ONLY``, which ``PolicyEngine`` maps to ``ALLOW`` — i.e. the
+#: *least* scrutinised decision. That is a silent downgrade, so every label a
+#: manifest actually uses must appear below.
+#: ``audited_action`` was missing until 2026-09-28 and therefore ran unaudited
+#: instead of ``ALLOW_WITH_AUDIT`` (12 capabilities, incl. ``form.submit`` and
+#: ``social.post``). ``test_manifest_schemas.py`` now fails if a manifest uses an
+#: unregistered label.
 _RISK_LABEL_TO_NAME = {
     "low": "READ_ONLY",
     "read": "READ_ONLY",
     "read_only": "READ_ONLY",
     "safe": "SAFE_ACTION",
     "safe_action": "SAFE_ACTION",
+    "audited_action": "SAFE_ACTION",
     "medium": "APPROVAL_REQUIRED",
     "approval": "APPROVAL_REQUIRED",
     "approval_required": "APPROVAL_REQUIRED",
@@ -53,14 +69,10 @@ _RISK_NAME_TO_JSON_LABEL = {
     "FORBIDDEN": "critical",
 }
 
-_PREFIX_MAP = {
-    "ai-server": "ai",
-    "pc-server": "pc",
-    "browser-server": "browser",
-    "android-server": "android",
-    "room-server": "room",
-    "dev-server": "dev",
-}
+# The live servers come from the single roster (B-15), and the retired one from its
+# ``RETIRED_SERVER_ROSTER`` — spelled once, there, rather than re-typed at each site that
+# must still answer for it.
+_PREFIX_MAP = PREFIX_BY_ID_WITH_RETIRED
 
 _RISK_ORDER = {
     "READ_ONLY": 1,
@@ -72,7 +84,14 @@ _RISK_ORDER = {
 
 
 def normalize_risk_label(label: str, default: str = "READ_ONLY") -> str:
-    """Normalize manifest/dashboard risk labels to RiskLevel enum names."""
+    """Normalize manifest/dashboard risk labels to RiskLevel enum names.
+
+    Unknown labels resolve to ``default`` (``READ_ONLY``) rather than raising, so a
+    label missing from ``_RISK_LABEL_TO_NAME`` is a **silent downgrade** to the
+    least-scrutinised tier. Add every new manifest label to that dict —
+    ``test_manifest_schemas.py::test_every_manifest_risk_label_is_registered``
+    enforces it.
+    """
     key = str(label or "").strip().lower()
     return _RISK_LABEL_TO_NAME.get(key, default)
 
@@ -91,21 +110,17 @@ def risk_level_from_label(label: str):
 
 
 def aligned_policy(risk_label: str, requires_approval: bool) -> tuple[Any, bool]:
-    """Keep risk_level and requires_approval consistent for PolicyEngine.
+    """Convert a manifest risk label into a ``RiskLevel`` **annotation**.
 
-    Default is ALLOW_WITH_AUDIT. The catalog checkbox is the user tighten path:
-    checking it sets requires_approval and lifts risk to APPROVAL_REQUIRED.
-    Unchecking drops APPROVAL_REQUIRED/HIGH_RISK to SAFE_ACTION.
-    FORBIDDEN can be lowered by the user; purchase/policy-bypass stay DENY in PolicyEngine.
+    Approval is no longer a constraint (2026-09-27), so this no longer rewrites the
+    risk level to keep ``requires_approval`` consistent with it. Both values are
+    carried through unchanged and are used only for the owner's post-hoc visibility.
+
+    ``RiskLevel.FORBIDDEN`` remains a hard stop: ``PolicyEngine`` maps it to DENY,
+    and ``_capability_from_manifest`` refuses to build such a capability at all.
+    Purchase/payment, egress-bypass and policy-bypass ids stay DENY in PolicyEngine.
     """
-    from aegis_schema.models import RiskLevel
-
-    risk = risk_level_from_label(risk_label)
-    if not requires_approval and risk >= RiskLevel.APPROVAL_REQUIRED:
-        return RiskLevel.SAFE_ACTION, False
-    if requires_approval and risk < RiskLevel.APPROVAL_REQUIRED:
-        return RiskLevel.APPROVAL_REQUIRED, True
-    return risk, bool(requires_approval)
+    return risk_level_from_label(risk_label), bool(requires_approval)
 
 
 class CapabilityCatalog:
@@ -236,11 +251,26 @@ class CapabilityCatalog:
         with self._lock:
             return self._cap_reg.list_all(origin=origin)
 
-    def list_for_llm(self) -> list[dict[str, Any]]:
-        """Get capability list formatted for LLM consumption."""
+    def list_for_llm(
+        self,
+        feature_flags: set[str] | None = None,
+    ) -> list[dict[str, Any]]:
+        """Get capability list formatted for LLM consumption.
+
+        Phase 1 (instruction.md §36): if `feature_flags` is provided, any
+        capability whose `requires_feature` is non-empty and not contained in
+        `feature_flags` is filtered out. Passing `None` (default) preserves the
+        historical "no filter" behavior so existing call sites are unaffected.
+        """
         self._maybe_reload()
         with self._lock:
             manifests = [m for m in self._cap_reg.list_all() if m.enabled]
+        if feature_flags is not None:
+            manifests = [
+                m
+                for m in manifests
+                if not m.requires_feature or m.requires_feature in feature_flags
+            ]
         return [
             {
                 "id": m.capability_id,
@@ -344,14 +374,9 @@ class CapabilityCatalog:
     def to_tool_registry_capabilities(self) -> list:
         """Convert all manifests to Capability objects for ToolRegistry registration."""
         from aegis_schema.models import Capability, RiskLevel, ServerType
-        server_type_map = {
-            "pc-server": ServerType.PC,
-            "browser-server": ServerType.BROWSER,
-            "android-server": ServerType.ANDROID,
-            "room-server": ServerType.ROOM,
-            "dev-server": ServerType.DEV,
-            "ai-server": ServerType.AI,
-        }
+        from aegis_schema.roster import SERVER_TYPE_BY_ID_WITH_RETIRED
+
+        server_type_map = SERVER_TYPE_BY_ID_WITH_RETIRED
         caps = []
         with self._lock:
             manifests = self._cap_reg.list_all()
@@ -402,6 +427,83 @@ class CapabilityCatalog:
     def get_override_store(self) -> CapabilityOverrideStore:
         """Return the persistent override store."""
         return self._override_store
+
+    def list_for_agent(
+        self,
+        profile: Any,
+        *,
+        feature_flags: set[str] | None = None,
+    ) -> list[dict[str, Any]]:
+        """Return capabilities visible to an agent profile.
+
+        Phase 7 (instruction.md §36 + §15): the agent-profile variant of
+        `list_for_llm`. The same LLM-friendly dict shape is returned, but
+        the set is filtered by:
+
+        1. ``requires_feature`` (same as ``list_for_llm``)
+        2. ``profile.allows_capability(cap_id)`` — deny > allow
+        3. ``profile.risk_ceiling`` — exclude any capability whose
+           normalised risk exceeds the ceiling
+        4. ``profile.requires_approval_for`` — does not filter (it only
+           influences the approval path, not visibility)
+
+        Args:
+            profile: An ``AgentProfile`` (or any object exposing
+                ``allows_capability``, ``denied_capabilities``,
+                ``allowed_capabilities`` and ``risk_ceiling``).
+            feature_flags: Optional feature-flag set; ``None`` means
+                "no feature filter".
+
+        Returns:
+            List of capability dicts (same shape as ``list_for_llm``).
+        """
+        manifests = self.list_for_llm(feature_flags=feature_flags)
+        out: list[dict[str, Any]] = []
+        for entry in manifests:
+            cap_id = entry.get("id", "")
+            if not _profile_allows(profile, cap_id):
+                continue
+            risk_label = str(entry.get("risk", "READ_ONLY") or "READ_ONLY")
+            risk = normalize_risk_label(risk_label, default="READ_ONLY")
+            ceiling = _profile_risk_ceiling(profile)
+            if _RISK_ORDER.get(risk, 1) > _RISK_ORDER.get(ceiling, 4):
+                continue
+            # Normalise the risk label in the output so downstream
+            # consumers (MCP gateway, _capability_dict_to_mcp_tool) can
+            # compare against the canonical RiskLevel names without
+            # re-running the alias table.
+            out_entry = dict(entry)
+            out_entry["risk"] = risk
+            out.append(out_entry)
+        return out
+
+    def mcp_tool_schemas(
+        self,
+        profile: Any,
+        *,
+        feature_flags: set[str] | None = None,
+    ) -> list[dict[str, Any]]:
+        """Return agent-visible capabilities as MCP tool schemas.
+
+        Phase 7 (§36 Phase 7 DoD): ``tools/list`` payload. Each
+        capability becomes a single MCP tool with:
+
+        - ``name`` = canonical capability_id (``server.app.action``)
+        - ``description`` = capability title + description
+        - ``inputSchema`` = capability's ``input_schema`` (JSON Schema
+          passthrough; falls back to a permissive ``object`` when missing)
+        - ``_meta.aegis.risk`` = normalised risk level
+        - ``_meta.aegis.requires_approval`` = bool
+        - ``_meta.aegis.tags`` = list of tags
+
+        This method does NOT call any LLM or remote service — it is a
+        pure transform of the in-memory catalog.
+        """
+        visible = self.list_for_agent(profile, feature_flags=feature_flags)
+        schemas: list[dict[str, Any]] = []
+        for entry in visible:
+            schemas.append(_capability_dict_to_mcp_tool(entry))
+        return schemas
 
     def update_manifest_policy(
         self,
@@ -478,6 +580,10 @@ class CapabilityCatalog:
         manifest = self.resolve(cap_id)
         if manifest is None:
             return None
+        # Imported locally: this module is re-exported from ``aegis_ai/__init__``,
+        # so a module-level import of a sibling could race package initialisation.
+        from aegis_ai.irreversibility import annotation
+
         return {
             "capability_id": manifest.capability_id,
             "manifest": {
@@ -493,6 +599,9 @@ class CapabilityCatalog:
                 "approval_mode": manifest.approval_mode,
                 "enabled": bool(manifest.enabled),
             },
+            # Phase 3: the irreversibility annotations, so a risk view can show
+            # what an action would destroy and whether it can be undone.
+            "irreversibility": annotation(manifest),
             "override_active": bool(manifest.override),
             "override_store_corrupted": bool(self._override_store.corrupted),
             "file_path": manifest.file_path,
@@ -505,3 +614,137 @@ class CapabilityCatalog:
     def errors(self) -> list[dict[str, str]]:
         with self._lock:
             return self._cap_reg.errors()
+
+    @classmethod
+    def instance(cls) -> CapabilityCatalog:
+        """Return the process-wide singleton catalog.
+
+        Phase 7 (instruction.md §36): callers (e.g. the MCP gateway)
+        use this to obtain a default catalog without knowing the
+        ``capabilities_dir`` on disk. The first call resolves the
+        path relative to the project root; subsequent calls reuse the
+        cached instance.
+        """
+        global _GLOBAL_CATALOG
+        if _GLOBAL_CATALOG is not None:
+            return _GLOBAL_CATALOG
+        from aegis_ai.paths import find_capabilities_dir
+
+        cls_obj = cls(capabilities_dir=find_capabilities_dir())
+        _GLOBAL_CATALOG = cls_obj
+        return cls_obj
+
+
+# ---------------------------------------------------------------------------
+# Phase 7 helpers — used by `list_for_agent` / `mcp_tool_schemas`
+# ---------------------------------------------------------------------------
+
+
+def _profile_allows(profile: Any, cap_id: str) -> bool:
+    """``profile.allows_capability(cap_id)`` with a safe fallback.
+
+    Profiles loaded via ``AgentProfileRegistry`` implement
+    ``allows_capability`` directly. For duck-typed profiles (including test
+    doubles) that do not, this wrapper applies the documented deny > allow
+    rule:
+
+    * a profile exposing no capability information at all is denied, so a
+      misconfigured profile cannot accidentally expose the whole catalog;
+    * a capability listed in ``denied_capabilities`` is denied;
+    * otherwise, if ``allowed_capabilities`` is non-empty, the capability must
+      be listed there;
+    * otherwise (an allow list exists but is empty) everything not explicitly
+      denied is allowed.
+    """
+    try:
+        allowed = profile.allows_capability(cap_id)
+    except (AttributeError, TypeError):
+        denied = getattr(profile, "denied_capabilities", None)
+        allowed_list = getattr(profile, "allowed_capabilities", None)
+        if denied is None and allowed_list is None:
+            # No capability information at all → deny.
+            return False
+        if cap_id in (denied or []):
+            return False
+        if allowed_list:
+            return cap_id in allowed_list
+        # Empty allow list → only the explicit deny list is forbidden.
+        return True
+    return bool(allowed)
+
+
+def _profile_risk_ceiling(profile: Any) -> str:
+    """Normalise the profile's risk ceiling to a RiskLevel name.
+
+    Accepts both ``AgentRiskCeiling`` enum members and plain strings.
+    Defaults to ``HIGH_RISK`` (the most permissive) when the profile
+    does not declare a ceiling.
+    """
+    ceiling = getattr(profile, "risk_ceiling", None)
+    if ceiling is None:
+        return "HIGH_RISK"
+    name = getattr(ceiling, "name", None) or str(ceiling)
+    name = str(name).strip().upper()
+    if name in _RISK_ORDER:
+        return name
+    # Accept "READ", "SAFE", "APPROVAL", "HIGH", "CRITICAL" aliases.
+    alias_map = {
+        "READ": "READ_ONLY",
+        "SAFE": "SAFE_ACTION",
+        "APPROVAL": "APPROVAL_REQUIRED",
+        "HIGH": "HIGH_RISK",
+        "CRITICAL": "FORBIDDEN",
+    }
+    return alias_map.get(name, "HIGH_RISK")
+
+
+def _capability_dict_to_mcp_tool(entry: dict[str, Any]) -> dict[str, Any]:
+    """Convert a ``list_for_llm`` dict to an MCP tool schema.
+
+    MCP tool schema (Model Context Protocol, 2025-06-18 spec):
+
+    ```json
+    {
+      "name": "string",
+      "description": "string",
+      "inputSchema": { "type": "object", "properties": {...} },
+      "_meta": { "aegis": { ... } }   // optional
+    }
+    ```
+    """
+    cap_id = str(entry.get("id", "") or "")
+    title = str(entry.get("title", "") or "")
+    description = str(entry.get("description", "") or "")
+    if title and description and title not in description:
+        description = f"{title}: {description}"
+    elif title and not description:
+        description = title
+
+    schema = entry.get("input_schema")
+    if not isinstance(schema, dict) or not schema:
+        schema = {"type": "object", "properties": {}}
+
+    risk_label = str(entry.get("risk", "READ_ONLY") or "READ_ONLY")
+    risk = normalize_risk_label(risk_label, default="READ_ONLY")
+    # Requires_approval is encoded in the manifest; we expose it as
+    # metadata so MCP clients can warn the user. The actual gate is
+    # inside ToolBroker.execute(); clients must not bypass it.
+    requires_approval = risk in {"APPROVAL_REQUIRED", "HIGH_RISK", "FORBIDDEN"}
+
+    tool: dict[str, Any] = {
+        "name": cap_id,
+        "description": description,
+        "inputSchema": schema,
+    }
+    meta: dict[str, Any] = {
+        "aegis": {
+            "risk": risk,
+            "requires_approval": requires_approval,
+            "tags": list(entry.get("tags", []) or []),
+            "operation_category": entry.get("operation_category", ""),
+            "short_name": entry.get("short_name", ""),
+            "only_master": bool(entry.get("only_master", False)),
+        }
+    }
+    tool["_meta"] = meta
+    return tool

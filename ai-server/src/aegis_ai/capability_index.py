@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from aegis_ai.capability_catalog import CapabilityCatalog
+from aegis_ai.memory.retrieval_scoring import query_tokens, text_relevance_score
 
 logger = logging.getLogger("aegis_ai.capability_index")
 
@@ -238,8 +239,12 @@ class CapabilityIndex:
         top_k: int,
         allowed_ids: set[str] | None = None,
     ) -> dict[str, float]:
-        if self._collection is None or not query.strip():
+        if not query.strip():
             return {}
+        if self._collection is None:
+            if not self._enable_chroma:
+                return {}
+            return self._local_vector_scores_locked(query, top_k=top_k, allowed_ids=allowed_ids)
         try:
             count = self._collection.count()
             if count <= 0:
@@ -260,7 +265,28 @@ class CapabilityIndex:
             return scores
         except Exception as exc:
             logger.warning("Capability vector search failed; using keyword fallback: %s", exc)
-            return {}
+            return self._local_vector_scores_locked(query, top_k=top_k, allowed_ids=allowed_ids)
+
+    def _local_vector_scores_locked(
+        self,
+        query: str,
+        *,
+        top_k: int,
+        allowed_ids: set[str] | None = None,
+    ) -> dict[str, float]:
+        query_embedding = _hash_embedding(query)
+        scored: list[tuple[float, str]] = []
+        for doc in self._documents.values():
+            if allowed_ids is not None and doc.id not in allowed_ids:
+                continue
+            score = _cosine_similarity(query_embedding, _hash_embedding(doc.text))
+            if score > 0:
+                scored.append((score, doc.id))
+        scored.sort(reverse=True)
+        return {
+            cap_id: round(score, 6)
+            for score, cap_id in scored[: max(top_k, 1)]
+        }
 
 
 class CapabilityRetriever:
@@ -473,22 +499,20 @@ def _keyword_score(query: str, doc: CapabilityDocument) -> float:
     ]
     score = 0.0
     max_score = sum(weight for text, weight in weighted_fields if text) or 1.0
-    query_tokens = set(_tokens(query_lower))
-    query_grams = set(_char_grams(query_lower))
+    query_token_set = query_tokens(query_lower)
 
     for text, weight in weighted_fields:
         if not text:
             continue
         text_lower = text.lower()
-        field_score = 0.0
-        if query_lower in text_lower or text_lower in query_lower:
-            field_score = max(field_score, 1.0)
-        field_tokens = set(_tokens(text_lower))
-        if query_tokens and field_tokens:
-            field_score = max(field_score, len(query_tokens & field_tokens) / len(query_tokens))
-        field_grams = set(_char_grams(text_lower))
-        if query_grams and field_grams:
-            field_score = max(field_score, len(query_grams & field_grams) / len(query_grams))
+        field_score = text_relevance_score(query_lower, text_lower)
+        if query_token_set:
+            exact_tokens = set(_tokens(text_lower))
+            if exact_tokens:
+                field_score = max(
+                    field_score,
+                    len(query_token_set & exact_tokens) / max(1, len(query_token_set)),
+                )
         score += weight * field_score
     return max(0.0, min(1.0, score / max_score))
 
@@ -532,6 +556,12 @@ def _hash_embedding(text: str) -> list[float]:
     if norm == 0:
         return vector
     return [value / norm for value in vector]
+
+
+def _cosine_similarity(left: list[float], right: list[float]) -> float:
+    if len(left) != len(right):
+        return 0.0
+    return max(0.0, min(1.0, sum(lv * rv for lv, rv in zip(left, right, strict=False))))
 
 
 def _stringify_example(example: Any) -> str:

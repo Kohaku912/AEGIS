@@ -21,7 +21,7 @@ from aegis_ai.observability.llm_usage.aggregator import (
 from aegis_ai.observability.llm_usage.audit_extractor import extract_traces
 from aegis_ai.observability.llm_usage.models import LLMTrace
 from aegis_ai.observability.llm_usage.prompt_analyzer import analyze_prompts
-from aegis_ai.observability.llm_usage.waste_finder import find_waste_candidates, find_waste_candidates_with_prompt_registry
+from aegis_ai.observability.llm_usage.waste_finder import find_waste_candidates_with_prompt_registry
 
 logger = logging.getLogger("aegis_ai.observability.llm_usage.service")
 
@@ -104,7 +104,11 @@ class LLMUsageService:
         now_ms = int(now * 1000)
         cutoff_ms = now_ms - period_ms
 
-        raw = self._read_audit(limit=int(os.environ.get("AEGIS_LLM_USAGE_AUDIT_LIMIT", "500")))
+        raw = self._read_audit(
+            limit=int(os.environ.get("AEGIS_LLM_USAGE_AUDIT_LIMIT", "500")),
+            action="llm_call",
+            since_ms=cutoff_ms,
+        )
         traces = extract_traces(raw)
         traces = [t for t in traces if t.timestamp_ms >= cutoff_ms]
         traces = self._apply_filters(traces, **filters)
@@ -116,19 +120,30 @@ class LLMUsageService:
     def _load_raw_entries(self, period: str, **filters: Any) -> list[dict[str, Any]]:
         period_ms = _PERIOD_MS.get(period, 24 * 3_600_000)
         cutoff_ms = int(time.time() * 1000) - period_ms
-        entries = [
-            e for e in self._read_audit(limit=int(os.environ.get("AEGIS_LLM_USAGE_AUDIT_LIMIT", "500")))
-            if int(e.get("timestamp_ms") or 0) >= cutoff_ms
-        ]
+        entries = self._read_audit(
+            limit=int(os.environ.get("AEGIS_LLM_USAGE_AUDIT_LIMIT", "500")),
+            action="llm_call",
+            since_ms=cutoff_ms,
+        )
         return self._apply_raw_filters(entries, **filters)
 
-    def _read_audit(self, limit: int = 500) -> list[dict[str, Any]]:
+    def _read_audit(
+        self,
+        limit: int = 500,
+        *,
+        action: str = "",
+        since_ms: int = 0,
+    ) -> list[dict[str, Any]]:
         if self._audit is None:
             return []
         try:
             if hasattr(self._audit, "read_recent_for_dashboard"):
                 try:
-                    raw = self._audit.read_recent_for_dashboard(max_entries=limit)
+                    raw = self._audit.read_recent_for_dashboard(
+                        max_entries=limit,
+                        action=action,
+                        since_ms=since_ms,
+                    )
                 except TypeError:
                     raw = self._audit.read_recent_for_dashboard(limit)
                 return self._normalize_audit_entries(raw, limit)

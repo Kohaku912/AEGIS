@@ -6,6 +6,12 @@
   "action": "list",
   "operation_category": "observe",
   "risk": {"level": "read_only", "side_effects": [], "requires_approval": false},
+  "ownership_scope": "aegis",
+  "reversibility": "fully_reversible",
+  "destructive_effects": [],
+  "data_loss_risk": "none",
+  "active_work_loss_risk": "none",
+  "blast_radius": "single",
   "tags": ["builtin", "presentation", "observe"],
   "only_master": false,
   "input_schema": {

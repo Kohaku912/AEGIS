@@ -10,8 +10,11 @@ from aegis_ai.personal_ai.interruption import InterruptionController
 from aegis_ai.personal_ai.repair import RepairManager
 from aegis_ai.personal_ai.situation import SituationModel
 from aegis_ai.personal_ai.social_proxy import SocialProxy
+from aegis_ai.reflection.reflection_engine import ReflectionEngine
 from aegis_ai.user_model import UserModelStore
+from aegis_ai.world.world_state_store import WorldStateStore
 from aegis_ai.capability_catalog import CapabilityCatalog
+from aegis_ai.memory.memory_types import FailureType
 from aegis_schema.models import Capability, Event, EventPriority, RiskLevel, ServerType
 from policy_engine import PolicyEngine
 from tool_broker import InvokeStatus, ToolBroker, ToolExecutionRequest
@@ -134,7 +137,7 @@ def test_delegation_policy_allows_send_and_denies_payment(tmp_path):
     store = DelegationPolicyStore(data_dir=str(tmp_path))
 
     send = store.evaluate("ai-server.agora.post", side_effects=["external_send"])
-    delete = store.evaluate("dev-server.file.delete", side_effects=["delete"])
+    delete = store.evaluate("pc-server.file.delete", side_effects=["delete"])
     pay = store.evaluate("browser-server.checkout.pay", side_effects=["payment"])
     read = store.evaluate("ai-server.workspace.read_file", side_effects=[])
 
@@ -164,8 +167,10 @@ def test_tool_broker_applies_delegation_after_policy_allow(tmp_path):
 
     result = broker.execute(ToolExecutionRequest(capability_id=cap.id, arguments={"body": "hello"}))
 
-    assert result.status != InvokeStatus.APPROVAL_NEEDED
+    # Approval is gone; delegation is applied on top of a policy ALLOW and the
+    # broker is the only chokepoint.
     assert result.policy_decision in {"ALLOW", "ALLOW_WITH_AUDIT"}
+    assert result.status != InvokeStatus.DENIED
 
 
 def test_social_proxy_send_requires_approved_marker(tmp_path):
@@ -215,8 +220,8 @@ def test_repair_manager_classifies_and_records_failures(tmp_path):
         status="failed",
     )
     dns = manager.record_failure(
-        capability_id="dev-server.repo.status",
-        error="errors resolving dev-server",
+        capability_id="browser-server.page.browse",
+        error="errors resolving remote-page",
         status="failed",
     )
     permission = manager.record_failure(
@@ -236,6 +241,36 @@ def test_repair_manager_classifies_and_records_failures(tmp_path):
     assert permission["category"] == "permission"
     assert permission["final_result"] == "not_retryable"
     assert len(manager.list_history()) >= 4
+
+
+def test_repair_manager_records_structured_verification_detail(tmp_path):
+    manager = RepairManager(data_dir=str(tmp_path))
+    request = SimpleNamespace(metadata={"source": "completion_verifier"})
+    result = SimpleNamespace(
+        status=SimpleNamespace(value="execution_error"),
+        output={"error_code": "timeout"},
+        verification=SimpleNamespace(
+            status="failed",
+            failure_type="no_state_change",
+            suggested_recovery="retry_after_observation",
+            evidence=["state did not change"],
+        ),
+    )
+
+    entry = manager.record_failure(
+        capability_id="browser-server.page.browse",
+        error="opaque failure",
+        status="failed",
+        request=request,
+        result=result,
+    )
+
+    assert entry["category"] == "transient"
+    assert entry["detail"]["invoke_status"] == "execution_error"
+    assert entry["detail"]["verification_status"] == "failed"
+    assert entry["detail"]["failure_type"] == "no_state_change"
+    assert entry["detail"]["error_code"] == "timeout"
+    assert entry["detail"]["source"] == "completion_verifier"
 
 
 def test_repair_unrepairable_presents_and_learns(tmp_path):
@@ -358,6 +393,76 @@ def test_repair_manager_retry_and_rollback_strategy(tmp_path):
     assert repair["final_result"] == "recovered"
     assert rollback["attempted"] is True
     assert "ai-server.workspace.list_files" in broker.calls
+
+
+def test_tool_registry_search_matches_semantic_description_and_ranks_best_first():
+    registry = ToolRegistry()
+    registry.register_capability(Capability(
+        id="browser-server.page.browse",
+        name="Browse with AI",
+        description="Use AI agent to browse websites and perform multi-step tasks.",
+        server_type=ServerType.BROWSER,
+        risk_level=RiskLevel.SAFE_ACTION,
+        tags=["browser", "web", "automation"],
+    ))
+    registry.register_capability(Capability(
+        id="pc-server.screenshot.get_screenshot",
+        name="Screenshot",
+        description="Capture a screenshot of the desktop.",
+        server_type=ServerType.PC,
+        risk_level=RiskLevel.READ_ONLY,
+        tags=["pc", "screen", "observe"],
+    ))
+
+    results = registry.search("web automation task")
+
+    assert results
+    assert results[0].id == "browser-server.page.browse"
+
+
+def test_reflection_engine_prefers_structured_status_and_error_codes():
+    engine = ReflectionEngine()
+
+    result = engine.reflect(
+        task_id="task_1",
+        task_description="browse dashboard",
+        tool_results=[
+            {
+                "capability_id": "browser-server.page.browse",
+                "status": "unavailable",
+                "error_code": "server_down",
+                "error": "browser server temporarily unreachable",
+            }
+        ],
+    )
+
+    failure_record = next(
+        record for record in result.memory_records_to_store
+        if record.memory_type == "failure_lesson"
+    )
+    assert failure_record.structured_data["failure_type"] == FailureType.TOOL_UNAVAILABLE.value
+    assert result.should_retry is True
+
+
+def test_world_state_store_prefers_structured_browser_auth_flags(tmp_path):
+    store = WorldStateStore(data_dir=str(tmp_path / "world_state"))
+
+    store.update_from_observation(
+        {
+            "target": "browser",
+            "current_url": "https://example.com/login",
+            "status": "success",
+            "auth_state": "signed_out",
+            "page_indicators": {
+                "login_required": True,
+                "captcha_detected": True,
+            },
+            "visible_text_summary": "generic page text without explicit login or captcha words",
+        }
+    )
+
+    assert store.state.browser_state.login_required is True
+    assert store.state.browser_state.captcha_or_2fa_detected is True
 
 
 def test_all_capability_manifests_have_operation_category():

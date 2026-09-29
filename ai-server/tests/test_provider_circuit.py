@@ -13,10 +13,44 @@ class _FakeBalanceError(Exception):
         self.status_code = status_code
 
 
+class _FakeResponse:
+    def __init__(self, status_code: int, payload: dict[str, object]) -> None:
+        self.status_code = status_code
+        self._payload = payload
+        self.text = str(payload)
+
+    def json(self) -> dict[str, object]:
+        return self._payload
+
+
+class _StructuredError(Exception):
+    def __init__(self, *, status_code: int, payload: dict[str, object], code: str = "", err_type: str = "") -> None:
+        super().__init__(payload.get("error", {}).get("message", ""))  # type: ignore[union-attr]
+        self.status_code = status_code
+        self.response = _FakeResponse(status_code, payload)
+        self.code = code
+        self.type = err_type
+
+
 def test_is_balance_error_detects_402() -> None:
     assert is_balance_error(_FakeBalanceError())
     assert is_balance_error(Exception("Insufficient Balance"))
     assert not is_balance_error(Exception("rate limit exceeded"))
+
+
+def test_is_balance_error_detects_structured_billing_codes() -> None:
+    assert is_balance_error(
+        _StructuredError(
+            status_code=429,
+            payload={"error": {"code": "credit_balance_exhausted", "type": "insufficient_quota"}},
+        )
+    )
+    assert not is_balance_error(
+        _StructuredError(
+            status_code=429,
+            payload={"error": {"code": "rate_limit_exceeded", "type": "rate_limit_error"}},
+        )
+    )
 
 
 def test_circuit_opens_after_threshold(tmp_path) -> None:

@@ -15,6 +15,7 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 from aegis_ai.llm.memory_context import build_shared_memory_context
 
@@ -87,41 +88,57 @@ class BrowserUseTaskExecutor:
             logger.warning("LLM summarization failed: %s", exc)
         return summary
 
-    def execute(self, task: str, context: str = "") -> BrowserTaskResult:
+    def execute(
+        self,
+        task: str | dict[str, Any],
+        context: str | dict[str, Any] = "",
+        *,
+        url: str = "",
+    ) -> BrowserTaskResult:
         """Execute a browser task synchronously."""
         try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                import concurrent.futures
-                with concurrent.futures.ThreadPoolExecutor() as pool:
-                    future = pool.submit(asyncio.run, self._execute_async(task, context))
-                    return future.result(timeout=120)
-            else:
-                return loop.run_until_complete(self._execute_async(task, context))
+            try:
+                asyncio.get_running_loop()
+            except RuntimeError:
+                return asyncio.run(self._execute_async(task, context, url=url))
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor() as pool:
+                future = pool.submit(asyncio.run, self._execute_async(task, context, url=url))
+                return future.result(timeout=120)
         except Exception as e:
             return BrowserTaskResult(
                 success=False,
-                task_description=task,
+                task_description=_stringify_browser_task(task),
                 error=str(e),
             )
 
-    async def _execute_async(self, task: str, context: str = "") -> BrowserTaskResult:
+    async def _execute_async(
+        self,
+        task: str | dict[str, Any],
+        context: str | dict[str, Any] = "",
+        *,
+        url: str = "",
+    ) -> BrowserTaskResult:
         """Execute a browser task asynchronously."""
         start = time.perf_counter()
+        normalized = _normalize_browser_request(task, context, explicit_url=url)
+        task_text = normalized["task"]
+        context_text = normalized["context"]
+        target_url = normalized["url"]
 
         # Safety check
-        safety_check = self._safety.check_task(task)
+        safety_check = self._safety.check_task(task_text)
         if not safety_check["allowed"]:
             return BrowserTaskResult(
                 success=False,
-                task_description=task,
+                task_description=task_text,
                 error=f"Task blocked by safety: {safety_check['reason']}",
             )
 
         # Build full task
-        full_task = task
-        if context:
-            full_task = f"Context: {context}\n\nTask: {task}"
+        full_task = task_text
+        if context_text:
+            full_task = f"Context: {context_text}\n\nTask: {task_text}"
 
         # Add safety instructions
         safety_instructions = (
@@ -136,32 +153,29 @@ class BrowserUseTaskExecutor:
         full_task += safety_instructions
 
         try:
-            result = await self._execute_with_playwright(full_task)
+            result = await self._execute_with_playwright(full_task, target_url=target_url)
             result.duration_ms = (time.perf_counter() - start) * 1000
             return result
         except Exception as e:
             logger.error("Browser execution failed: %s", e)
             return BrowserTaskResult(
                 success=False,
-                task_description=task,
+                task_description=task_text,
                 error=str(e),
                 duration_ms=(time.perf_counter() - start) * 1000,
             )
 
-    async def _execute_with_playwright(self, task: str) -> BrowserTaskResult:
+    async def _execute_with_playwright(self, task: str, *, target_url: str = "") -> BrowserTaskResult:
         """Execute with Playwright."""
         from playwright.async_api import async_playwright
 
-        # Extract URL from task
-        url_match = re.search(r'https?://[^\s]+', task)
-        if not url_match:
+        url = target_url.strip() or _extract_url_from_text(task)
+        if not _looks_like_url(url):
             return BrowserTaskResult(
                 success=False,
                 task_description=task,
-                error="No URL found in task",
+                error="No structured URL provided and none could be derived from task.",
             )
-
-        url = url_match.group(0)
 
         async with async_playwright() as p:
             browser = await p.chromium.launch(headless=True)
@@ -233,3 +247,60 @@ class BrowserUseTaskExecutor:
         except Exception as e:
             logger.warning("browser-use Agent failed: %s", e)
             raise
+
+
+def _normalize_browser_request(
+    task: str | dict[str, Any],
+    context: str | dict[str, Any],
+    *,
+    explicit_url: str = "",
+) -> dict[str, str]:
+    task_data = task if isinstance(task, dict) else {}
+    context_data = context if isinstance(context, dict) else {}
+    task_text = (
+        str(task_data.get("task") or task_data.get("description") or task_data.get("task_description") or "").strip()
+        if isinstance(task, dict)
+        else str(task or "").strip()
+    )
+    context_text = (
+        str(context_data.get("context") or context_data.get("notes") or context_data.get("summary") or "").strip()
+        if isinstance(context, dict)
+        else str(context or "").strip()
+    )
+    target_url = (
+        str(explicit_url or "").strip()
+        or _first_url_from_mapping(task_data)
+        or _first_url_from_mapping(context_data)
+        or _extract_url_from_text(task_text)
+        or _extract_url_from_text(context_text)
+    )
+    return {"task": task_text, "context": context_text, "url": target_url}
+
+
+def _first_url_from_mapping(data: dict[str, Any]) -> str:
+    for key in ("url", "start_url", "initial_url", "target_url"):
+        value = data.get(key)
+        if isinstance(value, str) and _looks_like_url(value):
+            return value.strip()
+    return ""
+
+
+def _extract_url_from_text(text: str) -> str:
+    match = re.search(r"https?://[^\s]+", str(text or ""))
+    return match.group(0) if match else ""
+
+
+def _looks_like_url(value: str) -> bool:
+    parsed = urlparse(str(value or "").strip())
+    return parsed.scheme in {"http", "https"} and bool(parsed.netloc)
+
+
+def _stringify_browser_task(task: str | dict[str, Any]) -> str:
+    if isinstance(task, dict):
+        return str(
+            task.get("task")
+            or task.get("description")
+            or task.get("task_description")
+            or ""
+        )
+    return str(task)

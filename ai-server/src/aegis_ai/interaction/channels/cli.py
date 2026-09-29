@@ -65,35 +65,12 @@ class CLIChannel:
                 break
 
             # Special CLI commands
-            if user_input.lower() == "approvals":
-                self._show_approvals()
-                continue
             if user_input.lower() == "status":
                 self._show_status()
                 continue
-            if user_input.lower().startswith("approve "):
-                self._approve(user_input.split(None, 1)[1])
-                continue
-            if user_input.lower().startswith("reject "):
-                self._reject(user_input.split(None, 1)[1])
-                continue
-
             # Normal message — route through interaction router
             response_text = self.send(user_input)
             print(f"\nAEGIS: {response_text}")
-
-    def _show_approvals(self) -> None:
-        """Show pending approvals."""
-        if hasattr(self._router, '_approval') and self._router._approval:
-            pending = self._router._approval.get_pending()
-            if pending:
-                print(f"\nPending approvals ({len(pending)}):")
-                for r in pending:
-                    print(f"  [{r.approval_id}] {r.tool_name} — {r.capability_id}")
-            else:
-                print("\nNo pending approvals.")
-        else:
-            print("\nApproval store not available.")
 
     def _show_status(self) -> None:
         """Show system status."""
@@ -101,21 +78,3 @@ class CLIChannel:
         print("  Dashboard: http://0.0.0.0:8090")
         print("  Chat: http://0.0.0.0:8090/chat")
 
-    def _approve(self, approval_id: str) -> None:
-        """Approve a pending request."""
-        if hasattr(self._router, '_approval') and self._router._approval:
-            from approval import ApprovalType
-            ok = self._router._approval.approve(approval_id, ApprovalType.ONE_TIME)
-            if ok:
-                print(f"Approved: {approval_id}")
-            else:
-                print(f"Failed to approve: {approval_id}")
-
-    def _reject(self, approval_id: str) -> None:
-        """Reject a pending request."""
-        if hasattr(self._router, '_approval') and self._router._approval:
-            ok = self._router._approval.reject(approval_id)
-            if ok:
-                print(f"Rejected: {approval_id}")
-            else:
-                print(f"Failed to reject: {approval_id}")

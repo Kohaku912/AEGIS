@@ -20,11 +20,12 @@ logger = logging.getLogger("aegis_ai.task.task_manager")
 
 
 class TaskStatus(Enum):
+    PENDING = "pending"
     CREATED = "created"
     PLANNING = "planning"
     RUNNING = "running"
-    WAITING_APPROVAL = "waiting_approval"
     PAUSED = "paused"
+    BLOCKED = "blocked"
     COMPLETED = "completed"
     FAILED = "failed"
     CANCELLED = "cancelled"
@@ -39,47 +40,158 @@ class TaskSource(Enum):
     SYSTEM = "system"
 
 
-def _incident_fingerprint(task: dict[str, Any]) -> str:
-    """Normalize a failed task into a collapse key for duplicate incident cleanup."""
-    error = str(task.get("error") or task.get("goal") or task.get("title") or "").strip().lower()
-    capability = ""
+_LEGACY_INCIDENT_MARKERS = (
+    "browserstartevent",
+    "completion verification failed",
+    "http execution error: timed out",
+    "invalid json from pc server",
+    "interrupted by an ai server restart",
+    "no space left on device",
+    "failed to establish cdp connection",
+    "path must stay inside the aegis workspace",
+    "network_error",
+    "remote end closed connection",
+)
+_UNRECOVERABLE_ERROR_CODES = {
+    "server_down",
+    "unavailable",
+    "invalid_json",
+    "connection_refused",
+    "disk_full",
+    "workspace_boundary",
+    "unsupported_ai_capability",
+}
+_UNRECOVERABLE_FAILURE_TYPES = {
+    "server_down",
+    "disk_full",
+    "client_error",
+    "schema_mismatch",
+}
+_UNRECOVERABLE_VERIFICATION_STATUSES = {"blocked", "error"}
+
+
+def _task_metadata(task: dict[str, Any]) -> dict[str, Any]:
+    metadata = task.get("metadata") or {}
+    return metadata if isinstance(metadata, dict) else {}
+
+
+def _primary_capability(task: dict[str, Any]) -> str:
     steps = task.get("steps") if isinstance(task.get("steps"), list) else []
     for step in steps:
         if isinstance(step, dict) and step.get("capability_id"):
-            capability = str(step.get("capability_id"))
-            break
-    if not capability:
-        capability = str(task.get("capability_id") or task.get("source") or "task")
-    # Stabilize noisy prefixes while keeping distinct failure families separate.
-    for marker in (
-        "browserstartevent",
-        "completion verification failed",
-        "http execution error: timed out",
-        "invalid json from pc server",
-        "interrupted by an ai server restart",
-        "dev server grpc error: unavailable",
-        "no space left on device",
-        "failed to establish cdp connection",
-        "path must stay inside the aegis workspace",
-        "network_error",
-        "remote end closed connection",
-    ):
+            return str(step.get("capability_id"))
+    metadata = _task_metadata(task)
+    auto = metadata.get("autonomous_task") if isinstance(metadata.get("autonomous_task"), dict) else {}
+    return str(
+        task.get("capability_id")
+        or auto.get("capability_id")
+        or task.get("source")
+        or "task"
+    )
+
+
+def _normalized_fragment(value: Any) -> str:
+    return " ".join(str(value or "").strip().lower().split())
+
+
+def _completion_verification(task: dict[str, Any]) -> dict[str, Any]:
+    steps = task.get("steps") if isinstance(task.get("steps"), list) else []
+    for step in steps:
+        if not isinstance(step, dict):
+            continue
+        result = step.get("result") if isinstance(step.get("result"), dict) else {}
+        verification = result.get("completion_verification") if isinstance(result, dict) else {}
+        if isinstance(verification, dict) and verification:
+            return verification
+    return {}
+
+
+def _goal_verification(task: dict[str, Any]) -> list[dict[str, Any]]:
+    goal_graph = task.get("goal_graph") or {}
+    if not isinstance(goal_graph, dict):
+        return []
+    return [item for item in (goal_graph.get("verification") or []) if isinstance(item, dict)]
+
+
+def _structured_incident_fingerprint(task: dict[str, Any]) -> str:
+    capability = _primary_capability(task)
+    verification = _completion_verification(task)
+    if verification:
+        status = _normalized_fragment(verification.get("status"))
+        repair_hint = _normalized_fragment(verification.get("repair_hint"))
+        if status or repair_hint:
+            return f"{capability}:completion:{status or 'unknown'}:{repair_hint or 'none'}"
+    checks = _goal_verification(task)
+    if checks:
+        status_counts: dict[str, int] = {}
+        criteria: list[str] = []
+        for item in checks[:3]:
+            status = _normalized_fragment(item.get("status")) or "unknown"
+            status_counts[status] = status_counts.get(status, 0) + 1
+            criterion = _normalized_fragment(item.get("criterion"))
+            if criterion:
+                criteria.append(criterion[:40])
+        if status_counts:
+            status_key = ",".join(f"{key}:{status_counts[key]}" for key in sorted(status_counts))
+            criterion_key = "|".join(criteria) or "goal_verification"
+            return f"{capability}:goal:{status_key}:{criterion_key}"
+    metadata = _task_metadata(task)
+    auto = metadata.get("autonomous_task") if isinstance(metadata.get("autonomous_task"), dict) else {}
+    if auto:
+        generated_by = _normalized_fragment(auto.get("generated_by"))
+        kind = _normalized_fragment(auto.get("kind"))
+        if generated_by or kind:
+            return f"{capability}:autonomous:{generated_by or 'unknown'}:{kind or 'task'}"
+    return ""
+
+
+def _structured_unrecoverable(task: dict[str, Any]) -> bool:
+    verification = _completion_verification(task)
+    if verification:
+        if _normalized_fragment(verification.get("status")) in _UNRECOVERABLE_VERIFICATION_STATUSES:
+            return True
+        if _normalized_fragment(verification.get("failure_type")) in _UNRECOVERABLE_FAILURE_TYPES:
+            return True
+    checks = _goal_verification(task)
+    if checks and all(_normalized_fragment(item.get("status")) == "blocked" for item in checks):
+        return True
+    steps = task.get("steps") if isinstance(task.get("steps"), list) else []
+    for step in steps:
+        if not isinstance(step, dict):
+            continue
+        result = step.get("result") if isinstance(step.get("result"), dict) else {}
+        error_code = _normalized_fragment(result.get("error_code") or result.get("failure_type"))
+        if error_code in _UNRECOVERABLE_ERROR_CODES:
+            return True
+    return False
+
+
+def _incident_fingerprint(task: dict[str, Any]) -> str:
+    """Normalize a failed task into a collapse key for duplicate incident cleanup."""
+    capability = _primary_capability(task)
+    structured = _structured_incident_fingerprint(task)
+    if structured:
+        return structured
+    error = _normalized_fragment(task.get("error") or task.get("goal") or task.get("title"))
+    for marker in _LEGACY_INCIDENT_MARKERS:
         if marker in error:
             return f"{capability}:{marker}"
-    compact = " ".join(error.split())[:160]
-    return f"{capability}:{compact or 'unknown'}"
+    return f"{capability}:{error[:160] or 'unknown'}"
 
 
-def _is_unrecoverable_incident(error: str) -> bool:
+def _is_unrecoverable_incident(error: str | dict[str, Any]) -> bool:
     """Return True when retrying the same failure cannot make progress without external change."""
-    text = (error or "").strip().lower()
+    if isinstance(error, dict):
+        if _structured_unrecoverable(error):
+            return True
+        text = _normalized_fragment(error.get("error") or error.get("goal") or error.get("title"))
+    else:
+        text = _normalized_fragment(error)
     if not text:
         return False
     markers = (
         "browserstartevent",
         "interrupted by an ai server restart",
-        "dev server grpc error: unavailable",
-        "errors resolving dev-server",
         "no space left on device",
         "invalid json from pc server",
         "failed to establish cdp connection",
@@ -94,11 +206,12 @@ def _is_unrecoverable_incident(error: str) -> bool:
 
 
 _VALID_TRANSITIONS: dict[str, set[str]] = {
+    "pending": {"created", "running", "cancelled", "expired"},
     "created": {"planning", "running", "cancelled", "expired"},
     "planning": {"running", "cancelled", "failed"},
-    "running": {"waiting_approval", "paused", "completed", "failed", "cancelled"},
-    "waiting_approval": {"running", "cancelled", "failed", "expired"},
+    "running": {"paused", "blocked", "completed", "failed", "cancelled"},
     "paused": {"running", "cancelled", "failed"},
+    "blocked": {"running", "cancelled", "failed", "expired"},
     "completed": set(),
     "failed": set(),
     "cancelled": set(),
@@ -106,9 +219,8 @@ _VALID_TRANSITIONS: dict[str, set[str]] = {
 }
 
 _VALID_STEP_TRANSITIONS: dict[str, set[str]] = {
-    "pending": {"running", "needs_approval", "cancelled"},
-    "running": {"completed", "failed", "requires_observation", "needs_approval", "cancelled"},
-    "needs_approval": {"running", "cancelled", "failed"},
+    "pending": {"running", "cancelled"},
+    "running": {"completed", "failed", "requires_observation", "cancelled"},
     "requires_observation": {"pending", "running", "failed", "cancelled"},
     "completed": set(),
     "failed": {"pending"},
@@ -176,7 +288,6 @@ class TaskManager:
             "completed_at": 0,
             "current_step": 0,
             "steps": [],
-            "related_approval_id": "",
             "related_llm_request_id": "",
             "related_event_ids": [],
             "error": "",
@@ -187,9 +298,8 @@ class TaskManager:
             "incident_status": "",
             "priority": priority,
             "plan_json": "",
+            "metadata": {},
             "current_step_id": "",
-            "waiting_approval_step_id": "",
-            "waiting_approval_id": "",
         }
         with self._lock:
             self._tasks[task_id] = task
@@ -214,37 +324,6 @@ class TaskManager:
             self._save()
         return task
 
-    def wait_for_approval(self, task_id: str, step_id: str = "", approval_id: str = "") -> dict[str, Any] | None:
-        """Transition to waiting_approval and link approval.
-
-        If step_id is provided, also marks that step as needs_approval.
-        """
-        with self._lock:
-            task = self._tasks.get(task_id)
-            if task is None:
-                return None
-            task["related_approval_id"] = approval_id
-            if step_id:
-                step = self._find_step(task, step_id)
-                if step is not None:
-                    step["status"] = "needs_approval"
-                    step["approval_id"] = approval_id
-        return self._transition(task_id, TaskStatus.WAITING_APPROVAL)
-
-    def resume_after_approval(self, task_id: str, step_id: str = "") -> dict[str, Any] | None:
-        """Resume task after approval granted.
-
-        If step_id is provided, also marks that step as running.
-        """
-        with self._lock:
-            task = self._tasks.get(task_id)
-            if task is not None and step_id:
-                step = self._find_step(task, step_id)
-                if step is not None:
-                    step["status"] = "running"
-                    self._save()
-        return self._transition(task_id, TaskStatus.RUNNING)
-
     def complete_task(self, task_id: str, result_summary: str = "") -> dict[str, Any] | None:
         """Complete a task."""
         with self._lock:
@@ -254,6 +333,59 @@ class TaskManager:
             task["result_summary"] = result_summary
             task["completed_at"] = int(time.time() * 1000)
             task["incident_status"] = "resolved"
+        return self._transition(task_id, TaskStatus.COMPLETED)
+
+    def complete_task_with_agent_result(
+        self,
+        task_id: str,
+        agent_result: Any,
+    ) -> dict[str, Any] | None:
+        """Phase 3: `AgentResult` を受けて task を完了する.
+
+        `summary` を `result_summary` に保存し、`usage` などの agent 固有情報は
+        `task["metadata"]["agent_result"]` に dict で保存する。
+        `actions` は step の result に既に書き込まれている前提.
+        """
+        with self._lock:
+            task = self._tasks.get(task_id)
+            if task is None:
+                return None
+            task["result_summary"] = str(getattr(agent_result, "summary", "") or "")
+            task["completed_at"] = int(time.time() * 1000)
+            task["incident_status"] = "resolved"
+
+            metadata = dict(task.get("metadata") or {})
+            try:
+                actions = list(getattr(agent_result, "actions", []) or [])
+                artifacts = list(getattr(agent_result, "artifacts", []) or [])
+                errors = list(getattr(agent_result, "errors", []) or [])
+                follow_ups = list(getattr(agent_result, "suggested_follow_ups", []) or [])
+                usage_obj = getattr(agent_result, "usage", None)
+                usage = (
+                    {
+                        "input_tokens": getattr(usage_obj, "input_tokens", 0),
+                        "output_tokens": getattr(usage_obj, "output_tokens", 0),
+                        "cache_hit_tokens": getattr(usage_obj, "cache_hit_tokens", 0),
+                        "cost_usd": getattr(usage_obj, "cost_usd", 0.0),
+                        "model": getattr(usage_obj, "model", ""),
+                        "provider": getattr(usage_obj, "provider", ""),
+                        "tool_call_count": getattr(usage_obj, "tool_call_count", 0),
+                        "duration_ms": getattr(usage_obj, "duration_ms", 0),
+                    }
+                    if usage_obj is not None
+                    else {}
+                )
+                metadata["agent_result"] = {
+                    "status": str(getattr(agent_result, "status", "")),
+                    "action_count": len(actions),
+                    "artifact_count": len(artifacts),
+                    "error_count": len(errors),
+                    "follow_ups": follow_ups,
+                    "usage": usage,
+                }
+            except Exception:  # noqa: BLE001
+                logger.debug("failed to embed agent_result into task metadata", exc_info=True)
+            task["metadata"] = metadata
         return self._transition(task_id, TaskStatus.COMPLETED)
 
     def save_goal_graph(self, task_id: str, goal_graph: dict[str, Any]) -> bool:
@@ -266,6 +398,19 @@ class TaskManager:
             task["updated_at"] = int(time.time() * 1000)
             self._save()
         return True
+
+    def merge_metadata(self, task_id: str, patch: dict[str, Any]) -> dict[str, Any] | None:
+        """Merge metadata into a task and persist it."""
+        with self._lock:
+            task = self._tasks.get(task_id)
+            if task is None:
+                return None
+            metadata = dict(task.get("metadata") or {})
+            metadata.update(dict(patch or {}))
+            task["metadata"] = metadata
+            task["updated_at"] = int(time.time() * 1000)
+            self._save()
+            return task
 
     def fail_task(self, task_id: str, error: str = "") -> dict[str, Any] | None:
         """Fail a task."""
@@ -346,10 +491,9 @@ class TaskManager:
                 )
                 for index, task in enumerate(group):
                     task_id = str(task.get("task_id") or "")
-                    error = str(task.get("error") or task.get("goal") or "")
                     updated_at = int(task.get("updated_at") or task.get("created_at") or 0)
                     reason = ""
-                    if _is_unrecoverable_incident(error):
+                    if _is_unrecoverable_incident(task):
                         reason = "auto_resolved_unrecoverable"
                     elif updated_at and now - updated_at > max_age_ms:
                         reason = "auto_resolved_stale_age"
@@ -396,10 +540,6 @@ class TaskManager:
     def list_running(self) -> list[dict[str, Any]]:
         """List running tasks."""
         return self.list_tasks(status=TaskStatus.RUNNING.value)
-
-    def list_waiting_approval(self) -> list[dict[str, Any]]:
-        """List tasks waiting for approval."""
-        return self.list_tasks(status=TaskStatus.WAITING_APPROVAL.value)
 
     # ── Step-level API ─────────────────────────────────────────
 
@@ -490,27 +630,6 @@ class TaskManager:
             if task is None:
                 return ""
             return task.get("plan_json", "")
-
-    def set_waiting_approval(self, task_id: str, step_id: str, approval_id: str) -> bool:
-        with self._lock:
-            task = self._tasks.get(task_id)
-            if task is None:
-                return False
-            task["waiting_approval_step_id"] = step_id
-            task["waiting_approval_id"] = approval_id
-            task["current_step_id"] = step_id
-            self._save()
-        return True
-
-    def get_waiting_approval_info(self, task_id: str) -> dict[str, str]:
-        with self._lock:
-            task = self._tasks.get(task_id)
-            if task is None:
-                return {}
-            return {
-                "step_id": task.get("waiting_approval_step_id", ""),
-                "approval_id": task.get("waiting_approval_id", ""),
-            }
 
     def set_current_step(self, task_id: str, step_id: str) -> bool:
         with self._lock:

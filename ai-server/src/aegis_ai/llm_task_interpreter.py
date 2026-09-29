@@ -60,21 +60,19 @@ Analyze the user's message and produce a structured task plan.
       "capability_id": "Use one canonical ID from Available Capabilities",
       "params": {{{{}}}},
       "risk_category": "READ|DRAFT|OBSERVE|EXTERNAL_SEND|DEVICE_ACTION|PAYMENT|BLOCKED",
-      "requires_approval": false,
       "expected_result": "What should happen",
       "depends_on": [],
       "delegation_context": {{{{
         "operation_category": "general|external_send|social_communication|payment|physical_device|system_change",
-        "scope": "aegis|user|system|external",
+        "scope": "aegis|user|system|external|unknown",
         "audience": "private|shared|public|third_party",
         "content_sensitivity": "normal|personal|confidential|secret",
-        "reversibility": "reversible|difficult|irreversible"
+        "reversibility": "reversible|difficult|irreversible|unknown"
       }}}}
     }}}}
   ],
   "required_capabilities": ["List of capability IDs needed"],
   "risk_notes": ["Any risk considerations"],
-  "approval_needed": false,
   "stop_conditions": ["When to stop"],
   "expected_result": "Overall expected outcome",
   "verification_plan": "How to verify success",
@@ -94,12 +92,15 @@ Analyze the user's message and produce a structured task plan.
 }}}}
 
 ## Safety Rules
-- READ operations (web pages, owned accounts, notifications) -> allowed, no approval
-- DRAFT operations (create drafts, write locally) -> allowed, no approval
-- OBSERVE operations (screenshot, window list) -> allowed, no approval
-- EXTERNAL_SEND (post, DM, email, publish) -> requires approval
-- DEVICE_ACTION (mouse, keyboard, physical control) -> requires approval
-- PAYMENT (purchase, subscribe) -> requires explicit approval
+Nothing forces a confirmation before a capability runs. Asking the user is AEGIS's own
+choice, so classify honestly and let AEGIS decide whether a question is warranted.
+
+- READ operations (web pages, owned accounts, notifications) -> allowed
+- DRAFT operations (create drafts, write locally) -> allowed
+- OBSERVE operations (screenshot, window list) -> allowed
+- EXTERNAL_SEND (post, DM, email, publish) -> allowed, but higher impact; AEGIS may ask first
+- DEVICE_ACTION (mouse, keyboard, physical control) -> allowed, but higher impact; AEGIS may ask first
+- PAYMENT (purchase, subscribe) -> DENIED by the delegation policy. That is a deny, not a question
 - CAPTCHA bypass, bot evasion, stealth -> BLOCKED
 - Spam, bulk operations -> BLOCKED
 
@@ -128,12 +129,18 @@ class LLMTaskInterpreter:
         capability_registry: Any = None,
         capability_catalog: Any = None,
         capability_retriever: Any = None,
+        delegation_store: Any = None,
     ) -> None:
         self._llm = llm_provider
         self._context = context_builder
         self._catalog = capability_catalog
         self._retriever = capability_retriever
         self._registry = capability_registry
+        # Owns the delegation dimension vocabulary (scope / audience /
+        # content_sensitivity / reversibility). Optional: without a store the
+        # plan simply proceeds, which is exactly what "no rule matched" already
+        # meant. See PHASE5B_RULE_PROPOSAL.md.
+        self._delegation_store = delegation_store
 
     def interpret(self, user_message: str, context_str: str = "") -> TaskPlan:
         """Interpret user message into a TaskPlan."""
@@ -201,7 +208,6 @@ class LLMTaskInterpreter:
             assumptions=data.get("assumptions", []),
             required_context=data.get("required_context", []),
             risk_notes=data.get("risk_notes", []),
-            approval_needed=data.get("approval_needed", False),
             stop_conditions=data.get("stop_conditions", []),
             expected_result=data.get("expected_result", ""),
             verification_plan=data.get("verification_plan", ""),
@@ -267,51 +273,84 @@ class LLMTaskInterpreter:
             return RiskCategory.READ
 
     def _validate_safety(self, plan: TaskPlan) -> None:
-        """Validate the LLM plan against manifest-backed capability policy."""
+        """Annotate the LLM plan against manifest-backed capability policy.
+
+        **Nothing here asks the user, and nothing here blocks except a
+        capability the operator switched off.** Approval is not a constraint
+        (2026-09-27), and the five branches that used to set ``approval_needed``
+        (manifest ``requires_approval``, high risk, ``EXTERNAL_SEND``,
+        ``DEVICE_ACTION``, ``PAYMENT``) were already inert: no enforcement point
+        read the flag, so they were dead weight that *read* as a gate. They are
+        gone — see ``PHASE5B_RULE_PROPOSAL.md``.
+
+        What remains is two things:
+
+        * **A deny, not an approval.** ``enabled: false`` marks the step
+          ``BLOCKED``, and ``InteractionRouter`` refuses the whole plan on that.
+          A disabled capability is an operator decision, not a question.
+          Risk labels are deliberately *not* a deny axis.
+        * **Annotations.** Everything else lands in ``plan.risk_notes`` for the
+          post-hoc irreversibility ledger, which is the only visibility the
+          owner asked to keep.
+
+        Delegation is decided by ``DelegationPolicyStore``, which owns the
+        dimension vocabulary. This method must not re-interpret ``scope`` /
+        ``audience`` / ``content_sensitivity`` / ``reversibility``: duplicating
+        those sets here is how the policy came to live in two places.
+        """
         for step in plan.steps:
             capability = self._catalog.resolve(step.capability_id) if self._catalog and step.capability_id else None
             if capability is not None:
                 risk = str(getattr(capability, "risk_level", "low")).lower()
-                requires_approval = bool(getattr(capability, "requires_approval", False))
-                enabled = bool(getattr(capability, "enabled", True))
-                if not enabled or risk in {"forbidden", "blocked"}:
+                if not bool(getattr(capability, "enabled", True)):
+                    # The only structural stop left in this method.
                     step.risk_category = RiskCategory.BLOCKED
-                    step.requires_approval = True
-                    plan.risk_notes.append(f"Policy blocks {step.capability_id}")
-                elif requires_approval or risk in {"approval_required", "high", "critical"}:
-                    step.requires_approval = True
-                    plan.approval_needed = True
+                    plan.risk_notes.append(f"Capability disabled: {step.capability_id}")
+                elif risk in {"approval_required", "high", "critical"}:
+                    # Annotation only. Nothing reads this as a gate any more.
+                    plan.risk_notes.append(f"High-risk capability: {step.capability_id} (risk={risk})")
 
-            delegation = dict(step.delegation_context or {})
-            if (
-                str(delegation.get("scope") or "") in {"user", "system", "external"}
-                or str(delegation.get("audience") or "") in {
-                    "shared",
-                    "public",
-                    "third_party",
-                }
-                or str(delegation.get("content_sensitivity") or "")
-                in {"personal", "confidential", "secret"}
-                or str(delegation.get("reversibility") or "")
-                in {"difficult", "irreversible"}
-            ):
-                step.requires_approval = True
-                plan.approval_needed = True
+            decision = self._evaluate_delegation(step)
+            if decision is not None:
+                if decision.decision == "forbidden":
+                    step.risk_category = RiskCategory.BLOCKED
+                    plan.risk_notes.append(
+                        f"Delegation policy denies {step.capability_id}: {decision.reason}"
+                    )
+                elif decision.rule_id:
+                    plan.risk_notes.append(
+                        f"Delegation policy allowed {step.capability_id} ({decision.rule_id})"
+                    )
 
-            # External send always needs approval
-            if step.risk_category == RiskCategory.EXTERNAL_SEND:
-                step.requires_approval = True
-                plan.approval_needed = True
+    def _evaluate_delegation(self, step: Any) -> Any:
+        """Ask the delegation policy store about ``step``, if one is attached.
 
-            # Device action always needs approval
-            if step.risk_category == RiskCategory.DEVICE_ACTION:
-                step.requires_approval = True
-                plan.approval_needed = True
+        Mirrors the enrichment ``ToolBroker.execute`` performs — the manifest's
+        ``operation_category`` and ``ownership_scope`` fill gaps the plan did not
+        declare — so the plan-level verdict and the execution-level verdict
+        cannot disagree about the same step.
 
-            # Payment always requires explicit approval; it is not a permanent deny.
-            if step.risk_category == RiskCategory.PAYMENT:
-                step.requires_approval = True
-                plan.approval_needed = True
+        Returns ``None`` when there is no store (or no capability to evaluate),
+        in which case the plan proceeds: the same outcome as "no rule matched",
+        which is what ``evaluate()`` itself falls through to.
+        """
+        store = self._delegation_store
+        if store is None or not step.capability_id:
+            return None
+        declared = dict(step.delegation_context or {})
+        capability = self._catalog.resolve(step.capability_id) if self._catalog else None
+        if capability is not None:
+            operation_category = str(getattr(capability, "operation_category", "") or "")
+            ownership_scope = str(getattr(capability, "ownership_scope", "") or "")
+            if operation_category:
+                declared.setdefault("operation_category", operation_category)
+            if ownership_scope:
+                declared.setdefault("scope", ownership_scope)
+        try:
+            return store.evaluate(step.capability_id, operation_context=declared)
+        except Exception:
+            logger.debug("Delegation evaluation failed for %s", step.capability_id, exc_info=True)
+            return None
 
     def _build_context(self) -> str:
         """Build context string from ContextBuilder."""

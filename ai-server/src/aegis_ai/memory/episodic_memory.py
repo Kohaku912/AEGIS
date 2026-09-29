@@ -19,6 +19,8 @@ import os
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
+
+from aegis_ai.memory.retrieval_scoring import combined_text_score, recency_bonus
 from typing import Any
 
 logger = logging.getLogger("aegis_ai.memory.episodic_memory")
@@ -191,17 +193,17 @@ class EpisodicMemory:
         return sorted(self._episodes, key=lambda e: e.importance, reverse=True)[:count]
 
     def recall_similar(self, query: str, count: int = 5) -> list[Episode]:
-        """Recall episodes similar to query (keyword matching)."""
-        q = query.lower()
+        """Recall episodes similar to query using lightweight semantic scoring."""
         scored: list[tuple[float, Episode]] = []
         for ep in self._episodes:
-            text = f"{ep.action} {ep.observation} {ep.summary} {ep.lesson} {' '.join(ep.tags)}".lower()
-            score = sum(1 for word in q.split() if word in text)
+            score = combined_text_score(
+                query,
+                texts=[ep.action, ep.observation, ep.summary, ep.lesson, " ".join(ep.tags)],
+                importance=ep.importance,
+                timestamp_ms=int(ep.timestamp_ms or 0),
+            )
             if score > 0:
-                # Recency bonus
-                age_hours = (time.time() * 1000 - ep.timestamp_ms) / 3_600_000
-                recency = max(0, 1.0 - age_hours / 168)
-                score += recency * 0.5 + ep.importance * 0.3
+                score += recency_bonus(int(ep.timestamp_ms or 0), half_life_hours=168.0) * 0.5 + ep.importance * 0.3
                 scored.append((score, ep))
         scored.sort(key=lambda x: x[0], reverse=True)
         return [ep for _, ep in scored[:count]]

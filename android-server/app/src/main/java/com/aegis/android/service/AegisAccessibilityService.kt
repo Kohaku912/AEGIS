@@ -8,6 +8,8 @@ import com.aegis.android.grpc.AegisGrpcClient
 import com.aegis.android.provider.ScreenshotProvider
 import com.aegis.android.provider.UITreeProvider
 import com.aegis.android.provider.UserActivityCollector
+import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * AccessibilityService for AEGIS Android.
@@ -43,6 +45,13 @@ class AegisAccessibilityService : AccessibilityService() {
     private var lastPersonalDataPushMs: Long = 0L
     private var lastScrollPushMs: Long = 0L
     private var lastScreenshotPushMs: Long = 0L
+
+    // ScreenshotProvider.captureScreenshot() blocks while waiting for a frame
+    // (up to ~2s of Thread.sleep). onAccessibilityEvent() runs on the main
+    // thread, so the capture must be handed to a background executor or the UI
+    // freezes and Android raises an ANR.
+    private val screenshotExecutor = Executors.newSingleThreadExecutor()
+    private val screenshotInFlight = AtomicBoolean(false)
 
     override fun onServiceConnected() {
         super.onServiceConnected()
@@ -88,6 +97,7 @@ class AegisAccessibilityService : AccessibilityService() {
     override fun onDestroy() {
         super.onDestroy()
         instance = null
+        screenshotExecutor.shutdownNow()
         Log.i(TAG, "AccessibilityService destroyed")
     }
 
@@ -162,17 +172,21 @@ class AegisAccessibilityService : AccessibilityService() {
         }
 
         if (eventType == "android.screen.transition" && now - lastScreenshotPushMs >= SCREENSHOT_THROTTLE_MS) {
-            try {
-                if (screenshotProvider.isAvailable()) {
-                    val shot = screenshotProvider.captureScreenshot()
-                    val b64 = shot?.imageBase64.orEmpty()
-                    if (b64.isNotBlank()) {
-                        payload.put("screenshot_jpeg_base64", b64)
-                        lastScreenshotPushMs = now
+            // Capture + push on a background thread; never block onAccessibilityEvent().
+            if (screenshotInFlight.compareAndSet(false, true)) {
+                screenshotExecutor.execute {
+                    try {
+                        attachScreenshot(payload)
+                    } finally {
+                        screenshotInFlight.set(false)
+                        AegisGrpcClient.current()?.pushPersonalData(eventType, payload.toString())
                     }
                 }
-            } catch (exc: Exception) {
-                Log.d(TAG, "screenshot on transition skipped", exc)
+                try {
+                    source?.recycle()
+                } catch (_: Exception) {
+                }
+                return
             }
         }
 
@@ -180,6 +194,20 @@ class AegisAccessibilityService : AccessibilityService() {
         try {
             source?.recycle()
         } catch (_: Exception) {
+        }
+    }
+
+    /** Attach a screenshot to [payload]. Runs on [screenshotExecutor], never the main thread. */
+    private fun attachScreenshot(payload: org.json.JSONObject) {
+        try {
+            if (!screenshotProvider.isAvailable()) return
+            val b64 = screenshotProvider.captureScreenshot()?.imageBase64.orEmpty()
+            if (b64.isNotBlank()) {
+                payload.put("screenshot_jpeg_base64", b64)
+                lastScreenshotPushMs = System.currentTimeMillis()
+            }
+        } catch (exc: Exception) {
+            Log.d(TAG, "screenshot on transition skipped", exc)
         }
     }
 

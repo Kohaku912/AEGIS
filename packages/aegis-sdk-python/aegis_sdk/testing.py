@@ -22,6 +22,16 @@ from policy_engine import PolicyDecision, create_default_policy_engine
 from tool_broker import ToolBroker
 from tool_registry import ToolRegistry
 
+# ``ASK_APPROVAL`` was removed on 2026-09-27, so the decision space is now
+# ALLOW / ALLOW_WITH_AUDIT / DENY / UNAVAILABLE. Both ALLOW and
+# ALLOW_WITH_AUDIT execute — ALLOW_WITH_AUDIT only records the detail.
+_EXPECTED_STATUS_BY_DECISION: dict[PolicyDecision, str] = {
+    PolicyDecision.ALLOW: "SUCCESS",
+    PolicyDecision.ALLOW_WITH_AUDIT: "SUCCESS",
+    PolicyDecision.DENY: "DENIED",
+    PolicyDecision.UNAVAILABLE: "UNAVAILABLE",
+}
+
 
 class MockAEGISCore:
     """Simulates AEGIS Core for testing capability servers.
@@ -39,7 +49,6 @@ class MockAEGISCore:
         self.event_bus = EventBus()
         self.policy = create_default_policy_engine()
         self.broker = ToolBroker(self.registry, self.policy)
-        self.approval_store = self.policy.approval_store
 
     def register_server(self, server_info: ServerInfo) -> None:
         self.registry.register_server(server_info)
@@ -64,13 +73,6 @@ class MockAEGISCore:
 
     def get_recent_events(self, n: int = 50) -> list[Event]:
         return self.event_bus.list_recent_events(n)
-
-    def get_pending_approvals(self) -> list[Any]:
-        return self.approval_store.get_pending()
-
-    def approve(self, approval_id: str) -> bool:
-        from approval import ApprovalType
-        return self.approval_store.approve(approval_id, ApprovalType.ONE_TIME)
 
 
 def run_capability_registration_check(
@@ -128,24 +130,19 @@ def run_policy_flow_check(
     result = core.invoke_capability(capability.id)
 
     actual_status = result.get("status")
-    result.get("policy_decision")
 
-    # For ALLOW, the status should be SUCCESS
-    if expected_decision == PolicyDecision.ALLOW:
-        if actual_status != "SUCCESS":
-            errors.append(
-                f"Expected SUCCESS for '{capability.id}', got {actual_status}"
-            )
-    elif expected_decision == PolicyDecision.ASK_APPROVAL:
-        if actual_status != "APPROVAL_NEEDED":
-            errors.append(
-                f"Expected APPROVAL_NEEDED for '{capability.id}', got {actual_status}"
-            )
-    elif expected_decision == PolicyDecision.DENY:
-        if actual_status != "DENIED":
-            errors.append(
-                f"Expected DENIED for '{capability.id}', got {actual_status}"
-            )
+    expected_status = _EXPECTED_STATUS_BY_DECISION.get(expected_decision)
+    if expected_status is None:
+        errors.append(
+            f"Unsupported expected_decision {expected_decision!r}; known values: "
+            f"{sorted(decision.name for decision in _EXPECTED_STATUS_BY_DECISION)}"
+        )
+        return errors
+
+    if actual_status != expected_status:
+        errors.append(
+            f"Expected {expected_status} for '{capability.id}', got {actual_status}"
+        )
 
     return errors
 

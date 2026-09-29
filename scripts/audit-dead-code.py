@@ -5,8 +5,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from audit_common import ROOT, parse_args, run_command, write_json, write_markdown, Finding
-
+from audit_common import ROOT, Finding, parse_args, run_command, write_json, write_markdown
 
 DEAD_FILE_NAMES = {
     "tmp_audit.py",

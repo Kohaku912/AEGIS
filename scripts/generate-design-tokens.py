@@ -6,11 +6,23 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[1]
 TOKENS = ROOT / "design-tokens" / "tokens.json"
 WEB_CSS = ROOT / "web-ui" / "src" / "styles" / "tokens.css"
-ANDROID_COLORS = ROOT / "android-server" / "app" / "src" / "main" / "java" / "com" / "aegis" / "android" / "ui" / "designsystem" / "GeneratedTokens.kt"
+ANDROID_COLORS = (
+    ROOT
+    / "android-server"
+    / "app"
+    / "src"
+    / "main"
+    / "java"
+    / "com"
+    / "aegis"
+    / "android"
+    / "ui"
+    / "designsystem"
+    / "GeneratedTokens.kt"
+)
 CONTRAST_REPORT = ROOT / "design-tokens" / "contrast-report.json"
 
 

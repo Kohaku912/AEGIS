@@ -21,7 +21,9 @@ import logging
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
+
+from aegis_ai.llm.json_utils import extract_json_object
 
 logger = logging.getLogger("aegis_ai.desire.desire_system")
 
@@ -204,7 +206,7 @@ class DesireSystem:
 
     # Old desire name → new desire name mapping for migration.
     # None means the old desire is removed (now a health alert).
-    _OLD_KEY_MAP: dict[str, str | None] = {
+    _OLD_KEY_MAP: ClassVar[dict[str, str | None]] = {
         "user_helpfulness": "user_support",
         "social_connection": "social",
         "social_connectivity": "social",
@@ -572,21 +574,7 @@ class DesireSystem:
             return {"error": f"LLM evaluation failed: {result.error}"}
 
         try:
-            import re
-
-            clean = result.content.strip()
-            if clean.startswith("```"):
-                lines = clean.split("\n")
-                clean = "\n".join(lines[1:])
-                if clean.endswith("```"):
-                    clean = clean[:-3]
-                clean = clean.strip()
-
-            json_match = re.search(r"\{[^{}]*\{[^{}]*\}[^{}]*\}", clean)
-            if json_match:
-                clean = json_match.group(0)
-
-            data = json.loads(clean)
+            data = extract_json_object(result.content)
             updates = data.get("desire_updates", {})
 
             applied: dict[str, Any] = {}

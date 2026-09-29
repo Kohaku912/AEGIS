@@ -15,6 +15,7 @@ Architecture:
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 import os
@@ -173,6 +174,73 @@ def _patch_browser_use_models():
     _models_patched = True
 
 
+def _declared_targets(task: Any) -> list[str]:
+    """Return the navigation targets a task declares, in the order given.
+
+    Targets are ``target_domains`` plus any ``http(s)://`` token in the goal text.
+    Kept in one place because the pre-flight check and the per-navigation allowlist
+    must see the same set: two derivations would be a second source of truth, and the
+    one that drifts is always the one nobody re-reads.
+    """
+    candidates: list[str] = [str(d) for d in (getattr(task, "target_domains", None) or [])]
+    goal = str(getattr(task, "natural_language_goal", "") or "")
+    for token in goal.replace("(", " ").replace(")", " ").split():
+        if token.startswith(("http://", "https://")):
+            candidates.append(token.rstrip(".,;"))
+    return candidates
+
+
+def _navigation_egress_denied(task: Any) -> str:
+    """Return a refusal reason when a task would navigate outside the environment.
+
+    Browser automation is external by nature. Under the single constraint it is
+    denied unless the owner has explicitly enabled external egress *and* the target
+    host is allowlisted. Targets are taken from ``target_domains`` and any URLs
+    found in the goal text. When no target can be determined we fail closed.
+
+    This covers only the targets a task *declares*. What happens once the browser is
+    running — a followed link, a redirect — is covered by ``allowed_domains`` on the
+    profile, built from the same :func:`_declared_targets`.
+
+    Returns an empty string when the task may proceed.
+    """
+    from aegis_browser.egress import EgressRequest, classify_destination, egress_allowed, external_egress_enabled
+
+    candidates = _declared_targets(task)
+
+    # Every declared target must be either local or explicitly permitted. Anything
+    # that is not provably local (external *or* unclassifiable) is checked by the
+    # gate, which fails closed.
+    for target in candidates:
+        if classify_destination(target) == "local":
+            continue
+        if not egress_allowed(
+            EgressRequest(
+                destination=target,
+                purpose="web.navigate",
+                component="browser_use_agent.navigate",
+                data_summary="page navigation target",
+            )
+        ):
+            return (
+                f"Egress denied for navigation target {target}. "
+                "The user's information must not leave the local environment."
+            )
+
+    if candidates:
+        # Targets were found and all of them are permitted.
+        return ""
+
+    if not external_egress_enabled():
+        # No target could be determined — fail closed rather than browse blind.
+        return (
+            "External browser navigation is disabled (single constraint) and no local "
+            "target could be determined. Set AEGIS_EXTERNAL_EGRESS_ALLOWED=1 with "
+            "AEGIS_EGRESS_ALLOWED_HOSTS to permit specific external hosts."
+        )
+    return ""
+
+
 class BrowserUseAgent:
     """Executes browser tasks using browser-use.
 
@@ -279,10 +347,8 @@ class BrowserUseAgent:
         finally:
             self._running = False
             # Save trace
-            try:
+            with contextlib.suppress(Exception):
                 trace.save()
-            except Exception:
-                pass
 
         return result
 
@@ -365,6 +431,28 @@ class BrowserUseAgent:
         )
         model = os.environ.get("LLM_MODEL") or llm_config.get("model", "deepseek-v4-flash")
 
+        # ── Egress gate (the single constraint) ────────────────────────────────
+        # The browser LLM receives page content, which is user information. It must
+        # never reach a cloud endpoint. Fail closed.
+        from aegis_browser.egress import EgressRequest, egress_allowed, navigation_allowlist
+
+        if not egress_allowed(
+            EgressRequest(
+                destination=base_url,
+                purpose="llm.chat",
+                component="browser_use_agent.llm",
+                data_summary="page content and task prompt",
+            )
+        ):
+            return {
+                "text": (
+                    f"Error: egress denied for the browser LLM endpoint ({base_url}). "
+                    "The user's information must not leave the local environment. "
+                    "Point the browser server at a local model (e.g. http://localhost:11434/v1)."
+                ),
+                "data": {},
+            }
+
         if not api_key:
             return {
                 "text": "Error: No API key configured. Set OPENAI_API_KEY or edit browser-server/config.json",
@@ -395,6 +483,15 @@ class BrowserUseAgent:
             channel=self._config.browser_channel,
             user_data_dir=str(self._session.profile_dir),
             traces_dir=self._trace_dir,
+            # ── Per-navigation egress gate (the single constraint) ─────────────
+            # The pre-flight check below vets only the targets this task *declares*.
+            # Once the browser is running the agent can follow a link or a redirect
+            # anywhere. browser-use's SecurityWatchdog vetoes NavigateToUrlEvent before
+            # navigation, re-checks on NavigationCompleteEvent (redirects) and closes
+            # offending tabs — but it only understands these patterns, so the patterns
+            # *are* the gate. They are derived from the same predicate the pre-flight
+            # check uses, so the two halves cannot disagree.
+            allowed_domains=navigation_allowlist(_declared_targets(task)),
         )
         session = BrowserSession(
             id=self._session.session_id,
@@ -402,6 +499,14 @@ class BrowserUseAgent:
         )
 
         full_task = self._build_task_with_safety(task)
+
+        # ── Egress gate (the single constraint) ────────────────────────────────
+        # Checked before a browser is launched so a denied task never opens one.
+        _denied = _navigation_egress_denied(task)
+        if _denied:
+            trace.record("egress_denied", _denied)
+            logger.warning("Browser task refused: %s", _denied)
+            return {"text": f"Error: {_denied}", "data": {}}
 
         temp_dirs_before = self._browser_temp_dirs()
         try:
@@ -598,16 +703,13 @@ class BrowserUseAgent:
 class SafetyStop(Exception):
     """Raised when safety boundary detects a stop condition."""
 
-    pass
 
 
 class ApprovalBoundary(Exception):
     """Raised when an approval boundary is hit."""
 
-    pass
 
 
 class UserInputNeeded(Exception):
     """Raised when user input is needed (password, 2FA)."""
 
-    pass

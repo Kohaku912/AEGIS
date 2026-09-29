@@ -1,5 +1,11 @@
 # AEGIS UI Information Coverage
 
+> ⚠️ **Goal change (2026-09-27)**: the only constraint is now **"the user's information must never
+> leave the local environment."** Approval, reversibility, policy, and reliability-proof are **no
+> longer constraints**. Any "requires approval" / "Level 2" language below is a **risk annotation**,
+> not a gate. See [`GOAL-CHANGE.md`](GOAL-CHANGE.md).
+
+
 Last updated: 2026-07-29
 
 This document tracks the path from Runtime managers to API contracts and UI surfaces. It is intentionally separate from the visual checklist so missing operational data is visible before polishing layout.

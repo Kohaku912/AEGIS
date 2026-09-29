@@ -32,9 +32,10 @@ def test_ingest_keeps_raw_title_and_provenance(tmp_path) -> None:
 
 def test_password_value_is_kept() -> None:
     payload = sanitize_value_payload({"control_name": "Password", "is_password": True, "value": "secret", "keys": ["A"]})
-    assert payload["value"] == "secret"
+    assert payload["value"] == ""
     assert payload["keys"] == ["A"]
     assert payload["control_kind"] == "password"
+    assert payload["classification_hint"] == "secret"
 
 
 def test_replacement_glyphs_are_dropped_from_title(tmp_path) -> None:
@@ -103,6 +104,26 @@ def test_search_and_evidence_roundtrip(tmp_path) -> None:
     fact = core.record_fact("User opened AGORA reply", event_ids=[stored[0]["id"]], evidence_ids=[evidence_id])
     loaded = core.get_event(stored[0]["id"])
     assert any(row["id"] == fact.id or fact.statement in str(row) for row in loaded["facts"]) or loaded["evidence"]
+
+
+def test_event_fact_lookup_matches_exact_event_id(tmp_path) -> None:
+    core = PersonalDataCore(tmp_path)
+    stored = core.ingest_pc_stream([{
+        "event_type": "pc.ui.invoked",
+        "app_name": "chrome",
+        "control_name": "Reply",
+        "timestamp_ms": 1_700_000_000_100,
+    }])
+    event_id = stored[0]["id"]
+    sibling_event_id = f"{event_id}_suffix"
+    core.record_fact("Exact event fact", event_ids=[event_id])
+    core.record_fact("Sibling fact", event_ids=[sibling_event_id])
+
+    loaded = core.get_event(event_id)
+
+    statements = {row["statement"] for row in loaded["facts"]}
+    assert "Exact event fact" in statements
+    assert "Sibling fact" not in statements
 
 
 def test_retention_deletes_expired_evidence(tmp_path) -> None:

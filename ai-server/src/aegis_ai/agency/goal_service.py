@@ -96,6 +96,45 @@ class GoalLifecycleService:
             ),
         )
 
+    def upsert_followup_goal_task(
+        self,
+        user_goal: str,
+        *,
+        source: str,
+        title: str = "",
+        success_condition: str = "",
+        value_to_user: str = "",
+        verification_criterion: str = "",
+        priority: int = 0,
+        dedupe_key: str = "",
+        metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Create or reuse a paused follow-up goal task for durable autonomous backlog."""
+        existing = self._find_open_followup(source=source, dedupe_key=dedupe_key)
+        if existing is not None:
+            if metadata:
+                self._tasks.merge_metadata(existing["task_id"], metadata)
+            return existing
+        task = self.create_goal_task(
+            user_goal,
+            source=source,
+            title=title,
+            success_condition=success_condition,
+            value_to_user=value_to_user,
+            verification_criterion=verification_criterion,
+            priority=priority,
+            presentation={"report_when": "terminal", "audience": "user"},
+        )
+        merged = {
+            "followup_kind": "autonomous_backlog",
+            "dedupe_key": dedupe_key,
+            **dict(metadata or {}),
+        }
+        self._tasks.merge_metadata(task["task_id"], merged)
+        self._tasks.pause_task(task["task_id"])
+        refreshed = self._tasks.get_task(task["task_id"])
+        return refreshed or task
+
     def finalize_chat_task(
         self,
         task_id: str,
@@ -242,3 +281,15 @@ Return:
                 reason=f"Goal verification could not be completed: {exc}",
                 evidence=[],
             )
+
+    def _find_open_followup(self, *, source: str, dedupe_key: str) -> dict[str, Any] | None:
+        if not dedupe_key:
+            return None
+        tasks = self._tasks.list_tasks(source=source, limit=500)
+        for task in tasks:
+            if str(task.get("status") or "") in {"completed", "failed", "cancelled", "expired"}:
+                continue
+            metadata = dict(task.get("metadata") or {})
+            if str(metadata.get("dedupe_key") or "") == dedupe_key:
+                return task
+        return None

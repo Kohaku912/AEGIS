@@ -93,7 +93,6 @@ def test_status_manager_updates_host_when_endpoint_moves(monkeypatch) -> None:
 
     monkeypatch.setenv("PC_SERVER_HOST", "192.168.50.176")
     monkeypatch.setenv("ROOM_SERVER_ENABLED", "false")
-    monkeypatch.setenv("DEV_SERVER_ENABLED", "false")
     monkeypatch.setenv("AEGIS_DISABLED_SERVERS", "browser-server,android-server,ai-server,dashboard")
 
     manager = StatusManager(timeout=0.2)

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import logging
 import queue
 import threading
@@ -207,14 +206,11 @@ def init_chat_routes(owner: Any) -> None:
                 return jsonify(payload)
             response_text = result["response"]
             _save_chat(text, response_text)
-            if task_id and not result.get("approval_needed"):
+            if task_id:
                 goal_meta = _finalize_chat_task(task_id, text, result)
             else:
                 goal_meta = {}
             payload = {"response": response_text, "request_id": request_id, **goal_meta}
-            if result.get("approval_needed"):
-                payload["approval_needed"] = True
-                payload["approval_id"] = result.get("approval_id", "")
             if result.get("tool_results"):
                 payload["tool_results"] = [
                     {
@@ -262,16 +258,13 @@ def init_chat_routes(owner: Any) -> None:
             response_text = result["response"]
             _save_chat(follow_up, response_text)
             goal_meta = {}
-            if task_id and not result.get("approval_needed") and not result.get("needs_user_input"):
+            if task_id and not result.get("needs_user_input"):
                 goal_meta = _finalize_chat_task(
                     task_id,
                     original_message or follow_up,
                     result,
                 )
             payload = {"response": response_text, **goal_meta}
-            if result.get("approval_needed"):
-                payload["approval_needed"] = True
-                payload["approval_id"] = result.get("approval_id", "")
             return jsonify(payload)
         except Exception as exc:
             return _chat_error(exc, str(data.get("request_id") or ""))

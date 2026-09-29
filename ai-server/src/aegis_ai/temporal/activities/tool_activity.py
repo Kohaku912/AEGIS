@@ -60,8 +60,6 @@ def _execute_tool_step(payload: dict[str, Any]) -> dict[str, Any]:
         "output": result.output,
         "error": result.error,
         "policy_decision": result.policy_decision,
-        "needs_approval": result.status.value == "needs_approval",
-        "approval_id": getattr(result, "approval_id", ""),
     }
 
 

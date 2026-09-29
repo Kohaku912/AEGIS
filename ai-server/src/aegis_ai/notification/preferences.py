@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, ClassVar
 
 from aegis_ai.notification.models import NotificationType
 
@@ -16,7 +16,7 @@ class NotificationPreferences:
     """
 
     # Default: all notification types enabled
-    DEFAULT_ENABLED: dict[NotificationType, bool] = {
+    DEFAULT_ENABLED: ClassVar[dict[NotificationType, bool]] = {
         NotificationType.APPROVAL_REQUIRED: True,
         NotificationType.SUPPORT_SUGGESTION: True,
         NotificationType.RESEARCH_COMPLETED: True,

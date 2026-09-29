@@ -25,6 +25,7 @@ from typing import Any
 
 from pydantic import ValidationError as PydanticValidationError
 
+from aegis_schema import safety_vocab
 from aegis_ai.schema import CapabilityManifestModel
 
 logger = logging.getLogger("aegis_ai.folder_registry")
@@ -62,13 +63,25 @@ class CapabilityManifest:
     extra: dict[str, Any] = field(default_factory=dict)
     file_path: str = ""
     loaded_at: int = 0
-    # New policy attributes
-    ownership_scope: str = ""  # aegis | user | system | external
-    reversibility: str = ""  # fully_reversible | recoverable | difficult | irreversible
-    destructive_effects: list[str] = field(default_factory=list)
-    data_loss_risk: str = "none"  # none | low | medium | high
-    active_work_loss_risk: str = "none"
-    blast_radius: str = "single"  # single | bounded | bulk | system_wide
+    # Post-hoc safety annotations. The vocabularies live in
+    # ``aegis_schema.safety_vocab``; an unset value reads as ``unknown`` rather
+    # than a safe-looking default, so a silent omission is visible in the
+    # irreversible-operation ledger instead of being mistaken for a low-risk
+    # declaration. These never gate execution — the only constraint is that user
+    # information must not leave the local environment (enforced by
+    # ``aegis_ai.egress``). See docs/irreversibility-ledger.md.
+    ownership_scope: str = safety_vocab.UNKNOWN
+    reversibility: str = safety_vocab.UNKNOWN
+    destructive_effects: list[str] = field(
+        default_factory=lambda: [safety_vocab.UNKNOWN]
+    )
+    data_loss_risk: str = safety_vocab.UNKNOWN
+    active_work_loss_risk: str = safety_vocab.UNKNOWN
+    blast_radius: str = safety_vocab.UNKNOWN
+    # Phase 1 (instruction.md §36): feature flag name. Non-empty value means the
+    # capability is only exposed when the corresponding flag is enabled (e.g.
+    # `requires_feature: "agents"` requires `settings.agents.enabled=True`).
+    requires_feature: str = ""
 
     def to_tool_description(self) -> str:
         parts = [self.title or self.capability_id]
@@ -180,7 +193,8 @@ class FolderCapabilityRegistry:
         if "requires_approval" in risk_obj:
             manifest_requires_approval = bool(risk_obj.get("requires_approval"))
         else:
-            # Missing flag follows risk_level so omitted approval_required still asks.
+            # Missing flag follows risk_level, so the annotation stays consistent
+            # with the declared risk. It is an annotation: nothing gates on it.
             level_key = str(manifest_risk or "low").strip().lower()
             manifest_requires_approval = level_key in {
                 "approval_required",
@@ -254,12 +268,25 @@ class FolderCapabilityRegistry:
             extra=extra,
             file_path=path,
             loaded_at=int(time.time() * 1000),
-            ownership_scope=str(data.get("ownership_scope", "")),
-            reversibility=str(data.get("reversibility", "")),
-            destructive_effects=data.get("destructive_effects", []),
-            data_loss_risk=str(data.get("data_loss_risk", "none")),
-            active_work_loss_risk=str(data.get("active_work_loss_risk", "none")),
-            blast_radius=str(data.get("blast_radius", "single")),
+            ownership_scope=safety_vocab.normalize_dimension(
+                "ownership_scope", data.get("ownership_scope")
+            ),
+            reversibility=safety_vocab.normalize_dimension(
+                "reversibility", data.get("reversibility")
+            ),
+            destructive_effects=safety_vocab.normalize_destructive_effects(
+                data.get("destructive_effects")
+            ),
+            data_loss_risk=safety_vocab.normalize_dimension(
+                "data_loss_risk", data.get("data_loss_risk")
+            ),
+            active_work_loss_risk=safety_vocab.normalize_dimension(
+                "active_work_loss_risk", data.get("active_work_loss_risk")
+            ),
+            blast_radius=safety_vocab.normalize_dimension(
+                "blast_radius", data.get("blast_radius")
+            ),
+            requires_feature=str(data.get("requires_feature", "")),
         )
         if short not in self._short_names:
             self._short_names[short] = cap_id
@@ -370,14 +397,17 @@ class ExecutorRegistry:
             )
 
         exec_file = Path(exec_manifest.file_path)
-        work_dir = str((exec_file.parent / exec_manifest.working_dir).resolve())
-        apps_root = str(self._apps_dir.resolve())
-        if not work_dir.startswith(apps_root):
+        work_dir_path = (exec_file.parent / exec_manifest.working_dir).resolve()
+        apps_root_path = self._apps_dir.resolve()
+        # Path-aware containment check. ``str.startswith`` would let sibling
+        # directories such as ``apps-evil`` pass, escaping the app sandbox.
+        if not work_dir_path.is_relative_to(apps_root_path):
             return ExecutionResult(
                 ok=False, capability_id=cap_id,
                 error={"code": "WORKING_DIR_VIOLATION", "message": "Cannot escape app folder"},
                 meta=self._meta(manifest, 0),
             )
+        work_dir = str(work_dir_path)
 
         env = os.environ.copy()
         env.update(exec_manifest.env)

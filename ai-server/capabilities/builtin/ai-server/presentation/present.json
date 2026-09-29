@@ -6,6 +6,12 @@
   "action": "present",
   "operation_category": "observe",
   "risk": {"level": "read_only", "side_effects": [], "requires_approval": false},
+  "ownership_scope": "user",
+  "reversibility": "recoverable",
+  "destructive_effects": [],
+  "data_loss_risk": "none",
+  "active_work_loss_risk": "none",
+  "blast_radius": "bounded",
   "tags": ["builtin", "presentation", "output", "display"],
   "only_master": false,
   "input_schema": {

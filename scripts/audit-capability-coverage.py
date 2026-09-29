@@ -8,7 +8,6 @@ from pathlib import Path
 
 from audit_common import ROOT, parse_args, write_json
 
-
 RISKY_LEVELS = {"medium", "high", "critical", "approval_required", "high_risk"}
 ACTION_SERVERS = {"pc-server", "android-server", "browser-server"}
 ACTION_CATEGORIES = {
@@ -112,7 +111,12 @@ def main() -> int:
                 "blocker",
                 "Capability declares side effects but has no completion checks.",
             ))
-        if server_id in ACTION_SERVERS and operation_category in ACTION_CATEGORIES and mutating_side_effects and not has_completion:
+        if (
+            server_id in ACTION_SERVERS
+            and operation_category in ACTION_CATEGORIES
+            and mutating_side_effects
+            and not has_completion
+        ):
             issues.append(_issue(
                 "operation_without_verification",
                 "blocker",
@@ -130,13 +134,14 @@ def main() -> int:
                 "warning",
                 "Room light capabilities require a real provider E2E result in production.",
             ))
+        has_blocker = any(i["severity"] == "blocker" for i in issues)
         row = {
             "file": manifest_path.relative_to(ROOT).as_posix(),
             "capability_id": cap_id,
             "server_id": server_id,
             "app_id": app_id,
             "action": action,
-            "status": "pass" if cap_id and server_id and app_id and action and not any(i["severity"] == "blocker" for i in issues) else "fail",
+            "status": "pass" if cap_id and server_id and app_id and action and not has_blocker else "fail",
             "has_completion": has_completion,
             "completion_check_count": len(checks),
             "has_operation_category": bool(operation_category),

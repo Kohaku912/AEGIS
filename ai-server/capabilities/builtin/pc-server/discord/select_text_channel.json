@@ -1,6 +1,6 @@
 {
   "title": "Discord Select Text Channel",
-  "description": "Select a Discord text channel in the desktop client by channel id. Does not send a message. Requires approval because it changes the external app state.",
+  "description": "Select a Discord text channel in the desktop client by channel id. Does not send a message. It changes the external app state, so AEGIS may choose to confirm with the user first.",
   "server_id": "pc-server",
   "app_id": "discord",
   "action": "select_text_channel",
@@ -25,6 +25,12 @@
       "discord_ui_selection"
     ]
   },
+  "ownership_scope": "external",
+  "reversibility": "recoverable",
+  "destructive_effects": [],
+  "data_loss_risk": "none",
+  "active_work_loss_risk": "none",
+  "blast_radius": "single",
   "tags": [
     "discord",
     "text_channel",

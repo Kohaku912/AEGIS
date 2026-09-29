@@ -59,10 +59,8 @@ class WorldStateStore:
             bs.last_observation_id = observation.get("observation_id", "")
             bs.last_verified_at = now
             bs.confidence = 0.8 if observation.get("status") == "success" else 0.4
-            if "login" in bs.visible_text_summary.lower() or "sign in" in bs.visible_text_summary.lower():
-                bs.login_required = True
-            if "captcha" in bs.visible_text_summary.lower() or "2fa" in bs.visible_text_summary.lower():
-                bs.captcha_or_2fa_detected = True
+            bs.login_required = self._browser_login_required(observation, bs.visible_text_summary)
+            bs.captcha_or_2fa_detected = self._browser_captcha_required(observation, bs.visible_text_summary)
 
         elif target == "pc":
             ps = self._state.pc_state
@@ -91,6 +89,37 @@ class WorldStateStore:
 
         self._bump_version()
         self._save()
+
+    def _browser_login_required(self, observation: dict[str, Any], visible_text_summary: str) -> bool:
+        explicit = observation.get("login_required")
+        if isinstance(explicit, bool):
+            return explicit
+        auth_state = str(observation.get("auth_state") or "").lower()
+        if auth_state in {"login_required", "signed_out", "unauthenticated"}:
+            return True
+        indicators = observation.get("page_indicators")
+        if isinstance(indicators, dict) and isinstance(indicators.get("login_required"), bool):
+            return bool(indicators.get("login_required"))
+        text_lower = visible_text_summary.lower()
+        return "login" in text_lower or "sign in" in text_lower
+
+    def _browser_captcha_required(self, observation: dict[str, Any], visible_text_summary: str) -> bool:
+        explicit = observation.get("captcha_or_2fa_detected")
+        if isinstance(explicit, bool):
+            return explicit
+        if observation.get("captcha_detected") is True or observation.get("verification_required") is True:
+            return True
+        auth_state = str(observation.get("auth_state") or "").lower()
+        if auth_state in {"captcha_required", "2fa_required", "verification_required"}:
+            return True
+        indicators = observation.get("page_indicators")
+        if isinstance(indicators, dict):
+            for key in ("captcha_or_2fa_detected", "captcha_detected", "verification_required"):
+                value = indicators.get(key)
+                if isinstance(value, bool):
+                    return value
+        text_lower = visible_text_summary.lower()
+        return "captcha" in text_lower or "2fa" in text_lower
 
     def update_from_tool_result(self, tool_request: Any, tool_result: Any) -> None:
         cap_id = getattr(tool_request, "capability_id", "")

@@ -29,7 +29,6 @@ from aegis_schema.models import (
     Capability,
     Event,
     EventPriority,
-    RiskLevel,
     ServerInfo,
     ServerStatus,
     ServerType,

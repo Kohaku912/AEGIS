@@ -9,7 +9,7 @@ services:
       AEGIS_SESSION_SECRET: ${AEGIS_SESSION_SECRET:?AEGIS_SESSION_SECRET is required in production}
       AEGIS_AUTH_BOOTSTRAP_TOKEN: ${AEGIS_AUTH_BOOTSTRAP_TOKEN:-}
       AEGIS_UI_VERSION: v2
-      AEGIS_DISABLED_SERVERS: ${AEGIS_DISABLED_SERVERS:-room-server,dev-server}
+      AEGIS_DISABLED_SERVERS: ${AEGIS_DISABLED_SERVERS:-room-server}
 
   browser-server:
     environment:
@@ -21,9 +21,3 @@ services:
     environment:
       AEGIS_RUNTIME_MODE: production
       AEGIS_ROOM_LIGHT_PROVIDER: ${AEGIS_ROOM_LIGHT_PROVIDER:-disabled}
-
-  dev-server:
-    profiles:
-      - dev
-    environment:
-      AEGIS_RUNTIME_MODE: production

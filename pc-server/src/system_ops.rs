@@ -161,6 +161,10 @@ pub fn write_file(path: &str, content: &str, append: bool) -> Result<(), String>
     use std::io::Write;
     use std::path::Path;
 
+    if crate::redaction::is_protected_path(path) {
+        return Err(crate::redaction::protected_path_error("write", path));
+    }
+
     if let Some(parent) = Path::new(path).parent() {
         if !parent.as_os_str().is_empty() && !parent.exists() {
             std::fs::create_dir_all(parent)
@@ -186,16 +190,34 @@ pub fn write_file(path: &str, content: &str, append: bool) -> Result<(), String>
 
 /// Delete a file
 pub fn delete_file(path: &str) -> Result<(), String> {
+    if crate::redaction::is_protected_path(path) {
+        return Err(crate::redaction::protected_path_error("delete", path));
+    }
     std::fs::remove_file(path).map_err(|e| format!("Failed to delete: {e}"))
 }
 
 /// Copy a file
+///
+/// Both endpoints are checked: reading a key out is the obvious attack, but
+/// writing one *into* `~/.ssh` (e.g. planting `authorized_keys`) is the other half.
 pub fn copy_file(src: &str, dst: &str) -> Result<u64, String> {
+    if crate::redaction::is_protected_path(src) {
+        return Err(crate::redaction::protected_path_error("copy from", src));
+    }
+    if crate::redaction::is_protected_path(dst) {
+        return Err(crate::redaction::protected_path_error("copy to", dst));
+    }
     std::fs::copy(src, dst).map_err(|e| format!("Failed to copy: {e}"))
 }
 
 /// Move/rename a file
 pub fn move_file(src: &str, dst: &str) -> Result<(), String> {
+    if crate::redaction::is_protected_path(src) {
+        return Err(crate::redaction::protected_path_error("move from", src));
+    }
+    if crate::redaction::is_protected_path(dst) {
+        return Err(crate::redaction::protected_path_error("move to", dst));
+    }
     std::fs::rename(src, dst).map_err(|e| format!("Failed to move: {e}"))
 }
 
@@ -750,5 +772,63 @@ public class Win32 {
     {
         let _ = (title, width, height);
         Err("Window resize is only supported on Windows".to_string())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn write_file_refuses_a_protected_path() {
+        let err = write_file("/home/someone/.ssh/authorized_keys", "x", false).unwrap_err();
+        assert!(err.contains("protected path"), "{err}");
+        assert!(err.contains("write"), "{err}");
+    }
+
+    #[test]
+    fn delete_file_refuses_a_protected_path() {
+        let err = delete_file("/home/someone/.ssh/id_rsa").unwrap_err();
+        assert!(err.contains("protected path"), "{err}");
+        assert!(err.contains("delete"), "{err}");
+    }
+
+    #[test]
+    fn copy_file_refuses_a_protected_source() {
+        let err = copy_file("/home/someone/.ssh/id_rsa", "/tmp/copy.txt").unwrap_err();
+        assert!(err.contains("copy from"), "{err}");
+    }
+
+    #[test]
+    fn copy_file_refuses_a_protected_destination() {
+        let err = copy_file("/tmp/plain.txt", "/home/someone/.ssh/authorized_keys").unwrap_err();
+        assert!(err.contains("copy to"), "{err}");
+    }
+
+    #[test]
+    fn move_file_refuses_a_protected_source() {
+        let err = move_file("/home/someone/Documents/token.json", "/tmp/moved.json").unwrap_err();
+        assert!(err.contains("move from"), "{err}");
+    }
+
+    #[test]
+    fn move_file_refuses_a_protected_destination() {
+        let err = move_file("/tmp/plain.txt", "/home/someone/.aws/credentials").unwrap_err();
+        assert!(err.contains("move to"), "{err}");
+    }
+
+    #[test]
+    fn write_file_still_writes_an_ordinary_path() {
+        let dir = std::env::temp_dir().join("aegis-write-guard-test");
+        let file = dir.join("notes.md");
+
+        write_file(&file.to_string_lossy(), "hello", false).unwrap();
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "hello");
+
+        write_file(&file.to_string_lossy(), " world", true).unwrap();
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "hello world");
+
+        std::fs::remove_file(&file).ok();
+        std::fs::remove_dir_all(&dir).ok();
     }
 }

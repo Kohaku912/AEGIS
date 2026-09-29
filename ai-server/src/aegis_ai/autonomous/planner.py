@@ -34,7 +34,6 @@ class SubtaskStatus(Enum):
     FAILED = "failed"
     SKIPPED = "skipped"
     BLOCKED = "blocked"
-    WAITING_APPROVAL = "waiting_approval"
 
 
 class PlanStatus(Enum):
@@ -172,7 +171,7 @@ Do not prefer a fixed shortlist of capability names.
 Rules:
 - Each subtask must have a capability_id or be an observation/reflection step
 - Mark dependencies between subtasks
-- External sends and physical-device actions require approval when the catalog marks them so
+- External sends and physical-device actions are higher impact; AEGIS may choose to ask the user first
 - Never include destructive actions without explicit user request
 - If a goal is unsafe or impossible, return {{"cancel": true, "reason": "..."}}
 
@@ -288,8 +287,6 @@ OR if the goal should not be executed:
             if result.get("success"):
                 subtask.status = SubtaskStatus.SUCCESS
                 subtask.verification_status = self._verify_subtask(subtask)
-            elif result.get("needs_approval"):
-                subtask.status = SubtaskStatus.WAITING_APPROVAL
             else:
                 subtask.retry_count += 1
                 if subtask.retry_count <= subtask.max_retries:
@@ -341,9 +338,6 @@ OR if the goal should not be executed:
         )
 
         result = self._broker.execute(request)
-
-        if result.status.value == "approval_required":
-            return {"success": False, "needs_approval": True, "error": result.error}
 
         if result.status.value == "denied":
             return {"success": False, "error": f"Denied: {result.error}"}

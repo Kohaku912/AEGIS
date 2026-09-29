@@ -79,7 +79,10 @@ def execute_chat_message(
             runtime=runtime,
         )
         response_text = result.get("response", "")
-        if task_id and not result.get("approval_needed") and not result.get("needs_user_input"):
+        # Only a live question from the user blocks finalisation. The old
+        # ``approval_needed`` term is gone: nothing produces it any more, and it
+        # never blocked execution in the first place.
+        if task_id and not result.get("needs_user_input"):
             if goal_service is not None:
                 evaluation = goal_service.finalize_chat_task(
                     task_id,

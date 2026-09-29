@@ -1,5 +1,12 @@
 version: "1.0.0"
-mode: "cloud"  # "cloud" or "local" — switches all text profiles to Ollama
+# "cloud" or "local".
+#
+# SINGLE CONSTRAINT (2026-09-27): the user's information must never leave the local
+# environment. This file MUST be "local". "cloud" exists only for development and is
+# blocked at runtime by the egress gate (aegis_ai/egress/) regardless of this value —
+# the gate denies external destinations by default, so setting "cloud" cannot cause a
+# transmission; it only means the local profile remapping below does not apply.
+mode: "local"
 profiles:
   chat_balanced:
     provider: "openai"
@@ -89,6 +96,54 @@ profiles:
     timeout_seconds: 30
     max_tool_rounds: 8
 
+  jev_decision:
+    provider: "typesafe"
+    model: "jev-latest"
+    api_key_env: "TYPESAFE_API_KEY"
+    base_url: "https://api.typesafe.ai/v1/systemone"
+    max_tokens: 256
+    temperature: 0.0
+    reasoning_level: "low"
+    timeout_seconds: 20
+    max_tool_rounds: 1
+
+  # ── L1/L2/L3 Layer profiles (DASHBOARD_V3_PLAN.md Phase L1) ──
+  # L1: 常時稼働 / 知覚 / ルーティング (高速・低コスト)
+  l1_default:
+    provider: "typesafe"
+    model: "jev-latest"
+    api_key_env: "TYPESAFE_API_KEY"
+    base_url: "https://api.typesafe.ai/v1/systemone"
+    max_tokens: 1024
+    temperature: 0.0
+    reasoning_level: "low"
+    timeout_seconds: 20
+    max_tool_rounds: 1
+
+  # L2: 自律思考 / 統合判断 (中コスト)
+  l2_default:
+    provider: "openai"
+    model: "deepseek-v4-flash"
+    api_key_env: "LLM_API_KEY"
+    base_url: "https://api.deepseek.com"
+    max_tokens: 4096
+    temperature: 0.5
+    reasoning_level: "medium"
+    timeout_seconds: 60
+    max_tool_rounds: 5
+
+  # L3: 深層推論 / Plan 返却 (高品質・reasoning 重視)
+  l3_default:
+    provider: "openai"
+    model: "deepseek-v4-flash"
+    api_key_env: "LLM_API_KEY"
+    base_url: "https://api.deepseek.com"
+    max_tokens: 8192
+    temperature: 0.4
+    reasoning_level: "high"
+    timeout_seconds: 120
+    max_tool_rounds: 5
+
   local_chat:
     provider: "openai"
     model: "qwen2.5:3b"
@@ -139,11 +194,25 @@ profiles:
     timeout_seconds: 60
     max_tool_rounds: 5
 
+  # Local vision — required by the single constraint. Images must never be sent to a
+  # cloud provider, so a local VLM is the only permitted vision path.
+  local_vision:
+    provider: "openai"
+    model: "qwen2.5vl:7b"
+    base_url: "http://localhost:11434/v1"
+    max_tokens: 4096
+    temperature: 0.5
+    reasoning_level: "low"
+    timeout_seconds: 60
+    max_tool_rounds: 3
+
 safety:
   allowed_models:
     - "deepseek-v4-flash"
+    - "jev-latest"
     - "qwen3-vl-flash"
     - "qwen2.5:3b"
+    - "qwen2.5vl:7b"
   max_tokens_upper_bound: 128000
   max_temperature: 2.0
   min_temperature: 0.0

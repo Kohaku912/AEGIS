@@ -500,28 +500,6 @@ class AndroidShowOverlayResponse(_message.Message):
     status: _common_pb2.Status
     def __init__(self, status: _Optional[_Union[_common_pb2.Status, _Mapping]] = ...) -> None: ...
 
-class AndroidApprovalRequest(_message.Message):
-    __slots__ = ("approval_id", "title", "body", "summary_json", "expires_at_ms")
-    APPROVAL_ID_FIELD_NUMBER: _ClassVar[int]
-    TITLE_FIELD_NUMBER: _ClassVar[int]
-    BODY_FIELD_NUMBER: _ClassVar[int]
-    SUMMARY_JSON_FIELD_NUMBER: _ClassVar[int]
-    EXPIRES_AT_MS_FIELD_NUMBER: _ClassVar[int]
-    approval_id: str
-    title: str
-    body: str
-    summary_json: str
-    expires_at_ms: int
-    def __init__(self, approval_id: _Optional[str] = ..., title: _Optional[str] = ..., body: _Optional[str] = ..., summary_json: _Optional[str] = ..., expires_at_ms: _Optional[int] = ...) -> None: ...
-
-class AndroidApprovalResponse(_message.Message):
-    __slots__ = ("status", "surface_id")
-    STATUS_FIELD_NUMBER: _ClassVar[int]
-    SURFACE_ID_FIELD_NUMBER: _ClassVar[int]
-    status: _common_pb2.Status
-    surface_id: str
-    def __init__(self, status: _Optional[_Union[_common_pb2.Status, _Mapping]] = ..., surface_id: _Optional[str] = ...) -> None: ...
-
 class AndroidEmergencyStopRequest(_message.Message):
     __slots__ = ("reason",)
     REASON_FIELD_NUMBER: _ClassVar[int]

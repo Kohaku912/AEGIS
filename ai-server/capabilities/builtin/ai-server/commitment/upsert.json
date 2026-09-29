@@ -12,6 +12,12 @@
     ],
     "requires_approval": false
   },
+  "ownership_scope": "aegis",
+  "reversibility": "recoverable",
+  "destructive_effects": ["data_overwrite"],
+  "data_loss_risk": "low",
+  "active_work_loss_risk": "none",
+  "blast_radius": "single",
   "input_schema": {
     "type": "object",
     "properties": {

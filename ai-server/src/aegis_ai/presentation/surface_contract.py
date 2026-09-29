@@ -281,8 +281,6 @@ def _source_for_event(event_type: str, event: dict[str, Any]) -> str:
         return str(event["server_id"])
     if event.get("capability_id"):
         return str(event["capability_id"]).split(".", 1)[0]
-    if event_type.startswith("approval."):
-        return "approval_manager"
     if event_type.startswith("task."):
         return "task_manager"
     if event_type.startswith("presentation."):

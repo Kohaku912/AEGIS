@@ -15,6 +15,42 @@ def test_incident_fingerprint_collapses_browser_timeouts() -> None:
     assert _is_unrecoverable_incident(a["error"])
 
 
+def test_incident_fingerprint_prefers_structured_verification_payload() -> None:
+    task = {
+        "source": "autonomous",
+        "steps": [
+            {
+                "capability_id": "browser-server.page.browse",
+                "result": {
+                    "completion_verification": {
+                        "status": "failed",
+                        "repair_hint": "retry_or_user_confirmation",
+                    }
+                },
+            }
+        ],
+        "error": "opaque runtime failure",
+    }
+
+    assert _incident_fingerprint(task) == (
+        "browser-server.page.browse:completion:failed:retry_or_user_confirmation"
+    )
+
+
+def test_unrecoverable_incident_accepts_structured_goal_blocked() -> None:
+    task = {
+        "source": "autonomous",
+        "goal_graph": {
+            "verification": [
+                {"status": "blocked", "criterion": "Independent verification required"},
+                {"status": "blocked", "criterion": "User confirmation required"},
+            ]
+        },
+    }
+
+    assert _is_unrecoverable_incident(task) is True
+
+
 def test_sweep_stale_incidents_resolves_duplicates_and_unrecoverable(tmp_path) -> None:
     tm = TaskManager(data_dir=str(tmp_path / "tasks"))
     now = int(time.time() * 1000)

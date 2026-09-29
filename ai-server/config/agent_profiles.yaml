@@ -1,0 +1,106 @@
+# AEGIS agent profile registry (instruction.md §21).
+#
+# Each entry under `profiles` becomes an `AgentProfile` at startup.
+# `AgentRouter` (aegis_ai/agents/runtime/router.py) selects one based on
+# `AgentTask.profile` (or heuristic classification of `user_goal`).
+#
+# Field reference:
+#   id                   : profile id (string). Becomes AgentProfile.id.
+#   backend              : backend name registered in aegis_ai.agents.backends
+#                         (e.g. "openhands", "local").
+#   llm_profile_name     : profile name from llm.yaml (resolved at use time
+#                         by LLMSettingsResolver; not validated here).
+#   tools                : list of tool identifiers exposed to the agent.
+#   max_runtime_sec      : hard upper bound for one task (seconds).
+#   max_iterations       : upper bound on agent internal iterations per task.
+#   risk_ceiling         : READ_ONLY | SAFE_ACTION | APPROVAL_REQUIRED | HIGH_RISK
+#   workspace_kind       : READ_ONLY | ISOLATED | PERSISTENT
+#   allowed_capabilities : capability_ids the profile may call (empty = use risk_ceiling).
+#   denied_capabilities  : capability_ids always denied (deny wins over allow).
+#   requires_approval_for: capability_ids that always need explicit user approval.
+#   cost_budget_usd      : optional per-task USD cost ceiling.
+#   description          : human-readable summary.
+#   metadata             : free-form metadata (version, owner, etc.).
+version: "1.0.0"
+
+profiles:
+  general:
+    backend: openhands
+    llm_profile_name: chat_balanced
+    tools: [filesystem, terminal]
+    max_runtime_sec: 600
+    max_iterations: 60
+    risk_ceiling: APPROVAL_REQUIRED
+    workspace_kind: ISOLATED
+    description: "Default profile. Read/write within an isolated workspace."
+    metadata:
+      tier: standard
+      owner: aegis-core
+
+  coding:
+    backend: openhands
+    llm_profile_name: tool_planning
+    tools: [filesystem, terminal, git, github]
+    max_runtime_sec: 1800
+    max_iterations: 120
+    risk_ceiling: HIGH_RISK
+    workspace_kind: ISOLATED
+    requires_approval_for:
+      - "ai-server.git.push"
+      - "ai-server.github.pr_create"
+    description: "Coding agent. Full git/github tooling. Pushes require approval."
+    metadata:
+      tier: heavy
+      owner: aegis-core
+
+  research:
+    backend: openhands
+    llm_profile_name: tool_planning
+    tools: [filesystem, browser, web_search]
+    max_runtime_sec: 900
+    max_iterations: 80
+    risk_ceiling: APPROVAL_REQUIRED
+    workspace_kind: READ_ONLY
+    description: "Web research agent. Read-only on local files; full browser access."
+    metadata:
+      tier: standard
+      owner: aegis-core
+
+  browser:
+    backend: openhands
+    llm_profile_name: chat_balanced
+    tools: [browser, filesystem]
+    max_runtime_sec: 300
+    max_iterations: 40
+    risk_ceiling: SAFE_ACTION
+    workspace_kind: READ_ONLY
+    description: "Browser automation agent. Safe actions only; no shell."
+    metadata:
+      tier: light
+      owner: aegis-core
+
+  maintenance:
+    backend: openhands
+    llm_profile_name: local_chat
+    tools: [filesystem, terminal]
+    max_runtime_sec: 300
+    max_iterations: 30
+    risk_ceiling: APPROVAL_REQUIRED
+    workspace_kind: ISOLATED
+    description: "Lightweight maintenance. Uses local Ollama for cost efficiency."
+    metadata:
+      tier: cheap
+      owner: aegis-core
+
+  planning:
+    backend: openhands
+    llm_profile_name: chat_balanced
+    tools: []  # LLM only, no external IO
+    max_runtime_sec: 120
+    max_iterations: 20
+    risk_ceiling: READ_ONLY
+    workspace_kind: READ_ONLY
+    description: "Planning-only agent. Pure LLM; no tools, no side effects."
+    metadata:
+      tier: cheap
+      owner: aegis-core

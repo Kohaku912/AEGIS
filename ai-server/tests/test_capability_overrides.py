@@ -106,7 +106,6 @@ def test_corrupt_capability_override_store_falls_back_strictly(tmp_path) -> None
 
 
 def test_tool_broker_denies_disabled_capability_override(tmp_path) -> None:
-    from approval import ApprovalStore
     from policy_engine import PolicyEngine
     from tool_broker import ExecutionSource, InvokeStatus, ToolBroker, ToolExecutionRequest
     from tool_registry import ToolRegistry
@@ -127,7 +126,7 @@ def test_tool_broker_denies_disabled_capability_override(tmp_path) -> None:
 
     broker = ToolBroker(
         registry=ToolRegistry(),
-        policy_engine=PolicyEngine(approval_store=ApprovalStore(), data_dir=str(data_dir)),
+        policy_engine=PolicyEngine(data_dir=str(data_dir)),
         audit_log=AuditLog(path=str(data_dir / "audit.jsonl")),
         catalog=catalog,
     )

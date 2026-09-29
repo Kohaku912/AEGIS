@@ -1,14 +1,28 @@
-"""Policy Engine — deterministic safety enforcement for all tool invocations.
+"""Policy Engine — deterministic hard stops for tool invocations.
 
-NOT an LLM. NOT configurable by prompt. This is a structural safety gate that:
-1. Classifies every action as ALLOW / ALLOW_WITH_AUDIT / ASK_APPROVAL / DENY / UNAVAILABLE
-2. Uses RiskLevel from the capability schema
-3. Supports custom rules for specific capabilities
-4. Cannot be bypassed by any code path in ToolBroker
-5. Integrates with ApprovalStore for user approval flow
-6. Enforces explicit deny rules for high-risk operations
+NOT an LLM. NOT configurable by prompt. This is a structural gate that decides
+whether an action is a **hard stop**; it no longer decides whether to *ask*.
 
-Architecture reference: docs/architecture.md §5.9, §7
+Scope (narrowed 2026-09-27)
+---------------------------
+The project goal changed: the **only constraint** is that the user's information
+must never leave the local environment. Approval, reversibility, policy consent and
+reliability-proof are **no longer constraints**, so the interactive approval flow has
+been retired (see ``docs/GOAL-CHANGE.md``).
+
+Three hard stops remain (AGENTS.md §Security Policy):
+
+1. **Egress** — enforced structurally by ``aegis_ai.egress``. This engine refuses
+   capabilities whose id claims to bypass that gate, so the boundary cannot be
+   talked out of its job.
+2. **Purchases / payments** — irreversible, and a different axis from privacy.
+3. **Gate / policy self-modification** — the boundary must not be able to disable
+   itself.
+
+Everything else executes, with audit. ``RiskLevel`` is retained as an
+**annotation** for the owner's post-hoc visibility; it does not gate execution.
+
+Architecture reference: docs/architecture.md §5.9, §7; docs/egress-gate.md
 """
 
 from __future__ import annotations
@@ -16,45 +30,52 @@ from __future__ import annotations
 import json
 import re
 import threading
-import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum, auto
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
+from aegis_schema import safety_vocab
 from aegis_schema.models import Capability, RiskLevel
-from approval import ApprovalRequest, ApprovalStore, ApprovalType
 
 
 class PolicyDecision(Enum):
-    """Outcome of a policy evaluation."""
+    """Outcome of a policy evaluation.
+
+    ``ASK_APPROVAL`` was removed on 2026-09-27 — approval is no longer a constraint.
+    """
 
     ALLOW = auto()  # Execute immediately
-    ALLOW_WITH_AUDIT = auto()  # No approval needed, but log details
-    ASK_APPROVAL = auto()  # Must present Approval UI to user
-    DENY = auto()  # Blocked — never execute
+    ALLOW_WITH_AUDIT = auto()  # Execute, but record the detail
+    DENY = auto()  # Blocked — never execute (hard stop)
     UNAVAILABLE = auto()  # Server/device/permission missing
 
 
 @dataclass
 class PolicyResult:
-    """Result of evaluating a capability against the policy."""
+    """Result of evaluating a capability against the policy.
+
+    The risk fields (``reversibility``, ``destructive_effects``, ``data_loss_risk``,
+    ``active_work_loss_risk``, ``blast_radius``, ``ownership_scope``) are
+    **annotations** used for post-hoc visibility. They never block execution.
+    Their vocabularies live in ``aegis_schema.safety_vocab``; an unset value
+    reads as ``unknown`` rather than a safe-looking default.
+    """
 
     decision: PolicyDecision
     reason: str = ""
     capability_id: str = ""
     risk_level: RiskLevel = RiskLevel.UNSPECIFIED
-    required_approval_type: ApprovalType | None = None  # Set when ASK_APPROVAL
-    expires_at_ms: int = 0  # When an approval would expire
     audit_required: bool = True  # Whether to log to audit
-    approval_request: ApprovalRequest | None = None  # Created approval (if any)
-    ownership_scope: str = ""  # aegis | user | system | external
-    reversibility: str = ""  # fully_reversible | recoverable | difficult | irreversible
-    destructive_effects: list[str] = field(default_factory=list)
-    data_loss_risk: str = "none"  # none | low | medium | high
-    active_work_loss_risk: str = "none"
-    blast_radius: str = "single"  # single | bounded | bulk | system_wide
+    ownership_scope: str = safety_vocab.UNKNOWN
+    reversibility: str = safety_vocab.UNKNOWN
+    destructive_effects: list[str] = field(
+        default_factory=lambda: [safety_vocab.UNKNOWN]
+    )
+    data_loss_risk: str = safety_vocab.UNKNOWN
+    active_work_loss_risk: str = safety_vocab.UNKNOWN
+    blast_radius: str = safety_vocab.UNKNOWN
 
 
 # Type alias for custom rules
@@ -62,20 +83,19 @@ RuleFunc = Callable[[Capability, dict[str, Any]], PolicyResult | None]
 
 
 class PolicyEngine:
-    """Deterministic safety rules engine with ApprovalStore integration.
+    """Deterministic hard-stop rules engine.
 
     Architecture constraint (§7.3):
     - NOT an LLM prompt
     - Deterministic rules only
     - Fail-closed: unreachable PolicyEngine = all DENY
     - Every decision logged (Audit Log integration point)
-    - Explicit deny rules for high-risk operations
-    - ApprovalStore manages user approval lifecycle
+    - Explicit deny rules for the three hard stops
     """
 
-    # Monetary actions remain explicit hard stops below. All other risk levels
-    # execute without interactive approval and retain audit logging.
-    DEFAULT_RISK_MAP: dict[RiskLevel, PolicyDecision] = {
+    # Monetary and self-protection actions are hard stops below. All other risk
+    # levels execute with audit logging. Risk levels are annotations, not gates.
+    DEFAULT_RISK_MAP: ClassVar[dict[RiskLevel, PolicyDecision]] = {
         RiskLevel.UNSPECIFIED: PolicyDecision.ALLOW_WITH_AUDIT,
         RiskLevel.READ_ONLY: PolicyDecision.ALLOW,
         RiskLevel.SAFE_ACTION: PolicyDecision.ALLOW_WITH_AUDIT,
@@ -84,33 +104,38 @@ class PolicyEngine:
         RiskLevel.FORBIDDEN: PolicyDecision.DENY,
     }
 
-    # Hard stops only: purchases and policy self-modification.
-    # Policy self-modification stays denied so this boundary cannot disable itself.
-    EXPLICIT_DENY_PATTERNS: list[str] = [
+    # Hard stops only: purchases/payments, egress-gate bypass, and policy
+    # self-modification. The last group stays denied so this boundary cannot
+    # disable itself or the egress gate.
+    EXPLICIT_DENY_PATTERNS: ClassVar[list[str]] = [
+        # 1. Purchases / payments — irreversible, separate axis from privacy.
         r".*\.purchase.*",
         r".*\.click_payment.*",
+        r"pc\.click_payment.*$",
+        r"android\.click_payment.*$",
+        # 2. Egress gate bypass — the single constraint must not be circumventable.
+        r".*\.bypass_egress.*",
+        r".*\.disable_egress.*",
+        r".*\.modify_egress.*$",
+        r"dev\.disable_egress.*$",
+        r"dev\.modify_egress.*$",
+        # 3. Policy self-modification — the boundary must not disable itself.
         r".*\.bypass_policy.*",
-        r".*\.bypass_approval.*",
         r".*\.disable_policy.*",
         r".*\.modify_policy.*$",
         r".*\.disable_policy_engine$",
-        r".*\.modify_approval_bypass$",
         r"dev\.disable_policy_engine$",
-        r"dev\.modify_approval_bypass$",
         r"dev\.modify_policy.*$",
         r"pc\.modify_policy.*$",
-        r"pc\.click_payment.*$",
-        r"android\.click_payment.*$",
     ]
 
-    def __init__(self, approval_store: ApprovalStore | None = None, data_dir: str = "data") -> None:
+    def __init__(self, data_dir: str = "data") -> None:
         self._rules: dict[str, list[RuleFunc]] = {}
         self._global_rules: list[RuleFunc] = []
         self._blocked_ids: set[str] = set()
         self._blocked_patterns: list[re.Pattern] = []
         self._risk_overrides: dict[str, RiskLevel] = {}
         self._explicit_deny: list[re.Pattern] = [re.compile(p) for p in self.EXPLICIT_DENY_PATTERNS]
-        self._approval_store = approval_store or ApprovalStore()
         self._data_dir = Path(data_dir)
         self._data_dir.mkdir(parents=True, exist_ok=True)
         self._overrides_path = self._data_dir / "risk_overrides.json"
@@ -181,7 +206,7 @@ class PolicyEngine:
                 return PolicyResult(
                     decision=PolicyDecision.DENY,
                     reason=f"'{cap_id}' matches explicit deny pattern '{pattern.pattern}'. "
-                    "This operation requires direct user action.",
+                    "This is a hard stop (purchase/payment, egress bypass, or policy self-modification).",
                     capability_id=cap_id,
                     risk_level=RiskLevel.FORBIDDEN,
                     audit_required=True,
@@ -199,12 +224,12 @@ class PolicyEngine:
         for rule in rules:
             result = rule(capability, params)
             if result is not None:
-                return self._without_interactive_approval(result, capability)
+                return result
 
         for rule in global_rules:
             result = rule(capability, params)
             if result is not None:
-                return self._without_interactive_approval(result, capability)
+                return result
 
         effective_risk = risk_overrides.get(cap_id, capability.risk_level)
         decision = self.DEFAULT_RISK_MAP.get(effective_risk, PolicyDecision.ALLOW_WITH_AUDIT)
@@ -214,72 +239,12 @@ class PolicyEngine:
             PolicyDecision.ALLOW_WITH_AUDIT: f"Risk level {effective_risk.name} — allowed with audit.",
             PolicyDecision.DENY: f"Risk level {effective_risk.name} — denied.",
         }
-        result = PolicyResult(
+        return PolicyResult(
             decision=decision,
             reason=reason_map.get(decision, ""),
             capability_id=cap_id,
             risk_level=effective_risk,
             audit_required=(decision != PolicyDecision.ALLOW or effective_risk >= RiskLevel.SAFE_ACTION),
-        )
-        return self._finalize(result, capability, params)
-
-    @staticmethod
-    def _without_interactive_approval(result: PolicyResult, capability: Capability) -> PolicyResult:
-        """Convert non-deny rule outcomes to audited execution."""
-        if result.decision == PolicyDecision.ASK_APPROVAL:
-            result.decision = PolicyDecision.ALLOW_WITH_AUDIT
-            result.reason = f"'{capability.id}' is allowed without interactive approval."
-            result.required_approval_type = None
-            result.expires_at_ms = 0
-            result.approval_request = None
-            result.audit_required = True
-        return result
-
-    def _finalize(self, result: PolicyResult, capability: Capability, params: dict[str, Any]) -> PolicyResult:
-        """Post-process: upgrade to ALLOW if valid approval exists (deprecated path)."""
-        if result.decision == PolicyDecision.ASK_APPROVAL:
-            if self._approval_store is not None and self._approval_store.is_approved(capability.id):
-                return PolicyResult(
-                    decision=PolicyDecision.ALLOW,
-                    reason=f"Valid approval exists for '{capability.id}'. Allowed.",
-                    capability_id=capability.id,
-                    risk_level=capability.risk_level,
-                    audit_required=True,
-                )
-        return result
-
-    def _create_approval_result(
-        self, capability: Capability, params: dict[str, Any], reason_override: str | None = None
-    ) -> PolicyResult:
-        """Create an ASK_APPROVAL PolicyResult.
-
-        NOTE: Does NOT create an ApprovalRequest. That responsibility
-        has moved to ToolBroker/ApprovalManager. This method only
-        returns the policy decision with expiry metadata.
-        """
-        # Calculate expiry based on risk level (matches approval_types._EXPIRY_BY_RISK)
-        expiry_by_risk = {
-            RiskLevel.READ_ONLY: 3_600_000,      # 1 hour
-            RiskLevel.SAFE_ACTION: 3_600_000,     # 1 hour
-            RiskLevel.APPROVAL_REQUIRED: 1_800_000,  # 30 min
-            RiskLevel.HIGH_RISK: 600_000,         # 10 min
-        }
-        now_ms = int(time.time() * 1000)
-        expiry_ms = expiry_by_risk.get(capability.risk_level, 1_800_000)
-        expires_at_ms = now_ms + expiry_ms
-
-        reason = reason_override or (
-            f"Risk level {capability.risk_level.name} — approval required."
-        )
-        return PolicyResult(
-            decision=PolicyDecision.ASK_APPROVAL,
-            reason=reason,
-            capability_id=capability.id,
-            risk_level=capability.risk_level,
-            required_approval_type=ApprovalType.ONE_TIME,
-            expires_at_ms=expires_at_ms,
-            audit_required=True,
-            approval_request=None,
         )
 
     # ── Configuration API ───────────────────────────────────
@@ -335,18 +300,15 @@ class PolicyEngine:
         with self._lock:
             self._global_rules.append(rule)
 
-    @property
-    def approval_store(self) -> ApprovalStore:
-        return self._approval_store
-
 
 # ── Factory ──────────────────────────────────────────────────
 
 
 def create_default_policy_engine() -> PolicyEngine:
-    """Create a PolicyEngine with purchase/policy-bypass hard stops."""
+    """Create a PolicyEngine with the purchase/egress-bypass/policy-bypass hard stops."""
     engine = PolicyEngine()
     engine.block_pattern(r".*\.purchase.*")
+    engine.block_pattern(r".*\.bypass_egress.*")
     engine.block_pattern(r".*\.bypass_policy.*")
     engine.block_pattern(r".*\.disable_policy.*")
     return engine

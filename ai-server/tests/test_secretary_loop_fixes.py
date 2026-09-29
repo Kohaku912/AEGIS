@@ -4,11 +4,30 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from aegis_ai.desire.fulfillment import TaskEffect, evaluate_task_result, _structural_fallback
 from aegis_ai.health.alert_manager import HealthAlertManager
 from aegis_ai.llm.cost_tracker import CostTracker
 from aegis_ai.llm.provider_circuit import LlmProviderCircuit, is_balance_error
 from aegis_ai.personal_ai.situation import _normalize_observation_source
+
+
+@pytest.fixture(autouse=True)
+def _never_leak_the_runtime_singleton():
+    """``AgentState.snapshot`` reaches for the real runtime, so never leave it running.
+
+    The snapshot path resolves the runtime singleton lazily, which *builds* it if it is
+    empty — starting the status manager's ``status-check`` thread and the hook engine as
+    a side effect. Those used to outlive the test: the status thread kept probing the
+    network and writing the endpoint resolver's process-global cache for the rest of the
+    session. See ``tests/conftest.py`` for the guard that catches this.
+    """
+    yield
+
+    from aegis_ai.runtime import reset_runtime_for_tests
+
+    reset_runtime_for_tests()
 
 
 class _FakeBalanceError(Exception):
@@ -147,8 +166,8 @@ def test_transient_repairs_are_not_obligations(tmp_path: Path) -> None:
         status="DENIED",
     )
     repair.record_failure(
-        capability_id="dev-server.repo.status",
-        error="errors resolving dev-server",
+        capability_id="pc-server.shell.powershell",
+        error="errors resolving remote-shell",
         status="failed",
     )
     snapshot = AgentState(repair_manager=repair).snapshot("test")
@@ -185,11 +204,11 @@ def test_stale_and_inflight_obligations_are_filtered(tmp_path: Path) -> None:
                     "received_at": now_ms(),
                 },
                 {
-                    "item_id": "social-waiting",
+                    "item_id": "social-replied",
                     "channel": "agora",
                     "author": "carol",
-                    "body": "awaiting approval",
-                    "status": "awaiting_approval",
+                    "body": "already replied",
+                    "status": "replied",
                     "urgency": 0.9,
                     "received_at": now_ms(),
                 },
@@ -252,7 +271,7 @@ def test_stale_and_inflight_obligations_are_filtered(tmp_path: Path) -> None:
     assert any(item.summary == "Active packing" for item in snapshot.obligations)
     assert "social-open" in ids
     assert "social-drafted" not in ids
-    assert "social-waiting" not in ids
+    assert "social-replied" not in ids
     assert "repair_dup" not in ids
     assert "repair_open" in ids
     assert ("repair_open", "incident") in kinds
@@ -295,3 +314,54 @@ def test_goal_hygiene_cancels_polluted_goals(tmp_path: Path) -> None:
     assert applied["counts"]["cancelled_tasks"] >= 1
     assert tasks.get_task(polluted["task_id"])["status"] == "cancelled"
     assert cont.list_open() == []
+
+
+def test_goal_hygiene_prefers_structured_autonomous_metadata(tmp_path: Path) -> None:
+    from aegis_ai.agency.goal_hygiene import sweep_pollution
+    from aegis_ai.task.task_manager import TaskManager
+
+    tasks = TaskManager(data_dir=str(tmp_path / "tasks"))
+    polluted = tasks.create_task(
+        title="Background action",
+        goal="Advance autonomous objective",
+        source="autonomous",
+    )
+    tasks.merge_metadata(
+        polluted["task_id"],
+        {
+            "autonomous_task": {
+                "generated_by": "autonomous_loop",
+                "kind": "capability_advance",
+                "capability_id": "workspace.list_files",
+            }
+        },
+    )
+    tasks.start_task(polluted["task_id"])
+    tasks.pause_task(polluted["task_id"])
+
+    applied = sweep_pollution(task_manager=tasks, dry_run=False)
+    assert polluted["task_id"] in applied["cancelled_tasks"]
+    assert tasks.get_task(polluted["task_id"])["status"] == "cancelled"
+
+
+def test_dismiss_matching_uses_structured_detail_before_error_text(tmp_path: Path) -> None:
+    from aegis_ai.personal_ai.repair import RepairManager
+    from aegis_ai.personal_ai.storage import append_jsonl, now_ms
+
+    repair = RepairManager(data_dir=str(tmp_path / "repair"))
+    append_jsonl(
+        repair._history,
+        {
+            "repair_id": "repair_structured",
+            "capability_id": "browser-server.page.read",
+            "category": "tool_failed",
+            "error": "opaque failure without markers",
+            "timestamp": now_ms(),
+            "final_result": "recorded",
+            "detail": {"network_state": "offline"},
+        },
+    )
+
+    stats = repair.dismiss_matching(dry_run=True)
+    assert stats["matched"] == 1
+    assert stats["repair_ids"] == ["repair_structured"]

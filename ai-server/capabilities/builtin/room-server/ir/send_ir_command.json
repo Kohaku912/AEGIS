@@ -38,6 +38,12 @@
     "requires_approval": false,
     "approval_mode": "explicit"
   },
+  "ownership_scope": "system",
+  "reversibility": "difficult",
+  "destructive_effects": ["remote_transmit"],
+  "data_loss_risk": "none",
+  "active_work_loss_risk": "none",
+  "blast_radius": "single",
   "tags": [
     "builtin",
     "room",

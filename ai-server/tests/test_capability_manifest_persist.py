@@ -95,7 +95,8 @@ def test_catalog_picks_up_added_manifest_without_restart(tmp_path: Path) -> None
     assert "inventory" in found.tags
 
 
-def test_disabling_approval_lowers_risk_and_reloads(tmp_path: Path) -> None:
+def test_requires_approval_flag_is_annotation_only(tmp_path: Path) -> None:
+    """`requires_approval` は注記。書き換えても risk level は連動して変わらない."""
     caps_dir = tmp_path / "capabilities"
     manifest_path = caps_dir / "builtin" / "pc-server" / "test" / "click.json"
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
@@ -120,7 +121,41 @@ def test_disabling_approval_lowers_risk_and_reloads(tmp_path: Path) -> None:
     written = json.loads(manifest_path.read_text(encoding="utf-8"))
     details = catalog.risk_details("pc-server.test.click")
     assert written["risk"]["requires_approval"] is False
-    assert written["risk"]["level"] == "safe"
+    # Approval is no longer a constraint, so the risk label is carried through
+    # unchanged — it is an annotation, not a gate.
+    assert written["risk"]["level"] == "approval_required"
     assert details is not None
     assert details["effective"]["requires_approval"] is False
-    assert details["effective"]["risk_level"] == "safe"
+    assert details["effective"]["risk_level"] == "approval_required"
+
+
+def test_update_manifest_policy_writes_risk_level_verbatim(tmp_path: Path) -> None:
+    """risk_level を指定したらそのまま書き込まれる (approval 連動の書き換えはしない)."""
+    caps_dir = tmp_path / "capabilities"
+    manifest_path = caps_dir / "builtin" / "pc-server" / "test" / "click.json"
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "server_id": "pc-server",
+                "app_id": "test",
+                "action": "click",
+                "operation_category": "test_operation",
+                "title": "Click",
+                "risk": {"level": "read_only", "requires_approval": False},
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+    catalog = CapabilityCatalog(str(caps_dir), data_dir=str(tmp_path / "data"))
+    catalog.update_manifest_policy("pc-server.test.click", risk_level="high_risk")
+
+    written = json.loads(manifest_path.read_text(encoding="utf-8"))
+    details = catalog.risk_details("pc-server.test.click")
+    assert written["risk"]["level"] == "high_risk"
+    assert details is not None
+    assert details["effective"]["risk_level"] == "high_risk"
+    # FORBIDDEN is the only hard stop; HIGH_RISK is still allowed.
+    assert details["effective"]["enabled"] is True

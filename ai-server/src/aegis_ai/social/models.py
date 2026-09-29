@@ -11,7 +11,6 @@ class SocialInboxStatus(StrEnum):
     UNTRIAGED = "untriaged"
     NEEDS_REPLY = "needs_reply"
     DRAFTED = "drafted"
-    AWAITING_APPROVAL = "awaiting_approval"
     REPLIED = "replied"
     ACKNOWLEDGED = "acknowledged"
     SKIPPED = "skipped"

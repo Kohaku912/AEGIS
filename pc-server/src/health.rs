@@ -262,7 +262,7 @@ fn handle_command(cmd: &str) -> String {
             Err(error) => json_error(error),
         },
 
-        // ── Input (Level 2: Approval required) ─────────────
+        // ── Input (Level 2: elevated, annotated) ─────────────
         "mouse_move" => {
             let parts: Vec<&str> = params.split(',').collect();
             let x: i32 = parts
@@ -381,7 +381,7 @@ fn handle_command(cmd: &str) -> String {
             Err(e) => json_error(e),
         },
 
-        // ── Overlay Approval (Level 2) ─────────────────────
+        // ── Overlay Confirmation (Level 2) ─────────────────
         "overlay_approval" => {
             let request_id = format!(
                 "req_{}",
@@ -393,7 +393,7 @@ fn handle_command(cmd: &str) -> String {
             let request = overlay_approval::ApprovalRequest {
                 request_id: request_id.clone(),
                 action: params.to_string(),
-                description: format!("AEGIS requests approval for: {}", params),
+                description: format!("AEGIS asks you to confirm: {}", params),
                 risk_level: "medium".to_string(),
                 timeout_seconds: 30,
             };
@@ -420,7 +420,7 @@ fn handle_command(cmd: &str) -> String {
             serde_json::to_string(&result).unwrap_or_else(|_| "{\"error\":\"json\"}".into())
         }
 
-        // ── Shell Execution (Level 2: Approval required) ──
+        // ── Shell Execution (Level 2: elevated, annotated) ──
         "show_rich_overlay" => {
             let mut request: overlay_approval::RichDisplayRequest =
                 match serde_json::from_str(params.trim()) {
@@ -460,7 +460,7 @@ fn handle_command(cmd: &str) -> String {
             serde_json::to_string(&result).unwrap_or_else(|_| "{\"error\":\"json\"}".into())
         }
 
-        // ── File Operations (Level 2: Approval required) ──
+        // ── File Operations (Level 2: elevated, annotated) ──
         "write_file" => {
             let parts: Vec<&str> = params.splitn(3, '|').collect();
             let path = parts.first().unwrap_or(&"");
@@ -520,7 +520,7 @@ fn handle_command(cmd: &str) -> String {
             }
         }
 
-        // ── Service Management (Level 2: Approval required) ──
+        // ── Service Management (Level 2: elevated, annotated) ──
         "list_services" => match system_ops::list_services() {
             Ok(services) => {
                 serde_json::to_string(&services).unwrap_or_else(|_| "{\"error\":\"json\"}".into())
@@ -676,6 +676,23 @@ fn handle_command(cmd: &str) -> String {
     }
 }
 
+/// Start the health server on the given address.
+pub fn start_health_server(addr: &str) {
+    let listener = TcpListener::bind(addr).expect("Failed to bind health server");
+    println!("PC Server listening on {}", addr);
+
+    for stream in listener.incoming() {
+        match stream {
+            Ok(stream) => {
+                thread::spawn(move || handle_client(stream));
+            }
+            Err(e) => {
+                eprintln!("Connection failed: {}", e);
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -705,22 +722,5 @@ mod tests {
         let parsed: serde_json::Value = serde_json::from_str(&response).unwrap();
 
         assert_eq!(parsed["error"], "Failed at C:\\Users\\AEGIS\r\n\"quoted\"");
-    }
-}
-
-/// Start the health server on the given address.
-pub fn start_health_server(addr: &str) {
-    let listener = TcpListener::bind(addr).expect("Failed to bind health server");
-    println!("PC Server listening on {}", addr);
-
-    for stream in listener.incoming() {
-        match stream {
-            Ok(stream) => {
-                thread::spawn(move || handle_client(stream));
-            }
-            Err(e) => {
-                eprintln!("Connection failed: {}", e);
-            }
-        }
     }
 }

@@ -124,70 +124,6 @@ class SubscribeEventsRequest(_message.Message):
     event_type_pattern: str
     def __init__(self, source_type: _Optional[_Union[_common_pb2.ServerType, str]] = ..., min_severity: _Optional[_Union[_common_pb2.EventSeverity, str]] = ..., min_priority: _Optional[_Union[_common_pb2.EventPriority, str]] = ..., event_type_pattern: _Optional[str] = ...) -> None: ...
 
-class RequestApprovalRequest(_message.Message):
-    __slots__ = ("capability_id", "tool_name", "requested_action", "human_readable_summary", "risk_explanation", "payload_preview", "safety_level", "caller")
-    CAPABILITY_ID_FIELD_NUMBER: _ClassVar[int]
-    TOOL_NAME_FIELD_NUMBER: _ClassVar[int]
-    REQUESTED_ACTION_FIELD_NUMBER: _ClassVar[int]
-    HUMAN_READABLE_SUMMARY_FIELD_NUMBER: _ClassVar[int]
-    RISK_EXPLANATION_FIELD_NUMBER: _ClassVar[int]
-    PAYLOAD_PREVIEW_FIELD_NUMBER: _ClassVar[int]
-    SAFETY_LEVEL_FIELD_NUMBER: _ClassVar[int]
-    CALLER_FIELD_NUMBER: _ClassVar[int]
-    capability_id: str
-    tool_name: str
-    requested_action: str
-    human_readable_summary: str
-    risk_explanation: str
-    payload_preview: str
-    safety_level: _common_pb2.SafetyLevel
-    caller: str
-    def __init__(self, capability_id: _Optional[str] = ..., tool_name: _Optional[str] = ..., requested_action: _Optional[str] = ..., human_readable_summary: _Optional[str] = ..., risk_explanation: _Optional[str] = ..., payload_preview: _Optional[str] = ..., safety_level: _Optional[_Union[_common_pb2.SafetyLevel, str]] = ..., caller: _Optional[str] = ...) -> None: ...
-
-class ResolveApprovalRequest(_message.Message):
-    __slots__ = ("approval_id", "approved_type", "rejected", "global_reject", "surface_id", "user", "reason", "auth")
-    APPROVAL_ID_FIELD_NUMBER: _ClassVar[int]
-    APPROVED_TYPE_FIELD_NUMBER: _ClassVar[int]
-    REJECTED_FIELD_NUMBER: _ClassVar[int]
-    GLOBAL_REJECT_FIELD_NUMBER: _ClassVar[int]
-    SURFACE_ID_FIELD_NUMBER: _ClassVar[int]
-    USER_FIELD_NUMBER: _ClassVar[int]
-    REASON_FIELD_NUMBER: _ClassVar[int]
-    AUTH_FIELD_NUMBER: _ClassVar[int]
-    approval_id: str
-    approved_type: _common_pb2.ApprovalType
-    rejected: bool
-    global_reject: bool
-    surface_id: str
-    user: str
-    reason: str
-    auth: _android_server_pb2.AndroidAuth
-    def __init__(self, approval_id: _Optional[str] = ..., approved_type: _Optional[_Union[_common_pb2.ApprovalType, str]] = ..., rejected: _Optional[bool] = ..., global_reject: _Optional[bool] = ..., surface_id: _Optional[str] = ..., user: _Optional[str] = ..., reason: _Optional[str] = ..., auth: _Optional[_Union[_android_server_pb2.AndroidAuth, _Mapping]] = ...) -> None: ...
-
-class ResolveApprovalResponse(_message.Message):
-    __slots__ = ("status", "approval_id")
-    STATUS_FIELD_NUMBER: _ClassVar[int]
-    APPROVAL_ID_FIELD_NUMBER: _ClassVar[int]
-    status: _common_pb2.Status
-    approval_id: str
-    def __init__(self, status: _Optional[_Union[_common_pb2.Status, _Mapping]] = ..., approval_id: _Optional[str] = ...) -> None: ...
-
-class ListPendingApprovalsRequest(_message.Message):
-    __slots__ = ("server_id", "auth")
-    SERVER_ID_FIELD_NUMBER: _ClassVar[int]
-    AUTH_FIELD_NUMBER: _ClassVar[int]
-    server_id: str
-    auth: _android_server_pb2.AndroidAuth
-    def __init__(self, server_id: _Optional[str] = ..., auth: _Optional[_Union[_android_server_pb2.AndroidAuth, _Mapping]] = ...) -> None: ...
-
-class ListPendingApprovalsResponse(_message.Message):
-    __slots__ = ("status", "approvals")
-    STATUS_FIELD_NUMBER: _ClassVar[int]
-    APPROVALS_FIELD_NUMBER: _ClassVar[int]
-    status: _common_pb2.Status
-    approvals: _containers.RepeatedCompositeFieldContainer[_common_pb2.ApprovalRequest]
-    def __init__(self, status: _Optional[_Union[_common_pb2.Status, _Mapping]] = ..., approvals: _Optional[_Iterable[_Union[_common_pb2.ApprovalRequest, _Mapping]]] = ...) -> None: ...
-
 class ChatRequest(_message.Message):
     __slots__ = ("conversation_id", "text", "device_id", "context", "auth")
     class ContextEntry(_message.Message):
@@ -210,20 +146,16 @@ class ChatRequest(_message.Message):
     def __init__(self, conversation_id: _Optional[str] = ..., text: _Optional[str] = ..., device_id: _Optional[str] = ..., context: _Optional[_Mapping[str, str]] = ..., auth: _Optional[_Union[_android_server_pb2.AndroidAuth, _Mapping]] = ...) -> None: ...
 
 class ChatResponse(_message.Message):
-    __slots__ = ("status", "conversation_id", "response", "approval_needed", "approval_id", "tool_results_json")
+    __slots__ = ("status", "conversation_id", "response", "tool_results_json")
     STATUS_FIELD_NUMBER: _ClassVar[int]
     CONVERSATION_ID_FIELD_NUMBER: _ClassVar[int]
     RESPONSE_FIELD_NUMBER: _ClassVar[int]
-    APPROVAL_NEEDED_FIELD_NUMBER: _ClassVar[int]
-    APPROVAL_ID_FIELD_NUMBER: _ClassVar[int]
     TOOL_RESULTS_JSON_FIELD_NUMBER: _ClassVar[int]
     status: _common_pb2.Status
     conversation_id: str
     response: str
-    approval_needed: bool
-    approval_id: str
     tool_results_json: str
-    def __init__(self, status: _Optional[_Union[_common_pb2.Status, _Mapping]] = ..., conversation_id: _Optional[str] = ..., response: _Optional[str] = ..., approval_needed: _Optional[bool] = ..., approval_id: _Optional[str] = ..., tool_results_json: _Optional[str] = ...) -> None: ...
+    def __init__(self, status: _Optional[_Union[_common_pb2.Status, _Mapping]] = ..., conversation_id: _Optional[str] = ..., response: _Optional[str] = ..., tool_results_json: _Optional[str] = ...) -> None: ...
 
 class MobileDashboardStateRequest(_message.Message):
     __slots__ = ("device_id", "history_limit", "auth")

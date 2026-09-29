@@ -223,13 +223,18 @@ class VerificationService:
             )
 
     def _verify_none(self, request: VerificationRequest) -> VerificationResult:
-        """No verification needed — trust executor output."""
+        """No strategy configured — surface as unverified instead of trusted."""
         return VerificationResult(
             verification_id=request.verification_id,
             request_id=request.request_id,
-            status=VerificationStatus.SKIPPED,
-            confidence=1.0,
-            reason="No verification strategy — trusted execution.",
+            status=VerificationStatus.UNVERIFIED,
+            confidence=0.2,
+            reason="No verification strategy configured; outcome was not independently verified.",
+            evidence=[
+                f"capability_id={request.capability_id or '-'}",
+                f"tool_name={request.tool_name or '-'}",
+            ],
+            suggested_recovery="Add a manifest completion check or explicit verification strategy.",
             created_at=int(time.time() * 1000),
         )
 

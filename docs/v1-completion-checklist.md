@@ -1,5 +1,11 @@
 # AEGIS v1 Completion Checklist
 
+> ⚠️ **Goal change (2026-09-27)**: the only constraint is now **"the user's information must never
+> leave the local environment."** Approval, reversibility, policy, and reliability-proof are **no
+> longer constraints**. Any "requires approval" / "Level 2" language below is a **risk annotation**,
+> not a gate. See [`GOAL-CHANGE.md`](GOAL-CHANGE.md).
+
+
 This checklist defines "single-user production v1" readiness for AEGIS. Keep it
 in sync with `scripts/audit-v1-completion.py` and the latest E2E reports.
 

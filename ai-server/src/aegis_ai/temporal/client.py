@@ -10,7 +10,7 @@ from typing import Any
 
 logger = logging.getLogger("aegis_ai.temporal.client")
 
-_RUNTIME: "TemporalRuntime | None" = None
+_RUNTIME: TemporalRuntime | None = None
 
 
 class TemporalRuntime:
@@ -91,19 +91,8 @@ class TemporalRuntime:
         )
         return handle.id
 
-    async def signal_approval(self, workflow_id: str, approval_id: str = "") -> None:
-        if self._client is None:
-            raise RuntimeError("Temporal client not connected")
-        from aegis_ai.temporal.workflows.task_workflow import TaskWorkflow
-
-        handle = self._client.get_workflow_handle(workflow_id)
-        await handle.signal(TaskWorkflow.approval_granted, approval_id)
-
     def start_task_workflow_sync(self, task_id: str, plan: dict[str, Any]) -> str:
         return self._run_coro(self.start_task_workflow(task_id, plan))
-
-    def signal_approval_sync(self, workflow_id: str, approval_id: str = "") -> None:
-        self._run_coro(self.signal_approval(workflow_id, approval_id))
 
     def _run_coro(self, coro: Any) -> Any:
         if self._loop is None or not self._loop.is_running():

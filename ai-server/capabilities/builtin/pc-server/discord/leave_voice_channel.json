@@ -1,6 +1,6 @@
 {
   "title": "Discord Leave Voice Channel",
-  "description": "Leave the currently selected Discord voice channel through Discord RPC. Requires approval.",
+  "description": "Leave the currently selected Discord voice channel through Discord RPC.",
   "server_id": "pc-server",
   "app_id": "discord",
   "action": "leave_voice_channel",
@@ -18,6 +18,12 @@
       "presence_change"
     ]
   },
+  "ownership_scope": "external",
+  "reversibility": "recoverable",
+  "destructive_effects": [],
+  "data_loss_risk": "none",
+  "active_work_loss_risk": "none",
+  "blast_radius": "single",
   "tags": [
     "discord",
     "voice",

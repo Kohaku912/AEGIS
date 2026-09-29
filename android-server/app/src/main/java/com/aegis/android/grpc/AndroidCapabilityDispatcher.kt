@@ -160,7 +160,7 @@ class AndroidCapabilityDispatcher(
 
     private fun notifications(params: JSONObject): DispatchResult {
         if (!AegisNotificationListener.isEnabled(context)) {
-            return error("ANDROID_PERMISSION_MISSING", "Notification listener is disabled")
+            return error("ANDROID_PERMISSION_MISSING", "Notification listener is disabled", listOf("notification_listener"))
         }
         val maxCount = params.optInt("max_count", 50).takeIf { it > 0 } ?: 50
         val items = JSONArray()
@@ -181,20 +181,20 @@ class AndroidCapabilityDispatcher(
     }
 
     private fun currentApp(): DispatchResult {
-        if (!uiTreeProvider.isAvailable()) return error("ANDROID_PERMISSION_MISSING", "Accessibility service is disabled")
+        if (!uiTreeProvider.isAvailable()) return error("ANDROID_PERMISSION_MISSING", "Accessibility service is disabled", listOf("accessibility"))
         val packageName = uiTreeProvider.currentPackageName()
         return ok(JSONObject().put("package_name", packageName).put("activity_name", "").put("app_name", appLabel(packageName)))
     }
 
     private fun uiTree(): DispatchResult {
-        if (!uiTreeProvider.isAvailable()) return error("ANDROID_PERMISSION_MISSING", "Accessibility service is disabled")
+        if (!uiTreeProvider.isAvailable()) return error("ANDROID_PERMISSION_MISSING", "Accessibility service is disabled", listOf("accessibility"))
         val root = uiTreeProvider.getUITree() ?: return error("ANDROID_COMMAND_FAILED", "UI tree is unavailable")
         return ok(JSONObject().put("root", nodeToJson(root)))
     }
 
     private fun screenshot(): DispatchResult {
         val result = screenshotProvider.captureScreenshot()
-            ?: return error("ANDROID_PERMISSION_MISSING", "MediaProjection screenshot permission is missing")
+            ?: return error("ANDROID_PERMISSION_MISSING", "MediaProjection screenshot permission is missing", listOf("media_projection"))
         return ok(
             JSONObject()
                 .put("image_base64", result.imageBase64)
@@ -206,13 +206,13 @@ class AndroidCapabilityDispatcher(
     }
 
     private fun tap(params: JSONObject): DispatchResult {
-        if (!uiTreeProvider.isAvailable()) return error("ANDROID_PERMISSION_MISSING", "Accessibility service is disabled")
+        if (!uiTreeProvider.isAvailable()) return error("ANDROID_PERMISSION_MISSING", "Accessibility service is disabled", listOf("accessibility"))
         val ok = uiTreeProvider.tapAt(params.optInt("x"), params.optInt("y"))
         return if (ok) ok(JSONObject().put("tapped", true)) else error("ANDROID_COMMAND_FAILED", "Tap failed")
     }
 
     private fun swipe(params: JSONObject): DispatchResult {
-        if (!uiTreeProvider.isAvailable()) return error("ANDROID_PERMISSION_MISSING", "Accessibility service is disabled")
+        if (!uiTreeProvider.isAvailable()) return error("ANDROID_PERMISSION_MISSING", "Accessibility service is disabled", listOf("accessibility"))
         val ok = uiTreeProvider.swipe(
             startX = params.optInt("start_x"),
             startY = params.optInt("start_y"),
@@ -224,7 +224,7 @@ class AndroidCapabilityDispatcher(
     }
 
     private fun typeText(params: JSONObject): DispatchResult {
-        if (!uiTreeProvider.isAvailable()) return error("ANDROID_PERMISSION_MISSING", "Accessibility service is disabled")
+        if (!uiTreeProvider.isAvailable()) return error("ANDROID_PERMISSION_MISSING", "Accessibility service is disabled", listOf("accessibility"))
         val text = params.optString("text")
         if (text.isEmpty()) return error("INVALID_ARGUMENT", "text is required")
         val ok = uiTreeProvider.typeText(text)
@@ -232,12 +232,12 @@ class AndroidCapabilityDispatcher(
     }
 
     private fun pressBack(): DispatchResult {
-        if (!uiTreeProvider.isAvailable()) return error("ANDROID_PERMISSION_MISSING", "Accessibility service is disabled")
+        if (!uiTreeProvider.isAvailable()) return error("ANDROID_PERMISSION_MISSING", "Accessibility service is disabled", listOf("accessibility"))
         return if (uiTreeProvider.pressBack()) ok(JSONObject().put("pressed", "back")) else error("ANDROID_COMMAND_FAILED", "Back failed")
     }
 
     private fun pressHome(): DispatchResult {
-        if (!uiTreeProvider.isAvailable()) return error("ANDROID_PERMISSION_MISSING", "Accessibility service is disabled")
+        if (!uiTreeProvider.isAvailable()) return error("ANDROID_PERMISSION_MISSING", "Accessibility service is disabled", listOf("accessibility"))
         return if (uiTreeProvider.pressHome()) ok(JSONObject().put("pressed", "home")) else error("ANDROID_COMMAND_FAILED", "Home failed")
     }
 
@@ -282,7 +282,7 @@ class AndroidCapabilityDispatcher(
     }
 
     private fun location(): DispatchResult {
-        if (!locationProvider.hasPermission()) return error("ANDROID_PERMISSION_MISSING", "Location permission is missing")
+        if (!locationProvider.hasPermission()) return error("ANDROID_PERMISSION_MISSING", "Location permission is missing", listOf("location"))
         val location = locationProvider.getCurrentLocation()
             ?: return error("ANDROID_COMMAND_FAILED", "No location fix is available")
         return ok(
@@ -336,8 +336,17 @@ class AndroidCapabilityDispatcher(
         return DispatchResult(status(OK, "ok"), result.toString())
     }
 
-    private fun error(code: String, message: String): DispatchResult {
+    private fun error(
+        code: String,
+        message: String,
+        missingPermissions: List<String> = emptyList(),
+    ): DispatchResult {
         val body = JSONObject().put("code", code).put("error", message)
+        if (missingPermissions.isNotEmpty()) {
+            // Mirror Core's ANDROID_PERMISSION_MISSING payload (integrations/android/manager.py)
+            // so callers can rely on `missing_permissions` whichever side detected the gap.
+            body.put("missing_permissions", JSONArray(missingPermissions))
+        }
         return DispatchResult(status(FAILED, "$code: $message"), body.toString())
     }
 

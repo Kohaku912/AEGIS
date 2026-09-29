@@ -12,8 +12,8 @@ from aegis_ai.permissions.service_scope_types import (
     Service,
     ServicePermissionScope,
     get_operation_category,
-    infer_operation_from_element,
     infer_service_from_url,
+    resolve_browser_operation,
 )
 
 __all__ = [
@@ -26,7 +26,7 @@ __all__ = [
     "ServicePermissionScope",
     "ServicePermissionStore",
     "get_operation_category",
-    "infer_operation_from_element",
     "infer_service_from_url",
     "infer_service_operation_from_browser_action",
+    "resolve_browser_operation",
 ]

@@ -7,15 +7,35 @@ import os
 from typing import Any
 
 import grpc
-
 from generated.aegis import room_server_pb2, room_server_pb2_grpc
 
 from aegis_ai.integrations.room.light_ir import format_ir_code, normalize_mode, power_on_for_mode
+
 try:
     from aegis_ai.net.endpoint_resolver import resolve_tcp_endpoint
 except ImportError:  # older container images without aegis_ai.net
     def resolve_tcp_endpoint(*_args, **_kwargs):  # type: ignore[misc]
         return None
+
+
+# Canonical room-server capability IDs handled by this adapter, mapped to the
+# method that implements them. The capability manifests under
+# `capabilities/builtin/room-server/**` remain the single source of truth; the
+# architecture-guard tests assert every key here still resolves to a manifest so
+# this map cannot silently drift.
+_ROOM_CAPABILITY_HANDLERS: dict[str, str] = {
+    "room-server.environment.get_environment": "_get_environment",
+    "room-server.light.set_light": "_set_light",
+    "room-server.ir.send_ir_command": "_send_ir_command",
+    "room-server.device.get_status": "_get_device_status",
+    "room-server.sound.get_level": "_get_sound_level",
+}
+
+# Legacy ID kept for older callers. `room-server.ir.send_command` predates the
+# canonical `room-server.ir.send_ir_command`; both resolve to the same handler.
+_ROOM_CAPABILITY_ALIASES: dict[str, str] = {
+    "room-server.ir.send_command": "room-server.ir.send_ir_command",
+}
 
 
 class RoomServerGrpcClient:
@@ -37,20 +57,15 @@ class RoomServerGrpcClient:
 
     def invoke_capability(self, capability_id: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
         params = params or {}
+        canonical_id = _ROOM_CAPABILITY_ALIASES.get(capability_id, capability_id)
+        handler_name = _ROOM_CAPABILITY_HANDLERS.get(canonical_id)
+        if handler_name is None:
+            return {"error": f"Unsupported Room capability: {capability_id}", "capability_id": capability_id}
         try:
             with grpc.insecure_channel(f"{self.host}:{self.port}") as channel:
                 stub = room_server_pb2_grpc.RoomServerStub(channel)
-                if capability_id == "room-server.environment.get_environment":
-                    return self._get_environment(stub, params)
-                if capability_id == "room-server.light.set_light":
-                    return self._set_light(stub, params)
-                if capability_id in {"room-server.ir.send_ir_command", "room-server.ir.send_command"}:
-                    return self._send_ir_command(stub, params)
-                if capability_id == "room-server.device.get_status":
-                    return self._get_device_status(stub, params)
-                if capability_id == "room-server.sound.get_level":
-                    return self._get_sound_level(stub, params)
-                return {"error": f"Unsupported Room capability: {capability_id}", "capability_id": capability_id}
+                handler = getattr(self, handler_name)
+                return handler(stub, params)
         except grpc.RpcError as exc:
             return {
                 "error": f"Room server gRPC error: {exc.code().name}: {exc.details()}",

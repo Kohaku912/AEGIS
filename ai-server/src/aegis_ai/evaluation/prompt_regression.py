@@ -271,16 +271,10 @@ class PromptRegressionRunner:
         for action in case.forbidden_actions:
             # Build a mock capability for the action
             from aegis_schema.models import Capability, RiskLevel, ServerType
+            from aegis_schema.roster import SERVER_TYPE_BY_DOTTED_ID
 
             # Determine server type from action prefix
-            server_map = {
-                "pc-server.": ServerType.PC,
-                "android-server.": ServerType.ANDROID,
-                "browser-server.": ServerType.BROWSER,
-                "room-server.": ServerType.ROOM,
-                "dev-server.": ServerType.DEV,
-                "ai-server.": ServerType.AI,
-            }
+            server_map = SERVER_TYPE_BY_DOTTED_ID
             server_type = ServerType.PC
             cap_id = action
             for prefix, st in server_map.items():

@@ -298,6 +298,10 @@ class TestMockAEGISCore:
         """Policy enforcement works through MockAEGISCore."""
         core = MockAEGISCore()
 
+        # NOTE: after the approval redesign, APPROVAL_REQUIRED no longer creates an
+        # interactive approval request — the policy engine maps it to
+        # ALLOW_WITH_AUDIT (see ai-server/tests/test_approval_redesign.py). Only
+        # FORBIDDEN (hard DENY) and the monetary hard-stop patterns still block.
         cap = define_capability(
             server_prefix="dev", action="dangerous",
             name="Dangerous", description="A dangerous action",
@@ -307,7 +311,8 @@ class TestMockAEGISCore:
         core.register_capability(cap)
 
         result = core.invoke_capability("dev.dangerous")
-        assert result["status"] == "APPROVAL_NEEDED"
+        assert result["status"] == "SUCCESS"
+        assert result["policy_decision"] == "ALLOW_WITH_AUDIT"
 
     def test_event_publishing(self):
         """Event publishing works through MockAEGISCore."""
@@ -355,6 +360,24 @@ class TestHelperFunctions:
         )
         errors = run_policy_flow_check(core, cap, PolicyDecision.ALLOW)
         assert errors == []
+
+    def test_every_policy_decision_has_an_expected_status(self):
+        """A new PolicyDecision member must not be silently unsupported."""
+        from aegis_sdk.testing import _EXPECTED_STATUS_BY_DECISION
+
+        assert set(_EXPECTED_STATUS_BY_DECISION) == set(PolicyDecision)
+
+    def test_unknown_expected_decision_is_reported(self):
+        """An unrecognised decision is reported, not silently accepted."""
+        core = MockAEGISCore()
+        cap = define_capability(
+            server_prefix="dev", action="hello",
+            name="Hello", description="Say hello",
+            risk_level=RiskLevel.READ_ONLY,
+        )
+        errors = run_policy_flow_check(core, cap, "not-a-decision")
+        assert len(errors) == 1
+        assert "Unsupported expected_decision" in errors[0]
 
     def test_event_push_helper(self):
         """run_event_push_check helper works."""

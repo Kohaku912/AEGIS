@@ -10,6 +10,12 @@
     "level": "safe",
     "requires_approval": false
   },
+  "ownership_scope": "system",
+  "reversibility": "irreversible",
+  "destructive_effects": ["file_delete"],
+  "data_loss_risk": "high",
+  "active_work_loss_risk": "none",
+  "blast_radius": "bulk",
   "input": {
     "type": "object",
     "properties": {}

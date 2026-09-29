@@ -39,6 +39,20 @@ class TextToSpeechService:
     def __init__(self, default_voice: str = "ja-JP-NanamiNeural") -> None:
         self._default_voice = default_voice
 
+    @staticmethod
+    def _egress_allows() -> bool:
+        """Whether TTS text may be sent externally. Denied by default."""
+        from aegis_ai.egress import EgressRequest, get_egress_gate
+
+        return get_egress_gate().allow(
+            EgressRequest(
+                destination="https://speech.platform.bing.com",
+                purpose="voice.tts",
+                component="integrations.tts_service",
+                data_summary="text to be spoken (may contain user content)",
+            )
+        )
+
     def synthesize(self, request: TTSRequest) -> TTSResult:
         if not request.tts_id:
             request.tts_id = f"tts_{uuid.uuid4().hex[:10]}"
@@ -52,6 +66,21 @@ class TextToSpeechService:
                 tts_id=request.tts_id,
                 success=False,
                 error="No text provided.",
+                created_at=int(time.time() * 1000),
+            )
+
+        # edge-tts sends the text to Microsoft's cloud service. The single constraint
+        # forbids transmitting the user's data externally, so this is denied by default.
+        if not self._egress_allows():
+            logger.warning("TTS refused by the egress gate (text withheld)")
+            return TTSResult(
+                tts_id=request.tts_id,
+                success=False,
+                error=(
+                    "Text-to-speech is disabled: edge-tts would send the text to an "
+                    "external service (the single constraint). Configure a local TTS "
+                    "provider instead."
+                ),
                 created_at=int(time.time() * 1000),
             )
 

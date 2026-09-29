@@ -10,6 +10,11 @@
     "requires_approval": false
   },
   "ownership_scope": "external",
+  "reversibility": "recoverable",
+  "destructive_effects": ["message_send"],
+  "data_loss_risk": "none",
+  "active_work_loss_risk": "none",
+  "blast_radius": "single",
   "only_master": false,
   "input_schema": {
     "type": "object",

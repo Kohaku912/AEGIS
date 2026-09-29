@@ -236,15 +236,16 @@ def test_empty_llm_content_uses_structural_without_retry_spam() -> None:
     assert result.task_effect == TaskEffect.NEEDS_FOLLOWUP
 
 
-def test_awaiting_approval_is_blocked_not_failed() -> None:
+def test_structural_evaluator_has_no_approval_hold() -> None:
+    """Approval is gone — a success carrying a stale action_state is a plain success."""
     result = evaluate_task_result(
         capability_id="ai-server.agora.post",
         tool_success=True,
         output={"action_state": "awaiting_approval", "approval_id": "a1", "ok": True},
         desire_name="social",
     )
-    assert result.task_effect == TaskEffect.BLOCKED
-    assert result.details["reason"] == "awaiting_approval"
+    assert result.task_effect != TaskEffect.BLOCKED
+    assert result.details.get("reason") != "awaiting_approval"
 
 
 def test_fulfillment_source_has_no_capability_id_branching() -> None:

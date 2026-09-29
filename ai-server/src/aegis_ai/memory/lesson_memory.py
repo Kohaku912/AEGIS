@@ -27,6 +27,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from aegis_ai.memory.retrieval_scoring import combined_text_score
+
 logger = logging.getLogger("aegis_ai.memory.lesson")
 
 
@@ -126,27 +128,31 @@ class LessonMemory:
         self._persist(lesson)
         return lesson
 
+    def _score_lesson(self, goal: str, lesson: Lesson) -> float:
+        score = combined_text_score(
+            goal,
+            texts=[
+                lesson.content,
+                lesson.lesson_type,
+                lesson.source_goal,
+                lesson.applicability.replace("|", " "),
+                " ".join(lesson.tags),
+            ],
+            importance=lesson.importance + lesson.helpfulness_rate * 0.25,
+            confidence=lesson.confidence,
+            timestamp_ms=lesson.last_applied_ms or lesson.created_at_ms,
+        )
+        if score <= 0:
+            return 0.0
+        return score + lesson.helpfulness_rate * 0.2
+
     def get_relevant(self, goal: str, count: int = 5) -> list[Lesson]:
         """Get lessons relevant to a goal."""
-        goal_lower = goal.lower()
         scored: list[tuple[float, Lesson]] = []
         for lesson in self._lessons.values():
             if not lesson.active:
                 continue
-            score = 0.0
-            # Keyword overlap
-            goal_words = set(goal_lower.split())
-            lesson_words = set(lesson.content.lower().split())
-            overlap = len(goal_words & lesson_words)
-            score += overlap * 0.3
-            # Applicability pattern match
-            if lesson.applicability and lesson.applicability.lower() in goal_lower:
-                score += 0.5
-            # Source goal similarity
-            if lesson.source_goal and lesson.source_goal.lower() in goal_lower:
-                score += 0.3
-            # Importance and confidence
-            score += lesson.importance * 0.2 + lesson.confidence * 0.1
+            score = self._score_lesson(goal, lesson)
             if score > 0.1:
                 scored.append((score, lesson))
         scored.sort(key=lambda x: x[0], reverse=True)

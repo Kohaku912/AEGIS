@@ -244,6 +244,30 @@ class ReflectionEngine:
         tool_results: list[dict[str, Any]],
         approval_decisions: list[dict[str, Any]],
     ) -> FailureType | None:
+        if any(str(dec.get("status") or "").lower() == "rejected" for dec in approval_decisions):
+            return FailureType.APPROVAL_REJECTED
+        for result in tool_results:
+            status = str(result.get("status") or "").lower()
+            error_code = str(result.get("error_code") or result.get("failure_type") or "").lower()
+            if status in {"denied", "policy_denied"}:
+                return FailureType.POLICY_DENIED
+            if status in {"approval_needed", "waiting_approval"}:
+                return FailureType.APPROVAL_EXPIRED if "expired" in error_code else FailureType.APPROVAL_REJECTED
+            if status in {"timeout", "timed_out"} or error_code == "timeout":
+                return FailureType.TIMEOUT
+            if status in {"unavailable", "server_down"} or error_code in {"unavailable", "server_down"}:
+                return FailureType.TOOL_UNAVAILABLE
+            if status in {"invalid_arguments", "validation_failed"} or error_code in {"invalid_arguments", "validation"}:
+                return FailureType.INVALID_ARGUMENTS
+            if status in {"authentication_required", "auth_required"} or error_code in {"auth", "authentication_required"}:
+                return FailureType.AUTHENTICATION_REQUIRED
+            if status in {"permission_denied"} or error_code == "permission_denied":
+                return FailureType.PERMISSION_DENIED
+            if status in {"not_found"} or error_code in {"capability_missing", "not_found"}:
+                return FailureType.CAPABILITY_MISSING
+            if status in {"verification_failed"}:
+                return FailureType.VERIFICATION_FAILED
+
         rc = root_cause.lower()
         if "approval rejected" in rc:
             return FailureType.APPROVAL_REJECTED
@@ -264,10 +288,10 @@ class ReflectionEngine:
         if "repeated loop" in rc:
             return FailureType.REPEATED_LOOP
         for r in tool_results:
-            if r.get("status") == "failed":
+            if str(r.get("status") or "").lower() == "failed":
                 err = r.get("error", "").lower()
                 if "timeout" in err:
                     return FailureType.TIMEOUT
                 if "invalid" in err:
                     return FailureType.INVALID_ARGUMENTS
-        return FailureType.UNKNOWN if any(r.get("status") == "failed" for r in tool_results) else None
+        return FailureType.UNKNOWN if any(str(r.get("status") or "").lower() == "failed" for r in tool_results) else None

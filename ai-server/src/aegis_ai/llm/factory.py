@@ -27,6 +27,91 @@ try:
 except ImportError:
     pass
 
+# Default endpoint used when a cloud provider is requested without an explicit base_url.
+_DEFAULT_CLOUD_BASE_URL = "https://api.openai.com"
+# Local Ollama endpoint.
+_OLLAMA_BASE_URL = "http://localhost:11434/v1"
+
+
+def egress_allows_llm(base_url: str | None, *, component: str = "llm.factory") -> bool:
+    """Return True when the egress gate permits an LLM call to ``base_url``.
+
+    An empty ``base_url`` with a cloud provider means the SDK default endpoint
+    (``api.openai.com``), which is external — so it is checked as such.
+    """
+    from aegis_ai.egress import EgressRequest, get_egress_gate
+
+    destination = base_url or _DEFAULT_CLOUD_BASE_URL
+    return get_egress_gate().allow(
+        EgressRequest(
+            destination=destination,
+            purpose="llm.chat",
+            component=component,
+            data_summary="LLM prompt and memory context",
+        )
+    )
+
+
+def _is_reachable(base_url: str, timeout: float = 0.5) -> bool:
+    """Best-effort check that a local endpoint is listening. Never raises."""
+    import socket
+    from urllib.parse import urlsplit
+
+    try:
+        parts = urlsplit(base_url if "://" in base_url else f"http://{base_url}")
+        host = parts.hostname or "localhost"
+        port = parts.port or (443 if parts.scheme == "https" else 80)
+    except Exception:
+        return False
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    except OSError:
+        return False
+
+
+def _local_or_mock(
+    audit_log: Any = None,
+    model: str | None = None,
+    base_url: str | None = None,
+) -> Any:
+    """Return the local LLM provider when reachable, else a Mock provider.
+
+    Used whenever a cloud provider is refused (by the egress gate or by settings)
+    **and** whenever a local endpoint was requested but is not listening.
+    **Cloud is never returned.**
+
+    The reachability probe matters: constructing an OpenAI-compatible client for a
+    dead endpoint does not fail at construction — it fails at call time after the
+    SDK's retry/backoff cycle, which stalls the pipeline and emits error events.
+    Probing first keeps the degradation deterministic and fast.
+
+    The local path must be functional (Phase 1-4); Mock is the last-resort fallback
+    so AEGIS degrades rather than transmits.
+    """
+    from aegis_ai.llm.providers.mock import MockLLMProvider
+    from aegis_ai.llm.providers.openai_provider import OpenAIProvider
+
+    resolved_base_url = base_url or os.getenv("LLM_LOCAL_BASE_URL", _OLLAMA_BASE_URL)
+    local_model = model or os.getenv("LLM_LOCAL_MODEL_NAME", "qwen2.5:3b")
+
+    if _is_reachable(resolved_base_url):
+        logger.info("Using local LLM at %s (model=%s)", resolved_base_url, local_model)
+        return OpenAIProvider(
+            model=local_model,
+            api_key="ollama",
+            base_url=resolved_base_url,
+            audit_log=audit_log,
+        )
+
+    logger.warning(
+        "No local LLM reachable at %s — falling back to Mock. "
+        "Install and run Ollama (or set LLM_LOCAL_BASE_URL) for a functional local model. "
+        "Cloud providers remain unavailable under the single constraint.",
+        resolved_base_url,
+    )
+    return MockLLMProvider()
+
 
 def create_llm_provider(
     provider_name: str | None = None,
@@ -50,16 +135,13 @@ def create_llm_provider(
     base_url = base_url or os.getenv("LLM_BASE_URL", "")
     model_name = model or os.getenv("LLM_MODEL_NAME", "")
 
-    # Detect Ollama local LLM
+    # Detect Ollama local LLM. Reachability is probed so a dead endpoint degrades
+    # to Mock instead of stalling on SDK retries (see _local_or_mock).
     if base_url and ("localhost:11434" in base_url or "127.0.0.1:11434" in base_url):
-        from aegis_ai.llm.providers.openai_provider import OpenAIProvider
-
-        logger.info("Using Ollama local LLM at %s with model %s", base_url, model_name or "qwen2.5:7b")
-        return OpenAIProvider(
-            model=model_name or "qwen2.5:7b",
-            api_key="ollama",
-            base_url=base_url,
+        return _local_or_mock(
             audit_log=audit_log,
+            model=model_name or "qwen2.5:7b",
+            base_url=base_url,
         )
 
     # Auto-detect provider
@@ -72,7 +154,23 @@ def create_llm_provider(
         else:
             provider_name = "mock"
 
+    # ── Egress gate: the single constraint ──────────────────────────────────
+    # A cloud provider must not be constructed while egress is closed. This is the
+    # structural enforcement of "the user's information must never leave the local
+    # environment" — it cannot be bypassed by a settings flag alone.
+    if provider_name != "mock" and not egress_allows_llm(base_url, component="llm.factory"):
+        return _local_or_mock(audit_log=audit_log, model=model_name)
+
     # Create provider
+    if provider_name == "typesafe":
+        from aegis_ai.llm.providers.typesafe_provider import TypeSafeProvider
+
+        return TypeSafeProvider(
+            model=model_name or model or "jev-latest",
+            api_key=api_key or os.getenv("TYPESAFE_API_KEY", ""),
+            base_url=base_url or "https://api.typesafe.ai/v1/systemone",
+            audit_log=audit_log,
+        )
     if provider_name in ("openai", "deepseek"):
         from aegis_ai.llm.providers.openai_provider import OpenAIProvider
 
@@ -129,6 +227,10 @@ def create_multimodal_llm_provider(
         else:
             provider_name = "mock"
 
+    # ── Egress gate: the single constraint ──────────────────────────────────
+    if provider_name != "mock" and not egress_allows_llm(base_url, component="llm.factory.multimodal"):
+        return _local_or_mock(audit_log=audit_log, model=model_name)
+
     if provider_name == "openai":
         from aegis_ai.llm.providers.openai_provider import OpenAIProvider
 
@@ -147,6 +249,10 @@ def create_multimodal_llm_provider(
 def create_llm_provider_from_settings(settings_store: Any = None, audit_log: Any = None) -> Any:
     """Create LLM provider from settings store.
 
+    When external LLM access is disabled (the default under the single constraint),
+    the local provider is returned so AEGIS degrades to a *functional local* model
+    rather than a silent Mock.
+
     Args:
         settings_store: SettingsStore instance
 
@@ -155,10 +261,10 @@ def create_llm_provider_from_settings(settings_store: Any = None, audit_log: Any
     """
     if settings_store:
         settings = settings_store.get()
-        if settings.privacy.external_llm_allowed:
+        if settings.privacy.external_llm_allowed and egress_allows_llm(
+            os.getenv("LLM_BASE_URL", ""), component="llm.factory.from_settings"
+        ):
             return create_llm_provider(audit_log=audit_log)
-        else:
-            # Local only - use mock
-            from aegis_ai.llm.providers.mock import MockLLMProvider
-            return MockLLMProvider()
+        # Local only.
+        return _local_or_mock(audit_log=audit_log)
     return create_llm_provider()

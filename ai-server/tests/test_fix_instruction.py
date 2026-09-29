@@ -24,7 +24,7 @@ def test_agora_real_probe_requires_persisted_replied_post_id(tmp_path: Path) -> 
         json.dumps(
             {
                 "items": [
-                    {"channel": "agora", "status": "awaiting_approval", "reply_id": ""},
+                    {"channel": "agora", "status": "drafted", "reply_id": ""},
                     {
                         "channel": "agora",
                         "status": "replied",
@@ -43,7 +43,7 @@ def test_agora_real_probe_requires_persisted_replied_post_id(tmp_path: Path) -> 
     assert evidence["latest_reply_id"] == "post_42"
 
 
-def test_autonomous_capability_options_include_approval_proposals(tmp_path: Path) -> None:
+def test_autonomous_capability_options_are_policy_aware(tmp_path: Path) -> None:
     from aegis_ai.capability_catalog import CapabilityCatalog
     from policy_engine import PolicyEngine
     from tool_broker import ToolBroker
@@ -66,12 +66,13 @@ def test_autonomous_capability_options_include_approval_proposals(tmp_path: Path
     assert options["browser-server.form.submit"].disposition.value == "execute_safe"
     agora_post = options["ai-server.agora.post"]
     assert agora_post.disposition.value == "execute_safe"
-    assert agora_post.requires_approval is False
+    assert agora_post.policy_decision in {"ALLOW", "ALLOW_WITH_AUDIT"}
+    # Approval was removed as a constraint — the option carries no approval flag.
+    assert not hasattr(agora_post, "requires_approval")
+    assert "requires_approval" not in agora_post.to_dict()
 
 
-def test_agora_post_executes_without_approval(tmp_path: Path) -> None:
-    from aegis_ai.approval.approval_manager import ApprovalManager
-    from aegis_ai.approval.approval_queue import ApprovalQueue
+def test_agora_post_executes_through_broker_without_approval(tmp_path: Path) -> None:
     from aegis_ai.capability_catalog import CapabilityCatalog
     from policy_engine import PolicyEngine
     from tool_broker import ExecutionSource, InvokeStatus, ToolBroker, ToolExecutionRequest
@@ -85,7 +86,6 @@ def test_agora_post_executes_without_approval(tmp_path: Path) -> None:
     broker = ToolBroker(
         registry=registry,
         policy_engine=PolicyEngine(data_dir=str(tmp_path)),
-        approval_manager=ApprovalManager(ApprovalQueue(data_dir=str(tmp_path / "approvals"))),
         server_executor=executor,
         catalog=catalog,
         folder_registry=catalog._cap_reg,
@@ -99,9 +99,11 @@ def test_agora_post_executes_without_approval(tmp_path: Path) -> None:
         )
     )
 
-    assert result.status != InvokeStatus.APPROVAL_NEEDED
+    # Approval is no longer a constraint: a non-denied capability goes straight
+    # through the broker (the single execution chokepoint) to the executor.
+    assert result.status != InvokeStatus.DENIED
     assert result.policy_decision in {"ALLOW", "ALLOW_WITH_AUDIT"}
-    assert not result.approval_id
+    assert not hasattr(result, "approval_id")
 
 
 def test_initiative_engine_records_action_and_non_action(tmp_path: Path) -> None:
@@ -120,7 +122,6 @@ def test_initiative_engine_records_action_and_non_action(tmp_path: Path) -> None
         risk=0.2,
         uncertainty=0.1,
         candidate_capabilities=["test.action"],
-        requires_approval=True,
     )
     weak = ActionCandidate(
         candidate_id="c2",
@@ -133,7 +134,7 @@ def test_initiative_engine_records_action_and_non_action(tmp_path: Path) -> None
         candidate_capabilities=["test.read"],
     )
 
-    assert engine.evaluate(useful, CapabilityDisposition.PROPOSE_FOR_APPROVAL)[0].value == "execute_now"
+    assert engine.evaluate(useful, CapabilityDisposition.EXECUTE_SAFE)[0].value == "execute_now"
     assert engine.evaluate(weak, CapabilityDisposition.EXECUTE_SAFE)[0].value == "execute_now"
     engine.record_non_action("not useful right now")
     diagnostics = InitiativeEngine(str(tmp_path)).diagnostics()
@@ -208,7 +209,7 @@ def test_immediate_event_is_evaluated_without_calling_llm(tmp_path: Path) -> Non
     )
 
     assert result["queued"] is True
-    assert result["decision"] in {"execute_now", "observe_more", "save_for_later", "propose_approval"}
+    assert result["decision"] in {"execute_now", "observe_more", "save_for_later"}
     llm.generate.assert_not_called()
     queued = loop._pending_actionable_observations[0]
     assert queued["source"] == "status.changed"
@@ -289,7 +290,7 @@ def test_continuation_tracks_presentation_and_learning(tmp_path: Path, monkeypat
     assert [entry["stage"] for entry in restored.history][-2:] == ["presented", "learned"]
 
 
-def test_social_inbox_approval_to_verified_reply(tmp_path: Path) -> None:
+def test_social_inbox_reply_posts_and_advances_cursor(tmp_path: Path) -> None:
     from aegis_ai.social.manager import SocialManager
     from tool_broker import InvokeStatus, ToolExecutionResult
 
@@ -318,8 +319,8 @@ def test_social_inbox_approval_to_verified_reply(tmp_path: Path) -> None:
             self.request = request
             return ToolExecutionResult(
                 request_id="req_1",
-                status=InvokeStatus.APPROVAL_NEEDED,
-                approval_id="appr_1",
+                status=InvokeStatus.SUCCESS,
+                output={"post": {"id": 99}},
             )
 
     cursors: list[int] = []
@@ -332,21 +333,16 @@ def test_social_inbox_approval_to_verified_reply(tmp_path: Path) -> None:
     )
     processed = manager.process_new_items(items)
 
-    assert processed[0].status.value == "awaiting_approval"
+    # No approval detour: the reply goes straight through the broker, and a
+    # verified post id is what makes the item terminal.
+    assert processed[0].status.value == "replied"
     assert broker.request.capability_id == "ai-server.agora.post"
-    assert cursors == []
-    request = SimpleNamespace(
-        metadata={
-            "social_inbox_item_id": processed[0].item_id,
-            "execution_result": {"ok": True, "post": {"id": 99}},
-        }
-    )
-    manager.handle_approval_event({"request": request, "event_type": "executed"})
+    assert processed[0].reply_id == "99"
+    assert cursors == [41]
 
     restored = SocialManager(data_dir=str(tmp_path))
     assert restored.list_items()[0]["status"] == "replied"
     assert restored.list_items()[0]["reply_id"] == "99"
-    assert cursors == [41]
 
 
 def test_social_transient_failure_retries_without_advancing_cursor(tmp_path: Path) -> None:
@@ -486,7 +482,8 @@ def test_social_inbox_preserves_thread_and_relationship_context(tmp_path: Path) 
     assert saved["conversation_context"]["recent_items"][0]["body"] == "First turn"
 
 
-def test_autonomous_approval_is_a_waiting_state_not_execution_failure(tmp_path: Path) -> None:
+def test_autonomous_task_executes_through_broker_and_completes(tmp_path: Path) -> None:
+    """承認という迂回路は無い。autonomous task は broker を通って完走する."""
     from aegis_ai.autonomous.autonomous_loop import AutonomousLoop
     from tool_broker import InvokeStatus, ToolExecutionResult
 
@@ -498,13 +495,12 @@ def test_autonomous_approval_is_a_waiting_state_not_execution_failure(tmp_path: 
             self.requests.append(request)
             return ToolExecutionResult(
                 request_id=request.request_id,
-                status=InvokeStatus.APPROVAL_NEEDED,
-                approval_id="appr_waiting",
+                status=InvokeStatus.SUCCESS,
+                output={"ok": True, "result": "posted"},
             )
 
     class Tasks:
         def __init__(self) -> None:
-            self.waiting = []
             self.failed = []
             self.completed = []
 
@@ -513,9 +509,6 @@ def test_autonomous_approval_is_a_waiting_state_not_execution_failure(tmp_path: 
 
         def start_task(self, _task_id):
             return None
-
-        def wait_for_approval(self, task_id, approval_id, step_id=""):
-            self.waiting.append((task_id, approval_id, step_id))
 
         def fail_task(self, task_id, error=""):
             self.failed.append((task_id, error))
@@ -538,43 +531,15 @@ def test_autonomous_approval_is_a_waiting_state_not_execution_failure(tmp_path: 
                 "action": "Reply to a social obligation",
                 "capability_id": "ai-server.agora.post",
                 "arguments": {"body": "Draft", "thread_id": 1},
-                "initiative_decision": "propose_approval",
             }
         ]
     )
 
+    # The broker is the single execution chokepoint; there is no approval detour.
     assert len(broker.requests) == 1
     assert results[0]["success"] is True
-    assert results[0]["full_output"]["action_state"] == "awaiting_approval"
-    assert tasks.waiting == [("task_auto", "appr_waiting", "")]
     assert tasks.failed == []
-    assert tasks.completed == []
-
-
-def test_pc_overlay_requires_real_delivery_ack() -> None:
-    from aegis_ai.approval.channels.pc_overlay import PcOverlayApprovalChannel
-    from aegis_ai.approval.fanout import ApprovalEvent
-
-    event = ApprovalEvent(
-        approval_id="appr_1",
-        event_type="created",
-        request_summary={"title": "Approval", "body": "Review action"},
-        state="pending",
-    )
-    executor = MagicMock()
-    manager = MagicMock()
-    channel = PcOverlayApprovalChannel(executor, approval_manager=manager)
-
-    executor.execute_capability.return_value = {"error": "unreachable"}
-    assert asyncio.run(channel.deliver(event)) is False
-    executor.execute_capability.return_value = {
-        "ok": True,
-        "approved": True,
-        "request_id": "req_1",
-        "response": "Approved with Y key",
-    }
-    assert asyncio.run(channel.deliver(event)) is True
-    manager.approve.assert_called_once()
+    assert [task_id for task_id, _ in tasks.completed] == ["task_auto"]
 
 
 def test_ui_depth_limit_does_not_json_quote_android_permission_names() -> None:
@@ -590,46 +555,6 @@ def test_ui_depth_limit_does_not_json_quote_android_permission_names() -> None:
     bounded = _bound_for_ui(capability_health, max_depth=3)
 
     assert bounded["android-server.overlay.show"]["required_permissions"] == ["overlay"]
-
-
-def test_approval_surface_delivery_evidence_is_persisted(tmp_path: Path) -> None:
-    from aegis_ai.approval.approval_manager import ApprovalManager
-    from aegis_ai.approval.approval_queue import ApprovalQueue
-    from aegis_schema.models import RiskLevel
-    from policy_engine import PolicyDecision, PolicyResult
-    from tool_broker import ExecutionSource, ToolExecutionRequest
-
-    manager = ApprovalManager(ApprovalQueue(data_dir=str(tmp_path / "approvals")))
-    request = ToolExecutionRequest(
-        capability_id="pc-server.app.show_url",
-        arguments={
-            "url": "https://example.test",
-            "viewer": "user_visible",
-            "purpose": "present",
-        },
-        source=ExecutionSource.AUTONOMOUS,
-    )
-    approval = manager.create_request(
-        request,
-        PolicyResult(
-            decision=PolicyDecision.ASK_APPROVAL,
-            reason="User-visible handoff requires approval",
-            capability_id=request.capability_id,
-            risk_level=RiskLevel.APPROVAL_REQUIRED,
-        ),
-    )
-
-    manager.record_surface_delivery(
-        approval.approval_id,
-        {"dashboard": True, "pc_overlay": False, "android": True},
-    )
-
-    restored = ApprovalManager(ApprovalQueue(data_dir=str(tmp_path / "approvals")))
-    evidence = restored.get(approval.approval_id).surface_delivery_evidence
-    assert evidence["dashboard"]["attempted"] is True
-    assert evidence["pc_overlay"]["failed"] is True
-    assert evidence["pc_overlay"]["last_error"] == "delivery failed"
-    assert evidence["android"]["delivered"] is True
 
 
 def test_browser_capabilities_are_split_and_bounded() -> None:

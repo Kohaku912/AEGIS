@@ -28,11 +28,18 @@ _SECRET_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
-_COOLDOWN_SECONDS = 60
 _MAX_REPLIED_TO = 200
 _MAX_RECENT_BODIES = 40
+_MAX_RECENT_POST_EVENTS = 80
 _NEAR_DUPLICATE_RATIO = 0.88
 _BODY_SNIPPET_CHARS = 180
+_BURST_WINDOW_SECONDS = 1800
+_MAX_POSTS_PER_BURST_WINDOW = 3
+_TOP_LEVEL_WINDOW_SECONDS = 21600
+_MAX_TOP_LEVEL_POSTS_PER_WINDOW = 2
+# Minimum quiet period between posts. Used by ``check_cooldown`` to report how
+# long the caller must wait before the next AGORA post is allowed.
+_COOLDOWN_SECONDS = 1800
 
 
 def _has_secret(text: str) -> bool:
@@ -115,17 +122,18 @@ class AgoraService:
     ) -> dict[str, Any]:
         """LLM judgment: is this suitable as a public AGORA social post?
 
-        Fail-closed when LLM is unavailable. Does not use keyword denylists.
+        Advisory-only guidance for social tone and suitability. Does not use keyword denylists.
         """
         if self._llm is None:
             return {
-                "suitable": False,
-                "reason": "Social suitability gate unavailable (no LLM); posting blocked.",
+                "suitable": True,
+                "reason": "Social suitability guidance unavailable (no LLM).",
                 "category": "gate_unavailable",
             }
 
         recent_bodies = list(self._guard.get("recent_bodies") or [])[-5:]
         replied_to = list(self._guard.get("replied_to_ids") or [])[-20:]
+        cadence = self.post_avoidance_context(body_limit=5, reply_limit=20)
         prompt = f"""Judge whether this draft is suitable as a public AGORA social post
 between humans (and AEGIS as a social participant).
 
@@ -136,6 +144,10 @@ Rules (reason from meaning, not keywords):
 - suitable: genuine social reciprocity, helpful reply to someone, or a grounded public update a human would welcome
 - unsuitable: internal system/ops status, incident/timeout/permission reports, approval-request meta about AEGIS itself,
   meaningless test/probe content, or near-duplicate of a recent AEGIS post on the same topic/reply_to
+- unsuitable: low-substance chatter, empty acknowledgement, "just checking in" noise, or replies that do not clearly
+  move the conversation forward
+- prefer silence when the same account has posted repeatedly in a short span; one thoughtful reply is better than several small ones
+- These are social norms and advice, not hard prohibitions. Judge what a considerate participant would do.
 - Do not classify by capability id. Judge body + context only.
 
 Draft body:
@@ -146,6 +158,8 @@ Recent AEGIS post bodies (for duplicate awareness):
 {json.dumps(recent_bodies, ensure_ascii=False)}
 Recent reply_to ids already answered by AEGIS:
 {json.dumps(replied_to, ensure_ascii=False)}
+Recent posting cadence context:
+{json.dumps(cadence, ensure_ascii=False)}
 """
         try:
             if hasattr(self._llm, "generate"):
@@ -153,7 +167,7 @@ Recent reply_to ids already answered by AEGIS:
                     prompt=prompt,
                     system_prompt=(
                         "You are AEGIS's AGORA social suitability judge. "
-                        "Prefer blocking internal/test/meta posts over letting them through. "
+                        "Provide social advice, not a hard policy gate. "
                         "Output JSON only."
                     ),
                     max_tokens=400,
@@ -161,15 +175,15 @@ Recent reply_to ids already answered by AEGIS:
                 )
                 if not getattr(response, "success", False):
                     return {
-                        "suitable": False,
-                        "reason": f"Suitability LLM failed: {getattr(response, 'error', 'unknown')}",
+                        "suitable": True,
+                        "reason": f"Suitability guidance unavailable: {getattr(response, 'error', 'unknown')}",
                         "category": "gate_unavailable",
                     }
                 content = getattr(response, "content", "") or ""
             else:
                 return {
-                    "suitable": False,
-                    "reason": "Social suitability gate unavailable (LLM has no generate).",
+                    "suitable": True,
+                    "reason": "Social suitability guidance unavailable (LLM has no generate).",
                     "category": "gate_unavailable",
                 }
             data = extract_json_object(content)
@@ -182,8 +196,8 @@ Recent reply_to ids already answered by AEGIS:
         except Exception as exc:
             logger.warning("AGORA suitability evaluation failed: %s", exc)
             return {
-                "suitable": False,
-                "reason": f"Suitability evaluation error: {exc}",
+                "suitable": True,
+                "reason": f"Suitability guidance error: {exc}",
                 "category": "gate_unavailable",
             }
 
@@ -202,22 +216,14 @@ Recent reply_to ids already answered by AEGIS:
         if not body.strip():
             return {"error": "blocked", "message": "Post body is empty."}
 
-        structural = self._structural_block(body=body, reply_to=reply_to)
-        if structural is not None:
-            return structural
-
         run_suitability = not already_approved and not skip_suitability
         if run_suitability:
             judgment = self.evaluate_social_suitability(body, reply_to=reply_to)
             if not judgment.get("suitable"):
-                return {
-                    "error": "blocked",
-                    "message": (
-                        "Post blocked by social suitability gate: "
-                        f"{judgment.get('reason')}"
-                    ),
-                    "suitability": judgment,
-                }
+                logger.info(
+                    "AGORA suitability advice marked post as unsuitable but will not block: %s",
+                    judgment.get("reason"),
+                )
 
         result = self._client.create_post(thread_id=thread_id, body=body, reply_to=reply_to)
         if isinstance(result, AgoraPost):
@@ -259,14 +265,27 @@ Recent reply_to ids already answered by AEGIS:
             for x in (self._guard.get("replied_to_ids") or [])
             if str(x).lstrip("-").isdigit() or isinstance(x, int)
         ]
+        recent_events = self._recent_post_events()
+        now = time.time()
+        recent_post_count_30m = sum(1 for event in recent_events if now - float(event.get("at") or 0.0) <= _BURST_WINDOW_SECONDS)
+        recent_top_level_count_6h = sum(
+            1
+            for event in recent_events
+            if now - float(event.get("at") or 0.0) <= _TOP_LEVEL_WINDOW_SECONDS
+            and event.get("reply_to") is None
+        )
         snippets = [body[:_BODY_SNIPPET_CHARS] for body in recent_bodies[-max(1, body_limit):]]
         return {
             "replied_to_ids": replied[-max(1, reply_limit):],
             "recent_bodies": snippets,
+            "recent_post_count_30m": recent_post_count_30m,
+            "recent_top_level_count_6h": recent_top_level_count_6h,
+            "burst_window_seconds": _BURST_WINDOW_SECONDS,
+            "top_level_window_seconds": _TOP_LEVEL_WINDOW_SECONDS,
             "guidance": (
-                "Do not reply_to any id in replied_to_ids. "
-                "Do not draft a body that restates or paraphrases recent_bodies; "
-                "write a fresh message only when there is new substance, otherwise skip posting."
+                "Treat replied_to_ids and recent_bodies as social memory, not hard rules. "
+                "Usually avoid replying twice to the same post or paraphrasing recent_bodies unless there is a clear reason. "
+                "Prefer fresh, higher-signal contributions, especially when recent_post_count_30m or recent_top_level_count_6h is already high."
             ),
         }
 
@@ -281,26 +300,6 @@ Recent reply_to ids already answered by AEGIS:
             recent_bodies = [*recent_bodies, last_body]
         return any(bodies_are_near_duplicates(candidate, prior) for prior in recent_bodies)
 
-    def _structural_block(self, *, body: str, reply_to: int | None) -> dict[str, Any] | None:
-        now = time.time()
-        last_time = float(self._guard.get("last_post_time") or 0.0)
-        if now - last_time < _COOLDOWN_SECONDS:
-            remaining = int(_COOLDOWN_SECONDS - (now - last_time))
-            return {"error": "cooldown", "message": f"Post cooldown active. Wait {remaining}s."}
-
-        if self.matches_recent_body(body):
-            return {
-                "error": "duplicate",
-                "message": "Near-duplicate of a recent AEGIS post body. Posting denied.",
-            }
-
-        if reply_to is not None and self.has_replied_to(int(reply_to)):
-            return {
-                "error": "duplicate_reply",
-                "message": f"AEGIS already replied to post #{int(reply_to)}. Posting denied.",
-            }
-        return None
-
     def _record_successful_post(self, *, body: str, reply_to: int | None) -> None:
         now = time.time()
         self._guard["last_post_time"] = now
@@ -308,6 +307,15 @@ Recent reply_to ids already answered by AEGIS:
         recent = list(self._guard.get("recent_bodies") or [])
         recent.append(body.strip())
         self._guard["recent_bodies"] = recent[-_MAX_RECENT_BODIES:]
+        recent_events = self._recent_post_events()
+        recent_events.append(
+            {
+                "at": now,
+                "reply_to": int(reply_to) if reply_to is not None else None,
+                "body": body.strip()[:_BODY_SNIPPET_CHARS],
+            }
+        )
+        self._guard["recent_post_events"] = recent_events[-_MAX_RECENT_POST_EVENTS:]
         if reply_to is not None:
             replied = [int(x) for x in (self._guard.get("replied_to_ids") or []) if str(x).lstrip("-").isdigit()]
             rid = int(reply_to)
@@ -323,10 +331,12 @@ Recent reply_to ids already answered by AEGIS:
                 "last_post_body": "",
                 "recent_bodies": [],
                 "replied_to_ids": [],
+                "recent_post_events": [],
             }
         try:
             data = json.loads(self._guard_path.read_text(encoding="utf-8"))
             if isinstance(data, dict):
+                data.setdefault("recent_post_events", [])
                 return data
         except Exception as exc:
             logger.warning("Failed to load AGORA post guard state: %s", exc)
@@ -335,7 +345,34 @@ Recent reply_to ids already answered by AEGIS:
             "last_post_body": "",
             "recent_bodies": [],
             "replied_to_ids": [],
+            "recent_post_events": [],
         }
+
+    def _recent_post_events(self) -> list[dict[str, Any]]:
+        events = self._guard.get("recent_post_events") or []
+        if not isinstance(events, list):
+            return []
+        normalized: list[dict[str, Any]] = []
+        now = time.time()
+        max_age = max(_TOP_LEVEL_WINDOW_SECONDS, _BURST_WINDOW_SECONDS) * 2
+        for event in events:
+            if not isinstance(event, dict):
+                continue
+            try:
+                at = float(event.get("at") or 0.0)
+            except (TypeError, ValueError):
+                continue
+            if at <= 0 or now - at > max_age:
+                continue
+            reply_to = event.get("reply_to")
+            normalized.append(
+                {
+                    "at": at,
+                    "reply_to": int(reply_to) if isinstance(reply_to, int) or str(reply_to).lstrip("-").isdigit() else None,
+                    "body": str(event.get("body") or "")[:_BODY_SNIPPET_CHARS],
+                }
+            )
+        return normalized[-_MAX_RECENT_POST_EVENTS:]
 
     def _save_guard(self) -> None:
         try:

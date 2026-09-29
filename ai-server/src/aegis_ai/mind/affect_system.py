@@ -24,17 +24,14 @@ Usage:
 
 from __future__ import annotations
 
-import json
 import logging
 import threading
-import time
 from pathlib import Path
 from typing import Any
 
 from aegis_ai.mind.layered_emotion import (
     AppraisalPattern,
     EmotionInstance,
-    EmotionType,
     LayeredEmotion,
 )
 from aegis_ai.mind.mood import Mood

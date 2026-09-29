@@ -4,7 +4,8 @@ Manages recurring tasks like daily briefing, periodic research,
 reflection intervals, and memory summarization.
 
 Safety: All scheduled tasks are read-only or generate proposals.
-Level 2+ actions require approval through normal PolicyEngine flow.
+Level 2+ actions run through the normal PolicyEngine / ToolBroker flow; nothing
+forces a confirmation first, though the delegation policy may deny outright.
 
 Architecture reference: docs/architecture.md §5.11
 """

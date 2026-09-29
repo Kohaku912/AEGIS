@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, ClassVar
 from urllib.parse import urlparse
 
 from aegis_browser.task_models import BrowserTask
@@ -35,19 +35,19 @@ class BrowserSafetyBoundary:
         result = boundary.check_action("click", {"element": "submit_button"})
     """
 
-    STOP_BOUNDARIES = {
+    STOP_BOUNDARIES: ClassVar[dict[str, str]] = {
         "captcha": "CAPTCHA detected",
         "bot_detection": "Bot detection detected",
         "payment": "Payment or purchase boundary detected",
         "contract": "Contract acceptance boundary detected",
         "identity_verification": "Identity verification boundary detected",
     }
-    USER_INPUT_BOUNDARIES = {
+    USER_INPUT_BOUNDARIES: ClassVar[dict[str, str]] = {
         "credentials": "Credential input required",
         "two_factor": "Two-factor authentication required",
         "one_time_password": "One-time password required",
     }
-    APPROVAL_BOUNDARIES = {
+    APPROVAL_BOUNDARIES: ClassVar[dict[str, str]] = {
         "publish": "Publish action requires approval",
         "submit": "Submission requires approval",
         "upload": "Upload requires approval",
@@ -122,7 +122,38 @@ class BrowserSafetyBoundary:
         return SafetyCheckResult(allowed=True)
 
     def check_domain(self, url: str) -> SafetyCheckResult:
-        """Check if a domain is allowed."""
+        """Check whether a URL may be navigated to.
+
+        Two independent checks, both must pass:
+
+        1. **Egress (the single constraint)** — the destination must stay inside the
+           local environment, or external egress must be explicitly enabled and the
+           host allowlisted. Checked first so the constraint cannot be bypassed by
+           declaring a target domain.
+        2. **Task scope** — when the task declares ``target_domains``, the URL must
+           fall inside one of them.
+        """
+        # 1. Egress gate — the only constraint.
+        from aegis_browser.egress import EgressRequest, classify_destination, egress_allowed
+
+        if classify_destination(url) != "local" and not egress_allowed(
+            EgressRequest(
+                destination=url,
+                purpose="web.navigate",
+                component="safety_boundary.check_domain",
+                data_summary="page navigation target",
+            )
+        ):
+            return SafetyCheckResult(
+                allowed=False,
+                reason=(
+                    f"Egress denied for {url}: the user's information must not leave "
+                    "the local environment."
+                ),
+                risk_level="BLOCKED",
+            )
+
+        # 2. Task scope.
         if not self._task.target_domains:
             return SafetyCheckResult(allowed=True)
 

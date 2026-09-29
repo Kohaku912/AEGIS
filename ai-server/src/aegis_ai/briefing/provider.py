@@ -25,6 +25,27 @@ from aegis_ai.llm.memory_context import build_shared_memory_context
 logger = logging.getLogger("aegis_ai.briefing.provider")
 _DATA_DIR = str(Path(__file__).resolve().parent.parent.parent / "data")
 
+
+def _weather_egress_allowed(url: str) -> bool:
+    """Return True when the egress gate permits fetching ``url``.
+
+    Fails closed: if the gate cannot be consulted, the fetch is refused.
+    """
+    try:
+        from aegis_ai.egress import EgressRequest, get_egress_gate
+
+        return get_egress_gate().allow(
+            EgressRequest(
+                destination=url,
+                purpose="web.weather",
+                component="briefing.provider",
+                data_summary="user coordinates (latitude/longitude)",
+            )
+        )
+    except Exception:
+        logger.debug("Egress gate unavailable for weather fetch — failing closed", exc_info=True)
+        return False
+
 # ── Weather codes (WMO) → human-readable descriptions ──────────
 _WEATHER_CODES: dict[int, str] = {
     0: "Clear sky",
@@ -223,16 +244,29 @@ class DailyBriefingProvider:
         )
 
     def _get_weather(self) -> BriefingSection:
-        """Fetch current weather from OpenMeteo (free, no API key)."""
+        """Fetch current weather from OpenMeteo (free, no API key).
+
+        The request carries the user's coordinates, so it goes through the egress
+        gate. Under the single constraint this is denied by default and the section
+        degrades to "unavailable" rather than leaking the location.
+        """
         now = time.time()
         if self._weather_cache and (now - self._weather_cache_ts) < _WEATHER_CACHE_TTL:
             return self._build_weather_section(self._weather_cache)
 
         lat, lon, location = self._resolve_location()
+        url = "https://api.open-meteo.com/v1/forecast"
+        if not _weather_egress_allowed(url):
+            logger.info("Weather fetch skipped: egress denied for %s", url)
+            return BriefingSection(
+                title="Weather",
+                content="Weather data unavailable (external weather service disabled).",
+                priority="low",
+                source="weather",
+            )
         try:
             import httpx
 
-            url = "https://api.open-meteo.com/v1/forecast"
             params = {
                 "latitude": lat,
                 "longitude": lon,
@@ -293,7 +327,7 @@ class DailyBriefingProvider:
     def _get_calendar(self) -> BriefingSection:
         """Load today's events from local calendar JSON."""
         try:
-            from datetime import date, datetime
+            from datetime import date
             import json
 
             cal_path = Path(_DATA_DIR).parent / "config" / "calendar.json"

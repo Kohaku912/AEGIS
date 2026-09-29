@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import Any
 
 from aegis_ai.llm.json_utils import extract_json_object
+from aegis_ai.memory.retrieval_scoring import combined_text_score, query_tokens
 
 logger = logging.getLogger("aegis_ai.memory.advanced")
 
@@ -100,7 +101,7 @@ class AdvancedMemory:
         # Load entities
         entities_path = self._data_dir / "entities.jsonl"
         if entities_path.exists():
-            with open(entities_path, "r", encoding="utf-8") as f:
+            with open(entities_path, encoding="utf-8") as f:
                 for line in f:
                     try:
                         data = json.loads(line.strip())
@@ -112,7 +113,7 @@ class AdvancedMemory:
         # Load facts
         facts_path = self._data_dir / "facts.jsonl"
         if facts_path.exists():
-            with open(facts_path, "r", encoding="utf-8") as f:
+            with open(facts_path, encoding="utf-8") as f:
                 for line in f:
                     try:
                         data = json.loads(line.strip())
@@ -136,7 +137,7 @@ class AdvancedMemory:
                 if len(self._conversations) > hot:
                     self._conversations = self._conversations[-hot:]
             except Exception:
-                with open(conv_path, "r", encoding="utf-8") as f:
+                with open(conv_path, encoding="utf-8") as f:
                     for line in f:
                         try:
                             data = json.loads(line.strip())
@@ -189,10 +190,10 @@ class AdvancedMemory:
             name = e_data.get("name", "")
             if not name:
                 continue
-            
+
             aliases = e_data.get("aliases", [])
             existing_entity = None
-            
+
             for alias in [name] + aliases:
                 for eid, ent in self._entities.items():
                     if ent.name.lower() == alias.lower():
@@ -200,7 +201,7 @@ class AdvancedMemory:
                         break
                 if existing_entity:
                     break
-            
+
             if existing_entity:
                 entity = existing_entity
                 if name.lower() != entity.name.lower():
@@ -211,7 +212,7 @@ class AdvancedMemory:
                 entity = self._get_or_create_entity(name, e_data.get("type", "person"))
                 if aliases:
                     entity.attributes["aliases"] = aliases
-            
+
             entity.mention_count += 1
             entity.last_seen_ms = now
             if e_data.get("attributes"):
@@ -389,15 +390,13 @@ Only extract meaningful information. If nothing noteworthy, return empty arrays.
 
     @staticmethod
     def _query_tokens(query: str) -> set[str]:
-        import re
-
-        return {t for t in re.findall(r"[a-zA-Z0-9_\u3040-\u30ff\u3400-\u9fff]{2,}", query.lower())}
+        return query_tokens(query)
 
     @staticmethod
     def _overlap_score(query_tokens: set[str], *texts: str) -> float:
         if not query_tokens:
             return 0.0
-        blob = " ".join(texts).lower()
+        blob = " ".join(texts).lower().split()
         hits = sum(1 for t in query_tokens if t in blob)
         return hits / max(1, len(query_tokens))
 
@@ -416,9 +415,15 @@ Only extract meaningful information. If nothing noteworthy, return empty arrays.
         for entity in self._entities.values():
             attr_blob = " ".join(str(v) for v in entity.attributes.values())
             name_blob = f"{entity.name} {attr_blob}"
-            score = self._overlap_score(query_tokens, name_blob)
-            if query_lower and query_lower in name_blob.lower():
-                score = max(score, 1.0)
+            score = max(
+                self._overlap_score(query_tokens, name_blob),
+                combined_text_score(
+                    query,
+                    texts=[entity.name, attr_blob, " ".join(entity.relationships.keys())],
+                    importance=float(entity.importance or 0.0),
+                    timestamp_ms=int(entity.last_seen_ms or 0),
+                ),
+            )
             if score > 0:
                 scored.append((score + float(entity.importance or 0.0) * 0.2, entity))
         scored.sort(key=lambda item: item[0], reverse=True)
@@ -427,15 +432,21 @@ Only extract meaningful information. If nothing noteworthy, return empty arrays.
     def _search_facts(self, query: str) -> list[Fact]:
         """Search facts by content with overlap ranking."""
         query_tokens = self._query_tokens(query)
-        query_lower = query.lower().strip()
         scored: list[tuple[float, Fact]] = []
         for fact in self._facts.values():
             if fact.invalid_at_ms != 0:
                 continue
             blob = f"{fact.content} {fact.subject} {fact.predicate} {fact.object}"
-            score = self._overlap_score(query_tokens, blob)
-            if query_lower and query_lower in blob.lower():
-                score = max(score, 1.0)
+            score = max(
+                self._overlap_score(query_tokens, blob),
+                combined_text_score(
+                    query,
+                    texts=[fact.content, fact.subject, fact.predicate, fact.object],
+                    importance=float(fact.importance or 0.0),
+                    confidence=float(fact.confidence or 0.0),
+                    timestamp_ms=int(fact.valid_at_ms or 0),
+                ),
+            )
             if score > 0:
                 scored.append((score + float(fact.importance or 0.0) * 0.25, fact))
         scored.sort(key=lambda item: item[0], reverse=True)
@@ -444,18 +455,20 @@ Only extract meaningful information. If nothing noteworthy, return empty arrays.
     def _search_conversations(self, query: str) -> list[ConversationEntry]:
         """Search conversations by content with overlap ranking."""
         query_tokens = self._query_tokens(query)
-        query_lower = query.lower().strip()
         scored: list[tuple[float, ConversationEntry]] = []
         for conv in self._conversations:
-            score = self._overlap_score(query_tokens, conv.user_msg, conv.bot_msg)
-            if query_lower and (
-                query_lower in conv.user_msg.lower() or query_lower in conv.bot_msg.lower()
-            ):
-                score = max(score, 1.0)
+            score = max(
+                self._overlap_score(query_tokens, conv.user_msg, conv.bot_msg),
+                combined_text_score(
+                    query,
+                    texts=[conv.user_msg, conv.bot_msg],
+                    timestamp_ms=int(conv.timestamp_ms or 0),
+                ),
+            )
             if score > 0:
                 scored.append((score, conv))
         scored.sort(key=lambda item: item[0], reverse=True)
-        return [conv for _, conv in scored[-8:]]
+        return [conv for _, conv in scored[:8]]
 
     def get_all_entities(self) -> list[Entity]:
         """Get all tracked entities."""

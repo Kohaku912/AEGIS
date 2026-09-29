@@ -60,6 +60,20 @@ class WebhookSender:
     def __init__(self, audit_log: Any = None) -> None:
         self._audit = audit_log
 
+    @staticmethod
+    def _egress_allows(url: str) -> bool:
+        """Whether the webhook URL may be called. External hosts are denied by default."""
+        from aegis_ai.egress import EgressRequest, get_egress_gate
+
+        return get_egress_gate().allow(
+            EgressRequest(
+                destination=url,
+                purpose="webhook.send",
+                component="integrations.webhook_sender",
+                data_summary="webhook payload (may contain user content)",
+            )
+        )
+
     def send(self, request: WebhookRequest) -> WebhookResponse:
         if not request.webhook_id:
             request.webhook_id = f"wh_{uuid.uuid4().hex[:10]}"
@@ -73,6 +87,20 @@ class WebhookSender:
                 error="No URL provided.",
                 created_at=int(time.time() * 1000),
             )
+
+        if not self._egress_allows(request.url):
+            logger.warning("Webhook refused by the egress gate (payload withheld)")
+            response = WebhookResponse(
+                webhook_id=request.webhook_id,
+                success=False,
+                error=(
+                    "Webhook disabled: the payload would leave the local environment "
+                    "(the single constraint)."
+                ),
+                created_at=int(time.time() * 1000),
+            )
+            self._record_audit(request, response)
+            return response
 
         if request.secret:
             body = json.dumps(request.payload, ensure_ascii=False)

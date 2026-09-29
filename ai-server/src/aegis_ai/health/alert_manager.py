@@ -31,7 +31,6 @@ _SERVER_DEFAULTS: list[tuple[str, str, str, int]] = [
     ("browser-server", "BROWSER_SERVER_HOST", "BROWSER_SERVER_PORT", 50053),
     ("android-server", "ANDROID_SERVER_HOST", "ANDROID_SERVER_PORT", 50054),
     ("room-server", "ROOM_SERVER_HOST", "ROOM_SERVER_PORT", 50055),
-    ("dev-server", "DEV_SERVER_HOST", "DEV_SERVER_PORT", 50056),
 ]
 
 # Deduplication window: same type+source within this window is suppressed
@@ -333,7 +332,6 @@ class HealthAlertManager:
         env_map = {
             "android-server": "ANDROID_SERVER_ENABLED",
             "room-server": "ROOM_SERVER_ENABLED",
-            "dev-server": "DEV_SERVER_ENABLED",
             "browser-server": "BROWSER_SERVER_ENABLED",
             "pc-server": "PC_SERVER_ENABLED",
         }

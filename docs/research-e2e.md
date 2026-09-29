@@ -1,7 +1,23 @@
 # Research E2E — Integration Testing
 
+> ⚠️ **Goal change (2026-09-27)**: the only constraint is now **"the user's information must never
+> leave the local environment."** Approval, reversibility, policy, and reliability-proof are **no
+> longer constraints**. Any "requires approval" / "Level 2" language below is a **risk annotation**,
+> not a gate. See [`GOAL-CHANGE.md`](GOAL-CHANGE.md).
+
+
 > **Status**: Phase 3.5 (2026-06-11)  
 > **Related**: [`research-agent.md`](research-agent.md), [`browser-safety.md`](browser-safety.md), [`testing.md`](testing.md)
+
+> ⚠️ **The scenarios below are historical, not current (verified 2026-09-28).** The
+> `aegis_ai/research/` package is **orphaned** — nothing imports it and `SourceCollector` is never
+> constructed — so these "E2E" results cannot be reproduced from the present tree. No test file
+> covers them.
+>
+> The `Level` / `Approval` columns and the `APPROVAL_NEEDED` result are **approval-era vocabulary**.
+> The goal change (2026-09-27) removed the gate that forced approval, so `APPROVAL_NEEDED` is no
+> longer an outcome the system produces; the capability IDs in the scenarios
+> (`browser.open_page`, `browser.extract_page_text`) no longer exist either.
 
 ## E2E Scenarios Covered
 

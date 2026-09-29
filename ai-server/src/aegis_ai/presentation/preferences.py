@@ -31,7 +31,7 @@ class PresentationPreferences:
             if not os.path.exists(self._path):
                 return
             try:
-                with open(self._path, "r", encoding="utf-8") as fh:
+                with open(self._path, encoding="utf-8") as fh:
                     loaded = json.load(fh)
                 if isinstance(loaded, dict):
                     self._data["modality_scores"] = dict(loaded.get("modality_scores") or {})

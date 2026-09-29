@@ -47,6 +47,9 @@ def _capability_from_manifest(manifest: Any) -> Capability:
     Uses canonical ID format: server_id.app_id.action
     e.g., pc-server.screenshot.get_screenshot
     """
+    # `requires_approval` is carried through as a manifest annotation only.
+    # Approval is no longer a constraint (2026-09-27) and this value never gates
+    # execution — see docs/GOAL-CHANGE.md.
     risk, requires_approval = aligned_policy(
         getattr(manifest, "risk_level", "low"),
         bool(getattr(manifest, "requires_approval", False)),
@@ -55,14 +58,9 @@ def _capability_from_manifest(manifest: Any) -> Capability:
         raise ValueError(f"Capability '{getattr(manifest, 'capability_id', '')}' is FORBIDDEN")
 
     server_id = getattr(manifest, "server_id", "ai-server")
-    server_type_map = {
-        "pc-server": ServerType.PC,
-        "browser-server": ServerType.BROWSER,
-        "android-server": ServerType.ANDROID,
-        "room-server": ServerType.ROOM,
-        "ai-server": ServerType.AI,
-    }
-    server_type = server_type_map.get(server_id, ServerType.AI)
+    from aegis_schema.roster import SERVER_TYPE_BY_ID
+
+    server_type = SERVER_TYPE_BY_ID.get(server_id, ServerType.AI)
 
     cap_id = getattr(manifest, "capability_id", "")
     if not cap_id:
@@ -106,7 +104,6 @@ class InvokeStatus(Enum):
     SUCCESS = "success"
     FAILED = "failed"
     DENIED = "denied"
-    APPROVAL_NEEDED = "approval_required"
     TIMEOUT = "timeout"
     CANCELLED = "cancelled"
     DRY_RUN = "dry_run"
@@ -131,7 +128,6 @@ class ToolExecutionRequest:
     tool_name: str = ""
     arguments: dict[str, Any] = field(default_factory=dict)
     risk_level: RiskLevel = RiskLevel.UNSPECIFIED
-    requires_approval: bool = False
     dry_run: bool = False
     idempotency_key: str = ""
     created_at: int = 0
@@ -157,7 +153,6 @@ class ToolExecutionResult:
     policy_result: PolicyResult | None = None
     verification_status: str = "pending"
     audit_log_id: str = ""
-    approval_id: str = ""
     verification: VerificationResult | None = None
 
     @property
@@ -342,7 +337,7 @@ class InvokeResult:
 
     @property
     def denied(self) -> bool:
-        return self.status in (InvokeStatus.DENIED, InvokeStatus.APPROVAL_NEEDED)
+        return self.status == InvokeStatus.DENIED
 
 
 # Type alias for mock executor functions
@@ -368,8 +363,6 @@ class ToolBroker:
         policy_engine: PolicyEngine | None = None,
         audit_log: Any = None,
         verification_service: Any = None,
-        approval_queue: Any = None,
-        approval_manager: Any = None,
         server_executor: ServerExecutor | None = None,
         folder_registry: Any = None,
         catalog: Any = None,
@@ -382,8 +375,6 @@ class ToolBroker:
         self._policy = policy_engine or create_default_policy_engine()
         self._audit = audit_log
         self._verification = verification_service
-        self._approval_queue = approval_queue
-        self._approval_manager = approval_manager
         self._server_executor = server_executor
         self._folder_registry = folder_registry
         self._catalog = catalog
@@ -402,13 +393,42 @@ class ToolBroker:
         # Idempotency: key → result
         self._idempotency_cache: dict[str, ToolExecutionResult] = {}
 
-        # Pending approval requests
-        self._pending_approvals: dict[str, ToolExecutionRequest] = {}
         self._lock = threading.RLock()
+
+    # ── Singleton hook (Phase 7 §36) ───────────────────────────
+
+    _singleton: ToolBroker | None = None
+
+    @classmethod
+    def instance(cls) -> ToolBroker | None:
+        """Return the process-wide singleton broker if one was registered.
+
+        Phase 7 (instruction.md §36): the MCP gateway / agent facade use
+        this to obtain the canonical broker without owning construction
+        responsibility. ``AegisRuntime`` is expected to register the
+        process-wide broker via :meth:`set_instance` during startup;
+        callers that run before startup (e.g. isolated tests) fall back
+        to constructing a fresh broker with a default registry.
+        """
+        return cls._singleton
+
+    @classmethod
+    def set_instance(cls, broker: ToolBroker | None) -> None:
+        """Register (or clear) the process-wide singleton broker."""
+        cls._singleton = broker
 
     def set_delegation_policy(self, delegation_policy: Any) -> None:
         """Attach user-specific delegation policy after runtime construction."""
         self._delegation_policy = delegation_policy
+
+    @property
+    def delegation_policy(self) -> Any:
+        """The attached delegation policy store, or ``None``.
+
+        Exposed so planning can reach the *same* store the broker enforces
+        with, rather than re-deriving delegation dimensions of its own.
+        """
+        return self._delegation_policy
 
     def set_repair_manager(self, repair_manager: Any) -> None:
         """Attach repair manager after runtime construction."""
@@ -484,45 +504,45 @@ class ToolBroker:
                     policy_decision="idempotent",
                 )
 
-        # Look up capability — try ToolRegistry first, then FolderCapabilityRegistry
+        # Look up capability. The catalog is authoritative when it knows the id;
+        # otherwise fall back to the folder registry / ToolRegistry through
+        # _live_capability(), which also builds the policy Capability.
         manifest = self._resolve_manifest(request.capability_id)
-        if manifest is None:
-            return ToolExecutionResult(
-                request_id=request.request_id,
-                status=InvokeStatus.NOT_FOUND,
-                error=f"Capability '{request.capability_id}' is not registered in the capability catalog.",
-                started_at=request.created_at,
-                finished_at=int(time.time() * 1000),
-            )
-        if not bool(getattr(manifest, "enabled", True)):
-            result = ToolExecutionResult(
-                request_id=request.request_id,
-                status=InvokeStatus.DENIED,
-                error=f"Capability '{request.capability_id}' is disabled by user override.",
-                started_at=request.created_at,
-                finished_at=int(time.time() * 1000),
-                policy_decision="DISABLED_BY_OVERRIDE",
-            )
-            self._record_audit(request, result)
-            return result
-        request.capability_id = manifest.capability_id
-        validation_error = self._validate_arguments(manifest, request.arguments)
-        if validation_error:
-            return ToolExecutionResult(
-                request_id=request.request_id,
-                status=InvokeStatus.DENIED,
-                error=validation_error,
-                started_at=request.created_at,
-                finished_at=int(time.time() * 1000),
-                policy_decision="VALIDATION_DENY",
-            )
+        if manifest is not None:
+            if not bool(getattr(manifest, "enabled", True)):
+                result = ToolExecutionResult(
+                    request_id=request.request_id,
+                    status=InvokeStatus.DENIED,
+                    error=f"Capability '{request.capability_id}' is disabled by user override.",
+                    started_at=request.created_at,
+                    finished_at=int(time.time() * 1000),
+                    policy_decision="DISABLED_BY_OVERRIDE",
+                )
+                self._record_audit(request, result)
+                return result
+            request.capability_id = manifest.capability_id
+            validation_error = self._validate_arguments(manifest, request.arguments)
+            if validation_error:
+                return ToolExecutionResult(
+                    request_id=request.request_id,
+                    status=InvokeStatus.DENIED,
+                    error=validation_error,
+                    started_at=request.created_at,
+                    finished_at=int(time.time() * 1000),
+                    policy_decision="VALIDATION_DENY",
+                )
 
         cap = self._live_capability(request.capability_id)
         if cap is None:
+            error = (
+                f"Capability '{request.capability_id}' is not registered in the capability catalog."
+                if manifest is None
+                else f"Capability '{request.capability_id}' is not registered."
+            )
             return ToolExecutionResult(
                 request_id=request.request_id,
                 status=InvokeStatus.NOT_FOUND,
-                error=f"Capability '{request.capability_id}' is not registered.",
+                error=error,
                 started_at=request.created_at,
                 finished_at=int(time.time() * 1000),
             )
@@ -533,6 +553,15 @@ class ToolBroker:
 
         # Policy check — MANDATORY
         policy_result = self._policy.evaluate(cap, request.arguments)
+        # Phase 3: the policy engine only sees an `aegis_schema.Capability`, so the
+        # manifest's irreversibility annotations are attached here, where both
+        # objects are in scope. They ride into the audit entry with the result,
+        # which is what makes an irreversible action traceable after the fact.
+        # Imported lazily because `aegis_ai/__init__` eagerly re-exports this
+        # module (see the ADR at the top of aegis_ai/tool_broker.py).
+        from aegis_ai.irreversibility import annotate_policy_result
+
+        annotate_policy_result(policy_result, manifest)
 
         if policy_result.decision == PolicyDecision.DENY:
             result = ToolExecutionResult(
@@ -593,55 +622,25 @@ class ToolBroker:
                 self._record_audit(request, result)
                 self._record_failure_for_repair(request, result)
                 return result
-        if policy_result.decision == PolicyDecision.ASK_APPROVAL:
-            precheck_error = self._precheck_agora_post_before_approval(request)
-            if precheck_error:
-                result = ToolExecutionResult(
-                    request_id=request.request_id,
-                    status=InvokeStatus.DENIED,
-                    error=precheck_error,
-                    started_at=request.created_at,
-                    finished_at=int(time.time() * 1000),
-                    policy_decision="AGORA_SUITABILITY_DENY",
-                    policy_result=policy_result,
-                )
-                self._record_audit(request, result)
-                self._record_failure_for_repair(request, result)
-                return result
-            request.requires_approval = True
-            with self._lock:
-                self._pending_approvals[request.request_id] = request
-
-            approval_id = ""
-            if self._approval_manager is not None:
-                appr = self._approval_manager.create_request(request, policy_result)
-                approval_id = appr.approval_id
-            elif self._approval_queue is not None:
-                appr = self._approval_queue.enqueue(request, policy_result)
-                approval_id = appr.approval_id
-
+        # AGORA drafts are checked for suitability before execution. This is a
+        # content-quality guard, not an approval gate: it never waits for a human.
+        precheck_error = self._precheck_agora_post(request)
+        if precheck_error:
             result = ToolExecutionResult(
                 request_id=request.request_id,
-                status=InvokeStatus.APPROVAL_NEEDED,
-                error=policy_result.reason,
+                status=InvokeStatus.DENIED,
+                error=precheck_error,
                 started_at=request.created_at,
                 finished_at=int(time.time() * 1000),
-                policy_decision="ASK_APPROVAL",
+                policy_decision="AGORA_SUITABILITY_DENY",
                 policy_result=policy_result,
-                approval_id=approval_id,
-            )
-            self._advance_continuation(
-                continuation_id,
-                stage="awaiting_approval",
-                state="open",
-                reason=policy_result.reason,
-                approval_id=approval_id,
-                waiting_for="user",
             )
             self._record_audit(request, result)
+            self._record_failure_for_repair(request, result)
             return result
 
-        # Execute (ALLOW or ALLOW_WITH_AUDIT)
+        # Execute (ALLOW or ALLOW_WITH_AUDIT). Approval is no longer a constraint —
+        # the egress gate and the policy hard stops are the only boundaries.
         pre_observations = self._collect_completion_observations(manifest, phase="before")
         self._advance_continuation(continuation_id, stage="executing", state="open")
         result = self._invoke_internal(cap, request)
@@ -743,206 +742,6 @@ class ToolBroker:
             policy_result=result.policy_result,
             verification=result.verification,
         )
-
-    # ── Convenience methods ────────────────────────────────────
-
-    def execute_approved(self, approval_id: str) -> ToolExecutionResult:
-        """Execute a previously approved request.
-
-        Looks up the approval in the manager/queue, re-evaluates policy,
-        validates arguments, and executes if ALLOW. One-time execution per approval_id.
-        """
-        manager = self._approval_manager
-        queue = self._approval_queue
-
-        if manager is None and queue is None:
-            return ToolExecutionResult(
-                status=InvokeStatus.DENIED,
-                error="No approval manager or queue configured.",
-            )
-
-        # Check double-execution
-        if manager is not None:
-            if manager.is_executed(approval_id):
-                return ToolExecutionResult(
-                    status=InvokeStatus.DENIED,
-                    error=f"Approval '{approval_id}' already executed.",
-                )
-            appr = manager.get(approval_id)
-        else:
-            if queue.is_executed(approval_id):
-                return ToolExecutionResult(
-                    status=InvokeStatus.DENIED,
-                    error=f"Approval '{approval_id}' already executed.",
-                )
-            appr = queue.get(approval_id)
-
-        if appr is None:
-            return ToolExecutionResult(
-                status=InvokeStatus.NOT_FOUND,
-                error=f"Approval '{approval_id}' not found.",
-            )
-
-        if appr.status == "expired":
-            return ToolExecutionResult(
-                status=InvokeStatus.DENIED,
-                error=f"Approval '{approval_id}' has expired.",
-            )
-
-        if appr.status not in ("approved", "modified"):
-            return ToolExecutionResult(
-                status=InvokeStatus.DENIED,
-                error=f"Approval '{approval_id}' is not approved (status={appr.status}).",
-            )
-
-        # Mark as executing
-        if manager is not None:
-            manager.mark_executing(approval_id)
-
-        manifest = self._resolve_manifest(appr.capability_id)
-        if manifest is None:
-            error_msg = f"Capability '{appr.capability_id}' not found in catalog."
-            if manager is not None:
-                manager.mark_failed(approval_id, error_msg)
-            else:
-                queue.mark_failed(approval_id, error_msg)
-            return ToolExecutionResult(
-                status=InvokeStatus.NOT_FOUND,
-                error=error_msg,
-                approval_id=approval_id,
-            )
-        validation_error = self._validate_arguments(manifest, appr.arguments)
-        if validation_error:
-            if manager is not None:
-                manager.mark_failed(approval_id, validation_error)
-            else:
-                queue.mark_failed(approval_id, validation_error)
-            return ToolExecutionResult(
-                status=InvokeStatus.DENIED,
-                error=validation_error,
-                policy_decision="VALIDATION_DENY",
-                approval_id=approval_id,
-            )
-
-        cap = self._live_capability(manifest.capability_id)
-        if cap is None:
-            return ToolExecutionResult(
-                status=InvokeStatus.NOT_FOUND,
-                error=f"Capability '{manifest.capability_id}' not found.",
-            )
-
-        # Re-evaluate policy (MANDATORY)
-        policy_result = self._policy.evaluate(cap, appr.arguments)
-        if policy_result.decision == PolicyDecision.DENY:
-            error_msg = f"Policy denies after approval: {policy_result.reason}"
-            if manager is not None:
-                manager.mark_failed(approval_id, error_msg)
-            else:
-                queue.mark_failed(approval_id, error_msg)
-            return ToolExecutionResult(
-                status=InvokeStatus.DENIED,
-                error=error_msg,
-                policy_decision="DENY",
-                policy_result=policy_result,
-                approval_id=approval_id,
-            )
-
-        # The approval_id being executed is already approved/modified.
-        # Re-evaluation is kept for DENY gates, but ASK_APPROVAL should not
-        # create a second approval loop for the same reviewed request.
-
-        request = ToolExecutionRequest(
-            request_id=appr.request_id,
-            task_id=appr.task_id,
-            capability_id=manifest.capability_id,
-            tool_name=appr.tool_name,
-            arguments={
-                **dict(appr.arguments or {}),
-                "_already_approved": True,
-            },
-            source=self._resolve_source(appr.source),
-            reason=f"Approved: {appr.approval_reason}",
-            source_desire=appr.source_desire,
-            frustration=appr.frustration,
-            origin_channel=appr.origin_channel,
-            conversation_id=appr.conversation_id,
-            metadata={**dict(appr.metadata or {}), "approval_id": approval_id, "approved_execution": True},
-        )
-
-        pre_observations = self._collect_completion_observations(manifest, phase="before")
-        result = self._invoke_internal(cap, request)
-        self._apply_production_mock_guard(request, result)
-        result.policy_result = policy_result
-        result.approval_id = approval_id
-        verification = self._verify_completion_or_default(request, result, manifest, pre_observations)
-        if verification.status == "failed" and result.success and self._completion_retry_count(manifest) > 0:
-            for attempt in range(self._completion_retry_count(manifest)):
-                delay_ms = self._completion_retry_delay_ms(manifest)
-                if delay_ms > 0:
-                    time.sleep(delay_ms / 1000.0)
-                retry_pre = self._collect_completion_observations(manifest, phase="before")
-                result = self._invoke_internal(cap, request)
-                self._apply_production_mock_guard(request, result)
-                result.policy_result = policy_result
-                result.approval_id = approval_id
-                verification = self._verify_completion_or_default(request, result, manifest, retry_pre)
-                result.output.setdefault("retry_attempt", attempt + 1)
-                if verification.status == "passed" or not result.success:
-                    break
-        result.verification = verification
-        result.verification_status = verification.status
-        if verification.status == "failed" and result.success and self._manifest_has_completion(manifest):
-            result.status = InvokeStatus.EXECUTION_ERROR
-            result.error = "Completion verification failed: " + "; ".join(verification.details)
-            result.output.setdefault(
-                "completion_verification",
-                {
-                    "status": verification.status,
-                    "details": list(verification.details),
-                    "repair_hint": verification.repair_hint,
-                },
-            )
-
-        continuation_id = str(request.metadata.get("continuation_id") or "")
-        if continuation_id:
-            result.output.setdefault("continuation_id", continuation_id)
-        if result.success and verification.status == "passed":
-            self._advance_continuation(
-                continuation_id,
-                stage="verified",
-                state="completed",
-                reason="Approved execution and completion verification passed.",
-                waiting_for="",
-            )
-        elif result.success:
-            self._advance_continuation(
-                continuation_id,
-                stage="observing",
-                state="open",
-                reason="Approved execution requires additional observation.",
-                waiting_for="external",
-            )
-        else:
-            self._advance_continuation(
-                continuation_id,
-                stage="failed",
-                state="failed",
-                reason=result.error or "; ".join(verification.details),
-            )
-
-        if result.success:
-            if manager is not None:
-                manager.mark_executed(approval_id, result)
-            else:
-                queue.mark_executed(approval_id, result)
-        else:
-            if manager is not None:
-                manager.mark_failed(approval_id, result.error)
-            else:
-                queue.mark_failed(approval_id, result.error)
-
-        self._record_audit(request, result)
-        return result
 
     def _ensure_continuation(self, request: ToolExecutionRequest) -> str:
         continuation_id = str(request.metadata.get("continuation_id") or "")
@@ -1051,7 +850,7 @@ class ToolBroker:
     def list_autonomous_capabilities(self) -> list[Capability]:
         """Return capabilities available for autonomous execution.
 
-        Includes ALLOW, ALLOW_WITH_AUDIT, and ASK_APPROVAL capabilities.
+        Includes ALLOW and ALLOW_WITH_AUDIT capabilities.
         Excludes DENY and UNAVAILABLE.
         """
         all_caps = self._registry.list_capabilities()
@@ -1061,7 +860,6 @@ class ToolBroker:
             if policy_result.decision in (
                 PolicyDecision.ALLOW,
                 PolicyDecision.ALLOW_WITH_AUDIT,
-                PolicyDecision.ASK_APPROVAL,
             ):
                 autonomous_caps.append(cap)
         return autonomous_caps
@@ -1088,8 +886,6 @@ class ToolBroker:
                 disposition = CapabilityDisposition.UNAVAILABLE
             elif result.decision in (PolicyDecision.ALLOW, PolicyDecision.ALLOW_WITH_AUDIT):
                 disposition = CapabilityDisposition.EXECUTE_SAFE
-            elif result.decision == PolicyDecision.ASK_APPROVAL:
-                disposition = CapabilityDisposition.PROPOSE_FOR_APPROVAL
             elif result.decision == PolicyDecision.UNAVAILABLE:
                 disposition = CapabilityDisposition.UNAVAILABLE
             else:
@@ -1101,21 +897,12 @@ class ToolBroker:
                     policy_decision=result.decision.name,
                     policy_reason=result.reason,
                     risk_level=result.risk_level.name,
-                    requires_approval=disposition == CapabilityDisposition.PROPOSE_FOR_APPROVAL,
                     enabled=enabled,
                     available=enabled and disposition != CapabilityDisposition.UNAVAILABLE,
                     server_id=capability.id.split(".", 1)[0],
                 )
             )
         return options
-
-    def get_pending_approvals(self) -> dict[str, ToolExecutionRequest]:
-        with self._lock:
-            return dict(self._pending_approvals)
-
-    def clear_pending_approval(self, request_id: str) -> None:
-        with self._lock:
-            self._pending_approvals.pop(request_id, None)
 
     # ── Mock Executor Registration ─────────────────────────────
 
@@ -1128,6 +915,38 @@ class ToolBroker:
         """Override the default executor (for testing only)."""
         with self._lock:
             self._default_mock = executor
+
+    def _resolve_mock_executor(self, cap: Capability) -> MockExecutorFunc | None:
+        """Return an explicitly registered mock for ``cap`` (exact id, then prefix)."""
+        capability_id = str(getattr(cap, "id", "") or "")
+        with self._lock:
+            executor = self._mock_executors.get(capability_id)
+            if executor is None:
+                for prefix, candidate in self._mock_executors.items():
+                    if prefix and capability_id.startswith(prefix):
+                        executor = candidate
+                        break
+        return executor
+
+    def _execute_capability(self, cap: Capability, arguments: dict[str, Any]) -> Any:
+        """Dispatch execution to a registered mock, the default mock, or the server executor.
+
+        ``register_mock`` / ``set_default_mock`` used to write to dicts that nothing
+        ever read, so registered mocks were silently ignored. Production safety is
+        preserved by ``_apply_production_mock_guard``, which turns mock-like output
+        into an EXECUTION_ERROR whenever production mode is enabled.
+        """
+        mock = self._resolve_mock_executor(cap)
+        if mock is not None:
+            logger.debug("Using registered mock executor for %s", getattr(cap, "id", ""))
+            return mock(cap, arguments)
+        if self._server_executor is None:
+            logger.debug(
+                "No server executor configured; using default mock for %s",
+                getattr(cap, "id", ""),
+            )
+            return self._default_mock(cap, arguments)
+        return self._server_executor.execute(cap, arguments)
 
     def _manifest_has_completion(self, manifest: Any) -> bool:
         completion = getattr(manifest, "completion", {}) or {}
@@ -1329,10 +1148,7 @@ class ToolBroker:
             started_at = int(time.time() * 1000)
             try:
                 arguments = dict(request.arguments)
-                if request.metadata.get("approved_execution"):
-                    arguments["_aegis_approved_execution"] = True
-                    arguments["_aegis_approval_id"] = request.metadata.get("approval_id", "")
-                output = self._server_executor.execute(cap, arguments)
+                output = self._execute_capability(cap, arguments)
                 finished_at = int(time.time() * 1000)
                 if isinstance(output, dict) and (output.get("error") or output.get("ok") is False):
                     error_msg = str(
@@ -1465,8 +1281,11 @@ class ToolBroker:
         result.output.setdefault("production_blocker_reason", result.error)
         result.verification_status = "failed"
 
-    def _precheck_agora_post_before_approval(self, request: ToolExecutionRequest) -> str:
-        """Block unsuitable AGORA drafts before they become approval requests."""
+    def _precheck_agora_post(self, request: ToolExecutionRequest) -> str:
+        """Block unsuitable AGORA drafts before they are executed.
+
+        A content-quality guard, not an approval gate — it never waits for a human.
+        """
         cap_id = str(request.capability_id or "")
         if not cap_id.endswith("agora.post"):
             return ""

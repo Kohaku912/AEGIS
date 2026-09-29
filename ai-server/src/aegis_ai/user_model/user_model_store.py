@@ -99,24 +99,50 @@ class UserModelStore:
         self._save()
 
     def record_user_feedback(self, feedback: str, confidence: float = 1.0) -> None:
-        """Learn from user feedback. High confidence for explicit, low for inferred."""
-        fb = feedback.lower()
-        if "短く" in fb or "brief" in fb or "concise" in fb:
-            self.update({"detail_level": "brief"}, reason=feedback)
-        elif "詳しく" in fb or "detailed" in fb or "verbose" in fb:
-            self.update({"detail_level": "detailed"}, reason=feedback)
-        elif "勝手にやらないで" in fb or "stop" in fb or "don't do that" in fb:
-            self.update({
-                "autonomy_level": "low",
-                "approval_strictness": "strict",
-            }, reason=feedback)
-        elif "もっと自動で" in fb or "automate" in fb or "do more" in fb:
-            self.update({"autonomy_level": "high"}, reason=feedback)
-        elif "うるさい" in fb or "noisy" in fb or "too many" in fb:
-            self.update({"notification_preference": "minimal"}, reason=feedback)
+        """Record explicit preference patches without keyword-based inference."""
+        patch = self._extract_feedback_patch(feedback)
+        if patch:
+            self.update(patch, reason=feedback)
         self._model.last_user_feedback = feedback
         self._model.last_interaction_at = int(time.time() * 1000)
         self._save()
+
+    @staticmethod
+    def _extract_feedback_patch(feedback: str) -> dict[str, Any]:
+        """Accept structured JSON feedback instead of parsing free text with keywords."""
+        text = str(feedback or "").strip()
+        if not text:
+            return {}
+        try:
+            payload = json.loads(text)
+        except Exception:
+            return {}
+        if not isinstance(payload, dict):
+            return {}
+        if isinstance(payload.get("preference_patch"), dict):
+            payload = payload["preference_patch"]
+        allowed = {
+            "detail_level",
+            "autonomy_level",
+            "notification_preference",
+            "approval_strictness",
+            "focus_mode",
+            "preferred_language",
+            "preferred_tone",
+            "quiet_hours",
+            "allowed_proactive_categories",
+            "disallowed_proactive_categories",
+            "preferences",
+            "work_patterns",
+            "permission_scopes",
+            "notification_conditions",
+            "writing_style",
+            "common_apps",
+            "long_term_goals",
+            "trust_score",
+            "annoyance_score",
+        }
+        return {key: value for key, value in payload.items() if key in allowed}
 
     def to_context_string(self) -> str:
         m = self._model

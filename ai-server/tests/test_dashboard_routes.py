@@ -17,13 +17,11 @@ def _jinja_fallback_ui(monkeypatch) -> None:
 
 
 def _runtime(tmp_path):
-    from approval import ApprovalStore
     from event_bus import EventBus
     from policy_engine import PolicyEngine
     from tool_broker import ToolBroker
     from tool_registry import ToolRegistry
 
-    from aegis_ai.approval import ApprovalQueue
     from aegis_ai.audit import AuditLog
     from aegis_ai.capability_catalog import CapabilityCatalog
     from aegis_ai.settings.store import SettingsStore
@@ -51,8 +49,7 @@ def _runtime(tmp_path):
     )
     registry = ToolRegistry()
     audit_log = AuditLog(path=str(data_dir / "audit.jsonl"))
-    approval_store = ApprovalStore()
-    policy_engine = PolicyEngine(approval_store=approval_store, data_dir=str(data_dir))
+    policy_engine = PolicyEngine(data_dir=str(data_dir))
     broker = ToolBroker(registry=registry, policy_engine=policy_engine, audit_log=audit_log, catalog=catalog)
     event_bus = EventBus()
     event_manager = EventManager(event_bus=event_bus, data_dir=str(data_dir))
@@ -79,8 +76,6 @@ def _runtime(tmp_path):
         folder_registry=catalog.get_folder_registry(),
         tool_registry=registry,
         event_bus=event_bus,
-        approval_store=approval_store,
-        approval_queue=ApprovalQueue(data_dir=str(data_dir / "approvals"), audit_log=audit_log),
         policy_engine=policy_engine,
         tool_broker=broker,
         llm_gateway=object(),
@@ -273,7 +268,6 @@ def test_server_status_reports_degraded_and_unconfigured(monkeypatch, tmp_path) 
         "browser-server": {"server_id": "browser-server", "status": "degraded", "host": "localhost", "port": 50053, "last_check_ms": 0, "error": "Missing dependencies: browser-use"},
         "android-server": {"server_id": "android-server", "status": "offline", "host": "localhost", "port": 50054, "last_check_ms": 0, "error": None},
         "room-server": {"server_id": "room-server", "status": "offline", "host": "localhost", "port": 50055, "last_check_ms": 0, "error": None},
-        "dev-server": {"server_id": "dev-server", "status": "offline", "host": "localhost", "port": 50056, "last_check_ms": 0, "error": None},
     }
     settings = SimpleNamespace(
         servers=SimpleNamespace(
@@ -281,7 +275,6 @@ def test_server_status_reports_degraded_and_unconfigured(monkeypatch, tmp_path) 
             browser_server_enabled=True,
             android_server_enabled=False,
             room_server_enabled=False,
-            dev_server_enabled=False,
         )
     )
 
@@ -292,12 +285,10 @@ def test_server_status_reports_degraded_and_unconfigured(monkeypatch, tmp_path) 
     assert "browser-use" in by_id["browser-server"]["degraded_reason"]
     assert by_id["android-server"]["status"] == "UNCONFIGURED"
     assert by_id["room-server"]["status"] == "UNCONFIGURED"
-    assert by_id["dev-server"]["status"] == "UNCONFIGURED"
     assert "not configured" in by_id["room-server"]["status_detail"]
     assert "not reachable" not in by_id["room-server"]["status_detail"]
-    assert "deployment scope" in by_id["dev-server"]["recovery_hint"]
     assert payload["summary"]["degraded_servers"] == 1
-    assert payload["summary"]["unconfigured_servers"] == 3
+    assert payload["summary"]["unconfigured_servers"] == 2
 
 
 def test_capability_risk_update_allows_127_loopback(monkeypatch, tmp_path) -> None:
@@ -398,10 +389,13 @@ def test_capability_risk_update_resyncs_live_registry(monkeypatch, tmp_path) -> 
     assert response.status_code == 200
     assert cap is not None
     assert cap.risk_level == RiskLevel.SAFE_ACTION
-    assert result.status != InvokeStatus.APPROVAL_NEEDED
+    # Approval is gone, so no risk annotation can turn this into a gate.
+    # The broker stays the only chokepoint, and this is not a hard stop.
+    assert result.status != InvokeStatus.DENIED
+    assert result.policy_decision != "DENY"
 
 
-def test_capability_requires_approval_false_allows_execute(monkeypatch, tmp_path) -> None:
+def test_capability_requires_approval_flag_does_not_gate_execute(monkeypatch, tmp_path) -> None:
     from aegis_schema.models import RiskLevel
     from tool_broker import ExecutionSource, InvokeStatus, ToolExecutionRequest
 
@@ -442,11 +436,14 @@ def test_capability_requires_approval_false_allows_execute(monkeypatch, tmp_path
 
     assert response.status_code == 200
     assert written["risk"]["requires_approval"] is False
-    assert written["risk"]["level"] == "safe"
+    # The risk label is an annotation now: flipping requires_approval does not
+    # rewrite it, and it no longer gates execution.
+    assert written["risk"]["level"] == "approval_required"
     assert cap is not None
     assert cap.requires_approval is False
-    assert cap.risk_level == RiskLevel.SAFE_ACTION
-    assert result.status != InvokeStatus.APPROVAL_NEEDED
+    assert cap.risk_level == RiskLevel.APPROVAL_REQUIRED
+    assert result.status != InvokeStatus.DENIED
+    assert result.policy_decision != "DENY"
 
 
 def test_capability_risk_update_to_forbidden_unregisters(monkeypatch, tmp_path) -> None:
@@ -772,88 +769,6 @@ def test_chat_respond_uses_shared_decision_memory_profile(monkeypatch, tmp_path)
     assert recorded_context_meta[0]["memory_profile"] == "decision"
     assert recorded_context_meta[0]["origin_channel"] == "dashboard_chat"
     assert recorded_context_meta[0]["original_message"] == "Continue the setup"
-
-
-def test_dashboard_chat_approval_executes_once_and_emits_followup(monkeypatch, tmp_path) -> None:
-    from aegis_ai.approval.approval_manager import ApprovalManager
-    from aegis_ai.task.task_manager import TaskManager
-    from tool_broker import ToolBroker
-
-    class FakeServerExecutor:
-        def __init__(self) -> None:
-            self.calls = 0
-
-        def set_catalog(self, catalog) -> None:
-            self.catalog = catalog
-
-        def execute(self, cap, arguments):
-            self.calls += 1
-            return {"result": "done after approval"}
-
-    monkeypatch.setattr(dashboard_routes, "_DATA_DIR", str(tmp_path / "data"))
-    rt = _runtime(tmp_path)
-    rt.task_manager = TaskManager(data_dir=str(tmp_path / "data"))
-    rt.approval_manager = ApprovalManager(approval_queue=rt.approval_queue, audit_log=rt.audit_log)
-    fake_executor = FakeServerExecutor()
-    rt.tool_broker = ToolBroker(
-        registry=rt.tool_registry,
-        policy_engine=rt.policy_engine,
-        audit_log=rt.audit_log,
-        approval_queue=rt.approval_queue,
-        approval_manager=rt.approval_manager,
-        server_executor=fake_executor,
-        catalog=rt.capability_catalog,
-    )
-    manifest_path = tmp_path / "data" / "capabilities" / "builtin" / "pc-server" / "test" / "needs_approval.json"
-    manifest_path.parent.mkdir(parents=True, exist_ok=True)
-    manifest_path.write_text(
-        json.dumps(
-            {
-                    "server_id": "pc-server",
-                    "app_id": "test",
-                    "action": "needs_approval",
-                    "operation_category": "test_operation",
-                    "title": "Needs Approval",
-                "description": "Requires approval",
-                "risk": {"level": "approval_required", "requires_approval": True},
-                "input_schema": {"type": "object", "properties": {}},
-            }
-        ),
-        encoding="utf-8",
-    )
-    dashboard_routes._reload_capabilities_runtime(rt)
-    dashboard_app = dashboard_routes.DashboardApp(runtime=rt)
-    dashboard_app._chat_history_path = tmp_path / "data" / "chat_history.jsonl"
-    events = dashboard_app._register_chat_client("test_client")
-
-    task = rt.task_manager.create_task(title="chat", goal="do it", source="chat")
-    task_id = task["task_id"]
-    rt.task_manager.start_task(task_id)
-    tool_result = chat_tools.execute_tool_call(
-        rt.capability_catalog,
-        "pc-server__test__needs_approval",
-        {},
-        runtime=rt,
-        tool_context={
-            "origin_channel": "dashboard_chat",
-            "conversation_id": "conv_test",
-            "chat_task_id": task_id,
-            "original_message": "do it",
-        },
-    )
-
-    approval_id = tool_result["approval_id"]
-    approved = rt.approval_manager.approve(approval_id, channel="dashboard", user="user")
-    event_payload = json.loads(events.get(timeout=1))
-    history = dashboard_app._chat_history_path.read_text(encoding="utf-8")
-
-    assert tool_result["approval_needed"] is True
-    assert approved is not None
-    assert fake_executor.calls == 1
-    assert "done after approval" in history
-    assert event_payload["type"] == "assistant_message"
-    assert "done after approval" in event_payload["content"]
-    assert rt.task_manager.get_task(task_id)["status"] == "completed"
 
 
 def test_memory_page_shows_entries_beyond_old_limits(monkeypatch, tmp_path) -> None:

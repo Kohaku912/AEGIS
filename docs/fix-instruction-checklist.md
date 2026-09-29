@@ -1,5 +1,11 @@
 # Fix Instruction Implementation Checklist
 
+> ⚠️ **Goal change (2026-09-27)**: the only constraint is now **"the user's information must never
+> leave the local environment."** Approval, reversibility, policy, and reliability-proof are **no
+> longer constraints**. Any "requires approval" / "Level 2" language below is a **risk annotation**,
+> not a gate. See [`GOAL-CHANGE.md`](GOAL-CHANGE.md).
+
+
 Source: `Fix_instruction.md`
 
 Goal: observation -> interpretation -> candidate selection -> safe execution or approval -> verification -> continuation -> presentation -> learning.

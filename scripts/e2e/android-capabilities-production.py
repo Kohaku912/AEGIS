@@ -1,8 +1,9 @@
 """Production E2E probe for the connected Android companion.
 
 Run inside the AI Server container. The probe invokes every registered Android
-capability through the production ToolBroker, including the real one-time
-approval lifecycle for UI input. Large or sensitive payloads are summarized.
+capability through the production ToolBroker. Large or sensitive payloads are
+summarized. The forced approval gate was removed on 2026-09-28, so there is no
+one-time approval step to drive: a capability runs on a single invocation.
 """
 
 from __future__ import annotations
@@ -16,7 +17,6 @@ from pathlib import Path
 from typing import Any
 
 import grpc
-
 from generated.aegis import (
     ai_server_pb2,
     ai_server_pb2_grpc,
@@ -81,20 +81,15 @@ class Probe:
         capability_id: str,
         params: dict[str, Any] | None = None,
         *,
-        approve: bool = False,
         timeout: int = 45,
     ) -> dict[str, Any]:
+        # The forced approval gate was removed on 2026-09-28, so there is no
+        # pending-approval dance here any more: `ListPendingApprovals`,
+        # `ResolveApproval`, `ToolInvocationRequest.is_approved`/`approval_id`
+        # and `APPROVAL_TYPE_ONE_TIME` are all gone from the proto. A capability
+        # runs on this single invocation, subject only to the egress gate and the
+        # policy hard stops.
         invocation_id = f"android-e2e-{uuid.uuid4().hex[:12]}"
-        pending_before: set[str] = set()
-        if approve:
-            before = self.stub.ListPendingApprovals(
-                ai_server_pb2.ListPendingApprovalsRequest(
-                    server_id="android-server",
-                    auth=self.auth,
-                ),
-                timeout=15,
-            )
-            pending_before = {item.approval_id for item in before.approvals}
         response = self.stub.InvokeTool(
             common_pb2.ToolInvocationRequest(
                 capability_id=capability_id,
@@ -104,74 +99,15 @@ class Probe:
             ),
             timeout=timeout,
         )
-        if response.status.code == 0:
-            return json.loads(response.output_json or "{}")
-        if not approve:
+        if response.status.code != 0:
             raise RuntimeError(response.error or response.status.message)
-
-        pending = self.stub.ListPendingApprovals(
-            ai_server_pb2.ListPendingApprovalsRequest(
-                server_id="android-server",
-                auth=self.auth,
-            )
-        )
-        candidates = [
-            item
-            for item in pending.approvals
-            if item.capability_id == capability_id and item.approval_id not in pending_before
-        ]
-        if not candidates:
-            raise RuntimeError(response.error or f"No pending approval was created for {capability_id}.")
-        approval = max(candidates, key=lambda item: item.created_at_ms)
-        resolved = self.stub.ResolveApproval(
-            ai_server_pb2.ResolveApprovalRequest(
-                approval_id=approval.approval_id,
-                approved_type=common_pb2.APPROVAL_TYPE_ONE_TIME,
-                surface_id="android-production-e2e",
-                user="explicit-user-e2e-request",
-                auth=self.auth,
-            ),
-            timeout=90,
-        )
-        if resolved.status.code != 0:
-            raise RuntimeError(resolved.status.message)
-        executed = self.stub.InvokeTool(
-            common_pb2.ToolInvocationRequest(
-                capability_id=capability_id,
-                invocation_id=invocation_id,
-                caller="android-production-e2e",
-                params_json=json.dumps(params or {}, ensure_ascii=False),
-                is_approved=True,
-                approval_id=approval.approval_id,
-            ),
-            timeout=timeout,
-        )
-        if executed.status.code != 0:
-            error = executed.error or executed.status.message
-            if "already executed" in error:
-                # ResolveApproval resumes canonical task execution. Depending
-                # on scheduling, that execution can finish before this client
-                # observes the approval response. "already executed" is then
-                # positive evidence that the one-time action was consumed.
-                completed: dict[str, Any] = {
-                    "approval_execution": "already_executed",
-                }
-                if capability_id.endswith(".tap"):
-                    completed["tapped"] = True
-                elif capability_id.endswith(".swipe"):
-                    completed["swiped"] = True
-                elif capability_id.endswith(".type_text"):
-                    completed["characters_typed"] = len(str((params or {}).get("text", "")))
-                return completed
-            raise RuntimeError(error)
-        return json.loads(executed.output_json or "{}")
+        return json.loads(response.output_json or "{}")
 
     def capability(
         self,
         capability_id: str,
         params: dict[str, Any] | None = None,
         *,
-        approve: bool = False,
         check_id: str = "",
         validate=None,
         summarize=None,
@@ -180,11 +116,7 @@ class Probe:
             result = self.invoke(
                 capability_id,
                 params,
-                approve=approve,
-                # Approval fanout also updates the PC/Room/Android surfaces.
-                # Slow or offline secondary surfaces must not make the real
-                # Android execution look like a transport failure.
-                timeout=120 if approve else (60 if capability_id.endswith("get_screenshot") else 45),
+                timeout=60 if capability_id.endswith("get_screenshot") else 45,
             )
             valid = bool(validate(result)) if validate else True
             evidence = summarize(result) if summarize else result
@@ -363,7 +295,6 @@ class Probe:
                         "x": int(chat_tab["x"] + chat_tab["width"] / 2),
                         "y": int(chat_tab["y"] + chat_tab["height"] / 2),
                     },
-                    approve=True,
                     validate=lambda item: item.get("tapped") is True,
                 )
                 time.sleep(1)
@@ -385,14 +316,12 @@ class Probe:
             self.capability(
                 "android-server.ui.tap",
                 {"x": x, "y": y},
-                approve=True,
                 validate=lambda item: item.get("tapped") is True,
             )
             time.sleep(1)
             self.capability(
                 "android-server.ui.type_text",
                 {"text": MARKER},
-                approve=True,
                 validate=lambda item: item.get("characters_typed") == len(MARKER),
             )
             time.sleep(1)
@@ -427,7 +356,6 @@ class Probe:
                 "end_y": 800,
                 "duration_ms": 300,
             },
-            approve=True,
             validate=lambda item: item.get("swiped") is True,
         )
         self.capability(
@@ -528,7 +456,6 @@ class Probe:
             {
                 "conversation_id_present": bool(chat.conversation_id),
                 "marker_present": MARKER in chat.response,
-                "approval_needed": chat.approval_needed,
             },
             chat.status.message,
         )

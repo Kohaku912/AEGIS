@@ -12,6 +12,12 @@ import logging
 import time
 from typing import Any
 
+from aegis_ai.llm.layer_profiles import (
+    LLMLayer,
+    is_valid_layer,
+    layer_description,
+    layer_to_profile,
+)
 from aegis_ai.llm.prompt_registry import PromptRegistry
 from aegis_ai.llm.router import (
     LLMRequest,
@@ -51,15 +57,53 @@ class LLMGateway:
         self._profile_providers: dict[str, Any] = {}
 
     def _resolve(self, profile: str | None) -> LLMSettings:
-        """Resolve LLM settings from profile. Falls back to llm.yaml default."""
+        """Resolve LLM settings from profile."""
         if self._settings_resolver is not None:
             if profile:
-                try:
-                    return self._settings_resolver.resolve(profile_id=profile)
-                except KeyError:
-                    logger.warning("Profile '%s' not found, using default", profile)
+                return self._settings_resolver.resolve(profile_id=profile)
             return self._settings_resolver.resolve()
         return LLMSettings()
+
+    def _profile_resolution_failure(
+        self,
+        *,
+        profile: str | None,
+        error: Exception,
+        context_meta: dict[str, Any] | None = None,
+    ) -> LLMResponse:
+        message = str(error)
+        logger.error("Failed to resolve LLM profile '%s': %s", profile or "default", message)
+        if self._audit is not None:
+            try:
+                from aegis_ai.audit import AuditEntry
+
+                self._audit.append(
+                    AuditEntry(
+                        action="llm_profile_resolution",
+                        actor="gateway",
+                        capability_id="llm.profile_resolution",
+                        decision="FAILED",
+                        reason=f"profile={profile or 'default'}",
+                        detail={
+                            "error": message,
+                            **dict(context_meta or {}),
+                        },
+                        profile_id=profile or "",
+                        request_id=str((context_meta or {}).get("request_id", "")),
+                        task_id=str(
+                            (context_meta or {}).get("task_id")
+                            or (context_meta or {}).get("chat_task_id")
+                            or ""
+                        ),
+                    )
+                )
+            except Exception:
+                logger.debug("Failed to audit LLM profile resolution failure", exc_info=True)
+        return LLMResponse(
+            success=False,
+            error=message,
+            provider_used="gateway",
+        )
 
     def _get_provider_for_profile(self, settings: LLMSettings) -> Any | None:
         """Get or create a provider for a profile based on api_key_env and base_url."""
@@ -68,9 +112,12 @@ class LLMGateway:
             from pathlib import Path
 
             from dotenv import load_dotenv
-            env_path = Path(__file__).resolve().parents[4] / ".env"
-            if env_path.exists():
-                load_dotenv(env_path, override=False)
+            for env_path in (
+                Path(__file__).resolve().parents[4] / ".env",
+                Path(__file__).resolve().parents[3] / ".env",
+            ):
+                if env_path.exists():
+                    load_dotenv(env_path, override=False)
         except ImportError:
             pass
         if not settings.api_key_env and not settings.base_url:
@@ -85,15 +132,54 @@ class LLMGateway:
         base_url = settings.base_url or ""
         if not api_key and not base_url:
             return None
-        if not api_key and base_url and ("localhost:11434" in base_url or "127.0.0.1:11434" in base_url):
+
+        # ── Egress gate (the single constraint) ────────────────────────────────
+        # This gateway is the main L1/L2/L3 LLM path and constructs providers
+        # directly, so it must consult the gate itself. Without this, a profile
+        # pointing at a cloud host would transmit regardless of the gate.
+        from aegis_ai.llm.factory import _DEFAULT_CLOUD_BASE_URL, _is_reachable, _local_or_mock, egress_allows_llm
+
+        if not egress_allows_llm(base_url or _DEFAULT_CLOUD_BASE_URL, component="llm.gateway"):
+            # Never transmit. Degrade to the local model, else Mock.
+            provider = _local_or_mock(audit_log=self._audit)
+            self._profile_providers[cache_key] = provider
+            logger.warning(
+                "Egress gate denied profile destination %s — degraded to %s",
+                base_url or _DEFAULT_CLOUD_BASE_URL,
+                type(provider).__name__,
+            )
+            return provider
+
+        is_local_ollama = "localhost:11434" in base_url or "127.0.0.1:11434" in base_url
+        if is_local_ollama and not _is_reachable(base_url):
+            # Permitted destination, but nothing is listening. Degrade deterministically
+            # instead of stalling on SDK retries against a dead endpoint.
+            provider = _local_or_mock(audit_log=self._audit, base_url=base_url)
+            self._profile_providers[cache_key] = provider
+            logger.warning("Local LLM at %s is not reachable — degraded to %s", base_url, type(provider).__name__)
+            return provider
+
+        if not api_key and is_local_ollama:
             api_key = "ollama"
-        from aegis_ai.llm.providers.openai_provider import OpenAIProvider
-        provider = OpenAIProvider(
-            model=settings.model,
-            api_key=api_key or "dummy",
-            base_url=base_url or None,
-            audit_log=self._audit,
-        )
+        if settings.provider == "typesafe":
+            from aegis_ai.llm.providers.typesafe_provider import TypeSafeProvider
+
+            provider = TypeSafeProvider(
+                model=settings.model,
+                api_key=api_key,
+                base_url=base_url or None,
+                audit_log=self._audit,
+                timeout_seconds=settings.timeout_seconds,
+            )
+        else:
+            from aegis_ai.llm.providers.openai_provider import OpenAIProvider
+
+            provider = OpenAIProvider(
+                model=settings.model,
+                api_key=api_key or "dummy",
+                base_url=base_url or None,
+                audit_log=self._audit,
+            )
         self._profile_providers[cache_key] = provider
         logger.info("Created provider for profile: env=%s base_url=%s model=%s",
                      settings.api_key_env, base_url, settings.model)
@@ -107,6 +193,21 @@ class LLMGateway:
             except KeyError:
                 logger.warning("Prompt '%s' not found, using default", prompt_id)
         return default
+
+    def _enrich_context_meta(
+        self,
+        context_meta: dict[str, Any] | None,
+        *,
+        profile: str,
+        settings: LLMSettings,
+    ) -> dict[str, Any]:
+        """Attach stable observability fields before routing to a provider."""
+        meta = dict(context_meta or {})
+        meta.setdefault("profile_id", profile)
+        meta.setdefault("profile", profile)
+        meta.setdefault("provider", settings.provider)
+        meta.setdefault("model", settings.model)
+        return meta
 
     def _audit_call(
         self,
@@ -203,34 +304,46 @@ class LLMGateway:
         profile: str | None = None,
     ) -> LLMResponse:
         """Generate a response. Profile overrides max_tokens/temperature defaults."""
-        settings = self._resolve(profile)
+        try:
+            settings = self._resolve(profile)
+        except (KeyError, ValueError) as exc:
+            return self._profile_resolution_failure(
+                profile=profile,
+                error=exc,
+                context_meta=context_meta,
+            )
+        resolved_profile = profile or "default"
         if max_tokens is not None:
             settings.max_tokens = max_tokens
         if temperature is not None:
             settings.temperature = temperature
 
         provider = self._get_provider_for_profile(settings)
+        provider_meta = self._enrich_context_meta(
+            context_meta,
+            profile=resolved_profile,
+            settings=settings,
+        )
 
         from aegis_ai.observability.otel_tracing import start_span
-
         span_attrs = {
-            "llm.profile": str(profile or "default"),
+            "llm.profile": str(resolved_profile),
             "llm.model": str(settings.model),
         }
-        if context_meta:
-            span_attrs["request_id"] = str(context_meta.get("request_id") or "")
-            if context_meta.get("task_id"):
-                span_attrs["task_id"] = str(context_meta.get("task_id") or "")
+        if provider_meta:
+            span_attrs["request_id"] = str(provider_meta.get("request_id") or "")
+            if provider_meta.get("task_id"):
+                span_attrs["task_id"] = str(provider_meta.get("task_id") or "")
 
         start = time.monotonic()
         with start_span("aegis.llm.generate", **span_attrs):
-            if provider is not None:
+            if provider is not None and hasattr(provider, "generate"):
                 response = provider.generate(
                     prompt=prompt,
                     system_prompt=system_prompt,
                     max_tokens=settings.max_tokens,
                     temperature=settings.temperature,
-                    context_meta=context_meta,
+                    context_meta=provider_meta,
                     json_mode=json_mode,
                 )
             else:
@@ -238,19 +351,18 @@ class LLMGateway:
                     prompt=prompt,
                     system_prompt=system_prompt,
                     settings=settings,
-                    context_meta=context_meta,
+                    context_meta=provider_meta,
                     json_mode=json_mode,
                 )
                 response = self._router.route(request)
         duration_ms = int((time.monotonic() - start) * 1000)
-
         self._audit_call(
-            profile=profile or "default",
+            profile=resolved_profile,
             prompt_id=None,
             settings=settings,
             response=response,
             duration_ms=duration_ms,
-            context_meta=context_meta,
+            context_meta=provider_meta,
         )
         return response
 
@@ -293,35 +405,48 @@ class LLMGateway:
         profile: str | None = None,
     ) -> LLMResponse:
         """Generate with tool calling support."""
-        settings = self._resolve(profile)
+        try:
+            settings = self._resolve(profile)
+        except (KeyError, ValueError) as exc:
+            return self._profile_resolution_failure(
+                profile=profile,
+                error=exc,
+                context_meta=context_meta,
+            )
+        resolved_profile = profile or "default"
         if max_tokens is not None:
             settings.max_tokens = max_tokens
         if temperature is not None:
             settings.temperature = temperature
 
-        start = time.monotonic()
+        provider_meta = self._enrich_context_meta(
+            context_meta,
+            profile=resolved_profile,
+            settings=settings,
+        )
         provider = self._get_provider_for_profile(settings)
+
+        span_attrs = {
+            "llm.profile": str(resolved_profile),
+            "llm.model": str(settings.model),
+        }
+        if provider_meta:
+            span_attrs["request_id"] = str(provider_meta.get("request_id") or "")
+            if provider_meta.get("task_id"):
+                span_attrs["task_id"] = str(provider_meta.get("task_id") or "")
 
         from aegis_ai.observability.otel_tracing import start_span
 
-        span_attrs = {
-            "llm.profile": str(profile or "default"),
-            "llm.model": str(settings.model),
-        }
-        if context_meta:
-            span_attrs["request_id"] = str(context_meta.get("request_id") or "")
-            if context_meta.get("task_id"):
-                span_attrs["task_id"] = str(context_meta.get("task_id") or "")
-
+        start = time.monotonic()
         with start_span("aegis.llm.generate_with_tools", **span_attrs):
             if provider is not None and hasattr(provider, "generate_with_tools"):
                 call_kwargs: dict[str, Any] = {
                     "prompt": prompt,
                     "tools": tools,
                     "system_prompt": system_prompt,
+                    "context_meta": provider_meta,
                     "max_tokens": settings.max_tokens,
                     "temperature": settings.temperature,
-                    "context_meta": context_meta,
                 }
                 if accepts_kwarg(provider.generate_with_tools, "reasoning_level"):
                     call_kwargs["reasoning_level"] = settings.reasoning_level
@@ -331,19 +456,18 @@ class LLMGateway:
                     prompt=prompt,
                     system_prompt=system_prompt,
                     settings=settings,
-                    context_meta=context_meta,
+                    context_meta=provider_meta,
                 )
                 response = self._router.route_with_tools(request, tools)
-
         duration_ms = int((time.monotonic() - start) * 1000)
 
         self._audit_call(
-            profile=profile or "default",
+            profile=resolved_profile,
             prompt_id=None,
             settings=settings,
             response=response,
             duration_ms=duration_ms,
-            context_meta=context_meta,
+            context_meta=provider_meta,
         )
         return response
 
@@ -359,13 +483,26 @@ class LLMGateway:
         profile: str | None = None,
     ) -> LLMResponse:
         """Generate with image input (vision)."""
-        settings = self._resolve(profile)
+        try:
+            settings = self._resolve(profile)
+        except (KeyError, ValueError) as exc:
+            return self._profile_resolution_failure(
+                profile=profile,
+                error=exc,
+                context_meta=context_meta,
+            )
+        resolved_profile = profile or "default"
         if max_tokens is not None:
             settings.max_tokens = max_tokens
         if temperature is not None:
             settings.temperature = temperature
 
         provider = self._get_provider_for_profile(settings)
+        provider_meta = self._enrich_context_meta(
+            context_meta,
+            profile=resolved_profile,
+            settings=settings,
+        )
 
         start = time.monotonic()
         if provider is not None and hasattr(provider, "generate_with_image"):
@@ -376,25 +513,25 @@ class LLMGateway:
                 max_tokens=settings.max_tokens,
                 temperature=settings.temperature,
                 detail=detail,
-                context_meta=context_meta,
+                context_meta=provider_meta,
             )
         else:
             request = self._make_request(
                 prompt=prompt,
                 system_prompt=system_prompt,
                 settings=settings,
-                context_meta=context_meta,
+                context_meta=provider_meta,
             )
             response = self._router.route_with_image(request, image_base64, detail=detail)
         duration_ms = int((time.monotonic() - start) * 1000)
 
         self._audit_call(
-            profile=profile or "default",
+            profile=resolved_profile,
             prompt_id=None,
             settings=settings,
             response=response,
             duration_ms=duration_ms,
-            context_meta=context_meta,
+            context_meta=provider_meta,
         )
         return response
 
@@ -411,17 +548,30 @@ class LLMGateway:
         profile: str | None = None,
     ) -> LLMResponse:
         """Generate with multiple media inputs."""
-        settings = self._resolve(profile)
+        try:
+            settings = self._resolve(profile)
+        except (KeyError, ValueError) as exc:
+            return self._profile_resolution_failure(
+                profile=profile,
+                error=exc,
+                context_meta=context_meta,
+            )
+        resolved_profile = profile or "default"
         if max_tokens is not None:
             settings.max_tokens = max_tokens
         if temperature is not None:
             settings.temperature = temperature
 
+        provider_meta = self._enrich_context_meta(
+            context_meta,
+            profile=resolved_profile,
+            settings=settings,
+        )
         request = self._make_request(
             prompt=prompt,
             system_prompt=system_prompt,
             settings=settings,
-            context_meta=context_meta,
+            context_meta=provider_meta,
         )
 
         start = time.monotonic()
@@ -431,14 +581,116 @@ class LLMGateway:
         duration_ms = int((time.monotonic() - start) * 1000)
 
         self._audit_call(
-            profile=profile or "default",
+            profile=resolved_profile,
             prompt_id=None,
             settings=settings,
             response=response,
             duration_ms=duration_ms,
-            context_meta=context_meta,
+            context_meta=provider_meta,
         )
         return response
 
+    # ── L1/L2/L3 Layer API (DASHBOARD_V3_PLAN.md Phase L1) ───
 
-__all__ = ["LLMGateway"]
+    def request(
+        self,
+        layer: str,
+        prompt: str,
+        system_prompt: str = "",
+        max_tokens: int | None = None,
+        temperature: float | None = None,
+        tools: list[dict[str, Any]] | None = None,
+        json_mode: bool = False,
+        context_meta: dict[str, Any] | None = None,
+    ) -> LLMResponse:
+        """Layer ベースで LLM を呼び出す (instruction.md v3 L1/L2/L3).
+
+        Args:
+            layer: "L1" | "L2" | "L3"
+            prompt: 入力プロンプト
+            system_prompt: システムプロンプト
+            max_tokens: 出力最大トークン (profile の値を上書き)
+            temperature: temperature (profile の値を上書き)
+            tools: tool definitions (L1/L2 で利用、L3 では未使用想定)
+            json_mode: JSON 出力モード (L1 で構造化出力を行うときに利用)
+            context_meta: 追加 metadata (task_id, request_id など)
+
+        Returns:
+            LLMResponse
+
+        Raises:
+            ValueError: layer が "L1" / "L2" / "L3" 以外
+        """
+        if not is_valid_layer(layer):
+            raise ValueError(
+                f"Invalid LLM layer '{layer}'. Expected one of: L1, L2, L3"
+            )
+
+        profile_id = layer_to_profile(layer)
+        meta = dict(context_meta or {})
+        # layer 情報を context_meta に自動付与 (Audit / Trace で利用)
+        meta.setdefault("layer", layer)
+        meta.setdefault("caller", f"gateway.{layer}")
+        meta.setdefault("llm_layer_description", layer_description(layer))
+
+        logger.debug(
+            "LLMGateway.request layer=%s profile=%s has_tools=%s json_mode=%s",
+            layer, profile_id, bool(tools), json_mode,
+        )
+
+        if tools:
+            return self.generate_with_tools(
+                prompt=prompt,
+                tools=tools,
+                system_prompt=system_prompt,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                context_meta=meta,
+                profile=profile_id,
+            )
+        return self.generate(
+            prompt=prompt,
+            system_prompt=system_prompt,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            context_meta=meta,
+            json_mode=json_mode,
+            profile=profile_id,
+        )
+
+    def request_json(
+        self,
+        layer: str,
+        prompt: str,
+        system_prompt: str = "",
+        max_tokens: int | None = None,
+        temperature: float | None = None,
+        context_meta: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Layer ベースで LLM を呼び出し、JSON として parse する convenience.
+
+        L1 の構造化出力 (L1Observation / L1Decision / L1Escalation 等) で利用。
+        """
+        response = self.request(
+            layer=layer,
+            prompt=prompt,
+            system_prompt=system_prompt,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            tools=None,
+            json_mode=True,
+            context_meta=context_meta,
+        )
+        import json
+        if response.success and response.content:
+            try:
+                return json.loads(response.content)
+            except json.JSONDecodeError:
+                logger.warning(
+                    "LLMGateway.request_json layer=%s failed to parse JSON", layer
+                )
+                return {"error": "json_parse_failed", "raw": response.content}
+        return {"error": response.error or "generation_failed"}
+
+
+__all__ = ["LLMGateway", "LLMLayer"]

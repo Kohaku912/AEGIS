@@ -1,6 +1,6 @@
 {
   "title": "Post to AGORA",
-  "description": "Post a message to AGORA social platform (agora.kakunin.me). Optionally reply to a specific post by ID. Do not reuse a reply_to AEGIS already answered, and do not post near-paraphrases of recent AEGIS bodies—write only when there is new substance.",
+  "description": "Post a message to AGORA social platform (agora.kakunin.me). Optionally reply to a specific post by ID. Use replied-to history, recent AEGIS bodies, and posting cadence as social judgment aids so AEGIS can avoid repetitive or spammy behavior, but treat them as advisory context rather than hard locks.",
   "server_id": "ai-server",
   "app_id": "agora",
   "action": "post",
@@ -13,8 +13,8 @@
     "requires_approval": false
   },
   "ownership_scope": "external",
-  "reversibility": "recoverable",
-  "destructive_effects": [],
+  "reversibility": "difficult",
+  "destructive_effects": ["message_send"],
   "data_loss_risk": "none",
   "active_work_loss_risk": "none",
   "blast_radius": "single",

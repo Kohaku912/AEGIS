@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 '''Interaction Router - LLM Task Interpreter + TaskExecutionEngine.
 
 Routes user messages through LLM Task Interpreter.
@@ -39,7 +38,6 @@ class InteractionRouter:
         capability_catalog: Any = None,
         capability_retriever: Any = None,
         tool_broker: Any = None,
-        approval_store: Any = None,
         audit_log: Any = None,
         browser_executor: Any = None,
         research_agent: Any = None,
@@ -55,7 +53,6 @@ class InteractionRouter:
         self._catalog = capability_catalog
         self._retriever = capability_retriever
         self._broker = tool_broker
-        self._approval = approval_store
         self._audit = audit_log
         self._browser = browser_executor
         self._research = research_agent
@@ -74,6 +71,9 @@ class InteractionRouter:
                 capability_registry=self._registry,
                 capability_catalog=self._catalog,
                 capability_retriever=self._retriever,
+                # Plan-level delegation uses the same store the broker enforces
+                # with, so the two verdicts cannot drift.
+                delegation_store=getattr(self._broker, "delegation_policy", None),
             )
         return self._interpreter
 
@@ -163,23 +163,22 @@ class InteractionRouter:
             response.text = "Settings not available."
         return response
 
-    def _handle_approval(self, message: Message, response: Response) -> Response:
-        if self._approval:
-            pending = self._approval.get_pending()
-            if pending:
-                response.text = f"You have {len(pending)} pending approval(s).\nApproval UI: http://0.0.0.0:8080/approvals"
-            else:
-                response.text = "No pending approvals."
-        else:
-            response.text = "Approval system not available."
-        return response
-
     def _handle_support_feedback(self, message: Message, response: Response) -> Response:
-        text_lower = message.text.lower()
-        if any(w in text_lower for w in ["accept", "yes", "ok", "thanks"]):
+        metadata = message.metadata if isinstance(message.metadata, dict) else {}
+        decision = str(metadata.get("feedback_decision") or "").strip().lower()
+        patch = metadata.get("feedback_patch")
+        if isinstance(patch, dict) and patch:
+            response.text = "Received structured feedback patch. I will use it in the next update."
+            response.metadata["feedback_patch"] = patch
+        elif decision in {"accepted", "approve", "positive"}:
             response.text = "Thank you for the feedback!"
-        elif any(w in text_lower for w in ["reject", "no"]):
+            response.metadata["feedback_decision"] = decision
+        elif decision in {"rejected", "negative"}:
             response.text = "Understood. I will adjust."
+            response.metadata["feedback_decision"] = decision
         else:
-            response.text = "Could you clarify your feedback?"
+            response.text = (
+                "Could you clarify your feedback? "
+                "Provide metadata.feedback_decision or metadata.feedback_patch for structured handling."
+            )
         return response

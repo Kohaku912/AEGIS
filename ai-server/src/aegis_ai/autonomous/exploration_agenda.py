@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 from aegis_ai.personal_ai.storage import JsonStateFile, now_ms
 
@@ -48,7 +48,7 @@ class ExplorationAgendaItem:
 class ExplorationAgenda:
     """Own bounded exploration topics and their evidence across restarts."""
 
-    VALID_SOURCES = {
+    VALID_SOURCES: ClassVar[set[str]] = {
         "project",
         "conversation",
         "question",

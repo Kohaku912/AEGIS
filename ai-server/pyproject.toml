@@ -15,6 +15,7 @@ authors = [
 dependencies = [
     "pydantic>=2.0",
     "grpcio>=1.60",
+    "flask>=3.0",
     "langgraph>=1.0",
     "langchain-core>=1.0",
     "chromadb>=1.0",
@@ -51,6 +52,10 @@ markers = [
     "pc_local: PC Server local-only tests that require real Windows host integration",
     "room_local: Room Server local-only tests that require real room hardware",
     "e2e: End-to-end integration tests",
+    # The single constraint. Counted by --require-egress-tests (see tests/conftest.py):
+    # if the egress suite ever shrinks below the floor, the run fails instead of
+    # silently passing with no coverage.
+    "egress: guards AEGIS's single constraint — user information must never leave the local environment",
 ]
 
 [tool.ruff.lint]
@@ -65,7 +70,6 @@ ignore = ["N802"]  # gRPC method names must be PascalCase (e.g. HealthCheck)
 "src/aegis_ai/tool_broker.py" = ["F401"]
 "src/aegis_ai/tool_registry.py" = ["F401"]
 "src/aegis_ai/trigger_engine.py" = ["F401"]
-"src/aegis_ai/approval.py" = ["F401"]
 "src/aegis_ai/agents/__init__.py" = ["F401"]
 "src/aegis_ai/memory/__init__.py" = ["F401"]
 "src/aegis_ai/mind/__init__.py" = ["F401"]

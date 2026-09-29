@@ -12,11 +12,44 @@ set -euo pipefail
 LANGUAGE="${1:-python}"
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
+# Interpreter that has grpcio-tools installed. Override when the project venv is not
+# what `python` resolves to, e.g.
+#   PYTHON_BIN=.venv/Scripts/python.exe ./scripts/generate_protos.sh
+PYTHON_BIN="${PYTHON_BIN:-python}"
+
+# The canonical set. Every entry must exist: this list used to name
+# pc_server.proto, browser_server.proto and dev_server.proto — dev_server.proto was
+# deleted with the Dev Server and the other two never existed, so `protoc` failed on
+# a missing file and the script could not run at all. That is why the room server's
+# generated copy drifted without anyone noticing.
+PROTO_FILES=(
+  common
+  ai_server
+  android_server
+  room_server
+)
+
+# Servers that keep their own generated copy of the shared contract, and the protos
+# each one actually consumes. A server must not receive stubs it does not import:
+# compiling the full set into every target dropped ai_server/android_server stubs
+# into the room server, which uses neither.
+PYTHON_TARGETS=(
+  "ai-server/src/generated"
+  "room-server/src/generated"
+)
+AI_SERVER_PROTOS=("${PROTO_FILES[@]}")
+ROOM_SERVER_PROTOS=(common room_server)
+
 # ── Step 1: Lint ──────────────────────────────────────────────
 echo -e "\033[36m[1/3] buf lint...\033[0m"
 cd "$ROOT_DIR"
-buf lint
-echo -e "\033[32m  ✅ Lint passed\033[0m"
+if command -v buf > /dev/null 2>&1; then
+  buf lint
+  echo -e "\033[32m  ✅ Lint passed\033[0m"
+else
+  echo -e "\033[33m  ⚠️  buf not found — skipping lint\033[0m"
+  echo "     Install: npm install -g @bufbuild/buf"
+fi
 
 # ── Step 2: Generate ──────────────────────────────────────────
 echo -e "\033[36m[2/3] Generating code for: $LANGUAGE\033[0m"
@@ -24,31 +57,38 @@ echo -e "\033[36m[2/3] Generating code for: $LANGUAGE\033[0m"
 cd "$ROOT_DIR"
 case "$LANGUAGE" in
   python)
-    OUT_DIR="ai-server/src/generated"
-    mkdir -p "$OUT_DIR"
+    generate_python() {
+      local target="$1"
+      shift
+      local proto_paths=()
+      local name
+      for name in "$@"; do
+        proto_paths+=("protos/aegis/$name.proto")
+      done
 
-    python -m grpc_tools.protoc \
-      -I protos \
-      --python_out="$OUT_DIR" \
-      --grpc_python_out="$OUT_DIR" \
-      --pyi_out="$OUT_DIR" \
-      protos/aegis/common.proto \
-      protos/aegis/ai_server.proto \
-      protos/aegis/pc_server.proto \
-      protos/aegis/android_server.proto \
-      protos/aegis/browser_server.proto \
-      protos/aegis/room_server.proto \
-      protos/aegis/dev_server.proto
+      mkdir -p "$target"
 
-    # Fix relative imports in generated files (Linux/macOS sed)
-    for f in "$OUT_DIR"/*_pb2*.py; do
-      sed -i '' 's/import aegis_common_pb2/from generated import common_pb2 as aegis_common_pb2/' "$f" 2>/dev/null || \
-      sed -i 's/import aegis_common_pb2/from generated import common_pb2 as aegis_common_pb2/' "$f"
-      sed -i '' 's/from aegis import/from generated import/' "$f" 2>/dev/null || \
-      sed -i 's/from aegis import/from generated import/' "$f"
-    done
+      "$PYTHON_BIN" -m grpc_tools.protoc \
+        -I protos \
+        --python_out="$target" \
+        --grpc_python_out="$target" \
+        --pyi_out="$target" \
+        "${proto_paths[@]}"
 
-    echo -e "\033[32m  ✅ Python stubs generated to: $OUT_DIR\033[0m"
+      # protoc emits `from aegis import ...`, but every consumer exposes the stubs
+      # as the `generated.aegis` package. The old rewrite produced
+      # `from generated import ...`, which imports a module that does not exist —
+      # so it only ever appeared to work because nobody re-ran it.
+      find "$target/aegis" \( -name "*_pb2*.py" -o -name "*.pyi" \) -print0 |
+        while IFS= read -r -d '' f; do
+          sed -i 's/^from aegis import /from generated.aegis import /' "$f"
+        done
+
+      echo -e "\033[32m  ✅ Python stubs -> $target\033[0m"
+    }
+
+    generate_python "ai-server/src/generated" "${AI_SERVER_PROTOS[@]}"
+    generate_python "room-server/src/generated" "${ROOM_SERVER_PROTOS[@]}"
     ;;
   node)
     OUT_DIR="browser-server/src/generated"
@@ -89,12 +129,14 @@ echo -e "\033[36m[3/3] Verification...\033[0m"
 cd "$ROOT_DIR"
 case "$LANGUAGE" in
   python)
-    FILE_COUNT=$(find "ai-server/src/generated" -name "*_pb2*.py" 2>/dev/null | wc -l)
-    if [ "$FILE_COUNT" -gt 0 ]; then
-      echo -e "\033[32m  ✅ $FILE_COUNT Python stub files generated\033[0m"
-    else
-      echo -e "\033[31m  ❌ No Python stubs found in ai-server/src/generated\033[0m"
-    fi
+    for target in "${PYTHON_TARGETS[@]}"; do
+      FILE_COUNT=$(find "$target" -name "*_pb2*.py" 2>/dev/null | wc -l)
+      if [ "$FILE_COUNT" -gt 0 ]; then
+        echo -e "\033[32m  ✅ $FILE_COUNT Python stub files in $target\033[0m"
+      else
+        echo -e "\033[31m  ❌ No Python stubs found in $target\033[0m"
+      fi
+    done
     ;;
 esac
 

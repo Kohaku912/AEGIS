@@ -15,6 +15,17 @@ _initialized = False
 _meter = None
 
 
+def _endpoint_is_local(endpoint: str) -> bool:
+    """Return True when an OTLP endpoint stays inside the local environment."""
+    try:
+        from aegis_ai.egress import is_local_destination
+
+        return is_local_destination(endpoint)
+    except Exception:
+        # Fail closed: an unclassifiable endpoint must not be exported to.
+        return False
+
+
 def init_tracing() -> None:
     """Initialize OpenTelemetry tracing (OTLP if configured; Console fallback)."""
     global _initialized, _meter
@@ -36,6 +47,17 @@ def init_tracing() -> None:
 
     service_name = os.getenv("AEGIS_OTEL_SERVICE_NAME", "aegis-ai-server")
     endpoint = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "").strip()
+
+    # The single constraint: spans and metrics can carry user context, so the OTLP
+    # endpoint must be local. A remote endpoint is refused and we fall back to the
+    # Console exporter (which never leaves the process).
+    if endpoint and not _endpoint_is_local(endpoint):
+        logger.warning(
+            "OTEL_EXPORTER_OTLP_ENDPOINT=%s is not local — refusing to export "
+            "(single constraint). Falling back to the Console exporter.",
+            endpoint,
+        )
+        endpoint = ""
 
     resource = Resource.create({"service.name": service_name})
     provider = TracerProvider(resource=resource)

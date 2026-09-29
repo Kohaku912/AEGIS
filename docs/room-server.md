@@ -1,144 +1,98 @@
 # Room Server — Design & Usage
 
+> ⚠️ **Goal change (2026-09-27)**: the only constraint is now **"the user's information must never
+> leave the local environment."** Approval, reversibility, policy, and reliability-proof are **no
+> longer constraints**. The L0–L3 levels below are a **risk annotation**, not a gate — nothing on this
+> server blocks on a confirmation. See [`GOAL-CHANGE.md`](GOAL-CHANGE.md).
+
 > **Status**: Code-backed room server (gRPC, mock-first providers)
-> **Language**: Python (AEGIS Core integration via `room_server_client.py`)
+> **Language**: Python
+> **Source**: `room-server/` — see [`room-server/AGENTS.md`](../room-server/AGENTS.md)
 
-## Production Scope
+> This document was rewritten on 2026-09-28. It previously listed ~18 capabilities under the old
+> `room.*` id scheme (only five exist), an IR allowlist and an AC temperature range that are not
+> implemented, `MockSensorProvider` / `MockActuatorProvider` classes that do not exist, and test
+> commands pointing at files that were never committed.
 
-Room is `UNCONFIGURED/DISABLED` for v1 until the Orange Pi has a real provider.
-Mock sensors and actuators are test/development only and cannot produce a
-production success. Production Compose starts Room only with the explicit
-`room` profile and a non-mock provider. The target host, Wi-Fi, IP, and MAC are
-kept in the local device inventory; physical actions remain approval-gated.
+## What actually runs
 
-## Overview
+The Room Server is a Python gRPC service on **50055** with **mock-first** providers. Only two
+providers are real code paths, and both are local:
 
-The Room Server provides AEGIS with physical environment observation AND control capabilities.
-The runtime is a Python gRPC service with mock-first sensor/actuator providers and an optional GPIO light path.
-Actions go through ToolBroker → PolicyEngine → Approval UI (for Level 2+).
-Emergency stop is Level 1 (auto-allowed for safety).
+| Provider | Default | Real path |
+|---|---|---|
+| Light / IR | `MockLightIrProvider` | `OrangePiGpioIrProvider` when `AEGIS_ROOM_LIGHT_PROVIDER=gpio` |
+| Sound level | `MockSoundProvider` | `AlsaInmp441Provider` (INMP441 I2S MEMS mic) |
 
-## Implemented Capabilities
+`create_light_provider()` and `create_sound_provider()` are the factories; sound may be `None`
+(provider disabled), in which case the device simply does not appear in `GetDeviceStatus`.
 
-### Observe (Level 0 — READ_ONLY)
+## Capabilities (five — the catalog is authoritative)
 
-| Capability | Status |
-|-----------|--------|
-| `room.get_environment` | ✅ Mock provider |
-| `room.get_temperature` | ✅ Mock provider |
-| `room.get_humidity` | ✅ Mock provider |
-| `room.get_brightness` | ✅ Mock provider |
-| `room.get_motion_status` | ✅ Mock provider |
-| `room.get_device_status` | ✅ Mock provider |
-| `room.list_sensors` | ✅ Mock provider |
+The AI server owns the catalog in `ai-server/capabilities/builtin/room-server/`. The ids are
+`room-server.<app>.<action>`, **not** `room.*`:
 
-### Action (Level 1 — SAFE_ACTION, auto-allowed)
+| Capability id | Level | Risk | Status |
+|---|---|---|---|
+| `room-server.environment.get_environment` | L0 | low | Returns **hardcoded fixtures** — see below |
+| `room-server.device.get_status` | L0 | low | Real: assembled from the light + sound providers |
+| `room-server.sound.get_level` | L0 | low | Real: INMP441 sample |
+| `room-server.ir.send_ir_command` | L2 | safe | Real: raw NEC transmit |
+| `room-server.light.set_light` | L2 | safe | Real: ceiling light via IR |
 
-| Capability | Status |
-|-----------|--------|
-| `room.stop_robot_arm` | ✅ Mock actuator |
-| `room.emergency_stop_robot_arm` | ✅ Mock actuator |
+### `GetEnvironment` is a fixture, not a sensor
 
-### Action (Level 2 — APPROVAL_REQUIRED)
+`RoomServer._environment` is set once in `__init__` and **never updated**, so `GetEnvironment` always
+returns temperature 22.5 °C, humidity 45 %, brightness 300 lux, `motion_detected=false`. No
+environment sensor is wired. Treat it as a placeholder until a real provider exists.
 
-| Capability | Status |
-|-----------|--------|
-| `room.set_light` | ✅ Mock actuator + Approval UI |
-| `room.set_air_conditioner` | ✅ Mock actuator + Approval UI + temp range validation |
-| `room.send_ir_command` | ✅ Mock actuator + Approval UI + IR allowlist |
-| `room.set_smart_plug` | ✅ Mock actuator + Approval UI |
-| `room.get_camera_snapshot` | ✅ Mock actuator + Approval UI |
+## RPCs in the contract with no provider
 
-### Explicitly Denied (Level 3)
+| RPC | Answer |
+|---|---|
+| `GetCameraSnapshot` | `503` "camera provider is not configured" |
+| `SetAirConditioner` | `503` "air conditioner provider is not configured" |
+| `MoveRobotArm` | `403` "robot arm movement is disabled by default" |
+| `EmergencyStopRobotArm` | `0` "no robot arm provider configured", `stopped_arms=[]` |
 
-| Capability | Reason |
-|-----------|--------|
-| `room.move_robot_arm` | Physical safety risk |
-| `room.robot_arm_move` | Physical safety risk |
-| `room.lock_door` | Physical security |
-| `room.ac_power_on` | Legacy pattern — use `room.set_air_conditioner` |
+## Validation that actually exists
 
-## Technology Decisions
+| Surface | Rule | Failure |
+|---|---|---|
+| `SetLight.brightness` | `-1` (unchanged) or `0–255` | `400` "brightness must be -1 or between 0 and 255" |
+| `SendIrCommand.repeat` | `1–10`, default `3` | `400` "repeat must be between 1 and 10" |
+| `SendIrCommand.ir_code` | required, non-empty | `400` "ir_code is required" |
 
-| 項目 | 選択 |
-|------|------|
-| Sensor provider | MockSensorProvider (CI) / optional real providers |
-| Actuator provider | MockActuatorProvider (CI) / optional real providers |
-| 実デバイス連携 | MQTT / Home Assistant / Serial — optional adapters |
-| Robot arm | Emergency stop は即時実行、move は Level 3 deny |
+**There is no IR allowlist.** `send_ir_command` accepts any `0xADDR:0xCMD` pair with
+Arduino-IRremote `sendNEC` semantics, and the manifest documents the ceiling-light codes
+(`0xD001:0x23` off, `0xD001:0x20` all, `0xD001:0x21` eco, `0xD001:0x22` night). An earlier version of
+this document claimed unknown commands were denied at the client level; that check does not exist.
+`room-server.light.set_light` is the preferred path for the ceiling light.
 
-## Safety Features
+There is also **no AC temperature validation**, because there is no AC provider.
 
-### IR Command Allowlist
+## Environment variables
 
-Only pre-approved IR commands can be sent:
-
-| Category | Allowed Commands |
-|----------|-----------------|
-| TV | `tv_power`, `tv_volume_up`, `tv_volume_down`, `tv_mute`, `tv_input` |
-| AC | `ac_power`, `ac_cool`, `ac_heat`, `ac_dry`, `ac_fan`, `ac_temp_up`, `ac_temp_down` |
-| Light | `light_power`, `light_brightness_up`, `light_brightness_down` |
-| Speaker | `speaker_power`, `speaker_volume_up`, `speaker_volume_down` |
-
-Unknown IR commands are denied at the client level.
-
-### AC Temperature Range
-
-| Parameter | Range |
-|-----------|-------|
-| Temperature | 16.0°C – 32.0°C |
-| Modes | `cool`, `heat`, `dry`, `fan`, `auto` |
-
-Out-of-range temperatures and invalid modes are denied at the client level.
-
-### Robot Arm Safety
-
-| Operation | Level | Behavior |
-|-----------|-------|----------|
-| `room.move_robot_arm` | Level 3 | **Denied** — explicit deny in PolicyEngine |
-| `room.stop_robot_arm` | Level 1 | Auto-allowed — graceful stop |
-| `room.emergency_stop_robot_arm` | Level 1 | Auto-allowed — immediate stop |
-
-## Providers
-
-### Mock Sensor Provider (CI)
-
-Returns deterministic fake data. No real hardware.
-
-### Mock Actuator Provider (CI)
-
-Simulates all actuator operations. Returns deterministic fake results.
-All calls are logged to `call_log` for audit verification.
-
-## Current Room Server Runtime
-
-- Room Server runs as a Python gRPC service on `50055`.
-- Docker default provider is mock lighting control.
-- `AEGIS_ROOM_LIGHT_PROVIDER=gpio` and `AEGIS_ROOM_IR_PIN=<pin>` enable the Orange Pi GPIO/IR skeleton path.
-- `room-server.light.set_light` is a physical-device capability and remains approval-required.
-- Mock light state updates only after approval when invoked through AI Server.
-
-### Real Providers (optional — user confirmation required)
-
-| Provider | Status | Notes |
-|----------|--------|-------|
-| MqttActuatorProvider | Not implemented | Requires MQTT broker |
-| HomeAssistantAdapter | Not implemented | Requires HA installation |
-| SerialArduinoAdapter | Not implemented | Requires Arduino/ESP32 firmware |
-| RobotArmAdapter | Not implemented | Dedicated robot arm controller |
-| CameraProvider | Not implemented | Camera hardware |
+| Variable | Default | Effect |
+|---|---|---|
+| `AEGIS_ROOM_HOST` / `AEGIS_ROOM_PORT` | — / `50055` | Bind address |
+| `AEGIS_ROOM_LIGHT_PROVIDER` | `mock` | `gpio` selects `OrangePiGpioIrProvider`; anything else keeps the mock |
+| `AEGIS_ROOM_IR_PIN` | — | SoC pin for IR output, resolved by `resolve_ir_pin()` |
+| `AEGIS_ROOM_IR_REPEAT`, `AEGIS_ROOM_IR_CARRIER_HZ`, `AEGIS_ROOM_IR_ACTIVE_LOW`, `AEGIS_ROOM_IR_BIT_ORDER`, `AEGIS_ROOM_IR_ADDR_MODE` | — | IR transmit tuning |
+| `AEGIS_ROOM_SOUND_PROVIDER` | `mock` | `alsa` selects `AlsaInmp441Provider`; `off` / `none` / `disabled` / empty yields **no** sound device |
+| `AEGIS_ROOM_SOUND_ALSA_DEVICE`, `AEGIS_ROOM_SOUND_RATE`, `AEGIS_ROOM_SOUND_CHANNELS`, `AEGIS_ROOM_SOUND_ARECORD` | — | ALSA capture settings |
+| `AEGIS_ROOM_DEVICE_ID` | — | Overrides the default device id |
 
 ## Testing
 
+The room server has its own suite (run from `room-server/`):
+
 ```bash
-cd ai-server
-
-# Observe E2E
-pytest tests/test_room_observe_e2e.py -v
-
-# Action E2E
-pytest tests/test_room_action_e2e.py -v
-
-# All Room tests
-pytest tests/test_room_observe_e2e.py tests/test_room_action_e2e.py -v
+cd room-server
+pytest -q          # test_ir_pin_resolve, test_nec_arduino_payload,
+                   # test_room_server, test_sound_inmp441
 ```
+
+The AI server side is covered by `ai-server/tests/test_room_integration.py`. The
+`test_room_observe_e2e.py` / `test_room_action_e2e.py` files that this document used to reference
+were never committed.

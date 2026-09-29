@@ -3,8 +3,30 @@ from __future__ import annotations
 import time
 from types import SimpleNamespace
 
+import pytest
+
+from aegis_ai.agency.goal_service import GoalLifecycleService
 from aegis_ai.autonomous.autonomous_loop import AutonomousLoop
 from aegis_ai.desire.fulfillment import TaskEffect, TaskResult
+from aegis_ai.task.task_manager import TaskManager
+
+
+@pytest.fixture(autouse=True)
+def _never_leak_the_runtime_singleton():
+    """``AutonomousLoop`` reaches for the real runtime, so never leave it running.
+
+    ``_present_autonomous_result`` calls ``get_runtime()``, which *builds* the runtime if
+    the singleton is empty — starting the status manager's ``status-check`` thread and the
+    hook engine as a side effect. Tests that drive ``_execute_tasks`` therefore boot a
+    real runtime without asking for one, and it used to outlive them: the status thread
+    kept probing the LAN and writing the endpoint resolver's process-global cache for the
+    rest of the session. See ``tests/conftest.py`` for the guard that catches this.
+    """
+    yield
+
+    from aegis_ai.runtime import reset_runtime_for_tests
+
+    reset_runtime_for_tests()
 
 
 class _Catalog:
@@ -134,7 +156,6 @@ def test_available_capabilities_use_status_manager_not_localhost(tmp_path) -> No
             "ai-server.memory.search",
             "browser-server.page.browse",
             "room-server.environment.get_environment",
-            "dev-server.repo.status",
             "pc-server.screenshot.get_screenshot",
             "android-server.device.get_status",
         ]
@@ -143,7 +164,6 @@ def test_available_capabilities_use_status_manager_not_localhost(tmp_path) -> No
         {
             "browser-server": "online",
             "room-server": "degraded",
-            "dev-server": "online",
             "pc-server": "offline",
             "android-server": "offline",
         }
@@ -159,17 +179,16 @@ def test_available_capabilities_use_status_manager_not_localhost(tmp_path) -> No
     assert "ai-server.memory.search" in available
     assert "browser-server.page.browse" in available
     assert "room-server.environment.get_environment" in available
-    assert "dev-server.repo.status" in available
     assert "pc-server.screenshot.get_screenshot" not in available
     assert "android-server.device.get_status" not in available
-    assert loop.get_status()["available_capability_count"] == 4
+    assert loop.get_status()["available_capability_count"] == 3
 
 
 def test_disabled_and_unconfigured_servers_are_unavailable(tmp_path) -> None:
     broker = _Broker(
         [
             "ai-server.memory.search",
-            "dev-server.repo.status",
+            "browser-server.page.browse",
             "room-server.environment.get_environment",
         ]
     )
@@ -177,7 +196,7 @@ def test_disabled_and_unconfigured_servers_are_unavailable(tmp_path) -> None:
         tool_broker=broker,
         status_manager=_StatusManager(
             {
-                "dev-server": "disabled",
+                "browser-server": "disabled",
                 "room-server": "unconfigured",
             }
         ),
@@ -187,7 +206,7 @@ def test_disabled_and_unconfigured_servers_are_unavailable(tmp_path) -> None:
     available = loop._available_capability_ids()
 
     assert "ai-server.memory.search" in available
-    assert "dev-server.repo.status" not in available
+    assert "browser-server.page.browse" not in available
     assert "room-server.environment.get_environment" not in available
 
 
@@ -1152,7 +1171,8 @@ def test_max_pressure_does_not_bypass_provider_circuit(monkeypatch, tmp_path) ->
     assert "llm_provider_circuit_open" in reason
 
 
-def test_max_pressure_still_routes_approval_and_hard_stops_through_broker(tmp_path) -> None:
+def test_max_pressure_still_routes_every_task_through_broker(tmp_path) -> None:
+    """最大圧力でも全タスクは broker という唯一の chokepoint を通る。hard stop は DENY のまま."""
     from tool_broker import InvokeStatus, ToolExecutionResult
 
     class _PolicyBroker(_ExecutingBroker):
@@ -1169,8 +1189,9 @@ def test_max_pressure_still_routes_approval_and_hard_stops_through_broker(tmp_pa
                     policy_decision="DENY",
                 )
             return ToolExecutionResult(
-                status=InvokeStatus.APPROVAL_NEEDED,
-                approval_id="appr-1",
+                status=InvokeStatus.SUCCESS,
+                output={"result": "ordinary successful result from broker"},
+                policy_decision="ALLOW_WITH_AUDIT",
             )
 
     broker = _PolicyBroker()
@@ -1179,7 +1200,7 @@ def test_max_pressure_still_routes_approval_and_hard_stops_through_broker(tmp_pa
         data_dir=str(tmp_path / "autonomous"),
     )
 
-    approved = loop._execute_tasks(
+    allowed = loop._execute_tasks(
         [{"desire": "growth", "action": "search", "capability_id": "ai-server.memory.search", "arguments": {}}]
     )
     denied = loop._execute_tasks(
@@ -1187,8 +1208,13 @@ def test_max_pressure_still_routes_approval_and_hard_stops_through_broker(tmp_pa
     )
 
     assert broker.requests
-    assert approved[0]["success"] is True
-    assert "Awaiting approval" in approved[0]["result"]
+    # Every task goes through the broker. Approval used to be a second, parallel
+    # path — it was removed, so the broker is the only chokepoint left.
+    assert {r.capability_id for r in broker.requests} == {
+        "ai-server.memory.search",
+        "pc-server.commerce.purchase",
+    }
+    assert allowed[0]["success"] is True
     assert denied[0]["success"] is False
     assert "purchase hard-stop" in denied[0]["result"]
 
@@ -1214,26 +1240,121 @@ def test_failed_and_no_effect_keep_max_pressure(monkeypatch, tmp_path) -> None:
     assert desire.reductions == []
     assert desire.dimension.pressure == 10.0
 
-    monkeypatch.setattr(
-        "aegis_ai.desire.fulfillment.evaluate_task_result",
-        lambda **kwargs: TaskResult(
-            tool_success=True,
-            task_effect=TaskEffect.NO_EFFECT,
-            desire_delta_hint={"growth": 0.0},
-            summary="No effect",
-            details={"evaluator": "llm"},
-        ),
-    )
-    loop._update_desires(
-        [
-            {
-                "desire": "growth",
-                "capability_id": "ai-server.agora.read_posts",
-                "success": True,
-                "full_output": {"result": "No new posts"},
-            }
-        ]
-    )
-    assert desire.reductions == []
-    assert desire.dimension.pressure == 10.0
 
+def test_followup_goal_upsert_reuses_existing_open_task(tmp_path) -> None:
+    manager = TaskManager(data_dir=str(tmp_path / "tasks"))
+    service = GoalLifecycleService(task_manager=manager, llm_gateway=None)
+
+    first = service.upsert_followup_goal_task(
+        "Advance a reliability improvement.",
+        source="autonomous",
+        title="Self improvement: Repair churn",
+        dedupe_key="repair-churn",
+        metadata={"origin": "user_understanding", "confidence": 0.7},
+    )
+    second = service.upsert_followup_goal_task(
+        "Advance a reliability improvement.",
+        source="autonomous",
+        title="Self improvement: Repair churn",
+        dedupe_key="repair-churn",
+        metadata={"origin": "user_understanding", "confidence": 0.9},
+    )
+
+    saved = manager.get_task(first["task_id"])
+    assert first["task_id"] == second["task_id"]
+    assert saved is not None
+    assert saved["status"] == "paused"
+    assert saved["metadata"]["dedupe_key"] == "repair-churn"
+    assert saved["metadata"]["confidence"] == 0.9
+
+
+def test_autonomous_loop_syncs_user_understanding_followups_into_tasks(tmp_path) -> None:
+    manager = TaskManager(data_dir=str(tmp_path / "tasks"))
+    loop = AutonomousLoop(
+        desire_system=_PressureDesire(),
+        task_manager=manager,
+        data_dir=str(tmp_path / "autonomous"),
+    )
+    loop._goal_service = GoalLifecycleService(task_manager=manager, llm_gateway=None)
+    loop._user_understanding_service = SimpleNamespace(
+        build_snapshot=lambda _query="": SimpleNamespace(
+            to_dict=lambda: {
+                "self_improvement_queue": [
+                    {
+                        "title": "Reduce repair churn",
+                        "summary": "Repeated failures should become tracked fixes.",
+                        "confidence": 0.8,
+                        "timestamp_ms": 100,
+                        "sources": ["repair_manager"],
+                    }
+                ],
+                "burden_reduction_opportunities": [
+                    {
+                        "title": "Prepare status report draft",
+                        "summary": "Draft recurring status updates before they become urgent.",
+                        "confidence": 0.7,
+                        "timestamp_ms": 200,
+                        "sources": ["commitment_manager"],
+                    }
+                ],
+            }
+        )
+    )
+
+    items = loop._sync_user_understanding_followups()
+    tasks = manager.list_tasks(source="autonomous", limit=20)
+
+    assert len(items) == 2
+    assert len(tasks) == 2
+    assert all(task["status"] == "paused" for task in tasks)
+    assert {task["metadata"]["followup_kind"] for task in tasks} == {
+        "self_improvement",
+        "burden_reduction",
+    }
+    assert loop._user_understanding_prompt_block(items).startswith("User-understanding backlog:")
+
+
+def test_delegation_context_never_fabricates_a_content_sensitivity(tmp_path) -> None:
+    """``content_sensitivity`` is not a ``CapabilityManifest`` field.
+
+    The loop used to read it off the manifest and fall back to ``"normal"`` — an
+    unfounded claim that the content is not sensitive, which is the same bug class
+    the ``unknown``-is-not-a-safe-default rule exists to prevent. The loop cannot
+    know it, so it has to say ``unknown``; the dimensions that *are* real manifest
+    fields still come from the manifest. See docs/irreversibility-ledger.md.
+    """
+    from aegis_schema import safety_vocab
+
+    loop = AutonomousLoop(
+        tool_broker=_Broker(["ai-server.memory.search"]),
+        status_manager=_StatusManager({"ai-server": "online"}),
+        data_dir=str(tmp_path / "autonomous"),
+    )
+    # A manifest with no ``content_sensitivity`` attribute, because the real
+    # ``CapabilityManifest`` has none either.
+    manifest = SimpleNamespace(
+        input_schema={"type": "object", "properties": {}, "required": []},
+        operation_category="memory",
+        ownership_scope="user",
+        reversibility="recoverable",
+        completion={},
+    )
+
+    task = loop._build_executable_task(
+        cap_id="ai-server.memory.search",
+        args={},
+        manifest=manifest,
+        desire="growth",
+        low_desires=[{"desire": "growth", "pressure": 8.0}],
+        capability_options={},
+        pending_observations=[],
+        priority_obligations=[],
+        desire_guides=[],
+        proposed={"goal": "search memory"},
+    )
+
+    assert task is not None
+    context = task["delegation_context"]
+    assert context["content_sensitivity"] == safety_vocab.UNKNOWN
+    assert context["scope"] == "user"
+    assert context["reversibility"] == "recoverable"

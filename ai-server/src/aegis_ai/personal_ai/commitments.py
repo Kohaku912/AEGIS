@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import logging
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from aegis_ai.personal_ai.storage import JsonStateFile, now_ms
+
+logger = logging.getLogger("aegis_ai.personal_ai.commitments")
 
 
 @dataclass
@@ -28,7 +31,7 @@ class Commitment:
         return self.__dict__.copy()
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "Commitment":
+    def from_dict(cls, data: dict[str, Any]) -> Commitment:
         return cls(
             commitment_id=str(data.get("commitment_id") or f"commit_{uuid.uuid4().hex[:10]}"),
             title=str(data.get("title") or "Commitment"),
@@ -58,6 +61,14 @@ class CommitmentManager:
             items = [c for c in items if c.status == status]
         items.sort(key=lambda c: (c.due_at_ms or 2**63, c.created_at))
         return [c.to_dict() for c in items]
+
+    def list_active(self, limit: int = 20) -> list[dict[str, Any]]:
+        """Backward-compatible alias for open commitments."""
+        return self.list_commitments(status="open")[:limit]
+
+    def list_due(self, limit: int = 20, now: int | None = None) -> list[dict[str, Any]]:
+        """Backward-compatible alias for due commitments."""
+        return self.due_commitments(now=now)[:limit]
 
     def get_commitment(self, commitment_id: str) -> dict[str, Any] | None:
         item = self._items.get(commitment_id)
@@ -135,5 +146,5 @@ class CommitmentManager:
             return
         try:
             self._audit_manager.log_decision(action=action, actor="commitment_manager", decision="success", reason=action, detail=detail)
-        except Exception:
-            pass
+        except Exception:  # noqa: BLE001
+            logger.warning("commitment audit failed for %s", action, exc_info=True)

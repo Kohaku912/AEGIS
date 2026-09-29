@@ -15,11 +15,12 @@ with workflow.unsafe.imports_passed_through():
 
 @workflow.defn
 class TaskWorkflow:
-    """Execute a persisted task plan with approval waits and retries."""
+    """Execute a persisted task plan with retries.
 
-    def __init__(self) -> None:
-        self._approval_granted = False
-        self._approval_id = ""
+    Approval is no longer a constraint (2026-09-27): the workflow never waits
+    for a human decision, so the old approval signal and its wait condition are
+    gone.
+    """
 
     @workflow.run
     async def run(self, task_id: str, plan: dict[str, Any]) -> dict[str, Any]:
@@ -43,26 +44,7 @@ class TaskWorkflow:
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
             results.append({"step_id": step_id, **outcome})
-            if outcome.get("needs_approval"):
-                self._approval_id = str(outcome.get("approval_id") or "")
-                self._approval_granted = False
-                await workflow.wait_condition(lambda: self._approval_granted, timeout=timedelta(hours=24))
-                retry = await workflow.execute_activity(
-                    execute_tool_step_activity,
-                    {
-                        "task_id": task_id,
-                        "step_id": step_id,
-                        "capability_id": capability_id,
-                        "arguments": arguments,
-                        "idempotency_key": f"{idempotency_key}:approved",
-                    },
-                    start_to_close_timeout=timedelta(minutes=10),
-                    retry_policy=RetryPolicy(maximum_attempts=2),
-                )
-                results[-1] = {"step_id": step_id, **retry}
-                if not retry.get("success"):
-                    return {"task_id": task_id, "status": "failed", "steps": results}
-            elif not outcome.get("success"):
+            if not outcome.get("success"):
                 return {"task_id": task_id, "status": "failed", "steps": results}
 
         if plan.get("llm_summary"):
@@ -74,9 +56,3 @@ class TaskWorkflow:
             )
             return {"task_id": task_id, "status": "completed", "steps": results, "summary": summary}
         return {"task_id": task_id, "status": "completed", "steps": results}
-
-    @workflow.signal
-    def approval_granted(self, approval_id: str = "") -> None:
-        if approval_id and self._approval_id and approval_id != self._approval_id:
-            return
-        self._approval_granted = True

@@ -11,7 +11,6 @@ class CapabilityDisposition(StrEnum):
     """How autonomy may use a capability before execution."""
 
     EXECUTE_SAFE = "execute_safe"
-    PROPOSE_FOR_APPROVAL = "propose_for_approval"
     ASK_USER = "ask_user"
     DEFER = "defer"
     FORBIDDEN = "forbidden"
@@ -22,19 +21,14 @@ class ActionLifecycleState(StrEnum):
     """Durable lifecycle of a selected autonomous action."""
 
     SELECTED = "selected"
-    AWAITING_APPROVAL = "awaiting_approval"
-    APPROVED = "approved"
     EXECUTING = "executing"
     VERIFYING = "verifying"
     COMPLETED = "completed"
-    REJECTED = "rejected"
-    EXPIRED = "expired"
     FAILED = "failed"
 
 
 class InitiativeDecision(StrEnum):
     EXECUTE_NOW = "execute_now"
-    PROPOSE_APPROVAL = "propose_approval"
     ASK_USER = "ask_user"
     SAVE_FOR_LATER = "save_for_later"
     OBSERVE_MORE = "observe_more"
@@ -48,7 +42,6 @@ class AutonomousCapabilityOption:
     policy_decision: str
     policy_reason: str
     risk_level: str
-    requires_approval: bool
     enabled: bool = True
     available: bool = True
     server_id: str = ""
@@ -85,7 +78,6 @@ class ActionCandidate:
     token_cost: float = 0.0
     candidate_capabilities: list[str] = field(default_factory=list)
     visibility: str = "agent_private"
-    requires_approval: bool = False
     success_condition: dict[str, Any] = field(default_factory=dict)
     stop_condition: dict[str, Any] = field(default_factory=dict)
     continuation: dict[str, Any] = field(default_factory=dict)

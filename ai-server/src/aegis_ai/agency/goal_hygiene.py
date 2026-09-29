@@ -21,6 +21,17 @@ _E2E_MARKERS = (
 )
 
 
+def _task_metadata(task: dict[str, Any]) -> dict[str, Any]:
+    metadata = task.get("metadata") or {}
+    return metadata if isinstance(metadata, dict) else {}
+
+
+def _autonomous_task_metadata(task: dict[str, Any]) -> dict[str, Any]:
+    metadata = _task_metadata(task)
+    auto = metadata.get("autonomous_task") or {}
+    return auto if isinstance(auto, dict) else {}
+
+
 def _text_blob(task: dict[str, Any]) -> str:
     parts = [
         str(task.get("goal") or ""),
@@ -47,6 +58,12 @@ def is_polluted_autonomous_goal(task: dict[str, Any]) -> bool:
     status = str(task.get("status") or "")
     if status not in {"paused", "failed", "running"}:
         return False
+    auto = _autonomous_task_metadata(task)
+    if (
+        str(auto.get("generated_by") or "") == "autonomous_loop"
+        and str(auto.get("kind") or "") == "capability_advance"
+    ):
+        return True
     blob = _text_blob(task)
     title = str(task.get("title") or "")
     if title.startswith("Advance goal with"):
@@ -64,6 +81,9 @@ def is_polluted_autonomous_goal(task: dict[str, Any]) -> bool:
 
 
 def is_e2e_continuation(record: dict[str, Any]) -> bool:
+    continuation_type = str(record.get("continuation_type") or "").lower()
+    if continuation_type in {"e2e", "test"}:
+        return True
     blob = " ".join(
         str(record.get(key) or "")
         for key in ("goal", "trigger", "purpose", "rationale", "capability_id", "conversation_id")

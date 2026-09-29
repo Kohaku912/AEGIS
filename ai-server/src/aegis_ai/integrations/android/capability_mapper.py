@@ -7,7 +7,7 @@ dynamic plugins, or free-form command execution.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, ClassVar
 
 
 @dataclass(frozen=True)
@@ -24,7 +24,7 @@ class AndroidCapabilityRoute:
 class AndroidCapabilityMapper:
     """Maps canonical AEGIS capability IDs to AndroidServer RPCs."""
 
-    _ROUTES: dict[str, AndroidCapabilityRoute] = {
+    _ROUTES: ClassVar[dict[str, AndroidCapabilityRoute]] = {
         "android-server.device.get_status": AndroidCapabilityRoute(
             "android-server.device.get_status",
             "GetDeviceStatus",
@@ -46,12 +46,15 @@ class AndroidCapabilityMapper:
             "AndroidShowOverlayRequest",
             ("overlay",),
         ),
-        "android-server.approval.request": AndroidCapabilityRoute(
-            "android-server.approval.request",
-            "RequestApproval",
-            "AndroidApprovalRequest",
-            ("overlay",),
-        ),
+        # `android-server.approval.request` has no unary route. It used to map to
+        # `AndroidServer.RequestApproval` / `AndroidApprovalRequest`, both deleted
+        # on 2026-09-28 with the forced approval gate. The capability itself is
+        # still live — a confirmation prompt is delivered over the *reverse
+        # stream* as `AndroidServerCommand.approval_request`
+        # (`AndroidApprovalCommand`) and answered with `AndroidApprovalDecision`,
+        # see `integrations.android.stream_session.send_approval`. Because the
+        # mapper only models unary RPCs, the streamed delivery cannot be
+        # expressed here, so there is deliberately no entry.
         "android-server.notification.get_notifications": AndroidCapabilityRoute(
             "android-server.notification.get_notifications",
             "GetNotifications",

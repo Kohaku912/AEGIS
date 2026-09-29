@@ -164,6 +164,13 @@ def _loads(raw: str, default: Any) -> Any:
         return default
 
 
+def _json_array_contains(raw: str, item_id: str) -> bool:
+    data = _loads(raw, [])
+    if not isinstance(data, list):
+        return False
+    return any(str(item) == item_id for item in data)
+
+
 class EventStore:
     def __init__(self, db_path: str | Path) -> None:
         self._path = Path(db_path)
@@ -390,19 +397,13 @@ class EventStore:
                 ev = self._conn.execute("SELECT * FROM evidence WHERE id=?", (eid,)).fetchone()
                 if ev is not None:
                     evidence.append(dict(ev))
-            facts = [
-                dict(r)
-                for r in self._conn.execute(
-                    "SELECT * FROM facts WHERE source_event_ids_json LIKE ?",
-                    (f"%{event_id}%",),
-                ).fetchall()
-            ]
+            fact_rows = self._conn.execute("SELECT * FROM facts").fetchall()
+            facts = [dict(r) for r in fact_rows if _json_array_contains(str(r["source_event_ids_json"]), event_id)]
+            inference_rows = self._conn.execute("SELECT * FROM inferences").fetchall()
             inferences = [
                 dict(r)
-                for r in self._conn.execute(
-                    "SELECT * FROM inferences WHERE based_on_event_ids_json LIKE ?",
-                    (f"%{event_id}%",),
-                ).fetchall()
+                for r in inference_rows
+                if _json_array_contains(str(r["based_on_event_ids_json"]), event_id)
             ]
         event["observations"] = observations
         event["evidence"] = evidence
@@ -427,17 +428,14 @@ class EventStore:
         ids = [row["id"] for row in hits]
         out: list[dict[str, Any]] = []
         for event_id in ids:
-            event = self.get_event(event_id) if False else None
-            with self._lock:
-                row = self._conn.execute("SELECT * FROM events WHERE id=?", (event_id,)).fetchone()
-            if row is None:
+            event = self.get_event(event_id)
+            if event is None:
                 continue
-            item = self._event_row(row)
-            if from_ms and item["timestamp_ms"] < from_ms:
+            if from_ms and event["timestamp_ms"] < from_ms:
                 continue
-            if to_ms and item["timestamp_ms"] > to_ms:
+            if to_ms and event["timestamp_ms"] > to_ms:
                 continue
-            out.append(item)
+            out.append(event)
             if len(out) >= limit:
                 break
         return out

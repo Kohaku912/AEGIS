@@ -62,8 +62,6 @@ data class ChatReply(
     val ok: Boolean,
     val conversationId: String,
     val response: String,
-    val approvalNeeded: Boolean = false,
-    val approvalId: String = "",
     val error: String = "",
 )
 
@@ -78,8 +76,6 @@ data class ApprovalItem(
     val target: String = "",
     val taskId: String = "",
     val status: String = "",
-    val createdAtMs: Long = 0L,
-    val expiresAtMs: Long = 0L,
 )
 
 data class ToolReply(
@@ -155,6 +151,14 @@ class AegisGrpcClient private constructor(
     private var stub: AIServerGrpcKt.AIServerCoroutineStub? = null
     private var outbound: Channel<AndroidServerOuterClass.AndroidClientMessage>? = null
     private var streamJob: Job? = null
+
+    /**
+     * Questions AEGIS has asked and the user has not answered yet. Fed by the
+     * reverse stream (`AndroidServerCommand.approval_request`), not by a poll —
+     * there is no server-side queue any more. See [listPendingApprovals].
+     */
+    private val openConfirmations =
+        java.util.concurrent.CopyOnWriteArrayList<ApprovalItem>()
     private var heartbeatJob: Job? = null
     private var dashboardRefreshJob: Job? = null
     private var connected = false
@@ -236,7 +240,12 @@ class AegisGrpcClient private constructor(
         }
 
         val coreVersion = healthResponse.version
-        val chatRpcAvailable = supportsSendChat(coreVersion)
+        // Chat availability is negotiated lazily instead of being guessed from the
+        // server version string: we optimistically assume the RPC exists and the
+        // UNIMPLEMENTED handler (isMethodNotFound) downgrades it to false after the
+        // first call. Substring-sniffing the version was unreliable, e.g. a build
+        // tag such as "0.1.4+pc11-ir-inmp441" reported no support.
+        val chatRpcAvailable = true
         activeEndpoint = endpoint
         AegisConfig.rememberWorkingEndpoint(context, endpoint.host, endpoint.port, endpoint.useTls)
         startReverseStream()
@@ -430,8 +439,6 @@ class AegisGrpcClient private constructor(
                 ok = response.status.code == 0,
                 conversationId = response.conversationId,
                 response = response.response,
-                approvalNeeded = response.approvalNeeded,
-                approvalId = response.approvalId,
                 error = if (response.status.code == 0) "" else response.status.message,
             ).also {
                 if (it.ok) {
@@ -529,62 +536,36 @@ class AegisGrpcClient private constructor(
         }
     }
 
-    suspend fun listPendingApprovals(): List<ApprovalItem> = withContext(Dispatchers.IO) {
-        val currentStub = stub ?: return@withContext emptyList()
-        try {
-            val response = currentStub.listPendingApprovals(
-                AiServer.ListPendingApprovalsRequest.newBuilder()
-                    .setServerId("android-server")
-                    .setAuth(auth())
-                    .build()
-            )
-            response.approvalsList.map {
-                val summary = listOf(
-                    it.humanReadableSummary,
-                    it.riskExplanation.takeIf { reason -> reason.isNotBlank() }?.let { reason -> "Reason: $reason" } ?: "",
-                    it.payloadPreview.takeIf { preview -> preview.isNotBlank() }?.let { preview -> "Details: $preview" } ?: "",
-                ).filter { part -> part.isNotBlank() }.joinToString("\n")
-                ApprovalItem(
-                    approvalId = it.approvalId,
-                    capabilityId = it.capabilityId,
-                    summary = summary.ifBlank { it.requestedAction.ifBlank { it.approvalId } },
-                    risk = it.riskExplanation,
-                    requestedAction = it.requestedAction,
-                    reason = it.riskExplanation,
-                    preview = it.payloadPreview,
-                    target = it.toolName,
-                    status = it.status.name,
-                    createdAtMs = it.createdAtMs,
-                    expiresAtMs = it.expiresAtMs,
-                )
-            }
-        } catch (exc: Exception) {
-            Log.e(TAG, "List approvals failed", exc)
-            updateState(lastError = exc.message ?: "List approvals failed")
-            emptyList()
-        }
-    }
+    /**
+     * Open confirmations — the questions AEGIS has *chosen* to ask, collected
+     * from the live reverse stream (`AndroidServerCommand.approval_request`).
+     *
+     * There is no server-side queue to poll: `ListPendingApprovals` was deleted
+     * on 2026-09-28 together with the forced approval gate. The method name is
+     * kept so the existing screens keep compiling unchanged.
+     */
+    suspend fun listPendingApprovals(): List<ApprovalItem> = openConfirmations.toList()
 
-    suspend fun resolveApproval(approvalId: String, approved: Boolean): Boolean = withContext(Dispatchers.IO) {
-        val currentStub = stub ?: return@withContext false
-        try {
-            val request = AiServer.ResolveApprovalRequest.newBuilder()
-                .setApprovalId(approvalId)
-                .setSurfaceId("android_app")
-                .setUser(config.deviceId)
-                .setAuth(auth())
-            if (approved) {
-                request.setApprovedType(Common.ApprovalType.APPROVAL_TYPE_ONE_TIME)
-            } else {
-                request.setRejected(true)
-            }
-            val response = currentStub.resolveApproval(request.build())
-            response.status.code == 0
-        } catch (exc: Exception) {
-            Log.e(TAG, "Resolve approval failed", exc)
-            updateState(lastError = exc.message ?: "Resolve approval failed")
-            false
-        }
+    /**
+     * Answer a confirmation.
+     *
+     * Sends `AndroidApprovalDecision` over the reverse stream — the same path the
+     * overlay uses — instead of calling the deleted `ResolveApproval` RPC.
+     * Returns false when the stream is not connected, because then the answer
+     * cannot reach AEGIS at all.
+     */
+    suspend fun resolveApproval(approvalId: String, approved: Boolean): Boolean {
+        openConfirmations.removeAll { it.approvalId == approvalId }
+        if (outbound == null) return false
+        sendApprovalDecision(
+            OverlayController.ApprovalAction(
+                approvalId = approvalId,
+                approved = approved,
+                rejected = !approved,
+                globalReject = false,
+            ),
+        )
+        return true
     }
 
     suspend fun invokeTool(capabilityId: String, paramsJson: String = "{}"): ToolReply = withContext(Dispatchers.IO) {
@@ -715,17 +696,40 @@ class AegisGrpcClient private constructor(
     }
 
     private fun handleApprovalCommand(command: AndroidServerOuterClass.AndroidApprovalCommand) {
+        val body = command.body.ifBlank { approvalBodyFromSummaryJson(command.summaryJson) }
+        openConfirmations.removeAll { it.approvalId == command.approvalId }
+        openConfirmations.add(
+            ApprovalItem(
+                approvalId = command.approvalId,
+                capabilityId = summaryField(command.summaryJson, "capability_id"),
+                summary = command.title.ifBlank { body },
+                risk = summaryField(command.summaryJson, "risk_level"),
+                reason = summaryField(command.summaryJson, "approval_reason"),
+                preview = body,
+                target = summaryField(command.summaryJson, "target"),
+                status = command.state.ifBlank { "awaiting your answer" },
+            ),
+        )
         overlayController.showApproval(
             approvalId = command.approvalId,
-            title = command.title.ifBlank { "AEGIS approval" },
-            body = command.body.ifBlank { approvalBodyFromSummaryJson(command.summaryJson) },
+            title = command.title.ifBlank { "AEGIS is asking you to confirm" },
+            body = body,
         ) { decision ->
+            openConfirmations.removeAll { it.approvalId == decision.approvalId }
             sendApprovalDecision(decision)
         }
     }
 
+    /** Read a string field out of an `AndroidApprovalCommand.summary_json` blob. */
+    private fun summaryField(summaryJson: String, key: String): String =
+        if (summaryJson.isBlank()) {
+            ""
+        } else {
+            runCatching { JSONObject(summaryJson).optString(key) }.getOrDefault("")
+        }
+
     private fun approvalBodyFromSummaryJson(summaryJson: String): String {
-        if (summaryJson.isBlank()) return "Approval is required."
+        if (summaryJson.isBlank()) return "AEGIS is asking you to confirm."
         return runCatching {
             val obj = JSONObject(summaryJson)
             listOf(
@@ -881,11 +885,6 @@ class AegisGrpcClient private constructor(
     private fun sha256(value: String): String {
         val digest = MessageDigest.getInstance("SHA-256").digest(value.toByteArray(Charsets.UTF_8))
         return digest.joinToString("") { "%02x".format(it) }
-    }
-
-    private fun supportsSendChat(version: String): Boolean {
-        val normalized = version.lowercase()
-        return normalized.contains("sendchat") || normalized.contains("chat-v1")
     }
 
     private fun isMethodNotFound(exc: Throwable): Boolean {

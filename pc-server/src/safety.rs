@@ -3,6 +3,11 @@
 use serde::{Deserialize, Serialize};
 
 /// Safety level (matches AEGIS Core's SafetyLevel enum).
+///
+/// These are *descriptive* tiers. Nothing gates on them: `Level2Approval` names
+/// the historical "requires user approval" tier, but the forced approval gate
+/// was removed from AEGIS on 2026-09-28. The tier is kept so the elevation
+/// classification stays visible; it no longer means anyone is asked.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 #[repr(u8)]
 pub enum SafetyLevel {
@@ -19,6 +24,10 @@ pub struct CapabilityDef {
     pub name: String,
     pub description: String,
     pub safety_level: SafetyLevel,
+    /// Descriptive annotation only — **nothing gates on it.** The PC Server has
+    /// never been the authority for approval decisions, and the forced approval
+    /// gate was removed from AEGIS on 2026-09-28. Retained so the elevation
+    /// classification is still visible in the `capabilities` output.
     pub requires_approval: bool,
     pub side_effects: Vec<String>,
     pub timeout_ms: u32,
@@ -298,7 +307,7 @@ pub fn get_capabilities() -> Vec<CapabilityDef> {
         CapabilityDef {
             id: "pc.mouse_click".into(),
             name: "Mouse Click".into(),
-            description: "Click at screen coordinates. REQUIRES APPROVAL.".into(),
+            description: "Click at screen coordinates.".into(),
             safety_level: SafetyLevel::Level2Approval,
             requires_approval: true,
             side_effects: vec!["Clicks at coordinates".into()],
@@ -308,7 +317,7 @@ pub fn get_capabilities() -> Vec<CapabilityDef> {
         CapabilityDef {
             id: "pc.keyboard_type".into(),
             name: "Keyboard Type".into(),
-            description: "Type text via keyboard. REQUIRES APPROVAL.".into(),
+            description: "Type text via keyboard.".into(),
             safety_level: SafetyLevel::Level2Approval,
             requires_approval: true,
             side_effects: vec!["Inputs text".into()],
@@ -322,7 +331,7 @@ pub fn get_capabilities() -> Vec<CapabilityDef> {
         CapabilityDef {
             id: "pc.press_hotkey".into(),
             name: "Press Hotkey".into(),
-            description: "Press a keyboard shortcut. REQUIRES APPROVAL.".into(),
+            description: "Press a keyboard shortcut.".into(),
             safety_level: SafetyLevel::Level2Approval,
             requires_approval: true,
             side_effects: vec!["Triggers keyboard shortcut".into()],
@@ -337,7 +346,7 @@ pub fn get_capabilities() -> Vec<CapabilityDef> {
         CapabilityDef {
             id: "pc.write_file".into(),
             name: "Write File".into(),
-            description: "Write content to a file. REQUIRES APPROVAL.".into(),
+            description: "Write content to a file.".into(),
             safety_level: SafetyLevel::Level2Approval,
             requires_approval: true,
             side_effects: vec!["Writes to file".into()],
@@ -347,7 +356,7 @@ pub fn get_capabilities() -> Vec<CapabilityDef> {
         CapabilityDef {
             id: "pc.delete_file".into(),
             name: "Delete File".into(),
-            description: "Delete a file. REQUIRES APPROVAL.".into(),
+            description: "Delete a file.".into(),
             safety_level: SafetyLevel::Level2Approval,
             requires_approval: true,
             side_effects: vec!["Deletes file".into()],
@@ -358,14 +367,14 @@ pub fn get_capabilities() -> Vec<CapabilityDef> {
         CapabilityDef {
             id: "pc.kill_process".into(),
             name: "Kill Process".into(),
-            description: "Kill a process by PID. REQUIRES APPROVAL.".into(),
+            description: "Kill a process by PID.".into(),
             safety_level: SafetyLevel::Level2Approval,
             requires_approval: true,
             side_effects: vec!["Kills process".into()],
             timeout_ms: 3000,
             tags: vec!["process".into(), "kill".into(), "audited_action".into()],
         },
-        // ── Overlay Approval (Level 2) ─────────────────────
+        // ── Discord RPC (Level 0 read / Level 2 annotated) ──
         CapabilityDef {
             id: "pc.discord_status".into(),
             name: "Discord RPC Status".into(),
@@ -399,7 +408,7 @@ pub fn get_capabilities() -> Vec<CapabilityDef> {
         CapabilityDef {
             id: "pc.discord_join_voice_by_name".into(),
             name: "Discord Join Voice By Name".into(),
-            description: "Join a Discord voice channel by guild/server name and optional channel name. REQUIRES APPROVAL.".into(),
+            description: "Join a Discord voice channel by guild/server name and optional channel name.".into(),
             safety_level: SafetyLevel::Level2Approval,
             requires_approval: true,
             side_effects: vec!["Joins Discord voice channel".into()],
@@ -409,7 +418,7 @@ pub fn get_capabilities() -> Vec<CapabilityDef> {
         CapabilityDef {
             id: "pc.discord_join_voice_channel".into(),
             name: "Discord Join Voice Channel".into(),
-            description: "Join a Discord voice channel by channel id. REQUIRES APPROVAL.".into(),
+            description: "Join a Discord voice channel by channel id.".into(),
             safety_level: SafetyLevel::Level2Approval,
             requires_approval: true,
             side_effects: vec!["Joins Discord voice channel".into()],
@@ -419,7 +428,7 @@ pub fn get_capabilities() -> Vec<CapabilityDef> {
         CapabilityDef {
             id: "pc.discord_leave_voice_channel".into(),
             name: "Discord Leave Voice Channel".into(),
-            description: "Leave the currently selected Discord voice channel. REQUIRES APPROVAL.".into(),
+            description: "Leave the currently selected Discord voice channel.".into(),
             safety_level: SafetyLevel::Level2Approval,
             requires_approval: true,
             side_effects: vec!["Leaves Discord voice channel".into()],
@@ -429,7 +438,7 @@ pub fn get_capabilities() -> Vec<CapabilityDef> {
         CapabilityDef {
             id: "pc.discord_select_text_channel".into(),
             name: "Discord Select Text Channel".into(),
-            description: "Select a Discord text channel in the desktop client. REQUIRES APPROVAL.".into(),
+            description: "Select a Discord text channel in the desktop client.".into(),
             safety_level: SafetyLevel::Level2Approval,
             requires_approval: true,
             side_effects: vec!["Changes Discord selected text channel".into()],
@@ -439,7 +448,7 @@ pub fn get_capabilities() -> Vec<CapabilityDef> {
         CapabilityDef {
             id: "pc.discord_set_voice_settings".into(),
             name: "Discord Set Voice Settings".into(),
-            description: "Change Discord voice settings such as mute/deafen. REQUIRES APPROVAL.".into(),
+            description: "Change Discord voice settings such as mute/deafen.".into(),
             safety_level: SafetyLevel::Level2Approval,
             requires_approval: true,
             side_effects: vec!["Changes Discord voice settings".into()],
@@ -448,18 +457,13 @@ pub fn get_capabilities() -> Vec<CapabilityDef> {
         },
         CapabilityDef {
             id: "pc.overlay_approval".into(),
-            name: "Overlay Approval".into(),
-            description: "Show overlay approval dialog (Y/N key).".into(),
+            name: "Overlay Confirmation".into(),
+            description: "Show a confirmation dialog on screen (Y/N key) and return the answer. AEGIS chooses to ask; nothing is gated on the reply.".into(),
             safety_level: SafetyLevel::Level2Approval,
             requires_approval: false,
-            side_effects: vec!["Shows approval dialog".into()],
+            side_effects: vec!["Shows a confirmation dialog".into()],
             timeout_ms: 30000,
-            tags: vec!["overlay".into(), "approval".into()],
+            tags: vec!["overlay".into(), "confirmation".into()],
         },
     ]
-}
-
-/// Check if a capability executes without interactive approval.
-pub fn requires_approval(_cap_id: &str) -> bool {
-    false
 }

@@ -43,10 +43,6 @@ class CapabilityPermissions(BaseModel):
         default_factory=dict,
         description="Per-capability permission overrides",
     )
-    allowlist: list[str] = Field(
-        default_factory=list,
-        description="Capability IDs explicitly allowed (bypass other checks)",
-    )
     denylist: list[str] = Field(
         default_factory=list,
         description="Capability IDs explicitly denied (always blocked)",
@@ -76,6 +72,88 @@ class AutonomousSettings(BaseModel):
     quiet_hours: str = Field(default="22:00-08:00")
     approval_proposal_limit: int = Field(default=3, ge=0, le=20)
     follow_up_timeout: int = Field(default=3600, ge=30, le=604800)
+
+
+class AgentSettings(BaseModel):
+    """Agent runtime settings (instruction.md §36).
+
+    `enabled=False` is the safe default. When False, the agent_backend field
+    on `AegisRuntime` stays `None` and any capability manifest that has
+    `requires_feature: "agents"` is filtered out of `CapabilityCatalog.list_for_llm`.
+    """
+
+    enabled: bool = Field(
+        default=False,
+        description="Master switch for the AEGIS agent runtime. Default OFF.",
+    )
+    backend: str = Field(
+        default="local",
+        description="Agent backend name registered in aegis_ai.agents.backends.",
+    )
+    default_profile: str = Field(
+        default="general",
+        description="Default agent profile used when AgentTask.profile is omitted.",
+    )
+    max_concurrent: int = Field(
+        default=2,
+        ge=1,
+        le=64,
+        description="Max concurrent agent tasks.",
+    )
+    timeout_seconds: int = Field(
+        default=600,
+        ge=1,
+        le=86400,
+        description="Default per-task timeout in seconds.",
+    )
+
+
+class IntakeSettings(BaseModel):
+    """Intake filter settings (instruction.md §36 Phase 4).
+
+    全 Event をそのまま Agent に投げず、小型 LLM (`intake.classifier_profile`) で
+    「Agent 不要」を早期判定する。`enabled=False` で Intake を OFF にして
+    既存挙動に戻す。
+    """
+
+    enabled: bool = Field(
+        default=True,
+        description="Master switch for the intake filter. When False, intake is skipped and "
+        "all observations flow through the existing autonomous loop.",
+    )
+    classifier_profile: str = Field(
+        default="local_chat",
+        description="LLM profile used by the intake classifier (see LLMSettingsResolver).",
+    )
+    requires_agent_threshold: float = Field(
+        default=0.5,
+        ge=0.0,
+        le=1.0,
+        description="intake.classifier() が返した `requires_agent_score` がこの値以上のときだけ "
+        "Agent delegate 経路に進む。それ以下は LLMTaskInterpreter 既存経路。",
+    )
+    dedup_window_size: int = Field(
+        default=64,
+        ge=0,
+        le=4096,
+        description="IntakeDeduplicator が保持する最近の fingerprint 数。",
+    )
+    dedup_novelty_threshold: float = Field(
+        default=0.3,
+        ge=0.0,
+        le=1.0,
+        description="novelty スコアがこの値未満なら重複とみなす。",
+    )
+    max_importance: float = Field(
+        default=0.3,
+        ge=0.0,
+        le=1.0,
+        description="intake が importance を 0.0-1.0 で返すときの上限 (UI 表示用)。",
+    )
+    fallback_requires_agent: bool = Field(
+        default=False,
+        description="LLM 呼び出しに失敗したときのフォールバック値。False にすると安全側 (Agent 起動しない)。",
+    )
 
 
 class MemorySettings(BaseModel):
@@ -119,8 +197,22 @@ class PrivacySettings(BaseModel):
     personal_data_screenshot_retention_hours: int = Field(default=24, ge=0, le=8760)
     personal_data_media_retention_hours: int = Field(default=72, ge=0, le=8760)
     personal_data_notification_raw_text: bool = Field(default=True)
-    external_llm_allowed: bool = Field(default=True)
-    web_search_allowed: bool = Field(default=True)
+    # ── Egress (the single constraint) ──────────────────────────────────────
+    # All external transmission is denied by default. See aegis_ai/egress/.
+    # These flags are *additional* locks: an external destination requires the
+    # master switch AND a matching feature flag AND an allowlist entry.
+    external_egress_allowed: bool = Field(
+        default=False, description="Master switch for any external egress (default: closed)"
+    )
+    egress_allowed_hosts: list[str] = Field(
+        default_factory=list, description="Explicit external-host allowlist (default: empty)"
+    )
+    external_llm_allowed: bool = Field(
+        default=False, description="Allow cloud LLM calls (default: closed — use local Ollama)"
+    )
+    web_search_allowed: bool = Field(
+        default=False, description="Allow external web search (default: closed)"
+    )
 
 
 class VoiceSettings(BaseModel):
@@ -140,49 +232,6 @@ class VoiceSettings(BaseModel):
     voice_data_retention_hours: int = Field(default=0, ge=0, le=168, description="Voice data retention (0=never store)")
 
 
-class AutonomyProfile(BaseModel):
-    """Autonomy profile — controls how much freedom AEGIS has.
-
-    Profiles:
-    - conservative: Most actions require approval
-    - balanced: Read-only auto, actions need approval
-    - permissive_owner_assisted: Read + low-risk actions auto, publish/payment gated
-    """
-
-    profile: str = Field(
-        default="permissive_owner_assisted",
-        description="Autonomy profile: conservative, balanced, permissive_owner_assisted",
-    )
-
-    # Permissive owner-assisted settings
-    owned_account_reading_enabled: bool = Field(
-        default=True, description="Allow reading user-owned SNS/DM/email/notifications",
-    )
-    owned_message_summary_enabled: bool = Field(
-        default=True, description="Allow summarizing user-owned messages",
-    )
-    low_risk_signup_enabled: bool = Field(
-        default=True, description="Allow low-risk free service signups",
-    )
-    low_risk_signup_without_approval: bool = Field(
-        default=True, description="Allow low-risk signups without approval (permissive only)",
-    )
-    external_send_requires_approval: bool = Field(
-        default=False, description="Require approval for SNS post/DM/email send",
-    )
-    publish_requires_approval: bool = Field(
-        default=False, description="Require approval for blog post publish",
-    )
-    payment_requires_approval: bool = Field(
-        default=True, description="Require approval for purchases/payments",
-    )
-
-    # Always forbidden (structural)
-    captcha_bypass_forbidden: bool = Field(default=True, description="CAPTCHA bypass forbidden")
-    bulk_signup_forbidden: bool = Field(default=True, description="Bulk account creation forbidden")
-    stealth_browser_forbidden: bool = Field(default=True, description="Stealth/proxy browser forbidden")
-
-
 class AEGISSettings(BaseModel):
     """Root settings object containing all configuration sections."""
 
@@ -190,8 +239,9 @@ class AEGISSettings(BaseModel):
     servers: ServerSettings = Field(default_factory=ServerSettings)
     capabilities: CapabilityPermissions = Field(default_factory=CapabilityPermissions)
     autonomous: AutonomousSettings = Field(default_factory=AutonomousSettings)
+    agents: AgentSettings = Field(default_factory=AgentSettings)
+    intake: IntakeSettings = Field(default_factory=IntakeSettings)
     memory: MemorySettings = Field(default_factory=MemorySettings)
     notifications: NotificationSettings = Field(default_factory=NotificationSettings)
     privacy: PrivacySettings = Field(default_factory=PrivacySettings)
     voice: VoiceSettings = Field(default_factory=VoiceSettings)
-    autonomy: AutonomyProfile = Field(default_factory=AutonomyProfile)

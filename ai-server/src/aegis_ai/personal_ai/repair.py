@@ -15,6 +15,8 @@ from aegis_ai.personal_ai.storage import JsonStateFile, append_jsonl, now_ms
 _UNREPAIRABLE_CATEGORIES = frozenset({"auth", "permission", "policy_denied", "validation"})
 _INFRA_NOISE_CATEGORIES = frozenset({"transient", "server_down", "llm_failed"})
 _PRESENT_COOLDOWN_MS = 3_600_000  # 1 hour per fingerprint
+_NETWORK_FAILURE_STATES = frozenset({"offline", "dns_error", "unreachable"})
+_DISMISSABLE_ERROR_CODES = frozenset({"server_down", "dns_error", "unreachable", "timeout", "timed_out"})
 
 
 class RepairManager:
@@ -47,47 +49,168 @@ class RepairManager:
         """Wire PresentationManager for unrepairable user reports."""
         self._presentation_manager = presentation_manager
 
-    def classify_failure(self, *, error: str = "", status: str = "", capability_id: str = "") -> str:
-        text = f"{error} {status} {capability_id}".lower()
-        if "auth" in text or "token" in text or "credential" in text:
-            return "auth"
-        if "already replied" in text:
-            # Duplicate AGORA reply guard — expected policy, not a repairable fault.
+    @staticmethod
+    def _normalized_status(value: Any) -> str:
+        return str(getattr(value, "value", value) or "").lower()
+
+    def _build_detail(self, detail: dict[str, Any] | None, request: Any = None, result: Any = None) -> dict[str, Any]:
+        merged = dict(detail or {})
+        invoke_status = self._normalized_status(getattr(result, "status", ""))
+        if invoke_status and "invoke_status" not in merged:
+            merged["invoke_status"] = invoke_status
+        verification = getattr(result, "verification", None)
+        if verification is not None:
+            verification_status = self._normalized_status(getattr(verification, "status", ""))
+            if verification_status and "verification_status" not in merged:
+                merged["verification_status"] = verification_status
+            failure_type = str(getattr(verification, "failure_type", "") or "")
+            if failure_type and "failure_type" not in merged:
+                merged["failure_type"] = failure_type
+            suggested_recovery = (
+                str(getattr(verification, "suggested_recovery", "") or getattr(verification, "repair_hint", "") or "")
+            )
+            if suggested_recovery and "suggested_recovery" not in merged:
+                merged["suggested_recovery"] = suggested_recovery
+            verification_evidence = getattr(verification, "details", None) or getattr(verification, "evidence", None) or []
+            if verification_evidence and "verification_evidence" not in merged:
+                merged["verification_evidence"] = [str(item) for item in verification_evidence[:5] if item]
+        output = getattr(result, "output", None)
+        if isinstance(output, dict):
+            error_code = str(output.get("error_code") or output.get("failure_type") or "")
+            if error_code and "error_code" not in merged:
+                merged["error_code"] = error_code
+        metadata = getattr(request, "metadata", None)
+        if isinstance(metadata, dict):
+            if metadata.get("source") and "source" not in merged:
+                merged["source"] = metadata.get("source")
+            continuation = metadata.get("continuation")
+            if isinstance(continuation, dict):
+                continuation_id = str(continuation.get("continuation_id") or "")
+                if continuation_id and "continuation_id" not in merged:
+                    merged["continuation_id"] = continuation_id
+        return merged
+
+    @staticmethod
+    def _matches_structured_dismiss(item: dict[str, Any], categories: set[str]) -> bool:
+        category = str(item.get("category") or "")
+        if category in categories:
+            return True
+        detail = item.get("detail") if isinstance(item.get("detail"), dict) else {}
+        invoke_status = str(detail.get("invoke_status") or item.get("status") or "").lower()
+        if invoke_status in {InvokeStatus.TIMEOUT.value, InvokeStatus.UNAVAILABLE.value}:
+            return True
+        if str(detail.get("network_state") or "").lower() in _NETWORK_FAILURE_STATES:
+            return True
+        if str(detail.get("provider") or "").lower() in {"llm", "model"}:
+            return True
+        if str(detail.get("error_code") or "").lower() in _DISMISSABLE_ERROR_CODES:
+            return True
+        return False
+
+    def classify_failure(
+        self,
+        *,
+        error: str = "",
+        status: str = "",
+        capability_id: str = "",
+        detail: dict[str, Any] | None = None,
+    ) -> str:
+        normalized_status = str(status or "").lower()
+        normalized_capability = str(capability_id or "").lower()
+        normalized_error = str(error or "").lower()
+        detail = self._build_detail(detail)
+        invoke_status = str(detail.get("invoke_status") or "").lower()
+
+        if normalized_status == InvokeStatus.DENIED.value:
+            if normalized_capability.startswith(("android-server.", "pc-server.")):
+                return "permission"
             return "policy_denied"
-        if "permission" in text or "denied" in text:
-            return "permission"
-        if "screen is locked" in text or ("locked" in text and "screen" in text):
-            return "permission"
-        if (
-            "unreachable" in text
-            or "connection" in text
-            or "offline" in text
-            or "unavailable" in text
-            or "errors resolving" in text
-            or "name or service not known" in text
-            or "getaddrinfo" in text
-            or "nodename nor servname" in text
-        ):
-            return "server_down"
-        if "validation" in text or "invalid argument" in text:
+        if normalized_status == InvokeStatus.NOT_FOUND.value:
             return "validation"
-        if (
-            "timeout" in text
-            or "timed out" in text
-            or "temporar" in text
-            or "ddgs package not installed" in text
-            or "unsupported ai capability" in text
-            or "no results" in text
-        ):
+        if normalized_status == InvokeStatus.UNAVAILABLE.value:
+            return "server_down"
+        if normalized_status == InvokeStatus.TIMEOUT.value:
             return "transient"
-        if "llm" in text or "provider" in text:
+        if invoke_status == InvokeStatus.UNAVAILABLE.value:
+            return "server_down"
+        if invoke_status == InvokeStatus.TIMEOUT.value:
+            return "transient"
+
+        if detail.get("requires_permission") is True:
+            return "permission"
+        if detail.get("requires_auth") is True:
+            return "auth"
+        if str(detail.get("network_state") or "").lower() in _NETWORK_FAILURE_STATES:
+            return "server_down"
+        if str(detail.get("failure_type") or "").lower() in {"validation", "invalid_arguments"}:
+            return "validation"
+        if str(detail.get("error_code") or "").lower() in {"server_down", "dns_error", "unreachable"}:
+            return "server_down"
+        if str(detail.get("error_code") or "").lower() in {"timeout", "timed_out"}:
+            return "transient"
+        if str(detail.get("provider") or "").lower() in {"llm", "model"}:
             return "llm_failed"
-        if "policy" in text or "approval" in text:
-            return "policy_denied"
+
+        capability_categories = {
+            "auth": ("auth.", ".auth.", "login", "credential"),
+            "permission": ("permission",),
+            "llm_failed": ("llm",),
+        }
+        for category, markers in capability_categories.items():
+            if any(marker in normalized_capability for marker in markers):
+                return category
+
+        error_markers = (
+            ("already replied", "policy_denied"),
+            ("screen is locked", "permission"),
+            ("permission", "permission"),
+            ("denied", "permission"),
+            ("unavailable", "server_down"),
+            ("unreachable", "server_down"),
+            ("connection", "server_down"),
+            ("offline", "server_down"),
+            ("errors resolving", "server_down"),
+            ("name or service not known", "server_down"),
+            ("getaddrinfo", "server_down"),
+            ("nodename nor servname", "server_down"),
+            ("validation", "validation"),
+            ("invalid argument", "validation"),
+            ("timeout", "transient"),
+            ("timed out", "transient"),
+            ("temporar", "transient"),
+            ("ddgs package not installed", "transient"),
+            ("unsupported ai capability", "transient"),
+            ("no results", "transient"),
+            ("token", "auth"),
+            ("credential", "auth"),
+            ("auth", "auth"),
+            ("provider", "llm_failed"),
+            ("llm", "llm_failed"),
+            ("policy", "policy_denied"),
+            ("approval", "policy_denied"),
+        )
+        for marker, category in error_markers:
+            if marker in normalized_error:
+                return category
         return "tool_failed"
 
-    def record_failure(self, *, capability_id: str = "", error: str = "", status: str = "", request: Any = None, result: Any = None) -> dict[str, Any]:
-        category = self.classify_failure(error=error, status=status, capability_id=capability_id)
+    def record_failure(
+        self,
+        *,
+        capability_id: str = "",
+        error: str = "",
+        status: str = "",
+        request: Any = None,
+        result: Any = None,
+        detail: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        detail = self._build_detail(detail, request=request, result=result)
+        category = self.classify_failure(
+            error=error,
+            status=status,
+            capability_id=capability_id,
+            detail=detail,
+        )
         if category in _INFRA_NOISE_CATEGORIES:
             final_result = "infra_noise"
         elif category in _UNREPAIRABLE_CATEGORIES:
@@ -100,6 +223,7 @@ class RepairManager:
             "category": category,
             "error": error,
             "status": status,
+            "detail": detail,
             "timestamp": now_ms(),
             "attempts": [],
             "final_result": final_result,
@@ -273,7 +397,6 @@ class RepairManager:
         limit: int = 500,
     ) -> dict[str, Any]:
         """Append dismissed markers for old infra noise so obligations stay clean."""
-        import json
 
         categories = categories or {"transient", "server_down", "llm_failed"}
         final_results = final_results or {
@@ -306,14 +429,14 @@ class RepairManager:
         ]
         matched: list[dict[str, Any]] = []
         for item in self.list_history(limit=limit):
-            category = str(item.get("category") or "")
             final_result = str(item.get("final_result") or "")
             error = str(item.get("error") or "").lower()
             if final_result in {"recovered", "dismissed", "infra_noise", "rolled_back"}:
                 continue
-            if category not in categories and not any(n in error for n in needles):
+            structured_match = self._matches_structured_dismiss(item, categories)
+            if not structured_match and not any(n in error for n in needles):
                 continue
-            if final_result and final_result not in final_results and category not in categories:
+            if final_result and final_result not in final_results and not structured_match:
                 continue
             matched.append(item)
             if not dry_run:

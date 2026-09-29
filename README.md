@@ -4,13 +4,12 @@ AEGIS is an event-driven, self-improving AI assistant that coordinates across mu
 
 ## Architecture
 
-AEGIS consists of 6 gRPC-connected servers:
+AEGIS consists of several gRPC-connected servers:
 - **AI Server** (Python) — Central brain, event orchestration, LLM integration
 - **PC Server** (Rust) — PC control and monitoring
 - **Android Server** (Kotlin) — Mobile companion app / outbound client
 - **Room Server** — Physical environment control
 - **Browser Server** (Python + browser-use) — Web automation
-- **Dev Server** — Sandboxed development and self-improvement
 
 ## Quick Start
 
@@ -24,8 +23,8 @@ cp .env.example .env
 # Set LLM_API_KEY / AGORA_TOKEN / AEGIS_ANDROID_PAIRING_TOKEN in .env
 
 # 3. Start Docker services
-docker compose build ai-server browser-server room-server dev-server
-docker compose up -d ai-server browser-server room-server dev-server
+docker compose build ai-server browser-server room-server
+docker compose up -d ai-server browser-server room-server
 
 # 4. Start host-native PC server separately when PC control is needed
 # PC Server listens on 50052; containers reach it via host.docker.internal.
@@ -48,7 +47,6 @@ cd ai-server
 | PC Server | Rust TCP on port 50052 |
 | Browser Server | Python service on port 50053 |
 | Room Server | Python gRPC on port 50055, mock light provider by default |
-| Dev Server | Python gRPC on port 50056, write-capable repo mount in Docker |
 
 ## Documentation
 
@@ -57,9 +55,7 @@ cd ai-server
 | Document | Description |
 |----------|-------------|
 | [Architecture](docs/architecture.md) | System design |
-| [Roadmap](docs/roadmap.md) | Development roadmap |
-| [Backlog](docs/backlog.md) | Prioritized task backlog |
-| [Implementation Status](docs/implementation-status.md) | Module-by-module status |
+| [Status](docs/status.md) | Servers, roadmap, backlog, and what is retired |
 | [Risk Register](docs/risk-register.md) | Risk analysis and mitigation |
 | [ADR Index](docs/adr/README.md) | Architecture Decision Records |
 
@@ -85,7 +81,7 @@ cd ai-server
 | [Room Safety](docs/room-safety.md) | Room/physical device safety |
 | [Dev Safety](docs/dev-safety.md) | Dev server safety |
 | [Browser Safety](docs/browser-safety.md) | Browser automation safety |
-| [Prompt Regression](docs/prompt-regression.md) | Injection defense tests |
+| [Prompt Regression](docs/prompt-regression.md) | Injection-defense pack — **not wired** (see doc) |
 
 ### Components
 
@@ -94,7 +90,6 @@ cd ai-server
 | [PC Server](docs/pc-server.md) | PC control design |
 | [Android Server](docs/android-server.md) | Android integration |
 | [Room Server](docs/room-server.md) | Room/physical control |
-| [Dev Server](docs/dev-server.md) | Sandboxed development |
 | [Self-Development](docs/self-development.md) | SelfDev Agent |
 | [Mind Layer](docs/mind-layer.md) | Identity/Desire/Emotion/Goals |
 | [Memory](docs/memory.md) | Episodic/Semantic/Procedural |
@@ -118,15 +113,29 @@ cd ai-server
 
 ## Safety Model
 
-AEGIS uses **structural safety** — PolicyEngine is a deterministic rules engine, not LLM-based.
+The single constraint is that **the user's information never leaves the local environment**, and the
+egress gate is what enforces it. Approval, reversibility, policy, and reliability-proof are **not**
+constraints — see [`docs/GOAL-CHANGE.md`](docs/GOAL-CHANGE.md).
 
-| Level | Meaning | Behavior |
-|-------|---------|----------|
-| Level 0 (READ_ONLY) | Read only | Auto-allow |
-| Level 1 (SAFE_ACTION) | Safe actions | Auto-allow, audit |
-| Level 2 (APPROVAL_REQUIRED) | Needs approval | Approval UI required |
-| Level 3 (HIGH_RISK) | High risk | Approval or deny |
-| FORBIDDEN | Forbidden | Always denied |
+AEGIS uses **structural safety** — `PolicyEngine` is a deterministic rules engine, not LLM-based.
+Risk levels are **annotations, not gates**: each one selects a `PolicyDecision`, and none of them
+causes a prompt.
+
+| Risk level | Policy decision | Behavior |
+|------------|-----------------|----------|
+| `UNSPECIFIED` | `ALLOW_WITH_AUDIT` | Auto-allow, audited |
+| `READ_ONLY` | `ALLOW` | Auto-allow |
+| `SAFE_ACTION` | `ALLOW_WITH_AUDIT` | Auto-allow, audited |
+| `APPROVAL_REQUIRED` | `ALLOW_WITH_AUDIT` | **Label only — nobody is asked** |
+| `HIGH_RISK` | `ALLOW_WITH_AUDIT` | Auto-allow, audited |
+| `FORBIDDEN` | `DENY` | Always denied |
+
+Three groups are hard-denied regardless of risk level: payments/purchases, egress-gate bypass, and
+policy self-modification.
+
+AEGIS may still *voluntarily* ask the user — that path is live
+(`ai-server/src/aegis_ai/confirmation/`) — but nothing forces it. See
+[`docs/permissions.md`](docs/permissions.md) for the layers that actually decide.
 
 ## License
 

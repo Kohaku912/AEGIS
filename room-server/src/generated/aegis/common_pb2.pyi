@@ -49,28 +49,11 @@ class EventPriority(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     EVENT_PRIORITY_NORMAL: _ClassVar[EventPriority]
     EVENT_PRIORITY_BACKGROUND: _ClassVar[EventPriority]
 
-class ApprovalStatus(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
-    __slots__ = ()
-    APPROVAL_STATUS_UNSPECIFIED: _ClassVar[ApprovalStatus]
-    APPROVAL_STATUS_PENDING: _ClassVar[ApprovalStatus]
-    APPROVAL_STATUS_APPROVED: _ClassVar[ApprovalStatus]
-    APPROVAL_STATUS_REJECTED: _ClassVar[ApprovalStatus]
-    APPROVAL_STATUS_EXPIRED: _ClassVar[ApprovalStatus]
-
-class ApprovalType(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
-    __slots__ = ()
-    APPROVAL_TYPE_UNSPECIFIED: _ClassVar[ApprovalType]
-    APPROVAL_TYPE_ONE_TIME: _ClassVar[ApprovalType]
-    APPROVAL_TYPE_SESSION: _ClassVar[ApprovalType]
-
 class AuditAction(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     __slots__ = ()
     AUDIT_ACTION_UNSPECIFIED: _ClassVar[AuditAction]
     AUDIT_ACTION_TOOL_INVOKED: _ClassVar[AuditAction]
     AUDIT_ACTION_TOOL_DENIED: _ClassVar[AuditAction]
-    AUDIT_ACTION_APPROVAL_REQUESTED: _ClassVar[AuditAction]
-    AUDIT_ACTION_APPROVAL_GRANTED: _ClassVar[AuditAction]
-    AUDIT_ACTION_APPROVAL_REJECTED: _ClassVar[AuditAction]
     AUDIT_ACTION_EVENT_RECEIVED: _ClassVar[AuditAction]
     AUDIT_ACTION_TRIGGER_FIRED: _ClassVar[AuditAction]
     AUDIT_ACTION_POLICY_DECISION: _ClassVar[AuditAction]
@@ -79,7 +62,6 @@ class PolicyDecisionType(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     __slots__ = ()
     POLICY_DECISION_UNSPECIFIED: _ClassVar[PolicyDecisionType]
     POLICY_DECISION_ALLOW: _ClassVar[PolicyDecisionType]
-    POLICY_DECISION_ASK_APPROVAL: _ClassVar[PolicyDecisionType]
     POLICY_DECISION_DENY: _ClassVar[PolicyDecisionType]
 SAFETY_LEVEL_UNSPECIFIED: SafetyLevel
 LEVEL_0_READ: SafetyLevel
@@ -108,26 +90,14 @@ EVENT_PRIORITY_UNSPECIFIED: EventPriority
 EVENT_PRIORITY_URGENT: EventPriority
 EVENT_PRIORITY_NORMAL: EventPriority
 EVENT_PRIORITY_BACKGROUND: EventPriority
-APPROVAL_STATUS_UNSPECIFIED: ApprovalStatus
-APPROVAL_STATUS_PENDING: ApprovalStatus
-APPROVAL_STATUS_APPROVED: ApprovalStatus
-APPROVAL_STATUS_REJECTED: ApprovalStatus
-APPROVAL_STATUS_EXPIRED: ApprovalStatus
-APPROVAL_TYPE_UNSPECIFIED: ApprovalType
-APPROVAL_TYPE_ONE_TIME: ApprovalType
-APPROVAL_TYPE_SESSION: ApprovalType
 AUDIT_ACTION_UNSPECIFIED: AuditAction
 AUDIT_ACTION_TOOL_INVOKED: AuditAction
 AUDIT_ACTION_TOOL_DENIED: AuditAction
-AUDIT_ACTION_APPROVAL_REQUESTED: AuditAction
-AUDIT_ACTION_APPROVAL_GRANTED: AuditAction
-AUDIT_ACTION_APPROVAL_REJECTED: AuditAction
 AUDIT_ACTION_EVENT_RECEIVED: AuditAction
 AUDIT_ACTION_TRIGGER_FIRED: AuditAction
 AUDIT_ACTION_POLICY_DECISION: AuditAction
 POLICY_DECISION_UNSPECIFIED: PolicyDecisionType
 POLICY_DECISION_ALLOW: PolicyDecisionType
-POLICY_DECISION_ASK_APPROVAL: PolicyDecisionType
 POLICY_DECISION_DENY: PolicyDecisionType
 
 class Parameter(_message.Message):
@@ -207,7 +177,7 @@ class HealthCheckResponse(_message.Message):
     def __init__(self, status: _Optional[_Union[Status, _Mapping]] = ..., server_status: _Optional[_Union[ServerStatus, str]] = ..., uptime_ms: _Optional[int] = ..., version: _Optional[str] = ...) -> None: ...
 
 class Capability(_message.Message):
-    __slots__ = ("id", "name", "description", "server_type", "server_id", "input_schema", "output_schema", "safety_level", "requires_approval", "side_effects", "tags", "timeout_ms", "version")
+    __slots__ = ("id", "name", "description", "server_type", "server_id", "input_schema", "output_schema", "safety_level", "side_effects", "tags", "timeout_ms", "version")
     ID_FIELD_NUMBER: _ClassVar[int]
     NAME_FIELD_NUMBER: _ClassVar[int]
     DESCRIPTION_FIELD_NUMBER: _ClassVar[int]
@@ -216,7 +186,6 @@ class Capability(_message.Message):
     INPUT_SCHEMA_FIELD_NUMBER: _ClassVar[int]
     OUTPUT_SCHEMA_FIELD_NUMBER: _ClassVar[int]
     SAFETY_LEVEL_FIELD_NUMBER: _ClassVar[int]
-    REQUIRES_APPROVAL_FIELD_NUMBER: _ClassVar[int]
     SIDE_EFFECTS_FIELD_NUMBER: _ClassVar[int]
     TAGS_FIELD_NUMBER: _ClassVar[int]
     TIMEOUT_MS_FIELD_NUMBER: _ClassVar[int]
@@ -229,12 +198,11 @@ class Capability(_message.Message):
     input_schema: str
     output_schema: str
     safety_level: SafetyLevel
-    requires_approval: bool
     side_effects: _containers.RepeatedScalarFieldContainer[str]
     tags: _containers.RepeatedScalarFieldContainer[str]
     timeout_ms: int
     version: str
-    def __init__(self, id: _Optional[str] = ..., name: _Optional[str] = ..., description: _Optional[str] = ..., server_type: _Optional[_Union[ServerType, str]] = ..., server_id: _Optional[str] = ..., input_schema: _Optional[str] = ..., output_schema: _Optional[str] = ..., safety_level: _Optional[_Union[SafetyLevel, str]] = ..., requires_approval: _Optional[bool] = ..., side_effects: _Optional[_Iterable[str]] = ..., tags: _Optional[_Iterable[str]] = ..., timeout_ms: _Optional[int] = ..., version: _Optional[str] = ...) -> None: ...
+    def __init__(self, id: _Optional[str] = ..., name: _Optional[str] = ..., description: _Optional[str] = ..., server_type: _Optional[_Union[ServerType, str]] = ..., server_id: _Optional[str] = ..., input_schema: _Optional[str] = ..., output_schema: _Optional[str] = ..., safety_level: _Optional[_Union[SafetyLevel, str]] = ..., side_effects: _Optional[_Iterable[str]] = ..., tags: _Optional[_Iterable[str]] = ..., timeout_ms: _Optional[int] = ..., version: _Optional[str] = ...) -> None: ...
 
 class Tool(_message.Message):
     __slots__ = ("id", "capability_id", "server_id", "config_json", "enabled", "display_name")
@@ -319,38 +287,32 @@ class Event(_message.Message):
     def __init__(self, event_id: _Optional[str] = ..., event_type: _Optional[str] = ..., source_server_type: _Optional[_Union[ServerType, str]] = ..., source_server_id: _Optional[str] = ..., timestamp_ms: _Optional[int] = ..., payload_json: _Optional[str] = ..., severity: _Optional[_Union[EventSeverity, str]] = ..., priority: _Optional[_Union[EventPriority, str]] = ..., dedupe_key: _Optional[str] = ..., correlation_id: _Optional[str] = ..., requires_attention: _Optional[bool] = ..., attributes: _Optional[_Mapping[str, str]] = ...) -> None: ...
 
 class ToolInvocationRequest(_message.Message):
-    __slots__ = ("capability_id", "invocation_id", "caller", "params_json", "is_approved", "approval_id")
+    __slots__ = ("capability_id", "invocation_id", "caller", "params_json")
     CAPABILITY_ID_FIELD_NUMBER: _ClassVar[int]
     INVOCATION_ID_FIELD_NUMBER: _ClassVar[int]
     CALLER_FIELD_NUMBER: _ClassVar[int]
     PARAMS_JSON_FIELD_NUMBER: _ClassVar[int]
-    IS_APPROVED_FIELD_NUMBER: _ClassVar[int]
-    APPROVAL_ID_FIELD_NUMBER: _ClassVar[int]
     capability_id: str
     invocation_id: str
     caller: str
     params_json: str
-    is_approved: bool
-    approval_id: str
-    def __init__(self, capability_id: _Optional[str] = ..., invocation_id: _Optional[str] = ..., caller: _Optional[str] = ..., params_json: _Optional[str] = ..., is_approved: _Optional[bool] = ..., approval_id: _Optional[str] = ...) -> None: ...
+    def __init__(self, capability_id: _Optional[str] = ..., invocation_id: _Optional[str] = ..., caller: _Optional[str] = ..., params_json: _Optional[str] = ...) -> None: ...
 
 class ToolInvocationResult(_message.Message):
-    __slots__ = ("status", "capability_id", "invocation_id", "output_json", "error", "duration_ms", "was_approved")
+    __slots__ = ("status", "capability_id", "invocation_id", "output_json", "error", "duration_ms")
     STATUS_FIELD_NUMBER: _ClassVar[int]
     CAPABILITY_ID_FIELD_NUMBER: _ClassVar[int]
     INVOCATION_ID_FIELD_NUMBER: _ClassVar[int]
     OUTPUT_JSON_FIELD_NUMBER: _ClassVar[int]
     ERROR_FIELD_NUMBER: _ClassVar[int]
     DURATION_MS_FIELD_NUMBER: _ClassVar[int]
-    WAS_APPROVED_FIELD_NUMBER: _ClassVar[int]
     status: Status
     capability_id: str
     invocation_id: str
     output_json: str
     error: str
     duration_ms: int
-    was_approved: bool
-    def __init__(self, status: _Optional[_Union[Status, _Mapping]] = ..., capability_id: _Optional[str] = ..., invocation_id: _Optional[str] = ..., output_json: _Optional[str] = ..., error: _Optional[str] = ..., duration_ms: _Optional[int] = ..., was_approved: _Optional[bool] = ...) -> None: ...
+    def __init__(self, status: _Optional[_Union[Status, _Mapping]] = ..., capability_id: _Optional[str] = ..., invocation_id: _Optional[str] = ..., output_json: _Optional[str] = ..., error: _Optional[str] = ..., duration_ms: _Optional[int] = ...) -> None: ...
 
 class PolicyDecision(_message.Message):
     __slots__ = ("decision_id", "decision", "reason", "capability_id", "required_level", "audit_required")
@@ -367,34 +329,6 @@ class PolicyDecision(_message.Message):
     required_level: SafetyLevel
     audit_required: bool
     def __init__(self, decision_id: _Optional[str] = ..., decision: _Optional[_Union[PolicyDecisionType, str]] = ..., reason: _Optional[str] = ..., capability_id: _Optional[str] = ..., required_level: _Optional[_Union[SafetyLevel, str]] = ..., audit_required: _Optional[bool] = ...) -> None: ...
-
-class ApprovalRequest(_message.Message):
-    __slots__ = ("approval_id", "capability_id", "tool_name", "requested_action", "human_readable_summary", "risk_explanation", "payload_preview", "safety_level", "status", "approved_type", "created_at_ms", "expires_at_ms")
-    APPROVAL_ID_FIELD_NUMBER: _ClassVar[int]
-    CAPABILITY_ID_FIELD_NUMBER: _ClassVar[int]
-    TOOL_NAME_FIELD_NUMBER: _ClassVar[int]
-    REQUESTED_ACTION_FIELD_NUMBER: _ClassVar[int]
-    HUMAN_READABLE_SUMMARY_FIELD_NUMBER: _ClassVar[int]
-    RISK_EXPLANATION_FIELD_NUMBER: _ClassVar[int]
-    PAYLOAD_PREVIEW_FIELD_NUMBER: _ClassVar[int]
-    SAFETY_LEVEL_FIELD_NUMBER: _ClassVar[int]
-    STATUS_FIELD_NUMBER: _ClassVar[int]
-    APPROVED_TYPE_FIELD_NUMBER: _ClassVar[int]
-    CREATED_AT_MS_FIELD_NUMBER: _ClassVar[int]
-    EXPIRES_AT_MS_FIELD_NUMBER: _ClassVar[int]
-    approval_id: str
-    capability_id: str
-    tool_name: str
-    requested_action: str
-    human_readable_summary: str
-    risk_explanation: str
-    payload_preview: str
-    safety_level: SafetyLevel
-    status: ApprovalStatus
-    approved_type: ApprovalType
-    created_at_ms: int
-    expires_at_ms: int
-    def __init__(self, approval_id: _Optional[str] = ..., capability_id: _Optional[str] = ..., tool_name: _Optional[str] = ..., requested_action: _Optional[str] = ..., human_readable_summary: _Optional[str] = ..., risk_explanation: _Optional[str] = ..., payload_preview: _Optional[str] = ..., safety_level: _Optional[_Union[SafetyLevel, str]] = ..., status: _Optional[_Union[ApprovalStatus, str]] = ..., approved_type: _Optional[_Union[ApprovalType, str]] = ..., created_at_ms: _Optional[int] = ..., expires_at_ms: _Optional[int] = ...) -> None: ...
 
 class AuditRecord(_message.Message):
     __slots__ = ("record_id", "action", "timestamp_ms", "actor", "capability_id", "detail_json", "safety_level", "server_id", "correlation_id")

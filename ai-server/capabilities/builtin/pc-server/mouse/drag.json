@@ -9,6 +9,12 @@
   "risk": {
     "level": "safe"
   },
+  "ownership_scope": "user",
+  "reversibility": "difficult",
+  "destructive_effects": [],
+  "data_loss_risk": "none",
+  "active_work_loss_risk": "low",
+  "blast_radius": "single",
   "input": {
     "type": "object",
     "properties": {

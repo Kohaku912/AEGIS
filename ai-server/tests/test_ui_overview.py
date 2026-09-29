@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 from flask import Flask
 
+from aegis_ai.confirmation import ConfirmationStore
 from aegis_ai.web.routes.ui import init_ui_routes
 from aegis_ai.web.routes.ui_v2 import init_ui_v2_routes
 from aegis_ai.web.ui_overview import build_ui_overview, normalize_ui_event
@@ -17,29 +18,9 @@ class _StatusManager:
         }
 
 
-class _ApprovalManager:
-    def list_pending(self):
-        return [
-            SimpleNamespace(
-                to_dict=lambda: {
-                    "approval_id": "approval-1",
-                    "capability_id": "pc-server.keyboard.type_text",
-                    "risk_level": "high",
-                    "user_facing_summary": "Type into safe field",
-                    "created_at": 1000,
-                    "expires_at": 2000,
-                    "status": "pending",
-                }
-            )
-        ]
-
-
 class _TaskManager:
     def list_running(self):
         return [{"task_id": "task-1", "title": "Test task", "status": "running", "updated_at": 1000, "steps": []}]
-
-    def list_waiting_approval(self):
-        return []
 
 
 class _NotificationManager:
@@ -124,6 +105,37 @@ class _PresentationManager:
         ]
 
 
+class _CommitmentManager:
+    def list_commitments(self, status: str | None = None):
+        items = [
+            {
+                "commitment_id": "commit-1",
+                "title": "Send status report",
+                "status": "open",
+                "next_action": "Draft the reply",
+            },
+            {
+                "commitment_id": "commit-2",
+                "title": "Completed item",
+                "status": "completed",
+                "next_action": "",
+            },
+        ]
+        if status:
+            items = [item for item in items if item["status"] == status]
+        return items
+
+    def due_commitments(self):
+        return [
+            {
+                "commitment_id": "commit-1",
+                "title": "Send status report",
+                "status": "open",
+                "next_action": "Draft the reply",
+            }
+        ]
+
+
 class _UserStateManager:
     def get_current_user_state(self):
         return {
@@ -134,16 +146,33 @@ class _UserStateManager:
         }
 
 
-def _runtime():
+class _UserUnderstandingService:
+    def build_snapshot(self, triggering_query: str = ""):
+        return SimpleNamespace(
+            to_dict=lambda: {
+                "summary": "attention=pc, activity=coding, open_commitments=1, next_actions=1, deficits=1",
+                "identity_profile": {"preferred_language": "ja", "current_activity": "coding"},
+                "preferences": {"detail_level": "normal", "autonomy_level": "medium"},
+                "constraints": {"approval_strictness": "normal"},
+                "likely_next_actions": [{"title": "Draft the reply", "summary": "Send status report"}],
+                "predicted_deficits": [{"title": "Follow-through gap", "summary": "Open commitments remain."}],
+                "delegated_authority_state": {"summary": "1 auto-allowed, 0 approval-required, 0 forbidden rules"},
+            }
+        )
+
+
+def _runtime(confirmation_store=None):
     return SimpleNamespace(
         status_manager=_StatusManager(),
-        approval_manager=_ApprovalManager(),
         task_manager=_TaskManager(),
         notification_manager=_NotificationManager(),
         memory_manager=_MemoryManager(),
         event_manager=_EventManager(),
         presentation_manager=_PresentationManager(),
+        commitment_manager=_CommitmentManager(),
         user_state_manager=_UserStateManager(),
+        user_understanding_service=_UserUnderstandingService(),
+        confirmation_store=confirmation_store,
     )
 
 
@@ -172,6 +201,7 @@ def test_ui_overview_sections_have_freshness_envelope():
         "notifications",
         "approvals",
         "commitments",
+        "user_understanding",
         "usage",
         "errors",
         "freshness",
@@ -187,6 +217,11 @@ def test_ui_overview_sections_have_freshness_envelope():
         "generated_capabilities",
         "executions",
         "situation",
+        "cockpit_summary",
+        "cockpit_inbox",
+        "cockpit_focus",
+        "cockpit_actions",
+        "cockpit_investigation",
     ]:
         value = overview[section]
         assert {"generated_at", "source_updated_at", "status", "stale", "error", "data"} <= set(value)
@@ -199,7 +234,18 @@ def test_ui_overview_sections_have_freshness_envelope():
     ops = overview["activity"]["data"].get("operations") or []
     if ops:
         assert "causal_chain" in ops[0]
-    assert overview["approvals"]["data"]["pending"][0]["approval_id"] == "approval-1"
+    # Nothing has been asked, so the confirmation projection is empty. This is a real
+    # "no open questions" answer, not the retired stub's unconditional []: see
+    # test_overview_reflects_a_confirmation_aegis_raised below, which proves the section
+    # actually carries data.
+    assert overview["approvals"]["data"]["pending"] == []
+    assert overview["commitments"]["data"]["items"][0]["commitment_id"] == "commit-1"
+    assert overview["commitments"]["data"]["count"] == 1
+    assert overview["commitments"]["data"]["due_count"] == 1
+    assert overview["commitments"]["data"]["next_actions_count"] == 1
+    assert overview["commitments"]["data"]["next_action"] == "Draft the reply"
+    assert overview["commitments"]["data"]["summary"] == "1 open, 1 due, next: Draft the reply"
+    assert overview["user_understanding"]["data"]["likely_next_actions"][0]["title"] == "Draft the reply"
     assert overview["presentations"]["status"] == "ok"
     assert overview["presentations"]["data"]["count"] == 1
     assert overview["surface_roles"]["data"]["items"]
@@ -211,6 +257,79 @@ def test_ui_overview_sections_have_freshness_envelope():
     assert overview["display_queue"]["data"]["items"]
     assert overview["attention"]["data"]["items"]
     assert overview["user_state"]["data"]["activity"]["label"] == "coding"
+    assert overview["cockpit_summary"]["data"]["blocking_items"] >= 1
+    assert overview["cockpit_summary"]["data"]["primary_alert"]["kind"] in {"approval", "degraded_system", "error", "blocked_task", "cost_anomaly"}
+    assert overview["cockpit_inbox"]["data"]["items"]
+    assert overview["cockpit_focus"]["data"]["path"]
+    assert overview["cockpit_actions"]["data"]["items"]
+    assert overview["cockpit_investigation"]["data"]["paths"]["home"] == "/dashboard"
+
+
+def test_overview_reflects_a_confirmation_aegis_raised(tmp_path):
+    """Phase 5a: the whole approval projection is live again, not a compatibility shell.
+
+    These projections used to be dead code — ``_pending_approvals()`` returned ``[]``
+    unconditionally, so ``pending_count``, ``mode: "WAITING"``, ``attention_level:
+    "approval"``, the "Waiting for Approval" mission phase and the ``open-approvals``
+    control could never fire. This test pins that a question AEGIS raises actually
+    reaches all of them.
+    """
+    store = ConfirmationStore(str(tmp_path))
+    item = store.request(
+        summary="Send the revised draft to Sato-san?",
+        capability_id="mail.send",
+        reason="The draft mentions a delivery date I inferred, not one you confirmed.",
+        target="sato@example.com",
+    )
+
+    overview = build_ui_overview(_runtime(store))
+
+    approvals = overview["approvals"]["data"]
+    assert approvals["pending_count"] == 1
+    assert [row["approval_id"] for row in approvals["pending"]] == [item.approval_id]
+
+    row = approvals["pending"][0]
+    assert row["summary"] == "Send the revised draft to Sato-san?"
+    assert row["capability_id"] == "mail.send"
+    assert row["target"] == "sato@example.com"
+    assert row["reason"].startswith("The draft mentions")
+
+    core = overview["core"]["data"]
+    assert core["mode"] == "WAITING"
+    assert core["attention_level"] == "approval"
+    assert core["pending_approval_count"] == 1
+
+    # The mission phase and the display scene are downstream of the same count.
+    scene = overview["display_scene"]["data"]
+    assert scene["mode"] == "WAITING"
+    assert scene["phase"] == "Waiting for Approval"
+
+    # The question must surface as a loop the user owes an answer to, and as an
+    # enabled control that navigates to it.
+    loops = overview["open_loops"]["data"]["items"]
+    approval_loops = [loop for loop in loops if loop.get("kind") == "approval"]
+    assert [loop["id"] for loop in approval_loops] == [f"approval:{item.approval_id}"]
+
+    actions = overview["cockpit_actions"]["data"]["items"]
+    open_approvals = next(action for action in actions if action["id"] == "open-approvals")
+    assert open_approvals["enabled"] is True
+
+    assert overview["cockpit_summary"]["data"]["approval_pressure"]["pending_count"] == 1
+    assert any(entry["id"] == item.approval_id for entry in overview["attention"]["data"]["items"])
+
+
+def test_answering_a_confirmation_clears_the_projection(tmp_path):
+    """An answered question stops being pending — the projection is not write-only."""
+    store = ConfirmationStore(str(tmp_path))
+    item = store.request(summary="Send it?", capability_id="mail.send")
+    store.approve(item.approval_id, decided_by="user")
+
+    overview = build_ui_overview(_runtime(store))
+
+    assert overview["approvals"]["data"] == {"pending": [], "pending_count": 0}
+    assert overview["core"]["data"]["mode"] != "WAITING"
+    assert overview["core"]["data"]["pending_approval_count"] == 0
+    assert not [loop for loop in overview["open_loops"]["data"]["items"] if loop.get("kind") == "approval"]
 
 
 def test_ui_overview_route_returns_normalized_contract():
@@ -227,7 +346,21 @@ def test_ui_overview_route_returns_normalized_contract():
     assert "open_loops" in payload
     assert "social" in payload
     assert "decision_context" in payload
+    assert "user_understanding" in payload
+    assert "cockpit_summary" in payload
+    assert "cockpit_inbox" in payload
     assert payload["errors"]["data"].get("source") in {None, "repair_manager", "audit"} or "items" in payload["errors"]["data"]
+
+
+def test_commitments_summary_handles_missing_manager() -> None:
+    runtime = _runtime()
+    runtime.commitment_manager = None
+
+    overview = build_ui_overview(runtime)
+
+    data = overview["commitments"]["data"]
+    assert data["count"] == 0
+    assert data["summary"] == "Commitment manager is not configured."
 
 
 def test_display_power_state_route_is_compact_and_runtime_backed():
@@ -245,7 +378,7 @@ def test_display_power_state_route_is_compact_and_runtime_backed():
     payload = response.get_json()
     assert payload["schema_version"] == "display-power-state.v1"
     assert payload["current_task"]["task_id"] == "task-1"
-    assert payload["approvals"] == {"pending_count": 1, "ids": ["approval-1"]}
+    assert payload["approvals"] == {"pending_count": 0, "ids": []}
     assert payload["keep_awake"] is True
     assert {server["server_id"] for server in payload["servers"]} == {
         "ai-server",
@@ -255,7 +388,6 @@ def test_display_power_state_route_is_compact_and_runtime_backed():
 
 def test_display_power_state_ignores_autonomous_planning_without_operation():
     runtime = _runtime()
-    runtime.approval_manager = SimpleNamespace(list_pending=lambda: [])
     runtime.task_manager = SimpleNamespace(
         list_running=lambda: [
             {
@@ -266,7 +398,6 @@ def test_display_power_state_ignores_autonomous_planning_without_operation():
                 "steps": [],
             }
         ],
-        list_waiting_approval=lambda: [],
     )
     app = Flask(__name__)
     owner = SimpleNamespace(app=app, _runtime=runtime)
@@ -407,12 +538,8 @@ def test_ui_overview_compacts_large_step_results():
                 }
             ]
 
-        def list_waiting_approval(self):
-            return []
-
     runtime = SimpleNamespace(
         status_manager=_StatusManager(),
-        approval_manager=_ApprovalManager(),
         task_manager=LargeTaskManager(),
         notification_manager=_NotificationManager(),
         memory_manager=_MemoryManager(),
@@ -422,7 +549,7 @@ def test_ui_overview_compacts_large_step_results():
     overview = build_ui_overview(runtime)
     step = overview["current_task"]["data"]["steps"][0]
 
-    assert len(str(overview)) < 35_000
+    assert len(str(overview)) < 36_000
     assert step["result"]["available"] is True
     assert step["result"]["truncated"] is True
     assert len(step["result"]["preview"]) < 500

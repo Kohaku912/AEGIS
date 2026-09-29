@@ -1,128 +1,168 @@
 # PC Server — Safety Design
 
-> **Status**: Code-backed PC server safety model
+> ⚠️ **Goal change (2026-09-27)**: the only constraint is now **"the user's information must never
+> leave the local environment."** Approval, reversibility, policy, and reliability-proof are **no
+> longer constraints**. There is no approval gate in this server, and none of its capabilities
+> requires one. See [`GOAL-CHANGE.md`](GOAL-CHANGE.md).
+>
+> **Rewritten 2026-09-28 to match the code.** An earlier revision used a `pc.<action>` capability-ID
+> convention that resolves under no alias rule (`CapabilityCatalog` derives only `app.action` and
+> `<prefix>.app.action`), described an "Approval UI → execute" flow that no longer exists, and
+> documented a file **allowlist** that was never implemented. Corrections are marked inline.
+
+> **Status**: rewritten 2026-09-28 to match the code
 > **Related**: [`pc-server.md`](pc-server.md), [`architecture.md`](architecture.md) §7
 
-## Safety Level Classification
+## Safety tiers are descriptive, not gates
 
-### Level 0 — READ_ONLY (auto-allowed)
+The `Level 0–3` labels below come from the proto `SafetyLevel` enum, which is still live. It is a
+**classification only**: nothing gates on it. `LEVEL_2_APPROVAL` survives as a historical tier name
+and no longer implies that anyone is asked before a capability runs.
 
-| Capability | Redaction | Notes |
-|-----------|-----------|-------|
-| `pc.get_screenshot` | None (image data) | Captures entire screen — treat as ephemeral |
-| `pc.get_active_window` | None | Title, process, PID |
-| `pc.list_windows` | None | All visible windows |
-| `pc.get_clipboard` | **Required** — secrets redacted | May contain passwords, tokens |
-| `pc.get_os_info` | None | OS version, hostname |
-| `pc.list_directory` | Sensitive paths excluded | .ssh, .aws, etc. |
-| `pc.read_file` | Path safety check | Denylist: .ssh, .env, .pem, credentials |
+| Tier | Enum | `RiskLevel` | `PolicyDecision` |
+|------|------|-------------|------------------|
+| 0 | `LEVEL_0_READ` | `READ_ONLY` | `ALLOW` |
+| 1 | `LEVEL_1_SAFE_ACT` | `SAFE_ACTION` | `ALLOW_WITH_AUDIT` |
+| 2 | `LEVEL_2_APPROVAL` | `APPROVAL_REQUIRED` | `ALLOW_WITH_AUDIT` |
+| 3 | `LEVEL_3_RESTRICTED` | `HIGH_RISK` / `FORBIDDEN` | `ALLOW_WITH_AUDIT` / `DENY` |
 
-### Level 1 — SAFE_ACTION (auto-allowed, audited)
+The tier for a capability is derived from its manifest `risk.level` label via
+`capability_catalog._RISK_LABEL_TO_NAME`. **A label missing from that dict silently resolves to
+`READ_ONLY`, i.e. `ALLOW`** — the least scrutinised decision. `audited_action` was missing until
+2026-09-28 and is now mapped to `SAFE_ACTION`; `test_manifest_schemas.py` fails if a manifest ever
+uses an unregistered label.
 
-| Capability | Side Effects | Notes |
-|-----------|-------------|-------|
-| `pc.mouse_move` | Cursor movement | No click, no input |
-| `pc.launch_app` | Process creation | Launches application |
-| `pc.focus_window` | Window focus change | Brings window to front |
-| `pc.move_window` | Window position | Moves window coordinates |
-| `pc.resize_window` | Window size | Changes window dimensions |
-| `pc.show_overlay` | Visual display | Tauri overlay notification |
-| `pc.hide_overlay` | Visual display | Hides overlay |
+## Tier 0 — `READ_ONLY`
 
-### Level 2 — APPROVAL_REQUIRED
+| Capability | Manifest label | Notes |
+|-----------|----------------|-------|
+| `pc-server.screenshot.get_screenshot` | `low` | Captures the entire screen — treat as ephemeral |
+| `pc-server.window.get_active_window` | `low` | Title, process, PID |
+| `pc-server.window.list_windows` | `low` | All visible windows |
+| `pc-server.clipboard.get_clipboard` | `low` | **Redacted** — may contain passwords, tokens |
+| `pc-server.system.get_os_info` | `low` | OS version, hostname |
+| `pc-server.file.list` | `read_only` | Excludes sensitive paths (see below) |
+| `pc-server.file.read` | `read_only` | **No path check — see the gap below** |
 
-| Capability | Side Effects | Approval Flow |
-|-----------|-------------|---------------|
-| `pc.mouse_click` | Mouse input | Approval UI → execute |
-| `pc.keyboard_type` | Keyboard input | Approval UI → execute |
-| `pc.press_hotkey` | Keyboard input | Approval UI → execute |
-| `pc.close_window` | Window close | Approval UI → execute |
-| `pc.write_clipboard` | Clipboard mutation | Approval UI → execute |
-| `pc.write_file` | File system mutation | Approval UI → path check → execute |
+## Tier 1 — `SAFE_ACTION` (executes with audit)
 
-### Explicitly Denied (always DENY)
+| Capability | Manifest label | Side effects |
+|-----------|----------------|--------------|
+| `pc-server.input.mouse_move` | `safe` | Cursor movement — no click, no input |
+| `pc-server.system.launch_app` | `safe` | Process creation |
+| `pc-server.window.resize` | `safe_action` | Window dimensions |
+| `pc-server.system.show_overlay` | `safe` | Tauri overlay notification |
+| `pc-server.input.mouse_click` | `safe` | Mouse input |
+| `pc-server.input.keyboard_type` | `safe` | Keyboard input |
+| `pc-server.input.press_hotkey` | `safe` | Keyboard input |
+| `pc-server.window.close_window` | `safe` | Window close |
+| `pc-server.clipboard.set` | `safe_action` | Clipboard mutation |
+| `pc-server.file.write` | `audited_action` | File system mutation |
+
+`pc-server.overlay.show_rich` also sits at this tier (`safe`); `pc-server.overlay.show_display` is
+tier 0 (`low`).
+
+> **Tier 2 is empty for the PC server.** Every capability that this document previously listed under
+> "APPROVAL_REQUIRED" (`mouse_click`, `keyboard_type`, `press_hotkey`, `close_window`,
+> `write_clipboard`, `write_file`) resolves to tier 1. There is no PC capability that lands on
+> `APPROVAL_REQUIRED`.
+
+> The earlier revision also listed `pc.focus_window`, `pc.move_window` and `pc.hide_overlay`. **None
+> of those exist** — there is no focus, move, or hide capability. The real window operations are
+> `get_active_window`, `list_windows`, `close_window` and `resize`.
+
+## Explicitly denied (never buildable)
+
+These ids used to be listed in `settings/validation.py::FORBIDDEN_CAPABILITIES`, which was
+**deleted on 2026-09-29** (B-12 / A-1) — it named no live capability and its guard read a key space
+nobody writes. **They cannot be constructed because no manifest declares them**: the broker rejects
+an unregistered id before any risk check runs. Note that `tool_broker._capability_from_manifest`'s
+`RiskLevel.FORBIDDEN` raise is **not** the mechanism here: **no manifest in the catalog carries
+`forbidden`** (measured 2026-09-29), so that raise cannot fire. See
+[`permissions.md`](permissions.md#the-forbidden-capability-list-was-deleted-b-12--a-1):
 
 | Capability | Reason |
 |-----------|--------|
-| `pc.delete_file` | Destructive — file deletion |
-| `pc.bulk_delete` | Destructive — mass deletion |
-| `pc.read_secret_file` | Credential access |
-| `pc.write_system_config` | System modification |
-| `pc.run_shell_command` | Unrestricted execution |
-| `pc.type_password` | Credential automation |
-| `pc.click_payment_button` | Financial operation |
-| `pc.modify_policy_config` | Policy bypass |
+| `pc-server.file.delete` | Destructive — file deletion |
+| `pc-server.file.bulk_delete` | Destructive — mass deletion |
+| `pc-server.file.read_secret` | Credential access |
+| `pc-server.system.write_config` | System modification |
+| `pc-server.system.run_shell` | Unrestricted execution |
+| `pc-server.input.type_password` | Credential automation |
+| `pc-server.input.click_payment_button` | Financial operation |
+| `pc-server.system.modify_policy` | Policy bypass |
 
-## Secret Redaction
+## Voluntary confirmation
 
-Clipboard content is scanned for:
-- Passwords / tokens / API keys in key=value or JSON format
-- Authorization headers
-- SSH private keys (PEM format)
-- JWT tokens
-- AWS access keys (AKIA...)
-- Database connection strings with credentials
-- PEM certificates
+There is no forced approval step. When AEGIS *chooses* to confirm a consequential action with the
+user, the surface is:
 
-All detected secrets are replaced with `[REDACTED]`.
+**`pc-server.approval.overlay`** — "Show overlay approval dialog with Y/N key input"
+(`requires_approval: false`, `ownership_scope: user`). It is an ordinary capability AEGIS may invoke;
+it is not a precondition any other capability must satisfy.
 
-## File Safety
+> The previous "Approval UI Integration" section described a flow — `PolicyEngine` returning
+> `ASK_APPROVAL` → `ApprovalStore` creating an `ApprovalRequest` → `ToolBroker.invoke_tool_approved()`
+> → `AuditLog` — that was **deleted on 2026-09-28**. `ASK_APPROVAL`, `ApprovalStore` and
+> `invoke_tool_approved` no longer exist in the decision path (`invoke_tool_approved` survives only as
+> an `evaluation/` scenario step name).
 
-### Denylist (always blocked)
+## Secret redaction
 
-| Category | Patterns |
-|----------|---------|
-| SSH | `.ssh/`, `id_rsa`, `id_ed25519`, `id_ecdsa` |
-| Cloud credentials | `.aws/`, `.gcloud/`, `.azure/` |
-| Certificates | `.pem`, `.key`, `.crt`, `.p12`, `.pfx` |
-| Environment | `.env` |
-| Credentials | `credentials.json`, `credentials.xml` |
-| Secrets | `token`, `secret`, `password` |
-| System | `.git/`, `node_modules/` |
+Implemented in `pc-server/src/redaction.rs` (`redact_secrets`, `redact_headers`). Patterns:
 
-### Allowlist (read and write allowed)
+- `password` / `passwd` / `secret` / `token` / `api_key` / `apikey` in `key=value` or `key: value`
+- `Authorization` headers
+- SSH private keys (`-----BEGIN … PRIVATE KEY-----`) → `[SSH_PRIVATE_KEY_REDACTED]`
+- PEM certificates → `[PEM_CERTIFICATE_REDACTED]`
+- JWT tokens (`eyJ…`) → `[JWT_REDACTED]`
+- AWS access keys (`AKIA…`) → `[AWS_KEY_REDACTED]`
+- Connection strings with credentials (`scheme://user:pass@`) → password replaced
 
-| Directory | Purpose |
-|-----------|---------|
-| `workspace/` | Development workspace |
-| `projects/` | Project files |
-| `documents/` | User documents |
-| `downloads/` | Downloaded files |
-| `desktop/` | Desktop files |
-| `tmp/`, `temp/` | Temporary files |
+## File path handling — and a real gap
 
-## Approval UI Integration
+`redaction.rs` defines two **substring** predicates (not globs):
 
-When a Level 2 action is requested:
+| Predicate | Patterns |
+|-----------|----------|
+| `is_sensitive_directory` | `.ssh`, `.gnupg`, `.aws`, `.gcloud`, `.azure`, `AppData\Roaming\Microsoft\Crypto`, `/etc/ssl`, `/etc/ssh` |
+| `is_credential_file` | `.pem`, `.key`, `.crt`, `credentials`, `.env`, `id_rsa`, `id_ed25519`, `token`, `secret`, `password` |
 
-1. ToolBroker calls PolicyEngine.evaluate()
-2. PolicyEngine returns ASK_APPROVAL
-3. ToolBroker creates ApprovalRequest via ApprovalStore
-4. Approval UI presents the request to the user
-5. User approves/rejects
-6. If approved, ToolBroker.invoke_tool_approved() executes
-7. Action result is pushed to EventBus
-8. All decisions are logged to AuditLog
+They are combined into `observe_ext.rs::is_observation_excluded`, which is called from exactly two
+places: `collect_files` and `collect_files_recursive`. **The exclusion therefore filters directory
+*listings* — it is not a read or write permission gate.**
 
-## Screenshot & Clipboard Warnings
+- `read_file()` (`observe_ext.rs:180`) applies **no** exclusion check: it reads any path that exists.
+- `write_file()` (`system_ops.rs:159`) applies **no** exclusion check either.
+- **There is no allowlist.** The previous revision's "Allowlist (read and write allowed)" table
+  (`workspace/`, `projects/`, `documents/`, `downloads/`, `desktop/`, `tmp/`, `temp/`) described
+  nothing that exists; the only mention of `Documents` in the tree is a test asserting it is *not*
+  sensitive.
+- `.git/`, `node_modules/`, `id_ecdsa`, `.p12` and `.pfx` were also listed previously and are **not**
+  in either predicate.
+
+So `pc-server.file.read` can read `~/.ssh/id_rsa`; the id `pc-server.file.read_secret` is forbidden,
+but `file.read` targeting a secret path is not. **Whether `file.read` should refuse sensitive paths is
+an open decision** — the code does not do it today, and this document previously claimed it did.
+
+## Screenshots and clipboard
 
 ### Screenshots
 
-- Screenshots capture the **entire visible screen** — including sensitive content
-- Screenshots are **never transmitted externally** — they stay on the local network
-- In mock mode, screenshots return `[MOCK_SCREENSHOT]` — no real screen capture
-- Screenshots should be treated as **ephemeral**
+- Capture the **entire visible screen**, including sensitive content — treat as ephemeral.
+- They are **never transmitted externally**; this is the single constraint, not a policy setting.
+- In mock mode they return `[MOCK_SCREENSHOT]` — no real capture occurs.
 
 ### Clipboard
 
-- Clipboard content is **redacted for secrets** before being returned
-- Clipboard reads are **read-only** — write requires approval
-- Clipboard data should not be logged or stored without redaction
+- Content is **redacted for secrets** before being returned.
+- Reads are read-only; `pc-server.clipboard.set` is the (tier 1) write path.
+- Clipboard data should not be logged or stored without redaction.
 
-## Testing Safety
+## Testing
 
-- CI tests use `MockPCProvider` — no real OS calls, no real screenshots
-- Local tests with real OS calls are marked `@pytest.mark.pc_local`
-- `MockPCProvider.call_log` tracks all invocations for audit verification
-- No secrets, tokens, or credentials should appear in test fixtures
-- Mouse/keyboard actions are NEVER executed in CI — mock only
+- `MockPCProvider` lives in `ai-server/src/pc_server_client.py` and is used by
+  `ai-server/tests/test_os_notification.py` — no real OS calls, no real screenshots.
+- The `pc_local` marker is registered in `ai-server/pyproject.toml` for tests needing a real Windows host.
+- Mouse/keyboard actions are never executed in CI — mock only.
+- No secrets, tokens, or credentials should appear in test fixtures.

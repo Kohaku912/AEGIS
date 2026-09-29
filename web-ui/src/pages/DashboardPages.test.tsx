@@ -3,10 +3,17 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { Approvals } from "./Approvals";
 import { CommandCenter } from "./CommandCenter";
+import { ExecutionTracePage } from "./ExecutionTracePage";
+import { InterventionsPage } from "./InterventionsPage";
 import { JudgmentPage } from "./JudgmentPage";
+import { LayersOverviewPage } from "./LayersOverviewPage";
 import { MindMemory } from "./MindMemory";
 import { OpenLoopsPage } from "./OpenLoopsPage";
+import { OpsAtlasPage } from "./OpsAtlasPage";
+import { ControlHubPage } from "./ControlHubPage";
 import { OperationsPage } from "./OperationsPage";
+import { PersonalContextPage } from "./PersonalContextPage";
+import { PersonalAiPage } from "./PersonalAiPage";
 import { Settings } from "./Settings";
 import { SocialPage } from "./SocialPage";
 import { Systems } from "./Systems";
@@ -20,6 +27,24 @@ vi.mock("../api/client", async () => {
     ...actual,
     fetchOperations: vi.fn(async () => []),
     fetchOperation: vi.fn(async () => ({})),
+    fetchNotifications: vi.fn(async () => [{ notification_id: "notification-1", title: "Connection dropped", message: "PC server needs attention" }]),
+    fetchAutonomousStatus: vi.fn(async () => ({ running: true, next_run_at: "soon" })),
+    fetchAutonomousThreshold: vi.fn(async () => ({ threshold: 5 })),
+    fetchMemorySleepStatus: vi.fn(async () => ({ running: false })),
+    fetchManagerTasks: vi.fn(async () => [
+      {
+        task_id: "task-followup-1",
+        title: "Self Improvement: Reduce repair churn",
+        status: "paused",
+        summary: "Repeated failures should become tracked fixes.",
+        metadata: { followup_kind: "self_improvement", origin: "user_understanding", confidence: 0.8 }
+      }
+    ]),
+    fetchUserStateCurrent: vi.fn(async () => ({ available: true, location: "desk" })),
+    fetchUserStateEvents: vi.fn(async () => ({ events: [{ source: "pc", summary: "user present" }] })),
+    fetchUserStateDays: vi.fn(async () => ({ "2026-09-18": { count: 3 } })),
+    fetchRepairStatus: vi.fn(async () => ({ disabled: false, status: "ready" })),
+    continueTask: vi.fn(async () => ({ ok: true })),
   };
 });
 
@@ -86,25 +111,20 @@ describe("dashboard v2 pages", () => {
     expect(screen.getByText("Social inbox & AGORA decisions")).toBeInTheDocument();
     expect(screen.getByText(/hello from agora/i)).toBeInTheDocument();
   });
-  it("keeps six Japanese IA navigation domains covering core pages", () => {
+  it("keeps cockpit-first IA navigation while preserving deep-link coverage", () => {
     expect(navigation.map((domain) => domain.id)).toEqual([
-      "ops",
-      "intel",
-      "connect",
+      "cockpit",
       "observe",
       "personal",
       "settings",
     ]);
-    expect(navigation.find((domain) => domain.id === "ops")?.pages.map((page) => page.id)).toEqual([
+    expect(navigation.find((domain) => domain.id === "cockpit")?.pages.slice(0, 6).map((page) => page.id)).toEqual([
       "home",
-      "attention",
-      "open-loops",
-      "judgment",
-      "tasks",
-      "approvals",
-      "autonomous",
-      "desires",
-      "agent-state",
+      "control-hub",
+      "atlas",
+      "interventions",
+      "execution-trace",
+      "layers",
     ]);
     expect(navigation.find((domain) => domain.id === "observe")?.pages.map((page) => page.id)).toEqual([
       "operations",
@@ -114,12 +134,65 @@ describe("dashboard v2 pages", () => {
       "incidents",
       "performance",
       "audit",
+      "irreversibility",
       "behavioral-reports",
     ]);
+    expect(navigation.find((domain) => domain.id === "personal")?.pages[0]?.id).toBe("personal-context");
     expect(navigation.find((domain) => domain.id === "settings")?.pages.some((page) => page.id === "llm-config")).toBe(true);
-    expect(navigation.find((domain) => domain.id === "intel")?.pages.some((page) => page.id === "llm-usage")).toBe(false);
     expect(navigation.find((domain) => domain.id === "observe")?.pages.some((page) => page.id === "llm-usage")).toBe(true);
     expect(navigation.flatMap((domain) => domain.pages).length).toBeGreaterThanOrEqual(30);
+  });
+
+  it("renders cockpit aggregation pages with jump targets", async () => {
+    const onNavigate = vi.fn();
+    const data = overview();
+
+    const interventions = render(<InterventionsPage overview={data} onNavigate={onNavigate} />);
+    expect(screen.getByText("Priority inbox")).toBeInTheDocument();
+    expect(screen.getAllByText("Approval requires review").length).toBeGreaterThan(0);
+    expect(screen.getByText("Start here")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Open approvals" })).toBeInTheDocument();
+    interventions.unmount();
+
+    const trace = render(<ExecutionTracePage overview={data} onNavigate={onNavigate} />);
+    expect(screen.getByText("Causal rail")).toBeInTheDocument();
+    expect(screen.getByText("Recent meaningful operations")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Open layers" })).toBeInTheDocument();
+    trace.unmount();
+
+    const atlas = render(<OpsAtlasPage overview={data} onNavigate={onNavigate} />);
+    expect(screen.getAllByText("Ops Atlas").length).toBeGreaterThan(0);
+    expect(screen.getByText("Everything index")).toBeInTheDocument();
+    expect(screen.getByText("Information surfaces")).toBeInTheDocument();
+    atlas.unmount();
+
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const control = render(
+      <QueryClientProvider client={client}>
+        <ControlHubPage overview={data} onNavigate={onNavigate} />
+      </QueryClientProvider>
+    );
+    expect(await screen.findByText("Unified operations")).toBeInTheDocument();
+    expect(screen.getByText("Autonomous loop")).toBeInTheDocument();
+    expect(screen.getByText("Notifications")).toBeInTheDocument();
+    expect(screen.getByText("Authority and approvals")).toBeInTheDocument();
+    expect(screen.getByText("Follow-up backlog")).toBeInTheDocument();
+    expect(screen.getByText("Self Improvement: Reduce repair churn")).toBeInTheDocument();
+    control.unmount();
+
+    const personal = render(<PersonalContextPage overview={data} />);
+    expect(screen.getByText("Personal Context")).toBeInTheDocument();
+    expect(screen.getByText("attention=pc, activity=coding, open_commitments=1, next_actions=1, deficits=1")).toBeInTheDocument();
+    expect(screen.getAllByText("Draft the reply").length).toBeGreaterThan(0);
+    personal.unmount();
+
+    const personalAi = render(<PersonalAiPage overview={data} />);
+    expect(screen.getByText("Delegated authority")).toBeInTheDocument();
+    expect(screen.getAllByText("1 auto-allowed, 0 approval-required, 0 forbidden rules").length).toBeGreaterThan(0);
+    personalAi.unmount();
+
+    render(<LayersOverviewPage />);
+    expect(screen.getByText("Layer Comparison")).toBeInTheDocument();
   });
 
   it("renders Systems topology and Android detail", () => {
@@ -144,7 +217,7 @@ describe("dashboard v2 pages", () => {
 
     const { unmount } = render(<CommandCenter overview={data} recentEvents={[event()]} />);
     expect(screen.getByTestId("cognitive-field-mock")).toBeInTheDocument();
-    expect(screen.getByText("Inspect desktop")).toBeInTheDocument();
+    expect(screen.getAllByText("Inspect desktop").length).toBeGreaterThan(0);
     expect(screen.getByRole("link", { name: "Open related conversation" })).toHaveAttribute(
       "href",
       "/chat?conversation_id=conversation-1",
@@ -294,6 +367,20 @@ function overview(): UiOverview {
     notifications: envelope({ recent: [{ notification_id: "notification-1", title: "Connection dropped", message: "PC server needs attention" }], unread_count: 1 }),
     approvals: envelope({ pending: [{ approval_id: "approval-1", capability_id: "pc-server.keyboard.type_text", summary: "Type into safe field", risk: "high", reason: "Writes to desktop", task_id: "task-1" }], pending_count: 1 }),
     commitments: envelope({ items: [{ title: "Review UI" }], summary: "1 commitment" }),
+    user_understanding: envelope({
+      summary: "attention=pc, activity=coding, open_commitments=1, next_actions=1, deficits=1",
+      identity_profile: { preferred_language: "ja", current_activity: "coding" },
+      preferences: { detail_level: "detailed", autonomy_level: "high" },
+      constraints: { approval_strictness: "normal" },
+      short_horizon: [{ title: "Send status report", summary: "Draft the reply" }],
+      likely_next_actions: [{ title: "Draft the reply", summary: "Send status report" }],
+      predicted_deficits: [{ title: "Follow-through gap", summary: "Open commitments remain." }],
+      burden_reduction_opportunities: [{ title: "Review UI", summary: "Delegate or prepare the next step." }],
+      self_improvement_queue: [{ title: "tool_failed", summary: "Investigate failed repair path." }],
+      long_horizon: [{ title: "Reduce admin burden", summary: "Long-horizon goal retained in profile." }],
+      life_horizon: [{ title: "Durable preference map", summary: "Stable preferences should guide burden reduction." }],
+      delegated_authority_state: { summary: "1 auto-allowed, 0 approval-required, 0 forbidden rules" }
+    }),
     usage: envelope({ summary: "Audit-backed" }),
     errors: envelope({ items: [{ message: "Connection dropped", severity: "warning" }], count: 1 }),
     activity: envelope({
@@ -376,9 +463,20 @@ function overview(): UiOverview {
       summary: "Triggers 3; executed 1; top non-action: budget gate",
     }),
     goals: envelope({
-      open: [{ title: "Ship UI", success_condition: "Dashboard usable", unmet_conditions: [{ summary: "Verification pending" }], status: "running" }],
-      open_count: 1,
-      summary: "1 open goal(s)",
+      open: [
+        { title: "Ship UI", success_condition: "Dashboard usable", unmet_conditions: [{ summary: "Verification pending" }], status: "running" },
+        {
+          title: "Self Improvement: Reduce repair churn",
+          success_condition: "Bounded improvement plan recorded",
+          unmet_conditions: [{ summary: "Evidence pending" }],
+          status: "paused",
+          followup_kind: "self_improvement",
+          confidence: 0.8,
+          metadata: { followup_kind: "self_improvement", origin: "user_understanding", confidence: 0.8 },
+        }
+      ],
+      open_count: 2,
+      summary: "2 open goal(s)",
     }),
     social: envelope({
       pending_decisions: [{ item_id: "agora-1", channel: "agora", body: "hello from agora", status: "pending" }],
@@ -391,6 +489,87 @@ function overview(): UiOverview {
     decision_context: envelope({ summary: "User available; one obligation open", obligations: [{ kind: "commitment", summary: "Review UI" }] }),
     executions: envelope({ operations: [], count: 0, summary: "0 recent operation(s)" }),
     generated_capabilities: envelope({ items: [], count: 0, summary: "0 generated capability(ies)" }),
+    cockpit_summary: envelope({
+      primary_alert: {
+        id: "approval:approval-1",
+        kind: "approval",
+        title: "Approval requires review",
+        message: "Type into safe field",
+        severity: "warning",
+        status: "pending",
+        next_action: "Open approval",
+        entity_type: "approval",
+        entity_id: "approval-1",
+        path: "/dashboard/approvals",
+      },
+      blocking_items: 2,
+      attention_score: 7,
+      focus: {
+        id: "task:task-1",
+        kind: "blocked_task",
+        title: "Inspect desktop",
+        message: "Capture screen",
+        severity: "warning",
+        status: "running",
+        path: "/dashboard/work/tasks",
+      },
+    }),
+    cockpit_inbox: envelope({
+      items: [
+        {
+          id: "approval:approval-1",
+          kind: "approval",
+          title: "Approval requires review",
+          message: "Type into safe field",
+          severity: "warning",
+          status: "pending",
+          next_action: "Open approval",
+          entity_type: "approval",
+          entity_id: "approval-1",
+          path: "/dashboard/approvals",
+        },
+        {
+          id: "loop:loop-1",
+          kind: "blocked_task",
+          title: "Follow up on review",
+          message: "Approve or reject",
+          severity: "info",
+          status: "open",
+          next_action: "Follow up",
+          entity_type: "task",
+          entity_id: "task-1",
+          path: "/dashboard/open-loops",
+        },
+      ],
+      count: 2,
+      by_kind: { approval: 1, blocked_task: 1 },
+      summary: "2 intervention item(s)",
+    }),
+    cockpit_focus: envelope({
+      id: "task:task-1",
+      kind: "blocked_task",
+      title: "Inspect desktop",
+      message: "Capture screen",
+      severity: "warning",
+      status: "running",
+      path: "/dashboard/work/tasks",
+    }),
+    cockpit_actions: envelope({
+      items: [
+        { id: "pause-autonomy", label: "Pause autonomy" },
+        { id: "refresh-all-servers", label: "Refresh systems" },
+      ],
+      count: 2,
+    }),
+    cockpit_investigation: envelope({
+      focus_path: "/dashboard/operations/req-chat-1",
+      paths: {
+        home: "/dashboard",
+        operations: "/dashboard/operations",
+        layers: "/dashboard/layers",
+      },
+      workflow: ["metrics", "activity", "session", "raw"],
+    }),
   };
 }
 

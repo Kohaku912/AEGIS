@@ -1,5 +1,11 @@
 # Scheduler — Autonomous Loop Design & Usage
 
+> ⚠️ **Goal change (2026-09-27)**: the only constraint is now **"the user's information must never
+> leave the local environment."** Approval, reversibility, policy, and reliability-proof are **no
+> longer constraints**. Any "requires approval" / "Level 2" language below is a **risk annotation**,
+> not a gate. See [`GOAL-CHANGE.md`](GOAL-CHANGE.md).
+
+
 > **Status**: Implemented — Desire-driven with self-scheduling
 > **Source**: `ai-server/src/aegis_ai/autonomous/autonomous_loop.py`
 > **Related**: `docs/architecture.md` §5.12, `docs/mind-layer.md`

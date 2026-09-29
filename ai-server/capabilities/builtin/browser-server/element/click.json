@@ -9,6 +9,12 @@
     ],
     "requires_approval": false
   },
+  "ownership_scope": "external",
+  "reversibility": "difficult",
+  "destructive_effects": [],
+  "data_loss_risk": "none",
+  "active_work_loss_risk": "low",
+  "blast_radius": "single",
   "only_master": false,
   "input_schema": {
     "type": "object",

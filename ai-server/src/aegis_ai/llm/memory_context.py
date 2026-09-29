@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-import json
 import logging
-import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -142,19 +140,58 @@ def _action_trace_lines(data_dir: Path, limit: int = 3) -> tuple[list[str], int]
 
 
 def _resolve_memory_store(data_dir: Path) -> Any:
+    expected_dir = (data_dir / "memory_store").resolve()
     try:
         from aegis_ai.runtime import peek_runtime
 
         runtime = peek_runtime()
         manager = getattr(runtime, "memory_manager", None) if runtime is not None else None
         store = manager.get_backend("store") if manager is not None and hasattr(manager, "get_backend") else None
-        if store is not None:
+        runtime_dir = Path(getattr(store, "_data_dir", "")) if store is not None else None
+        if store is not None and runtime_dir is not None:
+            try:
+                if runtime_dir.resolve() == expected_dir:
+                    return store
+            except OSError:
+                logger.debug("MemoryStore runtime path resolution failed", exc_info=True)
+        if store is not None and not getattr(store, "_data_dir", None):
             return store
     except Exception as exc:
         logger.debug("Runtime MemoryStore lookup failed: %s", exc)
     from aegis_ai.memory.memory_store import MemoryStore
 
-    return MemoryStore(data_dir=str(data_dir / "memory_store"))
+    return MemoryStore(data_dir=str(expected_dir))
+
+
+def _resolve_skill_memory(data_dir: Path) -> Any:
+    """Prefer the MemoryManager-owned SkillMemory; fall back to a direct reader.
+
+    Architecture invariant: memory backends are accessed through
+    ``runtime.memory_manager.get_backend()``. Only when the runtime is absent
+    (or points at a different data directory) do we open the JSONL directly.
+    """
+    expected_path = (data_dir / "memory" / "skills.jsonl").resolve()
+    try:
+        from aegis_ai.runtime import peek_runtime
+
+        runtime = peek_runtime()
+        manager = getattr(runtime, "memory_manager", None) if runtime is not None else None
+        backend = manager.get_backend("skill") if manager is not None and hasattr(manager, "get_backend") else None
+        if backend is not None:
+            backend_path = getattr(backend, "_path", None)
+            if backend_path is None:
+                return backend
+            try:
+                if Path(backend_path).resolve() == expected_path:
+                    return backend
+            except OSError:
+                logger.debug("Skill memory runtime path resolution failed", exc_info=True)
+    except Exception as exc:
+        logger.debug("Runtime SkillMemory lookup failed: %s", exc)
+
+    from aegis_ai.memory.skill_memory import SkillMemory
+
+    return SkillMemory(path=str(expected_path))
 
 
 def _memory_store_lines(data_dir: Path, query: str, profile: str) -> tuple[list[str], dict[str, int]]:
@@ -193,6 +230,47 @@ def _memory_store_lines(data_dir: Path, query: str, profile: str) -> tuple[list[
     if profile == "decision":
         _append_records("User preferences:", "user_preference", 3)
     return lines, counts
+
+
+def _user_understanding_lines(data_dir: Path, query: str) -> tuple[list[str], int]:
+    try:
+        from aegis_ai.runtime import peek_runtime
+        from aegis_ai.user_understanding import UserUnderstandingStore
+
+        runtime = peek_runtime()
+        snapshot: dict[str, Any] = {}
+        service = getattr(runtime, "user_understanding_service", None) if runtime is not None else None
+        if service is not None and hasattr(service, "build_snapshot"):
+            built = service.build_snapshot(query)
+            if hasattr(built, "to_dict"):
+                snapshot = built.to_dict()
+            elif isinstance(built, dict):
+                snapshot = dict(built)
+        if not snapshot:
+            snapshot = UserUnderstandingStore(data_dir / "user_understanding").load()
+    except Exception as exc:
+        logger.debug("User understanding context failed: %s", exc)
+        return [], 0
+    if not snapshot:
+        return [], 0
+    lines = ["USER UNDERSTANDING:"]
+    if snapshot.get("summary"):
+        lines.append(f"- summary: {_truncate(str(snapshot.get('summary') or ''), 180)}")
+    for item in list(snapshot.get("likely_next_actions") or [])[:3]:
+        lines.append(
+            f"- next: {_truncate(str(item.get('title') or ''), 80)} :: "
+            f"{_truncate(str(item.get('summary') or ''), 100)}"
+        )
+    for item in list(snapshot.get("predicted_deficits") or [])[:3]:
+        lines.append(
+            f"- deficit: {_truncate(str(item.get('title') or ''), 80)} :: "
+            f"{_truncate(str(item.get('summary') or ''), 100)}"
+        )
+    authority = snapshot.get("delegated_authority_state", {})
+    if isinstance(authority, dict) and authority.get("summary"):
+        lines.append(f"- authority: {_truncate(str(authority.get('summary') or ''), 120)}")
+    count = len(lines) - 1
+    return lines, count
 
 
 def build_shared_memory_context(
@@ -283,7 +361,11 @@ def build_shared_memory_context(
             person_memory = PersonMemory(path=str(root / "memory" / "persons.jsonl"))
             person_context = person_memory.get_context_string(max_chars=300)
             if person_context:
-                add_section("people", "PEOPLE:\n" + _strip_system_reminders(person_context), len(person_memory.get_all()))
+                add_section(
+                    "people",
+                    "PEOPLE:\n" + _strip_system_reminders(person_context),
+                    len(person_memory.get_all()),
+                )
         except Exception as exc:
             logger.debug("Person memory failed: %s", exc)
 
@@ -293,18 +375,20 @@ def build_shared_memory_context(
         semantic = SemanticMemory(path=str(root / "memory" / "semantic.jsonl"))
         sem_context = semantic.get_context_string(max_chars=250 if profile == "summary" else 400)
         if sem_context:
-            add_section("semantic", "KNOWLEDGE:\n" + _strip_system_reminders(sem_context), semantic.get_stats().get("total_entries", 0))
+            add_section(
+                "semantic",
+                "KNOWLEDGE:\n" + _strip_system_reminders(sem_context),
+                semantic.get_stats().get("total_entries", 0),
+            )
     except Exception as exc:
         logger.debug("Semantic memory failed: %s", exc)
 
     if profile == "decision":
         try:
-            from aegis_ai.memory.skill_memory import SkillMemory
-
-            skill_memory = SkillMemory(path=str(root / "memory" / "skills.jsonl"))
+            skill_memory = _resolve_skill_memory(root)
             skill_context = skill_memory.get_context_string(max_chars=300)
             if skill_context:
-                add_section("skills", "SKILLS:\n" + skill_context, skill_memory.get_stats().get("total_skills", 0))
+                add_section("skills", "SKILLS:\n" + skill_context, skill_memory.get_stats().get("total", 0))
         except Exception as exc:
             logger.debug("Skill memory failed: %s", exc)
 
@@ -328,6 +412,10 @@ def build_shared_memory_context(
     if memory_store_lines:
         add_section("memory_store", "\n".join(memory_store_lines), sum(memory_store_counts.values()))
         source_counts.update(memory_store_counts)
+
+    understanding_lines, understanding_count = _user_understanding_lines(root, normalized_query)
+    if understanding_lines and profile == "decision":
+        add_section("user_understanding", "\n".join(understanding_lines), understanding_count)
 
     if profile == "summary":
         max_chars = 2200

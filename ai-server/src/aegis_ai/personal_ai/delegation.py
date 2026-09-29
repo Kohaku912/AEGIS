@@ -6,14 +6,17 @@ import fnmatch
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 from aegis_ai.personal_ai.storage import JsonStateFile, now_ms
+from aegis_schema import safety_vocab
 
 
 @dataclass
 class DelegationDecision:
-    decision: str = "no_match"  # auto_allowed | approval_required | forbidden | no_match
+    # `approval_required` was retired with the approval flow (2026-09-27);
+    # `evaluate()` can only return `forbidden` or `auto_allowed`.
+    decision: str = "no_match"  # auto_allowed | forbidden | no_match
     reason: str = ""
     rule_id: str = ""
     dimensions: dict[str, str] = field(default_factory=dict)
@@ -21,13 +24,22 @@ class DelegationDecision:
 
 @dataclass
 class DelegationContext:
-    """Explicit delegation dimensions supplied by planning or manifests."""
+    """Explicit delegation dimensions supplied by planning or manifests.
+
+    Defaults are ``unknown``, not the friendly-looking ``aegis`` / ``reversible``
+    they used to be: those read as a positive claim about an operation nobody
+    described, and this context is matched against user rules by exact equality.
+    """
 
     operation_category: str = "general"
-    scope: str = "aegis"
+    scope: str = safety_vocab.UNKNOWN
     audience: str = "private"
-    content_sensitivity: str = "normal"
-    reversibility: str = "reversible"
+    # ``content_sensitivity`` is not a ``CapabilityManifest`` field, so nothing in
+    # the manifest can declare it. It used to default to ``"normal"``, which read
+    # as a positive claim that the content is not sensitive. ``unknown`` says only
+    # what is true. See docs/irreversibility-ledger.md.
+    content_sensitivity: str = safety_vocab.UNKNOWN
+    reversibility: str = safety_vocab.UNKNOWN
 
     def to_dict(self) -> dict[str, str]:
         return self.__dict__.copy()
@@ -75,7 +87,7 @@ class DelegationPolicyStore:
     Defaults are allow. The user may add restrictions; payment stays denied.
     """
 
-    APPROVAL_CATEGORIES = {
+    APPROVAL_CATEGORIES: ClassVar[set[str]] = {
         "payment",
     }
 
@@ -159,7 +171,14 @@ class DelegationPolicyStore:
                 continue
             if rule.content_sensitivity and rule.content_sensitivity != context.content_sensitivity:
                 continue
-            if rule.reversibility and rule.reversibility != context.reversibility:
+            if (
+                rule.reversibility
+                # Normalise both sides: a user may have written the rule with
+                # either spelling, and a silent mismatch here would disable a
+                # `forbidden` rule without any error surfacing.
+                and safety_vocab.normalize_reversibility(rule.reversibility)
+                != context.reversibility
+            ):
                 continue
             if fnmatch.fnmatchcase(capability_id, rule.capability_pattern):
                 return DelegationDecision(
@@ -225,10 +244,18 @@ class DelegationPolicyStore:
             )
         return DelegationContext(
             operation_category=category,
-            scope=str(declared.get("scope") or "aegis"),
+            scope=safety_vocab.normalize_dimension("ownership_scope", declared.get("scope")),
             audience=str(declared.get("audience") or "private"),
-            content_sensitivity=str(declared.get("content_sensitivity") or "normal"),
-            reversibility=str(declared.get("reversibility") or "reversible"),
+            # ``audience`` defaults to the *private* end of its range, which is the
+            # conservative direction. ``content_sensitivity`` has no such safe end:
+            # ``"normal"`` is a claim of non-sensitivity, so an undeclared value
+            # reads as ``unknown`` instead.
+            content_sensitivity=str(
+                declared.get("content_sensitivity") or safety_vocab.UNKNOWN
+            ),
+            # Single normalisation point: manifests declare the 5-value
+            # vocabulary, user rules are written against the 4-value one.
+            reversibility=safety_vocab.normalize_reversibility(declared.get("reversibility")),
         )
 
     def _install_defaults(self) -> None:

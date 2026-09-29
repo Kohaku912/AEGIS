@@ -10,6 +10,12 @@
     "level": "high",
     "requires_approval": false
   },
+  "ownership_scope": "system",
+  "reversibility": "irreversible",
+  "destructive_effects": ["file_delete", "data_overwrite", "process_terminate", "permission_change"],
+  "data_loss_risk": "high",
+  "active_work_loss_risk": "high",
+  "blast_radius": "system_wide",
   "input": {
     "type": "object",
     "properties": {
@@ -31,5 +37,21 @@
     "powershell",
     "audited_action"
   ],
-  "tcp_command": "execute_powershell {command}|{working_dir}"
+  "tcp_command": "execute_powershell {command}|{working_dir}",
+  "completion": {
+    "mode": "all",
+    "retry": {
+      "max_attempts": 0,
+      "delay_ms": 0
+    },
+    "on_failure": "retry_or_user_confirmation",
+    "checks": [
+      {
+        "name": "success_true",
+        "type": "output_field",
+        "field": "success",
+        "equals": true
+      }
+    ]
+  }
 }

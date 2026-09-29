@@ -1,4 +1,4 @@
-﻿import { Activity, Brain, Clock, Cpu, Radio, Server, ShieldAlert, UserRound } from "lucide-react";
+import { Activity, Brain, Clock, Cpu, Radio, Server, ShieldAlert, UserRound } from "lucide-react";
 import type { ReactNode } from "react";
 import { useState } from "react";
 import { runControlAction } from "../api/client";
@@ -9,21 +9,34 @@ import { SectionState } from "../components/UiState";
 import { StatusBadge } from "../components/StatusBadge";
 import { mapUiEventToVisualEvent, missionPhase, serverLabel, serverNeedsDetail, summarizeMemory, summarizeServers, summarizeUserState } from "../displayModel";
 import { actionTitle, type Operation } from "./OperationsPage";
-import type { EntitySummary, UiEvent, UiOverview } from "../types";
+import type { CockpitInboxItem, EntitySummary, UiEvent, UiOverview } from "../types";
 
 type Props = {
   overview: UiOverview;
   recentEvents?: UiEvent[];
   pinnedEntities?: EntitySummary[];
   onSelect?: (entity: EntitySummary) => void;
+  onNavigate?: (path: string) => void;
   developerMode?: boolean;
 };
 
-export function CommandCenter({ overview, recentEvents = [], pinnedEntities = [], onSelect, developerMode = false }: Props) {
+export function CommandCenter({
+  overview,
+  recentEvents = [],
+  pinnedEntities = [],
+  onSelect,
+  onNavigate,
+  developerMode = false,
+}: Props) {
   const core = overview.core.data;
   const servers = overview.servers.data.items || [];
   const task = overview.current_task.data;
   const usage = overview.usage.data;
+  const cockpitSummary = overview.cockpit_summary?.data || {};
+  const cockpitInbox = overview.cockpit_inbox?.data.items || [];
+  const cockpitFocus = overview.cockpit_focus?.data || cockpitSummary.focus || {};
+  const cockpitActions = overview.cockpit_actions?.data.items || [];
+  const cockpitInvestigation = overview.cockpit_investigation?.data;
   const user = overview.user_situation?.data || overview.user_state.data || {};
   const userState = summarizeUserState(overview);
   const userLabel = situationUserLabel(user, userState);
@@ -40,6 +53,8 @@ export function CommandCenter({ overview, recentEvents = [], pinnedEntities = []
   const problemServers = servers.filter((server) => serverNeedsDetail(server));
   const phase = missionPhase(overview);
   const criticalCount = [...(overview.attention.data.items || []), ...errors].filter((item) => String(item.severity || "").toLowerCase() === "critical").length;
+  const blockingItems = Number(cockpitSummary.blocking_items || cockpitInbox.length || 0);
+  const primaryAlert = (cockpitSummary.primary_alert || cockpitInbox[0]) as CockpitInboxItem | undefined;
   const operations = (overview.activity?.data.operations || []) as Operation[];
   const visualEvents = (recentEvents || []).slice(0, 12).map((event) => mapUiEventToVisualEvent(event));
   const timeline = (
@@ -124,6 +139,140 @@ export function CommandCenter({ overview, recentEvents = [], pinnedEntities = []
       {pinnedEntities.length ? <section className="command-pins" aria-label="Pinned resources"><span>Pinned</span>{pinnedEntities.map((entity) => <button type="button" onClick={() => onSelect?.(entity)} key={`${entity.type}:${entity.id}`}><strong>{entity.title}</strong><small>{entity.type} / {entity.status}</small></button>)}</section> : null}
 
       <section className="command-grid-12">
+        <article className="panel command-span-12">
+          <div className="panel__header">
+            <div>
+              <h2>Needs Attention</h2>
+              <div className="muted">未処理リスクを上から順に確認し、そのまま trace / session / raw へ跳べます。</div>
+            </div>
+            <StatusBadge status={blockingItems ? `P${Math.min(3, Math.max(1, blockingItems))}` : "stable"} detail={`${blockingItems} blocking`} />
+          </div>
+          <div className="home-summary-grid">
+            <Metric icon={<ShieldAlert size={18} />} label="Blocking items" value={String(blockingItems)} compact />
+            <Metric icon={<Activity size={18} />} label="Attention score" value={String(cockpitSummary.attention_score || criticalCount || 0)} compact />
+            <Metric icon={<Clock size={18} />} label="Approval pressure" value={String((cockpitSummary.approval_pressure as Record<string, unknown> | undefined)?.summary || overview.approvals.data.pending_count || 0)} compact />
+            <Metric icon={<Cpu size={18} />} label="Usage" value={String((cockpitSummary.usage_snapshot as Record<string, unknown> | undefined)?.summary || usage.summary || usage.budget_state || "No data yet")} compact />
+          </div>
+          {primaryAlert ? (
+            <div className="attention-item" data-severity={primaryAlert.severity || "warning"}>
+              <div>
+                <strong>{primaryAlert.title}</strong>
+                <div className="muted">{primaryAlert.message || primaryAlert.next_action || "Inspect item"}</div>
+              </div>
+              {primaryAlert.path ? (
+                <button className="secondary-button" type="button" onClick={() => onNavigate?.(primaryAlert.path || "/dashboard/interventions")}>
+                  Open
+                </button>
+              ) : null}
+            </div>
+          ) : (
+            <p className="muted">即時対応が必要な異常はありません。</p>
+          )}
+        </article>
+
+        <article className="panel command-span-8">
+          <div className="panel__header">
+            <div>
+              <h2>Intervention Inbox</h2>
+              <div className="muted">Metrics → activity → session → raw の順で絞り込むための優先キューです。</div>
+            </div>
+            <button className="secondary-button" type="button" onClick={() => onNavigate?.("/dashboard/interventions")}>
+              Open interventions
+            </button>
+          </div>
+          <div className="compact-list">
+            {cockpitInbox.length ? cockpitInbox.slice(0, 6).map((item) => (
+              <button
+                className="list-row"
+                type="button"
+                onClick={() => onNavigate?.(item.path || "/dashboard/interventions")}
+                key={item.id}
+              >
+                <div>
+                  <strong>{item.title}</strong>
+                  <div className="muted">{item.message || item.next_action || "Inspect item"}</div>
+                </div>
+                <StatusBadge status={item.severity || item.status || item.kind} detail={item.kind} />
+              </button>
+            )) : <p className="muted">inbox は空です。通常監視モードです。</p>}
+          </div>
+        </article>
+
+        <article className="panel command-span-4">
+          <div className="panel__header">
+            <div>
+              <h2>Current Focus</h2>
+              <div className="muted">今いちばん深掘りすべき対象を固定します。</div>
+            </div>
+            <Freshness {...freshProps(overview.cockpit_focus || overview.current_task)} />
+          </div>
+          <h3>{String(cockpitFocus.title || task.title || "No current focus")}</h3>
+          <p className="command-operation__action">
+            {String(cockpitFocus.message || cockpitFocus.next_action || task.current_action || task.next_action || "No active task")}
+          </p>
+          <div className="mission-strip" aria-label="Focus context">
+            <span>Kind: <strong>{String(cockpitFocus.kind || task.phase || "focus")}</strong></span>
+            <span>Status: <strong>{String(cockpitFocus.status || task.phase || "unknown")}</strong></span>
+          </div>
+          <div className="command-controls">
+            <button className="secondary-button" type="button" onClick={() => onNavigate?.(String(cockpitFocus.path || cockpitInvestigation?.focus_path || "/dashboard/execution-trace"))}>
+              Trace focus
+            </button>
+            <button className="secondary-button" type="button" onClick={() => onNavigate?.("/dashboard/execution-trace")}>
+              Open execution trace
+            </button>
+          </div>
+        </article>
+
+        <article className="panel command-span-12">
+          <div className="panel__header">
+            <div>
+              <h2>Observe → Narrow → Jump</h2>
+              <div className="muted">調査導線を固定し、同じ 1-2 click で原因追跡に入れるようにします。</div>
+            </div>
+          </div>
+          <div className="command-controls">
+            <button className="secondary-button" type="button" onClick={() => onNavigate?.(cockpitInvestigation?.paths?.home || "/dashboard")}>
+              Observe
+            </button>
+            <button className="secondary-button" type="button" onClick={() => onNavigate?.(cockpitInvestigation?.paths?.operations || "/dashboard/operations")}>
+              Narrow with activity
+            </button>
+            <button className="secondary-button" type="button" onClick={() => onNavigate?.(cockpitInvestigation?.focus_path || "/dashboard/agent-timeline")}>
+              Jump to focus
+            </button>
+            <button className="secondary-button" type="button" onClick={() => onNavigate?.(cockpitInvestigation?.paths?.layers || "/dashboard/layers")}>
+              Compare layers
+            </button>
+            <button className="secondary-button" type="button" onClick={() => onNavigate?.("/dashboard/activity")}>
+              Open raw activity
+            </button>
+          </div>
+        </article>
+
+        <article className="panel command-span-12">
+          <div className="panel__header">
+            <div>
+              <h2>Direct Actions</h2>
+              <div className="muted">安全な操作候補をまとめ、確認が必要なものは preview を経由させます。</div>
+            </div>
+          </div>
+          <div className="command-controls">
+            {cockpitActions.length ? cockpitActions.slice(0, 6).map((action) => (
+              <button
+                type="button"
+                key={String(action.id || action.action || action.label)}
+                onClick={() => void previewControl(String(action.id || action.action || ""))}
+              >
+                <Activity size={14} />
+                {String(action.label || action.title || action.id || "Action")}
+              </button>
+            )) : (
+              <p className="muted">利用可能な集約 action はまだありません。</p>
+            )}
+          </div>
+        </article>
+
         <article className="panel command-operation command-span-8">
           <div className="panel__header">
             <div>
@@ -309,4 +458,3 @@ function situationUserLabel(user: Record<string, unknown>, userState: ReturnType
   );
   return parts.join(" · ") || "No data yet";
 }
-

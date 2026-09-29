@@ -267,10 +267,6 @@ class AttentionEstimator:
                 key_events = _safe_int(payload.get("key_event_count"))
                 idle = _safe_int(payload.get("idle_ms"), 999999)
                 fullscreen = payload.get("fullscreen") is True
-                semantic = " ".join(
-                    str(payload.get(key, ""))
-                    for key in ("app_name", "process_name", "active_window_title_summary", "input_target_category", "content_kind")
-                ).lower()
                 if keyboard or mouse or key_events:
                     event_score += 2.0 + min(1.0, (keyboard + mouse + key_events) / 10)
                 if idle < 5_000:
@@ -279,7 +275,7 @@ class AttentionEstimator:
                     event_score += 0.45
                 elif idle < 60_000:
                     event_score += 0.25
-                if fullscreen and _classify_activity(semantic) in {"gaming", "watching_video"}:
+                if fullscreen and _classify_activity(payload) in {"gaming", "watching_video"}:
                     event_score += 1.0
                 if payload.get("locked") is True:
                     event_score -= 1.0
@@ -294,7 +290,7 @@ class AttentionEstimator:
                     event_score += 2.1 + min(1.0, touch / 8)
                 elif event_type == "android.user_activity.changed" and payload.get("screen_on") is True:
                     event_score += 1.25
-                elif event_type == "android.foreground_app.changed":
+                elif event_type in {"android.foreground_app.changed", "android.current_app_changed"}:
                     event_score += 0.7
                 elif event_type == "android.heartbeat" and payload.get("screen_on") is True:
                     event_score += 0.15
@@ -315,27 +311,9 @@ class ActivityEstimator:
             return _state("away" if device == "none" else "unknown", 0.35, [])
         event = relevant[-1]
         payload = event.get("payload", {})
-        semantic = " ".join(
-            str(payload.get(key, ""))
-            for key in (
-                "semantic",
-                "semantic_summary",
-                "layout_category",
-                "app_category",
-                "domain",
-                "process_name",
-                "foreground_app",
-                "package_name",
-                "app_name",
-                "screen_title_summary",
-                "active_window_title_summary",
-                "content_kind",
-                "input_target_category",
-            )
-        ).lower()
         if payload.get("locked") is True or payload.get("screen_on") is False:
             return _state("sleeping", 0.65, [_evidence(event, "screen locked/off")])
-        category = _classify_activity(semantic)
+        category = _classify_activity(payload)
         detail = _activity_detail(payload)
         return _state(category, 0.72 if category != "unknown" else 0.45, [_evidence(event, f"classified from {device} semantic metadata")], detail)
 
@@ -718,21 +696,67 @@ def _state(label: str, confidence: float, evidence: list[dict[str, Any]], detail
     return state
 
 
-def _classify_activity(text: str) -> str:
-    if any(term in text for term in ("code", "editor", "vscode", "visual studio", "terminal", "github", "jetbrains")) or re.search(r"\bide\b", text):
-        return "coding"
-    if any(term in text for term in ("chat", "discord", "line", "slack", "message")):
-        return "chatting"
-    if any(term in text for term in ("game", "steam", "minecraft", "unity", "unreal", "valorant", "apex", "elden", "genshin")):
-        return "gaming"
-    if any(term in text for term in ("video", "youtube", "netflix", "fullscreen", "media", "player", "twitch")):
-        return "watching_video"
-    if any(term in text for term in ("browser", "chrome", "edge", "firefox", "web")):
-        return "browsing"
-    if any(term in text for term in ("reader", "pdf", "book", "article")):
-        return "reading"
-    if any(term in text for term in ("home", "launcher", "settings")):
-        return "browsing"
+def _classify_activity(payload: dict[str, Any]) -> str:
+    structured_signals = (
+        str(payload.get("layout_category") or "").lower(),
+        str(payload.get("app_category") or "").lower(),
+        str(payload.get("content_kind") or "").lower(),
+        str(payload.get("input_target_category") or "").lower(),
+        str(payload.get("semantic") or "").lower(),
+        str(payload.get("semantic_summary") or "").lower(),
+    )
+    structured_map = {
+        "editor": "coding",
+        "ide": "coding",
+        "code": "coding",
+        "terminal": "coding",
+        "chat": "chatting",
+        "message": "chatting",
+        "game": "gaming",
+        "video": "watching_video",
+        "media": "watching_video",
+        "browser": "browsing",
+        "web": "browsing",
+        "reader": "reading",
+        "article": "reading",
+        "document": "reading",
+        "pdf": "reading",
+        "settings": "browsing",
+        "launcher": "browsing",
+    }
+    for signal in structured_signals:
+        if signal in structured_map:
+            return structured_map[signal]
+
+    exact_hints = {
+        "code.exe": "coding",
+        "cursor.exe": "coding",
+        "pycharm64.exe": "coding",
+        "studio64.exe": "coding",
+        "com.discord": "chatting",
+        "discord": "chatting",
+        "slack": "chatting",
+        "steam": "gaming",
+        "eldenring.exe": "gaming",
+        "valorant.exe": "gaming",
+        "com.google.android.youtube": "watching_video",
+        "youtube": "watching_video",
+        "chrome": "browsing",
+        "com.android.chrome": "browsing",
+        "msedge.exe": "browsing",
+        "firefox.exe": "browsing",
+        "acrobat.exe": "reading",
+    }
+    for key in (
+        "domain",
+        "process_name",
+        "foreground_app",
+        "package_name",
+        "app_name",
+    ):
+        candidate = str(payload.get(key) or "").lower()
+        if candidate in exact_hints:
+            return exact_hints[candidate]
     return "unknown"
 
 

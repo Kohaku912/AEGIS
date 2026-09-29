@@ -50,7 +50,7 @@ class PasskeyConfig:
     challenge_ttl_ms: int = 5 * 60 * 1000
 
     @classmethod
-    def from_env(cls) -> "PasskeyConfig":
+    def from_env(cls) -> PasskeyConfig:
         runtime_mode = os.getenv("AEGIS_RUNTIME_MODE", "development").strip().lower()
         production = runtime_mode == "production"
         rp_id = os.getenv("AEGIS_WEBAUTHN_RP_ID", "").strip()

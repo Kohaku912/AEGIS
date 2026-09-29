@@ -96,6 +96,12 @@ def test_contract_defines_human_reliability_acceptance_cases():
         "repair_method",
         "apply_correction",
         "delegation_boundary",
+        "build_user_model",
+        "anticipate_next_action",
+        "span_time_horizons",
+        "reduce_user_burden",
+        "expand_delegated_authority",
+        "autonomous_growth",
     }.issubset(case_ids)
 
 
@@ -413,7 +419,30 @@ def test_behavioral_evaluation_counts_active_goals_and_correction_reflection(tmp
     assert snapshot["correction_reflection"] == 1.0
 
 
-def test_payment_is_approval_scoped_not_permanently_blocked():
+def test_payment_is_denied_by_delegation_not_by_a_plan_flag(tmp_path):
+    """Payment stays a hard deny (D1=(b)) — but the deny lives in the delegation
+    policy, not in a plan flag.
+
+    This replaces ``test_payment_is_approval_scoped_not_permanently_blocked``,
+    which pinned the retired behaviour: it asserted ``requires_approval`` and
+    ``approval_needed`` were set on the plan. Neither field exists any more, and
+    neither ever blocked anything — no enforcement point read them. What actually
+    protects the user is ``DelegationPolicyStore``'s ``default_payment_deny``.
+    """
+    from aegis_ai.personal_ai.delegation import DelegationPolicyStore
+
+    store = DelegationPolicyStore(data_dir=str(tmp_path))
+    decision = store.evaluate(
+        "pc-server.payment.pay",
+        operation_context={"operation_category": "payment"},
+    )
+    assert decision.decision == "forbidden"
+    # The deny is the point. It comes from the seeded ``del_payment`` rule, or
+    # from ``default_payment_deny`` when no rule matches — either way, forbidden.
+    assert "payment" in decision.rule_id.lower()
+
+    # The planner no longer manufactures an approval flag for a payment step:
+    # the risk category is an annotation, and nothing blocks on it.
     interpreter = LLMTaskInterpreter()
     plan = TaskPlan(
         steps=[
@@ -434,8 +463,7 @@ def test_payment_is_approval_scoped_not_permanently_blocked():
     interpreter._validate_safety(plan)
 
     assert plan.steps[0].risk_category == RiskCategory.PAYMENT
-    assert plan.steps[0].requires_approval is True
-    assert plan.approval_needed is True
+    assert plan.risk_notes == []
 
 
 def test_financial_service_scope_denies_purchase(tmp_path):
@@ -483,9 +511,9 @@ def test_autonomous_tasks_are_goal_owned_and_require_manifest_verification(tmp_p
     skipped_result = loop._execute_tasks([task])
     skipped_task = manager.list_tasks(limit=1)[0]
 
-    # skipped/pending verification no longer stalls as blocked forever
-    assert skipped_result[0]["goal_status"] == "achieved"
-    assert skipped_task["status"] == "completed"
+    # skipped verification keeps the goal open for follow-up instead of falsely succeeding.
+    assert skipped_result[0]["goal_status"] == "needs_followup"
+    assert skipped_task["status"] == "paused"
     assert skipped_task["goal_graph"]["obligation_ids"] == ["commit_1"]
 
     loop._broker = Broker("passed")

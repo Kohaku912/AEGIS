@@ -36,11 +36,6 @@ service AIServer {
   rpc GetUiOverview(UiOverviewRequest) returns (UiOverviewResponse);
   rpc StreamUiEvents(UiEventStreamRequest) returns (stream UiEvent);
 
-  // ── Approval ──────────────────────────────────────────────
-  rpc RequestApproval(RequestApprovalRequest) returns (ApprovalRequest);
-  rpc ResolveApproval(ResolveApprovalRequest) returns (ResolveApprovalResponse);
-  rpc ListPendingApprovals(ListPendingApprovalsRequest) returns (ListPendingApprovalsResponse);
-
   // ── Audit ─────────────────────────────────────────────────
   rpc WriteAuditLog(AuditRecord) returns (Status);
   rpc QueryAuditLog(QueryAuditLogRequest) returns (QueryAuditLogResponse);
@@ -135,45 +130,16 @@ message SubscribeEventsRequest {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// Approval RPCs
+// Chat RPCs
 // ═══════════════════════════════════════════════════════════════
-
-message RequestApprovalRequest {
-  string capability_id = 1;
-  string tool_name = 2;
-  string requested_action = 3;
-  string human_readable_summary = 4;
-  string risk_explanation = 5;
-  string payload_preview = 6;
-  SafetyLevel safety_level = 7;
-  string caller = 8;
-}
-
-message ResolveApprovalRequest {
-  string approval_id = 1;
-  ApprovalType approved_type = 2;   // Set if approving
-  bool rejected = 3;                // True = reject
-  bool global_reject = 4;           // True = reject for every surface
-  string surface_id = 5;
-  string user = 6;
-  string reason = 7;
-  AndroidAuth auth = 8;             // Android direct RPC auth (optional for non-Android callers)
-}
-
-message ResolveApprovalResponse {
-  Status status = 1;
-  string approval_id = 2;
-}
-
-message ListPendingApprovalsRequest {
-  string server_id = 1;             // Optional filter
-  AndroidAuth auth = 2;             // Android direct RPC auth (optional for non-Android callers)
-}
-
-message ListPendingApprovalsResponse {
-  Status status = 1;
-  repeated ApprovalRequest approvals = 2;
-}
+//
+// The Approval RPCs (RequestApproval / ResolveApproval /
+// ListPendingApprovals) and their five messages were deleted on 2026-09-28.
+// They implemented the pending-approval queue: a request that blocked
+// execution until a human resolved it. AEGIS no longer forces that wait — it
+// may still *ask* the user a question (see `aegis_ai.confirmation` and the
+// Android approval overlay), but the answer informs the next step instead of
+// unblocking a queue.
 
 message ChatRequest {
   string conversation_id = 1;
@@ -187,8 +153,10 @@ message ChatResponse {
   Status status = 1;
   string conversation_id = 2;
   string response = 3;
-  bool approval_needed = 4;
-  string approval_id = 5;
+  // 4 and 5 were `approval_needed` / `approval_id` — the "this reply is
+  // blocked, go resolve the approval" signal. Removed with the forced gate.
+  reserved 4, 5;
+  reserved "approval_needed", "approval_id";
   string tool_results_json = 6;
 }
 

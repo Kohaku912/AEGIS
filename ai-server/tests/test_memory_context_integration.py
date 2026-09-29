@@ -285,6 +285,62 @@ def test_browser_executor_summary_uses_summary_memory_profile(monkeypatch) -> No
     assert llm.calls[0]["context_meta"] == {"memory_profile": "summary"}
 
 
+def test_browser_executor_prefers_structured_url_over_text(monkeypatch) -> None:
+    seen: dict[str, str] = {}
+
+    async def fake_playwright(self, task: str, *, target_url: str = ""):
+        seen["task"] = task
+        seen["url"] = target_url
+        return SimpleNamespace(
+            success=True,
+            task_description=task,
+            result_text="ok",
+            extracted_data={},
+            actions_taken=[],
+            error="",
+            duration_ms=0.0,
+        )
+
+    monkeypatch.setattr(BrowserUseTaskExecutor, "_execute_with_playwright", fake_playwright)
+
+    executor = BrowserUseTaskExecutor()
+    result = executor.execute(
+        {"task": "Open the dashboard page", "url": "https://example.com/dashboard"},
+        context={"notes": "inspect widgets"},
+    )
+
+    assert result.success is True
+    assert seen["url"] == "https://example.com/dashboard"
+    assert "inspect widgets" in seen["task"]
+
+
+def test_browser_executor_explicit_url_overrides_regex_fallback(monkeypatch) -> None:
+    seen: dict[str, str] = {}
+
+    async def fake_playwright(self, task: str, *, target_url: str = ""):
+        seen["url"] = target_url
+        return SimpleNamespace(
+            success=True,
+            task_description=task,
+            result_text="ok",
+            extracted_data={},
+            actions_taken=[],
+            error="",
+            duration_ms=0.0,
+        )
+
+    monkeypatch.setattr(BrowserUseTaskExecutor, "_execute_with_playwright", fake_playwright)
+
+    executor = BrowserUseTaskExecutor()
+    result = executor.execute(
+        "Go to https://wrong.example.com and inspect it",
+        url="https://right.example.com",
+    )
+
+    assert result.success is True
+    assert seen["url"] == "https://right.example.com"
+
+
 def test_openai_provider_returns_error_when_vision_is_unsupported(monkeypatch) -> None:
     provider = OpenAIProvider(
         model="deepseek-chat",

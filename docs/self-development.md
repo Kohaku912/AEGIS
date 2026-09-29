@@ -1,5 +1,11 @@
 # Self-Development — Architecture & Design
 
+> ⚠️ **Goal change (2026-09-27)**: the only constraint is now **"the user's information must never
+> leave the local environment."** Approval, reversibility, policy, and reliability-proof are **no
+> longer constraints**. Any "requires approval" / "Level 2" language below is a **risk annotation**,
+> not a gate. See [`GOAL-CHANGE.md`](GOAL-CHANGE.md).
+
+
 > **Status**: Implemented — desire-driven autonomous loop with learning pipeline
 > **Related**: `docs/architecture.md`, `docs/memory.md`, `docs/mind-layer.md`
 
@@ -13,6 +19,20 @@ reusable skills.
 **Main merge is always user-only.**
 
 ## Architecture
+
+> ⚠️ **Measured discrepancy (2026-09-29, B-3)**: this diagram is **not what runs**. Nothing
+> imports `AutonomousController` — not from the package, not from `src/`, not from `tests/`.
+> `runtime.py` (`_create_autonomous_loop`) builds **`AutonomousLoop` directly** and starts it
+> from `start_autonomous_if_enabled`, so the loop is the entry point and the controller is a
+> second, unreachable path. Whether the diagram is the *intent* (→ wire the controller) or a
+> stale description (→ delete it) is an **open owner decision**; either change turns
+> `ai-server/tests/test_autonomous_execution_path_is_single.py` red. The diagram is left as
+> written because the answer is not a measurement question.
+>
+> The same note applies to `MotivationArbiter` below: it is imported *only* by
+> `AutonomousController`, so it is unreachable for the same reason — and nothing in the
+> repository ever constructs an `ExternalTask`, so its user / scheduled / event branches have
+> never executed.
 
 ```
 ┌─────────────────────────────────────────────────────────┐
@@ -142,6 +162,10 @@ and DesireActionEvaluator into a single `tick()` cycle.
 
 Safety: `tick(dry_run=True)` returns decision without executing.
 Single task per tick — no batch execution.
+
+> ⚠️ **Measured (2026-09-29, B-3)**: this class is **implemented but never constructed** —
+> zero importers anywhere in the repository. The description above is therefore a
+> description of code that does not run. See the note under [Architecture](#architecture).
 
 ## Learning Pipeline
 

@@ -327,8 +327,6 @@ class MainActivity : ComponentActivity() {
                                 conversationId = reply.conversationId.ifBlank { conversationId }
                                 if (!reply.ok) {
                                     transientMessages.add(ChatMessage("AEGIS", "Error: ${reply.error}"))
-                                } else if (reply.approvalNeeded) {
-                                    transientMessages.add(ChatMessage("AEGIS", "Approval required: ${reply.approvalId}"))
                                 }
                                 sending = false
                             }
@@ -482,14 +480,14 @@ class MainActivity : ComponentActivity() {
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Header("ACTION BAY", "Approvals and direct controls")
+            Header("ACTION BAY", "Confirmations and direct controls")
             CyberPanel(accent = AegisRed) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                     Button(
                         colors = ButtonDefaults.buttonColors(containerColor = AegisPurple, contentColor = Color.White),
                         onClick = { scope.launch { approvals = client.listPendingApprovals() } },
                     ) {
-                        Text("Refresh approvals")
+                        Text("Refresh confirmations")
                     }
                     Button(
                         colors = ButtonDefaults.buttonColors(containerColor = AegisRed, contentColor = Color.White),
@@ -505,10 +503,10 @@ class MainActivity : ComponentActivity() {
                 }
             }
             CyberPanel(accent = AegisCyan) {
-                Text("Pending approvals", style = MaterialTheme.typography.titleMedium, color = AegisText, fontWeight = FontWeight.Bold)
+                Text("Open confirmations", style = MaterialTheme.typography.titleMedium, color = AegisText, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.height(8.dp))
                 if (approvals.isEmpty()) {
-                    Text("No pending approvals.", color = AegisMuted)
+                    Text("Nothing to confirm.", color = AegisMuted)
                 } else {
                     approvals.forEach { approval ->
                         ApprovalCard(approval, client) {

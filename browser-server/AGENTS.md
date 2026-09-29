@@ -20,9 +20,11 @@ The Browser Server handles **web browsing** for AEGIS using browser-use:
 ```
 browser-server/
 ├── src/aegis_browser/
+│   ├── __init__.py
 │   ├── main.py           # HTTP server entry point
 │   ├── browser_use_agent.py  # browser-use integration with DeepSeek compatibility
 │   ├── config.py         # Configuration
+│   ├── egress.py         # Egress gate — the single constraint, enforced locally
 │   ├── safety.py         # Capability registry / blocked actions
 │   ├── safety_boundary.py # Domain and content safety checks
 │   ├── session.py        # Session/profile persistence
@@ -30,9 +32,18 @@ browser-server/
 │   ├── trace.py          # Execution tracing
 │   ├── logging.py        # Redacting logging setup
 │   └── redaction.py      # String/header redaction helpers
+├── tests/                # conftest, test_browser_use_agent, test_egress, test_redaction
 ├── config.json           # LLM API key configuration
+├── pyproject.toml
+├── uv.lock
+├── Dockerfile
 └── AGENTS.md
 ```
+
+> ⚠️ `egress.py` is a **standalone duplicate** of
+> `ai-server/src/aegis_ai/egress/gate.py`, not an import of it: `aegis-browser-server` is a separate
+> distribution that does not depend on `aegis_ai`. The semantics are meant to be identical — see
+> `docs/egress-gate.md`. **If you change one, change the other.**
 
 ## Key Components
 
@@ -77,9 +88,13 @@ The runtime is HTTP-first; proto definitions exist for the shared contract, but 
 
 Capabilities are split by operation. Read-only operations include `browser-server.search.query`,
 `browser-server.page.read`, and `browser-server.page.summarize`. Side-effect operations such as
-`browser-server.form.submit`, `browser-server.file.upload`, and `browser-server.social.post` require
-approval through the AI Server manifests. The legacy `browser-server.page.browse` endpoint is a
-compatibility path and is approval-required.
+`browser-server.form.submit`, `browser-server.file.upload`, and `browser-server.social.post` are
+marked `audited_action` in their AI Server manifests and are recorded for post-hoc review. **No
+browser manifest sets `requires_approval: true`** — the goal change (2026-09-27) removed the gate that
+*forced* a confirmation before a capability could run. AEGIS may still *voluntarily* ask the user to
+confirm a consequential step; that prompt travels over the Android reverse stream and is not a
+precondition enforced here. The legacy `browser-server.page.browse` endpoint is a compatibility path
+with the same `audited_action` marking.
 
 Accepts natural language task descriptions and executes them using browser-use.
 

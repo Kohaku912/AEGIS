@@ -1,4 +1,4 @@
-﻿import { isUiActivityNoise } from "./activityNoise";
+import { isUiActivityNoise } from "./activityNoise";
 import type { ApprovalItem, AttentionItem, DisplayDirectorItem, DisplayDirectorState, ServerItem, UiEvent, UiOverview, VisualEvent } from "./types";
 
 export const CORE_SERVER_IDS = ["ai-server", "pc-server", "android-server", "browser-server", "room-server", "dev-server"] as const;
@@ -503,11 +503,212 @@ function priorityRank(priority: string): number {
   return { P0: 0, P1: 1, P2: 2, P3: 3 }[priority as "P0" | "P1" | "P2" | "P3"] ?? 4;
 }
 
+/**
+ * Live Overlay 用の優先順位 (instruction.md §20).
+ *
+ * Live Overlay は画面下部に固定表示される「最重要 1 イベント」枠。
+ * Approval > Error > Tool > Thinking > Progress の順で優先する。
+ *
+ * 戻り値: 0 が最優先。値が大きいほど優先度低い。
+ */
+export function liveOverlayPriority(event: UiEvent): number {
+  const type = (event.type || event.source_type || "").toLowerCase();
+  const severity = String(event.severity || "").toLowerCase();
+  const ok = event.payload?.ok;
+  if (type === "approval.created" || type === "approval.pending") return 0;
+  if (type.startsWith("agent.failed") || type === "tool.execution.failed" || severity === "critical" || type.endsWith(".failed")) return 1;
+  if (type === "agent.waiting" || type === "agent.verifying") return 2;
+  if (type === "agent.tool.started" || type === "tool.execution.started") return 3;
+  if (type === "agent.tool.completed" || type === "tool.execution.completed") {
+    return ok === false ? 1 : 4;
+  }
+  if (type === "agent.thinking" || type === "agent.started") return 5;
+  if (type === "agent.completed") return 6;
+  if (type === "approval.resolved" || type === "approval.approved") return 7;
+  if (type === "activity.updated" || type === "task.updated") return 8;
+  return 9;
+}
+
+/**
+ * Live Overlay に表示する「最重要 1 イベント」を選ぶ (instruction.md §3, §20).
+ *
+ * - 優先度 (liveOverlayPriority) が小さい方が優先
+ * - 同じ優先度なら generated_at の新しい方が優先
+ * - 該当なしは undefined
+ */
+export function pickLiveOverlayEvent(events: UiEvent[]): UiEvent | undefined {
+  let best: UiEvent | undefined;
+  let bestPriority = Number.POSITIVE_INFINITY;
+  for (const event of events) {
+    if (isUiActivityNoise(event)) continue;
+    const priority = liveOverlayPriority(event);
+    const ts = event.generated_at || event.source_updated_at || 0;
+    const bestTs = best ? (best.generated_at || best.source_updated_at || 0) : 0;
+    if (priority < bestPriority || (priority === bestPriority && ts >= bestTs)) {
+      best = event;
+      bestPriority = priority;
+    }
+  }
+  return best;
+}
+
+function asPlainRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+export type EventTraceIds = {
+  agent_session_id: string;
+  trace_id: string;
+  parent_id: string;
+  activity_id: string;
+};
+
+export function eventTraceIds(event: { payload?: Record<string, unknown> } | Record<string, unknown>): EventTraceIds {
+  const payload = "payload" in event ? asPlainRecord(event.payload) : asPlainRecord(event);
+  const trace = asPlainRecord(payload._trace_ids);
+  return {
+    agent_session_id: String(trace.agent_session_id || payload.agent_session_id || "").trim(),
+    trace_id: String(trace.trace_id || payload.trace_id || "").trim(),
+    parent_id: String(trace.parent_id || payload.parent_id || "").trim(),
+    activity_id: String(trace.activity_id || payload.activity_id || "").trim(),
+  };
+}
+
+/**
+ * UiEvent から agent_session_id を抽出する (Phase D8 / instruction.md §19, §20).
+ *
+ * 優先順位: `payload._trace_ids.agent_session_id` → `payload.agent_session_id` → "" (unassigned)
+ */
+export function eventAgentSessionId(event: UiEvent): string {
+  return eventTraceIds(event).agent_session_id;
+}
+
+/**
+ * Live Overlay に表示する「最重要 1 イベント」を agent_session_id 単位で選んで返す
+ * (Phase D8 / instruction.md §19, §20).
+ *
+ * - agent_session_id 単位で group 化
+ * - 各 agent_session 内で「最新 + 最高優先度」を 1 個選ぶ
+ * - 全 agent_session の中で「agent_session の最重要 event の優先度 + 最新」を比較し
+ *   最優先の agent_session を 1 つ選ぶ
+ * - agent_session_id がない event は "(unassigned)" として 1 つの group にまとめる
+ *   (unassigned は優先度比較では個別 agent_session と同列)
+ */
+export function pickLiveOverlayEventForAgent(events: UiEvent[]): UiEvent | undefined {
+  if (!events.length) return undefined;
+  // agent_session_id 単位に group 化
+  const groups = new Map<string, UiEvent[]>();
+  for (const event of events) {
+    if (isUiActivityNoise(event)) continue;
+    const sid = eventAgentSessionId(event) || "(unassigned)";
+    const list = groups.get(sid) || [];
+    list.push(event);
+    groups.set(sid, list);
+  }
+  if (!groups.size) return undefined;
+  // 各 session 内で最重要 event を選ぶ
+  const representatives: UiEvent[] = [];
+  for (const list of groups.values()) {
+    const representative = pickLiveOverlayEvent(list);
+    if (representative) representatives.push(representative);
+  }
+  // session 間で比較 (agent_session 内の最重要 event の優先度 + 最新で)
+  return pickLiveOverlayEvent(representatives);
+}
+
 function normalizeVisualEffect(effect: unknown): VisualEvent["effect"] | "" {
   const value = String(effect || "");
   return ["pulse", "complete", "fracture", "containment", "containment-resolved", "disconnect", "recovery"].includes(value)
     ? (value as VisualEvent["effect"])
     : "";
+}
+
+export type TokenUsageSummary = {
+  model: string;
+  input_tokens: number;
+  output_tokens: number;
+  cached_tokens: number;
+  estimated_cost_usd: number;
+  event_count: number;
+};
+
+/**
+ * 複数 event の payload から Token / Cost 情報を集計する
+ * (Phase D9 / instruction.md §25).
+ *
+ * 対応する payload 形状 (優先順):
+ * - `payload.token_usage = { input_tokens, output_tokens, cached_tokens, model, estimated_cost_usd }` オブジェクト
+ * - `payload.input_tokens` / `payload.output_tokens` / `payload.cached_tokens` / `payload.cost` / `payload.model` 直下の scalar 値
+ * - `payload.usage = { prompt_tokens, completion_tokens, ... }` (OpenAI 互換形式)
+ *
+ * 戻り値: 集計結果 (event_count は token 情報を含んだ event 数)。
+ * 何もなければ zero summary を返す。
+ */
+export function summarizeTokenUsage(events: UiEvent[]): TokenUsageSummary {
+  const summary: TokenUsageSummary = {
+    model: "",
+    input_tokens: 0,
+    output_tokens: 0,
+    cached_tokens: 0,
+    estimated_cost_usd: 0,
+    event_count: 0,
+  };
+  for (const event of events) {
+    const payload = event.payload || {};
+    // パターン 3: payload.usage (OpenAI 互換: { prompt_tokens, completion_tokens, ... })
+    const usage = asRecord(payload.usage);
+    // パターン 1: payload.token_usage オブジェクト
+    const tokenUsage = asRecord(payload.token_usage);
+    // パターン 2: payload 直下
+    const input = Number(
+      tokenUsage.input_tokens
+      ?? tokenUsage.prompt_tokens
+      ?? payload.input_tokens
+      ?? payload.prompt_tokens
+      ?? usage.prompt_tokens
+      ?? 0,
+    );
+    const output = Number(
+      tokenUsage.output_tokens
+      ?? tokenUsage.completion_tokens
+      ?? payload.output_tokens
+      ?? payload.completion_tokens
+      ?? usage.completion_tokens
+      ?? 0,
+    );
+    const cached = Number(
+      tokenUsage.cached_tokens
+      ?? tokenUsage.cache_read_input_tokens
+      ?? payload.cached_tokens
+      ?? payload.cache_read_input_tokens
+      ?? usage.cache_read_input_tokens
+      ?? 0,
+    );
+    const cost = Number(
+      tokenUsage.estimated_cost_usd
+      ?? tokenUsage.cost
+      ?? payload.estimated_cost_usd
+      ?? payload.cost
+      ?? 0,
+    );
+    const model = String(
+      tokenUsage.model
+      ?? payload.model
+      ?? usage.model
+      ?? "",
+    );
+    if (input > 0 || output > 0 || cached > 0 || cost > 0 || model) {
+      summary.input_tokens += input;
+      summary.output_tokens += output;
+      summary.cached_tokens += cached;
+      summary.estimated_cost_usd += cost;
+      if (!summary.model && model) summary.model = model;
+      summary.event_count += 1;
+    }
+  }
+  return summary;
 }
 
 function normalizeApprovalStatus(item: ApprovalItem): string {

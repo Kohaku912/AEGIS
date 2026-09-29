@@ -47,6 +47,29 @@ def test_publish_feeds_pdc_even_when_deduped(tmp_path: Path) -> None:
     assert seen == ["android.ui.tapped", "android.ui.tapped"]
 
 
+def test_persisted_event_uses_same_relation_keys_as_journal(tmp_path: Path) -> None:
+    bus = EventBus(dedup_window_ms=60_000)
+    em = EventManager(event_bus=bus, data_dir=str(tmp_path / "events"), persist_important=True)
+    event = Event(
+        event_id="evt_relation1",
+        event_type="task.created",
+        source_server_type=ServerType.AI,
+        source_server_id="ai-server",
+        timestamp_ms=10,
+        payload_json='{"task_id":"task-123","title":"demo"}',
+        priority=EventPriority.NORMAL,
+        correlation_id="",
+    )
+
+    assert em.publish(event) is True
+
+    recent = em.list_recent(limit=10)["events"]
+    assert recent
+    persisted = recent[-1]
+    assert persisted["aggregate_id"] == "task-123"
+    assert persisted["correlation_id"] == "task-123"
+
+
 if __name__ == "__main__":
     import tempfile
 

@@ -20,7 +20,6 @@ Usage:
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 import time
@@ -28,6 +27,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 from typing import Any
+
+from aegis_ai.memory.retrieval_scoring import combined_text_score
 
 logger = logging.getLogger("aegis_ai.memory.action_trace")
 
@@ -295,20 +296,50 @@ class ActionTraceMemory:
             key=lambda t: t.started_at_ms,
         )[:max_count]
 
+    def _score_trace(self, goal: str, trace: ActionTrace) -> float:
+        step_text = " ".join(
+            " ".join(
+                filter(
+                    None,
+                    [
+                        step.description,
+                        step.tool_call,
+                        step.tool_result[:120],
+                        step.error[:120],
+                    ],
+                )
+            )
+            for step in trace.steps
+        )
+        score = combined_text_score(
+            goal,
+            texts=[
+                trace.goal,
+                trace.context,
+                trace.plan_description,
+                trace.result_summary,
+                trace.failure_reason,
+                trace.verification_result,
+                trace.user_feedback,
+                " ".join(trace.tags),
+                step_text,
+            ],
+            importance=max(trace.difficulty, 0.0) * 0.2 + (0.6 if trace.success else 0.3),
+            confidence=max(trace.success_rate, 0.1),
+            timestamp_ms=trace.completed_at_ms or trace.started_at_ms,
+        )
+        if score <= 0:
+            return 0.0
+        return score + (0.25 if trace.success else 0.0)
+
     def search_similar(self, goal: str, count: int = 5) -> list[ActionTrace]:
         """Search for traces with similar goals."""
-        goal_words = set(goal.lower().split())
         scored: list[tuple[float, ActionTrace]] = []
         for trace in self._traces.values():
             if trace.status == TraceStatus.RUNNING:
                 continue
-            trace_words = set(trace.goal.lower().split())
-            overlap = len(goal_words & trace_words)
-            if overlap > 0:
-                score = overlap / max(len(goal_words | trace_words), 1)
-                # Boost successful traces
-                if trace.success:
-                    score *= 1.5
+            score = self._score_trace(goal, trace)
+            if score > 0.2:
                 scored.append((score, trace))
         scored.sort(key=lambda x: x[0], reverse=True)
         return [t for _, t in scored[:count]]

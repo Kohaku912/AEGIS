@@ -18,6 +18,8 @@ import os
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
+
+from aegis_ai.memory.retrieval_scoring import combined_text_score
 from typing import Any
 
 logger = logging.getLogger("aegis_ai.memory.semantic_memory")
@@ -145,19 +147,26 @@ class SemanticMemory:
 
     def search(self, query: str, category: str | None = None, limit: int = 10) -> list[SemanticEntry]:
         """Search semantic entries."""
-        q = query.lower()
-        results = []
+        results: list[tuple[float, SemanticEntry]] = []
         for entry in self._entries.values():
             if not entry.active:
                 continue
-            text = f"{entry.content} {' '.join(entry.tags)}".lower()
-            if q in text:
-                if category is None or entry.category == category:
-                    entry.access_count += 1
-                    entry.last_accessed_ms = int(time.time() * 1000)
-                    results.append(entry)
-        results.sort(key=lambda e: e.importance, reverse=True)
-        return results[:limit]
+            if category is not None and entry.category != category:
+                continue
+            score = combined_text_score(
+                query,
+                texts=[entry.content, " ".join(entry.tags), entry.category, entry.source],
+                importance=entry.importance,
+                confidence=entry.confidence,
+                timestamp_ms=int(entry.updated_at_ms or entry.created_at_ms or 0),
+            )
+            if score <= 0:
+                continue
+            entry.access_count += 1
+            entry.last_accessed_ms = int(time.time() * 1000)
+            results.append((score, entry))
+        results.sort(key=lambda item: item[0], reverse=True)
+        return [entry for _, entry in results[:limit]]
 
     def get_by_category(self, category: str) -> list[SemanticEntry]:
         """Get all active entries in a category."""

@@ -7,10 +7,11 @@ same LLM router, tool broker, policy engine, event bus, registry, and audit log.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 import threading
-import time
+from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -44,9 +45,6 @@ class AegisRuntime:
     capability_catalog: CapabilityCatalog
     capability_index: CapabilityIndex
     capability_retriever: CapabilityRetriever
-    approval_store: Any
-    approval_queue: Any
-    approval_manager: Any
     policy_engine: Any
     server_executor: Any
     tool_broker: Any
@@ -70,6 +68,7 @@ class AegisRuntime:
     android_manager: Any = None
     user_state_manager: Any = None
     user_model_store: Any = None
+    user_understanding_service: Any = None
     hook_engine: Any = None
     commitment_manager: Any = None
     situation_model: Any = None
@@ -90,7 +89,25 @@ class AegisRuntime:
     goal_service: Any = None
     saved_view_manager: Any = None
     operation_store: Any = None
+    # Phase 5a: AEGIS-initiated confirmations. Holds the questions AEGIS chose to ask
+    # the user and the answers it received. Nothing in the execution path consults it,
+    # so it can never block a capability — see `aegis_ai.confirmation`.
+    confirmation_store: Any = None
     personal_data_core: Any = None
+    l1_router: Any = None
+    l1_executor: Any = None
+    l2_mind: Any = None
+    l3_reasoner: Any = None
+    # Phase 1 (instruction.md §36): injected by _build_runtime when
+    # `settings.agents.enabled=True`. None means the agent runtime is disabled
+    # and any capability with `requires_feature: "agents"` is hidden from the
+    # LLM-facing capability list.
+    agent_backend: Any = None
+    # Phase 5 (instruction.md §36): loaded from `config/agent_profiles.yaml`.
+    # Always present; empty registry when YAML is missing.
+    agent_profiles: Any = None
+    # Phase 5 (instruction.md §36): Profile selection (heuristic + explicit).
+    agent_router: Any = None
     _lock: threading.RLock | None = None
 
     def start_autonomous_if_enabled(self) -> None:
@@ -105,8 +122,36 @@ class AegisRuntime:
                 self.autonomous_loop = _create_autonomous_loop(self)
             self.autonomous_loop.start()
 
+    def set_agent_backend(self, backend: Any) -> None:
+        """Phase 2: Swap the active AgentBackend at runtime.
+
+        Local → OpenHands (or any registered backend) への切り替えに使う。
+        同じ `AgentBackend` Protocol を満たすなら何でもいい。
+        `None` を渡すと Phase 1 と同じく backend なし (agents.enabled=false
+        相当) に戻る。
+        """
+        lock = self._lock or threading.RLock()
+        with lock:
+            previous = getattr(self, "agent_backend", None)
+            self.agent_backend = backend
+            logger.info(
+                "agent_backend swapped: %s -> %s",
+                getattr(previous, "name", type(previous).__name__ if previous else "None"),
+                getattr(backend, "name", type(backend).__name__ if backend else "None"),
+            )
+
+    def get_agent_backend(self) -> Any:
+        """現在アクティブな backend を返す (Phase 5 の AgentRouter からも利用)."""
+        return getattr(self, "agent_backend", None)
+
     def stop(self) -> None:
         """Stop owned background runtime components."""
+        l1_subscription = getattr(self, "_l1_event_subscription", "")
+        if l1_subscription and self.event_manager is not None:
+            try:
+                self.event_manager.unsubscribe(l1_subscription)
+            except Exception:
+                logger.debug("Failed to unsubscribe L1 event handler", exc_info=True)
         subscription = getattr(self, "_initiative_event_subscription", "")
         if subscription and self.event_manager is not None:
             try:
@@ -119,6 +164,18 @@ class AegisRuntime:
                 loop.stop()
             except Exception:
                 logger.debug("Failed to stop autonomous loop", exc_info=True)
+        status_manager = getattr(self, "status_manager", None)
+        if status_manager is not None and hasattr(status_manager, "stop_background_checks"):
+            # ``_build_runtime`` starts this thread, so ``stop`` has to stop it.
+            # It is not an idle poller: it re-resolves pc-server/room-server with
+            # ``allow_lan_scan=True``, so it probes the LAN and writes the result into
+            # the endpoint resolver's process-global cache. While this was missing,
+            # the daemon outlived the runtime for the rest of the process and
+            # corrupted unrelated tests that assert on that cache.
+            try:
+                status_manager.stop_background_checks()
+            except Exception:
+                logger.debug("Failed to stop status manager background checks", exc_info=True)
         hook_engine = self.hook_engine
         if hook_engine is not None:
             try:
@@ -160,18 +217,6 @@ class AegisRuntime:
         warnings.warn("Direct event_bus access is deprecated. Use event_manager instead.", DeprecationWarning, stacklevel=2)
         return self.event_bus
 
-    @property
-    def _legacy_approval_store(self) -> Any:
-        import warnings
-        warnings.warn("Direct approval_store access is deprecated. Use approval_manager instead.", DeprecationWarning, stacklevel=2)
-        return self.approval_store
-
-    @property
-    def _legacy_approval_queue(self) -> Any:
-        import warnings
-        warnings.warn("Direct approval_queue access is deprecated. Use approval_manager instead.", DeprecationWarning, stacklevel=2)
-        return self.approval_queue
-
 
 _RUNTIME: AegisRuntime | None = None
 _RUNTIME_LOCK = threading.RLock()
@@ -200,15 +245,575 @@ def reset_runtime_for_tests() -> None:
         _RUNTIME = None
 
 
+def _load_runtime_env(base_dir: Path) -> None:
+    """Load repo-local environment variables before providers initialize."""
+    try:
+        from dotenv import load_dotenv
+    except ImportError:
+        return
+    for env_path in (base_dir.parent / ".env", base_dir / ".env"):
+        if env_path.exists():
+            load_dotenv(env_path, override=False)
+
+
+def _llm_profile_allows_missing_api_key(settings: Any) -> bool:
+    base_url = str(getattr(settings, "base_url", "") or "")
+    return "localhost:11434" in base_url or "127.0.0.1:11434" in base_url
+
+
+def _audit_llm_profile_health(audit_log: Any, settings_resolver: Any) -> list[dict[str, Any]]:
+    """Record misconfigured LLM profiles so silent outages are visible at startup."""
+    issues: list[dict[str, Any]] = []
+    for profile_id in getattr(settings_resolver, "list_profile_ids", lambda: [])():
+        try:
+            settings = settings_resolver.resolve(profile_id=profile_id)
+        except Exception as exc:
+            issues.append(
+                {
+                    "profile_id": profile_id,
+                    "error": str(exc),
+                    "issue": "profile_resolution_failed",
+                }
+            )
+            continue
+        api_key_env = str(getattr(settings, "api_key_env", "") or "")
+        if not api_key_env or _llm_profile_allows_missing_api_key(settings):
+            continue
+        if os.getenv(api_key_env, ""):
+            continue
+        issues.append(
+            {
+                "profile_id": profile_id,
+                "provider": str(getattr(settings, "provider", "") or ""),
+                "model": str(getattr(settings, "model", "") or ""),
+                "api_key_env": api_key_env,
+                "base_url": str(getattr(settings, "base_url", "") or ""),
+                "issue": "missing_api_key",
+            }
+        )
+
+    for issue in issues:
+        logger.error(
+            "LLM profile health issue: profile=%s issue=%s env=%s provider=%s model=%s",
+            issue.get("profile_id", ""),
+            issue.get("issue", ""),
+            issue.get("api_key_env", ""),
+            issue.get("provider", ""),
+            issue.get("model", ""),
+        )
+        try:
+            if audit_log is not None and hasattr(audit_log, "log_decision"):
+                audit_log.log_decision(
+                    "llm_profile_health",
+                    "llm.profile_health",
+                    "FAILED",
+                    reason=f"profile={issue.get('profile_id', '')}",
+                    actor="runtime",
+                    detail=issue,
+                )
+        except Exception:
+            logger.debug("Failed to audit LLM profile health issue", exc_info=True)
+    return issues
+
+
+def _parse_event_payload_for_l1(event: Any) -> dict[str, Any]:
+    payload_json = str(getattr(event, "payload_json", "") or "{}")
+    try:
+        payload = json.loads(payload_json)
+    except Exception:
+        payload = {}
+    if not isinstance(payload, dict):
+        payload = {"value": payload}
+    payload.setdefault("type", str(getattr(event, "event_type", "") or ""))
+    payload.setdefault("event_id", str(getattr(event, "event_id", "") or ""))
+    payload.setdefault("source", str(getattr(event, "source_server_id", "") or ""))
+    source_type = getattr(event, "source_server_type", "")
+    payload.setdefault("source_type", getattr(source_type, "name", str(source_type or "")).lower())
+    return payload
+
+
+def _l1_observation_payload(event: Any, observation: Any) -> dict[str, Any]:
+    return {
+        "event_id": str(getattr(observation, "event_id", "") or getattr(event, "event_id", "")),
+        "original_event_type": str(getattr(event, "event_type", "") or ""),
+        "meaning": str(getattr(observation, "meaning", "") or ""),
+        "value": float(getattr(observation, "value", 0.0) or 0.0),
+        "priority": float(getattr(observation, "priority", 0.0) or 0.0),
+        "required_intelligence": str(getattr(getattr(observation, "required_intelligence", ""), "value", getattr(observation, "required_intelligence", "low"))),
+        "confidence": float(getattr(observation, "confidence", 0.0) or 0.0),
+        "raw": dict(getattr(observation, "raw", {}) or {}),
+        "occurred_at_ms": int(getattr(event, "timestamp_ms", 0) or 0),
+        "layer": "L1",
+    }
+
+
+def _l1_decision_payload(event: Any, decision: Any) -> dict[str, Any]:
+    action = getattr(decision, "action", None)
+    return {
+        "event_id": str(getattr(decision, "event_id", "") or getattr(event, "event_id", "")),
+        "original_event_type": str(getattr(event, "event_type", "") or ""),
+        "action_type": str(getattr(getattr(action, "type", ""), "value", getattr(action, "type", "noop"))),
+        "capability_id": str(getattr(action, "capability_id", "") or ""),
+        "args": dict(getattr(action, "args", {}) or {}),
+        "action_reason": str(getattr(action, "reason", "") or ""),
+        "reasoning": str(getattr(decision, "reasoning", "") or ""),
+        "occurred_at_ms": int(getattr(event, "timestamp_ms", 0) or 0),
+        "layer": "L1",
+    }
+
+
+def _append_recent_l1_summary(runtime: Any, event: Any, observation: Any, decision: Any) -> None:
+    recent = getattr(runtime, "_recent_l1_summaries", None)
+    if recent is None:
+        recent = deque(maxlen=50)
+        runtime._recent_l1_summaries = recent
+    recent.append(
+        {
+            "event_id": str(getattr(observation, "event_id", "") or getattr(event, "event_id", "")),
+            "event_type": str(getattr(event, "event_type", "") or ""),
+            "meaning": str(getattr(observation, "meaning", "") or ""),
+            "value": float(getattr(observation, "value", 0.0) or 0.0),
+            "priority": float(getattr(observation, "priority", 0.0) or 0.0),
+            "required_intelligence": str(getattr(getattr(observation, "required_intelligence", ""), "value", getattr(observation, "required_intelligence", "low"))),
+            "confidence": float(getattr(observation, "confidence", 0.0) or 0.0),
+            "action_type": str(getattr(getattr(getattr(decision, "action", None), "type", ""), "value", getattr(getattr(decision, "action", None), "type", "noop"))),
+            "summary_bucket": str(getattr(observation, "raw", {}).get("summary_bucket", "background") or "background"),
+            "observed_action": str(getattr(observation, "raw", {}).get("observed_action", "") or ""),
+            "possible_intent": str(getattr(observation, "raw", {}).get("possible_intent", "") or ""),
+            "occurred_at_ms": int(getattr(event, "timestamp_ms", 0) or 0),
+        }
+    )
+
+
+def _get_recent_l1_summaries(runtime: Any, *, limit: int = 10) -> list[dict[str, Any]]:
+    recent = getattr(runtime, "_recent_l1_summaries", None)
+    if recent is None:
+        return []
+    return list(recent)[-max(1, int(limit)) :]
+
+
+def _truncate_text(value: Any, *, limit: int = 160) -> str:
+    text = str(value or "").strip()
+    if len(text) <= limit:
+        return text
+    return text[: max(0, limit - 3)] + "..."
+
+
+def _compact_recent_l1_for_l1(runtime: Any, *, limit: int = 3) -> list[dict[str, Any]]:
+    items: list[dict[str, Any]] = []
+    for entry in _get_recent_l1_summaries(runtime, limit=limit):
+        if not isinstance(entry, dict):
+            continue
+        items.append(
+            {
+                "event_type": str(entry.get("event_type") or ""),
+                "summary_bucket": str(entry.get("summary_bucket") or "background"),
+                "meaning": _truncate_text(entry.get("meaning") or entry.get("observed_action"), limit=120),
+                "action_type": str(entry.get("action_type") or ""),
+                "priority": float(entry.get("priority") or 0.0),
+            }
+        )
+    return items
+
+
+def _compact_user_state_for_l1(runtime: Any) -> dict[str, Any]:
+    manager = getattr(runtime, "user_state_manager", None)
+    if manager is None or not hasattr(manager, "get_current_user_state"):
+        return {}
+    try:
+        state = dict(manager.get_current_user_state() or {})
+    except Exception:
+        logger.debug("Failed to load current user state for L1 capsule", exc_info=True)
+        return {}
+    attention = dict(state.get("attention") or {})
+    activity = dict(state.get("activity") or {})
+    return {
+        "attention_device": str(attention.get("device") or ""),
+        "attention_app": str(attention.get("app") or ""),
+        "current_activity": str(activity.get("label") or ""),
+        "activity_confidence": float(activity.get("confidence") or 0.0),
+    }
+
+
+def _compact_user_understanding_for_l1(runtime: Any, *, triggering_query: str = "") -> dict[str, Any]:
+    service = getattr(runtime, "user_understanding_service", None)
+    if service is None:
+        return {}
+    snapshot: dict[str, Any] = {}
+    if hasattr(service, "get_latest_snapshot"):
+        try:
+            snapshot = dict(service.get_latest_snapshot() or {})
+        except Exception:
+            logger.debug("Failed to read cached user understanding for L1 capsule", exc_info=True)
+    if not snapshot and hasattr(service, "build_snapshot"):
+        try:
+            built = service.build_snapshot(triggering_query)
+            if hasattr(built, "to_dict"):
+                snapshot = dict(built.to_dict())
+            elif isinstance(built, dict):
+                snapshot = dict(built)
+        except Exception:
+            logger.debug("Failed to build user understanding for L1 capsule", exc_info=True)
+            snapshot = {}
+    identity = dict(snapshot.get("identity_profile") or {})
+    constraints = dict(snapshot.get("constraints") or {})
+    likely_next = list(snapshot.get("likely_next_actions") or [])
+    deficits = list(snapshot.get("predicted_deficits") or [])
+    return {
+        "summary": _truncate_text(snapshot.get("summary"), limit=180),
+        "attention_device": str(identity.get("attention_device") or ""),
+        "current_activity": str(identity.get("current_activity") or ""),
+        "focus_mode": bool(constraints.get("focus_mode", False)),
+        "likely_next_actions": [
+            _truncate_text(item.get("title") or item.get("summary"), limit=100)
+            for item in likely_next[:2]
+            if isinstance(item, dict)
+        ],
+        "predicted_deficits": [
+            _truncate_text(item.get("title") or item.get("summary"), limit=100)
+            for item in deficits[:2]
+            if isinstance(item, dict)
+        ],
+    }
+
+
+def _compact_obligations_for_l1(runtime: Any, *, limit: int = 3) -> list[dict[str, Any]]:
+    items: list[dict[str, Any]] = []
+    for entry in _pending_l2_obligations(runtime, limit=limit):
+        if not isinstance(entry, dict):
+            continue
+        items.append(
+            {
+                "kind": str(entry.get("kind") or entry.get("type") or ""),
+                "summary": _truncate_text(
+                    entry.get("summary") or entry.get("title") or entry.get("content"),
+                    limit=120,
+                ),
+                "due_at_ms": int(entry.get("due_at_ms") or entry.get("deadline_ms") or 0),
+            }
+        )
+    return items
+
+
+def _compact_task_state_for_l1(runtime: Any, *, limit: int = 3) -> dict[str, Any]:
+    tasks = _list_open_task_state(runtime, limit=max(3, limit * 3))
+    items: list[dict[str, Any]] = []
+    for entry in tasks[:limit]:
+        if not isinstance(entry, dict):
+            continue
+        items.append(
+            {
+                "task_id": str(entry.get("task_id") or entry.get("id") or ""),
+                "status": str(entry.get("status") or ""),
+                "summary": _truncate_text(
+                    entry.get("title") or entry.get("summary") or entry.get("description"),
+                    limit=120,
+                ),
+            }
+        )
+    return {"active_task_count": len(tasks), "top_tasks": items}
+
+
+def _compact_recent_facts_for_l1(runtime: Any, *, limit: int = 3) -> list[dict[str, Any]]:
+    core = getattr(runtime, "personal_data_core", None)
+    if core is None or not hasattr(core, "recent_facts"):
+        return []
+    try:
+        facts = list(core.recent_facts(limit=max(1, int(limit))) or [])
+    except Exception:
+        logger.debug("Failed to read recent facts for L1 capsule", exc_info=True)
+        return []
+    items: list[dict[str, Any]] = []
+    for entry in facts[:limit]:
+        if not isinstance(entry, dict):
+            continue
+        items.append(
+            {
+                "statement": _truncate_text(entry.get("statement"), limit=120),
+                "confidence": float(entry.get("confidence") or 0.0),
+            }
+        )
+    return items
+
+
+def _compact_world_state_for_l1(runtime: Any) -> dict[str, Any]:
+    world: dict[str, Any] = {}
+    situation_model = getattr(runtime, "situation_model", None)
+    if situation_model is not None and hasattr(situation_model, "get_state"):
+        try:
+            situation = dict(situation_model.get_state() or {})
+            world["situation_state"] = str(situation.get("state") or "")
+            world["interruptibility"] = str(situation.get("interruptibility") or "")
+        except Exception:
+            logger.debug("Failed to read situation state for L1 capsule", exc_info=True)
+    status_manager = getattr(runtime, "status_manager", None)
+    if status_manager is not None and hasattr(status_manager, "get_snapshot"):
+        try:
+            snapshot = dict(status_manager.get_snapshot() or {})
+            degraded = [
+                server_id
+                for server_id, info in snapshot.items()
+                if str((info or {}).get("status") or "").lower()
+                not in {"online", "healthy", "ok", "disabled", "unconfigured"}
+            ]
+            world["degraded_server_count"] = len(degraded)
+            world["degraded_servers"] = degraded[:3]
+        except Exception:
+            logger.debug("Failed to read status snapshot for L1 capsule", exc_info=True)
+    return world
+
+
+def _build_l1_context_capsule(runtime: Any, event_payload: dict[str, Any]) -> dict[str, Any]:
+    trigger_hint = _truncate_text(
+        event_payload.get("message")
+        or event_payload.get("summary")
+        or event_payload.get("title")
+        or event_payload.get("activity")
+        or event_payload.get("type"),
+        limit=120,
+    )
+    return {
+        "user_state": _compact_user_state_for_l1(runtime),
+        "user_understanding": _compact_user_understanding_for_l1(
+            runtime,
+            triggering_query=trigger_hint,
+        ),
+        "world_state": _compact_world_state_for_l1(runtime),
+        "task_state": _compact_task_state_for_l1(runtime),
+        "pending_obligations": _compact_obligations_for_l1(runtime),
+        "recent_l1": _compact_recent_l1_for_l1(runtime),
+        "recent_facts": _compact_recent_facts_for_l1(runtime),
+    }
+
+
+def _list_open_task_state(runtime: Any, *, limit: int = 20) -> list[dict[str, Any]]:
+    task_manager = getattr(runtime, "task_manager", None)
+    if task_manager is None or not hasattr(task_manager, "list_tasks"):
+        return []
+    try:
+        tasks = task_manager.list_tasks(limit=max(1, int(limit)))
+    except Exception:
+        logger.debug("Failed to list task state for L2 context", exc_info=True)
+        return []
+    open_statuses = {"created", "running", "paused", "pending"}
+    return [
+        dict(task)
+        for task in tasks
+        if str(task.get("status") or "").lower() in open_statuses
+    ][: max(1, int(limit))]
+
+
+def _pending_l2_obligations(runtime: Any, *, limit: int = 12) -> list[dict[str, Any]]:
+    commitment_manager = getattr(runtime, "commitment_manager", None)
+    if commitment_manager is None or not hasattr(commitment_manager, "list_commitments"):
+        return []
+    try:
+        items = commitment_manager.list_commitments(status="open")
+    except Exception:
+        logger.debug("Failed to list commitments for L2 context", exc_info=True)
+        return []
+    if not isinstance(items, list):
+        return []
+    return [dict(item) for item in items[: max(1, int(limit))] if isinstance(item, dict)]
+
+
+def _recent_l2_failures(runtime: Any, *, limit: int = 8) -> list[str]:
+    task_manager = getattr(runtime, "task_manager", None)
+    if task_manager is None or not hasattr(task_manager, "list_open_incidents"):
+        return []
+    try:
+        incidents = task_manager.list_open_incidents(limit=max(1, int(limit)))
+    except Exception:
+        logger.debug("Failed to list open incidents for L2 context", exc_info=True)
+        return []
+    failures: list[str] = []
+    for incident in incidents[: max(1, int(limit))]:
+        if not isinstance(incident, dict):
+            continue
+        failures.append(
+            str(
+                incident.get("error")
+                or incident.get("result_summary")
+                or incident.get("title")
+                or incident.get("task_id")
+                or "task incident"
+            )
+        )
+    return failures
+
+
+def _l2_world_state(runtime: Any) -> dict[str, Any]:
+    world: dict[str, Any] = {}
+    task_state = _list_open_task_state(runtime, limit=50)
+    world["active_task_count"] = len(task_state)
+    world["open_incident_count"] = len(_recent_l2_failures(runtime, limit=50))
+    world["recent_l1_count"] = len(_get_recent_l1_summaries(runtime, limit=12))
+    situation_model = getattr(runtime, "situation_model", None)
+    if situation_model is not None and hasattr(situation_model, "get_state"):
+        try:
+            situation = situation_model.get_state()
+            if isinstance(situation, dict):
+                world["situation_state"] = str(situation.get("state") or "")
+                world["interruptibility"] = str(situation.get("interruptibility") or "")
+                world["situation_confidence"] = float(situation.get("confidence") or 0.0)
+        except Exception:
+            logger.debug("Failed to load situation state for L2 context", exc_info=True)
+    status_manager = getattr(runtime, "status_manager", None)
+    if status_manager is not None and hasattr(status_manager, "get_snapshot"):
+        try:
+            snapshot = status_manager.get_snapshot()
+            if isinstance(snapshot, dict):
+                degraded = [
+                    server_id
+                    for server_id, info in snapshot.items()
+                    if str((info or {}).get("status") or "").lower()
+                    not in {"online", "healthy", "ok", "disabled", "unconfigured"}
+                ]
+                world["degraded_servers"] = degraded[:8]
+                world["degraded_server_count"] = len(degraded)
+        except Exception:
+            logger.debug("Failed to load status snapshot for L2 context", exc_info=True)
+    user_understanding = getattr(runtime, "user_understanding_service", None)
+    if user_understanding is not None and hasattr(user_understanding, "to_context_string"):
+        try:
+            world["user_understanding"] = str(user_understanding.to_context_string(""))[:600]
+        except Exception:
+            logger.debug("Failed to summarize user understanding for L2 context", exc_info=True)
+    return world
+
+
+def _run_l2_pipeline(runtime: Any, *, trigger: str, detail: dict[str, Any]) -> dict[str, Any]:
+    mind = getattr(runtime, "l2_mind", None)
+    if mind is None:
+        return {"handled": False, "reason": "L2 mind unavailable", "action_type": "noop"}
+    try:
+        context = mind.build_context()
+        context.world_state.update(
+            {
+                "trigger": trigger,
+                "trigger_source": str(detail.get("source") or ""),
+                "trigger_event_type": str(detail.get("type") or trigger),
+            }
+        )
+        l1_info = detail.get("l1")
+        if isinstance(l1_info, dict):
+            context.l1_summaries = [dict(l1_info), *list(context.l1_summaries)][:12]
+        result = mind.run_once(context)
+        if getattr(runtime, "event_manager", None) is not None:
+            runtime.event_manager.publish_event(
+                "l2.execution",
+                source="l2_mind",
+                payload={
+                    "trigger": trigger,
+                    "handled": bool(result.get("handled")),
+                    "action_type": str(result.get("action_type") or "noop"),
+                    "task_id": str(result.get("task_id") or ""),
+                    "reason": str(result.get("reason") or ""),
+                },
+            )
+        return result
+    except Exception as exc:
+        logger.exception("L2 pipeline failed for trigger=%s", trigger)
+        return {"handled": False, "reason": f"L2 pipeline failed: {exc!r}", "action_type": "noop"}
+
+
+def _run_l1_pipeline_for_event(runtime: Any, event: Any) -> Any | None:
+    router = getattr(runtime, "l1_router", None)
+    event_manager = getattr(runtime, "event_manager", None)
+    if router is None or event_manager is None:
+        return None
+    event_payload = _parse_event_payload_for_l1(event)
+    l1_capsule = _build_l1_context_capsule(runtime, event_payload)
+    observation = router.observe(
+        event_payload,
+        event_id=str(getattr(event, "event_id", "") or ""),
+        context_capsule=l1_capsule,
+    )
+    event_manager.publish_event("l1.observation", source="l1_router", payload=_l1_observation_payload(event, observation))
+    decision = router.decide(observation)
+    event_manager.publish_event("l1.decision", source="l1_router", payload=_l1_decision_payload(event, decision))
+    _append_recent_l1_summary(runtime, event, observation, decision)
+    action = getattr(decision, "action", None)
+    action_type = str(getattr(getattr(action, "type", ""), "value", getattr(action, "type", "")))
+    if action_type == "escalate":
+        escalation = router.escalate(observation, reason=str(getattr(action, "reason", "") or ""))
+        event_manager.publish_event("l1.escalation", source="l1_router", payload=escalation.to_payload())
+    elif action_type == "capability" and getattr(runtime, "l1_executor", None) is not None:
+        capability_id = str(getattr(action, "capability_id", "") or "")
+        args = dict(getattr(action, "args", {}) or {})
+        event_manager.publish_event(
+            "l1.capability.invoked",
+            source="l1_executor",
+            payload={
+                "event_id": str(getattr(event, "event_id", "") or ""),
+                "capability_id": capability_id,
+                "args": args,
+                "occurred_at_ms": int(getattr(event, "timestamp_ms", 0) or 0),
+                "layer": "L1",
+            },
+        )
+        result = runtime.l1_executor.execute(
+            capability_id,
+            args,
+            event_id=str(getattr(event, "event_id", "") or ""),
+        )
+        event_manager.publish_event("l1.capability.completed", source="l1_executor", payload=result.to_payload())
+    return decision
+
+
+_L1_IMMEDIATE_EVENT_TYPES = {
+    "social.inbox.received",
+    "task.completed",
+    "task.failed",
+    "status.changed",
+    "commitment.due",
+    "browser.discovery",
+    "android.permission.changed",
+    "android.notification.posted",
+    "android.notification_received",
+    "android.user_activity.changed",
+    "android.foreground_app.changed",
+    "android.current_app_changed",
+    "pc.user_activity.snapshot",
+    "browser.user_activity.changed",
+    "hook.matched",
+    "self_call",
+}
+
+_L1_EXCLUDED_EVENT_PREFIXES = (
+    "l1.",
+    "l2.",
+    "l3.",
+    "presentation.",
+)
+
+_L1_EXCLUDED_EVENT_TYPES = {
+    "",
+}
+
+
+def _should_route_to_l1_immediate(event_type: str) -> bool:
+    return str(event_type or "") in _L1_IMMEDIATE_EVENT_TYPES
+
+
+def _should_route_to_l1_background(event_type: str) -> bool:
+    event_type = str(event_type or "")
+    if event_type in _L1_EXCLUDED_EVENT_TYPES:
+        return False
+    if event_type.startswith(_L1_EXCLUDED_EVENT_PREFIXES):
+        return False
+    if _should_route_to_l1_immediate(event_type):
+        return False
+    return True
+
+
 def _build_runtime(config: Config) -> AegisRuntime:
-    from approval import ApprovalStore
     from event_bus import EventBus
     from policy_engine import PolicyEngine
     from server_executor import ServerExecutor
     from tool_broker import ToolBroker
     from tool_registry import ToolRegistry
 
-    from aegis_ai.approval import ApprovalQueue
     from aegis_ai.audit import AuditLog
     from aegis_ai.llm.factory import create_llm_provider_from_settings
     from aegis_ai.llm.providers.mock import MockLLMProvider
@@ -226,6 +831,7 @@ def _build_runtime(config: Config) -> AegisRuntime:
         logger.debug("OTel init failed (best-effort)", exc_info=True)
 
     base_dir = Path(__file__).resolve().parents[2]
+    _load_runtime_env(base_dir)
     data_dir = str(base_dir / "data")
     settings_store = SettingsStore(
         path=str(base_dir / "config" / "settings.json"),
@@ -234,58 +840,19 @@ def _build_runtime(config: Config) -> AegisRuntime:
     audit_log = AuditLog(path=os.path.join(data_dir, "audit.jsonl"))
     event_bus = EventBus(dedup_window_ms=config.dedup_window_ms)
 
-    approval_store = ApprovalStore(
-        request_timeout_ms=config.approval_timeout_ms,
-        approval_validity_ms=config.approval_validity_ms,
+    # ── Egress gate (the single constraint) ─────────────────────────────────
+    # Configure the single deny-by-default gate for all outbound transmission
+    # BEFORE anything that could reach the network is constructed. AEGIS must not
+    # transmit the user's data outside the local environment.
+    from aegis_ai.egress import configure_egress_gate, verify_egress_configuration
+
+    egress_gate = configure_egress_gate(settings_store=settings_store)
+    verify_egress_configuration(
+        egress_gate,
+        llm_config_path=base_dir / "config" / "llm.yaml",
     )
-    approval_queue = ApprovalQueue(data_dir=os.path.join(data_dir, "approvals"), audit_log=audit_log)
-    from aegis_ai.approval.approval_manager import ApprovalManager
-    from aegis_ai.approval.channels.dashboard import DashboardApprovalChannel
-    from aegis_ai.approval.fanout import ApprovalFanout, ApprovalEvent
-    approval_manager = ApprovalManager(approval_queue=approval_queue, audit_log=audit_log)
-    approval_fanout = ApprovalFanout(audit_log=audit_log)
-    dashboard_approval_channel = DashboardApprovalChannel()
-    approval_fanout.register_channel(dashboard_approval_channel)
 
-    def _on_approval_state_change(event_dict):
-        """Fanout approval events to all channels."""
-        try:
-            req = event_dict.get("request")
-            event = ApprovalEvent.from_request(
-                req,
-                event_type=event_dict.get("event_type", ""),
-                channel=event_dict.get("channel", ""),
-                user=event_dict.get("user", ""),
-            )
-            loop = asyncio.new_event_loop()
-            try:
-                if event_dict.get("event_type") == "created":
-                    results = loop.run_until_complete(approval_fanout.fanout(event))
-                else:
-                    results = loop.run_until_complete(approval_fanout.fanout_update(event))
-                if req is not None and hasattr(approval_manager, "record_surface_delivery"):
-                    approval_manager.record_surface_delivery(req.approval_id, results)
-            finally:
-                loop.close()
-            if event_manager is not None:
-                from aegis_ai.event.helpers import build_event
-
-                event_manager.publish(build_event(
-                    event_type=f"approval.{event_dict.get('event_type', 'updated')}",
-                    source="approval_manager",
-                    payload={
-                        "approval_id": getattr(req, "approval_id", ""),
-                        "capability_id": getattr(req, "capability_id", ""),
-                        "task_id": getattr(req, "task_id", ""),
-                        "state": getattr(req, "status", ""),
-                    },
-                ))
-        except Exception:
-            logger.debug("Approval fanout failed", exc_info=True)
-
-    approval_manager.on_state_change(_on_approval_state_change)
-
-    policy_engine = PolicyEngine(approval_store=approval_store, data_dir=data_dir)
+    policy_engine = PolicyEngine(data_dir=data_dir)
 
     capability_catalog = CapabilityCatalog(
         capabilities_dir=str(base_dir / "capabilities"),
@@ -319,8 +886,6 @@ def _build_runtime(config: Config) -> AegisRuntime:
         registry=tool_registry,
         policy_engine=policy_engine,
         audit_log=audit_log,
-        approval_queue=approval_queue,
-        approval_manager=approval_manager,
         server_executor=server_executor,
         folder_registry=folder_registry,
         catalog=capability_catalog,
@@ -339,12 +904,21 @@ def _build_runtime(config: Config) -> AegisRuntime:
         llm_router.set_default_provider("mock")
     else:
         llm_router.register_provider("default", provider)
+        # Register the local provider under the name the router's local-fallback
+        # lookup expects, so that `external_llm_allowed=False` routes to the real
+        # local model rather than silently degrading to Mock.
+        _provider_base_url = str(
+            getattr(provider, "_base_url", None) or getattr(provider, "base_url", "") or ""
+        )
+        if "localhost" in _provider_base_url or "127.0.0.1" in _provider_base_url:
+            llm_router.register_provider("ollama", provider)
         if not is_production_mode():
             llm_router.register_provider("mock", MockLLMProvider())
         llm_router.set_default_provider("default")
 
     prompt_registry = PromptRegistry(str(base_dir / "config" / "prompts.yaml"))
     settings_resolver = LLMSettingsResolver(str(base_dir / "config" / "llm.yaml"))
+    _audit_llm_profile_health(audit_log, settings_resolver)
     llm_gateway = LLMGateway(
         router=llm_router,
         settings_resolver=settings_resolver,
@@ -374,7 +948,6 @@ def _build_runtime(config: Config) -> AegisRuntime:
         capability_catalog=capability_catalog,
         capability_retriever=capability_retriever,
         tool_broker=tool_broker,
-        approval_store=approval_store,
         audit_log=audit_log,
         settings_store=settings_store,
     )
@@ -424,7 +997,13 @@ def _build_runtime(config: Config) -> AegisRuntime:
     journal_projector._event_manager = event_manager
     capability_health = CapabilityHealthView(tool_registry=tool_registry)
     tool_broker._capability_health = capability_health
-    audit_manager = AuditManager(audit_log=audit_log, data_dir=data_dir)
+    audit_manager = AuditManager(audit_log=audit_log, data_dir=data_dir, event_manager=event_manager)
+    # Route egress decisions to the audit log for post-hoc verification of the
+    # single constraint (Phase 3 visibility).
+    try:
+        egress_gate.set_audit(audit_manager)
+    except Exception:
+        logger.warning("Failed to attach audit to the egress gate", exc_info=True)
     status_manager = StatusManager(event_manager=event_manager)
     task_manager = TaskManager(event_manager=event_manager, audit_manager=audit_manager, data_dir=data_dir)
     notification_manager = NotificationManager(event_manager=event_manager)
@@ -448,6 +1027,9 @@ def _build_runtime(config: Config) -> AegisRuntime:
         settings_store=settings_store,
     )
     from aegis_ai.personal_data import PersonalDataCore
+    from aegis_ai.autonomous import L2AutonomousMind
+    from aegis_ai.intake import L1Executor, L1Router
+    from aegis_ai.llm import L3Reasoner
 
     personal_data_core = PersonalDataCore(
         data_dir,
@@ -457,6 +1039,11 @@ def _build_runtime(config: Config) -> AegisRuntime:
         server_executor=server_executor,
     )
     event_manager._personal_data_core = personal_data_core
+    l1_router = L1Router(llm_gateway=llm_gateway)
+    l1_executor = L1Executor(
+        capability_catalog=capability_catalog,
+        tool_broker=tool_broker,
+    )
     situation_model = SituationModel(data_dir=personal_dir, event_manager=event_manager, user_state_manager=user_state_manager)
     delegation_policy = DelegationPolicyStore(
         data_dir=personal_dir,
@@ -556,29 +1143,14 @@ def _build_runtime(config: Config) -> AegisRuntime:
     from aegis_ai.operations import OperationStore
 
     operation_store = OperationStore(data_dir=data_dir)
+    # Phase 5a: the confirmation store is process-wide because three readers share it —
+    # the `/api/approvals/*` endpoints, the resource/overview projections, and the
+    # LLM-callable capability AEGIS uses to raise a question on its own initiative.
+    from aegis_ai.confirmation import ConfirmationStore
+
+    confirmation_store = ConfirmationStore(data_dir)
     tool_broker.set_continuation_manager(continuation_manager)
-    approval_manager.on_state_change(social_manager.handle_approval_event)
-    approval_manager.on_state_change(continuation_manager.handle_approval_event)
-    approval_manager.on_state_change(preference_store.handle_approval_event)
 
-    def _record_initiative_approval_stage(event: dict[str, Any]) -> None:
-        event_type = str(event.get("event_type") or "")
-        request = event.get("request")
-        detail = {
-            "approval_id": str(event.get("approval_id") or ""),
-            "capability_id": str(getattr(request, "capability_id", "") or ""),
-            "channel": str(event.get("channel") or ""),
-        }
-        if event_type in {"approved", "rejected", "surface_rejected"}:
-            initiative_engine.record_stage("user_acknowledged", detail)
-        if event_type == "executed":
-            initiative_engine.record_stage("actions_executed", detail)
-            metadata = getattr(request, "metadata", {}) if request is not None else {}
-            result = metadata.get("execution_result", {}) if isinstance(metadata, dict) else {}
-            if str(result.get("verification_status") or "") == "passed":
-                initiative_engine.record_stage("actions_verified", detail)
-
-    approval_manager.on_state_change(_record_initiative_approval_stage)
     context_builder._situation_model = situation_model
     context_builder._user_state_manager = user_state_manager
     context_builder._delegation_policy = delegation_policy
@@ -589,17 +1161,12 @@ def _build_runtime(config: Config) -> AegisRuntime:
         data_dir=data_dir,
         event_manager=event_manager,
         status_manager=status_manager,
-        approval_manager=approval_manager,
     )
     server_executor.register_client("android-server", android_manager)
 
     from aegis_ai.integrations.room import RoomServerGrpcClient
 
     server_executor.register_client("room-server", RoomServerGrpcClient())
-
-    from aegis_ai.integrations.dev import DevServerGrpcClient
-
-    server_executor.register_client("dev-server", DevServerGrpcClient())
 
     from aegis_ai.core_capabilities import AegisCoreCapabilityClient
 
@@ -619,22 +1186,12 @@ def _build_runtime(config: Config) -> AegisRuntime:
                 "social_proxy": social_proxy,
                 "social_manager": social_manager,
                 "llm_provider": llm_gateway,
+                # Phase 5a: lets AEGIS raise a confirmation on its own initiative
+                # (``ai-server.confirmation.request``) and read the answer back.
+                "confirmation_store": confirmation_store,
             },
         ),
     )
-
-    from aegis_ai.approval.channels.android import AndroidApprovalChannel
-    from aegis_ai.approval.channels.pc_overlay import PcOverlayApprovalChannel
-    from aegis_ai.approval.channels.room import RoomApprovalChannel
-
-    approval_fanout.register_channel(
-        PcOverlayApprovalChannel(
-            server_executor=server_executor,
-            approval_manager=approval_manager,
-        )
-    )
-    approval_fanout.register_channel(RoomApprovalChannel(server_executor=server_executor))
-    approval_fanout.register_channel(AndroidApprovalChannel(android_manager=android_manager))
 
     verification_service._android = android_manager
     from aegis_ai.temporal.client import init_temporal_runtime
@@ -647,7 +1204,6 @@ def _build_runtime(config: Config) -> AegisRuntime:
     execution_engine = TaskExecutionEngine(
         task_manager=task_manager,
         tool_broker=tool_broker,
-        approval_manager=approval_manager,
         llm_gateway=llm_gateway,
         prompt_registry=prompt_registry,
         settings_resolver=settings_resolver,
@@ -660,9 +1216,6 @@ def _build_runtime(config: Config) -> AegisRuntime:
     interaction_router._task_manager = task_manager
     interaction_router._execution_engine = execution_engine
 
-    approval_manager._task_manager = task_manager
-    approval_manager._execution_engine = execution_engine
-    approval_manager.on_state_change(approval_manager._task_manager_callback)
 
     memory_manager = MemoryManager(
         advanced_memory=advanced_memory,
@@ -679,12 +1232,24 @@ def _build_runtime(config: Config) -> AegisRuntime:
     )
     personal_data_core._memory = memory_manager
     from aegis_ai.personal_ai import RepairManager
+    from aegis_ai.user_understanding import UserUnderstandingService
 
     repair_manager = RepairManager(
         data_dir=personal_dir,
         tool_broker=tool_broker,
         audit_manager=audit_manager,
         memory_manager=memory_manager,
+    )
+    user_understanding_service = UserUnderstandingService(
+        data_dir=os.path.join(data_dir, "user_understanding"),
+        user_model_store=user_model_store,
+        user_state_manager=user_state_manager,
+        commitment_manager=commitment_manager,
+        delegation_policy=delegation_policy,
+        person_memory=person_memory,
+        personal_data_core=personal_data_core,
+        task_manager=task_manager,
+        repair_manager=repair_manager,
     )
     from aegis_ai.agency import AgentState, GoalLifecycleService
 
@@ -700,9 +1265,11 @@ def _build_runtime(config: Config) -> AegisRuntime:
         person_memory=person_memory,
         memory_manager=memory_manager,
         preference_store=preference_store,
+        user_understanding_service=user_understanding_service,
     )
     behavioral_evaluation.set_memory_manager(memory_manager)
     context_builder._agent_state = agent_state
+    context_builder._user_understanding_service = user_understanding_service
     social_manager.set_agent_state(agent_state)
     daily_planning_manager.set_agent_state(agent_state)
     repair_manager.set_agent_state(agent_state)
@@ -730,7 +1297,6 @@ def _build_runtime(config: Config) -> AegisRuntime:
     sleep_manager._retention = RetentionManager(
         episodic_memory=episodic_memory,
         audit_log=audit_log,
-        approval_store=approval_store,
         settings_store=settings_store,
         memory_store=memory_store,
     )
@@ -764,6 +1330,31 @@ def _build_runtime(config: Config) -> AegisRuntime:
     if core_client is not None and hasattr(core_client, "_personal"):
         core_client._personal["presentation_manager"] = presentation_manager
 
+    def _publish_cognition_event(event_type: str, payload: dict[str, Any]) -> None:
+        source = "l3_reasoner" if str(event_type).startswith("l3.") else "l2_mind"
+        event_manager.publish_event(event_type, source=source, payload=payload)
+
+    l3_reasoner = L3Reasoner(
+        llm_gateway=llm_gateway,
+        capability_catalog=capability_catalog,
+        event_publisher=_publish_cognition_event,
+    )
+    l2_mind = L2AutonomousMind(
+        llm_gateway=llm_gateway,
+        memory_system=advanced_memory,
+        desire_system=None,
+        task_state_provider=lambda: _list_open_task_state(runtime_ref.get("runtime") or runtime),
+        l1_summaries_provider=lambda: _get_recent_l1_summaries(runtime_ref.get("runtime") or runtime, limit=12),
+        world_state_provider=lambda: _l2_world_state(runtime_ref.get("runtime") or runtime),
+        obligations_provider=lambda: _pending_l2_obligations(runtime_ref.get("runtime") or runtime, limit=12),
+        recent_failures_provider=lambda: _recent_l2_failures(runtime_ref.get("runtime") or runtime, limit=8),
+        event_publisher=_publish_cognition_event,
+        task_manager=task_manager,
+        execution_engine=execution_engine,
+        capability_catalog=capability_catalog,
+    )
+    l2_mind._l3_reasoner = l3_reasoner
+
     try:
         pc_poll_interval = int(os.getenv("AEGIS_USER_STATE_PC_POLL_INTERVAL_SECONDS", "2"))
         user_state_manager.start_pc_poller(
@@ -786,9 +1377,6 @@ def _build_runtime(config: Config) -> AegisRuntime:
         capability_catalog=capability_catalog,
         capability_index=capability_index,
         capability_retriever=capability_retriever,
-        approval_store=approval_store,
-        approval_queue=approval_queue,
-        approval_manager=approval_manager,
         policy_engine=policy_engine,
         server_executor=server_executor,
         tool_broker=tool_broker,
@@ -811,6 +1399,7 @@ def _build_runtime(config: Config) -> AegisRuntime:
         android_manager=android_manager,
         user_state_manager=user_state_manager,
         user_model_store=user_model_store,
+        user_understanding_service=user_understanding_service,
         hook_engine=hook_engine,
         commitment_manager=commitment_manager,
         situation_model=situation_model,
@@ -831,51 +1420,163 @@ def _build_runtime(config: Config) -> AegisRuntime:
         goal_service=goal_service,
         saved_view_manager=SavedViewManager(data_dir, audit_manager),
         operation_store=operation_store,
+        confirmation_store=confirmation_store,
         personal_data_core=personal_data_core,
+        l1_router=l1_router,
+        l1_executor=l1_executor,
+        l2_mind=l2_mind,
+        l3_reasoner=l3_reasoner,
         _lock=threading.RLock(),
     )
     runtime_ref["runtime"] = runtime
 
-    immediate_event_types = {
-        "social.inbox.received",
-        "approval.approved",
-        "approval.rejected",
-        "task.completed",
-        "task.failed",
-        "status.changed",
-        "commitment.due",
-        "browser.discovery",
-        "android.permission.changed",
-        "android.notification.posted",
-        "android.notification_received",
-    }
-    # Debounce high-frequency Android activity noise (observe_more spam).
-    _android_debounce_ms = int(os.environ.get("AEGIS_ANDROID_EVENT_DEBOUNCE_MS", "60000"))
-    _last_android_trigger_ms: dict[str, int] = {}
+    # Phase 1: OpenHands agent backend bootstrap. No-op unless `agents.enabled=True`.
+    # LocalBackend は default で常駐 (dependency なし). `enabled=False` なら `agent_backend`
+    # フィールドは `None` のままにし、capability manifest 側に `requires_feature: "agents"`
+    # を置くことで `list_for_llm(feature_flags=...)` から除外される.
+    try:
+        from aegis_ai.agents.backends import (
+            clear_backends as _clear_agent_backends,
+            get_backend as _get_agent_backend,
+            register_backend as _register_agent_backend,
+        )
+        from aegis_ai.agents.backends.local import LocalBackend as _LocalAgentBackend
+        from aegis_ai.agents.profiles import (
+            AgentProfileRegistry as _AgentProfileRegistry,
+        )
+        from aegis_ai.agents.runtime.router import AgentRouter as _AgentRouter
+
+        _clear_agent_backends()
+        _register_agent_backend(_LocalAgentBackend())
+        # Phase 5: load agent profile registry (always present, possibly empty).
+        # Audit sink is a thin wrapper that logs to the runtime audit log when
+        # available; production code wires a real sink in Phase 8.
+        _audit_sink = getattr(runtime, "audit_log", None)
+        if _audit_sink is not None and not hasattr(_audit_sink, "__call__"):
+
+            def _audit_sink(message: str) -> None:
+                logger.info("[agent_router] %s", message)
+
+        try:
+            _profiles = _AgentProfileRegistry.from_yaml()
+            if _profiles.load_warnings:
+                for w in _profiles.load_warnings:
+                    logger.warning("agent profile YAML: %s", w)
+            _router = _AgentRouter(
+                registry=_profiles,
+                fallback_id="general",
+                audit_sink=_audit_sink,
+                backend_resolver=_get_agent_backend,
+            )
+            runtime.agent_profiles = _profiles
+            runtime.agent_router = _router
+        except Exception:
+            logger.debug("Agent profile registry bootstrap failed", exc_info=True)
+            runtime.agent_profiles = _AgentProfileRegistry()
+            runtime.agent_router = _AgentRouter(registry=runtime.agent_profiles)
+
+        settings = settings_store.get()
+        if settings.agents.enabled:
+            backend = _get_agent_backend(settings.agents.backend)
+            if backend is None:
+                logger.warning(
+                    "agents.enabled=True but backend=%r is not registered; agent_backend stays None",
+                    settings.agents.backend,
+                )
+            runtime.agent_backend = backend
+        else:
+            runtime.agent_backend = None
+            logger.info("Agent runtime disabled (agents.enabled=false)")
+    except Exception:
+        logger.debug("Agent runtime bootstrap skipped", exc_info=True)
+        runtime.agent_backend = None
 
     def _evaluate_immediate_event(event):
         event_type = str(getattr(event, "event_type", "") or "")
-        if event_type not in immediate_event_types:
+        if not _should_route_to_l1_immediate(event_type):
             return
-        now_ms = int(time.time() * 1000)
-        if event_type.startswith("android.user_activity") or event_type.startswith("android.foreground_app"):
-            last = _last_android_trigger_ms.get(event_type, 0)
-            if now_ms - last < _android_debounce_ms:
+        rt = runtime_ref.get("runtime")
+        l1_decision = _run_l1_pipeline_for_event(rt, event) if rt is not None else None
+        l1_action = getattr(getattr(l1_decision, "action", None), "type", "")
+        l1_action_value = str(getattr(l1_action, "value", l1_action))
+        if l1_action_value == "ignore":
+            return
+        detail = _parse_event_payload_for_l1(event)
+        if l1_decision is not None:
+            observation = getattr(l1_decision, "observation", None)
+            detail["l1"] = {
+                "meaning": str(getattr(observation, "meaning", "") or ""),
+                "value": float(getattr(observation, "value", 0.0) or 0.0),
+                "priority": float(getattr(observation, "priority", 0.0) or 0.0),
+                "required_intelligence": str(
+                    getattr(
+                        getattr(observation, "required_intelligence", ""),
+                        "value",
+                        getattr(observation, "required_intelligence", "low"),
+                    )
+                ),
+                "confidence": float(getattr(observation, "confidence", 0.0) or 0.0),
+                "action_type": l1_action_value or "noop",
+                "summary_bucket": str(getattr(observation, "raw", {}).get("summary_bucket", "background") or "background"),
+                "observed_action": str(getattr(observation, "raw", {}).get("observed_action", "") or ""),
+                "possible_intent": str(getattr(observation, "raw", {}).get("possible_intent", "") or ""),
+            }
+        if l1_action_value == "capability":
+            initiative_engine.record_trigger(event_type, detail)
+            return
+        if rt is not None and getattr(rt, "l2_mind", None) is not None:
+            l2_result = _run_l2_pipeline(rt, trigger=event_type, detail=detail)
+            detail["l2"] = dict(l2_result)
+            if l2_result.get("handled") and str(l2_result.get("action_type") or "") not in {"noop", "observe"}:
+                initiative_engine.record_trigger(event_type, detail)
                 return
-            _last_android_trigger_ms[event_type] = now_ms
-        payload = getattr(event, "payload", {})
-        detail = dict(payload) if isinstance(payload, dict) else {}
         initiative_engine.record_trigger(event_type, detail)
-        loop = getattr(runtime_ref.get("runtime"), "autonomous_loop", None)
+        loop = getattr(rt, "autonomous_loop", None)
         if loop is not None and hasattr(loop, "evaluate_event"):
             loop.evaluate_event(event_type, detail)
 
+    def _handle_background_l1_event(event):
+        rt = runtime_ref.get("runtime")
+        decision = _run_l1_pipeline_for_event(rt, event) if rt is not None else None
+        if rt is None or decision is None:
+            return
+        action = getattr(getattr(decision, "action", None), "type", "")
+        action_value = str(getattr(action, "value", action))
+        if action_value not in {"escalate", "observe"}:
+            return
+        detail = _parse_event_payload_for_l1(event)
+        observation = getattr(decision, "observation", None)
+        detail["l1"] = {
+            "meaning": str(getattr(observation, "meaning", "") or ""),
+            "value": float(getattr(observation, "value", 0.0) or 0.0),
+            "priority": float(getattr(observation, "priority", 0.0) or 0.0),
+            "required_intelligence": str(
+                getattr(
+                    getattr(observation, "required_intelligence", ""),
+                    "value",
+                    getattr(observation, "required_intelligence", "low"),
+                )
+            ),
+            "confidence": float(getattr(observation, "confidence", 0.0) or 0.0),
+            "action_type": action_value,
+            "summary_bucket": str(getattr(observation, "raw", {}).get("summary_bucket", "background") or "background"),
+            "observed_action": str(getattr(observation, "raw", {}).get("observed_action", "") or ""),
+            "possible_intent": str(getattr(observation, "raw", {}).get("possible_intent", "") or ""),
+        }
+        _run_l2_pipeline(rt, trigger=str(getattr(event, "event_type", "") or "background"), detail=detail)
+
+    runtime._l1_event_subscription = event_manager.subscribe(  # type: ignore[attr-defined]
+        _handle_background_l1_event,
+        lambda event: _should_route_to_l1_background(
+            str(getattr(event, "event_type", "") or "")
+        ),
+    )
     runtime._initiative_event_subscription = event_manager.subscribe(  # type: ignore[attr-defined]
         _evaluate_immediate_event,
-        lambda event: str(getattr(event, "event_type", "") or "") in immediate_event_types,
+        lambda event: _should_route_to_l1_immediate(
+            str(getattr(event, "event_type", "") or "")
+        ),
     )
-    runtime._dashboard_approval_channel = dashboard_approval_channel
-    runtime._approval_fanout = approval_fanout
     status_manager.start_background_checks()
     hook_engine.start()
     social_manager.resume_pending_processing()
@@ -938,6 +1639,28 @@ def _create_autonomous_loop(runtime: AegisRuntime) -> Any:
         max_tasks_per_cycle=max(1, settings.autonomous.max_tasks_per_cycle),
         fallback_interval_seconds=max(1, settings.autonomous.evaluation_interval_seconds),
     )
+    if getattr(runtime, "l2_mind", None) is not None:
+        runtime.l2_mind.desire_system = desire
+        loop.set_l2_reasoning_handler(
+            lambda trigger="periodic_cycle", force_desire=False, pending_observations=None: _run_l2_pipeline(
+                runtime,
+                trigger=trigger,
+                detail={
+                    "type": trigger,
+                    "source": "autonomous_loop",
+                    "pending_observations": list(pending_observations or []),
+                    "force_desire": bool(force_desire),
+                },
+            ),
+            should_run=lambda force_desire=False: bool(force_desire)
+            or runtime.l2_mind.should_run_cycle()
+            or bool(getattr(loop, "_pending_actionable_observations", [])),
+            event_handler=lambda event_type, detail: _run_l2_pipeline(
+                runtime,
+                trigger=event_type,
+                detail=detail,
+            ),
+        )
     loop._capability_retriever = runtime.capability_retriever
     loop._min_execution_interval_ms = max(1, settings.autonomous.min_action_interval_seconds) * 1000
     loop._min_llm_interval_ms = max(1, settings.autonomous.min_llm_interval_seconds) * 1000
@@ -945,6 +1668,7 @@ def _create_autonomous_loop(runtime: AegisRuntime) -> Any:
     loop._continuation_manager = runtime.continuation_manager
     loop._agent_state = runtime.agent_state
     loop._goal_service = runtime.goal_service
+    loop._user_understanding_service = runtime.user_understanding_service
     loop._social_manager = runtime.social_manager
     loop._operation_store = getattr(runtime, "operation_store", None)
     loop._sleep_manager = runtime.sleep_manager
@@ -959,12 +1683,6 @@ def _create_autonomous_loop(runtime: AegisRuntime) -> Any:
             data_path=data_dir,
         )
     )
-    if getattr(runtime, "approval_manager", None) is not None:
-        if hasattr(loop, "set_approval_manager"):
-            loop.set_approval_manager(runtime.approval_manager)
-        else:
-            loop._approval_manager = runtime.approval_manager
-
     import inspect
 
     observation_kwargs = {
@@ -977,7 +1695,6 @@ def _create_autonomous_loop(runtime: AegisRuntime) -> Any:
         "person_memory": person_mem,
         "action_trace": action_trace,
         "status_manager": runtime.status_manager,
-        "approval_manager": getattr(runtime, "approval_manager", None),
         "task_manager": getattr(runtime, "task_manager", None),
         "agent_state": getattr(runtime, "agent_state", None),
         "user_state_manager": getattr(runtime, "user_state_manager", None),
@@ -998,6 +1715,7 @@ def _create_autonomous_loop(runtime: AegisRuntime) -> Any:
             action_trace=action_trace,
             person_memory=person_mem,
             tool_broker=runtime.tool_broker,
+            skill_memory=skill_mem,
             data_dir=os.path.join(data_dir, "autonomous"),
     )
     curiosity_system._agenda = runtime.exploration_agenda

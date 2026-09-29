@@ -6,6 +6,7 @@ export function GlobalInspector({
   entity,
   onClose,
   onFollowRelation,
+  onNavigate,
   pinned = false,
   onTogglePin,
   developerMode = false,
@@ -13,11 +14,13 @@ export function GlobalInspector({
   entity?: EntitySummary;
   onClose: () => void;
   onFollowRelation?: (type: string, id: string) => void;
+  onNavigate?: (path: string) => void;
   pinned?: boolean;
   onTogglePin?: (entity: EntitySummary) => void;
   developerMode?: boolean;
 }) {
   const facts = primaryFacts(entity, 14).filter((fact) => !String(fact.value).includes("Not reported"));
+  const jumpTargets = entity ? recommendedJumps(entity) : [];
   return (
     <aside className="global-inspector" data-open={Boolean(entity)} aria-label="Global inspector">
       <header>
@@ -66,6 +69,23 @@ export function GlobalInspector({
             </section>
           ) : null}
           <section>
+            <h3>Why important</h3>
+            <p>{entityImportance(entity)}</p>
+          </section>
+          {jumpTargets.length ? (
+            <section>
+              <h3>Recommended jumps</h3>
+              <div className="relation-list">
+                {jumpTargets.map((target) => (
+                  <button type="button" onClick={() => onNavigate?.(target.path)} key={target.path}>
+                    <ExternalLink size={13} />
+                    {target.label}
+                  </button>
+                ))}
+              </div>
+            </section>
+          ) : null}
+          <section>
             <h3>Relations</h3>
             <div className="relation-list">
               {entity.relations.map((relation) => (
@@ -101,4 +121,43 @@ export function GlobalInspector({
       )}
     </aside>
   );
+}
+
+function entityImportance(entity?: EntitySummary): string {
+  if (!entity) return "Select any task, server, event, approval, or search result.";
+  if (entity.severity === "warning" || /fail|error|offline|denied/i.test(entity.status)) {
+    return "この項目は失敗・停止・要対応の兆候を持つため、まず原因追跡の起点として扱います。";
+  }
+  if (entity.type === "approval") {
+    return "承認待ちは AEGIS の進行を直接止めるため、放置コストが高い対象です。";
+  }
+  if (entity.type === "task" || entity.type === "operation") {
+    return "現在の実行文脈に近いため、trace と raw activity の両方を確認する価値があります。";
+  }
+  if (entity.type === "server") {
+    return "サーバー状態は複数 task / capability に波及するため、まず健康状態と最近の異常を確認します。";
+  }
+  return "関連 relation と action から、次に掘るべき画面へそのまま移動できます。";
+}
+
+function recommendedJumps(entity: EntitySummary): Array<{ label: string; path: string }> {
+  const data = entity.data || {};
+  const paths = new Map<string, string>();
+  if (entity.type === "approval") paths.set("Open approvals", "/dashboard/approvals");
+  if (entity.type === "server") paths.set("Open systems", "/dashboard/systems");
+  if (entity.type === "task" || entity.type === "operation") paths.set("Open execution trace", "/dashboard/execution-trace");
+  if (typeof data.agent_session_id === "string" && data.agent_session_id) {
+    paths.set("Open agent session", `/dashboard/agent-sessions/${encodeURIComponent(data.agent_session_id)}`);
+  }
+  if (typeof data.operation_id === "string" && data.operation_id) {
+    paths.set("Open operation", `/dashboard/operations/${encodeURIComponent(data.operation_id)}`);
+  }
+  if (typeof data.task_id === "string" && data.task_id) {
+    paths.set("Open tasks", "/dashboard/work/tasks");
+  }
+  if (typeof data.approval_id === "string" && data.approval_id) {
+    paths.set("Open approvals", "/dashboard/approvals");
+  }
+  paths.set("Open raw activity", "/dashboard/activity");
+  return [...paths.entries()].map(([label, path]) => ({ label, path }));
 }

@@ -1,160 +1,191 @@
 # Android Server — Safety & Privacy
 
-> **Status**: Code-backed Android companion safety model
-> **Related**: `docs/android-server.md`, `docs/architecture.md` §7
+> ⚠️ **Goal change (2026-09-27)**: the only constraint is now **"the user's information must never
+> leave the local environment."** Approval, reversibility, policy, and reliability-proof are **no
+> longer constraints**. There is no approval gate, and none of this server's capabilities requires one.
+> See [`GOAL-CHANGE.md`](GOAL-CHANGE.md).
+>
+> **Rewritten 2026-09-28 to match the code.** An earlier revision used `android.<action>` capability
+> IDs (which resolve under no alias rule — `CapabilityCatalog` derives only `app.action` and
+> `<prefix>.app.action`), described an "Approval UI → execute" flow, and documented notification
+> machinery (`NotificationFilter`, a five-package authenticator denylist, an allowlist,
+> `contains_password_field`, `MockAndroidProvider`) that lives **only** in the orphaned
+> `ai-server/src/android_server_client.py`. Corrections are marked inline.
 
-## Safety Level Classification
+> **Status**: rewritten 2026-09-28 to match the code
+> **Related**: [`android-server.md`](android-server.md), [`architecture.md`](architecture.md) §7
 
-### Level 0 — READ_ONLY (auto-allowed)
+## Safety tiers are descriptive, not gates
 
-| Capability | Permission | Redaction |
-|-----------|-----------|-----------|
-| `android.get_notifications` | NotificationListenerService | **Required** — OTP, cards, emails, phones |
-| `android.get_current_app` | — | None |
-| `android.get_device_info` | — | None |
-| `android.get_screenshot` | MediaProjection | Treat as ephemeral — may contain sensitive content |
-| `android.get_ui_tree` | AccessibilityService | Password fields flagged as `is_password: true` |
+`Level 0–3` come from the proto `SafetyLevel` enum, which is still live but **descriptive only** —
+nothing gates on it. `LEVEL_2_APPROVAL` survives as a historical tier name.
 
-### Level 1 — SAFE_ACTION (auto-allowed, audited)
+| Tier | `RiskLevel` | `PolicyDecision` |
+|------|-------------|------------------|
+| 0 | `READ_ONLY` | `ALLOW` |
+| 1 | `SAFE_ACTION` | `ALLOW_WITH_AUDIT` |
+| 2 | `APPROVAL_REQUIRED` | `ALLOW_WITH_AUDIT` |
+| 3 | `HIGH_RISK` / `FORBIDDEN` | `ALLOW_WITH_AUDIT` / `DENY` |
 
-| Capability | Notes |
-|-----------|-------|
-| `android.show_overlay` | アプリ内 Overlay表示 |
-| `android.hide_overlay` | Overlay非表示 |
-| `android.open_app` | アプリ起動 |
-| `android.press_home` | ホームボタン押下 |
+Tiers are derived from each manifest's `risk.level` via `capability_catalog._RISK_LABEL_TO_NAME`.
 
-### Level 2 — APPROVAL_REQUIRED
+## Tier 0 — `READ_ONLY` (manifest label `low`)
 
-| Capability | Approval Flow |
-|-----------|---------------|
-| `android.tap` | Approval UI → execute |
-| `android.swipe` | Approval UI → execute |
-| `android.type_text` | Approval UI → password field check → execute |
+Only three capabilities sit at this tier:
 
-### Explicitly Denied (always DENY)
+| Capability | Permission | Notes |
+|-----------|-----------|-------|
+| `android-server.accessibility.get_status` | — | |
+| `android-server.device.get_status` | — | |
+| `android-server.permissions.get_status` | — | |
 
-| Capability | Reason |
+## Tier 1 — `SAFE_ACTION` (executes with audit)
+
+| Capability | Label | Permission |
+|-----------|-------|-----------|
+| `android-server.notification.get_notifications` | `safe` | `notification_listener` |
+| `android-server.screen.get_screenshot` | `safe` | `media_projection` |
+| `android-server.screen.get_ui_tree` | `safe` | `accessibility` |
+| `android-server.screen.get_current_app` | `safe` | `accessibility` |
+| `android-server.overlay.show` | `safe` | `overlay` |
+| `android-server.app.open` | `safe` | — |
+| `android-server.ui.home` | `safe` | `accessibility` |
+| `android-server.ui.back` | `safe` | `accessibility` |
+| `android-server.location.get_current` | `safe` | `location` |
+| `android-server.safety.emergency_stop` | `safe` | — |
+| `android-server.approval.request` | `safe` | `overlay` |
+| `android-server.ui.tap` | `audited_action` | `accessibility` |
+| `android-server.ui.swipe` | `audited_action` | `accessibility` |
+| `android-server.ui.type_text` | `audited_action` | `accessibility` |
+
+> **Reads are not all tier 0.** `notification.get_notifications`,
+> `screen.get_screenshot`, `screen.get_ui_tree` and `screen.get_current_app` are *reads*, but their
+> manifests declare `safe`, so they resolve to `SAFE_ACTION` → `ALLOW_WITH_AUDIT`. Only the three
+> `*_status` capabilities above are `low`.
+
+> **Tier 2 is empty.** `ui.tap`, `ui.swipe` and `ui.type_text` — previously listed as
+> "APPROVAL_REQUIRED" — are `audited_action`, which resolves to `SAFE_ACTION`
+> (→ `ALLOW_WITH_AUDIT`). `audited_action` was itself missing from `_RISK_LABEL_TO_NAME` until
+> 2026-09-28 and was silently falling back to `READ_ONLY` → `ALLOW`; that is fixed.
+>
+> The earlier revision also listed `android.hide_overlay` and `android.press_home`. There is **no**
+> hide capability, and home is `android-server.ui.home`.
+
+## Explicitly denied
+
+These ids used to be listed in `settings/validation.py::FORBIDDEN_CAPABILITIES`, which was
+**deleted on 2026-09-29** (B-12 / A-1). They were **deny-list strings, not manifests** — no such
+capability is declared, so they followed that set's `android.<action>` spelling rather than the
+canonical `server.app.action` form. **The list itself never denied them** — it was written in a
+dialect its gate never read (B-12, measured 2026-09-29; see
+[`permissions.md`](permissions.md#the-forbidden-capability-list-was-deleted-b-12--a-1)). They are
+unbuildable because no manifest declares them:
+
+| Id | Reason |
 |-----------|--------|
-| `android.send_sms` | SMS送信 — 外部送信 |
-| `android.send_dm` | DM送信 — 外部送信 |
-| `android.post_sns` | SNS投稿 — 外部送信 |
-| `android.access_contacts` | 連絡先 — プライバシー |
-| `android.make_call` | 通話 — 外部操作 |
-| `android.type_password` | パスワード自動入力 — セキュリティ |
-| `android.click_payment_button` | 決済 — 金銭操作 |
-| `android.captcha_bypass` | CAPTCHA回避 — 規約違反 |
-| `android.tos_bypass` | ToS回避 — 規約違反 |
+| `android.send_sms` | SMS — external send |
+| `android.send_dm` | DM — external send |
+| `android.post_sns` | SNS post — external send |
+| `android.access_contacts` | Contacts — privacy |
+| `android.make_call` | Call — external action |
+| `android.type_password` | Password autofill — credential handling |
+| `android.click_payment_button` | Payment — financial |
+| `android.captcha_bypass` | CAPTCHA bypass |
+| `android.tos_bypass` | ToS bypass |
 
-## Notification Content Handling
+## Voluntary confirmation
 
-### Redaction
+There is no forced approval step. When AEGIS *chooses* to confirm something with the user, the surface is:
 
-All notification text passes through `NotificationFilter.redact()`:
+**`android-server.approval.request`** — "Ask the User on Android". Its manifest description states the
+contract precisely: *"Display a confirmation prompt on the Android overlay and collect the user's
+answer. AEGIS chooses to ask; the answer informs the next step and unblocks nothing."*
 
-| Pattern | Replacement | Example |
-|---------|-------------|---------|
-| Credit card numbers | `[CARD_REDACTED]` | `4111 1111 1111 1111` |
-| Email addresses | `[EMAIL_REDACTED]` | `test@example.com` |
-| International phone numbers | `[PHONE_REDACTED]` | `+819012345678` |
-| Passwords/tokens in text | `[REDACTED]` | `password: secret123` |
-| OTP codes (4-8 digit) | `[OTP_REDACTED]` | `Code: 123456` |
+> The previous revision's "Approval UI → execute" column and its
+> `ToolBroker → PolicyEngine → Approval UI (Level 2)` data-flow step described a gate that was
+> deleted on 2026-09-28.
 
-### Denylist — Blocked Apps
+## Notification handling
 
-Notifications from these apps are **never forwarded**:
+**On device** (`android-server/.../notification/AegisNotificationListener.kt`): notifications from
+`IGNORED_PACKAGES` are dropped before anything else runs —
 
 | Package | Reason |
 |---------|--------|
-| `com.google.android.apps.authenticator` | 2FA codes |
-| `com.azure.authenticator` | 2FA codes |
-| `com.duosecurity.duomobile` | 2FA codes |
 | `com.aegis.android` | Self (prevent echo) |
-| `android` / `com.android.systemui` | System noise |
+| `android` | System noise |
+| `com.android.systemui` | System noise |
 
-### Allowlist — Always Allowed
+The listener keeps at most `MAX_RECENT = 100` items.
 
-| Package | Reason |
-|---------|--------|
-| `com.android.messaging` | SMS/Messages |
-| `com.google.android.gm` | Gmail |
-| `com.slack` / `com.discord` | Chat |
-| `jp.naver.line.android` | LINE |
-| `com.twitter.android` / `com.whatsapp` / `com.telegram.messenger` | SNS |
+**On-device redaction** lives in `UserActivityCollector.kt`, which strips
+`password|passcode|otp|verification code|token|secret|認証コード` runs from collected activity text.
 
-## Screenshot Safety
+> ⚠️ **The notification redaction described in the previous revision is not in the live path.** The
+> `NotificationFilter` class, its card/email/phone/OTP patterns, the five-package denylist
+> (including `com.google.android.apps.authenticator`, `com.azure.authenticator`,
+> `com.duosecurity.duomobile`) and the "always allowed" allowlist all live in
+> **`ai-server/src/android_server_client.py`, which has zero importers** — the live Android path is
+> `aegis_ai/integrations/android/`, which contains no redaction or denylist logic. So
+> **2FA/authenticator notifications are not filtered by package** the way this document used to claim;
+> only the three packages above are. Whether to wire the richer filter up (or delete it) is an open
+> owner decision.
 
-- Screenshots capture the **entire visible screen** — including sensitive content
-- Screenshots are **never transmitted externally** — they stay on the local network
-- In mock mode, screenshots return `[MOCK_SCREENSHOT]` — no real screen capture
-- Screenshots should be treated as **ephemeral** — not persisted long-term
+## UI tree and password fields
 
-## UI Tree Safety
+- The UI tree may contain sensitive text (form fields, displayed content) and should not be logged
+  without redaction.
+- `android-server.ui.type_text` is the input path and carries `audited_action`.
+- `contains_password_field()` — the recursive `is_password` walk documented previously — exists **only**
+  in the orphaned `android_server_client.py`, not in the live path. **Password-field refusal is
+  therefore not enforced server-side today**; the device-side accessibility service does not
+  re-check it either.
 
-- UI tree may contain sensitive text (form fields, displayed content)
-- Password fields are flagged with `is_password: true`
-- `android.tap`, `android.swipe`, and `android.type_text` are manifest-level approval-required capabilities.
-- `android.type_text` checks for password fields and denies if detected.
-- UI tree data should not be logged without redaction
+## Permission requirements
 
-## Password Field Protection
+Declared per manifest under `requires_permissions`:
 
-The `contains_password_field()` function recursively checks the UI tree:
-
-```python
-def contains_password_field(ui_tree: dict) -> bool:
-    if ui_tree.get("is_password"):
-        return True
-    for child in ui_tree.get("children", []):
-        if contains_password_field(child):
-            return True
-    return False
-```
-
-When a password field is detected:
-1. `android.type_text` returns error: "Cannot type into password fields"
-2. The action is blocked at the client level (before PolicyEngine)
-3. The event is logged to AuditLog
-
-## Permission Requirements
-
-| Permission | User Action | Risk |
+| Permission | User action | Risk |
 |-----------|-------------|------|
-| NotificationListenerService | Settings → Notification access | Low — read-only |
-| MediaProjection | App prompt → Allow each session | Medium — screen capture |
-| AccessibilityService | Settings → Accessibility | High — UI interaction |
-| アプリ内 Overlay | No special permission | Low — display only |
+| `notification_listener` | Settings → Notification access | Low — read-only |
+| `media_projection` | App prompt → allow each session | Medium — screen capture |
+| `accessibility` | Settings → Accessibility | High — UI interaction |
+| `overlay` | No special permission | Low — display only |
+| `location` | Runtime prompt | Medium — location |
 
-### Permission Missing Handling
+When a permission is absent, the capability stays registered and invocation returns a permission
+error; `web/ui_overview.py` surfaces `permission_missing` from server status. (The
+`push_permission_missing_event()` helper that raised an `android.permission_missing` event is in the
+same orphaned module — that specific event is not emitted by the live path.)
 
-When a required permission is not granted:
-1. Android Server pushes `android.permission_missing` event (URGENT)
-2. TriggerEngine wakes AI
-3. Support Agent can suggest setup instructions
-4. The capability is still registered but invocation returns permission error
+## Screenshots
 
-## Data Flow
+- Capture the **entire visible screen**, including sensitive content — treat as ephemeral.
+- They are **never transmitted externally**; this is the single constraint, not a policy setting.
+- In mock mode they return `[MOCK_SCREENSHOT]` — no real capture.
+
+## Data flow
 
 ```
-Android Device
-  ├── NotificationListenerService → notifications
-  ├── MediaProjection → screenshots
-  ├── AccessibilityService → UI tree, tap, swipe
-  └── アプリ内 Overlay → overlay display
-        ↓
-AegisGrpcClient (gRPC)
+Android device
+  ├── NotificationListenerService → notifications   (IGNORED_PACKAGES filter, on device)
+  ├── MediaProjection             → screenshots
+  ├── AccessibilityService        → UI tree, tap, swipe, home, back
+  └── in-app Overlay              → overlay display, approval.request prompt
+        ↓  (outbound connection — the app dials the AI Server)
+AegisGrpcClient
         ↓
 AEGIS Core
-  ├── NotificationFilter (redaction, denylist, allowlist)
   ├── EventBus → TriggerEngine → ContextBuilder
-  ├── ToolBroker → PolicyEngine → Approval UI (Level 2)
+  ├── ToolBroker → PolicyEngine   (no approval step)
   └── AuditLog
 ```
 
-## Testing Safety
+## Testing
 
-- CI tests use `MockAndroidProvider` — no real device calls
-- Local tests with real device are marked `@pytest.mark.android_local`
-- `MockAndroidProvider.call_log` tracks all invocations for audit
-- No secrets, tokens, or credentials in test fixtures
-- Password field detection is tested with mock UI tree
+- `MockAndroidProvider` exists **only** in the orphaned `ai-server/src/android_server_client.py`; the
+  live integration is covered by `ai-server/tests/test_android_integration.py` against
+  `aegis_ai/integrations/android/`.
+- The `android_local` marker is **not** registered in `pyproject.toml` — the previous revision
+  advertised it, but no test uses it. Android-side tests live in `android-server/app/src/test/`.
+- No secrets, tokens, or credentials should appear in test fixtures.

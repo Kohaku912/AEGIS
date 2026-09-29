@@ -7,104 +7,114 @@ import {
   UserRound,
 } from "lucide-react";
 
-export type DomainId = "ops" | "intel" | "connect" | "observe" | "personal" | "settings";
+export type DomainId = "cockpit" | "observe" | "personal" | "settings";
 export type PageId = string;
 export type NavigationPage = { id: PageId; label: string; path: string; developerOnly?: boolean };
 export type NavigationDomain = { id: DomainId; label: string; path: string; icon: typeof Home; pages: NavigationPage[] };
 
 export const navigation: NavigationDomain[] = [
   {
-    id: "ops",
-    label: "運用",
+    id: "cockpit",
+    label: "Cockpit",
     path: "/dashboard",
     icon: Home,
     pages: [
-      { id: "home", label: "ホーム", path: "/dashboard" },
-      { id: "attention", label: "対応待ち", path: "/dashboard/attention" },
-      { id: "open-loops", label: "オープンループ", path: "/dashboard/open-loops" },
-      { id: "judgment", label: "判断", path: "/dashboard/judgment" },
-      { id: "tasks", label: "タスク", path: "/dashboard/work/tasks" },
-      { id: "approvals", label: "承認", path: "/dashboard/approvals" },
-      { id: "autonomous", label: "自律実行", path: "/dashboard/autonomous" },
-      { id: "desires", label: "欲求", path: "/dashboard/desires" },
-      { id: "agent-state", label: "Agent State", path: "/dashboard/agent-state" },
-    ],
-  },
-  {
-    id: "intel",
-    label: "知能",
-    path: "/dashboard/memory",
-    icon: Brain,
-    pages: [
-      { id: "memory", label: "記憶", path: "/dashboard/memory" },
-      { id: "learning", label: "学習", path: "/dashboard/learning" },
-      { id: "capability-catalog", label: "Capability", path: "/dashboard/capabilities/catalog" },
-    ],
-  },
-  {
-    id: "connect",
-    label: "接続",
-    path: "/dashboard/infrastructure/servers",
-    icon: Cable,
-    pages: [
-      { id: "servers", label: "サーバー", path: "/dashboard/infrastructure/servers" },
-      { id: "pc", label: "PC", path: "/dashboard/devices/pc" },
-      { id: "browser", label: "Browser", path: "/dashboard/devices/browser" },
-      { id: "android", label: "Android", path: "/dashboard/devices/android" },
-      { id: "room", label: "Room", path: "/dashboard/devices/room" },
-      { id: "agora", label: "AGORA", path: "/dashboard/communications/social" },
-      { id: "presentation-surfaces", label: "Presentation", path: "/dashboard/communications/presentation-surfaces" },
+      { id: "home", label: "Cockpit Home", path: "/dashboard" },
+      { id: "control-hub", label: "Control Hub", path: "/dashboard/control-hub" },
+      { id: "atlas", label: "Ops Atlas", path: "/dashboard/atlas" },
+      { id: "interventions", label: "Interventions", path: "/dashboard/interventions" },
+      { id: "execution-trace", label: "Execution Trace", path: "/dashboard/execution-trace" },
+      { id: "layers", label: "Layer Comparison", path: "/dashboard/layers" },
+      { id: "systems", label: "Systems", path: "/dashboard/systems" },
+      { id: "attention", label: "対応待ち", path: "/dashboard/attention", developerOnly: true },
+      { id: "open-loops", label: "オープンループ", path: "/dashboard/open-loops", developerOnly: true },
+      { id: "judgment", label: "判断", path: "/dashboard/judgment", developerOnly: true },
+      { id: "tasks", label: "タスク", path: "/dashboard/work/tasks", developerOnly: true },
+      { id: "approvals", label: "承認", path: "/dashboard/approvals", developerOnly: true },
+      { id: "autonomous", label: "自律実行", path: "/dashboard/autonomous", developerOnly: true },
+      { id: "desires", label: "欲求", path: "/dashboard/desires", developerOnly: true },
+      { id: "agent-state", label: "Agent State", path: "/dashboard/agent-state", developerOnly: true },
+      { id: "agent-timeline", label: "Agent Timeline", path: "/dashboard/agent-timeline", developerOnly: true },
+      { id: "memory", label: "記憶", path: "/dashboard/memory", developerOnly: true },
+      { id: "learning", label: "学習", path: "/dashboard/learning", developerOnly: true },
+      { id: "capability-catalog", label: "Capability", path: "/dashboard/capabilities/catalog", developerOnly: true },
+      { id: "llm-l1", label: "L1 (知覚 / Router)", path: "/dashboard/llm/l1", developerOnly: true },
+      { id: "llm-l2", label: "L2 (Autonomous Mind)", path: "/dashboard/llm/l2", developerOnly: true },
+      { id: "llm-l3", label: "L3 (Deep Reasoner)", path: "/dashboard/llm/l3", developerOnly: true },
+      { id: "servers", label: "サーバー", path: "/dashboard/infrastructure/servers", developerOnly: true },
+      { id: "pc", label: "PC", path: "/dashboard/devices/pc", developerOnly: true },
+      { id: "browser", label: "Browser", path: "/dashboard/devices/browser", developerOnly: true },
+      { id: "android", label: "Android", path: "/dashboard/devices/android", developerOnly: true },
+      { id: "room", label: "Room", path: "/dashboard/devices/room", developerOnly: true },
+      { id: "agora", label: "AGORA", path: "/dashboard/communications/social", developerOnly: true },
+      { id: "presentation-surfaces", label: "Presentation", path: "/dashboard/communications/presentation-surfaces", developerOnly: true },
     ],
   },
   {
     id: "observe",
-    label: "観測",
+    label: "Trace",
     path: "/dashboard/operations",
     icon: Activity,
     pages: [
-      { id: "operations", label: "Operations", path: "/dashboard/operations" },
-      { id: "logs", label: "Logs", path: "/dashboard/observability/logs" },
+      { id: "operations", label: "Operations", path: "/dashboard/operations", developerOnly: true },
+      { id: "logs", label: "Logs", path: "/dashboard/observability/logs", developerOnly: true },
       { id: "raw-activity", label: "Activity", path: "/dashboard/activity", developerOnly: true },
-      { id: "llm-usage", label: "LLM Usage", path: "/dashboard/observability/llm-usage" },
-      { id: "incidents", label: "Incidents & Repairs", path: "/dashboard/incidents" },
-      { id: "performance", label: "Performance", path: "/dashboard/observability/performance" },
+      { id: "llm-usage", label: "LLM Usage", path: "/dashboard/observability/llm-usage", developerOnly: true },
+      { id: "incidents", label: "Incidents & Repairs", path: "/dashboard/incidents", developerOnly: true },
+      { id: "performance", label: "Performance", path: "/dashboard/observability/performance", developerOnly: true },
       { id: "audit", label: "Audit", path: "/dashboard/observability/audit", developerOnly: true },
-      { id: "behavioral-reports", label: "Behavioral Reports", path: "/dashboard/observability/behavioral-reports" },
+      // Phase 3/5 — the post-hoc visibility that replaced the forced approval gate.
+      // Kept alongside `audit` for now; promote out of developerOnly if the owner wants
+      // it in the default navigation.
+      { id: "irreversibility", label: "Irreversibility", path: "/dashboard/observability/irreversibility", developerOnly: true },
+      { id: "behavioral-reports", label: "Behavioral Reports", path: "/dashboard/observability/behavioral-reports", developerOnly: true },
     ],
   },
   {
     id: "personal",
-    label: "個人",
-    path: "/dashboard/personal-ai",
+    label: "Personal",
+    path: "/dashboard/personal-context",
     icon: UserRound,
     pages: [
-      { id: "personal-ai", label: "Personal AI", path: "/dashboard/personal-ai" },
-      { id: "timeline", label: "Timeline", path: "/dashboard/personal-data/timeline" },
-      { id: "user-state", label: "User State", path: "/dashboard/user-state" },
+      { id: "personal-context", label: "Personal Context", path: "/dashboard/personal-context" },
+      { id: "personal-ai", label: "Personal AI", path: "/dashboard/personal-ai", developerOnly: true },
+      { id: "timeline", label: "Timeline", path: "/dashboard/personal-data/timeline", developerOnly: true },
+      { id: "user-state", label: "User State", path: "/dashboard/user-state", developerOnly: true },
     ],
   },
   {
     id: "settings",
-    label: "設定",
+    label: "Settings",
     path: "/settings/general",
     icon: Settings,
     pages: [
       { id: "settings-general", label: "設定", path: "/settings/general" },
-      { id: "settings-all", label: "全設定", path: "/settings/all" },
+      { id: "settings-all", label: "全設定", path: "/settings/all", developerOnly: true },
       { id: "llm-config", label: "Models & Prompts", path: "/dashboard/intelligence/models-prompts" },
-      { id: "prompt-analysis", label: "Prompt Analysis", path: "/dashboard/observability/prompt-analysis", developerOnly: true },
       { id: "diagnostics", label: "システム診断", path: "/dashboard/diagnostics" },
       { id: "dashboard-settings", label: "Dashboard設定", path: "/dashboard/dashboard-settings" },
-      { id: "notifications", label: "通知", path: "/dashboard/communications/notifications" },
+      { id: "notifications", label: "通知", path: "/dashboard/communications/notifications", developerOnly: true },
+      { id: "prompt-analysis", label: "Prompt Analysis", path: "/dashboard/observability/prompt-analysis", developerOnly: true },
     ],
   },
 ];
 
 const aliases: Array<[RegExp, PageId]> = [
   [/\/dashboard\/?$/, "home"],
+  [/\/dashboard\/control-hub(\/|$)/, "control-hub"],
+  [/\/dashboard\/atlas(\/|$)/, "atlas"],
+  [/\/dashboard\/interventions(\/|$)/, "interventions"],
+  [/\/dashboard\/execution-trace(\/|$)/, "execution-trace"],
+  [/\/dashboard\/layers(\/|$)/, "layers"],
+  [/\/dashboard\/systems(\/|$)/, "systems"],
+  [/\/dashboard\/personal-context(\/|$)/, "personal-context"],
   [/\/dashboard\/command-center/, "home"],
   [/\/dashboard\/tasks|\/dashboard\/work(\/|$)/, "tasks"],
+  [/\/dashboard\/approvals(\/|$)/, "approvals"],
   [/\/dashboard\/governance\/approvals/, "approvals"],
+  [/\/dashboard\/autonomous(\/|$)/, "autonomous"],
+  [/\/dashboard\/desires(\/|$)/, "desires"],
+  [/\/dashboard\/agent-state(\/|$)/, "agent-state"],
   [/\/dashboard\/operations(\/|$)/, "operations"],
   [/\/dashboard\/activity(\/|$)/, "raw-activity"],
   [/\/dashboard\/incidents(\/|$)/, "incidents"],
@@ -113,14 +123,16 @@ const aliases: Array<[RegExp, PageId]> = [
   [/\/dashboard\/observability\/errors/, "incidents"],
   [/\/dashboard\/observability\/performance/, "performance"],
   [/\/dashboard\/observability\/behavioral-reports/, "behavioral-reports"],
+  [/\/dashboard\/observability\/irreversibility/, "irreversibility"],
   [/\/dashboard\/observability\/llm-usage/, "llm-usage"],
   [/\/dashboard\/llm(\/|$)/, "llm-usage"],
-  [/\/dashboard\/systems/, "servers"],
+  [/\/dashboard\/systems/, "systems"],
   [/\/dashboard\/personal-data\/timeline/, "timeline"],
   [/\/dashboard\/intelligence\/memory/, "memory"],
   [/\/dashboard\/intelligence\/models-prompts/, "llm-config"],
   [/\/dashboard\/communications\/social/, "agora"],
   [/\/dashboard\/communications\/presentation-surfaces/, "presentation-surfaces"],
+  [/\/dashboard\/interruption(\/|$)/, "interruption"],
   [/\/dashboard\/capabilities\/executions/, "capability-catalog"],
   [/\/settings\/autonomy/, "settings-general"],
   [/\/dashboard\/goals/, "agent-state"],
@@ -128,6 +140,12 @@ const aliases: Array<[RegExp, PageId]> = [
   [/\/dashboard\/judgment/, "judgment"],
   [/\/dashboard\/continuations/, "judgment"],
   [/\/dashboard\/repairs/, "incidents"],
+  // Phase D7 — Agent Timeline
+  [/\/dashboard\/agent-timeline(\/|$)/, "agent-timeline"],
+  // DASHBOARD_V3_PLAN.md Phase L6 — LLM Layers
+  [/\/dashboard\/llm\/l1(\/|$)/, "llm-l1"],
+  [/\/dashboard\/llm\/l2(\/|$)/, "llm-l2"],
+  [/\/dashboard\/llm\/l3(\/|$)/, "llm-l3"],
 ];
 
 /** Detail IDs for deep-linkable observation pages. */
@@ -140,6 +158,8 @@ export function detailRoute(pathname: string): { page: PageId; detailId: string 
     [/^\/dashboard\/audit\/([^/]+)$/, "audit"],
     [/^\/dashboard\/llm\/([^/]+)$/, "llm-usage"],
     [/^\/dashboard\/observability\/llm-usage\/([^/]+)$/, "llm-usage"],
+    // Phase D4 — Agent Session 詳細
+    [/^\/dashboard\/agent-sessions\/([^/]+)$/, "agent-session"],
   ];
   for (const [pattern, page] of patterns) {
     const match = pathname.match(pattern);
@@ -171,7 +191,7 @@ export function routeState(pathname: string): { domain: DomainId; page: PageId; 
       .find((candidate) => pathname.startsWith(candidate.path));
     if (page) return { domain: domain.id, page: page.id };
   }
-  return { domain: "ops", page: "home" };
+  return { domain: "cockpit", page: "home" };
 }
 
 export function pageDefinition(pageId: PageId) {

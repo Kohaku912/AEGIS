@@ -229,7 +229,6 @@ class AutonomousController:
             "score": decision.score,
             "reason": decision.reason,
             "risk": decision.risk_level.name,
-            "approval": decision.requires_approval,
             "selected": getattr(decision.selected_task, "task_id", None),
         })
 

@@ -21,6 +21,37 @@ logger = logging.getLogger("aegis_ai.web.chat_tools")
 _DATA_DIR = str(Path(__file__).resolve().parent.parent.parent.parent / "data")
 
 
+def _tool_result(
+    *,
+    success: bool,
+    result: str,
+    output: Any = None,
+    error: str = "",
+    needs_user_input: bool = False,
+    needs_user_input_for: Any = None,
+) -> dict[str, Any]:
+    """Build a chat tool result with a stable, complete key set.
+
+    Downstream callers read ``needs_user_input`` / ``needs_user_input_for``
+    directly, so every return path of ``execute_tool_call`` must expose the
+    same keys. Previously the "not registered" and exception paths omitted
+    them, which caused ``KeyError`` on the caller side.
+
+    ``approval_needed`` / ``approval_id`` are **gone**. Approval is not a
+    constraint (2026-09-27), and a key that is hardcoded ``False`` forever is a
+    claim that *looks* like a gate. When AEGIS chooses to ask the user, it does
+    so through the confirmation store; nothing here can force it.
+    """
+    return {
+        "success": success,
+        "result": result,
+        "output": output if output is not None else {},
+        "error": error,
+        "needs_user_input": needs_user_input,
+        "needs_user_input_for": needs_user_input_for if needs_user_input_for is not None else [],
+    }
+
+
 def _emit_event(
     runtime: Any,
     event_type: str,
@@ -60,6 +91,20 @@ def _emit_event(
             logger.info("Event: %s status=%s tool=%s profile=%s", event_type, status, tool_id, profile)
     except Exception:
         logger.debug("Failed to emit event: %s", event_type, exc_info=True)
+
+
+def _emit_l1_gate_failure(runtime: Any, gate_name: str, error: str) -> None:
+    """Record first-stage gate failures so L1 outages are visible."""
+    message = str(error or "unknown L1 gate failure")
+    logger.error("Chat first-stage gate failed: %s: %s", gate_name, message)
+    _emit_event(
+        runtime,
+        f"llm.first_stage.{gate_name}.failed",
+        status="failed",
+        profile="l1_default",
+        error=message,
+        reason=f"chat first-stage gate failed: {gate_name}",
+    )
 
 
 def get_catalog():
@@ -180,14 +225,11 @@ def execute_tool_call(
 
     cap_id = catalog.tool_name_to_cap_id(function_name)
     if not catalog.resolve(cap_id):
-        return {
-            "success": False,
-            "result": f"Failed: Capability '{cap_id}' is not registered.",
-            "output": {},
-            "error": f"Capability '{cap_id}' is not registered.",
-            "needs_user_input": False,
-            "needs_user_input_for": [],
-        }
+        return _tool_result(
+            success=False,
+            result=f"Failed: Capability '{cap_id}' is not registered.",
+            error=f"Capability '{cap_id}' is not registered.",
+        )
 
     try:
         from tool_broker import ToolExecutionRequest, ExecutionSource, InvokeStatus
@@ -235,47 +277,25 @@ def execute_tool_call(
                         task_manager.update_step_status(task_id, step_id, "failed", error=error_msg)
                     except Exception:
                         logger.debug("Failed to mark chat tool step failed", exc_info=True)
-                return {
-                    "success": False,
-                    "result": f"Failed: {error_msg}",
-                    "output": output,
-                    "error": error_msg,
-                    "needs_user_input": False,
-                    "needs_user_input_for": [],
-                }
+                return _tool_result(
+                    success=False,
+                    result=f"Failed: {error_msg}",
+                    output=output,
+                    error=error_msg,
+                )
             if task_manager is not None and task_id:
                 try:
                     task_manager.update_step_status(task_id, step_id, "completed", result=result.output)
                 except Exception:
                     logger.debug("Failed to mark chat tool step completed", exc_info=True)
             result_text = _stringify_tool_output(output)
-            return {
-                "success": True,
-                "result": result_text,
-                "output": output,
-                "error": "",
-                "needs_user_input": output.get("needs_user_input", False),
-                "needs_user_input_for": output.get("needs_user_input_for", []),
-            }
-
-        if result.status == InvokeStatus.APPROVAL_NEEDED:
-            if task_manager is not None and task_id:
-                try:
-                    task_manager.wait_for_approval(task_id, step_id, result.approval_id)
-                    task_manager.set_waiting_approval(task_id, step_id, result.approval_id)
-                except Exception:
-                    logger.debug("Failed to mark chat tool approval wait", exc_info=True)
-            approval_msg = f"承認が必要です。Approvals で承認してください。approval_id={result.approval_id}"
-            return {
-                "success": False,
-                "result": approval_msg,
-                "output": result.output or {},
-                "error": result.error or "Approval required",
-                "needs_user_input": False,
-                "needs_user_input_for": [],
-                "approval_needed": True,
-                "approval_id": result.approval_id,
-            }
+            return _tool_result(
+                success=True,
+                result=result_text,
+                output=output,
+                needs_user_input=output.get("needs_user_input", False),
+                needs_user_input_for=output.get("needs_user_input_for", []),
+            )
 
         if task_manager is not None and task_id:
             try:
@@ -288,22 +308,19 @@ def execute_tool_call(
             error_msg = output.get("stderr", "") or output.get("error", "") or output.get("message", "")
         if not error_msg:
             error_msg = str(output) if output else "Unknown error"
-        return {
-            "success": False,
-            "result": f"Failed: {error_msg}",
-            "output": output,
-            "error": error_msg,
-            "needs_user_input": False,
-            "needs_user_input_for": [],
-        }
+        return _tool_result(
+            success=False,
+            result=f"Failed: {error_msg}",
+            output=output,
+            error=error_msg,
+        )
     except Exception as e:
         logger.error("Tool execution error for %s: %s", cap_id, e)
-        return {
-            "success": False,
-            "result": f"Error: {e}",
-            "output": {},
-            "error": str(e),
-        }
+        return _tool_result(
+            success=False,
+            result=f"Error: {e}",
+            error=str(e),
+        )
 
 
 def _execute_meta_tool(
@@ -618,7 +635,7 @@ def _summarize_observation_with_llm(
 
 def _parse_tool_call(content: str, valid_tool_names: set[str] | None = None) -> dict | None:
     """Extract a single tool call from LLM content. Returns None if no tool call found.
-    
+
     Args:
         content: LLM response content to parse
         valid_tool_names: Optional set of valid tool names for validation.
@@ -817,6 +834,7 @@ def _llm_wants_tools(
     *,
     system_prompt: str,
     context_meta: dict[str, Any] | None = None,
+    runtime: Any = None,
 ) -> tuple[bool | None, dict[str, Any] | None]:
     """Ask the LLM whether the current request needs external capabilities.
 
@@ -836,6 +854,8 @@ def _llm_wants_tools(
         f"CURRENT user request:\n{user_message}"
     )
     try:
+        decision_meta = dict(context_meta or {})
+        decision_meta["caller"] = "chat_tools.tool_gate"
         result = llm.generate(
             prompt=decision_prompt,
             system_prompt=(
@@ -843,12 +863,20 @@ def _llm_wants_tools(
                 + "\n\nFor this decision, ignore previous conversation except where the current request explicitly refers to it."
             ),
             max_tokens=120,
-            context_meta=context_meta,
+            context_meta=decision_meta,
+            json_mode=True,
+            profile="l1_default",
         )
     except Exception:
         logger.debug("Tool-use decision failed", exc_info=True)
+        _emit_l1_gate_failure(runtime=runtime, gate_name="tool_gate", error="exception during L1 tool gate")
         return None, None
     if not getattr(result, "success", False):
+        _emit_l1_gate_failure(
+            runtime=runtime,
+            gate_name="tool_gate",
+            error=str(getattr(result, "error", "") or "unsuccessful L1 tool gate response"),
+        )
         return None, None
     content = (getattr(result, "content", "") or "").strip()
     parsed_tool_call = _parse_tool_call(content)
@@ -856,10 +884,20 @@ def _llm_wants_tools(
         return True, parsed_tool_call
     match = re.search(r"\{.*\}", content, flags=re.S)
     if not match:
+        _emit_l1_gate_failure(
+            runtime=runtime,
+            gate_name="tool_gate",
+            error="L1 tool gate returned non-JSON content",
+        )
         return None, None
     try:
         data = json.loads(match.group(0))
     except Exception:
+        _emit_l1_gate_failure(
+            runtime=runtime,
+            gate_name="tool_gate",
+            error="L1 tool gate JSON parsing failed",
+        )
         return None, None
     value = data.get("use_tools")
     return (value if isinstance(value, bool) else None), None
@@ -894,6 +932,7 @@ def _llm_response_satisfies_without_tools(
     response: str,
     *,
     context_meta: dict[str, Any] | None = None,
+    runtime: Any = None,
 ) -> bool | None:
     """Ask the LLM whether a no-tool response actually completes the request."""
 
@@ -910,24 +949,48 @@ def _llm_response_satisfies_without_tools(
         f"Assistant response:\n{response}"
     )
     try:
+        decision_meta = dict(context_meta or {})
+        decision_meta["caller"] = "chat_tools.satisfaction_gate"
         result = llm.generate(
             prompt=prompt,
             system_prompt="You are a strict evaluator of task completion.",
             max_tokens=120,
-            context_meta=context_meta,
+            context_meta=decision_meta,
+            json_mode=True,
+            profile="l1_default",
         )
     except Exception:
         logger.debug("No-tool response satisfaction check failed", exc_info=True)
+        _emit_l1_gate_failure(
+            runtime=runtime,
+            gate_name="satisfaction_gate",
+            error="exception during L1 satisfaction gate",
+        )
         return None
     if not getattr(result, "success", False):
+        _emit_l1_gate_failure(
+            runtime=runtime,
+            gate_name="satisfaction_gate",
+            error=str(getattr(result, "error", "") or "unsuccessful L1 satisfaction gate response"),
+        )
         return None
     content = (getattr(result, "content", "") or "").strip()
     match = re.search(r"\{.*\}", content, flags=re.S)
     if not match:
+        _emit_l1_gate_failure(
+            runtime=runtime,
+            gate_name="satisfaction_gate",
+            error="L1 satisfaction gate returned non-JSON content",
+        )
         return None
     try:
         data = json.loads(match.group(0))
     except Exception:
+        _emit_l1_gate_failure(
+            runtime=runtime,
+            gate_name="satisfaction_gate",
+            error="L1 satisfaction gate JSON parsing failed",
+        )
         return None
     value = data.get("satisfies")
     return value if isinstance(value, bool) else None
@@ -1028,6 +1091,7 @@ def call_llm_with_tools(
         user_message,
         system_prompt=system_prompt,
         context_meta=context_meta,
+        runtime=runtime,
     )
     decision_returned_tool_call = pending_tool_call is not None
     if wants_tools is False:
@@ -1042,6 +1106,7 @@ def call_llm_with_tools(
             user_message,
             response,
             context_meta=context_meta,
+            runtime=runtime,
         )
         if satisfies is not False:
             return {
@@ -1099,6 +1164,7 @@ def call_llm_with_tools(
                     user_message,
                     content.strip(),
                     context_meta=context_meta,
+                    runtime=runtime,
                 )
                 if (
                     (satisfies is False or (satisfies is None and all_tool_results))
@@ -1196,16 +1262,6 @@ def call_llm_with_tools(
             "cap_id": catalog.tool_name_to_cap_id(func_name),
             **tool_result,
         })
-
-        if tool_result.get("approval_needed"):
-            approval_id = tool_result.get("approval_id", "")
-            return {
-                "response": f"承認が必要です。Approvals で承認してください。approval_id={approval_id}",
-                "tool_calls": all_tool_calls,
-                "tool_results": all_tool_results,
-                "approval_needed": True,
-                "approval_id": approval_id,
-            }
 
         if tool_result.get("needs_user_input"):
             reasons = tool_result.get("needs_user_input_for", [])

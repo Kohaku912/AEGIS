@@ -398,16 +398,20 @@ def resolve_tcp_endpoint(
                 logger.info("Resolved %s endpoint to %s:%s", server_id, host, port)
             return _remember(server_id, host, port)
 
-    # Explicit MAC discovery (refresh ARP, then match).
-    by_mac = resolve_by_mac(server_id, port=port, timeout=timeout, refresh_arp=True)
-    if by_mac:
-        return by_mac
-
     scan_enabled = (
         allow_lan_scan
         if allow_lan_scan is not None
         else _env_bool("AEGIS_LAN_SCAN_ENABLED", server_id in _SCAN_SERVERS)
     )
+
+    # Explicit MAC discovery. ``refresh_arp=True`` pings the whole /24 to repopulate the
+    # ARP table and then port-scans it, so it *is* LAN scanning and has to obey the same
+    # switch. With scanning off we still match configured MACs against the neighbour
+    # table we already have, we just do not go out looking.
+    by_mac = resolve_by_mac(server_id, port=port, timeout=timeout, refresh_arp=scan_enabled)
+    if by_mac:
+        return by_mac
+
     now_ms = int(time.time() * 1000)
     last_scan = _LAST_SCAN_MS.get(server_id, 0)
     scan_due = (now_ms - last_scan) >= _SCAN_COOLDOWN_MS

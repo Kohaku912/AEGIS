@@ -73,6 +73,9 @@ logs/
 node_modules/
 npm-debug.log*
 
+# ---- TypeScript incremental build cache ----
+*.tsbuildinfo
+
 # ---- Runtime data (ephemeral) ----
 # Root data directory (approvals, chat history, desires, world_state, etc.)
 data/
@@ -110,5 +113,15 @@ test_flask.py
 
 # ---- OpenCode plans/drafts ----
 .omo/
+
+# ---- WorkBuddy / Trae agent state ----
+.workbuddy-ai/
+.trae/
+
+# ---- Test run scratch dirs ----
+# egress suite writes ai-server/.tmp-egress-run/ (~1.6k files per run)
+**/.tmp-*/
+ai-server/tmp_remote_sessions/
+*.timestamp-*.mjs
 
 */target/

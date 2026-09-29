@@ -1,6 +1,6 @@
 {
-  "title": "Request Android Approval",
-  "description": "Display an approval request on the Android overlay as one approval surface.",
+  "title": "Ask the User on Android",
+  "description": "Display a confirmation prompt on the Android overlay and collect the user's answer. AEGIS chooses to ask; the answer informs the next step and unblocks nothing.",
   "server_id": "android-server",
   "app_id": "approval",
   "action": "request",
@@ -19,9 +19,6 @@
       },
       "summary_json": {
         "type": "string"
-      },
-      "expires_at_ms": {
-        "type": "integer"
       }
     },
     "required": [
@@ -37,6 +34,12 @@
     ],
     "requires_approval": false
   },
+  "ownership_scope": "user",
+  "reversibility": "recoverable",
+  "destructive_effects": [],
+  "data_loss_risk": "none",
+  "active_work_loss_risk": "none",
+  "blast_radius": "single",
   "tags": [
     "builtin",
     "android",

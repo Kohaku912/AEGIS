@@ -8,7 +8,6 @@ Package structure:
 - aegis_ai.policy_engine: Safety enforcement (→ src/policy_engine.py)
 - aegis_ai.tool_broker: Capability invocation (→ src/tool_broker.py)
 - aegis_ai.tool_registry: Capability/server registration (→ src/tool_registry.py)
-- aegis_ai.approval: Approval lifecycle (→ src/approval.py)
 - aegis_ai.context_builder: Context assembly for LLM
 - aegis_ai.autonomous_loop: Observe→Think→Plan→Act→Verify→Reflect
 - aegis_ai.planner: Task decomposition
@@ -40,7 +39,6 @@ def _optional_reexport(module_name: str, names: tuple[str, ...]) -> None:
 
 # Re-export core public APIs from existing implementations when their
 # runtime dependencies are available.
-_optional_reexport("aegis_ai.approval", ("ApprovalRequest", "ApprovalStatus", "ApprovalStore", "ApprovalType"))
 _optional_reexport("aegis_ai.audit", ("AuditEntry", "AuditLog"))
 _optional_reexport("aegis_ai.capability_registry", ("CapabilityRegistry",))
 _optional_reexport("aegis_ai.config", ("Config",))

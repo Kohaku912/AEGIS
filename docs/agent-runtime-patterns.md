@@ -1,5 +1,11 @@
 # AEGIS Agent Runtime Patterns
 
+> ⚠️ **Goal change (2026-09-27)**: the only constraint is now **"the user's information must never
+> leave the local environment."** Approval, reversibility, policy, and reliability-proof are **no
+> longer constraints**. Any "requires approval" / "Level 2" language below is a **risk annotation**,
+> not a gate. See [`GOAL-CHANGE.md`](GOAL-CHANGE.md).
+
+
 This document describes the standard execution patterns introduced by the platform hardening work (schema boundaries, OTel, event journal, Temporal, and existing LangGraph agents).
 
 ## Composition root
@@ -13,6 +19,8 @@ All capability invocations go through `ToolBroker.execute()`:
 - Manifest arguments are validated with Pydantic + JSON Schema at invoke time.
 - `PolicyEngine` is always consulted before execution.
 - Completion verification can use screenshot or `ui_tree` observations (Android + PC).
+- The currently enforced full-authority boundaries are summarized in
+  `docs/full-authority-blocker-matrix.md`.
 
 ## Durable orchestration (Temporal)
 

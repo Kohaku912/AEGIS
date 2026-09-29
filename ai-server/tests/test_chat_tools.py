@@ -6,9 +6,28 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
+import pytest
+
 from aegis_ai.capability_catalog import CapabilityCatalog
 from aegis_ai.capability_index import CapabilityIndex, CapabilityRetriever
 from aegis_ai.web import chat_tools
+
+
+@pytest.fixture(autouse=True)
+def _never_leak_the_runtime_singleton():
+    """``call_llm_with_tools`` reaches for the real runtime, so never leave it running.
+
+    The tool-calling path resolves the runtime singleton lazily, which *builds* it if it
+    is empty — starting the status manager's ``status-check`` thread and the hook engine
+    as a side effect. Those used to outlive the test: the status thread kept probing the
+    network and writing the endpoint resolver's process-global cache for the rest of the
+    session. See ``tests/conftest.py`` for the guard that catches this.
+    """
+    yield
+
+    from aegis_ai.runtime import reset_runtime_for_tests
+
+    reset_runtime_for_tests()
 
 
 @dataclass
@@ -50,6 +69,7 @@ class FakeCatalog:
 class PromptRecordingLLM:
     def __init__(self) -> None:
         self.prompts: list[str] = []
+        self.generate_calls: list[dict[str, Any]] = []
         self._calls = 0
 
     def generate(
@@ -58,14 +78,53 @@ class PromptRecordingLLM:
         system_prompt: str = "",
         max_tokens: int = 1000,
         context_meta: dict[str, Any] | None = None,
+        json_mode: bool = False,
+        profile: str | None = None,
     ) -> FakeResponse:
         self.prompts.append(prompt)
+        self.generate_calls.append(
+            {
+                "prompt": prompt,
+                "system_prompt": system_prompt,
+                "max_tokens": max_tokens,
+                "context_meta": context_meta,
+                "json_mode": json_mode,
+                "profile": profile,
+            }
+        )
         self._calls += 1
         if self._calls == 1:
             return FakeResponse(
                 content='<tool_call>{"name":"browser-server__page__browse","arguments":{"task":"Open example.com"}}</tool_call>'
             )
         return FakeResponse(content="Task complete.")
+
+
+class ErroringGateLLM:
+    def __init__(self, error: str = "TypeSafe API key is not configured") -> None:
+        self.error = error
+        self.generate_calls: list[dict[str, Any]] = []
+
+    def generate(
+        self,
+        prompt: str,
+        system_prompt: str = "",
+        max_tokens: int = 1000,
+        context_meta: dict[str, Any] | None = None,
+        json_mode: bool = False,
+        profile: str | None = None,
+    ) -> FakeResponse:
+        self.generate_calls.append(
+            {
+                "prompt": prompt,
+                "system_prompt": system_prompt,
+                "max_tokens": max_tokens,
+                "context_meta": context_meta,
+                "json_mode": json_mode,
+                "profile": profile,
+            }
+        )
+        return FakeResponse(success=False, error=self.error)
 
 
 class NativeToolLLM:
@@ -108,6 +167,7 @@ class VisionToolLLM:
     def __init__(self) -> None:
         self.prompts: list[str] = []
         self.vision_prompts: list[str] = []
+        self.generate_calls: list[dict[str, Any]] = []
         self._calls = 0
 
     def generate(
@@ -116,8 +176,20 @@ class VisionToolLLM:
         system_prompt: str = "",
         max_tokens: int = 1000,
         context_meta: dict[str, Any] | None = None,
+        json_mode: bool = False,
+        profile: str | None = None,
     ) -> FakeResponse:
         self.prompts.append(prompt)
+        self.generate_calls.append(
+            {
+                "prompt": prompt,
+                "system_prompt": system_prompt,
+                "max_tokens": max_tokens,
+                "context_meta": context_meta,
+                "json_mode": json_mode,
+                "profile": profile,
+            }
+        )
         self._calls += 1
         if self._calls == 1:
             return FakeResponse(
@@ -370,3 +442,48 @@ def test_meta_tool_call_does_not_use_tool_broker(tmp_path: Path) -> None:
 
     assert result["success"] is True
     assert result["output"]["described_capability_id"] == "ai-server.dummy1.run"
+
+
+def test_chat_first_stage_uses_l1_default_profile() -> None:
+    llm = PromptRecordingLLM()
+
+    wants_tools, pending_tool_call = chat_tools._llm_wants_tools(
+        llm,
+        "example.com を開いて確認してください。",
+        system_prompt="You are AEGIS.",
+        context_meta={"request_id": "req-1"},
+    )
+
+    assert wants_tools is True
+    assert pending_tool_call is not None
+    first_call = llm.generate_calls[0]
+    assert first_call["profile"] == "l1_default"
+    assert first_call["json_mode"] is True
+    assert first_call["context_meta"]["caller"] == "chat_tools.tool_gate"
+
+
+def test_tool_gate_failure_emits_l1_failure_event(monkeypatch) -> None:
+    llm = ErroringGateLLM()
+    emitted: list[dict[str, Any]] = []
+
+    monkeypatch.setattr(
+        chat_tools,
+        "_emit_event",
+        lambda runtime, event_type, **kwargs: emitted.append(
+            {"runtime": runtime, "event_type": event_type, **kwargs}
+        ),
+    )
+
+    wants_tools, pending_tool_call = chat_tools._llm_wants_tools(
+        llm,
+        "example.com を開いて確認してください。",
+        system_prompt="You are AEGIS.",
+        context_meta={"request_id": "req-1"},
+        runtime=SimpleNamespace(),
+    )
+
+    assert wants_tools is None
+    assert pending_tool_call is None
+    assert emitted[0]["event_type"] == "llm.first_stage.tool_gate.failed"
+    assert emitted[0]["profile"] == "l1_default"
+    assert "TypeSafe API key is not configured" in emitted[0]["error"]

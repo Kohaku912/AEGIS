@@ -6,7 +6,7 @@ from aegis_ai.status.status_manager import ServerStatus, StatusManager
 
 
 def test_status_manager_distinguishes_disabled_and_unconfigured(monkeypatch) -> None:
-    monkeypatch.setenv("AEGIS_DISABLED_SERVERS", "room-server,dev-server")
+    monkeypatch.setenv("AEGIS_DISABLED_SERVERS", "room-server")
 
     manager = StatusManager()
     snapshot = manager.check_now()
@@ -14,13 +14,11 @@ def test_status_manager_distinguishes_disabled_and_unconfigured(monkeypatch) -> 
     assert snapshot["room-server"]["status"] == ServerStatus.DISABLED.value
     assert snapshot["room-server"]["mode"] == "disabled"
     assert "disabled" in snapshot["room-server"]["error"]
-    assert snapshot["dev-server"]["status"] == ServerStatus.DISABLED.value
 
     monkeypatch.delenv("AEGIS_DISABLED_SERVERS")
     manager = StatusManager()
     snapshot = manager.check_now()
     assert snapshot["room-server"]["status"] == ServerStatus.UNCONFIGURED.value
-    assert snapshot["dev-server"]["status"] == ServerStatus.UNCONFIGURED.value
 
 
 def test_browser_health_preserves_structured_runtime_details(monkeypatch) -> None:

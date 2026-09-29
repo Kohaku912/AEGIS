@@ -1,6 +1,8 @@
 //! Overlay — click-through overlay with keyboard input.
 //!
-//! Approval overlay: Y = approve, N = reject, ESC = cancel.
+//! Confirmation overlay: Y = approve, N = reject, ESC = cancel. This is the
+//! PC-side "ask the user" surface. AEGIS chooses when to show it, and the answer
+//! is returned to the caller — it gates nothing.
 //! Display overlay: Shows arbitrary text, auto-dismisses or ESC to close.
 
 use serde::{Deserialize, Serialize};
@@ -423,7 +425,7 @@ fn show_rich_display_overlay_generation(
                         image_width = rgba.width() as i32;
                         image_height = rgba.height() as i32;
                         let mut bgra = Vec::with_capacity(rgba.len());
-                        for px in rgba.chunks_exact(4) {
+                        for px in rgba.as_chunks::<4>().0 {
                             bgra.extend_from_slice(&[px[2], px[1], px[0], px[3]]);
                         }
                         image_bgra = Some(bgra);
@@ -612,7 +614,7 @@ extern "system" fn overlay_wnd_proc(
 
                 SetBkMode(mem_dc, 1);
 
-                let title: Vec<u16> = "AEGIS Approval Required\0".encode_utf16().collect();
+                let title: Vec<u16> = "AEGIS — Please Confirm\0".encode_utf16().collect();
                 SetTextColor(mem_dc, COLOR_AMBER);
                 let mut title_rect = RECT {
                     left: rect.left + 16,

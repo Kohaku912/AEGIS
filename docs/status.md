@@ -1,50 +1,104 @@
-# AEGIS Implementation Status
+# AEGIS Status
 
-Updated: 2026-06-30
+> ⚠️ **Goal change (2026-09-27)**: the only constraint is now **"the user's information must never
+> leave the local environment."** Approval, reversibility, policy, and reliability-proof are **no
+> longer constraints**. Any "requires approval" / "Level 2" language in this repo is a **risk
+> annotation**, not a gate. See [`GOAL-CHANGE.md`](GOAL-CHANGE.md).
 
-## Current Personal AI Foundation
+**This file is structure and intent, not a measurement.** Test totals and capability counts are
+deliberately *not* repeated here — a quantity written in two places goes stale in one of them
+(`PROJECT_STATUS_REVIEW.md` §4.3 class 9). For numbers, run the commands below or read the live report.
 
-AEGIS now includes the first integrated version of the personal-AI foundation. The implementation is owned by `AegisRuntime` and reuses the existing execution and safety path:
+## Where the truth lives
 
-- Tool execution still goes through `ToolBroker`.
-- Hard safety gates still come from `PolicyEngine`.
-- Runtime state and observations flow through `EventManager`.
-- Decisions, transitions, failures, and manager updates are recorded through `AuditManager`.
-- Lessons from repeated failures are written through `MemoryManager`.
-- Dashboard APIs are registered through the existing manager route blueprint.
+| Question | Source |
+|---|---|
+| Assessed state, open findings, prioritised actions | `PROJECT_STATUS_REVIEW.md` |
+| Migration progress, per-commit detail | `AGENT_PROGRESS.md` |
+| Plan and owner decisions D1–D7 | `IMPROVEMENT_PROPOSAL.md` §9 |
+| Agent-facing counts (**re-measure before trusting**) | `AGENTS.md` |
+| Generated evidence | `data/reports/` |
+| Run everything | `scripts/test-all-suites.ps1` (constraint gate + SDK / room / browser) |
+| ai-server alone | `cd ai-server && pytest` |
 
-## Implemented
+## Servers
 
-- `UserModelStore` has structured fields for preferences, work patterns, permission scopes, common apps, notification conditions, writing style, and long-term goals.
-- `ContextBuilder` injects relevant UserModel, Situation, DelegationPolicy, and due Commitment context instead of dumping the full model.
-- `HookEngine` supports interval, schedule, and event hooks. It only runs read-only capabilities, evaluates deterministic conditions without calling the LLM on every tick, and emits `self_call` only on match.
-- `HookEngine` now supports dashboard stop, persisted stop reasons, exponential backoff, max backoff, consecutive failure counts, and dedupe suppression by result dot-path.
-- `CommitmentManager` persists commitments, transitions, due dates, and follow-up hooks.
-- Commitment due hooks use the dedicated read-only `ai-server.commitment.wakeup` capability.
-- `SituationModel` persists current situation, interruptibility, confidence, and evidence from device/server events.
-- `SituationModel` accepts structured observations such as `device_type`, `activity`, `foreground_app`, `screen_state`, `presence`, and `focus_mode`.
-- `DelegationPolicyStore` adds user-specific approval/deny requirements without weakening PolicyEngine hard denials.
-- `SocialProxy` supports draft-first webhook/email flow. Sending is exposed only through approval-required capability.
-- SocialProxy sends now require a ToolBroker-approved execution marker internally, so direct in-process calls without approval are blocked.
-- `InterruptionController` can suppress or batch non-critical notifications based on situation, UserModel, and emergency-stop state.
-- `RepairManager` classifies failures, records repair history, and writes repeated failure lessons through MemoryManager.
-- `RepairManager` includes safe retry execution, rollback strategy registration, and rollback requests through ToolBroker so risky rollback remains approval-gated.
-- Dashboard has `/dashboard/personal-ai` and APIs for UserModel, Hooks, Commitments, DelegationPolicy, Situation, Interruption, Repair, and Social drafts.
-- Dashboard Personal AI now shows pending approvals, notification/interruption state, hook backoff/error status, and hook stop controls.
-- New `ai-server.*` capability manifests expose personal-AI read/write operations to the LLM with approval gates for policy-changing or external-send actions.
-- Capability manifests include required `operation_category` metadata and the registry rejects manifests missing it.
+| Server | Language | Port | Role |
+|---|---|---|---|
+| AI Server | Python | 50051 | Central brain — LLM, memory, desires, capability catalog |
+| PC Server | Rust | 50052 | Windows operations (screenshot, mouse, keyboard, overlay, shell) |
+| Browser Server | Python | 50053 | Web browsing via browser-use |
+| Android Server | Kotlin | 50054 (contract; the app connects **outbound** to 50051) | Mobile companion |
+| Room Server | Python | 50055 | IoT / sensor data |
+| Dashboard | Flask | 8090 | Web UI, chat, monitoring |
 
-## Not Yet Complete
+Android builds are **not compile-verified on the dev machine** (no JDK). Static checks only.
 
-- SocialProxy v1 sends webhook/email only. Discord, LINE, and AGORA are represented at the interface level but need channel-specific adapters for unified outbound sending.
-- RepairManager retry remains conservative and limited to safe/idempotent cases.
-- SituationModel uses deterministic event heuristics. A future version can add learned situation inference while preserving deterministic notification gates.
-- Hook condition language is intentionally small: dot-path plus `eq/ne/gt/lt/contains/exists/changed`.
-- Dashboard Personal AI page is a status/control surface with stop controls; richer creation/editing UX can be added on top of the existing APIs.
+## Retired — do not go looking for it
 
-## Safety Defaults
+| Gone | Note |
+|---|---|
+| Approval subsystem — `ApprovalManager`, `ApprovalFanout`, `ApprovalStore` (`aegis_ai/approval/`, `src/approval.py`) | Deleted. The forced gate is retired; a **voluntary** ask remains (confirmation store + streamed approval on Android + PC overlay). |
+| `dev-server` | Deleted. A few id literals survive only as deny-list entries. |
+| `AutonomyProfile` | Deleted — its ladder *was* Phase-5b approval semantics. |
+| Research Agent (`aegis_ai/research/`) | Deleted. |
+| SelfDev Agent (`agents/self_dev.py`) | Deleted — and `SelfDevAgent` was never a class. |
 
-- External send, social post, deletion, Git push, payment/billing API, system changes, and physical device control remain approval-required.
-- PolicyEngine hard denies cannot be overridden by DelegationPolicy.
-- HookEngine refuses non-read-only capabilities.
-- Dashboard direct edits are treated as explicit user operation; LLM/autonomous policy-changing capabilities require approval.
+Pins that keep this true: `ai-server/tests/test_goal_change_guard.py` (the deleted subsystem stays
+deleted) and `ai-server/tests/test_forced_gate_stays_retired.py` (no live path can reach a gate — this
+also covers the unwired `aegis_ai/permissions/` service-permission gate).
+
+## Not started
+
+- **Real external messaging**: LINE, Discord, SMTP, webhook — represented at the interface level only.
+- **Voice**: push-to-talk STT, TTS.
+- **Multi-user** and multi-tenant isolation.
+- **Cross-device context sharing**.
+- **Graceful device-offline handling**.
+- **Room real sensor provider** — Room stays `UNCONFIGURED/DISABLED` until a real Orange Pi provider
+  replaces the development mock.
+
+## Partial / in progress
+
+- **gRPC TLS**: `security/tls_config.py` exists; server/client integration is incomplete, so v1 gRPC
+  must stay inside Tailscale / a private network boundary.
+- **Docker Compose**: compose file and Dockerfiles exist; full multi-service validation is pending.
+- **Completion verification**: manifests may declare `completion`; ToolBroker verifies and retries for
+  manifest-backed checks.
+
+## Out of scope (deliberate)
+
+| Not doing | Why |
+|---|---|
+| Cloud / SaaS deployment | Local-first architecture |
+| Always-listening voice | Privacy |
+| Plugin marketplace | Premature — needs real usage first |
+| Multi-tenant isolation | Single-user |
+| Real purchase / payment | `EXPLICIT_DENY_PATTERNS` denies payment capabilities outright — a product decision, **not** an egress rule |
+
+**Obsolete rather than out of scope**: the old "auto-approve dangerous ops" item only had meaning while
+a forced approval gate existed. With the gate retired the question no longer arises — what remains is
+the single constraint (no egress) plus AEGIS's own judgement about when to ask.
+
+## Acceptance is evidence-gated, not "done"
+
+Code can be complete and still not accepted. The acceptance checks are **Ubuntu reboot recovery, PC real
+actions, Android reconnect, and the soak** — each gated on its own current-host report. Regenerate with:
+
+`scripts/audit-production-readiness.py` · `scripts/audit-v1-completion.py` ·
+`scripts/audit-capability-coverage.py` · `scripts/audit-dead-code.py` · `scripts/audit-mocks.py` ·
+`scripts/audit-secrets.py` · `scripts/audit-ui-completeness.py`
+
+Outputs land in `data/reports/` (`readiness_summary.json`, `production_blockers.json`,
+`v1_completion.json`, `capability_coverage.json`, `ui_completeness.json`, `secret_inventory.json`,
+`mock_inventory.json`, and `e2e/latest/summary.json`).
+
+## History
+
+The June-era `docs/roadmap.md`, `docs/backlog.md` and `docs/implementation-status.md` — plus an earlier
+revision of this file — were consolidated here on **2026-09-28**. They had stopped in June and
+described the approval era: a total of **157 tests**, **53 capabilities**, and several modules as
+"✅ Done" that no longer exist (`ApprovalManager`, `ApprovalFanout`, `ApprovalStore`, `Research Agent`,
+`SelfDev Agent`). They also cited `data/reports/production_readiness.json`, which was never the real
+filename (the audit writes `readiness_summary.json`). Git history keeps all of it; this file is the
+live one.

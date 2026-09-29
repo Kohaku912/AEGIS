@@ -26,6 +26,12 @@ test.beforeEach(async ({ page }) => {
 });
 
 test("display shell prioritizes operation and keeps server rail compact", async ({ page }) => {
+  // This test asserts the *desktop* composition (the stage spans ~60% of a 1366px
+  // viewport). It runs under both the `desktop` and `android-mobile` projects, so
+  // pin the viewport here — otherwise the mobile project would fail on a desktop
+  // assertion. `.display-core-stage` insets by min(18vw, 340px) per side, which
+  // yields 874px at 1366px (>= 819.6) but only 264px at a Pixel 7's 412px.
+  await page.setViewportSize({ width: 1366, height: 768 });
   await routeOverview(page, mockOverview("IDLE"));
   await page.goto("/display");
   await expect(page.getByText("Current Operation")).toBeVisible();

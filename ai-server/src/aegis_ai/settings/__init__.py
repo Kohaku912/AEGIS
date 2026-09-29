@@ -10,9 +10,11 @@ Provides:
 from aegis_ai.settings.defaults import create_default_settings  # noqa: F401
 from aegis_ai.settings.models import (  # noqa: F401
     AEGISSettings,
+    AgentSettings,
     AutonomousSettings,
     CapabilityPermission,
     CapabilityPermissions,
+    IntakeSettings,
     MemorySettings,
     NotificationSettings,
     PrivacySettings,

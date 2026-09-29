@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-import json
 import logging
 import re
 import time
 import uuid
 from dataclasses import dataclass, field
 from typing import Any
+
+from aegis_ai.llm.json_utils import extract_json_object
 
 logger = logging.getLogger("aegis_ai.observation.multimodal_state_analyzer")
 
@@ -173,19 +174,7 @@ class MultimodalStateAnalyzer:
         return text[:max_chars]
 
     def _parse_llm_output(self, content: str) -> dict[str, Any]:
-        clean = content.strip()
-        if clean.startswith("```"):
-            lines = clean.split("\n")
-            clean = "\n".join(lines[1:])
-            if clean.endswith("```"):
-                clean = clean[:-3]
-            clean = clean.strip()
-
-        json_match = re.search(r"\{.*\}", clean, re.DOTALL)
-        if json_match:
-            clean = json_match.group(0)
-
-        return json.loads(clean)
+        return extract_json_object(content)
 
     def _fallback_analysis(
         self,

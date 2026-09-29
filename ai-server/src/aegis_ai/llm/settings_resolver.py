@@ -6,7 +6,7 @@ import logging
 import threading
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 import yaml
 
@@ -75,7 +75,7 @@ class LLMSettingsResolver:
             return False
 
     # Profile name mapping: cloud profile → local profile
-    _LOCAL_PROFILE_MAP: dict[str, str] = {
+    _LOCAL_PROFILE_MAP: ClassVar[dict[str, str]] = {
         "chat_balanced": "local_chat",
         "tool_planning": "local_tool_planning",
         "json_generation": "local_json_generation",
@@ -83,6 +83,21 @@ class LLMSettingsResolver:
         "long_answer": "local_long_answer",
         "self_development": "local_chat",
         "task_analysis": "local_tool_planning",
+        # Vision must also resolve locally — the single constraint forbids sending
+        # images to a cloud provider.
+        "vision_observation": "local_vision",
+        # DASHBOARD_V3_PLAN.md Phase L1 — L1/L2/L3 layer profiles
+        # local mode では local_decision (小サイズ・低温度) / local_chat / local_long_answer に remap
+        "l1_default": "local_decision",
+        "l2_default": "local_chat",
+        "l3_default": "local_long_answer",
+        # Every profile declared in llm.yaml must be covered here. A profile that
+        # escapes the map keeps its cloud base_url, so in local mode it would resolve
+        # to an external destination — the gate would then deny it and degrade to
+        # Mock, but the *resolved* destination would be a cloud host. Keeping the map
+        # exhaustive makes "local mode never resolves to a cloud host" a clean
+        # invariant that tests/test_local_llm_path.py can assert over every profile.
+        "jev_decision": "local_decision",
     }
 
     def resolve(self, call_type: str = None, profile_id: str = None) -> LLMSettings:
@@ -152,6 +167,11 @@ class LLMSettingsResolver:
         """Get list of allowed models."""
         with self._lock:
             return list(self._safety.get("allowed_models", []))
+
+    def list_profile_ids(self) -> list[str]:
+        """Return configured profile IDs."""
+        with self._lock:
+            return sorted(self._profiles.keys())
 
     def get_max_tokens_upper_bound(self) -> int:
         """Get max_tokens upper bound."""

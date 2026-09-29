@@ -162,7 +162,7 @@ pub fn get_user_activity_snapshot() -> Result<UserActivitySnapshot, String> {
     let (cursor_x, cursor_y) = get_cursor_pos();
     let app_name = app_name_from_process(&active.process_name);
     let input_target_category =
-        input_target_category(&active.process_name, &active.title, fullscreen);
+        input_target_category(&active.process_name, fullscreen);
     Ok(UserActivitySnapshot {
         timestamp_ms: now_ms(),
         active_window_title: active.title,
@@ -376,29 +376,83 @@ fn app_name_from_process(process_name: &str) -> String {
     without_ext.replace(['_', '-'], " ")
 }
 
-fn input_target_category(process_name: &str, title: &str, fullscreen: bool) -> String {
-    let text = format!("{} {}", process_name, title).to_lowercase();
-    if text.contains("code")
-        || text.contains("devenv")
-        || text.contains("jetbrains")
-        || text.contains("terminal")
-    {
+/// Known foreground applications, keyed by executable file name (lowercase).
+///
+/// Matching is an exact comparison against the executable name only. Window
+/// titles are free text chosen by whatever happens to be on screen, so they are
+/// deliberately NOT consulted: substring matching on title+process text produced
+/// false positives such as "Barcode" -> coding, "Online" -> chat,
+/// "Knowledge" -> browser and "Endgame" -> game.
+const CODING_EXECUTABLES: &[&str] = &[
+    "code.exe",
+    "code - insiders.exe",
+    "cursor.exe",
+    "devenv.exe",
+    "idea64.exe",
+    "pycharm64.exe",
+    "webstorm64.exe",
+    "goland64.exe",
+    "clion64.exe",
+    "rider64.exe",
+    "studio64.exe",
+    "sublime_text.exe",
+    "notepad++.exe",
+    "windowsterminal.exe",
+    "wt.exe",
+    "powershell.exe",
+    "pwsh.exe",
+    "cmd.exe",
+    "wezterm-gui.exe",
+    "alacritty.exe",
+    "zed.exe",
+];
+
+const BROWSER_EXECUTABLES: &[&str] = &[
+    "chrome.exe",
+    "msedge.exe",
+    "firefox.exe",
+    "brave.exe",
+    "opera.exe",
+    "vivaldi.exe",
+    "arc.exe",
+    "zen.exe",
+];
+
+const CHAT_EXECUTABLES: &[&str] = &[
+    "discord.exe",
+    "slack.exe",
+    "teams.exe",
+    "ms-teams.exe",
+    "zoom.exe",
+    "line.exe",
+    "telegram.exe",
+    "whatsapp.exe",
+    "signal.exe",
+];
+
+const GAME_EXECUTABLES: &[&str] = &[
+    "steam.exe",
+    "steamwebhelper.exe",
+    "minecraft.exe",
+    "javaw.exe",
+    "eldenring.exe",
+    "valorant.exe",
+    "leagueclient.exe",
+    "genshinimpact.exe",
+];
+
+fn input_target_category(process_name: &str, fullscreen: bool) -> String {
+    let exe = process_name.trim().to_ascii_lowercase();
+    if CODING_EXECUTABLES.contains(&exe.as_str()) {
         "coding".into()
-    } else if text.contains("steam")
-        || text.contains("game")
-        || text.contains("minecraft")
-        || text.contains("elden")
-        || fullscreen
-    {
-        "game".into()
-    } else if text.contains("chrome")
-        || text.contains("edge")
-        || text.contains("firefox")
-        || text.contains("browser")
-    {
+    } else if BROWSER_EXECUTABLES.contains(&exe.as_str()) {
+        // Checked before the fullscreen heuristic so a full-screen video in a
+        // browser is not reported as a game.
         "browser".into()
-    } else if text.contains("discord") || text.contains("line") || text.contains("slack") {
+    } else if CHAT_EXECUTABLES.contains(&exe.as_str()) {
         "chat".into()
+    } else if GAME_EXECUTABLES.contains(&exe.as_str()) || fullscreen {
+        "game".into()
     } else {
         "application".into()
     }
@@ -536,18 +590,27 @@ mod tests {
     #[test]
     fn app_and_input_target_are_safe_summaries() {
         assert_eq!(app_name_from_process("eldenring.exe"), "eldenring");
-        assert_eq!(
-            input_target_category("eldenring.exe", "ELDEN RING", true),
-            "game"
-        );
-        assert_eq!(
-            input_target_category("Code.exe", "AEGIS - Visual Studio Code", false),
-            "coding"
-        );
-        assert_eq!(
-            input_target_category("chrome.exe", "Example", false),
-            "browser"
-        );
+        assert_eq!(input_target_category("eldenring.exe", true), "game");
+        assert_eq!(input_target_category("Code.exe", false), "coding");
+        assert_eq!(input_target_category("chrome.exe", false), "browser");
+        assert_eq!(input_target_category("DISCORD.EXE", false), "chat");
+        assert_eq!(input_target_category("explorer.exe", false), "application");
+    }
+
+    #[test]
+    fn input_target_category_does_not_match_substrings() {
+        // Regression guard: the previous implementation matched substrings of the
+        // process name and window title, so "Barcode" became coding and
+        // "Online" became chat.
+        assert_eq!(input_target_category("Barcode.exe", false), "application");
+        assert_eq!(input_target_category("OnlineBackup.exe", false), "application");
+        assert_eq!(input_target_category("Knowledge.exe", false), "application");
+        assert_eq!(input_target_category("Endgame.exe", false), "application");
+        assert_eq!(input_target_category("decoder.exe", false), "application");
+        // A full-screen browser stays a browser, not a game.
+        assert_eq!(input_target_category("chrome.exe", true), "browser");
+        // Unknown full-screen windows fall back to the game heuristic.
+        assert_eq!(input_target_category("unknownapp.exe", true), "game");
     }
 
     #[test]

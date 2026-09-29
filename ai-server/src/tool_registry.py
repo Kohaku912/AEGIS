@@ -18,6 +18,7 @@ from __future__ import annotations
 import threading
 from dataclasses import dataclass, field
 
+from aegis_ai.memory.retrieval_scoring import text_relevance_score
 from aegis_schema.models import Capability, RiskLevel, ServerInfo, ServerStatus, ServerType
 
 
@@ -183,8 +184,13 @@ class ToolRegistry:
             server_type: Optional server type filter.
             max_risk_level: Optional max risk filter.
         """
-        query_lower = query.lower()
-        result = []
+        query_lower = query.lower().strip()
+        if not query_lower:
+            return self.list_capabilities(
+                server_type=server_type,
+                max_risk_level=max_risk_level,
+            )
+        scored: list[tuple[float, Capability]] = []
 
         with self._lock:
             capabilities = list(self._capabilities.values())
@@ -197,16 +203,18 @@ class ToolRegistry:
             if max_risk_level is not None and cap.risk_level > max_risk_level:
                 continue
             # Search in name, description, tags, and ID
-            searchable = (
-                cap.name.lower() + " " +
-                cap.description.lower() + " " +
-                " ".join(cap.tags).lower() + " " +
-                cap.id.lower()
+            score = text_relevance_score(
+                query_lower,
+                cap.name,
+                cap.description,
+                " ".join(cap.tags),
+                cap.id,
             )
-            if query_lower in searchable:
-                result.append(cap)
+            if score > 0:
+                scored.append((score, cap))
 
-        return result
+        scored.sort(key=lambda item: item[0], reverse=True)
+        return [cap for _, cap in scored]
 
     # ── Capabilities by Server ──────────────────────────────
 
@@ -227,18 +235,8 @@ class ToolRegistry:
         return self.list_capabilities(max_risk_level=max_risk)
 
     def get_safe_capabilities(self) -> list[Capability]:
-        """Get capabilities that can run without approval (READ_ONLY + SAFE_ACTION)."""
+        """Get capabilities that can run without a confirmation (READ_ONLY + SAFE_ACTION)."""
         return self.list_capabilities(max_risk_level=RiskLevel.SAFE_ACTION)
-
-    def get_approval_capabilities(self) -> list[Capability]:
-        """Get capabilities that require approval (APPROVAL_REQUIRED + HIGH_RISK)."""
-        result = []
-        with self._lock:
-            capabilities = list(self._capabilities.values())
-        for cap in capabilities:
-            if cap.risk_level in (RiskLevel.APPROVAL_REQUIRED, RiskLevel.HIGH_RISK):
-                result.append(cap)
-        return result
 
     # ── Stats ───────────────────────────────────────────────
 

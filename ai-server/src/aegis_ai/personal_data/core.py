@@ -7,7 +7,6 @@ import logging
 import os
 import secrets
 import threading
-import time
 from pathlib import Path
 from typing import Any
 
@@ -20,7 +19,6 @@ from aegis_ai.personal_data.ingest import (
     new_id,
     now_ms,
     sanitize_value_payload,
-    title_from_payload,
 )
 from aegis_ai.personal_data.models import (
     CollectionPolicy,
@@ -28,7 +26,6 @@ from aegis_ai.personal_data.models import (
     Inference,
     MemoryDerivation,
     Observation,
-    Provenance,
     TimelineEvent,
 )
 from aegis_ai.personal_data.policy import policy_from_settings
@@ -51,6 +48,7 @@ _BUS_TYPES = {
     "pc.personal_data.event",
     "android.user_activity.changed",
     "android.foreground_app.changed",
+    "android.current_app_changed",
     "android.notification.posted",
     "android.ui.tapped",
     "android.ui.text_changed",

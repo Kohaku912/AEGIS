@@ -10,7 +10,6 @@ from pathlib import Path
 
 from audit_common import ROOT, parse_args, write_json
 
-
 CHECKLIST = ROOT / "docs" / "v1-completion-checklist.md"
 E2E_SUMMARY = ROOT / "data" / "reports" / "e2e" / "latest" / "summary.json"
 UI_REPORT = ROOT / "data" / "reports" / "ui_completeness.json"
@@ -102,9 +101,21 @@ def main() -> int:
     ))
 
     ui_status, ui_error = _report_status(UI_REPORT)
-    checks.append(_check("ui_completeness", "UI completeness audit", ui_status, [UI_REPORT.relative_to(ROOT).as_posix()], ui_error))
+    checks.append(_check(
+        "ui_completeness",
+        "UI completeness audit",
+        ui_status,
+        [UI_REPORT.relative_to(ROOT).as_posix()],
+        ui_error,
+    ))
     cap_status, cap_error = _report_status(CAPABILITY_REPORT)
-    checks.append(_check("capability_coverage", "Capability coverage audit", cap_status, [CAPABILITY_REPORT.relative_to(ROOT).as_posix()], cap_error))
+    checks.append(_check(
+        "capability_coverage",
+        "Capability coverage audit",
+        cap_status,
+        [CAPABILITY_REPORT.relative_to(ROOT).as_posix()],
+        cap_error,
+    ))
 
     mock = _load_json(MOCK_REPORT)
     blockers = mock.get("blockers") if isinstance(mock.get("blockers"), list) else []

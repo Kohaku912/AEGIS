@@ -18,7 +18,7 @@ _OBLIGATION_RANK = {
 }
 
 
-def _obligation_fingerprint(item: "Obligation") -> str:
+def _obligation_fingerprint(item: Obligation) -> str:
     """Collapse duplicate duties that share the same capability/error payload."""
     evidence = item.evidence if isinstance(item.evidence, dict) else {}
     capability_id = str(
@@ -78,6 +78,7 @@ class DecisionContext:
     daily_plan: dict[str, Any] = field(default_factory=dict)
     delegation: dict[str, Any] = field(default_factory=dict)
     repair_history: list[dict[str, Any]] = field(default_factory=list)
+    user_understanding: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -99,6 +100,7 @@ class DecisionContext:
             "daily_plan": dict(self.daily_plan),
             "delegation": dict(self.delegation),
             "repair_history": list(self.repair_history),
+            "user_understanding": dict(self.user_understanding),
         }
 
     def to_context_string(self) -> str:
@@ -113,6 +115,20 @@ class DecisionContext:
             lines.extend(
                 f"- {item.get('category', 'failure')}: {item.get('error', '')}" for item in self.repair_history[-5:]
             )
+        understanding = self.user_understanding
+        if understanding:
+            lines.append(
+                "Unified user understanding: "
+                + str(understanding.get("summary") or "evidence-backed user profile available")
+            )
+            for item in list(understanding.get("likely_next_actions") or [])[:3]:
+                lines.append(
+                    f"- likely next: {item.get('title', '')} ({item.get('summary', '')})"
+                )
+            for item in list(understanding.get("predicted_deficits") or [])[:3]:
+                lines.append(
+                    f"- deficit: {item.get('title', '')} ({item.get('summary', '')})"
+                )
         if self.corrections:
             lines.append("User corrections that supersede earlier information:")
             lines.extend(
@@ -167,6 +183,7 @@ class AgentState:
         person_memory: Any = None,
         memory_manager: Any = None,
         preference_store: Any = None,
+        user_understanding_service: Any = None,
     ) -> None:
         self.mission_contract = mission_contract
         self._identity = identity
@@ -180,6 +197,7 @@ class AgentState:
         self._persons = person_memory
         self._memory = memory_manager
         self._preferences = preference_store
+        self._user_understanding = user_understanding_service
 
     def snapshot(self, triggering_query: str = "") -> DecisionContext:
         """Build one coherent snapshot without interpreting the query in code."""
@@ -218,6 +236,7 @@ class AgentState:
             daily_plan=self._safe_call(self._daily, "get", {}) or {},
             delegation=self._safe_call(self._delegation, "get_summary", {}),
             repair_history=self._safe_call(self._repair, "list_history", [], limit=20),
+            user_understanding=self._user_understanding_snapshot(triggering_query),
         )
         if correction_ids and self._memory is not None:
             self._safe_call(
@@ -396,6 +415,21 @@ class AgentState:
     def _relationships(self) -> list[dict[str, Any]]:
         persons = self._safe_call(self._persons, "list_all", [])
         return [item.to_dict() if hasattr(item, "to_dict") else dict(item) for item in persons[:50] if item is not None]
+
+    def _user_understanding_snapshot(self, triggering_query: str) -> dict[str, Any]:
+        if self._user_understanding is None:
+            return {}
+        snapshot = self._safe_call(
+            self._user_understanding,
+            "build_snapshot",
+            {},
+            triggering_query=triggering_query,
+        )
+        if hasattr(snapshot, "to_dict"):
+            return snapshot.to_dict()
+        if isinstance(snapshot, dict):
+            return dict(snapshot)
+        return {}
 
     def _identity_text(self) -> str:
         if self._identity is None:

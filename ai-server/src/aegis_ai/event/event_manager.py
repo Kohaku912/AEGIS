@@ -18,11 +18,51 @@ from collections import deque
 from pathlib import Path
 from typing import Any
 
-from aegis_schema.models import Event, EventPriority, ServerType
+from aegis_schema.models import Event
+from aegis_ai.event.helpers import resolve_relation_ids
 
 from event_bus import EventBus
 
 logger = logging.getLogger("aegis_ai.event.event_manager")
+
+_TAIL_READ_CHUNK_BYTES = 64 * 1024
+_TAIL_READ_MAX_BYTES = 16 * 1024 * 1024
+
+
+def _read_tail_lines(path: Path, *, max_lines: int, max_bytes: int | None = None) -> list[str]:
+    max_bytes = _TAIL_READ_MAX_BYTES if max_bytes is None else max_bytes
+    if max_lines <= 0 or max_bytes <= 0 or not path.exists():
+        return []
+    try:
+        size = path.stat().st_size
+    except OSError:
+        return []
+    if size <= 0:
+        return []
+
+    offset = size
+    collected = b""
+    lines: list[bytes] = []
+    while offset > 0 and len(lines) <= max_lines and len(collected) < max_bytes:
+        read_size = min(_TAIL_READ_CHUNK_BYTES, offset, max_bytes - len(collected))
+        offset -= read_size
+        with open(path, "rb") as handle:
+            handle.seek(offset)
+            collected = handle.read(read_size) + collected
+        lines = collected.splitlines()
+
+    if offset > 0:
+        newline = collected.find(b"\n")
+        if newline >= 0:
+            collected = collected[newline + 1 :]
+            lines = collected.splitlines()
+
+    decoded: list[str] = []
+    for raw in lines[-max_lines:]:
+        line = raw.decode("utf-8", errors="replace").strip()
+        if line:
+            decoded.append(line)
+    return decoded
 
 _PERSIST_EVENT_TYPES = {
     "task.created", "task.updated", "task.completed", "task.failed", "task.cancelled",
@@ -34,6 +74,17 @@ _PERSIST_EVENT_TYPES = {
     "tool.executed",
     "verification.completed",
     "llm.request.completed",
+    # Phase D1 — Agent event stream (instruction.md §12)
+    # OpenHands 内部の粒度を Dashboard / Live Overlay / Agent Trace に流す。
+    # 既存 tool.execution.* / task.* / approval.* と並走し、二重 publish しない。
+    "agent.started",
+    "agent.thinking",
+    "agent.tool.started",
+    "agent.tool.completed",
+    "agent.waiting",
+    "agent.verifying",
+    "agent.completed",
+    "agent.failed",
     "android.connected",
     "android.disconnected",
     "android.heartbeat",
@@ -70,6 +121,34 @@ _PERSIST_EVENT_TYPES = {
     "social.reply.proposed",
     "hook.matched",
     "commitment.due",
+    # Phase D5 — Policy / Approval 表示統合 (instruction.md §9, §11)
+    # AuditManager.log_decision / log_approval が EventBus に publish する。
+    # Agent Session 画面の MCP / Approvals tab に「Policy → Approval → Result」
+    # の 1 ブロックとして表示する。
+    "policy.decision",
+    # DASHBOARD_V3_PLAN.md Phase L2 — L1 (常時稼働 / 知覚 / ルーティング) 層の
+    # 構造化出力。L1Router.observe() / decide() / escalate() が EventBus に publish する。
+    # Phase L6 (Dashboard 3 層対応) で L1 専用パネル / Live Overlay の layer 識別表示に利用する。
+    "l1.observation",
+    "l1.decision",
+    "l1.escalation",
+    # DASHBOARD_V3_PLAN.md Phase L3 — L1 → Capability 直接実行のライフサイクル。
+    # L1Executor.execute() の入口 / 完了を EventBus に publish し、Audit / Live Overlay
+    # で capability 実行の追跡に使う。Phase L6 で L1 専用パネルに capability 実行履歴を表示。
+    "l1.capability.invoked",
+    "l1.capability.completed",
+    # DASHBOARD_V3_PLAN.md Phase L4 — L2 (自律思考) 層の構造化出力。
+    # L2AutonomousMind.decide() が EventBus に publish する。
+    # Phase L6 (Dashboard 3 層対応) で L2 専用パネル / Live Overlay の layer 識別表示に利用する。
+    "l2.thinking",
+    "l2.decision",
+    "l2.escalation",
+    # DASHBOARD_V3_PLAN.md Phase L5 — L3 (深層推論) 層のライフサイクル。
+    # L3Reasoner.reason() の入口 / 完了 / 失敗を EventBus に publish する。
+    # Phase L6 (Dashboard 3 層対応) で L3 専用パネル / Live Overlay の layer 識別表示に利用する。
+    "l3.invoked",
+    "l3.completed",
+    "l3.failed",
 }
 
 
@@ -134,12 +213,17 @@ class EventManager:
             if self._journal is not None:
                 try:
                     payload = self._event_payload(event)
+                    aggregate_id, correlation_id = resolve_relation_ids(
+                        payload=payload,
+                        event_id=event.event_id,
+                        correlation_id=event.correlation_id,
+                    )
                     entry = self._journal.append(
                         event_type=event.event_type,
                         aggregate_type=self._aggregate_type(event.event_type),
-                        aggregate_id=str(payload.get("task_id") or payload.get("approval_id") or event.event_id),
+                        aggregate_id=aggregate_id,
                         payload=payload,
-                        correlation_id=event.correlation_id or event.event_id,
+                        correlation_id=correlation_id,
                     )
                     if self._journal_projector is not None:
                         self._journal_projector.project(entry.model_dump())
@@ -188,6 +272,22 @@ class EventManager:
         page = events[:limit]
         next_cursor = page[-1].get("event_id") if len(page) == limit and page else None
         return {"events": page, "next_cursor": next_cursor}
+
+    def read_recent_persisted(self, limit: int = 50) -> list[dict[str, Any]]:
+        """Read the newest persisted events directly from disk.
+
+        This keeps dashboard stats accurate even when another process has appended
+        events after this manager instance was created.
+        """
+        limit = max(1, int(limit or 1))
+        try:
+            lines = _read_tail_lines(self._persist_path, max_lines=limit * 2)
+            events = [json.loads(line) for line in lines if line.strip()]
+            return events[-limit:]
+        except Exception:
+            logger.debug("Failed to read persisted events from disk", exc_info=True)
+            with self._lock:
+                return list(self._persisted_events)[-limit:]
 
     def get_event(self, event_id: str) -> dict[str, Any] | None:
         """Get a single event by ID."""
@@ -303,6 +403,11 @@ class EventManager:
 
     def _persist_event(self, event: Event, *, full_payload: dict[str, Any] | None = None) -> None:
         payload = full_payload if full_payload is not None else self._event_payload(event)
+        aggregate_id, correlation_id = resolve_relation_ids(
+            payload=payload,
+            event_id=event.event_id,
+            correlation_id=event.correlation_id,
+        )
         entry = {
             "event_id": event.event_id,
             "event_type": event.event_type,
@@ -311,7 +416,8 @@ class EventManager:
             "timestamp": event.timestamp_ms,
             "priority": event.priority.name if hasattr(event.priority, "name") else "NORMAL",
             "severity": event.severity,
-            "correlation_id": event.correlation_id,
+            "aggregate_id": aggregate_id,
+            "correlation_id": correlation_id,
             "payload_summary": str(payload)[:300],
             "payload": payload,
         }
@@ -334,11 +440,10 @@ class EventManager:
         if not self._persist_path.exists():
             return
         try:
-            with open(self._persist_path, encoding="utf-8") as f:
-                for line in f:
-                    line = line.strip()
-                    if line:
-                        self._persisted_events.append(json.loads(line))
+            self._persisted_events = [
+                json.loads(line)
+                for line in _read_tail_lines(self._persist_path, max_lines=max_events * 2)
+            ]
             if len(self._persisted_events) > max_events:
                 self._persisted_events = self._persisted_events[-max_events:]
             self.cleanup_old_events(max_age_hours=24)

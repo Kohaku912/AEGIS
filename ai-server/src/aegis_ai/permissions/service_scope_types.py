@@ -161,11 +161,6 @@ class OAuthScopeMapping:
     requires_user_explanation: bool = False
 
 
-_BROWSER_HIGH_RISK_KEYWORDS = {
-    "send", "submit", "post", "delete", "share", "purchase",
-    "pay", "buy", "publish", "tweet", "dm", "email",
-}
-
 _SERVICE_DOMAIN_MAP: dict[str, str] = {
     "mail.google.com": "gmail",
     "calendar.google.com": "calendar",
@@ -189,26 +184,19 @@ def infer_service_from_url(url: str) -> str:
     return "browser"
 
 
-def infer_operation_from_element(label: str) -> str:
-    label_lower = label.lower().strip()
-    if any(kw in label_lower for kw in ("send", "送信")):
-        return "send"
-    if any(kw in label_lower for kw in ("submit", "提出", "送信")):
-        return "publish"
-    if any(kw in label_lower for kw in ("post", "投稿")):
-        return "publish"
-    if any(kw in label_lower for kw in ("delete", "削除")):
-        return "delete"
-    if any(kw in label_lower for kw in ("share", "共有")):
-        return "share"
-    if any(kw in label_lower for kw in ("purchase", "buy", "購入", "支払")):
-        return "purchase"
-    if any(kw in label_lower for kw in ("draft", "下書き")):
-        return "draft"
-    if any(kw in label_lower for kw in ("save", "保存")):
-        return "create"
-    if any(kw in label_lower for kw in ("edit", "編集")):
-        return "update"
-    if any(kw in label_lower for kw in ("read", "読む", "表示")):
-        return "read"
-    return "read"
+def resolve_browser_operation(operation: str) -> str:
+    """Validate a caller-supplied browser operation.
+
+    The operation must come from the caller (the LLM/planner decides the intent).
+    We deliberately do NOT infer intent from button label text: keyword matching on
+    page content is forbidden and produced wrong risk classifications. An unknown
+    or empty operation is returned unchanged so that ``Operation(operation)`` fails
+    and the store falls back to the conservative MEDIUM_RISK_WRITE default
+    (which requires approval).
+    """
+    candidate = str(operation or "").strip().lower()
+    try:
+        return Operation(candidate).value
+    except ValueError:
+        return candidate
+

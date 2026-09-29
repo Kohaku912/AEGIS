@@ -1,4 +1,5 @@
 import json
+
 d = json.load(open("/tmp/display.json"))
 
 attention = d.get("attention", {}).get("data", {}).get("items", [])

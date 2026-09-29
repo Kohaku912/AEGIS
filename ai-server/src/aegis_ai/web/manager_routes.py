@@ -117,11 +117,8 @@ def tasks_running():
 
 @manager_bp.route("/api/tasks/waiting-approval")
 def tasks_waiting():
-    try:
-        rt = _get_runtime()
-        return jsonify({"tasks": rt.task_manager.list_waiting_approval()})
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    """Deprecated: approval is no longer a constraint, so no task ever waits."""
+    return jsonify({"tasks": [], "deprecated": True})
 
 
 @manager_bp.route("/api/tasks/<task_id>/continue", methods=["POST"])
@@ -738,12 +735,6 @@ def autonomous_diagnostics():
     """Return initiative funnel, continuations, social outcomes, and delivery evidence."""
     try:
         rt = _get_runtime()
-        approvals = rt.approval_manager.list_all(limit=200)
-        surfaces = {
-            request.approval_id: request.surface_delivery_evidence
-            for request in approvals
-            if request.surface_delivery_evidence
-        }
         return jsonify(
             {
                 "initiative": rt.initiative_engine.diagnostics(),
@@ -753,7 +744,6 @@ def autonomous_diagnostics():
                 "preferences": {"recent": rt.preference_store.list(limit=50)},
                 "daily_plan": rt.daily_planning_manager.get(),
                 "behavioral_evaluation": rt.behavioral_evaluation.snapshot(),
-                "approval_surfaces": surfaces,
             }
         )
     except Exception as e:

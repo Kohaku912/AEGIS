@@ -1,0 +1,39 @@
+[Unit]
+Description=AEGIS OpenHands Agent Server (Phase 8 — Agent Server 分離)
+Documentation=https://github.com/kohaku/AEGIS/blob/main/instruction.md
+After=network-online.target
+Wants=network-online.target
+
+# AEGIS 本体 (aegis.service) とは独立して起動可能。落ちても AEGIS 全体は
+# 落ちず、`RemoteOpenHandsBackend` 側が `AgentResult(status=BLOCKED)` で
+# graceful にフォールバックする。
+
+[Service]
+Type=simple
+User=aegis
+Group=aegis
+WorkingDirectory=/opt/aegis/ai-server
+Environment="PYTHONPATH=/opt/aegis/ai-server/src"
+Environment="AGENT_SERVER_HOST=127.0.0.1"
+Environment="AGENT_SERVER_PORT=7100"
+# Optional bearer token for AEGIS → agent server auth.
+# Set via /etc/aegis/aegis.env in production.
+EnvironmentFile=-/etc/aegis/aegis.env
+ExecStart=/usr/bin/python3 -m aegis_agent_server.main
+Restart=on-failure
+RestartSec=5s
+TimeoutStopSec=15s
+
+# Hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/aegis /opt/aegis/ai-server/data
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=aegis-openhands-agent
+
+[Install]
+WantedBy=multi-user.target

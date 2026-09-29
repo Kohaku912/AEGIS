@@ -111,7 +111,10 @@ def test_session_create_expire_logout(tmp_path):
     from aegis_ai.auth.models import AuthUser
 
     store.add_user(AuthUser(user_id="u1", username="admin", display_name="Admin", role="admin", created_at=1))
-    sessions = SessionStore(store, lifetime_ms=10)
+    # A 10ms lifetime made the first ``get`` race the clock (the session could
+    # expire between ``create`` and ``get``). Use a realistic lifetime so the
+    # assertions are deterministic; expiry is covered separately.
+    sessions = SessionStore(store, lifetime_ms=60_000)
 
     session = sessions.create("u1")
     assert sessions.get(session.session_id) is not None

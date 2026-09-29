@@ -146,6 +146,32 @@ class ServerExecutor:
         if not endpoint:
             return {"error": "No HTTP endpoint configured"}
 
+        # ── Egress gate (the single constraint) ────────────────────────────────
+        # Server-to-server calls normally stay on loopback/LAN. A manifest that
+        # resolves to an external host is refused rather than silently transmitted.
+        try:
+            from aegis_ai.egress import EgressRequest, get_egress_gate
+
+            allowed = get_egress_gate().allow(
+                EgressRequest(
+                    destination=endpoint,
+                    purpose="server.execute",
+                    component="server_executor.http",
+                    data_summary="capability parameters",
+                )
+            )
+        except Exception:
+            allowed = False
+        if not allowed:
+            return {
+                "error": (
+                    f"Egress denied for executor endpoint {endpoint}. "
+                    "The user's information must not leave the local environment."
+                ),
+                "endpoint": endpoint,
+                "code": "EGRESS_DENIED",
+            }
+
         try:
             data = json.dumps(params).encode("utf-8")
             req = urllib.request.Request(
@@ -199,6 +225,32 @@ class ServerExecutor:
             port = int(os.getenv("PC_SERVER_PORT", "50052"))
             resolved = resolve_tcp_endpoint("pc-server", port=port, timeout=0.5, allow_lan_scan=True)
             host = resolved[0] if resolved else os.getenv("PC_SERVER_HOST", "localhost")
+
+            # ── Egress gate (the single constraint) ────────────────────────────
+            # The PC Server is a LAN/loopback peer. A host that resolves outside
+            # the environment is refused rather than sent the command payload.
+            try:
+                from aegis_ai.egress import EgressRequest, get_egress_gate
+
+                allowed = get_egress_gate().allow(
+                    EgressRequest(
+                        destination=f"{host}:{port}",
+                        purpose="server.execute",
+                        component="server_executor.pc_tcp",
+                        data_summary="PC capability command payload",
+                    )
+                )
+            except Exception:
+                allowed = False
+            if not allowed:
+                return {
+                    "error": (
+                        f"Egress denied for PC Server endpoint {host}:{port}. "
+                        "The user's information must not leave the local environment."
+                    ),
+                    "code": "EGRESS_DENIED",
+                }
+
             with socket.socket() as s:
                 s.settimeout(self._pc_tcp_timeout_seconds(cap_id))
                 s.connect((host, port))

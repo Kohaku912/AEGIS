@@ -12,11 +12,9 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import sqlite3
 import threading
 import time
-import uuid
 from contextlib import closing
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
@@ -41,12 +39,27 @@ class AuditManager:
         The underlying AuditLog instance.
     data_dir:
         Directory for audit data and archives.
+    event_manager:
+        Optional EventManager. When provided, policy-related
+        decisions (Phase D5) are also published to the EventBus
+        so that Agent Session MCP / Approvals tabs can show
+        "Policy → Approval → Result" as a single block.
     """
+
+    # 監査 action のうち、EventBus に `policy.decision` として publish するもの.
+    # 他の action (llm, social_proxy, hook, commitment 等) は Dashboard の
+    # Audit ページ側で見る用途のみで、Agent Session 画面とは別軸.
+    _POLICY_ACTIONS: frozenset[str] = frozenset({
+        "policy_decision",
+        "tool_invoked",
+        "tool_executed",
+    })
 
     def __init__(
         self,
         audit_log: AuditLog,
         data_dir: str = "data",
+        event_manager: Any | None = None,
     ) -> None:
         self._log = audit_log
         self._data_dir = Path(data_dir)
@@ -54,16 +67,68 @@ class AuditManager:
         self._archive_dir = self._data_dir / "audit_archive"
         self._lock = threading.Lock()
         self._audit_path: Path = audit_log._path
+        # Phase D5 — EventBus 連携 (event_manager が None なら no-op).
+        self._event_manager = event_manager
 
     # ── Write (delegate to AuditLog) ──────────────────────────
 
     def append(self, entry: AuditEntry) -> None:
         """Append an audit entry."""
         self._log.append(entry)
+        # Phase D5 — policy 関連の entry を EventBus に publish する.
+        # Agent Session 画面の MCP / Approvals tabs に「Policy → Approval → Result」
+        # の 1 ブロックとして表示する. 失敗しても audit への append は成功扱いを維持.
+        if entry.action in self._POLICY_ACTIONS:
+            self._publish_policy_event(entry)
+
+    def _publish_policy_event(self, entry: AuditEntry) -> None:
+        """Phase D5 — `policy.decision` イベントを EventBus に publish.
+
+        payload の `agent_session_id` は audit entry detail 内の値を引き継ぐ.
+        EventManager 側で session 内の publish でない場合は Trace ID 6 種は
+        付与されないが、Agent Session 集約 (`_extract_session_id`) は
+        payload.agent_session_id を直接見るので link 可能.
+        """
+        em = self._event_manager
+        if em is None:
+            return
+        publish_fn = getattr(em, "publish_event", None)
+        if not callable(publish_fn):
+            return
+        detail = entry.detail if isinstance(entry.detail, dict) else {}
+        agent_session_id = str(
+            detail.get("agent_session_id")
+            or entry.audit_group_id
+            or ""
+        )
+        task_id = str(entry.task_id or detail.get("task_id") or "")
+        try:
+            publish_fn(
+                "policy.decision",
+                source="ai-server.audit",
+                payload={
+                    "event_id": entry.entry_id,
+                    "occurred_at_ms": int(entry.timestamp_ms or 0),
+                    "capability_id": entry.capability_id,
+                    "decision": entry.decision,
+                    "risk_level": entry.risk_level,
+                    "reason": entry.reason,
+                    "approval_id": entry.approval_id,
+                    "task_id": task_id,
+                    "agent_session_id": agent_session_id,
+                    "actor": entry.actor,
+                    "action": entry.action,
+                },
+            )
+        except Exception:  # noqa: BLE001
+            logger.debug("publish policy.decision failed", exc_info=True)
 
     def log_decision(self, **kwargs) -> AuditEntry:
         """Convenience: log a policy/tool decision."""
-        return self._log.log_decision(**kwargs)
+        entry = self._log.log_decision(**kwargs)
+        if entry.action in self._POLICY_ACTIONS:
+            self._publish_policy_event(entry)
+        return entry
 
     def log_approval(self, **kwargs) -> AuditEntry:
         """Convenience: log an approval event."""
@@ -218,8 +283,24 @@ class AuditManager:
         """
         return self._read_recent_entries(max_entries)
 
-    def read_recent_for_dashboard(self, max_entries: int = 400) -> list[dict[str, Any]]:
+    def read_recent_for_dashboard(
+        self,
+        max_entries: int = 400,
+        *,
+        action: str = "",
+        since_ms: int = 0,
+        actor: str = "",
+        profile_id: str = "",
+    ) -> list[dict[str, Any]]:
         """Read recent entries for dashboard summaries (hot window only)."""
+        if action or since_ms or actor or profile_id:
+            return self._read_recent_entries_filtered(
+                max_entries,
+                action=action,
+                since_ms=since_ms,
+                actor=actor,
+                profile_id=profile_id,
+            )
         return self._read_recent_entries(max_entries)
 
     # ── Rotation ──────────────────────────────────────────────
@@ -269,6 +350,61 @@ class AuditManager:
         except Exception:
             logger.debug("SQLite audit page read failed, trying JSONL tail", exc_info=True)
             return self._read_tail(max_entries)
+
+    def _read_recent_entries_filtered(
+        self,
+        max_entries: int,
+        *,
+        action: str = "",
+        since_ms: int = 0,
+        actor: str = "",
+        profile_id: str = "",
+    ) -> list[dict[str, Any]]:
+        """Read recent audit entries with lightweight SQLite filters."""
+        max_entries = max(1, int(max_entries or 1))
+        where_parts: list[str] = []
+        params: list[Any] = []
+        if action:
+            where_parts.append("action = ?")
+            params.append(action)
+        if since_ms:
+            where_parts.append("timestamp_ms >= ?")
+            params.append(int(since_ms))
+        if actor:
+            where_parts.append("actor = ?")
+            params.append(actor)
+        if profile_id:
+            where_parts.append("profile_id = ?")
+            params.append(profile_id)
+
+        query = "SELECT * FROM audit"
+        if where_parts:
+            query += " WHERE " + " AND ".join(where_parts)
+        query += " ORDER BY id DESC LIMIT ?"
+        params.append(max_entries)
+        try:
+            with closing(sqlite3.connect(str(self._log._db_path))) as conn:
+                conn.row_factory = sqlite3.Row
+                rows = conn.execute(query, tuple(params)).fetchall()
+                return [self._log._row_to_dict(row) for row in rows]
+        except Exception:
+            logger.debug("Filtered SQLite audit read failed, trying JSONL tail", exc_info=True)
+            fallback_limit = max(max_entries * 10, 2000)
+            entries = self._read_tail(fallback_limit)
+            filtered: list[dict[str, Any]] = []
+            for entry in reversed(entries):
+                if action and str(entry.get("action") or "") != action:
+                    continue
+                if since_ms and int(entry.get("timestamp_ms") or 0) < since_ms:
+                    continue
+                if actor and str(entry.get("actor") or "") != actor:
+                    continue
+                if profile_id and str(entry.get("profile_id") or "") != profile_id:
+                    continue
+                filtered.append(entry)
+                if len(filtered) >= max_entries:
+                    break
+            return filtered
 
     def _reverse_read(self, path: Path, n: int) -> list[dict[str, Any]]:
         """Read last N lines from file using reverse seek."""

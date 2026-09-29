@@ -318,18 +318,6 @@ def _structural_fallback(
     if isinstance(nested, dict) and _is_structurally_empty(nested):
         return _empty_structural_result(capability_id=capability_id, desire_name=desire_name)
 
-    if output.get("action_state") == "awaiting_approval":
-        return TaskResult(
-            tool_success=bool(tool_success),
-            task_effect=TaskEffect.BLOCKED,
-            fulfillment_score=0.0,
-            pressure_reduction=0.0,
-            desire_delta_hint={},
-            summary="Awaiting approval — desire not fulfilled yet",
-            confidence=0.7,
-            details={"evaluator": "structural", "reason": "awaiting_approval"},
-        )
-
     if tool_success and output:
         return TaskResult(
             tool_success=True,

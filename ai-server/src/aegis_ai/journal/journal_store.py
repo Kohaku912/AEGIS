@@ -14,6 +14,45 @@ from aegis_ai.schema.models import JournalEvent
 
 logger = logging.getLogger("aegis_ai.journal.journal_store")
 
+_TAIL_READ_CHUNK_BYTES = 64 * 1024
+_TAIL_READ_MAX_BYTES = 8 * 1024 * 1024
+
+
+def _read_tail_lines(path: Path, *, max_lines: int, max_bytes: int | None = None) -> list[str]:
+    max_bytes = _TAIL_READ_MAX_BYTES if max_bytes is None else max_bytes
+    if max_lines <= 0 or max_bytes <= 0 or not path.exists():
+        return []
+    try:
+        size = path.stat().st_size
+    except OSError:
+        return []
+    if size <= 0:
+        return []
+
+    offset = size
+    collected = b""
+    lines: list[bytes] = []
+    while offset > 0 and len(lines) <= max_lines and len(collected) < max_bytes:
+        read_size = min(_TAIL_READ_CHUNK_BYTES, offset, max_bytes - len(collected))
+        offset -= read_size
+        with open(path, "rb") as handle:
+            handle.seek(offset)
+            collected = handle.read(read_size) + collected
+        lines = collected.splitlines()
+
+    if offset > 0:
+        newline = collected.find(b"\n")
+        if newline >= 0:
+            collected = collected[newline + 1 :]
+            lines = collected.splitlines()
+
+    decoded: list[str] = []
+    for raw in lines[-max_lines:]:
+        line = raw.decode("utf-8", errors="replace").strip()
+        if line:
+            decoded.append(line)
+    return decoded
+
 
 class JournalStore:
     """Append-only JSONL journal with monotonic sequence numbers."""
@@ -29,20 +68,15 @@ class JournalStore:
     def _load_last_sequence(self) -> int:
         if not self._path.exists():
             return 0
-        last = 0
         try:
-            with open(self._path, encoding="utf-8") as f:
-                for line in f:
-                    line = line.strip()
-                    if not line:
-                        continue
-                    try:
-                        last = max(last, int(json.loads(line).get("sequence", 0)))
-                    except Exception:
-                        continue
+            for line in reversed(_read_tail_lines(self._path, max_lines=64)):
+                try:
+                    return int(json.loads(line).get("sequence", 0))
+                except Exception:
+                    continue
         except Exception:
             logger.debug("Failed to read journal tail sequence", exc_info=True)
-        return last
+        return 0
 
     def append(
         self,

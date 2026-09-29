@@ -35,7 +35,7 @@ if ($existing) {
 # Build pc-server
 Write-Host "[1/3] Building pc-server..." -ForegroundColor Green
 Set-Location "$PSScriptRoot\..\pc-server"
-cargo build --release 2>&1 | Out-Null
+cargo build --release *> $null
 if ($LASTEXITCODE -ne 0) {
     Write-Host "[ERROR] Build failed!" -ForegroundColor Red
     exit 1
@@ -63,8 +63,8 @@ Write-Host "    host.docker.internal:$Port" -ForegroundColor White
 Write-Host ""
 Write-Host "  Firewall note:" -ForegroundColor Yellow
 Write-Host "    If Docker cannot connect, run as Admin:" -ForegroundColor Gray
-Write-Host "    New-NetFirewallRule -DisplayName 'AEGIS PC Server' `"
-Write-Host "      -Direction Inbound -Protocol TCP -LocalPort $Port -Action Allow" -ForegroundColor Gray
+Write-Host "    New-NetFirewallRule -DisplayName 'AEGIS PC Server' -Direction Inbound -" -ForegroundColor Gray
+Write-Host "      Protocol TCP -LocalPort $Port -Action Allow" -ForegroundColor Gray
 Write-Host ""
 Write-Host "============================================" -ForegroundColor Cyan
 Write-Host ""

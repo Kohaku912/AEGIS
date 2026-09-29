@@ -64,7 +64,7 @@ class CompletionCondition:
     repair_hint: str = ""
 
     @classmethod
-    def from_manifest(cls, data: dict[str, Any]) -> "CompletionCondition":
+    def from_manifest(cls, data: dict[str, Any]) -> CompletionCondition:
         observable_raw = str(data.get("observable") or data.get("type") or "output_field")
         try:
             observable = CompletionObservable(observable_raw)

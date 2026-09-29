@@ -29,7 +29,6 @@ class AndroidServerManager:
         data_dir: str,
         event_manager: Any = None,
         status_manager: Any = None,
-        approval_manager: Any = None,
         host: str = "localhost",
         port: int = 50054,
         pairing_token: str | None = None,
@@ -38,7 +37,6 @@ class AndroidServerManager:
         self.device_registry = AndroidDeviceRegistry(data_dir=data_dir, pairing_token=pairing_token)
         self._event_manager = event_manager
         self._status_manager = status_manager
-        self._approval_manager = approval_manager
         self._lan_client = AndroidGrpcClient(host=host, port=port)
         self._sessions: dict[str, AndroidStreamSession] = {}
         self._device_to_connection: dict[str, str] = {}
@@ -200,38 +198,6 @@ class AndroidServerManager:
         session.start_reader(request_iterator)
         return session.command_generator()
 
-    def send_approval_to_android(
-        self,
-        approval_id: str,
-        title: str,
-        body: str,
-        state: str,
-        summary: dict[str, Any],
-    ) -> bool:
-        """Deliver an approval request/update to Android overlay as one surface."""
-        session = self._get_active_session()
-        if session is not None:
-            session.send_approval(approval_id, title, body, state, summary)
-            return True
-        result = self.invoke_capability(
-            "android-server.approval.request",
-            {
-                "approval_id": approval_id,
-                "title": title,
-                "body": body,
-                "summary_json": json.dumps(summary, ensure_ascii=False),
-            },
-        )
-        return not result.get("error")
-
-    def dismiss_approval_notification(self, approval_id: str) -> bool:
-        """Dismiss an approval notification on Android."""
-        session = self._get_active_session()
-        if session is not None:
-            session.send_approval(approval_id, "", "", "dismissed", {})
-            return True
-        return True
-
     def broadcast_chat_update(self, messages: list[dict[str, Any]]) -> int:
         """Push shared chat messages to all active reverse-stream Android clients."""
         delivered = 0
@@ -256,9 +222,6 @@ class AndroidServerManager:
                 metrics[key] = max(metrics[key], int(metadata.get(key, 0) or 0))
             except (TypeError, ValueError):
                 continue
-        active_approvals = []
-        if self._approval_manager is not None:
-            active_approvals = [req.to_dict() for req in self._approval_manager.list_pending()]
         return {
             "online": online,
             "connection_mode": session.connection_mode if session else ("lan" if online else "offline"),
@@ -268,7 +231,6 @@ class AndroidServerManager:
             "permission_status": dict(self._permission_status),
             "device_status": dict(self._last_device_status),
             "capability_availability": self.mapper.availability(self._permission_status),
-            "active_approvals": active_approvals,
             "pairing_configured": self.device_registry.pairing_configured,
             **metrics,
         }
@@ -333,14 +295,6 @@ class AndroidServerManager:
                 return
             session.handle_result(message.command_result)
             return
-        if kind == "approval_decision":
-            decision = message.approval_decision
-            auth = decision.auth
-            if not self.device_registry.is_authorized(auth.device_id, auth.pairing_token):
-                session.close("unauthorized approval decision")
-                return
-            self._handle_approval_decision(decision, session)
-
     def _handle_stream_disconnect(self, session: AndroidStreamSession, reason: str) -> None:
         if self._sessions.get(session.connection_id) is not session:
             # Already cleaned up (stale sweep and stream finally can race).
@@ -359,41 +313,6 @@ class AndroidServerManager:
         )
         if self._status_manager:
             self._status_manager.mark_offline("android-server", reason)
-
-    def _handle_approval_decision(self, decision: Any, session: AndroidStreamSession) -> None:
-        if self._approval_manager is not None:
-            surface = decision.surface_id or "android_overlay"
-            user = decision.user or session.device_id
-            if decision.approved:
-                self._approval_manager.approve(decision.approval_id, channel=surface, user=user)
-            elif decision.global_reject:
-                self._approval_manager.global_reject(
-                    decision.approval_id,
-                    channel=surface,
-                    user=user,
-                    reason=decision.reason,
-                )
-            elif decision.rejected:
-                self._approval_manager.reject(
-                    decision.approval_id,
-                    channel=surface,
-                    user=user,
-                    reason=decision.reason,
-                )
-        self._publish_android_event(
-            "android.approval.decided",
-            device_id=session.device_id,
-            connection_id=session.connection_id,
-            payload={
-                "approval_id": decision.approval_id,
-                "approved": decision.approved,
-                "rejected": decision.rejected,
-                "global_reject": decision.global_reject,
-                "surface_id": decision.surface_id or "android_overlay",
-            },
-            dedupe_key=f"android.approval.decided:{decision.approval_id}:{decision.surface_id}",
-            correlation_id=decision.approval_id,
-        )
 
     def _after_invoke(self, capability_id: str, result: dict[str, Any]) -> None:
         if result.get("error"):

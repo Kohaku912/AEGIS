@@ -32,14 +32,12 @@ class StepStatus(Enum):
     """Execution status of a plan step."""
 
     PENDING = auto()
-    APPROVED = auto()
     RUNNING = auto()
     COMPLETED = auto()
     FAILED = auto()
     REQUIRES_OBSERVATION = auto()
     SKIPPED = auto()
     BLOCKED = auto()
-    NEEDS_APPROVAL = auto()
 
 
 @dataclass
@@ -52,7 +50,6 @@ class PlanStep:
     capability_id: str = ""  # For ToolBroker
     params: dict[str, Any] = field(default_factory=dict)
     risk_category: RiskCategory = RiskCategory.READ
-    requires_approval: bool = False
     expected_result: str = ""
     depends_on: list[str] = field(default_factory=list)
     delegation_context: dict[str, str] = field(default_factory=dict)
@@ -68,7 +65,6 @@ class PlanStep:
             "capability_id": self.capability_id,
             "params": self.params,
             "risk_category": self.risk_category.name,
-            "requires_approval": self.requires_approval,
             "expected_result": self.expected_result,
             "depends_on": self.depends_on,
             "delegation_context": dict(self.delegation_context),
@@ -96,7 +92,6 @@ class PlanStep:
             capability_id=data.get("capability_id", ""),
             params=data.get("params", {}),
             risk_category=risk,
-            requires_approval=data.get("requires_approval", False),
             expected_result=data.get("expected_result", ""),
             depends_on=data.get("depends_on", []),
             delegation_context={
@@ -134,7 +129,6 @@ class TaskPlan:
 
     # Safety
     risk_notes: list[str] = field(default_factory=list)
-    approval_needed: bool = False
     stop_conditions: list[str] = field(default_factory=list)
 
     # Verification
@@ -146,10 +140,6 @@ class TaskPlan:
     needs_device: bool = False
     raw_llm_response: str = ""
 
-    def has_approval_required_steps(self) -> bool:
-        """Check if any step requires approval."""
-        return any(s.requires_approval for s in self.steps)
-
     def has_blocked_steps(self) -> bool:
         """Check if any step is blocked."""
         return any(s.risk_category == RiskCategory.BLOCKED for s in self.steps)
@@ -157,10 +147,6 @@ class TaskPlan:
     def get_pending_steps(self) -> list[PlanStep]:
         """Get steps that are pending execution."""
         return [s for s in self.steps if s.status == StepStatus.PENDING]
-
-    def get_approval_steps(self) -> list[PlanStep]:
-        """Get steps that need approval."""
-        return [s for s in self.steps if s.status == StepStatus.NEEDS_APPROVAL]
 
     def mark_step_complete(self, step_id: str, result: Any = None) -> None:
         """Mark a step as completed."""
@@ -187,7 +173,6 @@ class TaskPlan:
             "assumptions": self.assumptions,
             "steps": [s.to_dict() for s in self.steps],
             "risk_notes": self.risk_notes,
-            "approval_needed": self.approval_needed,
             "expected_result": self.expected_result,
             "required_context": self.required_context,
             "required_capabilities": self.required_capabilities,
@@ -210,7 +195,6 @@ class TaskPlan:
             required_context=data.get("required_context", []),
             required_capabilities=data.get("required_capabilities", []),
             risk_notes=data.get("risk_notes", []),
-            approval_needed=data.get("approval_needed", False),
             stop_conditions=data.get("stop_conditions", []),
             expected_result=data.get("expected_result", ""),
             verification_plan=data.get("verification_plan", ""),

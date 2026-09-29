@@ -10,7 +10,7 @@ Usage:
     wm = WorkflowMemory()
     wm.add(Workflow(
         name="Check AGORA for messages",
-        goal_pattern="agora.*message|check.*agora",
+        goal_pattern="check agora for new messages",
         steps=[
             {"tool": "pc-server.screenshot.get_screenshot", "args": {}},
             {"tool": "llm", "action": "Summarize posts"},
@@ -28,6 +28,8 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+
+from aegis_ai.memory.retrieval_scoring import combined_text_score
 
 logger = logging.getLogger("aegis_ai.memory.workflow")
 
@@ -67,7 +69,7 @@ class Workflow:
     workflow_id: str = ""
     name: str = ""
     description: str = ""
-    goal_pattern: str = ""       # Regex/keyword pattern for matching
+    goal_pattern: str = ""       # Free-text description of the goals this workflow applies to
     steps: list[WorkflowStep] = field(default_factory=list)
     source_trace_ids: list[str] = field(default_factory=list)
 
@@ -154,7 +156,15 @@ class WorkflowMemory:
         with open(self._path, "a", encoding="utf-8") as f:
             f.write(json.dumps(wf.to_dict(), ensure_ascii=False) + "\n")
 
-    def add(self, name: str, steps: list[dict[str, Any]], goal_pattern: str = "", description: str = "", source_trace_ids: list[str] | None = None, tags: list[str] | None = None) -> Workflow:
+    def add(
+        self,
+        name: str,
+        steps: list[dict[str, Any]],
+        goal_pattern: str = "",
+        description: str = "",
+        source_trace_ids: list[str] | None = None,
+        tags: list[str] | None = None,
+    ) -> Workflow:
         """Add a new workflow."""
         wf = Workflow(
             workflow_id=f"wf_{os.urandom(6).hex()}", name=name,
@@ -167,29 +177,37 @@ class WorkflowMemory:
         self._persist(wf)
         return wf
 
+    def _score_workflow(self, goal: str, wf: Workflow) -> float:
+        step_text = " ".join(
+            f"{step.description} {step.tool_call} {step.expected_result}".strip()
+            for step in wf.steps
+        )
+        score = combined_text_score(
+            goal,
+            texts=[
+                wf.name,
+                wf.description,
+                wf.goal_pattern.replace("|", " "),
+                " ".join(wf.tags),
+                step_text,
+            ],
+            importance=wf.importance + wf.success_rate * 0.3,
+            confidence=wf.confidence,
+            timestamp_ms=wf.last_used_at_ms or wf.created_at_ms,
+        )
+        if score <= 0:
+            return 0.0
+        return score + wf.success_rate * 0.25
+
     def find_matching(self, goal: str) -> Workflow | None:
         """Find the best matching workflow for a goal."""
-        goal_lower = goal.lower()
         best: tuple[float, Workflow] | None = None
         for wf in self._workflows.values():
             if wf.deprecated:
                 continue
-            score = 0.0
-            # Pattern match
-            if wf.goal_pattern:
-                pattern_words = wf.goal_pattern.lower().replace("|", " ").split()
-                if any(pw in goal_lower for pw in pattern_words):
-                    score += 0.5
-            # Name similarity
-            name_words = set(wf.name.lower().split())
-            goal_words = set(goal_lower.split())
-            overlap = len(name_words & goal_words)
-            score += overlap * 0.3
-            # Success rate boost
-            score += wf.success_rate * 0.2
-            if score > 0.3:
-                if best is None or score > best[0]:
-                    best = (score, wf)
+            score = self._score_workflow(goal, wf)
+            if score > 0.35 and (best is None or score > best[0]):
+                best = (score, wf)
         return best[1] if best else None
 
     def record_result(self, workflow_id: str, success: bool, duration_ms: int = 0) -> None:
@@ -205,12 +223,14 @@ class WorkflowMemory:
                 wf.average_duration_ms = (wf.average_duration_ms + duration_ms) // 2
             elif duration_ms > 0:
                 wf.average_duration_ms = duration_ms
+            self._persist(wf)
 
     def deprecate(self, workflow_id: str, reason: str = "") -> None:
         wf = self._workflows.get(workflow_id)
         if wf:
             wf.deprecated = True
             wf.tags.append(f"deprecated:{reason}")
+            self._persist(wf)
 
     def get_active(self) -> list[Workflow]:
         return [wf for wf in self._workflows.values() if not wf.deprecated]

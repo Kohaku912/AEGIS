@@ -627,12 +627,28 @@ class OpenAIProvider:
         try:
             if self._audit is not None:
                 from aegis_ai.audit import AuditEntry
+                usage = detail.get("usage") if isinstance(detail.get("usage"), dict) else {}
+                profile_id = str(detail.get("profile_id") or detail.get("profile") or "")
+                request_id = str(detail.get("request_id") or "")
+                task_id = str(detail.get("task_id") or detail.get("chat_task_id") or "")
                 self._audit.append(AuditEntry(
                     action=action,
                     actor="llm",
                     capability_id=f"llm.{self._model}",
                     decision=decision,
                     detail=detail,
+                    profile_id=profile_id,
+                    model=self._model,
+                    provider="openai",
+                    tokens_used=int(
+                        detail.get("tokens_used")
+                        or detail.get("total_tokens")
+                        or usage.get("total_tokens")
+                        or (int(detail.get("input_tokens") or 0) + int(detail.get("output_tokens") or 0))
+                    ),
+                    duration_ms=int(detail.get("duration_ms") or 0),
+                    request_id=request_id,
+                    task_id=task_id,
                 ))
         except Exception:
             pass

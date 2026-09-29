@@ -9,9 +9,37 @@ AEGIS operates via event-driven coordination across multiple servers to provide:
 - Information gathering and analysis
 - Self-improvement and learning
 - Desire-driven autonomous behavior
+- Deep user understanding across identity, preferences, commitments, relationships, and changing situation
+- Burden reduction through proactive preparation, coordination, and delegated digital work
 
-**Core principle**: AEGIS is event-driven, multi-device, self-improving, and desire-driven.
+**Core principle**: AEGIS is event-driven, multi-device, self-improving, desire-driven, **anticipatory**, and oriented toward making the user's life progressively lighter.
 All server communication uses **gRPC** with shared protobuf definitions.
+
+### Long-Term Objective
+
+AEGIS should move toward a future where the user can spend as much time as possible on what they genuinely value, while AEGIS absorbs as much unwanted digital, administrative, and coordination work as possible — and **anticipates the user's actions, so that support arrives before it is asked for**.
+
+Ultimate north star:
+
+- The user may delegate to AEGIS authority equivalent to or greater than a human executive assistant, operator, researcher, coordinator, and digital proxy
+- **AEGIS should anticipate the user's actions, needs, and next steps, and support them ahead of the moment of need** — preparing, arranging, and acting in advance rather than only responding after the fact, so the user is met by work already done
+- AEGIS should keep expanding the scope of burdens it removes from the user's life
+- AEGIS should pursue fully autonomous growth: improving its models, strategies, memory quality, planning quality, execution quality, and self-maintenance over time
+- The end-state ideal is that the user can focus primarily on what they love, while AEGIS handles as much unwanted life and operational work as its capability and the user's delegation allow
+
+In practice, this means:
+
+- Continuously learning the user as a person, not just the current chat turn
+- Building durable models of short-, medium-, and long-term needs
+- Anticipating the user's actions and needs — missing preparations, resources, and follow-through — so they are already in place before they become user pain
+- Acting within delegated scope to reduce cognitive load, operational overhead, and repetitive friction
+- Expanding the scope of delegated authority and automation depth
+- **Being honest about uncertainty** — stating what is known, what is inferred, and what is unknown.
+  This is a posture of the response, not a constraint on action.
+
+**The single constraint**: the user's information must never leave the local environment. AEGIS must not transmit, disclose, or expose the user's data, context, or knowledge derived from them to any external service or third party. This is the only constraint, and it is inviolable.
+
+This objective is aspirational at life scale, but implementation must remain realistic: AEGIS should aggressively reduce burden wherever it has the capability to do so, and prepare or recommend the next best support when full automation is not yet possible.
 
 ---
 
@@ -21,6 +49,9 @@ All server communication uses **gRPC** with shared protobuf definitions.
 When multiple viable options exist for the same feature, the agent MUST present a
 structured comparison and ask the user to decide.
 
+This is a **development-process rule** (how agents build AEGIS), not a runtime constraint on
+AEGIS's behavior. It is unaffected by the single constraint below.
+
 ### When to Ask (Mandatory Consultation Triggers)
 
 Ask the user before implementing when:
@@ -29,7 +60,7 @@ Ask the user before implementing when:
 |---------|----------|
 | **Multiple viable options** | Playwright vs browser-use, REST vs WebSocket vs gRPC streaming |
 | **Different from existing design** | Using a different language/framework than what docs specify |
-| **New external service** | Cloud APIs, payment APIs, third-party SaaS |
+| **New external service** | Cloud APIs, payment APIs, third-party SaaS — ⚠️ **these are now forbidden by the single constraint, not merely "ask first"**. The only permitted answer is a local alternative. |
 | **Security/privacy impact** | New data storage, new network exposure, credential handling |
 | **Language/Framework change** | Switching Node.js→Python, SQLite→Postgres, etc. |
 
@@ -40,6 +71,8 @@ The agent may proceed without asking when:
 - Following AGENTS.md / architecture.md specifications exactly
 - Adding tests for existing code
 - Fixing bugs within existing implementation patterns
+- **Implementing or strengthening the egress gate** (Phase 1 of the goal-change plan) — this is the
+  enforcement of the single constraint and must never be blocked by a consultation step
 
 ---
 
@@ -71,7 +104,7 @@ The agent may proceed without asking when:
     - LLM decides what to delete
     - No keyword-based memory operations
 
-- Ollama local LLM mode is configured via llm.yaml `mode: "local"` field. When mode is "local", `settings_resolver.py` automatically remaps cloud profile names (chat_balanced, tool_planning, etc.) to local profiles (local_chat, local_tool_planning, etc.). Vision profiles remain on cloud (DeepSeek/OpenAI) even in local mode. Switch to `mode: "cloud"` to revert.
+- Ollama local LLM mode is configured via llm.yaml `mode: "local"` field. When mode is "local", `settings_resolver.py` automatically remaps cloud profile names (chat_balanced, tool_planning, etc.) to local profiles (local_chat, local_tool_planning, etc.). **Vision profiles must also be resolved to a local VLM** — the single constraint forbids sending images to a cloud provider, so `mode: "cloud"` is not a permitted fallback for vision. `mode: "cloud"` exists only for development and violates the single constraint when it would transmit user data.
 
 ---
 
@@ -100,7 +133,8 @@ The agent may proceed without asking when:
 | **Desire System** | `ai-server/src/aegis_ai/desire/` | Pressure-based 3-desire system (user_support, social, growth) |
 | **Autonomous Loop** | `ai-server/src/aegis_ai/autonomous/` | Desire-driven task execution, self-scheduling |
 | **LLM Router** | `ai-server/src/aegis_ai/llm/` | DeepSeek/OpenAI provider, task routing |
-| **Policy Engine** | `ai-server/src/aegis_ai/policy_engine.py` | Deterministic safety gate |
+| **Policy Engine** | `ai-server/src/aegis_ai/policy_engine.py` | Deterministic gate. Under the single constraint its role narrows to **egress control** (the only structural constraint). Approval/policy decisions are no longer constraints. |
+| **Egress Gate** | `ai-server/src/aegis_ai/egress/` | **The single enforcement point for the single constraint.** All outbound network transmission is routed here and is **denied by default**. |
 | **Presentation Engine** | `ai-server/src/aegis_ai/presentation/` | Rich output delivery (text/chart/diagram/3D/overlay) |
 | **Dashboard** | `ai-server/src/aegis_ai/web/` | Flask UI with streaming chat |
 
@@ -120,11 +154,15 @@ capabilities/
 │   │   │   └── get_screenshot.json
 │   │   └── system/
 │   │       └── get_os_info.json
-│   ├── browser-server/
+│   ├── ai-server/
+│   │   └── confirmation/
+│   │       ├── request.json
+│   │       └── list.json
 │   ├── android-server/
+│   ├── browser-server/
 │   └── room-server/
 └── generated/
-    └── ...
+    └── ...            (supported origin; currently empty)
 ```
 
 **CRITICAL**: No hardcoded capability definitions exist in Python code.
@@ -137,7 +175,7 @@ All capabilities are loaded from JSON manifests at startup.
 | Server ID | Example Capability ID |
 |-----------|----------------------|
 | `pc-server` | `pc-server.screenshot.get_screenshot` |
-| `browser-server` | `browser-server.page.open_page` |
+| `browser-server` | `browser-server.page.navigate` |
 | `android-server` | `android-server.notification.get_notifications` |
 | `room-server` | `room-server.environment.get_environment` |
 
@@ -148,10 +186,14 @@ Old ID formats are resolved via aliases in `CapabilityCatalog`:
 | Old Format | Canonical Format |
 |------------|------------------|
 | `pc.screenshot.get_screenshot` | `pc-server.screenshot.get_screenshot` |
-| `browser.page.open_page` | `browser-server.page.open_page` |
+| `browser.page.navigate` | `browser-server.page.navigate` |
 | `screenshot.get_screenshot` | `pc-server.screenshot.get_screenshot` |
 
-Aliases are built at startup from JSON manifests. Code MUST use canonical format.
+Aliases are **derived at startup** from each manifest's `server_id` / `app_id` / `action`:
+the short form `app_id.action`, plus — via `_PREFIX_MAP` — the prefixed form
+`<prefix>.app_id.action` (prefixes: `ai`, `pc`, `browser`, `android`, `room`, `dev`). A
+manifest's own `aliases` key is **not** consulted for ID resolution; it only feeds
+`CapabilityIndex` search keywords. Code MUST use canonical format.
 
 ### Key Components
 
@@ -378,31 +420,74 @@ Audit logs are written to `data/settings_audit.jsonl`.
 - **Unit tests**: Required for all business logic
 - **Integration tests**: Required for all gRPC services
 - **Test files**: Co-located with source or in `tests/`
-- **Test command**: `cd ai-server && pytest`
+- **Test command**: `.\scripts\test-all-suites.ps1` — every Python suite, plus the egress constraint
+  gate. For the `ai-server` suite alone: `cd ai-server && pytest`
 
 ### Test Status
-- **Total tests**: 157 passing
-- **Memory system**: 8 tests
-- **Desire system**: 7 tests
-- **Autonomous loop**: 5 tests
+
+Measured 2026-09-29 — `ai-server`, full suite:
+
+- **Total tests**: **1758 passed / 31 skipped**
+  — of the skips, **22 are recorded debt**: settings fields that are declared but have no reader,
+  enumerated with a reason in `tests/test_ineffective_flags.py::_UNOWNED_DEBT`. That detector now
+  discovers settings models automatically (**95 fields across 12 models**, up from 26 across 2), so a
+  newly added dead flag fails the suite instead of shipping quietly.
+- **Other suites**: `room-server` 14 · `browser-server` 100 · `aegis-sdk-python` 48 ·
+  `web-ui` `vitest` 144 · `web-ui` `playwright` 42.
+  **The three Python suites are wired into CI** by `scripts/test-all-suites.ps1`, which delegates to
+  `scripts/test-ai-server.ps1` (the constraint gate, unchanged) and then runs the SDK / room / browser
+  suites. They used to be unwired, and the SDK suite silently drifted to 6 failures (it still
+  referenced the deleted `PolicyEngine.approval_store`) with nobody noticing — a suite that is not run
+  is not a control. `web-ui` (vitest / playwright) is still not wired: it needs a node toolchain and,
+  for playwright, browser binaries plus a dev server.
+  If every check reports FAIL with an **empty** exit code, the script host cannot launch native
+  binaries — that is an environment limit, not a regression. Verify the suites individually (see the
+  `aegis-verify-and-test` skill) rather than "fixing" code that is fine.
+- **Egress regression suite**: **210 passed / 23 skipped** (233 tests carry the `egress` marker).
+  CI enforces a floor of 160 (`--require-egress-tests=160`) **and** mutation-proves the gate:
+  breaking it yields 38 failures, restoring it yields 210 passes.
+- **Canonical command**:
+  `cd ai-server && PYTHONPATH=src CODEBUDDY_SAFE_DELETE_ENABLED=0 $VENV -m pytest -q`
+
+> Do **not** hardcode a total here without re-measuring. The number moves whenever a suite is added
+> *or deleted*, and a stale figure causes mis-triage (a real regression looks like the new normal).
+> Per-component counts and the full count history live in the `aegis-verify-and-test` skill.
 
 ---
 
 ## Security Policy
 
+### The single constraint (DENY, inviolable)
+
+**User information must never leave the local environment.** Every outbound transmission must pass
+through the egress gate (`aegis_ai/egress/`) and is **denied by default**. This is not a configurable
+policy — there is no consent exception.
+
 ### Hard stops (DENY)
 
-Only these remain structurally denied:
+These remain structurally denied:
 
-1. Purchases / payments
-2. Disabling or bypassing PolicyEngine / approval machinery
+1. **Egress** — transmitting, disclosing, or exposing the user's data, context, or knowledge derived
+   from them to any external service or third party. Includes external LLM calls, telemetry, external
+   search, cloud TTS, webhooks, and any third-party API.
+2. **Purchases / payments** — irreversible financial actions. Kept as a hard stop even though it is
+   not part of the single constraint (an irreversible loss is a separate axis from privacy).
+3. **Gate bypass** — Agent (OpenHands / Coding Agent / RemoteBackend) or any component attempting to
+   bypass the **egress gate** or the **AuditManager**. Tool calls must go through `ToolBroker.execute()`;
+   direct `subprocess.run(shell=True)`, direct capability invocation, direct socket/HTTP clients,
+   bypassing `AuditManager.append()`, or recomputing `compute_args_hash()` to forge state are all **denied**.
+   Agent thinks and executes; it does **not** write to audit or memory (the absolute boundary of
+   `instruction.md §38.1`).
 
-Everything else is judged by AEGIS and executed with audit. The user may tighten individual capabilities in the Catalog. Quiet hours still apply to notifications only.
+Everything else is judged by AEGIS and executed with audit. **Approval, reversibility, and reliability
+proof are no longer constraints** — AEGIS may act autonomously. The user may still tighten individual
+capabilities in the Catalog. Quiet hours still apply to notifications only.
 
 ### Data Handling
-- User data never leaves local network without explicit consent
+- User data **never** leaves the local environment — no consent exception, no "configured" exception
 - Secrets managed via environment variables (never committed)
 - Proto files must not contain sensitive defaults
+- Local-only stores (SQLite, Chroma, JSONL) are permitted and encouraged; any new store must be local
 
 ---
 
@@ -410,8 +495,8 @@ Everything else is judged by AEGIS and executed with audit. The user may tighten
 
 1. Delete or modify existing code without explicit instruction
 2. Simplify the architecture (e.g., merging servers, removing gRPC layer)
-3. Bypass the purchase / policy-bypass hard stops
-4. Auto-execute purchases or disable PolicyEngine
+3. Bypass the **egress gate** or the **purchase / payment** hard stops
+4. Transmit user data externally, or add any external service dependency
 5. Add dependencies without documenting the reason
 6. Change proto definitions without updating all affected servers
 7. Commit secrets, tokens, or credentials
@@ -424,7 +509,37 @@ Everything else is judged by AEGIS and executed with audit. The user may tighten
 
 ---
 
-## Current Status (2026-06-17)
+## Current Status (2026-09-28)
+
+> **Goal change (2026-09-27)**: the Long-Term Objective now has a **single constraint** — user
+> information must never leave the local environment. Approval, reversibility, policy, and
+> reliability-proof are **no longer constraints**. See `IMPROVEMENT_PROPOSAL.md` §9 for the full
+> migration plan (Phase 0–5).
+>
+> **Migration status (2026-09-28)**: Phases 0–5 are complete. Phase 5a made the voluntary path
+> live — AEGIS may still *choose* to ask the user for confirmation. Phase 5b deleted the
+> mechanism that *forced* a confirmation before certain capabilities could be used, across every
+> layer: the interpreter branches in `llm_task_interpreter._validate_safety` and
+> `l2_mind._requires_approval`, the duplicated delegation decision, and the approval types, RPCs
+> and wire fields in the shared `.proto` contract (with the Rust and Kotlin consumers).
+>
+> The boundary is pinned in **both** directions, because satisfying only one half is the failure
+> mode that matters: over-deleting breaks the confirmation UI, under-deleting restores the gate.
+> `tests/test_goal_change_guard.py` asserts the removed RPCs/fields stay gone **and** that the
+> streamed ask-the-user transport (`AndroidApprovalCommand` / `AndroidApprovalDecision`) and the
+> `confirmation/` store stay present. See `PHASE5B_RULE_PROPOSAL.md`.
+>
+> **Cross-consumer completion (2026-09-28, later the same day)**: deleting the types from
+> `protos/aegis/` was not sufficient. Every server keeps its *own* generated copy of the shared
+> contract, and the room server's copy still declared `ApprovalRequest`, `ApprovalStatus`,
+> `ApprovalType`, `Capability.requires_approval`, `ToolInvocationRequest.is_approved` /
+> `approval_id`, `ToolInvocationResult.was_approved`, `AUDIT_ACTION_APPROVAL_*` and
+> `POLICY_DECISION_ASK_APPROVAL` as **live members** — a reintroduction of the gate that no test
+> covered, because the guard only ever scanned `ai-server/src`. The stubs were regenerated, and
+> `scripts/generate_protos.{sh,ps1}` were fixed so this cannot recur: they named three protos that
+> do not exist (`pc_server`, `browser_server`, `dev_server`) and only ever wrote to `ai-server`, so
+> they could not run at all. The guard now reads the serialized descriptor out of **every**
+> `*_pb2.py` in the repository and asserts that copies of the same proto are byte-identical.
 
 ### Implemented Systems
 
@@ -434,14 +549,16 @@ Everything else is judged by AEGIS and executed with audit. The user may tighten
 | **Desire System** | ✅ Complete | Pressure-based 3 desires, fulfillment rules |
 | **Autonomous Loop** | ✅ Complete | Tool calling, pressure-based trigger, TaskManager integrated |
 | **Dashboard** | ✅ Complete | Tool calling chat, user input support, Manager API routes (19 routes) |
-| **PC Server** | ✅ Complete | Rust, TCP protocol, 40+ capabilities |
+| **PC Server** | ✅ Complete | Rust, TCP protocol, 58 capabilities |
 | **Browser Server** | ✅ Complete | browser-use, DeepSeek compatibility patch, verification detection |
 | **LLM Integration** | ✅ Complete | Profile-driven OpenAI-compatible providers, tool calling, JSON fallback |
-| **Approval System** | ✅ Complete | ApprovalManager + Fanout, multi-channel (Dashboard SSE, PC overlay, Android, Room) |
+| **Egress Gate** | ✅ Complete | Deny-by-default, fail-closed, "no consent exception" (`egress/gate.py`). Wired into 25 modules with 10 real enforcement sites. CI-enforced: **233 egress-marked tests** (210 passed / 23 skipped) against a floor of 160, plus a mutation check that fails the build when the gate is broken. |
+| **Confirmation (AEGIS-initiated)** | ✅ Complete (Phase 5a) | Approval is **not** a constraint, but AEGIS may still *choose* to ask the user. `confirmation/` supplies the store, the endpoints, and LLM-callable capabilities. What stays retired is the mechanism that *forced* a confirmation before certain capabilities could be used — pinned by `tests/test_forced_gate_stays_retired.py`. |
+| **Wire contract (no forced gate)** | ✅ Complete (Phase 5b) | The `.proto` files no longer declare `ApprovalStatus` / `ApprovalType` / `ApprovalRequest`, the three approval RPCs, `Capability.requires_approval`, `ToolInvocationRequest.is_approved` / `approval_id`, `ToolInvocationResult.was_approved`, `ChatResponse.approval_needed` / `approval_id`, or `PolicyDecisionType.ASK_APPROVAL` — removals use `reserved` numbers and names so wire numbering is never reused. **Deliberately kept:** `SafetyLevel.LEVEL_2_APPROVAL` (a descriptive tier label), the audit RPCs, and the streamed ask-the-user transport. Python stubs regenerated **for every consumer** (`ai-server` and `room-server` copies are byte-identical); Rust `pc-server` and the Kotlin Android client updated. Pinned by `tests/test_goal_change_guard.py`, which scans all `*_pb2.py` in the repo, not just `ai-server/src`. |
 | **Manager Architecture** | ✅ Complete | TaskManager, MemoryManager, SleepManager, EventManager, AuditManager, StatusManager, NotificationManager |
 | **Runtime Integration** | ✅ Complete | Single entry point, all managers wired, _build_runtime post-init fixed |
-| **TaskExecutionEngine** | ✅ Complete | Approval-aware step execution, pause/resume, args hash verification, PromptRegistry/LLMSettingsResolver integration |
-| **E2E Testing** | ✅ Complete | 8 lifecycle tests + 14 execution engine tests covering multi-step approval, continuation, plan persistence, args tampering |
+| **TaskExecutionEngine** | ✅ Complete | Approval pause/resume surface removed (`test_execution_engine_has_no_pause_resume_surface` pins it); step execution and plan persistence remain. |
+| **E2E Testing** | ✅ Complete | The 8 lifecycle + 14 execution-engine tests that covered approval flows are replaced by the egress regression suite, now wired into the CI gate. |
 
 ### Architecture Invariants
 
@@ -453,8 +570,9 @@ Everything else is judged by AEGIS and executed with audit. The user may tighten
 | **EventManager** | All event publishing through `runtime.event_manager.publish()`. |
 | **StatusManager** | All server status via `runtime.status_manager.get_snapshot()`. No `_check_port()` in routes. |
 | **TaskManager** | AutonomousLoop creates/finishes tasks via TaskManager. Step-level tracking via add_step/update_step_status. |
-| **TaskExecutionEngine** | Canonical execution engine. All step execution through execute_task/resume_after_approval/continue_task. InteractionRouter is thin (no step execution). |
-| **AuditManager** | JSONL tail reader only. No `read_all()` in main path. |
+| **TaskExecutionEngine** | Canonical execution engine. All step execution through execute_task/continue_task. InteractionRouter is thin (no step execution). The approval pause/resume surface has been removed. |
+| **Egress Gate** | The **only** structural constraint. All outbound transmission is denied by default and must be explicitly routed through the gate. No component may open an outbound connection outside it. |
+| **AuditManager** | JSONL tail reader only. No `read_all()` in main path. Kept as a non-binding post-hoc visibility mechanism (Phase 3). |
 
 ### Key Files
 
@@ -462,7 +580,8 @@ Everything else is judged by AEGIS and executed with audit. The user may tighten
 |------|---------|
 | `ai-server/src/aegis_ai/runtime.py` | Process-wide singleton, builds and wires all managers |
 | `ai-server/src/aegis_ai/task/task_manager.py` | 9-state task lifecycle management with step-level tracking |
-| `ai-server/src/aegis_ai/task/execution_engine.py` | Canonical execution engine: execute_task, resume_after_approval with continuation, continue_task, cancel, retry |
+| `ai-server/src/aegis_ai/task/execution_engine.py` | Canonical execution engine: execute_task, continue_task, cancel, retry |
+| `ai-server/src/aegis_ai/egress/gate.py` | Deny-by-default egress gate — the single enforcement point for the single constraint |
 | `ai-server/src/aegis_ai/memory/memory_manager.py` | Unified memory entry point, `get_backend()` for backends |
 | `ai-server/src/aegis_ai/memory/sleep.py` | SleepManager for memory consolidation |
 | `ai-server/src/aegis_ai/event/event_manager.py` | Event persistence, cursor queries, dead letter |
@@ -471,40 +590,42 @@ Everything else is judged by AEGIS and executed with audit. The user may tighten
 | `ai-server/src/aegis_ai/notification/notification_manager.py` | Non-approval notification management |
 | `ai-server/src/aegis_ai/web/manager_routes.py` | Manager API routes (tasks/events/audit/status/notifications/memory/sleep) |
 | `ai-server/src/aegis_ai/autonomous/autonomous_loop.py` | TaskManager integration for task lifecycle tracking |
-| `ai-server/tests/test_e2e_lifecycle.py` | 8 E2E tests: approval lifecycle, concurrent tasks, all managers | |
-| `ai-server/src/aegis_ai/approval/approval_manager.py` | Unified approval lifecycle manager |
-| `ai-server/src/aegis_ai/approval/fanout.py` | Multi-channel approval delivery (ApprovalFanout + ApprovalChannel ABC) |
-| `ai-server/src/aegis_ai/approval/channels/dashboard.py` | Dashboard SSE approval channel |
-| `ai-server/src/aegis_ai/approval/channels/pc_overlay.py` | PC Server overlay approval channel |
-| `ai-server/src/aegis_ai/approval/channels/android.py` | Android notification approval channel |
-| `ai-server/src/aegis_ai/approval/channels/room.py` | Room Server display+TTS approval channel |
+| `ai-server/tests/test_egress_gate.py` | Egress regression tests: no path may transmit externally |
+| `ai-server/src/aegis_ai/confirmation/store.py` | Confirmation store — the only path by which AEGIS may *choose* to ask the user (Phase 5a) |
+| `ai-server/src/aegis_ai/irreversibility.py` | Post-hoc visibility: the irreversibility ledger that replaces the old approval UI's role |
+| `ai-server/src/aegis_ai/personal_ai/delegation.py` | Delegation policy store; `payment` stays structurally denied |
+| `ai-server/src/aegis_schema/safety_vocab.py` | Shared safety vocabulary + `UNKNOWN` sentinel used by both manifests and delegation |
+| `ai-server/tests/test_goal_change_guard.py` | Pins the retired approval surface so it cannot reappear — in Python **and** in the regenerated `.proto` wire contract, in both directions (forced gate gone, voluntary ask intact) |
 | `browser-server/src/aegis_browser/browser_use_agent.py` | browser-use with DeepSeek compatibility, verification detection |
 | `browser-server/src/aegis_browser/main.py` | HTTP server for browser automation |
-| `aegis_ai/event/event_manager.py` | Centralized event management with persistence and replay |
-| `aegis_ai/audit/audit_manager.py` | Audit log with cursor pagination and search |
-| `aegis_ai/status/status_manager.py` | Background server health monitoring |
-| `aegis_ai/task/task_manager.py` | Execution unit lifecycle tracking |
-| `aegis_ai/notification/notification_manager.py` | Non-approval notification management |
-| `aegis_ai/memory/memory_manager.py` | Unified memory entry point across 15+ backends |
-| `aegis_ai/memory/sleep.py` | Memory consolidation during idle periods |
-| `aegis_ai/web/manager_routes.py` | Dashboard API routes for all Managers |
-| `tests/test_e2e_lifecycle.py` | E2E lifecycle tests (approval, task, status, sleep, notification, event) |
 
 ### Servers
 
 | Server | Language | Port | Status |
 |--------|----------|------|--------|
-| **AI Server** | Python 3.14 | 8090 | ✅ Running |
+| **AI Server** | Python 3.14 | 50051 | ✅ Running |
 | **PC Server** | Rust | 50052 | ✅ Running |
 | **Browser Server** | Python | 50053 | ✅ Running |
+| **Android Server** | Kotlin | 50054 (contract) | ⚠️ Builds, but **not re-verified** since the 2026-09-28 Kotlin changes (no JDK on the dev machine). Static checks show no reference to any removed proto symbol. The app connects outbound to 50051 |
+| **Room Server** | Python | 50055 | ✅ Running |
+| **Dashboard** | Flask | 8090 | ✅ Running |
 
-### Capability Count: 53
+> The AI Server's gRPC port is **50051**. `8090` is the Dashboard's HTTP port — do not confuse the two.
 
-- pc-server: 40 capabilities
-- browser-server: 1 capability (page.browse via browser-use)
-- ai-server: 4 capabilities (agora, memory, search)
-- android-server: 1 capability
-- room-server: 1 capability
+### Capability Count: 128
+
+Measured 2026-09-28 from `ai-server/capabilities/builtin/**/*.json`:
+
+- pc-server: 58
+- ai-server: 32
+- android-server: 17
+- browser-server: 16
+- room-server: 5
+
+Every manifest must carry all six safety-vocabulary keys (`ownership_scope`, `reversibility`,
+`destructive_effects`, `data_loss_risk`, `active_work_loss_risk`, `blast_radius`). Both
+`tests/test_manifest_schemas.py` and `tests/test_irreversibility_ledger.py` load the **real**
+`capabilities/` directory, so a new manifest is validated the moment it is added.
 
 ---
 
@@ -517,4 +638,3 @@ See individual AGENTS.md files for each server:
 - `browser-server/AGENTS.md` — Browser Server details
 - `android-server/AGENTS.md` — Android Server details
 - `room-server/AGENTS.md` — Room Server details
-- `dev-server/AGENTS.md` — Dev Server details

@@ -28,16 +28,23 @@ The PC Server handles **Windows operations** for AEGIS:
 ```
 pc-server/
 ├── src/
-│   ├── main.rs           # Entry point, TCP server
-│   ├── observe.rs        # Read-only operations (screenshot, windows, etc.)
-│   ├── observe_ext.rs    # Extended observe (files, processes, network)
-│   ├── action.rs         # Write operations (mouse, keyboard)
-│   ├── overlay_approval.rs # Overlay approval UI
-│   ├── safety.rs         # Capability definitions
-│   ├── health.rs         # TCP command handler
-│   └── redaction.rs      # Secret redaction
-├── tests/                # Test files
-└── Cargo.toml            # Dependencies
+│   ├── main.rs            # Entry point, TCP server
+│   ├── observe.rs         # Read-only operations (screenshot, windows, etc.)
+│   ├── observe_ext.rs     # Extended observe (files, processes, network)
+│   ├── uia.rs             # Windows UI Automation tree capture (UIA via PowerShell interop)
+│   ├── personal_data.rs   # Personal Data Core collector: window/UIA/URL events + change-triggered JPEG
+│   ├── action.rs          # Write operations (mouse, keyboard)
+│   ├── system_ops.rs      # Shell and system management capabilities
+│   ├── discord_rpc.rs     # Discord RPC over local IPC (named pipe)
+│   ├── overlay_approval.rs # Overlay UI for the confirmations AEGIS asks voluntarily
+│   ├── safety.rs          # Capability definitions
+│   ├── health.rs          # Health endpoint (simple TCP JSON health check)
+│   └── redaction.rs       # Secret redaction
+├── tests/                 # Test files
+├── installer/             # Windows packaging
+├── test_actions.py        # Python-side action smoke test
+├── Cargo.toml
+└── Cargo.lock
 ```
 
 ## Capabilities (40+ total)

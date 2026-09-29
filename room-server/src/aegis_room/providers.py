@@ -353,12 +353,12 @@ class OrangePiGpioIrProvider(MockLightIrProvider):
             finally:
                 mapping.close()
 
-    def _set_output_locked(self, mapping, struct, bit, cfg_off, cfg_shift, dat_off) -> None:  # noqa: ANN001
+    def _set_output_locked(self, mapping, struct, bit, cfg_off, cfg_shift, dat_off) -> None:
         cfg = struct.unpack_from("<I", mapping, cfg_off)[0]
         cfg = (cfg & ~(0xF << cfg_shift)) | (0x1 << cfg_shift)
         struct.pack_into("<I", mapping, cfg_off, cfg)
 
-    def _write_physical_locked(self, mapping, struct, bit, dat_off, high: bool) -> None:  # noqa: ANN001
+    def _write_physical_locked(self, mapping, struct, bit, dat_off, high: bool) -> None:
         """Write the wire level in volts: high=True => ~3.3V, False => 0V."""
         dat = struct.unpack_from("<I", mapping, dat_off)[0]
         if high:
@@ -367,11 +367,11 @@ class OrangePiGpioIrProvider(MockLightIrProvider):
             dat &= ~(1 << bit)
         struct.pack_into("<I", mapping, dat_off, dat)
 
-    def _read_physical_locked(self, mapping, struct, bit, dat_off) -> int:  # noqa: ANN001
+    def _read_physical_locked(self, mapping, struct, bit, dat_off) -> int:
         dat = struct.unpack_from("<I", mapping, dat_off)[0]
         return 1 if (dat >> bit) & 1 else 0
 
-    def _park_idle_locked(self, mapping, struct, bit, cfg_off, cfg_shift, dat_off) -> dict[str, Any]:  # noqa: ANN001
+    def _park_idle_locked(self, mapping, struct, bit, cfg_off, cfg_shift, dat_off) -> dict[str, Any]:
         # Always park at physical 0V. Active-high Arduino modules need this; an
         # active-low module would need a different safe idle (not used here).
         self._set_output_locked(mapping, struct, bit, cfg_off, cfg_shift, dat_off)
@@ -392,7 +392,7 @@ class OrangePiGpioIrProvider(MockLightIrProvider):
         payload = self._build_nec_payload(address, command)
         lsb_first = self._bit_order in {"lsb", "lsb_first", "least"}
 
-        def _run(mapping, struct, bit, cfg_off, cfg_shift, dat_off):  # noqa: ANN001
+        def _run(mapping, struct, bit, cfg_off, cfg_shift, dat_off):
             def write_ir_on(on: bool) -> None:
                 # on=True => emit IR (mark). Arduino-compatible: physical HIGH.
                 # active_low modules invert (rare for KY-005 style).
@@ -422,7 +422,7 @@ class OrangePiGpioIrProvider(MockLightIrProvider):
             # Physical LOW before/after — never leave DATA high (module heat).
             self._write_physical_locked(mapping, struct, bit, dat_off, False)
             frames = 0
-            bit_range = range(0, 32) if lsb_first else range(31, -1, -1)
+            bit_range = range(32) if lsb_first else range(31, -1, -1)
             try:
                 for _ in range(max(1, repeat)):
                     mark(9000)

@@ -3,6 +3,20 @@
 > **Status**: Phase 3.3 — Minimal implementation (2026-06-11)  
 > **Related**: [`architecture.md`](architecture.md) §5.5
 
+> ⚠️ **This document does not match the code (verified 2026-09-28).** The whole
+> `aegis_ai/research/` package is **orphaned**: nothing outside it references
+> `SourceCollector`, `SourceRanker`, `ResearchReport`, `CitationManager`, `TextExtractor` or
+> `SourceNote`, and no module imports `aegis_ai.research` at all. `SourceCollector` is never
+> constructed, so the collection path described below is unreachable.
+>
+> The `ResearchAgent` class this document builds its examples around **does not exist** — there is
+> no `class ResearchAgent` anywhere in the tree. The capability IDs it invokes
+> (`browser.open_page`, `browser.extract_page_text`) are also gone from the catalog; the live
+> Browser Server operations are listed in [`browser-safety.md`](browser-safety.md).
+>
+> Treat this as a design sketch, not documentation. Whether the package is finished, rewired, or
+> deleted is an open owner decision.
+
 ## Overview
 
 The Research Agent conducts deep-dive information gathering by:

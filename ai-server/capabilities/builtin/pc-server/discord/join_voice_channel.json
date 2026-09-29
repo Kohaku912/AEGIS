@@ -26,6 +26,12 @@
       "presence_change"
     ]
   },
+  "ownership_scope": "external",
+  "reversibility": "recoverable",
+  "destructive_effects": [],
+  "data_loss_risk": "none",
+  "active_work_loss_risk": "none",
+  "blast_radius": "single",
   "tags": [
     "discord",
     "voice",

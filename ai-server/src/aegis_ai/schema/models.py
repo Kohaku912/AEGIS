@@ -31,6 +31,9 @@ class CapabilityManifestModel(BaseModel):
     tcp_command: str = ""
     tcp_command_json: str = ""
     extra: dict[str, Any] = Field(default_factory=dict)
+    # Phase 1 (instruction.md §36): feature flag 名. 空文字なら常時 enabled.
+    # 例: `requires_feature: "agents"` → `agents.enabled=True` のときだけ list_for_llm に乗る.
+    requires_feature: str = ""
 
     model_config = {
         "extra": "allow",
@@ -69,7 +72,7 @@ class TaskRecord(BaseModel):
     """Typed view of a persisted task record (Phase 2/5)."""
 
     task_id: str
-    status: Literal["planning", "running", "paused", "completed", "failed", "blocked", "awaiting_approval"]
+    status: Literal["planning", "running", "paused", "completed", "failed", "blocked"]
     created_at_ms: int = 0
     updated_at_ms: int = 0
     plan_json: str = ""

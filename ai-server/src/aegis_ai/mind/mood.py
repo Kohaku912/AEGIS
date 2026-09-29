@@ -74,7 +74,7 @@ def _clamp(v: float, lo: float = -1.0, hi: float = 1.0) -> float:
 
 
 def _pad_distance(a: tuple[float, float, float], b: tuple[float, float, float]) -> float:
-    return math.sqrt(sum((x - y) ** 2 for x, y in zip(a, b)))
+    return math.sqrt(sum((x - y) ** 2 for x, y in zip(a, b, strict=False)))
 
 
 class Mood:

@@ -60,7 +60,11 @@ def test_pc_tcp_uses_tcp_command_json(monkeypatch) -> None:
         def recv(self, size):
             return b'{"status":"ok"}\n'
 
-    monkeypatch.setattr("server_executor.socket.socket", lambda: FakeSocket())
+    # Accept (af, socktype, proto) because _execute_pc_tcp resolves the endpoint
+    # first, and socket.create_connection() calls socket(af, socktype, proto).
+    monkeypatch.setattr(
+        "server_executor.socket.socket", lambda *args, **kwargs: FakeSocket()
+    )
 
     result = ServerExecutor()._execute_pc_tcp(
         "pc-server.discord.join_voice_by_name",
@@ -103,7 +107,11 @@ def test_pc_tcp_invalid_json_is_not_reported_as_unreachable(monkeypatch) -> None
                 b'Phone Number: 07084976713"}\n'
             )
 
-    monkeypatch.setattr("server_executor.socket.socket", lambda: FakeSocket())
+    # Accept (af, socktype, proto) because _execute_pc_tcp resolves the endpoint
+    # first, and socket.create_connection() calls socket(af, socktype, proto).
+    monkeypatch.setattr(
+        "server_executor.socket.socket", lambda *args, **kwargs: FakeSocket()
+    )
 
     result = ServerExecutor()._execute_pc_tcp(
         "pc-server.file.read",

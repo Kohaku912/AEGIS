@@ -3,7 +3,7 @@ from generated.aegis import common_pb2, room_server_pb2
 import pytest
 
 from aegis_room.providers import MockLightIrProvider, create_light_provider
-from aegis_room.server import RoomServer
+from aegis_room.server import VERSION, RoomServer
 
 
 def test_health_check_returns_online_version() -> None:
@@ -13,7 +13,9 @@ def test_health_check_returns_online_version() -> None:
 
     assert response.status.code == 0
     assert response.server_status == common_pb2.SERVER_STATUS_ONLINE
-    assert "light-ir" in response.version or "mock-light" in response.version
+    # HealthCheck must report the module build tag (e.g. "0.1.4+pc11-ir-inmp441").
+    assert response.version == VERSION
+    assert response.version
 
 
 def test_set_light_with_mock_provider_records_state() -> None:

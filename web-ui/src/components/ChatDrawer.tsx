@@ -33,13 +33,6 @@ function applyResult(result: ChatSendResult): { lines: LogItem[]; ask?: AskUser 
     const ok = tool.success === false ? "failed" : "ok";
     lines.push({ role: "tool", text: `${name} (${ok})${tool.result ? `: ${tool.result}` : ""}` });
   }
-  if (result.approval_needed) {
-    const id = String(result.approval_id || "");
-    lines.push({
-      role: "system",
-      text: id ? `Approval needed: ${id}` : "Approval needed. Open Approvals to continue.",
-    });
-  }
   lines.push({ role: "AEGIS", text: String(result.response || result.message || "Completed.") });
   return { lines };
 }

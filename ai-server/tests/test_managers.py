@@ -98,20 +98,6 @@ class TestTaskManager:
         result = task_manager.start_task(task["task_id"])
         assert result["status"] == "running"
 
-    def test_waiting_approval(self, task_manager):
-        task = task_manager.create_task(title="Test")
-        task_manager.start_task(task["task_id"])
-        result = task_manager.wait_for_approval(task["task_id"], approval_id="appr_001")
-        assert result["status"] == "waiting_approval"
-        assert result["related_approval_id"] == "appr_001"
-
-    def test_resume_after_approval(self, task_manager):
-        task = task_manager.create_task(title="Test")
-        task_manager.start_task(task["task_id"])
-        task_manager.wait_for_approval(task["task_id"], approval_id="appr_001")
-        result = task_manager.resume_after_approval(task["task_id"])
-        assert result["status"] == "running"
-
     def test_complete_task(self, task_manager):
         task = task_manager.create_task(title="Test")
         task_manager.start_task(task["task_id"])
@@ -176,13 +162,6 @@ class TestTaskManager:
         assert recovered["status"] == "completed"
         assert "Recovered completed" in recovered["result_summary"]
 
-    def test_approval_reject_cancels_task(self, task_manager):
-        task = task_manager.create_task(title="Test")
-        task_manager.start_task(task["task_id"])
-        task_manager.wait_for_approval(task["task_id"], approval_id="appr_001")
-        result = task_manager.cancel_task(task["task_id"], reason="approval rejected")
-        assert result["status"] == "cancelled"
-
 
 # ── EventManager Tests ────────────────────────────────────────
 
@@ -225,6 +204,40 @@ class TestEventManager:
         dead = event_manager.list_dead_letters()
         assert len(dead) == 1
         assert dead[0]["handler_id"] == "handler_1"
+
+    def test_reload_uses_persisted_tail(self, event_bus, tmp_dir, monkeypatch):
+        import json
+        import time
+        from pathlib import Path
+
+        import aegis_ai.event.event_manager as event_manager_module
+
+        monkeypatch.setattr(event_manager_module, "_TAIL_READ_MAX_BYTES", 2048)
+        persist_path = Path(tmp_dir) / "events.jsonl"
+        now = int(time.time() * 1000)
+        event_ids: list[str] = []
+        with persist_path.open("w", encoding="utf-8") as handle:
+            for index in range(40):
+                event_id = f"evt_{index:03d}"
+                event_ids.append(event_id)
+                handle.write(json.dumps({
+                    "event_id": event_id,
+                    "event_type": "task.created",
+                    "source_server_id": "ai-server",
+                    "timestamp": now + index,
+                    "payload_summary": f"tail_{index}_{'x' * 64}",
+                    "payload": {"index": index},
+                }) + "\n")
+
+        reloaded = event_manager_module.EventManager(event_bus=event_bus, data_dir=tmp_dir)
+        events = reloaded.list_recent(limit=100)["events"]
+
+        assert 0 < len(events) < 40
+        expected_tail = event_ids[-len(events):]
+        assert [event["event_id"] for event in events] == expected_tail
+        assert events[-1]["event_id"] == event_ids[-1]
+        assert events[-1]["event_type"] == "task.created"
+        assert events[-1]["source_server_id"] == "ai-server"
 
 
 # ── AuditManager Tests ────────────────────────────────────────

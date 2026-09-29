@@ -43,7 +43,6 @@ def _default_servers() -> dict[str, tuple[str, int]]:
         "browser-server": (_env_host("BROWSER_SERVER_HOST"), _env_port("BROWSER_SERVER_PORT", 50053)),
         "android-server": (_env_host("ANDROID_SERVER_HOST"), _env_port("ANDROID_SERVER_PORT", 50054)),
         "room-server": (_env_host("ROOM_SERVER_HOST"), _env_port("ROOM_SERVER_PORT", 50055)),
-        "dev-server": (_env_host("DEV_SERVER_HOST"), _env_port("DEV_SERVER_PORT", 50056)),
         "dashboard": (_env_host("DASHBOARD_HOST"), _env_port("DASHBOARD_PORT", 8090)),
     }
 
@@ -69,10 +68,8 @@ def _server_configuration_state(server_id: str) -> ServerStatus:
     raw = os.getenv(key)
     if raw is None and server_id == "room-server":
         raw = os.getenv("ROOM_SERVER_ENABLED")
-    if raw is None and server_id == "dev-server":
-        raw = os.getenv("DEV_SERVER_ENABLED")
     if raw is None:
-        if server_id in {"room-server", "dev-server"}:
+        if server_id == "room-server":
             return ServerStatus.UNCONFIGURED
         return ServerStatus.ONLINE
     normalized = raw.strip().lower()
@@ -115,6 +112,9 @@ class StatusManager:
         self._lock = threading.Lock()
         self._check_thread: threading.Thread | None = None
         self._running = False
+        # Wakes the background loop out of its inter-check sleep. Without it, ``stop``
+        # can only wait out the full interval (60s by default) and then gives up.
+        self._stop_event = threading.Event()
 
         for server_id, (host, port) in self._servers.items():
             configured = _server_configuration_state(server_id)
@@ -189,6 +189,7 @@ class StatusManager:
         if self._running:
             return
         self._running = True
+        self._stop_event.clear()
         self._check_thread = threading.Thread(
             target=self._background_loop, daemon=True, name="status-check"
         )
@@ -196,11 +197,27 @@ class StatusManager:
         logger.info("StatusManager background checks started (interval=%ss)", self._check_interval)
 
     def stop_background_checks(self) -> None:
-        """Stop background health check thread."""
+        """Stop background health check thread, promptly.
+
+        Setting ``_running = False`` alone is not enough: the loop spends almost all of
+        its life waiting out ``self._check_interval`` (60s by default), so a bare
+        ``join(timeout=5)`` returns with the thread still alive — and it then keeps
+        running, and keeps probing the LAN, until the interval happens to expire.
+        Setting the stop event interrupts that wait so ``join`` actually joins.
+        """
         self._running = False
-        if self._check_thread is not None:
-            self._check_thread.join(timeout=5)
-            self._check_thread = None
+        self._stop_event.set()
+
+        thread = self._check_thread
+        if thread is not None:
+            thread.join(timeout=5)
+            if thread.is_alive():
+                logger.warning(
+                    "StatusManager background check thread did not stop within 5s; it will "
+                    "exit on its next wake-up"
+                )
+            else:
+                self._check_thread = None
 
     def check_now(self) -> dict[str, dict[str, Any]]:
         """Run health checks immediately and return snapshot."""
@@ -212,27 +229,51 @@ class StatusManager:
     def _background_loop(self) -> None:
         while self._running:
             try:
-                self._run_checks()
+                self._run_checks(abort=self._stop_event)
             except Exception:
                 logger.debug("Status check failed", exc_info=True)
-            time.sleep(self._check_interval)
+            if self._stop_event.wait(self._check_interval):
+                break
 
-    def _run_checks(self) -> None:
+    def _run_checks(self, *, abort: threading.Event | None = None) -> None:
+        """Run one health-check sweep.
+
+        ``abort`` is supplied by the background loop, so that ``stop()`` takes effect at
+        a server boundary instead of after the whole sweep. A sweep touches the network,
+        so finishing one can take many seconds — long enough for the thread to outlive
+        the runtime that started it, and long enough that the join in
+        ``stop_background_checks`` gives up and reports a thread that never stopped.
+
+        ``check_now()`` passes nothing: an explicit synchronous request should always run
+        to completion, even on a manager whose background checks were never started (for
+        which ``_running`` is ``False`` but nothing has been stopped either).
+        """
         with self._lock:
             servers = dict(self._servers)
 
+        # Collect status changes and publish them only AFTER releasing the lock.
+        # Publishing while holding ``self._lock`` deadlocks: event subscribers
+        # (e.g. the L1 pipeline via ``_compact_world_state_for_l1``) call back
+        # into ``get_snapshot()``, which needs the same non-reentrant lock.
+        pending_changes: list[tuple[str, str, str]] = []
+
         for server_id, (host, port) in servers.items():
+            if abort is not None and abort.is_set():
+                return
+
             configured = _server_configuration_state(server_id)
             if configured != ServerStatus.ONLINE:
-                old_status = self._status.get(server_id, {}).get("status", ServerStatus.UNKNOWN.value)
                 with self._lock:
+                    old_status = self._status.get(server_id, {}).get(
+                        "status", ServerStatus.UNKNOWN.value
+                    )
                     self._status[server_id]["last_check_ms"] = int(time.time() * 1000)
                     self._status[server_id]["status"] = configured.value
                     self._status[server_id]["mode"] = configured.value
                     self._status[server_id]["error"] = f"Server is {configured.value} by environment"
                     if old_status != configured.value:
                         self._status[server_id]["last_change_ms"] = int(time.time() * 1000)
-                        self._publish_change(server_id, old_status, configured.value)
+                        pending_changes.append((server_id, old_status, configured.value))
                 continue
 
             if server_id == "android-server":
@@ -240,7 +281,6 @@ class StatusManager:
                     self._status[server_id]["last_check_ms"] = int(time.time() * 1000)
                 continue
 
-            old_status = self._status.get(server_id, {}).get("status", ServerStatus.UNKNOWN.value)
             details: dict[str, Any] = {}
             resolved_host = host
             if server_id in {"pc-server", "room-server"}:
@@ -262,6 +302,9 @@ class StatusManager:
                     details = {"error": f"Port {port} unreachable (host={resolved_host}; candidates/LAN scan failed)"}
 
             with self._lock:
+                old_status = self._status.get(server_id, {}).get(
+                    "status", ServerStatus.UNKNOWN.value
+                )
                 self._status[server_id]["last_check_ms"] = int(time.time() * 1000)
                 self._status[server_id]["mode"] = str(details.get("mode") or "enabled")
                 self._status[server_id].update(details)
@@ -273,7 +316,10 @@ class StatusManager:
                 if self._status[server_id]["status"] != new_status:
                     self._status[server_id]["status"] = new_status
                     self._status[server_id]["last_change_ms"] = int(time.time() * 1000)
-                    self._publish_change(server_id, old_status, new_status)
+                    pending_changes.append((server_id, old_status, new_status))
+
+        for server_id, old_status, new_status in pending_changes:
+            self._publish_change(server_id, old_status, new_status)
 
     def _check_port(self, host: str, port: int) -> bool:
         try:
@@ -290,11 +336,14 @@ class StatusManager:
         try:
             from aegis_ai.net.endpoint_resolver import resolve_tcp_endpoint
 
+            # ``allow_lan_scan`` is deliberately left unset so the documented
+            # ``AEGIS_LAN_SCAN_ENABLED`` switch decides. Passing ``True`` here used to
+            # override it, which meant an operator (or a test run) could not turn LAN
+            # discovery off - the switch was documented and had no effect on this path.
             return resolve_tcp_endpoint(
                 server_id,
                 port=port,
                 timeout=min(self._timeout, 0.5),
-                allow_lan_scan=True,
             )
         except Exception:
             logger.debug("Endpoint resolve failed for %s", server_id, exc_info=True)
@@ -331,6 +380,7 @@ class StatusManager:
             return ServerStatus.OFFLINE.value, {"error": f"Port {port} unreachable"}
 
     def _update_status(self, server_id: str, status: ServerStatus, error: str = "") -> None:
+        change: tuple[str, str, str] | None = None
         with self._lock:
             if server_id not in self._status:
                 return
@@ -343,7 +393,10 @@ class StatusManager:
             self._status[server_id]["last_change_ms"] = int(time.time() * 1000)
             self._status[server_id]["error"] = error or None
             if old != status.value:
-                self._publish_change(server_id, old, status.value)
+                change = (server_id, old, status.value)
+        # Publish outside the lock (see _run_checks for why).
+        if change is not None:
+            self._publish_change(*change)
 
     def _publish_change(self, server_id: str, old_status: str, new_status: str) -> None:
         if self._event_manager is None:

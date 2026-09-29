@@ -1,8 +1,13 @@
 # AEGIS Architecture — Autonomous Multi-Device AI
 
-> **Status**: Implemented (verified against current code snapshot)  
-> **Tests**: 157 passed, 0 failed  
-> **Capabilities**: 53 registered  
+> ⚠️ **Goal change (2026-09-27)**: the only constraint is now **"the user's information must never
+> leave the local environment."** Approval, reversibility, policy, and reliability-proof are **no
+> longer constraints**. Approval/policy statements below are **historical descriptions**, not
+> requirements. See [`GOAL-CHANGE.md`](GOAL-CHANGE.md) and [`IMPROVEMENT_PROPOSAL.md`](../IMPROVEMENT_PROPOSAL.md) §9.
+
+> **Status**: Implemented. Counts are date-stamped measurements; re-measure before trusting them.  
+> **Tests**: **1758 passed / 31 skipped** (ai-server suite, measured 2026-09-29)  
+> **Capabilities**: **128 registered** (pc 58 / ai 32 / android 17 / browser 16 / room 5)  
 > **Target audience**: AI coding agents, contributors, and future AEGIS itself  
 > **Related**: [`AGENTS.md`](../AGENTS.md) — rules and conventions for agents working on this repo
 
@@ -14,11 +19,11 @@ AEGIS is an **autonomous, event-driven, self-improving AI assistant** that spans
 
 - **Observes** events across PC, Android, browser, room sensors, and dev tools
 - **Thinks** via a central AI Server with memory, goals, identity, and desires
-- **Acts** through registered capabilities — with graduated safety gates
+- **Acts** through registered capabilities — with risk annotations and an egress gate
 - **Learns** from outcomes via a learning pipeline (ActionTrace → Lesson → Workflow → Skill)
 - **Desires** driven by 10 intrinsic motivations (D2A-inspired)
 
-**Key design constraint**: AEGIS must never act dangerously without explicit user approval. Safety is structural (PolicyEngine), not prompt-based. See [§7 Security Design](#7-security-design).
+**Key design constraint**: **the user's information must never leave the local environment.** This is the single constraint. All outbound transmission passes through the egress gate and is denied by default. Approval, reversibility, and reliability-proof are **not** constraints. See [§7 Security Design](#7-security-design).
 
 ---
 
@@ -62,8 +67,8 @@ flowchart TB
     end
 
     %% Servers
-    subgraph Servers["Capability Servers (53 capabilities)"]
-        PCServer["PC Server (Rust, TCP)<br/>40+ capabilities"]
+    subgraph Servers["Capability Servers (128 capabilities)"]
+        PCServer["PC Server (Rust, TCP)<br/>58 capabilities"]
         AndroidServer["Android Server (Kotlin)<br/>Notification / Screenshot"]
         BrowserServer["Browser Server (Python + browser-use)"]
         RoomServer["Room Server (Python)<br/>Sensors / Actuators"]
@@ -186,7 +191,7 @@ All inter-server communication uses **gRPC** with Protocol Buffers (proto3). The
 | **OS** | Windows 専用 |
 | **Role** | PC observation and control |
 
-**Capabilities (40+)**:
+**Capabilities (58)**:
 - **Observe**: Screenshot, active window, window list, clipboard, OS info, screen size
 - **Action**: Mouse click/move, keyboard type, hotkey, app launch, window management
 - **Overlay**: Custom click-through overlays (WS_EX_TOPMOST + WS_EX_LAYERED + WS_EX_TRANSPARENT)
@@ -280,7 +285,7 @@ capabilities/
 | Example Capability ID | Server |
 |----------------------|--------|
 | `pc-server.screenshot.get_screenshot` | PC Server |
-| `browser-server.page.open_page` | Browser Server |
+| `browser-server.page.navigate` | Browser Server |
 | `android-server.notification.get_notifications` | Android Server |
 | `room-server.environment.get_environment` | Room Server |
 
@@ -297,13 +302,16 @@ Old ID formats (e.g. `pc.screenshot.get_screenshot`) are resolved via aliases in
 
 ### 4.4 Safety Level Definitions
 
-| Level | Name | Examples | Default |
-|-------|------|----------|---------|
-| **0** | Read-only | Screenshot, OCR, sensor read, log tail | ALLOW |
-| **1** | Safe action | Open app, move window, turn on light, overlay display | ALLOW |
-| **2** | Approval required | Delete file, send DM, post SNS, mouse click, keyboard type | ASK |
-| **3** | Restricted | Bulk delete, purchase, SSH key access, shell commands | ASK or DENY |
-| — | Unregistered | Any capability not in the registry | DENY |
+The tier is **descriptive**. The decision comes from the manifest risk label via
+`PolicyEngine.DEFAULT_RISK_MAP` (§5.7). Nothing asks anyone.
+
+| Level | Name | Examples | Decision |
+|-------|------|----------|----------|
+| **0** | Read-only | Screenshot, OCR, sensor read, log tail | `ALLOW` |
+| **1** | Safe action | Open app, move window, turn on light, overlay display | `ALLOW_WITH_AUDIT` |
+| **2** | Elevated (historical name "approval required") | Delete file, send DM, post SNS, mouse click, keyboard type | `ALLOW_WITH_AUDIT` — **the label does not cause a prompt** |
+| **3** | Restricted | Bulk delete, purchase, SSH key access, shell commands | `ALLOW_WITH_AUDIT`, **except** the three hard stops in §5.7 → `DENY` |
+| — | Unregistered | Any capability not in the catalog | `InvokeStatus.NOT_FOUND` at `ToolBroker`, before `PolicyEngine` |
 
 ---
 
@@ -326,7 +334,9 @@ ai-server/src/
 │   ├── folder_registry.py            # JSON manifest loader
 │   ├── audit.py                      # AuditLog (legacy)
 │   ├── scheduler.py                  # Cron-like scheduled tasks
-│   ├── approval.py                   # ApprovalStore (legacy)
+│   ├── confirmation/                 # AEGIS-initiated questions (models, store)
+│   │   ├── models.py                 # ConfirmationRequest, ConfirmationStatus
+│   │   └── store.py                  # ConfirmationStore (JSONL history)
 │   ├── task/
 │   │   └── task_manager.py           # 9-state task lifecycle
 │   ├── event/
@@ -392,7 +402,7 @@ ai-server/src/
 ├── config/
 │   ├── prompts.yaml                  # Prompt source of truth
 │   └── llm.yaml                      # LLM profile source of truth
-└── tests/                            # 157 tests total
+└── tests/                            # 1758 tests total
 ```
 
 ### 5.2 Context Builder
@@ -466,12 +476,22 @@ Non-existent capability IDs → NOT_FOUND. Invalid arguments → DENY.
 **CRITICAL MODULE** — deterministic safety rules engine (not LLM-based).
 
 Checks every action request against:
-1. Capability safety level (0–3)
-2. User-configured permissions (SettingsPermissionGuard)
-3. Current approval state (ApprovalStore)
-4. Action-specific rules (e.g., "never delete *.pem files")
+1. Permanently blocked capability IDs and patterns (`block(capability_id)`)
+2. Per-capability and global custom rules registered at runtime
+3. The risk level from the capability's manifest, via `DEFAULT_RISK_MAP`
+4. `EXPLICIT_DENY_PATTERNS` — the three hard stops only: purchases/payments, egress-gate
+   bypass, and policy self-modification. The last group stays denied so the boundary cannot
+   disable itself or the egress gate.
 
-Output: `ALLOW`, `ASK_APPROVAL`, or `DENY`. **Fail-closed**: if unreachable, all actions denied.
+Output: `ALLOW`, `ALLOW_WITH_AUDIT`, `DENY`, or `UNAVAILABLE`. **Fail-closed**: if unreachable,
+all actions denied.
+
+> **Risk levels are annotations, not gates.** `READ_ONLY → ALLOW`; every other level except
+> `FORBIDDEN` → `ALLOW_WITH_AUDIT`; `FORBIDDEN → DENY`. `APPROVAL_REQUIRED` is a *label* — it
+> does **not** make the engine ask anyone. Approval is no longer a constraint; the retired
+> forced gate and `ASK_APPROVAL` were removed 2026-09-27. AEGIS still *chooses* to raise a
+> confirmation (`aegis_ai/confirmation/`) when it judges the user should decide, but nothing
+> in the execution path waits on the answer. See §7.3.
 
 ### 5.8 LLM Gateway & Prompt Management
 
@@ -539,6 +559,7 @@ sequenceDiagram
     participant TB as ToolBroker
     participant PE as PolicyEngine
     participant AM as AuditManager
+    participant CS as ConfirmationStore
 
     Svr->>EM: Push event (gRPC)
     EM->>EM: Persist + deduplicate
@@ -551,16 +572,17 @@ sequenceDiagram
         AL->>AL: Think → Plan
         AL->>TB: Request action
         TB->>PE: Check safety
-        alt Safe
+        alt Allowed
             PE->>Svr: Execute
             Svr->>EM: Result event
-        else Needs approval
-            PE-->>AL: Approval required
-            AL-->>AL: Wait for user (via ApprovalFanout)
-        else Denied
+        else Denied (a hard stop only)
             PE-->>AL: Blocked
         end
         AL->>AM: Log decision
+        opt AEGIS judges that the user should decide
+            AL->>CS: Raise a confirmation
+            Note over CS: Recorded and rendered.<br/>Nothing was waiting on it.
+        end
     else No trigger
         TE->>TE: Ignore / batch
     end
@@ -591,14 +613,19 @@ sequenceDiagram
 
 ### 7.1 Safety Levels
 
+`SafetyLevel` (0–3) is a **descriptive tier**, not a gate. Nothing in the execution path
+reads it to decide anything; the tier exists so an action's elevation stays visible to the
+user and in the audit log. The *only* decision input is the manifest risk level, and the only
+denies are the three hard stops in §5.7.
+
 ```mermaid
 graph TD
     A[Action Request] --> B{PolicyEngine}
-    B -->|Level 0| C[READ-ONLY<br/>Always allowed]
-    B -->|Level 1| D[SAFE ACTION<br/>Auto-allowed]
-    B -->|Level 2| E[APPROVAL REQUIRED<br/>Must confirm with user]
-    B -->|Level 3| F[RESTRICTED<br/>May be prohibited]
-    B -->|Unknown| G[BLOCKED<br/>Unregistered = deny]
+    B -->|Level 0| C[READ-ONLY<br/>ALLOW]
+    B -->|Level 1| D[SAFE ACTION<br/>ALLOW_WITH_AUDIT]
+    B -->|Level 2| E[APPROVAL_REQUIRED<br/>ALLOW_WITH_AUDIT — label only,<br/>nobody is asked]
+    B -->|Level 3| F[FORBIDDEN<br/>DENY]
+    B -->|Unknown| G[UNSPECIFIED<br/>ALLOW_WITH_AUDIT<br/>unset risk reads as unknown,<br/>never as safe]
 
     style C fill:#d4edda
     style D fill:#cce5ff
@@ -607,6 +634,10 @@ graph TD
     style G fill:#e2e3e5
 ```
 
+> Unregistered capabilities are denied **before** the engine runs — `ToolBroker` returns
+> `InvokeStatus.NOT_FOUND` for an id the catalog cannot resolve. They do not reach
+> `PolicyEngine` as `LEVEL_3_RESTRICTED`.
+
 ### 7.2 Structural Safety (not prompt-based)
 
 The PolicyEngine is:
@@ -614,44 +645,66 @@ The PolicyEngine is:
 - **Fail-closed**: if unreachable, all actions denied
 - **Audited**: every decision logged via AuditManager
 
-### 7.3 Approval System
+### 7.3 Confirmation (AEGIS-initiated, non-blocking)
 
-When an action requires approval (Level 2/3):
+The forced approval gate is **gone**. `ApprovalManager`, `ApprovalFanout`,
+`aegis_ai/approval/`, the `RequestApproval` / `ResolveApproval` / `ListPendingApprovals`
+RPCs and `POLICY_DECISION_ASK_APPROVAL` were all deleted on 2026-09-28. Nothing blocks
+waiting for an answer.
+
+What replaced it: AEGIS *chooses* to ask. When it judges that the user should decide — an
+irreversible step, an ambiguous goal, a genuinely new kind of action — it raises a
+confirmation through `aegis_ai/confirmation/`, and the dashboard renders it.
 
 ```
-PolicyEngine → ApprovalManager → ApprovalFanout
-                                    ├── DashboardChannel (SSE)
-                                    ├── PCOverlayChannel (click-through overlay)
-                                    ├── AndroidChannel (notification)
-                                    └── RoomChannel (display + TTS)
+AEGIS decides to ask
+  └── ConfirmationStore.request()   aegis_ai/confirmation/store.py
+        ├── persisted per item      data/…  (survives restart)
+        ├── listeners ──► SSE       GET /api/approvals/events
+        ├── dashboard queue         GET /api/approvals/pending
+        └── capability surface      ai-server.confirmation.request / .list
+User answers ──► the answer informs what AEGIS does next.
+                 Nothing was waiting on it; no capability is unblocked.
 ```
 
 | Feature | Description |
 |---------|-------------|
-| Multi-channel | Approval pushed to all 4 channels simultaneously |
-| Timeout | No response within window → auto-deny |
-| Session approval | Allow once / Allow for session / Deny / Deny and remember |
-| Audit | All decisions logged to AuditManager |
+| Not a gate | No endpoint here can block a capability; nothing in the execution path calls the module |
+| Multi-surface | Dashboard queue + SSE, PC overlay (`pc-server.approval.overlay`), Android overlay |
+| Decision is the LLM's | No manifest lookup, no risk inference, no keyword matching — see `AGENTS.md` "LLM-Driven Operations" |
+| Fresh passkey | `POST` `/approve`, `/modify-and-approve`, `/cancel` re-check a fresh passkey in `auth/session_middleware.py` |
+| Wire compatibility | URLs, methods and JSON keys keep their historical `approval_*` names so the shipped `web-ui` bundle needs no rebuild |
+| Audit | The decision is recorded on the confirmation record; the resulting action is audited normally |
+
+> The user's distinction: *removing the forced gate does not remove the ability to ask.*
+> AEGIS-initiated confirmation must stay a usable surface. See
+> [`docs/approval-ui.md`](approval-ui.md).
 
 ### 7.4 Data Protection
 
-- User data stays on local network by default
-- External API calls (LLM, web search) must be explicitly configured
+- **The single constraint**: user data must **never** leave the local environment. There is no consent exception.
+- External API calls (LLM, web search, cloud TTS, webhooks) are **denied by default** and routed through the egress gate (`aegis_ai/egress/`). Local alternatives are the only permitted option.
+- Local-only stores (SQLite, Chroma, JSONL) are the norm.
 - Secrets via environment variables — **never** in source code or proto files
-- TLS available for gRPC (`security/tls_config.py`)
+- TLS available for gRPC (`security/tls_config.py`) — for protecting the local hop, not for reaching out
 
 ---
 
 ## 8. Self-Development Workflow
 
-AEGIS can improve its own codebase — but only through a strictly gated workflow.
+AEGIS can improve its own codebase — but only through a PR-based workflow.
+
+> **Note**: This is a **development-flow rule** (how AEGIS modifies *its own source repository*), not a
+> runtime constraint on AEGIS's behavior. Approval is no longer a constraint, but the repository
+> itself stays PR-only so that every change is reviewable and revertible. See `AGENTS.md` Technology
+> Decision Gate.
 
 ### 8.1 Workflow Steps
 
 | Step | Who | Gate |
 |------|-----|------|
-| **1. Analyze** | SelfDevAgent | Read-only (safe) |
-| **2. Propose** | SelfDevAgent | User must approve investigation |
+| **1. Analyze** | SelfDevAgent | Read-only |
+| **2. Propose** | SelfDevAgent | Proposes an investigation (dev-flow review, not runtime approval) |
 | **3. Branch** | Dev Server | Create branch in sandbox |
 | **4. Patch** | Dev Server | Generate and apply code changes |
 | **5. Test** | Dev Server | Run full test suite |
@@ -663,7 +716,7 @@ AEGIS can improve its own codebase — but only through a strictly gated workflo
 ### 8.2 Constraints
 
 - **No direct push to main** — all changes go through PR
-- **No merge without user approval** — user is the only merge authority
+- **No merge by AEGIS** — the user is the only merge authority (dev-flow rule)
 - **No access to secrets** — Dev Server sandbox has no access to `.env` or SSH keys
 - **Scope limited** — only files within the AEGIS repo
 - **All attempts logged** — via AuditManager
@@ -677,21 +730,22 @@ AEGIS can improve its own codebase — but only through a strictly gated workflo
 | System | Status | Notes |
 |--------|--------|-------|
 | **Runtime singleton** | ✅ Complete | AegisRuntime + 7 Managers |
-| **Capability Management** | ✅ Complete | Folder-based JSON manifests, 53 capabilities |
+| **Capability Management** | ✅ Complete | Folder-based JSON manifests, 128 capabilities |
 | **Desire System** | ✅ Complete | Pressure-based 3 desires, fulfillment.py rules |
 | **Autonomous Loop** | ✅ Complete | Desire-driven, TaskManager integration |
 | **Dashboard** | ✅ Complete | Streaming chat + tool calling, Manager API routes |
-| **PC Server** | ✅ Complete | Rust, TCP, 40+ capabilities, custom overlay |
+| **PC Server** | ✅ Complete | Rust, TCP JSON, 58 capabilities, custom overlay |
 | **Browser Server** | ✅ Complete | browser-use, DeepSeek compatibility patch |
 | **LLM Integration** | ✅ Complete | LLMGateway + PromptRegistry + text-based tool calling |
-| **Approval System** | ✅ Complete | ApprovalManager + Fanout + 4 channels |
+| **Confirmation** | ✅ Complete | AEGIS-initiated questions; the forced gate was removed 2026-09-28 |
 | **Memory System** | ✅ Complete | AdvancedMemory + Chroma + learning pipeline |
-| **E2E Testing** | ✅ Complete | 157 tests passing |
+| **E2E Testing** | ✅ Complete | 1758 tests passing (ai-server suite) |
 
 ### Deferred Items
 
 - EventManager server clients (replace `event_bus.publish()` in 5+ files)
-- Approval encapsulation (encapsulate approval_store/queue inside ApprovalManager)
+- Wire `ConfirmationStore.mark_executed()` / `mark_failed()` — currently no caller, so `executed` /
+  `failed` are unreachable statuses
 - 10k-entry audit performance test
 
 ---
@@ -741,15 +795,17 @@ AEGIS can improve its own codebase — but only through a strictly gated workflo
 |----------|---------|
 | [`AGENTS.md`](../AGENTS.md) | Rules for AI coding agents working on this repo |
 | [`README.md`](../README.md) | Human-readable project overview |
+| [`docs/GOAL-CHANGE.md`](GOAL-CHANGE.md) | ⚠️ 2026-09-27 goal change — read before trusting approval/policy language |
+| [`docs/egress-gate.md`](egress-gate.md) | Egress gate — enforcement of the single constraint |
 | [`protos/aegis/`](../protos/aegis/) | gRPC API definitions (single source of truth) |
 | [`docs/memory.md`](memory.md) | Memory system design and components |
 | [`docs/desire-system.md`](desire-system.md) | Desire system design and fulfillment |
 | [`docs/dashboard.md`](dashboard.md) | Dashboard features and API routes |
-| [`docs/approval-ui.md`](approval-ui.md) | Approval system multi-channel design |
+| [`docs/approval-ui.md`](approval-ui.md) | Confirmation UI — AEGIS-initiated questions, endpoints, and the retired forced gate |
 | [`docs/llm-router.md`](llm-router.md) | LLM routing, Gateway, PromptRegistry |
 | [`docs/self-development.md`](self-development.md) | Self-development workflow |
 | [`docs/testing.md`](testing.md) | Test categories and commands |
-| [`docs/roadmap.md`](roadmap.md) | Project roadmap and milestones |
+| [`docs/status.md`](status.md) | Servers, roadmap, backlog, and what is retired |
 
 ## Current Implementation Notes
 

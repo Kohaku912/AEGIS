@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import time
 from dataclasses import asdict, is_dataclass
 from typing import Any
@@ -13,6 +14,8 @@ from aegis_ai.presentation.surface_contract import (
     presentation_event_from_ui_event,
     surface_roles,
 )
+
+logger = logging.getLogger("aegis_ai.web.ui_overview")
 
 _MAX_UI_STRING_CHARS = 2_000
 _MAX_UI_LIST_ITEMS = 50
@@ -66,6 +69,9 @@ def build_ui_overview(runtime: Any) -> dict[str, Any]:
         "usage": _section("usage", lambda: _usage(runtime), generated_at),
         "errors": _section("errors", lambda: _errors(runtime), generated_at),
         "freshness": _section("freshness", lambda: _freshness(runtime), generated_at),
+        "user_understanding": _section(
+            "user_understanding", lambda: _user_understanding(runtime), generated_at
+        ),
         # Judgment / progress surfaces (secretary dashboard)
         "agent_state": _section("agent_state", lambda: _agent_state(runtime), generated_at),
         "goals": _section("goals", lambda: _goals(runtime), generated_at),
@@ -81,6 +87,21 @@ def build_ui_overview(runtime: Any) -> dict[str, Any]:
         ),
         "executions": _section("executions", lambda: _executions(runtime), generated_at),
     }
+    sections["cockpit_summary"] = _section(
+        "cockpit_summary", lambda: _cockpit_summary(sections), generated_at
+    )
+    sections["cockpit_inbox"] = _section(
+        "cockpit_inbox", lambda: _cockpit_inbox(sections), generated_at
+    )
+    sections["cockpit_focus"] = _section(
+        "cockpit_focus", lambda: _cockpit_focus(sections), generated_at
+    )
+    sections["cockpit_actions"] = _section(
+        "cockpit_actions", lambda: _cockpit_actions(sections), generated_at
+    )
+    sections["cockpit_investigation"] = _section(
+        "cockpit_investigation", lambda: _cockpit_investigation(sections), generated_at
+    )
     return {"schema_version": "ui-overview.v4", "generated_at": generated_at, **sections}
 
 
@@ -162,6 +183,10 @@ def normalize_ui_event(event: Any) -> dict[str, Any]:
     fields = _event_fields(event_type, plain_payload)
     sequence = _event_sequence(event, event_type, timestamp, plain_payload)
     event_id = _event_id(event, event_type, timestamp, sequence, plain_payload)
+    # Phase D3 — Trace ID 6 種 (instruction.md §16) を payload._trace_ids から抽出.
+    # event_id / task_id は fields 経由でも入るが、AgentEventPublisher が
+    # payload._trace_ids に正本を置くので、あればそれを優先する (session 単位の一意性保証).
+    trace_ids = _extract_trace_ids(plain_payload, fields)
     normalized = {
         "event_id": event_id,
         "sequence": sequence,
@@ -183,6 +208,10 @@ def normalize_ui_event(event: Any) -> dict[str, Any]:
         "safe_message": fields.get("message", ""),
         "visual_hint": _visual_hint(event_type, fields),
         "payload": plain_payload,
+        "activity_id": trace_ids.get("activity_id", ""),
+        "agent_session_id": trace_ids.get("agent_session_id", ""),
+        "trace_id": trace_ids.get("trace_id", ""),
+        "parent_id": trace_ids.get("parent_id", ""),
         **fields,
     }
     normalized["presentation_event"] = presentation_event_from_ui_event(normalized)
@@ -191,6 +220,31 @@ def normalize_ui_event(event: Any) -> dict[str, Any]:
     normalized["recommended_surfaces"] = normalized["presentation_event"]["recommended_surfaces"]
     normalized["available_actions"] = normalized["presentation_event"]["available_actions"]
     return normalized
+
+
+def _extract_trace_ids(plain_payload: dict[str, Any], fields: dict[str, Any]) -> dict[str, str]:
+    """Phase D3 — Trace ID 6 種を payload._trace_ids と fields から抽出.
+
+    優先順位:
+    1. payload._trace_ids (AgentEventPublisher が正本を置く)
+    2. fields.task_id / fields.agent_session_id / fields.parent_id (publish_event payload 経由)
+    3. 該当なしは空文字
+    """
+    trace_obj = plain_payload.get("_trace_ids") if isinstance(plain_payload, dict) else None
+    trace_ids: dict[str, str] = {}
+    if isinstance(trace_obj, dict):
+        for key in ("activity_id", "agent_session_id", "trace_id", "parent_id"):
+            value = trace_obj.get(key)
+            if value:
+                trace_ids[key] = str(value)
+    if "agent_session_id" not in trace_ids and fields.get("agent_session_id"):
+        trace_ids["agent_session_id"] = str(fields.get("agent_session_id") or "")
+    if "parent_id" not in trace_ids and fields.get("parent_id"):
+        trace_ids["parent_id"] = str(fields.get("parent_id") or "")
+    if "trace_id" not in trace_ids and trace_ids.get("agent_session_id"):
+        # 1 実行 = 1 trace のフォールバック
+        trace_ids["trace_id"] = trace_ids["agent_session_id"]
+    return trace_ids
 
 
 def _section(name: str, build, generated_at: int) -> dict[str, Any]:
@@ -214,6 +268,457 @@ def _section(name: str, build, generated_at: int) -> dict[str, Any]:
             "error": f"{name} unavailable: {exc}",
             "data": _empty_data(name),
         }
+
+
+def _section_data(sections: dict[str, Any], name: str) -> dict[str, Any]:
+    value = sections.get(name)
+    if isinstance(value, dict):
+        payload = value.get("data")
+        if isinstance(payload, dict):
+            return payload
+    return {}
+
+
+def _cockpit_inbox(sections: dict[str, Any]) -> dict[str, Any]:
+    approvals = _section_data(sections, "approvals").get("pending") or []
+    errors = _section_data(sections, "errors").get("items") or []
+    loops = _section_data(sections, "open_loops").get("items") or []
+    tasks = _section_data(sections, "tasks")
+    servers = _section_data(sections, "servers").get("items") or []
+    activity = _section_data(sections, "activity")
+    items: list[dict[str, Any]] = []
+
+    for approval in approvals[:12]:
+        if not isinstance(approval, dict):
+            continue
+        risk = str(approval.get("risk") or "").lower()
+        severity = "critical" if risk in {"high", "critical"} else "warning"
+        items.append(
+            _cockpit_item(
+                kind="approval",
+                item_id=f"approval:{approval.get('approval_id')}",
+                title=str(approval.get("summary") or approval.get("capability_id") or "Approval"),
+                message=str(approval.get("reason") or approval.get("preview") or "Waiting for approval"),
+                severity=severity,
+                status=str(approval.get("status") or "pending"),
+                next_action="Approve or reject",
+                entity_type="approval",
+                entity_id=str(approval.get("approval_id") or ""),
+                path="/dashboard/approvals",
+                evidence=approval,
+            )
+        )
+
+    for error in errors[:12]:
+        if not isinstance(error, dict):
+            continue
+        items.append(
+            _cockpit_item(
+                kind="error",
+                item_id=f"error:{error.get('id') or error.get('capability_id') or error.get('created_at')}",
+                title=str(error.get("title") or "Repair required"),
+                message=str(error.get("message") or error.get("summary") or ""),
+                severity=str(error.get("severity") or "critical"),
+                status=str(error.get("status") or "open"),
+                next_action=str(error.get("next_action") or "Inspect incident"),
+                entity_type="incident",
+                entity_id=str(error.get("id") or ""),
+                path="/dashboard/incidents",
+                evidence=error,
+            )
+        )
+
+    for loop in loops[:20]:
+        if not isinstance(loop, dict):
+            continue
+        kind = str(loop.get("kind") or "loop")
+        severity = "warning" if kind in {"approval", "incident", "continuation"} else "info"
+        if "loop" in kind or "continuation" in kind:
+            severity = "warning"
+        items.append(
+            _cockpit_item(
+                kind=kind,
+                item_id=str(loop.get("id") or f"{kind}:{len(items)}"),
+                title=str(loop.get("title") or kind),
+                message=str(loop.get("waiting_reason") or loop.get("evidence_summary") or ""),
+                severity=severity,
+                status=str(loop.get("status") or "open"),
+                next_action=str(loop.get("next_action") or "Inspect"),
+                entity_type="task" if kind == "task" else "",
+                entity_id=str(_get(loop.get("evidence", {}), "task_id", "")),
+                path="/dashboard/open-loops",
+                evidence=loop,
+            )
+        )
+
+    primary_task = tasks.get("primary") or {}
+    if isinstance(primary_task, dict) and primary_task.get("blocked_reason"):
+        items.append(
+            _cockpit_item(
+                kind="blocked_task",
+                item_id=f"task:{primary_task.get('task_id')}",
+                title=str(primary_task.get("title") or "Blocked task"),
+                message=str(primary_task.get("blocked_reason") or ""),
+                severity="warning",
+                status=str(primary_task.get("status") or "blocked"),
+                next_action=str(primary_task.get("plan_summary") or "Open task details"),
+                entity_type="task",
+                entity_id=str(primary_task.get("task_id") or ""),
+                path="/dashboard/work/tasks",
+                evidence=primary_task,
+            )
+        )
+
+    for server in servers[:12]:
+        if not isinstance(server, dict):
+            continue
+        status = str(server.get("status") or "").upper()
+        if status in {"ONLINE", "READY"} and not server.get("permission_missing"):
+            continue
+        severity = "critical" if status in {"OFFLINE", "CRITICAL"} else "warning"
+        items.append(
+            _cockpit_item(
+                kind="degraded_system",
+                item_id=f"server:{server.get('server_id')}",
+                title=str(server.get("server_id") or "Server"),
+                message=str(server.get("status_detail") or server.get("degraded_reason") or server.get("recovery_hint") or ""),
+                severity=severity,
+                status=str(server.get("status") or "unknown"),
+                next_action=str(server.get("recovery_hint") or "Inspect server"),
+                entity_type="server",
+                entity_id=str(server.get("server_id") or ""),
+                path="/dashboard/infrastructure/servers",
+                evidence=server,
+            )
+        )
+
+    cost_anomaly = _cockpit_cost_anomaly(tasks, activity)
+    if cost_anomaly:
+        items.append(cost_anomaly)
+
+    items.sort(key=_cockpit_inbox_sort_key)
+    return {
+        "items": items[:24],
+        "count": len(items),
+        "by_kind": _count_by(items, "kind"),
+        "summary": f"{len(items)} cockpit item(s) require attention",
+    }
+
+
+def _cockpit_summary(sections: dict[str, Any]) -> dict[str, Any]:
+    inbox = _cockpit_inbox(sections)
+    tasks = _section_data(sections, "tasks")
+    usage = _section_data(sections, "usage")
+    activity = _section_data(sections, "activity")
+    approvals = _section_data(sections, "approvals")
+    focus = _cockpit_focus(sections)
+    primary_task = tasks.get("primary") or {}
+    current_operation = {}
+    if isinstance(primary_task, dict) and primary_task:
+        current_operation = {
+            "task_id": str(primary_task.get("task_id") or ""),
+            "title": str(primary_task.get("title") or "Current task"),
+            "status": str(primary_task.get("status") or ""),
+            "next_action": str(primary_task.get("plan_summary") or primary_task.get("verification_summary") or ""),
+            "blocked_reason": str(primary_task.get("blocked_reason") or ""),
+        }
+    elif (activity.get("operations") or []):
+        operation = (activity.get("operations") or [])[0]
+        if isinstance(operation, dict):
+            current_operation = {
+                "task_id": str(operation.get("task_id") or ""),
+                "title": str(operation.get("title") or "Recent operation"),
+                "status": str(operation.get("status") or ""),
+                "next_action": str(operation.get("what_happened") or operation.get("narrative") or ""),
+                "blocked_reason": "",
+            }
+    total_calls = int(usage.get("total_calls") or 0)
+    total_tokens = int(usage.get("total_tokens") or 0)
+    approvals_pending = int(approvals.get("pending_count") or 0)
+    critical = len([item for item in inbox.get("items") or [] if str(item.get("severity")) == "critical"])
+    warnings = len([item for item in inbox.get("items") or [] if str(item.get("severity")) == "warning"])
+    attention_score = critical * 4 + warnings * 2 + approvals_pending
+    return {
+        "primary_alert": (inbox.get("items") or [{}])[0] if inbox.get("items") else {},
+        "blocking_items": len(inbox.get("items") or []),
+        "current_operation": current_operation,
+        "highest_cost_session": _cockpit_cost_session(tasks, activity, usage),
+        "stalled_session": _cockpit_stalled_session(tasks, sections),
+        "approval_pressure": {
+            "pending_count": approvals_pending,
+            "fresh_auth_required_count": len(
+                [item for item in approvals.get("pending") or [] if isinstance(item, dict) and item.get("fresh_auth_required")]
+            ),
+        },
+        "attention_score": attention_score,
+        "usage_snapshot": {
+            "total_calls": total_calls,
+            "total_tokens": total_tokens,
+            "budget_state": str(usage.get("budget_state") or ""),
+            "cost": usage.get("cost") or usage.get("estimated_cost") or usage.get("provider_reported_cost") or "",
+        },
+        "focus": _cockpit_focus_brief(focus),
+    }
+
+
+def _cockpit_focus(sections: dict[str, Any]) -> dict[str, Any]:
+    inbox = _cockpit_inbox(sections)
+    items = inbox.get("items") or []
+    if items:
+        return items[0]
+    tasks = _section_data(sections, "tasks")
+    primary = tasks.get("primary") or {}
+    if isinstance(primary, dict) and primary:
+        return _cockpit_item(
+            kind="current_task",
+            item_id=f"task:{primary.get('task_id')}",
+            title=str(primary.get("title") or "Current task"),
+            message=str(primary.get("plan_summary") or primary.get("verification_summary") or ""),
+            severity="info",
+            status=str(primary.get("status") or ""),
+            next_action=str(primary.get("blocked_reason") or primary.get("final_output") or ""),
+            entity_type="task",
+            entity_id=str(primary.get("task_id") or ""),
+            path="/dashboard/work/tasks",
+            evidence=primary,
+        )
+    return {}
+
+
+def _cockpit_actions(sections: dict[str, Any]) -> dict[str, Any]:
+    inbox = _cockpit_inbox(sections)
+    approvals = _section_data(sections, "approvals")
+    items = [
+        {
+            "id": "pause-autonomy",
+            "label": "Pause autonomy",
+            "kind": "control",
+            "level": "warning",
+            "enabled": True,
+            "path": "/dashboard",
+        },
+        {
+            "id": "pause-all-tasks",
+            "label": "Pause all tasks",
+            "kind": "control",
+            "level": "warning",
+            "enabled": True,
+            "path": "/dashboard",
+        },
+        {
+            "id": "refresh-all-servers",
+            "label": "Refresh systems",
+            "kind": "control",
+            "level": "safe",
+            "enabled": True,
+            "path": "/dashboard/infrastructure/servers",
+        },
+        {
+            "id": "open-approvals",
+            "label": "Open approvals",
+            "kind": "navigation",
+            "level": "safe",
+            "enabled": bool(approvals.get("pending_count")),
+            "path": "/dashboard/approvals",
+        },
+        {
+            "id": "open-inbox-focus",
+            "label": "Open current focus",
+            "kind": "navigation",
+            "level": "safe",
+            "enabled": bool(inbox.get("items")),
+            "path": str(_get((inbox.get("items") or [{}])[0], "path", "/dashboard")),
+        },
+    ]
+    return {"items": items, "count": len(items)}
+
+
+def _cockpit_investigation(sections: dict[str, Any]) -> dict[str, Any]:
+    focus = _cockpit_focus(sections)
+    current = _section_data(sections, "tasks").get("primary") or {}
+    focus_path = str(focus.get("path") or "/dashboard")
+    return {
+        "focus_path": focus_path,
+        "paths": {
+            "home": "/dashboard",
+            "approvals": "/dashboard/approvals",
+            "open_loops": "/dashboard/open-loops",
+            "operations": "/dashboard/operations",
+            "agent_timeline": "/dashboard/agent-timeline",
+            "incidents": "/dashboard/incidents",
+            "systems": "/dashboard/infrastructure/servers",
+            "layers": "/dashboard/layers",
+        },
+        "focus_links": {
+            "entity_type": str(focus.get("entity_type") or ""),
+            "entity_id": str(focus.get("entity_id") or ""),
+            "path": focus_path,
+            "task_id": str(current.get("task_id") or _get(focus.get("evidence", {}), "task_id", "")),
+            "approval_id": str(_get(focus.get("evidence", {}), "approval_id", "")),
+            "capability_id": str(_get(focus.get("evidence", {}), "capability_id", "")),
+        },
+        "workflow": ["observe", "trace", "act", "verify"],
+    }
+
+
+def _cockpit_item(
+    *,
+    kind: str,
+    item_id: str,
+    title: str,
+    message: str,
+    severity: str,
+    status: str,
+    next_action: str,
+    entity_type: str,
+    entity_id: str,
+    path: str,
+    evidence: Any,
+) -> dict[str, Any]:
+    return {
+        "id": item_id,
+        "kind": kind,
+        "title": _truncate_text(title or kind, limit=180),
+        "message": _truncate_text(message or "", limit=220),
+        "severity": severity,
+        "status": status,
+        "next_action": _truncate_text(next_action or "", limit=180),
+        "entity_type": entity_type,
+        "entity_id": entity_id,
+        "path": path,
+        "evidence": _compact_cockpit_evidence(evidence),
+    }
+
+
+def _compact_cockpit_evidence(evidence: Any) -> dict[str, Any]:
+    if not isinstance(evidence, dict):
+        return {"value": _truncate_text(evidence, limit=160)}
+    keys = (
+        "task_id",
+        "approval_id",
+        "operation_id",
+        "capability_id",
+        "server_id",
+        "status",
+        "severity",
+        "risk",
+        "reason",
+        "blocked_reason",
+        "next_action",
+        "message",
+        "summary",
+        "created_at",
+        "updated_at",
+    )
+    compact = {key: _bound_for_ui(evidence.get(key), max_depth=2) for key in keys if key in evidence}
+    if not compact:
+        compact["keys"] = list(evidence.keys())[:8]
+    return compact
+
+
+def _cockpit_focus_brief(focus: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(focus, dict):
+        return {}
+    return {
+        "id": str(focus.get("id") or ""),
+        "kind": str(focus.get("kind") or ""),
+        "title": str(focus.get("title") or ""),
+        "status": str(focus.get("status") or ""),
+        "path": str(focus.get("path") or ""),
+    }
+
+
+def _cockpit_inbox_sort_key(item: dict[str, Any]) -> tuple[int, int, str]:
+    severity_rank = {"critical": 0, "warning": 1, "info": 2}.get(str(item.get("severity") or "info"), 3)
+    kind_rank = {
+        "approval": 0,
+        "error": 1,
+        "blocked_task": 2,
+        "degraded_system": 3,
+        "cost_anomaly": 4,
+    }.get(str(item.get("kind") or ""), 5)
+    return severity_rank, kind_rank, str(item.get("title") or "")
+
+
+def _cockpit_cost_anomaly(tasks: dict[str, Any], activity: dict[str, Any]) -> dict[str, Any] | None:
+    primary = tasks.get("primary") or {}
+    if isinstance(primary, dict):
+        cost_summary = str(primary.get("cost_summary") or "")
+        if cost_summary:
+            return _cockpit_item(
+                kind="cost_anomaly",
+                item_id=f"cost:{primary.get('task_id') or 'current'}",
+                title=str(primary.get("title") or "Cost anomaly"),
+                message=cost_summary,
+                severity="warning",
+                status=str(primary.get("status") or ""),
+                next_action="Inspect execution trace",
+                entity_type="task",
+                entity_id=str(primary.get("task_id") or ""),
+                path="/dashboard/operations",
+                evidence=primary,
+            )
+    for operation in activity.get("operations") or []:
+        if not isinstance(operation, dict):
+            continue
+        summary = _cost_summary(operation)
+        if summary:
+            return _cockpit_item(
+                kind="cost_anomaly",
+                item_id=f"operation-cost:{operation.get('operation_id') or operation.get('task_id') or 'recent'}",
+                title=str(operation.get("title") or "Operation cost anomaly"),
+                message=summary,
+                severity="warning",
+                status=str(operation.get("status") or ""),
+                next_action="Open operations",
+                entity_type="task",
+                entity_id=str(operation.get("task_id") or ""),
+                path="/dashboard/operations",
+                evidence=operation,
+            )
+    return None
+
+
+def _cockpit_cost_session(tasks: dict[str, Any], activity: dict[str, Any], usage: dict[str, Any]) -> dict[str, Any]:
+    anomaly = _cockpit_cost_anomaly(tasks, activity)
+    if anomaly:
+        return {
+            "title": anomaly.get("title"),
+            "message": anomaly.get("message"),
+            "entity_type": anomaly.get("entity_type"),
+            "entity_id": anomaly.get("entity_id"),
+            "path": anomaly.get("path"),
+        }
+    return {
+        "title": "Usage snapshot",
+        "message": str(usage.get("summary") or "No anomalous cost session detected"),
+        "entity_type": "",
+        "entity_id": "",
+        "path": "/dashboard/observability/llm-usage",
+    }
+
+
+def _cockpit_stalled_session(tasks: dict[str, Any], sections: dict[str, Any]) -> dict[str, Any]:
+    primary = tasks.get("primary") or {}
+    if isinstance(primary, dict) and primary.get("blocked_reason"):
+        return {
+            "task_id": str(primary.get("task_id") or ""),
+            "title": str(primary.get("title") or "Blocked task"),
+            "message": str(primary.get("blocked_reason") or ""),
+            "path": "/dashboard/work/tasks",
+        }
+    for item in (_section_data(sections, "open_loops").get("items") or []):
+        if not isinstance(item, dict):
+            continue
+        if str(item.get("kind") or "") in {"task", "continuation", "incident", "approval"}:
+            evidence = item.get("evidence", {}) if isinstance(item.get("evidence"), dict) else {}
+            return {
+                "task_id": str(evidence.get("task_id") or ""),
+                "title": str(item.get("title") or "Stalled loop"),
+                "message": str(item.get("waiting_reason") or item.get("evidence_summary") or ""),
+                "path": "/dashboard/open-loops",
+            }
+    return {}
 
 
 def _core(runtime: Any) -> dict[str, Any]:
@@ -314,7 +819,7 @@ def _current_task(runtime: Any) -> dict[str, Any]:
             "steps": [],
         }
     raw_steps = _get(task, "steps", []) or []
-    current_step = next((s for s in raw_steps if _get(s, "status", "") in {"running", "needs_approval"}), None)
+    current_step = next((s for s in raw_steps if _get(s, "status", "") == "running"), None)
     return {
         "task_id": _get(task, "task_id", ""),
         "title": _get(task, "title", "") or _get(task, "goal", "") or "Task",
@@ -1244,12 +1749,45 @@ def _approvals(runtime: Any) -> dict[str, Any]:
 def _commitments(runtime: Any) -> dict[str, Any]:
     manager = getattr(runtime, "commitment_manager", None) or getattr(runtime, "commitments_manager", None)
     if manager is None:
-        return {"items": [], "summary": "Commitment manager is not configured."}
-    if hasattr(manager, "list_due"):
-        return {"items": manager.list_due(limit=20)}
-    if hasattr(manager, "list_active"):
-        return {"items": manager.list_active(limit=20)}
-    return {"items": []}
+        return {
+            "items": [],
+            "count": 0,
+            "due_count": 0,
+            "next_actions_count": 0,
+            "next_action": "",
+            "summary": "Commitment manager is not configured.",
+        }
+    items: list[dict[str, Any]] = []
+    if hasattr(manager, "list_commitments"):
+        items = list(manager.list_commitments(status="open") or [])
+    elif hasattr(manager, "list_active"):
+        items = list(manager.list_active(limit=100) or [])
+    elif hasattr(manager, "list_due"):
+        items = list(manager.list_due(limit=100) or [])
+    due_items: list[dict[str, Any]] = []
+    if hasattr(manager, "due_commitments"):
+        due_items = list(manager.due_commitments() or [])
+    elif hasattr(manager, "list_due"):
+        due_items = list(manager.list_due(limit=100) or [])
+    next_actions = [
+        str(item.get("next_action") or "").strip()
+        for item in items
+        if isinstance(item, dict) and str(item.get("next_action") or "").strip()
+    ]
+    summary_parts = [f"{len(items)} open"]
+    if due_items:
+        summary_parts.append(f"{len(due_items)} due")
+    if next_actions:
+        summary_parts.append(f"next: {next_actions[0]}")
+    summary = "No open commitments." if not items else ", ".join(summary_parts)
+    return {
+        "items": items[:20],
+        "count": len(items),
+        "due_count": len(due_items),
+        "next_actions_count": len(next_actions),
+        "next_action": next_actions[0] if next_actions else "",
+        "summary": summary,
+    }
 
 
 def _usage(runtime: Any) -> dict[str, Any]:
@@ -1447,6 +1985,7 @@ def _errors(runtime: Any) -> dict[str, Any]:
                 entry_timestamp and last_healthy_at and last_healthy_at > entry_timestamp
             )
             error_text = str(entry.get("error") or entry.get("summary") or "").lower()
+            detail = entry.get("detail") if isinstance(entry.get("detail"), dict) else {}
             connectivity_markers = (
                 "unavailable",
                 "offline",
@@ -1455,8 +1994,19 @@ def _errors(runtime: Any) -> dict[str, Any]:
                 "timeout",
                 "connection",
             )
+            structured_connectivity = (
+                str(detail.get("network_state") or "").lower() in {"offline", "dns_error", "unreachable"}
+                or str(detail.get("error_code") or "").lower() in {
+                    "server_down",
+                    "dns_error",
+                    "unreachable",
+                    "timeout",
+                    "timed_out",
+                }
+                or str(detail.get("invoke_status") or "").lower() in {"unavailable", "timeout"}
+            )
             if server_statuses.get(server_id) in {"ONLINE", "DISABLED", "UNCONFIGURED"} or recovered_after_error:
-                if any(marker in error_text for marker in connectivity_markers) or any(
+                if structured_connectivity or any(marker in error_text for marker in connectivity_markers) or any(
                     marker in error_text
                     for marker in ("errors resolving", "name or service not known", "getaddrinfo")
                 ):
@@ -1470,9 +2020,10 @@ def _errors(runtime: Any) -> dict[str, Any]:
                 else None
             )
             permission_markers = ("permission missing", "missing permission")
+            structured_permission = bool(detail.get("requires_permission"))
             if (
                 (server_statuses.get(server_id) == "ONLINE" or recovered_after_error)
-                and any(marker in error_text for marker in permission_markers)
+                and (structured_permission or any(marker in error_text for marker in permission_markers))
                 and isinstance(current_capability, dict)
                 and current_capability.get("available") is True
                 and not current_capability.get("missing_permissions")
@@ -1534,6 +2085,7 @@ def _agent_state(runtime: Any) -> dict[str, Any]:
             "corrections": (data.get("corrections") or [])[:10],
             "repair_history": (data.get("repair_history") or [])[-10:],
             "situation": data.get("situation") or {},
+            "user_understanding": data.get("user_understanding") or {},
             "context": {
                 "context_id": data.get("context_id"),
                 "built_at_ms": data.get("built_at_ms"),
@@ -1553,10 +2105,23 @@ def _decision_context(runtime: Any) -> dict[str, Any]:
         "situation": state.get("situation") or {},
         "obligations": state.get("obligations") or [],
         "identity": state.get("identity") or "",
+        "user_understanding": state.get("user_understanding") or {},
         "recent_non_actions": (initiative.get("recent_non_actions") or [])[:10],
         "funnel": initiative.get("funnel") or {},
         "context_meta": state.get("context") or {},
     }
+
+
+def _user_understanding(runtime: Any) -> dict[str, Any]:
+    service = getattr(runtime, "user_understanding_service", None)
+    if service is not None and hasattr(service, "build_snapshot"):
+        try:
+            snapshot = service.build_snapshot("dashboard")
+            return snapshot.to_dict() if hasattr(snapshot, "to_dict") else dict(snapshot)
+        except Exception as exc:
+            return {"summary": f"UserUnderstanding unavailable: {exc}"}
+    agent_state = _agent_state(runtime)
+    return dict(agent_state.get("user_understanding") or {})
 
 
 def _goals(runtime: Any) -> dict[str, Any]:
@@ -1570,6 +2135,7 @@ def _goals(runtime: Any) -> dict[str, Any]:
             if not isinstance(task, dict):
                 continue
             graph = graph if isinstance(graph, dict) else {}
+            metadata = task.get("metadata") if isinstance(task.get("metadata"), dict) else {}
             verification = list(graph.get("verification") or [])
             unmet = [
                 item
@@ -1592,6 +2158,11 @@ def _goals(runtime: Any) -> dict[str, Any]:
                     "evidence": list(graph.get("evidence") or [])[:8],
                     "value_to_user": str(task.get("value_to_user") or graph.get("value_to_user") or ""),
                     "updated_at": int(task.get("updated_at") or task.get("created_at") or 0),
+                    "source": str(task.get("source") or ""),
+                    "metadata": metadata,
+                    "followup_kind": str(metadata.get("followup_kind") or ""),
+                    "origin": str(metadata.get("origin") or ""),
+                    "confidence": float(metadata.get("confidence") or 0.0),
                 }
             )
     open_items = [item for item in items if item["status"] not in {"completed", "cancelled", "expired"}]
@@ -1714,7 +2285,7 @@ def _social(runtime: Any) -> dict[str, Any]:
         item
         for item in inbox
         if str(item.get("status") or "").lower()
-        in {"pending", "proposed", "awaiting_approval", "needs_decision", "new"}
+        in {"pending", "proposed", "needs_decision", "new"}
     ]
     decided = [
         {
@@ -2058,21 +2629,33 @@ def _running_tasks(runtime: Any) -> list[dict[str, Any]]:
 
 
 def _waiting_tasks(runtime: Any) -> list[dict[str, Any]]:
-    manager = getattr(runtime, "task_manager", None)
-    if manager is None:
-        return []
-    if hasattr(manager, "list_waiting_approval"):
-        return [_to_plain(item) for item in manager.list_waiting_approval()]
-    if hasattr(manager, "list_tasks"):
-        return [_to_plain(item) for item in manager.list_tasks(status="needs_approval", limit=10)]
+    """Approval is no longer a constraint (2026-09-27) — no task ever waits."""
+    del runtime
     return []
 
 
 def _pending_approvals(runtime: Any) -> list[Any]:
-    manager = getattr(runtime, "approval_manager", None)
-    if manager is not None and hasattr(manager, "list_pending"):
-        return list(manager.list_pending())
-    return []
+    """Open confirmations: questions AEGIS raised and the user has not answered.
+
+    Phase 5a. This used to return ``[]`` unconditionally, which is why the whole
+    downstream approval projection — ``pending_count``, ``attention_level: "approval"``,
+    ``mode: "WAITING"``, ``_mission_phase -> "Waiting for Approval"``, the
+    ``open-approvals`` control, the ``kind="approval"`` open loops — was dead code. The
+    helpers were kept "so the payload keeps its shape"; they now operate on real data.
+
+    An empty list is a legitimate answer: it means AEGIS has not decided to ask anything
+    right now. It does **not** mean a capability is blocked, because nothing waits on a
+    confirmation.
+    """
+    store = getattr(runtime, "confirmation_store", None)
+    if store is None:
+        return []
+    try:
+        return store.pending()
+    except Exception:
+        # A broken store must degrade to "nothing to show", never break the overview.
+        logger.debug("Could not read pending confirmations", exc_info=True)
+        return []
 
 
 def _recent_notifications(runtime: Any, *, unread_only: bool, limit: int) -> list[dict[str, Any]]:
@@ -2311,30 +2894,68 @@ def _server_projection(server: Any) -> dict[str, Any]:
 
 
 def _approval_projection(approval: Any) -> dict[str, Any]:
+    """Project a confirmation onto the field names the dashboard renders.
+
+    Phase 5a: ``aegis_ai.confirmation.ConfirmationRequest`` already carries this
+    vocabulary, so the primary lookup is direct. The legacy names (``risk_level``,
+    ``approval_reason``, ``user_facing_summary``, ``metadata.target``) are kept as
+    fallbacks so any record written before the change still renders.
+
+    Every value is coerced to the type the wire contract declares — ``side_effects`` is
+    ``string`` in ``web-ui/src/types.ts``, so a structured value is serialised rather
+    than handed over as an object that would render as ``[object Object]``.
+    """
     data = approval.to_dict() if hasattr(approval, "to_dict") else _to_plain(approval)
+    if not isinstance(data, dict):
+        data = {}
     metadata = data.get("metadata", {}) if isinstance(data.get("metadata", {}), dict) else {}
-    arguments_summary = data.get("arguments_summary", "")
+    arguments_summary = _as_wire_text(data.get("arguments_summary", ""))
+
+    def _pick(*keys: str) -> str:
+        for key in keys:
+            value = _as_wire_text(data.get(key, ""))
+            if value:
+                return value
+        return ""
+
     return {
-        "approval_id": data.get("approval_id", ""),
-        "request_id": data.get("request_id", ""),
-        "task_id": data.get("task_id", ""),
-        "step_id": data.get("step_id", ""),
-        "capability_id": data.get("capability_id", ""),
-        "tool_name": data.get("tool_name", ""),
-        "risk": data.get("risk_level", ""),
-        "reason": data.get("approval_reason", ""),
-        "summary": data.get("user_facing_summary", "") or arguments_summary,
-        "target": metadata.get("target", ""),
-        "preview": arguments_summary,
-        "side_effects": metadata.get("side_effects", data.get("side_effects", "")),
-        "previous_action": metadata.get("previous_action", ""),
-        "similar_action_summary": metadata.get("similar_action_summary", ""),
-        "expected_effect": metadata.get("expected_effect", ""),
-        "fresh_auth_required": bool(metadata.get("fresh_auth_required", data.get("fresh_auth_required", False))),
+        "approval_id": str(data.get("approval_id", "")),
+        "request_id": str(data.get("request_id", "")),
+        "task_id": str(data.get("task_id", "")),
+        "step_id": str(data.get("step_id", "")),
+        "capability_id": str(data.get("capability_id", "")),
+        "tool_name": str(data.get("tool_name", "")),
+        "risk": _pick("risk", "risk_level"),
+        "reason": _pick("reason", "approval_reason"),
+        "summary": _pick("summary", "user_facing_summary") or arguments_summary,
+        "target": _pick("target") or _as_wire_text(metadata.get("target", "")),
+        "preview": _pick("preview") or arguments_summary,
+        "side_effects": _pick("side_effects") or _as_wire_text(metadata.get("side_effects", "")),
+        "previous_action": _pick("previous_action") or _as_wire_text(metadata.get("previous_action", "")),
+        "similar_action_summary": _pick("similar_action_summary")
+        or _as_wire_text(metadata.get("similar_action_summary", "")),
+        "expected_effect": _pick("expected_effect") or _as_wire_text(metadata.get("expected_effect", "")),
+        "fresh_auth_required": bool(
+            data.get("fresh_auth_required") or metadata.get("fresh_auth_required", False)
+        ),
         "created_at": data.get("created_at", 0),
         "expires_at": data.get("expires_at", 0),
-        "status": data.get("status", "pending"),
+        "status": str(data.get("status", "pending")),
     }
+
+
+def _as_wire_text(value: Any) -> str:
+    """Render a field as the string the dashboard expects, without inventing content."""
+    if value is None or value == "":
+        return ""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, (dict, list, tuple)):
+        try:
+            return json.dumps(value, ensure_ascii=False, default=str)
+        except (TypeError, ValueError):
+            return str(value)
+    return str(value)
 
 
 def _task_original_instruction(task: Any) -> str:
@@ -2513,8 +3134,6 @@ def _activity_operation_type(event: dict[str, Any]) -> str:
 
 def _activity_source_manager(event: dict[str, Any]) -> str:
     event_type = str(event.get("event_type") or event.get("type") or "")
-    if event.get("approval_id") or event_type.startswith("approval."):
-        return "ApprovalManager"
     if event.get("task_id") or event_type.startswith("task."):
         return "TaskManager"
     if event.get("server_id") or event_type.startswith(("status.", "connection.")):
@@ -2683,6 +3302,16 @@ def _ui_event_type(event_type: str) -> str:
         "capability.execution.started": "tool.execution.started",
         "capability.execution.completed": "tool.execution.completed",
         "capability.execution.failed": "tool.execution.failed",
+        # Phase D1 — agent.* イベントは新しい namespace (instruction.md §12).
+        # 既存 tool.execution.* とは別 kind なので型衝突しない.
+        "agent.started": "agent.started",
+        "agent.thinking": "agent.thinking",
+        "agent.tool.started": "agent.tool.started",
+        "agent.tool.completed": "agent.tool.completed",
+        "agent.waiting": "agent.waiting",
+        "agent.verifying": "agent.verifying",
+        "agent.completed": "agent.completed",
+        "agent.failed": "agent.failed",
         "approval.created": "approval.created",
         "approval.approved": "approval.resolved",
         "approval.rejected": "approval.resolved",

@@ -82,6 +82,20 @@ export type ApprovalItem = {
   status?: string;
 };
 
+export type CockpitInboxItem = {
+  id: string;
+  kind: string;
+  title: string;
+  message: string;
+  severity: string;
+  status: string;
+  next_action?: string;
+  entity_type?: string;
+  entity_id?: string;
+  path?: string;
+  evidence?: Record<string, unknown>;
+};
+
 export type CurrentTask = {
   task_id: string;
   title: string;
@@ -205,6 +219,7 @@ export type UiOverview = {
   notifications: FreshnessEnvelope<{ recent?: Array<Record<string, unknown>>; unread_count?: number }>;
   approvals: FreshnessEnvelope<{ pending: ApprovalItem[]; pending_count: number }>;
   commitments: FreshnessEnvelope<{ items: Array<Record<string, unknown>>; summary?: string }>;
+  user_understanding?: FreshnessEnvelope<Record<string, unknown>>;
   usage: FreshnessEnvelope<Record<string, unknown>>;
   errors?: FreshnessEnvelope<{ items?: Array<Record<string, unknown>>; count?: number; repair_status?: Record<string, unknown>; source?: string }>;
   freshness: FreshnessEnvelope<Record<string, unknown>>;
@@ -261,6 +276,34 @@ export type UiOverview = {
     count?: number;
     summary?: string;
   }>;
+  cockpit_summary?: FreshnessEnvelope<{
+    primary_alert?: CockpitInboxItem;
+    blocking_items?: number;
+    current_operation?: Record<string, unknown>;
+    highest_cost_session?: Record<string, unknown>;
+    stalled_session?: Record<string, unknown>;
+    approval_pressure?: Record<string, unknown>;
+    attention_score?: number;
+    usage_snapshot?: Record<string, unknown>;
+    focus?: CockpitInboxItem | Record<string, unknown>;
+  }>;
+  cockpit_inbox?: FreshnessEnvelope<{
+    items?: CockpitInboxItem[];
+    count?: number;
+    by_kind?: Record<string, number>;
+    summary?: string;
+  }>;
+  cockpit_focus?: FreshnessEnvelope<CockpitInboxItem | Record<string, unknown>>;
+  cockpit_actions?: FreshnessEnvelope<{
+    items?: Array<Record<string, unknown>>;
+    count?: number;
+  }>;
+  cockpit_investigation?: FreshnessEnvelope<{
+    focus_path?: string;
+    paths?: Record<string, string>;
+    focus_links?: Record<string, unknown>;
+    workflow?: string[];
+  }>;
 };
 
 export type UiEvent = {
@@ -273,6 +316,12 @@ export type UiEvent = {
   received_at?: number;
   generated_at: number;
   source_updated_at: number;
+  // Phase D3 — Trace ID 6 種 (instruction.md §16)
+  // event_id と task_id は下部の payload 経由で来るが、payload 直下に正規化してある.
+  activity_id?: string;
+  agent_session_id?: string;
+  trace_id?: string;
+  parent_id?: string;
   priority?: "P0" | "P1" | "P2" | "P3" | string;
   dedupe_key?: string;
   persistence?: "until_resolved" | "attention_dock" | "ephemeral" | string;

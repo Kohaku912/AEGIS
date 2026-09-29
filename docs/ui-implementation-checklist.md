@@ -1,5 +1,11 @@
 # AEGIS UI Instruction Completion Ledger
 
+> ⚠️ **Goal change (2026-09-27)**: the only constraint is now **"the user's information must never
+> leave the local environment."** Approval, reversibility, policy, and reliability-proof are **no
+> longer constraints**. Any "requires approval" / "Level 2" language below is a **risk annotation**,
+> not a gate. See [`GOAL-CHANGE.md`](GOAL-CHANGE.md).
+
+
 This ledger maps the replacement `UI_Instruction.md` to implementation and test evidence. The previous Core Sphere / seven-area checklist is obsolete.
 
 Legend: `[x]` implemented, `[~]` implemented with remaining real-device or visual evidence, `[ ]` not complete, `[!]` production blocker.

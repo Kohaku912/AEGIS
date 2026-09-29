@@ -59,38 +59,55 @@ cargo run --release -- --port 50052 --bind 0.0.0.0
 
 ## Capabilities
 
-### Observe (Level 0 — no approval)
+Ids are **three segments**: `pc-server.<app>.<action>`. The two-segment forms below
+(`pc.get_screenshot`, `pc.mouse_click`) are historical and resolve under no alias rule. The full
+58-capability inventory is in [`pc-server.md`](pc-server.md).
+
+### Observe — `read_only` / `low`
 
 | Capability | Description |
 |-----------|-------------|
-| `pc.get_screenshot` | Capture screen as PNG |
-| `pc.get_active_window` | Get foreground window info |
-| `pc.list_windows` | List all visible windows |
-| `pc.get_clipboard` | Read clipboard (redacted) |
-| `pc.get_os_info` | Get OS information |
-| `pc.get_screen_size` | Get screen resolution |
+| `pc-server.screenshot.get_screenshot` | Capture screen as PNG |
+| `pc-server.window.get_active_window` | Get foreground window info |
+| `pc-server.window.list_windows` | List all visible windows |
+| `pc-server.clipboard.get_clipboard` | Read clipboard (redacted) |
+| `pc-server.system.get_os_info` | Get OS information |
+| `pc-server.system.get_screen_size` | Get screen resolution |
+| `pc-server.file.list` | List a directory |
+| `pc-server.file.read` | Read a file — **no path check**, see [`pc-server.md`](pc-server.md) |
 
-### Action (Level 1 — safe action)
-
-| Capability | Description |
-|-----------|-------------|
-| `pc.show_overlay` | Display text overlay |
-| `pc.hide_overlay` | Remove overlay |
-| `pc.launch_app` | Launch application |
-| `pc.focus_window` | Bring window to front |
-| `pc.mouse_move` | Move mouse cursor |
-
-### Approval Required (Level 2)
+### Action — `safe` / `safe_action`
 
 | Capability | Description |
 |-----------|-------------|
-| `pc.mouse_click` | Click at coordinates |
-| `pc.keyboard_type` | Type text |
-| `pc.press_hotkey` | Press keyboard shortcut |
+| `pc-server.system.show_overlay` | Display text overlay |
+| `pc-server.overlay.show_rich` | Rich overlay |
+| `pc-server.system.launch_app` | Launch application |
+| `pc-server.window.close_window` | Close a window (sends `WM_CLOSE`) |
+| `pc-server.window.resize` | Resize a window |
+| `pc-server.input.mouse_move` | Move mouse cursor |
+| `pc-server.input.mouse_click` | Click at coordinates |
+| `pc-server.input.keyboard_type` | Type text |
+| `pc-server.input.press_hotkey` | Press a keyboard shortcut |
+| `pc-server.clipboard.set` | Write the clipboard |
+| `pc-server.approval.overlay` | Show the PC confirmation overlay (gates nothing) |
+
+### Elevated — `audited_action` / `high`
+
+| Capability | Description |
+|-----------|-------------|
+| `pc-server.file.write` | Write a file — **no path check** |
+| `pc-server.shell.execute` | Run a shell command |
+| `pc-server.shell.powershell` | Run a PowerShell command |
+
+> **Nothing is "approval required."** The forced gate was removed 2026-09-28. There is no
+> `hide_overlay` capability either — overlays dismiss themselves or on ESC.
 
 ## Command Protocol
 
-PC Server listens on TCP port 50052 with a simple text protocol:
+PC Server listens on TCP port 50052 with a newline-delimited text protocol. The `tcp_command`
+template for every capability is in [`pc-server.md`](pc-server.md); these are the ones the
+startup banner advertises.
 
 | Command | Response |
 |---------|----------|
@@ -100,22 +117,30 @@ PC Server listens on TCP port 50052 with a simple text protocol:
 | `windows\n` | JSON window list |
 | `os_info\n` | JSON OS info |
 | `screen_size\n` | JSON screen size |
-| `clipboard\n` | JSON clipboard content |
+| `clipboard\n` | JSON clipboard content (redacted) |
 | `show_overlay <text>\n` | JSON overlay status |
-| `hide_overlay\n` | JSON overlay status |
+| `launch_app <path>\n` | JSON launch result |
+| `mouse_move <x>,<y>\n` | JSON move result |
+| `mouse_click <x>,<y>,<button>\n` | JSON click result |
+| `keyboard_type <text>\n` | JSON type result |
+| `press_hotkey <keys>\n` | JSON hotkey result |
 | `capabilities\n` | JSON capability list |
-| `mouse_click\n` | JSON approval_required |
-| `keyboard_type\n` | JSON approval_required |
 | `quit\n` | Close connection |
+
+Mouse, keyboard and launch commands are **runtime-enabled**: without `--enable-real-pc-actions`
+they return a mock result. There is no `approval_required` response.
 
 ## Safety
 
-- Observe capabilities: Auto-allowed
-- Overlay/focus/launch: Safe action (Level 1)
-- Mouse click/keyboard: Approval UI required (Level 2)
-- Password input: Never auto-execute
-- File delete: Not implemented
-- Shell unrestricted: Not implemented
+- Real mouse/keyboard actions: **disabled by default**, enabled by `--enable-real-pc-actions`
+- Observe capabilities: auto-allowed
+- Overlay / launch / window: safe action (Level 1)
+- Mouse click / keyboard: elevated tier (Level 2) — a **label only**; nobody is asked
+- Password input: never auto-execute
+- File delete: **not implemented** (no `pc-server` delete capability exists)
+- Shell: implemented as `pc-server.shell.execute` / `.powershell` (`high`)
+- File read/write: **no path restriction** — the denylist is an observation filter only
+- Default bind is `127.0.0.1`; pass `--bind 0.0.0.0` to expose it
 
 ## Windows Firewall
 
@@ -138,7 +163,7 @@ aegis-pc-server [OPTIONS]
 
 Options:
   --port <PORT>                Health endpoint port (default: 50052)
-  --bind <ADDR>                Bind address (default: 0.0.0.0)
-  --enable-real-pc-actions     Enable real mouse/keyboard (requires approval)
+  --bind <ADDR>                Bind address (default: 127.0.0.1)
+  --enable-real-pc-actions     Enable real mouse/keyboard actions
   --help                       Show help
 ```

@@ -1,5 +1,10 @@
 # Dev Server — Design & Usage
 
+> **REMOVED (Phase 9)**: The Dev Server (`dev-server/`, port 50056) has been
+> deleted. Self-development now runs through the separate Agent Server
+> (`aegis-openhands-agent.service`). This document is kept for historical
+> reference only — do not follow the setup instructions below.
+
 > **Status**: Implemented gRPC service (sandboxed repo operations)
 > **Language**: Python (`dev-server/src/dev_server.py`)
 > **AI Server client**: `ai-server/src/aegis_ai/integrations/dev/grpc_client.py`

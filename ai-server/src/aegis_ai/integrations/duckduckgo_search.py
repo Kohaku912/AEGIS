@@ -47,10 +47,41 @@ class DuckDuckGoSearch:
     def __init__(self, timeout: float = 10.0) -> None:
         self._timeout = timeout
 
+    @staticmethod
+    def _egress_allows() -> bool:
+        """Whether a search query may leave the local environment.
+
+        The single constraint forbids transmitting the user's data (including a
+        derived query) to any external service. Denied by default.
+        """
+        from aegis_ai.egress import EgressRequest, get_egress_gate
+
+        return get_egress_gate().allow(
+            EgressRequest(
+                destination="https://html.duckduckgo.com",
+                purpose="web.search",
+                component="integrations.duckduckgo",
+                data_summary="search query derived from user context",
+            )
+        )
+
+    def _denied(self, query: str) -> SearchResponse:
+        logger.warning("Web search refused by the egress gate (query withheld)")
+        return SearchResponse(
+            query=query,
+            success=False,
+            error=(
+                "Web search is disabled: the query would leave the local environment "
+                "(the single constraint)."
+            ),
+        )
+
     def search(self, query: str, max_results: int = 5) -> SearchResponse:
         query = str(query or "").strip()
         if not query:
             return SearchResponse(query=query, success=False, error="query is required")
+        if not self._egress_allows():
+            return self._denied(query)
 
         for backend in (self._search_ddgs, self._search_legacy_package, self._search_html):
             response = backend(query, max_results)
@@ -75,6 +106,8 @@ class DuckDuckGoSearch:
         query = str(query or "").strip()
         if not query:
             return SearchResponse(query=query, success=False, error="query is required")
+        if not self._egress_allows():
+            return self._denied(query)
 
         response = self._news_ddgs(query, max_results)
         if response.success:

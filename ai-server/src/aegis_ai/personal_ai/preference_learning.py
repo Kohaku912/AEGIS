@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 from aegis_ai.personal_ai.storage import JsonStateFile, now_ms
 
@@ -12,7 +12,7 @@ from aegis_ai.personal_ai.storage import JsonStateFile, now_ms
 class ConditionalPreferenceStore:
     """Retain feedback evidence without turning one response into a permanent rule."""
 
-    VALID_FEEDBACK = {"approved", "rejected", "ignored", "edited", "opened", "dismissed"}
+    VALID_FEEDBACK: ClassVar[set[str]] = {"approved", "rejected", "ignored", "edited", "opened", "dismissed"}
 
     def __init__(self, data_dir: str) -> None:
         self._state_file = JsonStateFile(Path(data_dir) / "conditional_preferences.json", {"evidence": []})

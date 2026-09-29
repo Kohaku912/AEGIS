@@ -9,15 +9,20 @@ import { CommandPalette } from "./components/CommandPalette";
 import { GlobalInspector } from "./components/GlobalInspector";
 import { GlobalStatusBar } from "./components/GlobalStatusBar";
 import { LiveActivityDrawer } from "./components/LiveActivityDrawer";
+import { LiveOverlay, liveOverlayClickTarget } from "./components/LiveOverlay";
 import { StatusBadge } from "./components/StatusBadge";
 import { UiState } from "./components/UiState";
 import { entitiesFromOverview } from "./entityModel";
 import { navigation, pageDefinition, routeState, type DomainId } from "./navigation";
+import { AgentSessionPage } from "./pages/AgentSessionPage";
 import { AgentStatePage } from "./pages/AgentStatePage";
+import { AgentTimelinePage } from "./pages/AgentTimelinePage";
 import { AllSettingsPage } from "./pages/AllSettingsPage";
 import { Approvals } from "./pages/Approvals";
 import { AttentionPage } from "./pages/AttentionPage";
 import { AuditPage } from "./pages/AuditPage";
+import { InterruptionPage } from "./pages/InterruptionPage";
+import { IrreversibilityPage } from "./pages/IrreversibilityPage";
 import { AutonomousPage } from "./pages/AutonomousPage";
 import { BehavioralReportsPage } from "./pages/BehavioralReportsPage";
 import { CapabilityCatalogPage } from "./pages/CapabilityCatalogPage";
@@ -29,9 +34,15 @@ import { ActivityPage } from "./pages/ActivityPage";
 import { CommandCenter } from "./pages/CommandCenter";
 import { Display } from "./pages/Display";
 import { DomainPage } from "./pages/DomainPage";
+import { ExecutionTracePage } from "./pages/ExecutionTracePage";
+import { InterventionsPage } from "./pages/InterventionsPage";
 import { JudgmentPage } from "./pages/JudgmentPage";
+import { LayersOverviewPage } from "./pages/LayersOverviewPage";
 import { OpenLoopsPage } from "./pages/OpenLoopsPage";
 import { IncidentsPage } from "./pages/IncidentsPage";
+import { L1PanelPage } from "./pages/L1PanelPage";
+import { L2PanelPage } from "./pages/L2PanelPage";
+import { L3PanelPage } from "./pages/L3PanelPage";
 import { LearningPage } from "./pages/LearningPage";
 import { LLMUsagePage } from "./pages/LLMUsagePage";
 import { LogsPage } from "./pages/LogsPage";
@@ -41,7 +52,10 @@ import { NotificationsPage } from "./pages/NotificationsPage";
 import { OperationsPage } from "./pages/OperationsPage";
 import { PerformancePage } from "./pages/PerformancePage";
 import { PersonalAiPage } from "./pages/PersonalAiPage";
+import { PersonalContextPage } from "./pages/PersonalContextPage";
 import { PromptAnalysisPage } from "./pages/PromptAnalysisPage";
+import { OpsAtlasPage } from "./pages/OpsAtlasPage";
+import { ControlHubPage } from "./pages/ControlHubPage";
 import { Settings } from "./pages/Settings";
 import { SocialPage } from "./pages/SocialPage";
 import { Systems } from "./pages/Systems";
@@ -171,8 +185,11 @@ export function App() {
       </a>
       <aside className="master-nav">
         <div className="brand">
-          <span className="brand__name">AEGIS</span>
-          <span className="brand__sub">{messages.appSubtitle}</span>
+          <div className="brand__mark">AE</div>
+          <div>
+            <span className="brand__name">AEGIS</span>
+            <span className="brand__sub">{messages.appSubtitle}</span>
+          </div>
         </div>
         <button
           type="button"
@@ -245,11 +262,25 @@ export function App() {
           onNavigate={navigate}
         />
         <header className="workspace-heading">
-          <div>
+          <div className="workspace-heading__title">
             <span>{definition.domain.label}</span>
             <h1>{definition.page.label}</h1>
+            <p className="workspace-heading__summary">
+              すべての情報・操作へ届く control tower として、調査と実行を同じ画面構造で進めます。
+            </p>
           </div>
-          <div>
+          <div className="workspace-heading__controls">
+            <div className="workspace-shortcuts">
+              <button className="workspace-shortcut" type="button" onClick={() => navigate("/dashboard/control-hub")}>
+                Control Hub
+              </button>
+              <button className="workspace-shortcut" type="button" onClick={() => navigate("/dashboard/atlas")}>
+                Ops Atlas
+              </button>
+              <button className="workspace-shortcut" type="button" onClick={() => setPaletteOpen(true)}>
+                Search
+              </button>
+            </div>
             <StatusBadge status={String(overview.core.data.health || "DEGRADED")} />
             <span className="workspace-heading__freshness">
               {messages.updated}: {formatDateTime(overview.generated_at)} ({formatRelative(overview.generated_at)})
@@ -318,9 +349,18 @@ export function App() {
         entity={selectedEntity}
         onClose={() => setSelectedEntity(undefined)}
         onFollowRelation={followRelation}
+        onNavigate={navigate}
         pinned={Boolean(selectedEntity && pinnedEntities.some((item) => item.type === selectedEntity.type && item.id === selectedEntity.id))}
         onTogglePin={(entity) => setPinnedEntities((items) => togglePin(items, entity))}
         developerMode={developerMode}
+      />
+      <LiveOverlay
+        events={recentEvents}
+        onClick={(event) => {
+          // Phase D8: agent_session_id 優先 (instruction.md §19)
+          // 既存ロジック (task_id → approval_id → raw-activity) は helper 内で扱う
+          navigate(liveOverlayClickTarget(event));
+        }}
       />
       <LiveActivityDrawer events={recentEvents} />
       <ChatDrawer
@@ -335,6 +375,8 @@ export function App() {
         onOpenChange={setPaletteOpen}
         navigate={navigate}
         onSelectEntity={setSelectedEntity}
+        overview={overview}
+        pinnedEntities={pinnedEntities}
       />
     </div>
   );
@@ -368,10 +410,18 @@ function Page({
         recentEvents={recentEvents}
         pinnedEntities={pinnedEntities}
         onSelect={onSelect}
+        onNavigate={onNavigate}
         developerMode={developerMode}
       />
     );
   }
+  if (pageId === "control-hub") return <ControlHubPage overview={overview} onNavigate={onNavigate} />;
+  if (pageId === "atlas") return <OpsAtlasPage overview={overview} onNavigate={onNavigate} />;
+  if (pageId === "interventions") return <InterventionsPage overview={overview} onNavigate={onNavigate} />;
+  if (pageId === "execution-trace") return <ExecutionTracePage overview={overview} onNavigate={onNavigate} />;
+  if (pageId === "layers") return <LayersOverviewPage />;
+  if (pageId === "systems") return <Systems overview={overview} />;
+  if (pageId === "personal-context") return <PersonalContextPage overview={overview} />;
   if (pageId === "open-loops") return <OpenLoopsPage overview={overview} developerMode={developerMode} />;
   if (pageId === "judgment") return <JudgmentPage overview={overview} developerMode={developerMode} />;
   if (pageId === "attention") return <AttentionPage overview={overview} />;
@@ -380,9 +430,23 @@ function Page({
   if (pageId === "autonomous") return <AutonomousPage overview={overview} />;
   if (pageId === "desires") return <DesiresPage overview={overview} />;
   if (pageId === "agent-state") return <AgentStatePage overview={overview} />;
+  // Phase D7 — Agent Timeline (並列 Gantt)
+  if (pageId === "agent-timeline") return <AgentTimelinePage onNavigate={onNavigate} />;
+  if (pageId === "agent-session") {
+    return (
+      <AgentSessionPage
+        agentSessionId={detailId}
+        recentEvents={recentEvents}
+        onNavigate={onNavigate}
+      />
+    );
+  }
   if (pageId === "memory") return <MindMemory overview={overview} />;
   if (pageId === "learning") return <LearningPage overview={overview} />;
   if (pageId === "capability-catalog") return <CapabilityCatalogPage />;
+  if (pageId === "llm-l1") return <L1PanelPage />;
+  if (pageId === "llm-l2") return <L2PanelPage />;
+  if (pageId === "llm-l3") return <L3PanelPage />;
   if (pageId === "llm-usage") return <LLMUsagePage overview={overview} />;
   if (pageId === "prompt-analysis") return <PromptAnalysisPage overview={overview} />;
   if (pageId === "llm-config") return <ModelsPromptsPage />;
@@ -434,6 +498,8 @@ function Page({
   if (pageId === "behavioral-reports") return <BehavioralReportsPage overview={overview} />;
   if (pageId === "notifications") return <NotificationsPage overview={overview} />;
   if (pageId === "audit") return <AuditPage />;
+  if (pageId === "irreversibility") return <IrreversibilityPage />;
+  if (pageId === "interruption") return <InterruptionPage />;
   if (pageId === "presentation-surfaces") {
     return <DomainPage pageId="presentation-surfaces" overview={overview} events={recentEvents} onSelect={onSelect} developerMode={developerMode} />;
   }

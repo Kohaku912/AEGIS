@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
-import json
 
 from aegis_schema.models import Event
 
@@ -14,7 +14,12 @@ from aegis_ai.personal_ai.storage import JsonStateFile, now_ms
 class SituationModel:
     """Tracks current user/system situation with evidence."""
 
-    def __init__(self, data_dir: str = "data/personal_ai", event_manager: Any = None, user_state_manager: Any = None) -> None:
+    def __init__(
+        self,
+        data_dir: str = "data/personal_ai",
+        event_manager: Any = None,
+        user_state_manager: Any = None,
+    ) -> None:
         self._state_file = JsonStateFile(Path(data_dir) / "situation.json", {})
         self._event_manager = event_manager
         self._user_state_manager = user_state_manager
@@ -53,7 +58,16 @@ class SituationModel:
             self._user_state_manager.ingest_event(normalized, payload)
         if "user_state" in payload and isinstance(payload.get("user_state"), dict):
             return self.update_from_user_state(payload["user_state"])
-        if any(k in payload for k in ("device_type", "activity", "foreground_app", "screen_state", "presence", "focus_mode", "mode")):
+        structured_keys = (
+            "device_type",
+            "activity",
+            "foreground_app",
+            "screen_state",
+            "presence",
+            "focus_mode",
+            "mode",
+        )
+        if any(k in payload for k in structured_keys):
             return self.update_from_structured_observation(normalized or source, payload)
         evidence = list(self._state.get("evidence", []))[-19:]
         evidence.append({"source": normalized or source, "payload": payload, "timestamp": now_ms()})
@@ -105,7 +119,6 @@ class SituationModel:
         """Update situation from normalized observation fields."""
         activity = str(observation.get("activity") or "").lower()
         mode = str(observation.get("mode") or "").lower()
-        app = str(observation.get("foreground_app") or observation.get("app") or "").lower()
         screen = str(observation.get("screen_state") or "").lower()
         presence = str(observation.get("presence") or "").lower()
         focus = bool(observation.get("focus_mode", False)) or mode == "focus"
@@ -122,7 +135,7 @@ class SituationModel:
             state, interruptibility, confidence = "away", "batch_later", 0.75
         elif focus or activity in {"focused", "meeting", "presentation"}:
             state, interruptibility, confidence = "focused", "important_only", 0.8
-        elif activity == "gaming" or any(term in app for term in ("steam", "game", "discord")):
+        elif activity == "gaming":
             state, interruptibility, confidence = "game", "important_only", 0.7
         elif activity:
             state, confidence = activity, 0.65

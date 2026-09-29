@@ -122,25 +122,24 @@ fun ApprovalRiskCard(
         Column(verticalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(16.dp)) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    approval.summary.ifBlank { approval.requestedAction.ifBlank { "Approval required" } },
+                    approval.summary.ifBlank { approval.requestedAction.ifBlank { "AEGIS is asking you to confirm" } },
                     color = AegisText,
                     fontWeight = FontWeight.Bold,
                     modifier = Modifier.weight(1f),
                 )
                 AegisStatusChip("Risk", approval.risk.ifBlank { "review" })
             }
-            ApprovalLine("Approval ID", approval.approvalId)
+            ApprovalLine("Request ID", approval.approvalId)
             ApprovalLine("Target", approval.target.ifBlank { "Not specified" })
             ApprovalLine("Capability", approval.capabilityId)
             ApprovalLine("Reason", approval.reason.ifBlank { "No additional reason reported" })
             ApprovalLine("Preview", approval.preview.ifBlank { "No preview reported" })
             ApprovalLine("Task", approval.taskId.ifBlank { "Not linked" })
-            ApprovalLine("Status", approval.status.ifBlank { "pending" })
-            ApprovalLine("Expires", formatTime(approval.expiresAtMs))
+            ApprovalLine("Status", approval.status.ifBlank { "awaiting your answer" })
             Spacer(modifier = Modifier.height(2.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = onApprove, enabled = !approving) { Text(if (approving) "Approving" else "Approve") }
-                OutlinedButton(onClick = onReject, enabled = !approving) { Text("Reject") }
+                Button(onClick = onApprove, enabled = !approving) { Text(if (approving) "Confirming" else "Confirm") }
+                OutlinedButton(onClick = onReject, enabled = !approving) { Text("Decline") }
             }
         }
     }

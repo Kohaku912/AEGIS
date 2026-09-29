@@ -240,6 +240,75 @@ def test_completion_condition_retries_then_fails(tmp_path) -> None:
     assert "Completion verification failed" in result.error
 
 
+def test_pc_shell_capabilities_verify_success_postcondition(tmp_path) -> None:
+    """Regression: the high-risk pc-server shell capabilities must declare a
+    completion postcondition (audit rule `risky_without_postcondition`).
+
+    The check keys off the `success` field emitted by the PC server's
+    ShellResult (pc-server/src/system_ops.rs), so a command that ran
+    successfully verifies as passed, while a non-zero exit is surfaced as
+    EXECUTION_ERROR instead of a silent success.
+    """
+    from aegis_ai.capability_catalog import CapabilityCatalog
+    from policy_engine import PolicyEngine
+    from tool_broker import ExecutionSource, InvokeStatus, ToolBroker, ToolExecutionRequest
+    from tool_registry import ToolRegistry
+
+    capabilities_dir = Path(__file__).resolve().parents[1] / "capabilities"
+    catalog = CapabilityCatalog(
+        capabilities_dir=str(capabilities_dir),
+        apps_dir=str(tmp_path / "apps"),
+    )
+
+    for capability_id in ("pc-server.shell.execute", "pc-server.shell.powershell"):
+        manifest = catalog.resolve(capability_id)
+        assert manifest is not None, f"{capability_id} not found"
+        checks = (manifest.completion or {}).get("checks") or []
+        assert checks, f"{capability_id} is high-risk but declares no completion postcondition"
+        assert any(
+            check.get("type") == "output_field" and check.get("field") == "success"
+            for check in checks
+        ), f"{capability_id} postcondition must verify the `success` output field"
+
+    registry = ToolRegistry()
+    for cap in catalog.to_tool_registry_capabilities():
+        registry.register_capability(cap)
+
+    class _ShellExecutor:
+        def __init__(self, payload: dict) -> None:
+            self.payload = payload
+
+        def set_catalog(self, catalog) -> None:
+            self.catalog = catalog
+
+        def execute(self, cap, arguments):
+            return dict(self.payload)
+
+        def execute_capability(self, capability_id, params=None):
+            return {"screen": "unused"}
+
+    def _run_shell(payload: dict):
+        broker = ToolBroker(
+            registry=registry,
+            policy_engine=PolicyEngine(),
+            server_executor=_ShellExecutor(payload),
+            catalog=catalog,
+        )
+        return broker.execute(ToolExecutionRequest(
+            capability_id="pc-server.shell.execute",
+            arguments={"command": "echo hi"},
+            source=ExecutionSource.USER_EXPLICIT,
+        ))
+
+    passed = _run_shell({"success": True, "exit_code": 0, "stdout": "hi"})
+    assert passed.status == InvokeStatus.SUCCESS
+    assert passed.verification_status == "passed"
+
+    failed = _run_shell({"success": False, "exit_code": 1, "stderr": "boom"})
+    assert failed.status == InvokeStatus.EXECUTION_ERROR
+    assert failed.verification_status == "failed"
+
+
 def test_dashboard_route_modules_are_registered(monkeypatch, tmp_path) -> None:
     from aegis_ai.web import dashboard_routes
     from test_dashboard_routes import _runtime
@@ -250,6 +319,8 @@ def test_dashboard_route_modules_are_registered(monkeypatch, tmp_path) -> None:
 
     assert "dashboard_chat" in blueprint_names
     assert "dashboard_autonomous_api" in blueprint_names
+    # Deprecated approval stub: approval is no longer a constraint, but the
+    # blueprint is still registered so the shipped web-ui bundle does not 404.
     assert "dashboard_approval" in blueprint_names
     assert "dashboard_health" in blueprint_names
     assert "dashboard_presentation" in blueprint_names

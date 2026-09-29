@@ -5,14 +5,14 @@ Default: disabled (plaintext). Enable via settings or environment.
 
 Usage:
     tls = TLSConfig(enabled=True, cert_file="cert.pem", key_file="key.pem")
-    server = tls.configure_server(grpc.server(...))
+    server = tls.configure_server(grpc.server(...), port=50051)
 """
 
 from __future__ import annotations
 
 import logging
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 logger = logging.getLogger("aegis_ai.security.tls")
@@ -38,8 +38,19 @@ class TLSConfig:
             require_client_cert=os.getenv("AEGIS_TLS_REQUIRE_CLIENT_CERT", "false").lower() == "true",
         )
 
-    def configure_server(self, server: Any) -> Any:
-        """Configure a gRPC server with TLS."""
+    def configure_server(self, server: Any, port: int | None = None) -> Any:
+        """Configure a gRPC server with TLS.
+
+        Args:
+            server: A ``grpc.Server`` instance.
+            port: Port to bind with TLS. Required for TLS to actually take
+                effect, because gRPC only exposes ports that are added via
+                ``add_secure_port``. When omitted, the credentials are built
+                but no port is bound (the caller must bind them explicitly).
+
+        Returns:
+            The same ``server`` instance.
+        """
         if not self.enabled:
             logger.info("TLS disabled, using plaintext")
             return server
@@ -69,7 +80,19 @@ class TLSConfig:
             else:
                 server_credentials = grpc.ssl_server_credentials([(key, cert)])
 
-            logger.info("TLS enabled with cert=%s", self.cert_file)
+            if port is None:
+                # Without a port we cannot call add_secure_port, so TLS would
+                # silently stay off. Make that explicit instead of logging a
+                # misleading "TLS enabled".
+                logger.warning(
+                    "TLS credentials built for cert=%s but no port was provided; "
+                    "pass configure_server(server, port) to actually enable TLS.",
+                    self.cert_file,
+                )
+                return server
+
+            server.add_secure_port(f"[::]:{port}", server_credentials)
+            logger.info("TLS enabled on port %s with cert=%s", port, self.cert_file)
             return server
 
         except Exception as e:

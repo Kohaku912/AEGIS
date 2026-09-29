@@ -24,13 +24,13 @@
 //! - window resize/minimize/maximize/close
 //! - mouse drag/scroll
 //!
-//! Approval-required (Level 2):
+//! Elevated (Level 2, annotated — not gated):
 //! - mouse click
 //! - keyboard type
 //! - press hotkey
 //! - file write/delete
 //! - process kill
-//! - overlay approval (Y/N key)
+//! - overlay confirmation (Y/N key)
 
 mod action;
 mod discord_rpc;
@@ -83,7 +83,7 @@ fn main() {
         .iter()
         .filter(|c| c.safety_level == safety::SafetyLevel::Level1SafeAct)
         .count();
-    let approval_count = caps
+    let elevated_count = caps
         .iter()
         .filter(|c| c.safety_level == safety::SafetyLevel::Level2Approval)
         .count();
@@ -91,7 +91,7 @@ fn main() {
     println!("Capabilities: {} total", caps.len());
     println!("  Observe (Level 0): {}", observe_count);
     println!("  Action (Level 1):  {}", action_count);
-    println!("  Approval (Level 2): {}", approval_count);
+    println!("  Elevated (Level 2): {}", elevated_count);
     println!();
 
     let info = observe::get_os_info();
@@ -118,7 +118,7 @@ fn main() {
     println!(
         "Commands: health, screenshot, active_window, windows, os_info, screen_size, clipboard"
     );
-    println!("          show_overlay, hide_overlay, launch_app, focus_window");
+    println!("          show_overlay, show_rich_overlay, launch_app, close_window");
     println!("          mouse_move, mouse_click, keyboard_type, press_hotkey (runtime-enabled)");
     println!("          discord_status, discord_get_guilds, discord_join_voice_by_name");
     println!("          capabilities, quit");
@@ -144,25 +144,27 @@ fn print_help() {
     println!("  --help                     Show this help");
     println!();
     println!("Observe capabilities (Level 0):");
-    println!("  pc.get_screenshot     Capture screen as PNG");
-    println!("  pc.get_active_window  Get foreground window info");
-    println!("  pc.list_windows       List all visible windows");
-    println!("  pc.get_clipboard      Read clipboard (redacted)");
-    println!("  pc.get_os_info        Get OS information");
-    println!("  pc.get_screen_size    Get screen resolution");
+    println!("  pc-server.screenshot.get_screenshot  Capture screen as PNG");
+    println!("  pc-server.window.get_active_window   Get foreground window info");
+    println!("  pc-server.window.list_windows        List all visible windows");
+    println!("  pc-server.clipboard.get_clipboard    Read clipboard (redacted)");
+    println!("  pc-server.system.get_os_info         Get OS information");
+    println!("  pc-server.system.get_screen_size     Get screen resolution");
     println!();
     println!("Action capabilities (Level 1):");
-    println!("  pc.show_overlay       Display text overlay");
-    println!("  pc.hide_overlay       Remove overlay");
-    println!("  pc.launch_app         Launch application");
-    println!("  pc.focus_window       Bring window to front");
-    println!("  pc.mouse_move         Move mouse cursor");
+    println!("  pc-server.system.show_overlay        Display text overlay");
+    println!("  pc-server.overlay.show_rich          Display rich overlay");
+    println!("  pc-server.system.launch_app          Launch application");
+    println!("  pc-server.window.close_window        Close a window");
+    println!("  pc-server.input.mouse_move           Move mouse cursor");
     println!();
-    println!("Approval-required (Level 2):");
-    println!("  pc.mouse_click        Click at coordinates");
-    println!("  pc.keyboard_type      Type text");
-    println!("  pc.press_hotkey       Press keyboard shortcut");
-    println!("  pc.discord_status     Check Discord RPC readiness");
-    println!("  pc.discord_join_voice_by_name");
-    println!("                        Join Discord voice by server/channel name (approval)");
+    println!("Elevated (Level 2 — a descriptive tier, nobody is asked):");
+    println!("  pc-server.input.mouse_click          Click at coordinates");
+    println!("  pc-server.input.keyboard_type        Type text");
+    println!("  pc-server.input.press_hotkey         Press keyboard shortcut");
+    println!("  pc-server.discord.status             Check Discord RPC readiness");
+    println!("  pc-server.discord.join_voice_by_name Join Discord voice by server/channel name");
+    println!();
+    println!("The authoritative inventory is the 58 manifests under");
+    println!("ai-server/capabilities/builtin/pc-server/. The ids above are a summary.");
 }

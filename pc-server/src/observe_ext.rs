@@ -11,6 +11,13 @@
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
+/// Paths that proactive file observation must never surface: sensitive
+/// directories (SSH/GPG/cloud credential stores) and credential files
+/// (private keys, `.env`, token/password files).
+fn is_observation_excluded(path: &str) -> bool {
+    crate::redaction::is_sensitive_directory(path) || crate::redaction::is_credential_file(path)
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct FileInfo {
     pub name: String,
@@ -91,6 +98,9 @@ fn collect_files(dir: &Path, files: &mut Vec<FileInfo>) -> Result<(), String> {
             .map_err(|e| format!("Failed to get metadata: {e}"))?;
         let name = entry.file_name().to_string_lossy().to_string();
         let path = entry.path().to_string_lossy().to_string();
+        if is_observation_excluded(&path) {
+            continue;
+        }
         let extension = entry
             .path()
             .extension()
@@ -133,6 +143,10 @@ fn collect_files_recursive(
             .map_err(|e| format!("Failed to get metadata: {e}"))?;
         let name = entry.file_name().to_string_lossy().to_string();
         let path = entry.path().to_string_lossy().to_string();
+        // Skipping here also prevents recursing into sensitive directories.
+        if is_observation_excluded(&path) {
+            continue;
+        }
         let extension = entry
             .path()
             .extension()
@@ -164,6 +178,9 @@ fn collect_files_recursive(
 
 /// Read file content as text
 pub fn read_file(file_path: &str, max_bytes: usize) -> Result<String, String> {
+    if crate::redaction::is_protected_path(file_path) {
+        return Err(crate::redaction::protected_path_error("read", file_path));
+    }
     let path = Path::new(file_path);
     if !path.exists() {
         return Err(format!("File not found: {}", file_path));
@@ -268,4 +285,37 @@ pub fn get_cwd() -> Result<String, String> {
     std::env::current_dir()
         .map(|p| p.to_string_lossy().to_string())
         .map_err(|e| format!("Failed to get cwd: {e}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn read_file_refuses_a_protected_path() {
+        // The guard runs before the existence check, so a path that does not
+        // exist is still rejected for being protected.
+        let err = read_file("/home/someone/.ssh/id_rsa", 1024).unwrap_err();
+        assert!(err.contains("protected path"), "{err}");
+        assert!(err.contains("read"), "{err}");
+    }
+
+    #[test]
+    fn read_file_refuses_a_credential_file_outside_a_sensitive_directory() {
+        let err = read_file("C:\\Users\\someone\\Documents\\token.json", 1024).unwrap_err();
+        assert!(err.contains("protected path"), "{err}");
+    }
+
+    #[test]
+    fn read_file_still_reads_an_ordinary_file() {
+        let dir = std::env::temp_dir().join("aegis-read-guard-test");
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("report.md");
+        std::fs::write(&file, "hello").unwrap();
+
+        let content = read_file(&file.to_string_lossy(), 1024).unwrap();
+        assert_eq!(content, "hello");
+
+        std::fs::remove_file(&file).ok();
+    }
 }

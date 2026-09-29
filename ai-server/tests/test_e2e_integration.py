@@ -15,13 +15,11 @@ from aegis_ai.web import dashboard_routes
 
 def _runtime(tmp_path):
     """Create a mock runtime for testing."""
-    from approval import ApprovalStore
     from event_bus import EventBus
     from policy_engine import PolicyEngine
     from tool_broker import ToolBroker
     from tool_registry import ToolRegistry
 
-    from aegis_ai.approval import ApprovalQueue
     from aegis_ai.audit import AuditLog
     from aegis_ai.audit.audit_manager import AuditManager
     from aegis_ai.capability_catalog import CapabilityCatalog
@@ -39,8 +37,7 @@ def _runtime(tmp_path):
     )
     registry = ToolRegistry()
     audit_log = AuditLog(path=str(data_dir / "audit.jsonl"))
-    approval_store = ApprovalStore()
-    policy_engine = PolicyEngine(approval_store=approval_store, data_dir=str(data_dir))
+    policy_engine = PolicyEngine(data_dir=str(data_dir))
     broker = ToolBroker(registry=registry, policy_engine=policy_engine, audit_log=audit_log, catalog=catalog)
     event_bus = EventBus()
     event_manager = EventManager(event_bus=event_bus, data_dir=str(data_dir))
@@ -60,8 +57,6 @@ def _runtime(tmp_path):
         folder_registry=catalog.get_folder_registry(),
         tool_registry=registry,
         event_bus=event_bus,
-        approval_store=approval_store,
-        approval_queue=ApprovalQueue(data_dir=str(data_dir / "approvals"), audit_log=audit_log),
         policy_engine=policy_engine,
         tool_broker=broker,
         llm_gateway=object(),
@@ -162,15 +157,6 @@ class TestStatusManagerIntegration:
         rt = _runtime(tmp_path)
         snapshot = rt.status_manager.get_snapshot()
         assert isinstance(snapshot, dict)
-
-
-class TestApprovalManagerIntegration:
-    """Tests for ApprovalManager integration with TaskManager."""
-
-    def test_approval_manager_has_task_manager_callback(self, tmp_path):
-        """Verify ApprovalManager has task_manager_callback method."""
-        from aegis_ai.approval.approval_manager import ApprovalManager
-        assert hasattr(ApprovalManager, '_task_manager_callback')
 
 
 if __name__ == "__main__":

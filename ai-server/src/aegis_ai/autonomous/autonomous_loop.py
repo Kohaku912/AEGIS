@@ -28,6 +28,7 @@ from typing import Any
 
 from aegis_ai.llm.json_utils import extract_json_object
 from aegis_ai.llm.memory_context import build_shared_memory_context
+from aegis_schema import safety_vocab
 
 logger = logging.getLogger("aegis_ai.autonomous.autonomous_loop")
 
@@ -221,7 +222,7 @@ class AutonomousLoop:
         self._capability_metadata_cache: dict[str, dict[str, Any]] = {}
         self._initiative_engine: Any = None
         self._continuation_manager: Any = None
-        self._approval_manager: Any = None
+        self._user_understanding_service: Any = None
         self._browser_cooldown_until_ms: int = 0
         self._browser_cooldown_ms: int = int(os.environ.get("AEGIS_BROWSER_COOLDOWN_MS", "300000"))
         self._no_effect_counts: dict[str, int] = {}
@@ -232,6 +233,9 @@ class AutonomousLoop:
         self._diversity_failure_threshold = max(
             1, int(os.environ.get("AEGIS_CAPABILITY_DIVERSITY_FAILURE_THRESHOLD", "2"))
         )
+        self._l2_reasoning_handler: Any = None
+        self._l2_should_run_cycle: Any = None
+        self._l2_event_handler: Any = None
 
         # Load state
         self._load()
@@ -342,9 +346,17 @@ class AutonomousLoop:
         """Set the health alert manager for periodic health checks."""
         self._health_alert_manager = health_alert_manager
 
-    def set_approval_manager(self, approval_manager: Any) -> None:
-        """Set the approval manager for tick-time expiry and backlog observations."""
-        self._approval_manager = approval_manager
+    def set_l2_reasoning_handler(
+        self,
+        reasoning_handler: Any,
+        *,
+        should_run: Any = None,
+        event_handler: Any = None,
+    ) -> None:
+        """Register the L2 bridge used before the legacy autonomous planner."""
+        self._l2_reasoning_handler = reasoning_handler
+        self._l2_should_run_cycle = should_run
+        self._l2_event_handler = event_handler
 
     def _should_present_autonomous_result(
         self,
@@ -360,12 +372,7 @@ class AutonomousLoop:
         report_when = str(presentation.get("report_when") or "terminal").lower()
         goal_status = str(result_record.get("goal_status") or "").lower()
         success = bool(result_record.get("success", False))
-        awaiting = str((result_record.get("full_output") or {}).get("action_state") or "") == "awaiting_approval"
-        obligation_linked = bool(task.get("obligation_ids"))
-        failed = (not success) and not awaiting
-
-        if awaiting:
-            return False
+        failed = not success
 
         result_text = _normalize_result_text(result_record.get("result", ""))
         if report_when == "terminal" and (success or failed or goal_status in {"failed", "needs_followup", "useful"}):
@@ -432,16 +439,6 @@ class AutonomousLoop:
                         logger.warning("Health check failed: %s", e)
                     finally:
                         self._last_health_check_ms = now
-
-                # Expire stale approvals even when LLM cycle is gated
-                approval_manager = getattr(self, "_approval_manager", None)
-                if approval_manager is not None and hasattr(approval_manager, "expire_old"):
-                    try:
-                        expired = approval_manager.expire_old()
-                        if expired:
-                            logger.info("Expired %d stale approval request(s)", expired)
-                    except Exception:
-                        logger.debug("Approval expire_old failed", exc_info=True)
 
                 time_since_last_run = now - self._last_run_ms
                 can_execute = time_since_last_run >= self._min_execution_interval_ms
@@ -738,7 +735,7 @@ class AutonomousLoop:
                 continue
             lower = value.lower()
             # Keep internal stack traces / start timeouts out of user goals.
-            if "browserstartevent" in lower or "timeout" in lower and "error" in lower:
+            if "browserstartevent" in lower or ("timeout" in lower and "error" in lower):
                 return "Recover from a failed browser task and finish the user's original request."
             if "traceback" in lower or "exception:" in lower:
                 return "Resolve a failed system task that is blocking user work."
@@ -838,6 +835,33 @@ class AutonomousLoop:
             self._desire.apply_decay()
         except Exception:
             logger.debug("Desire apply_decay failed at cycle start", exc_info=True)
+
+        if self._l2_reasoning_handler is not None:
+            should_run_l2 = bool(self._pending_actionable_observations)
+            if callable(self._l2_should_run_cycle):
+                try:
+                    should_run_l2 = bool(self._l2_should_run_cycle(force_desire=force_desire))
+                except Exception:
+                    logger.exception("L2 should-run callback failed")
+                    should_run_l2 = bool(self._pending_actionable_observations)
+            if should_run_l2:
+                try:
+                    l2_result = self._l2_reasoning_handler(
+                        trigger="periodic_cycle",
+                        force_desire=force_desire,
+                        pending_observations=list(self._pending_actionable_observations[:5]),
+                    )
+                except Exception:
+                    logger.exception("L2 reasoning handler failed; falling back to legacy autonomous loop")
+                    l2_result = None
+                if isinstance(l2_result, dict) and l2_result.get("handled"):
+                    self._last_decision = f"l2_{l2_result.get('action_type') or 'handled'!s}"
+                    self._last_decision_ms = int(time.time() * 1000)
+                    self._last_no_action_reason = str(l2_result.get("reason") or "")
+                    self._pending_actionable_observations = []
+                    self._schedule_next(self._fallback_interval)
+                    self._save()
+                    return
 
         pressure_due = force_desire or self._pressure_due()
         now_llm = int(time.time() * 1000)
@@ -1105,7 +1129,7 @@ class AutonomousLoop:
     ) -> bool:
         if not tasks or len(tasks) != len(results):
             return False
-        for task, result in zip(tasks, results):
+        for task, result in zip(tasks, results, strict=False):
             cap = str(task.get("capability_id") or "")
             text = _normalize_result_text(result.get("result", ""))
             if self._is_inventory_capability(cap):
@@ -1654,7 +1678,7 @@ class AutonomousLoop:
                 try:
                     return extract_json_object(content)
                 except Exception:
-                    return {"error": "json_parse_failed", "raw": content}
+                    return {"candidates": [], "no_action_reason": content.strip()}
             return {"candidates": [], "no_action_reason": "LLM proposed no candidates"}
 
         generate = getattr(self._llm, "generate", None)
@@ -1679,7 +1703,7 @@ class AutonomousLoop:
         try:
             return extract_json_object(content)
         except Exception:
-            return {"error": "json_parse_failed", "raw": content}
+            return {"candidates": [], "no_action_reason": content.strip()}
 
     def _call_task_generation_llm(
         self,
@@ -1856,7 +1880,6 @@ class AutonomousLoop:
                 repetition=0.0,
                 candidate_capabilities=[cap_id],
                 visibility=str(args.get("viewer") or "agent_private"),
-                requires_approval=bool(option.get("requires_approval", False)),
                 success_condition={"manifest_completion": bool(getattr(manifest, "completion", {}))},
                 stop_condition={"bounded_by_manifest": True},
             )
@@ -1898,10 +1921,21 @@ class AutonomousLoop:
             },
             "delegation_context": {
                 "operation_category": str(getattr(manifest, "operation_category", "") or "general"),
-                "scope": str(getattr(manifest, "ownership_scope", "") or "aegis"),
+                # Unset annotations read as ``unknown``, not as the old
+                # ``aegis`` / ``reversible`` defaults: those were unfounded claims
+                # about a capability the manifest never described.
+                "scope": str(getattr(manifest, "ownership_scope", "") or safety_vocab.UNKNOWN),
                 "audience": ("private" if str(args.get("viewer") or "") == "agent_private" else "user"),
-                "content_sensitivity": str(getattr(manifest, "content_sensitivity", "") or "normal"),
-                "reversibility": str(getattr(manifest, "reversibility", "") or "reversible"),
+                # ``content_sensitivity`` is a *delegation* dimension, not a manifest
+                # annotation: ``CapabilityManifest`` has no such field, so the old
+                # ``getattr(manifest, "content_sensitivity", "") or "normal"`` could
+                # never read anything and always fabricated ``"normal"`` — an
+                # unfounded claim of non-sensitivity, the same bug class as the
+                # ``unknown``-is-not-a-safe-default fix on the fields around it.
+                # The loop cannot know it, so it says so.
+                # See docs/irreversibility-ledger.md.
+                "content_sensitivity": safety_vocab.UNKNOWN,
+                "reversibility": str(getattr(manifest, "reversibility", "") or safety_vocab.UNKNOWN),
             },
             "capability_id": cap_id,
             "arguments": args,
@@ -1914,6 +1948,121 @@ class AutonomousLoop:
             "why_now": str((proposed or {}).get("why_now") or ""),
         }
 
+    def _current_user_understanding_snapshot(self) -> dict[str, Any]:
+        service = getattr(self, "_user_understanding_service", None)
+        if service is None or not hasattr(service, "build_snapshot"):
+            return {}
+        try:
+            snapshot = service.build_snapshot("autonomous_cycle")
+            if hasattr(snapshot, "to_dict"):
+                return snapshot.to_dict()
+            if isinstance(snapshot, dict):
+                return dict(snapshot)
+        except Exception as exc:
+            logger.warning("Failed to build autonomous user understanding snapshot: %s", exc)
+        return {}
+
+    def _user_understanding_followup_items(self, snapshot: dict[str, Any]) -> list[dict[str, Any]]:
+        items: list[dict[str, Any]] = []
+        queue_specs = (
+            ("self_improvement", snapshot.get("self_improvement_queue") or [], "growth"),
+            ("burden_reduction", snapshot.get("burden_reduction_opportunities") or [], "user_support"),
+        )
+        for kind, queue, desire in queue_specs:
+            for raw in list(queue)[:4]:
+                if not isinstance(raw, dict):
+                    continue
+                title = str(raw.get("title") or "").strip()
+                if not title:
+                    continue
+                summary = str(raw.get("summary") or "").strip()
+                confidence = float(raw.get("confidence") or 0.0)
+                dedupe_key = hashlib.sha1(
+                    f"{kind}:{title}:{summary}".encode("utf-8", errors="ignore")
+                ).hexdigest()[:16]
+                items.append(
+                    {
+                        "kind": kind,
+                        "desire": desire,
+                        "title": title,
+                        "summary": summary,
+                        "confidence": confidence,
+                        "timestamp_ms": int(raw.get("timestamp_ms") or 0),
+                        "sources": list(raw.get("sources") or []),
+                        "detail": dict(raw.get("detail") or {}),
+                        "dedupe_key": dedupe_key,
+                    }
+                )
+        items.sort(
+            key=lambda item: (
+                -float(item.get("confidence") or 0.0),
+                -int(item.get("timestamp_ms") or 0),
+            )
+        )
+        return items
+
+    def _sync_user_understanding_followups(self) -> list[dict[str, Any]]:
+        snapshot = self._current_user_understanding_snapshot()
+        items = self._user_understanding_followup_items(snapshot)
+        goal_service = getattr(self, "_goal_service", None)
+        if goal_service is None or not items:
+            return items
+        for item in items[:6]:
+            kind = str(item.get("kind") or "followup")
+            title = str(item.get("title") or "Follow-up")
+            summary = str(item.get("summary") or "")
+            goal = (
+                f"Advance the {kind.replace('_', ' ')} follow-up '{title}' "
+                "with evidence-backed action and verification."
+            )
+            try:
+                goal_service.upsert_followup_goal_task(
+                    goal,
+                    source="autonomous",
+                    title=f"{kind.replace('_', ' ').title()}: {title}"[:100],
+                    success_condition=(
+                        "A bounded change, verification result, or explicit evidence-backed "
+                        "plan exists and is recorded."
+                    ),
+                    value_to_user=(
+                        "AEGIS carries forward backlog items that reduce user burden or improve reliability."
+                    ),
+                    verification_criterion=(
+                        "Independent evidence shows the follow-up produced a concrete validated "
+                        "improvement or actionable plan."
+                    ),
+                    priority=max(0, min(100, int(float(item.get("confidence") or 0.0) * 100))),
+                    dedupe_key=str(item.get("dedupe_key") or ""),
+                    metadata={
+                        "origin": "user_understanding",
+                        "followup_kind": kind,
+                        "desire": str(item.get("desire") or ""),
+                        "title_hint": title,
+                        "summary_hint": summary,
+                        "confidence": float(item.get("confidence") or 0.0),
+                        "source_items": list(item.get("sources") or []),
+                        "detail": dict(item.get("detail") or {}),
+                    },
+                )
+            except Exception as exc:
+                logger.warning("Failed to sync user-understanding follow-up '%s': %s", title, exc)
+        return items
+
+    def _user_understanding_prompt_block(self, items: list[dict[str, Any]]) -> str:
+        if not items:
+            return "User-understanding backlog: []"
+        compact = [
+            {
+                "kind": item.get("kind"),
+                "desire": item.get("desire"),
+                "title": item.get("title"),
+                "summary": item.get("summary"),
+                "confidence": item.get("confidence"),
+            }
+            for item in items[:6]
+        ]
+        return "User-understanding backlog:\n" + json.dumps(compact, ensure_ascii=False)
+
     def _generate_tasks(self, low_desires: list[dict[str, Any]]) -> list[dict[str, Any]]:
         if not self._llm:
             logger.error("No LLM provider — cannot generate tasks")
@@ -1923,6 +2072,7 @@ class AutonomousLoop:
         self._max_pressure_mode = must_act
         self._last_proposed_candidates = []
         self._last_selected_candidate = {}
+        user_understanding_items = self._sync_user_understanding_followups()
 
         desire_context = []
         priority_obligations = self._priority_obligations()[:12]
@@ -1949,7 +2099,7 @@ class AutonomousLoop:
         valid_cap_ids = {
             cap_id
             for cap_id, option in capability_options.items()
-            if option["disposition"] in {"execute_safe", "propose_for_approval"}
+            if option["disposition"] == "execute_safe"
         }
         if not valid_cap_ids:
             logger.error("No valid capabilities available — cannot generate tasks")
@@ -2014,6 +2164,7 @@ class AutonomousLoop:
             "reduce the pressured desires. Each candidate MUST set desire to the desire it "
             "fulfills and expected_effect to the concrete fulfillment outcome "
             "(not mere tool success). Prefer the highest-pressure desire first. "
+            "When possible, span at least two operation categories across the candidates. "
             "Inventory/read-only checks fulfill a desire only when they unlock a next step you "
             "will take; do not re-list state already present in Shared AgentState. "
             "Obligations and incidents are valid only when acting on them fulfills a pressured "
@@ -2047,6 +2198,10 @@ Social-channel posts (e.g. AGORA) are only for reciprocal social responses when 
 expects or warrants a reply — never for internal incidents, timeouts, permissions, approval
 meta, system status dumps, or meaningless probes. Route internal status to presentations
 or the dashboard instead of public social posts.
+For social actions, default to no action unless a reply is clearly socially warranted and adds
+new substance. Do not behave like a high-frequency bot. One thoughtful response is better than
+multiple low-value acknowledgements.
+Treat these as social norms and judgment guidance, not rigid hard constraints.
 
 Desire action guides:
 {json.dumps(desire_guides, ensure_ascii=False)}
@@ -2061,7 +2216,9 @@ Capability policy (approval proposals are valid selections but are not executed 
 {json.dumps({cap_id: capability_options.get(cap_id, {}) for cap_id in candidate_ids}, ensure_ascii=False)}
 
 Operational decision axes (prioritization only; not additional desires):
-{json.dumps(decision_axes, ensure_ascii=False)}"""
+{json.dumps(decision_axes, ensure_ascii=False)}
+
+{self._user_understanding_prompt_block(user_understanding_items)}"""
 
         propose_prompt, memory_meta = self._build_shared_llm_prompt(
             query=retrieval_query,
@@ -2154,6 +2311,10 @@ Operational decision axes (prioritization only; not additional desires):
                 " For agora.post: never use reply_to ids already listed, and never draft a body "
                 "that restates or paraphrases recent_bodies; choose another candidate if you "
                 "cannot write something new."
+            )
+            select_rules += (
+                " Also prefer not to use agora.post when the reply would be low-substance, socially optional, "
+                "or likely to make AEGIS look spammy through over-participation."
             )
         select_prompt = f"""Low desires: {low_list}
 
@@ -2334,15 +2495,13 @@ Recent capability ids:
             else:
                 raw_options = []
                 for capability in self._broker.list_autonomous_capabilities() or []:
-                    requires_approval = bool(getattr(capability, "requires_approval", False))
                     raw_options.append(
                         {
                             "capability_id": capability.id,
-                            "disposition": ("propose_for_approval" if requires_approval else "execute_safe"),
-                            "policy_decision": "ASK_APPROVAL" if requires_approval else "ALLOW",
+                            "disposition": "execute_safe",
+                            "policy_decision": "ALLOW",
                             "policy_reason": "Legacy broker option",
                             "risk_level": getattr(getattr(capability, "risk_level", None), "name", ""),
-                            "requires_approval": requires_approval,
                             "enabled": True,
                             "server_id": capability.id.split(".", 1)[0],
                         }
@@ -2391,22 +2550,21 @@ Recent capability ids:
                 "policy_decision": str(data.get("policy_decision") or ""),
                 "policy_reason": str(data.get("policy_reason") or ""),
                 "risk_level": str(data.get("risk_level") or ""),
-                "requires_approval": bool(data.get("requires_approval", False)),
                 "available": available,
                 "server_id": server_id,
             }
 
         self._available_capability_count = sum(
-            1 for option in options.values() if option["disposition"] in {"execute_safe", "propose_for_approval"}
+            1 for option in options.values() if option["disposition"] == "execute_safe"
         )
         return options
 
     def _available_capability_ids(self) -> set[str]:
-        """Return capabilities that may execute or create an approval proposal."""
+        """Return capabilities that may execute autonomously."""
         return {
             cap_id
             for cap_id, option in self._available_capability_options().items()
-            if option["disposition"] in {"execute_safe", "propose_for_approval"}
+            if option["disposition"] == "execute_safe"
         }
 
     @staticmethod
@@ -2422,11 +2580,7 @@ Recent capability ids:
             cap_id = catalog.tool_name_to_cap_id(str(function.get("name") or ""))
             option = options.get(cap_id, {})
             disposition = str(option.get("disposition") or "unavailable")
-            note = (
-                "Selection creates a user approval proposal; it is not executed before approval."
-                if disposition == "propose_for_approval"
-                else "Selection may execute immediately through ToolBroker."
-            )
+            note = "Selection may execute immediately through ToolBroker."
             function["description"] = (
                 f"[Autonomy policy: {disposition}] {note} {function.get('description', '')}"
             ).strip()
@@ -2470,7 +2624,9 @@ Recent capability ids:
             "Avoid reply_to ids "
             f"{avoidance.get('replied_to_ids') or []}. "
             "Do not paraphrase recent AEGIS bodies "
-            f"{json.dumps(avoidance.get('recent_bodies') or [], ensure_ascii=False)}."
+            f"{json.dumps(avoidance.get('recent_bodies') or [], ensure_ascii=False)}. "
+            "Prefer silence over low-value chatter, especially when recent posting cadence is already high. "
+            "This is advisory guidance for better social judgment, not a hard lock."
         )
         annotated: list[dict[str, Any]] = []
         for tool in tools:
@@ -2520,10 +2676,29 @@ Recent capability ids:
                             priority=0,
                         )
                     task_id = task_obj.get("task_id", "")
+                    if task_id and hasattr(self._task_manager, "merge_metadata"):
+                        continuation = task.get("continuation", {})
+                        continuation_id = ""
+                        if isinstance(continuation, dict):
+                            continuation_id = str(continuation.get("continuation_id") or "")
+                        self._task_manager.merge_metadata(
+                            task_id,
+                            {
+                                "autonomous_task": {
+                                    "generated_by": "autonomous_loop",
+                                    "kind": "capability_advance" if capability_id else "desire_action",
+                                    "desire": desire_name,
+                                    "action": action,
+                                    "goal": goal,
+                                    "capability_id": capability_id,
+                                    "continuation_id": continuation_id,
+                                }
+                            },
+                        )
                     if goal_service is None:
                         self._task_manager.start_task(task_id)
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.warning("Failed to create autonomous task record for action=%s: %s", action[:100], exc)
 
             # Begin action trace
             trace = None
@@ -2534,12 +2709,13 @@ Recent capability ids:
                     desire_name=desire_name,
                 )
 
-            # Search for reusable skill
+            # Look up a reusable skill/workflow. The match is an advisory hint only:
+            # execution always goes through the LLM-chosen capability_id below, so the
+            # trace records that a pattern *matched*, not that its steps were replayed.
             skill_used = None
             if self._skill:
                 skill_used = self._skill.find_skill(action)
 
-            # Search for reusable workflow
             workflow_used = None
             if self._workflow and not skill_used:
                 workflow_used = self._workflow.find_matching(action)
@@ -2547,13 +2723,13 @@ Recent capability ids:
             if skill_used and trace:
                 self._action_trace.add_step(
                     trace,
-                    description=f"Using skill: {skill_used.name}",
+                    description=f"Matched reusable skill (advisory): {skill_used.name}",
                     tool_call="skill_reuse",
                 )
             elif workflow_used and trace:
                 self._action_trace.add_step(
                     trace,
-                    description=f"Using workflow: {workflow_used.name}",
+                    description=f"Matched reusable workflow (advisory): {workflow_used.name}",
                     tool_call="workflow_reuse",
                 )
 
@@ -2631,22 +2807,6 @@ Recent capability ids:
                                     "actions_verified",
                                     {"task_id": task_id, "capability_id": capability_id},
                                 )
-                    elif result.status.name == "APPROVAL_NEEDED":
-                        # Approval request was created successfully — not a tool failure.
-                        result_summary = f"Awaiting approval: {result.approval_id}"
-                        full_output = {
-                            "approval_id": result.approval_id,
-                            "request_id": result.request_id,
-                            "action_state": "awaiting_approval",
-                            "ok": True,
-                        }
-                        success = True
-                        failure_reason = ""
-                        if task_id and self._task_manager:
-                            self._task_manager.wait_for_approval(
-                                task_id,
-                                approval_id=result.approval_id,
-                            )
                     else:
                         error_details = result.output or {}
                         error_payload = error_details.get("error")
@@ -2672,7 +2832,7 @@ Recent capability ids:
                             error=failure_reason,
                         )
                 except Exception as e:
-                    result_summary = f"Error: {str(e)}"[:200]
+                    result_summary = f"Error: {e!s}"[:200]
                     failure_reason = str(e)
                     if trace:
                         self._action_trace.add_step(
@@ -2720,7 +2880,7 @@ Recent capability ids:
             if task_id and self._task_manager:
                 try:
                     goal_service = getattr(self, "_goal_service", None)
-                    if goal_service is not None and full_output.get("action_state") != "awaiting_approval":
+                    if goal_service is not None:
                         from aegis_ai.agency import GoalEvaluation
 
                         if success and verification_status == "passed":
@@ -2733,15 +2893,28 @@ Recent capability ids:
                                     result_summary[:200],
                                 ],
                             )
-                        elif success and verification_status in {"skipped", "verified"}:
+                        elif success and verification_status == "verified":
                             goal_evaluation = GoalEvaluation(
                                 status="achieved",
                                 reason=(
-                                    "Capability succeeded and verification was skipped "
-                                    "or not required by the manifest."
+                                    "Capability succeeded and manifest-backed verification "
+                                    "reported a verified outcome."
                                 ),
                                 evidence=[
+                                    *(verification_evidence or []),
                                     f"verification_status:{verification_status or 'unavailable'}",
+                                    result_summary[:200],
+                                ],
+                            )
+                        elif success and verification_status == "skipped":
+                            goal_evaluation = GoalEvaluation(
+                                status="needs_followup",
+                                reason=(
+                                    "Capability succeeded, but verification was skipped. "
+                                    "Goal completion requires independent follow-up evidence."
+                                ),
+                                evidence=[
+                                    f"verification_status:{verification_status}",
                                     result_summary[:200],
                                 ],
                             )
@@ -2777,15 +2950,17 @@ Recent capability ids:
                             goal_evaluation,
                             response=result_summary[:200],
                         )
-                    elif full_output.get("action_state") == "awaiting_approval":
-                        # wait_for_approval already applied above; do not complete/fail.
-                        pass
                     elif success:
                         self._task_manager.complete_task(task_id, result_summary=result_summary[:200])
                     else:
                         self._task_manager.fail_task(task_id, error=failure_reason[:200])
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.warning(
+                        "Failed to finalize autonomous task task_id=%s action=%s: %s",
+                        task_id,
+                        action[:100],
+                        exc,
+                    )
 
             result_record = {
                 "desire": desire_name,
@@ -2894,7 +3069,7 @@ Recent capability ids:
 
         request = PresentationRequest(
             source="autonomous_loop",
-            intent=f"autonomous_{str(task.get('desire', 'task') or 'task')}",
+            intent=f"autonomous_{task.get('desire', 'task') or 'task'!s}",
             importance=routing_context.importance,
             modality=modality,
             title=str(task.get("action") or task.get("capability_id") or "Autonomous result"),
@@ -2982,15 +3157,8 @@ Recent capability ids:
             return []
         if not previous_tasks or not previous_results:
             return []
-        # Skip follow-up while every prior result is still waiting on user approval.
-        if all(
-            isinstance(r.get("full_output"), dict)
-            and str((r.get("full_output") or {}).get("action_state") or "") == "awaiting_approval"
-            for r in previous_results
-        ):
-            return []
         context_parts = []
-        for i, (task, result) in enumerate(zip(previous_tasks, previous_results)):
+        for i, (task, result) in enumerate(zip(previous_tasks, previous_results, strict=False)):
             structured_output = json.dumps(result.get("full_output", {}), ensure_ascii=False, default=str)[:1500]
             context_parts.append(
                 f"Task {i + 1}: {task.get('action', '')[:100]}\n"
@@ -3009,19 +3177,6 @@ Recent capability ids:
 
         valid_cap_ids = self._available_capability_ids()
 
-        follow_up_query = "; ".join(
-            part
-            for part in [
-                *(
-                    task.get("capability_id", "")
-                    for task in previous_tasks
-                    if not self._is_inventory_capability(str(task.get("capability_id") or ""))
-                ),
-                *(task.get("action", "") for task in previous_tasks),
-                *(result.get("result", "")[:120] for result in previous_results),
-            ]
-            if part
-        )
         tools = catalog.list_for_tools(valid_cap_ids)
         if not tools:
             return []
@@ -3168,25 +3323,12 @@ Rules:
             capability_id = result.get("capability_id", "")
             success = result.get("success", False)
             output = result.get("full_output", {})
-            awaiting_approval = (
-                isinstance(output, dict) and str(output.get("action_state") or "") == "awaiting_approval"
-            )
 
             if not desire_name:
                 continue
 
             desire = self._desire.get_desire(desire_name)
             if not desire:
-                continue
-
-            if awaiting_approval:
-                self._log_audit_event(
-                    action="autonomous_fulfillment_hold",
-                    capability_id=capability_id,
-                    decision="AWAITING_APPROVAL",
-                    reason="Pressure held while approval is pending (not fulfillment)",
-                    detail={"desire": desire_name, "approval_id": output.get("approval_id")},
-                )
                 continue
 
             capability_metadata = self._resolve_capability_metadata(capability_id)
@@ -3477,10 +3619,6 @@ Rules:
             success = result.get("success", False)
 
             if not success:
-                continue
-
-            output = result.get("full_output") or {}
-            if isinstance(output, dict) and str(output.get("action_state") or "") == "awaiting_approval":
                 continue
 
             # Do not treat empty / no-effect inventory passes as learning or "satisfied".
@@ -3834,6 +3972,24 @@ Rules:
                 "reason": self._last_no_action_reason,
                 "queued": False,
             }
+        if self._l2_event_handler is not None:
+            try:
+                l2_result = self._l2_event_handler(event_type, detail)
+            except Exception:
+                logger.exception("L2 event handler failed; queueing event for legacy loop")
+                l2_result = None
+            if isinstance(l2_result, dict) and l2_result.get("handled"):
+                reason = str(l2_result.get("reason") or "L2 handled the event directly.")
+                self._last_decision = f"l2_event_{l2_result.get('action_type') or 'handled'!s}"
+                self._last_decision_ms = int(time.time() * 1000)
+                self._last_no_action_reason = reason if str(l2_result.get("action_type") or "") == "noop" else ""
+                self._save()
+                return {
+                    "event_type": event_type,
+                    "decision": str(l2_result.get("action_type") or "handled"),
+                    "reason": reason,
+                    "queued": False,
+                }
         self._pending_actionable_observations.append(
             {
                 "source": event_type,
@@ -3879,12 +4035,11 @@ Rules:
                 uncertainty=float(detail.get("uncertainty", 0.2) or 0.2),
                 interruption_cost=float(detail.get("interruption_cost") or self._current_interruption_cost()),
                 candidate_capabilities=[capability_id] if capability_id else ["pending"],
-                requires_approval=bool(detail.get("requires_approval", False)),
             )
             evaluated, reason = self._initiative_engine.evaluate(candidate, disposition)
             decision = evaluated.value
         self._last_decision = f"event_{decision}"
         self._last_decision_ms = int(time.time() * 1000)
-        self._last_no_action_reason = reason if decision not in {"execute_now", "propose_approval"} else ""
+        self._last_no_action_reason = reason if decision != "execute_now" else ""
         self._save()
         return {"event_type": event_type, "decision": decision, "reason": reason, "queued": True}

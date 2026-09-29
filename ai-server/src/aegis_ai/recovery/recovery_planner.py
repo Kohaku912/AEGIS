@@ -257,7 +257,7 @@ class RecoveryPlanner:
 
         if "element" in combined and ("not found" in combined or "missing" in combined):
             return FailureType.ELEMENT_NOT_FOUND
-        if "loading" in combined or "timeout" in combined and "page" in combined:
+        if "loading" in combined or ("timeout" in combined and "page" in combined):
             return FailureType.PAGE_LOADING
         if "login" in combined or "auth" in combined or "session" in combined:
             return FailureType.LOGIN_REQUIRED

@@ -29,7 +29,7 @@ class AuditEntry:
     action: str = ""                   # e.g. "tool_invoked", "policy_decision"
     actor: str = ""                    # Agent name, user, system
     capability_id: str = ""
-    decision: str = ""                 # "ALLOW", "DENY", "ASK_APPROVAL"
+    decision: str = ""                 # "ALLOW", "ALLOW_WITH_AUDIT", "DENY"
     reason: str = ""
     detail: dict[str, Any] = field(default_factory=dict)
     entry_id: str = ""
@@ -45,7 +45,7 @@ class AuditEntry:
     provider: str = ""
     tokens_used: int = 0
     duration_ms: int = 0
-    # Approval fields (populated by ApprovalManager/ToolBroker)
+    # Decision provenance (populated by ToolBroker / policy engine)
     approval_id: str = ""
     approval_channel: str = ""
     approval_user: str = ""

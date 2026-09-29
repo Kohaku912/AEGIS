@@ -34,6 +34,24 @@ function severityFromStatus(status: string): Severity {
   return "info";
 }
 
+/**
+ * Core's attention feed (`_attention` in `ui_overview.py`) already classifies
+ * every item it emits: `kind` is one of "approval" | "server" | "notification".
+ * Use that authoritative label rather than guessing a category from the
+ * title/message text — text sniffing is unreliable and the project forbids
+ * keyword-based detection. Unknown or absent values fall back to "warning".
+ */
+const CORE_ATTENTION_KIND: Record<string, AttentionKind> = {
+  approval: "approval",
+  server: "connection",
+  notification: "warning",
+};
+
+function attentionKindFromCore(raw: Record<string, unknown>): AttentionKind {
+  const kind = String(raw.kind || "").trim().toLowerCase();
+  return CORE_ATTENTION_KIND[kind] ?? "warning";
+}
+
 export function buildAttentionItems(overview: UiOverview): AttentionItem[] {
   const items: AttentionItem[] = [];
 
@@ -60,13 +78,7 @@ export function buildAttentionItems(overview: UiOverview): AttentionItem[] {
   for (const item of overview.attention.data.items || []) {
     const raw = item as unknown as Record<string, unknown>;
     const id = String(raw.id || raw.event_id || raw.title || Math.random());
-    const text = `${raw.title || ""} ${raw.message || ""}`.toLowerCase();
-    let kind: AttentionKind = "warning";
-    if (text.includes("approval") || text.includes("承認")) kind = "approval";
-    else if (text.includes("input") || text.includes("入力")) kind = "input";
-    else if (text.includes("fail") || text.includes("error") || text.includes("失敗")) kind = "failure";
-    else if (text.includes("offline") || text.includes("disconnect") || text.includes("接続")) kind = "connection";
-    else if (text.includes("config") || text.includes("設定")) kind = "config";
+    const kind = attentionKindFromCore(raw);
     items.push({
       id: `attention:${id}`,
       kind,
@@ -129,7 +141,10 @@ export function buildAttentionItems(overview: UiOverview): AttentionItem[] {
     const raw = task as unknown as Record<string, unknown>;
     const id = String(raw.task_id || raw.id || "");
     if (!id) continue;
-    const needsInput = String(raw.status || "").toLowerCase().includes("input") || Boolean(raw.waiting_for_input);
+    // `_waiting_tasks` only returns tasks awaiting approval and the task status
+    // enum has no "input" state, so "approval" is the truthful classification.
+    // An explicit upstream flag still wins should the backend ever emit one.
+    const needsInput = Boolean(raw.waiting_for_input);
     items.push({
       id: `task-wait:${id}`,
       kind: needsInput ? "input" : "approval",

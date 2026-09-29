@@ -10,6 +10,29 @@ from typing import Any
 from aegis_schema.models import Event, EventPriority, ServerType
 
 
+def resolve_relation_ids(
+    *,
+    payload: dict[str, Any] | None = None,
+    event_id: str = "",
+    correlation_id: str = "",
+    aggregate_id: str = "",
+) -> tuple[str, str]:
+    """Resolve stable aggregate/correlation IDs from explicit IDs and payload."""
+    data = payload if isinstance(payload, dict) else {}
+    derived_aggregate = (
+        str(aggregate_id or "")
+        or str(data.get("task_id") or "")
+        or str(data.get("approval_id") or "")
+        or str(data.get("operation_id") or "")
+        or str(data.get("repair_id") or "")
+        or str(data.get("notification_id") or "")
+        or str(data.get("session_id") or "")
+        or str(event_id or "")
+    )
+    derived_correlation = str(correlation_id or "") or derived_aggregate or str(event_id or "")
+    return derived_aggregate, derived_correlation
+
+
 def build_event(
     event_type: str,
     *,
@@ -47,4 +70,4 @@ def build_event(
     )
 
 
-__all__ = ["build_event"]
+__all__ = ["build_event", "resolve_relation_ids"]

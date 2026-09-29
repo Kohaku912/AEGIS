@@ -1,5 +1,11 @@
 # Settings — AEGIS Configuration Management
 
+> ⚠️ **Goal change (2026-09-27)**: the only constraint is now **"the user's information must never
+> leave the local environment."** Approval, reversibility, policy, and reliability-proof are **no
+> longer constraints**. Any "requires approval" / "Level 2" language below is a **risk annotation**,
+> not a gate. See [`GOAL-CHANGE.md`](GOAL-CHANGE.md).
+
+
 > **Status**: Implemented
 > **Related**: `docs/permissions.md`, `docs/architecture.md` §5, §7
 
@@ -32,7 +38,6 @@ Forbidden operations remain denied regardless of settings.
 |---------|---------|-------------|
 | `disabled_capabilities` | [] | Capability IDs that are disabled |
 | `per_capability` | {} | Per-capability permission overrides |
-| `allowlist` | [] | Explicitly allowed capabilities |
 | `denylist` | [] | Explicitly denied capabilities |
 
 ### 3. Autonomous Behavior
@@ -44,7 +49,7 @@ Forbidden operations remain denied regardless of settings.
 | `research_watch_enabled` | true | Enable periodic research |
 | `self_dev_proposal_enabled` | true | Enable self-dev proposals |
 | `daily_briefing_enabled` | true | Enable daily briefing |
-| `max_autonomous_runs_per_hour` | 20 | Rate limit |
+| `max_autonomous_runs_per_hour` | 20 | **Declared** rate limit. Measured 2026-09-29: read only by the settings validator (`> 100` rejected) and the field's own `le=100`; **the autonomous loop never consults it** (B-6 in `PROJECT_STATUS_REVIEW.md`) |
 | `cooldown_seconds` | 60 | Cooldown between runs |
 
 ### 4. Memory Settings

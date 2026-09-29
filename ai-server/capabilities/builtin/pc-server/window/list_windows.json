@@ -6,6 +6,12 @@
   "action": "list_windows",
   "operation_category": "read_only",
   "risk": {"level": "low", "side_effects": [], "requires_approval": false},
+  "ownership_scope": "user",
+  "reversibility": "fully_reversible",
+  "destructive_effects": [],
+  "data_loss_risk": "none",
+  "active_work_loss_risk": "none",
+  "blast_radius": "single",
   "tags": ["builtin", "pc", "read", "window"],
   "tcp_command": "windows"
 }

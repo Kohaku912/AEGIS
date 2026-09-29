@@ -8,7 +8,7 @@ Provides:
 
 Security:
 - All sensitive data is redacted before display.
-- Dashboard cannot bypass approval.
+- Dashboard cannot bypass the egress gate or policy hard stops.
 - All actions still go through PolicyEngine.
 """
 
@@ -23,7 +23,6 @@ import queue
 import re
 import threading
 import time
-from contextlib import nullcontext
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Any
@@ -100,15 +99,9 @@ def _sync_tool_registry_from_catalog(runtime: Any) -> dict[str, int]:
         return {"registered": 0, "unregistered": 0, "skipped": 0}
 
     from aegis_schema.models import Capability, RiskLevel, ServerType
+    from aegis_schema.roster import SERVER_TYPE_BY_ID
 
-    server_type_map = {
-        "pc-server": ServerType.PC,
-        "browser-server": ServerType.BROWSER,
-        "android-server": ServerType.ANDROID,
-        "room-server": ServerType.ROOM,
-        "dev-server": ServerType.DEV,
-        "ai-server": ServerType.AI,
-    }
+    server_type_map = SERVER_TYPE_BY_ID
 
     manifests = catalog.list_all()
     manifest_ids = {m.capability_id for m in manifests}
@@ -357,7 +350,6 @@ def _runtime_server_status(settings: Any = None, runtime: Any = None) -> dict[st
 
     optional_specs = [
         ("room-server", "Room", 50055, bool(getattr(server_settings, "room_server_enabled", True)), "Start Room Server when sensors are configured."),
-        ("dev-server", "Dev", int(os.getenv("AEGIS_DEV_SERVER_PORT", "50056")), bool(getattr(server_settings, "dev_server_enabled", True)), "Start Dev Server when self-development tooling is needed."),
     ]
     for server_id, server_type, port, expected, hint in optional_specs:
         servers.append(_status_entry(server_id, server_type, port, expected=expected,
@@ -700,14 +692,14 @@ def _build_audit_timeline(entries: list[dict[str, Any]]) -> list[dict[str, Any]]
             prompt_preview = str(detail.get("prompt_preview", ""))
             response_preview = str(detail.get("response_preview", ""))
             profile = str(detail.get("profile", ""))
-            
+
             # Build summary with response as main content
             summary_parts = []
             if response_preview:
                 summary_parts.append(_truncate_text(response_preview, 300))
             if profile:
                 summary_parts.append(f"[{profile}]")
-            
+
             item["stage"] = "LLM Call"
             item["summary"] = " ".join(summary_parts) if summary_parts else "LLM returned a response."
             item["preview"] = _truncate_text(prompt_preview, 220) if prompt_preview else ""
@@ -1002,7 +994,7 @@ class DashboardApp:
         # LLM Usage observability
         try:
             from aegis_ai.observability.llm_usage.service import LLMUsageService
-            from aegis_ai.observability.llm_usage.routes import init_llm_usage_routes, llm_usage_bp
+            from aegis_ai.observability.llm_usage.routes import init_llm_usage_routes
             _audit_src = getattr(runtime, "audit_manager", None) or getattr(runtime, "audit_log", None)
             llm_usage_svc = LLMUsageService(
                 audit_manager=_audit_src,
@@ -1011,12 +1003,14 @@ class DashboardApp:
             init_llm_usage_routes(self._app, llm_usage_svc)
         except Exception:
             logger.debug("LLM Usage routes not registered", exc_info=True)
-        if getattr(runtime, "approval_manager", None) is not None:
-            runtime.approval_manager.on_state_change(self._handle_chat_approval_event)
-        from aegis_ai.web.routes.approval import init_approval_routes
+        from aegis_ai.web.routes.agent_sessions import init_agent_sessions_routes
+        from aegis_ai.web.routes.audit import init_audit_routes
         from aegis_ai.web.routes.autonomous import init_autonomous_routes
         from aegis_ai.web.routes.chat import init_chat_routes
         from aegis_ai.web.routes.health import init_health_routes
+        from aegis_ai.web.routes.l1_routes import init_l1_routes
+        from aegis_ai.web.routes.l2_routes import init_l2_routes
+        from aegis_ai.web.routes.l3_routes import init_l3_routes
         from aegis_ai.web.routes.memory import init_memory_routes
         from aegis_ai.web.routes.presentation import init_presentation_routes
         from aegis_ai.web.routes.server_status import init_server_status_routes
@@ -1026,13 +1020,28 @@ class DashboardApp:
         init_ui_routes(self)
         init_chat_routes(self)
         init_autonomous_routes(self, _DATA_DIR)
-        init_approval_routes(self)
         init_health_routes(self, _DATA_DIR)
+        init_l1_routes(self)
+        init_l2_routes(self)
+        init_l3_routes(self)
         init_memory_routes(self)
         init_presentation_routes(self)
         init_server_status_routes(self)
-        self._setup_routes()
+
         init_ui_v2_routes(self)
+        init_agent_sessions_routes(self)
+        # Phase 3: read-only ledger of irreversible operations. This is the
+        # replacement for the retired pre-execution approval gate — the gate is
+        # gone, but what ran must still be enumerable and traceable afterwards.
+        init_audit_routes(self)
+        # Phase 5a: AEGIS-initiated confirmations. The *forced* approval gate stays
+        # retired — nothing here can hold up a capability. What these endpoints serve is
+        # the question AEGIS chooses to ask the user, so the approval UI is live again
+        # for AEGIS's own initiative.
+        from aegis_ai.web.routes.approval import init_approval_routes
+
+        init_approval_routes(self)
+        self._setup_routes()
         self._autonomous_loop = runtime.autonomous_loop
         try:
             from aegis_ai.observability.otel_tracing import instrument_flask
@@ -1119,243 +1128,6 @@ class DashboardApp:
     def _unregister_chat_client(self, client_id: str) -> None:
         with self._chat_event_lock:
             self._chat_event_clients.pop(client_id, None)
-
-    def _broadcast_chat_message(self, content: str, *, approval_id: str = "", status: str = "completed") -> None:
-        payload = json.dumps(
-            {
-                "type": "assistant_message",
-                "content": content,
-                "approval_id": approval_id,
-                "status": status,
-                "timestamp": int(time.time() * 1000),
-            },
-            ensure_ascii=False,
-        )
-        with self._chat_event_lock:
-            clients = list(self._chat_event_clients.values())
-        for q in clients:
-            try:
-                q.put_nowait(payload)
-            except queue.Full:
-                logger.debug("Chat SSE client queue full; dropping message")
-
-    def _approval_result_for_llm(self, value: Any, *, max_chars: int = 5000) -> str:
-        sensitive_keys = ("key", "token", "password", "secret", "cookie", "auth", "credential")
-
-        def scrub(item: Any, key: str = "") -> Any:
-            if any(part in key.lower() for part in sensitive_keys):
-                return "***MASKED***"
-            if isinstance(item, bytes):
-                return f"<bytes:{len(item)}>"
-            if isinstance(item, dict):
-                return {str(k): scrub(v, str(k)) for k, v in item.items()}
-            if isinstance(item, list):
-                return [scrub(v, key) for v in item[:20]]
-            if isinstance(item, str):
-                if len(item) > 800:
-                    return item[:800] + "...<truncated>"
-                return item
-            return item
-
-        try:
-            text = json.dumps(scrub(value), ensure_ascii=False, default=str)
-        except Exception:
-            text = str(value)
-        return text[:max_chars] + ("...<truncated>" if len(text) > max_chars else "")
-
-    def _fallback_approval_followup(self, result: Any) -> str:
-        output = getattr(result, "output", {}) or {}
-        detail = ""
-        if isinstance(output, dict):
-            detail = str(
-                output.get("result")
-                or output.get("content")
-                or output.get("message")
-                or output.get("raw_output")
-                or ""
-            )
-        detail = detail[:500]
-        if getattr(result, "success", False):
-            if detail:
-                return f"承認された操作を実行しました。結果: {detail}"
-            return "承認された操作を実行しました。"
-        error = getattr(result, "error", "") or "不明なエラー"
-        if detail:
-            return f"承認後の操作を実行しましたが、失敗しました。理由: {error} / 結果: {detail}"
-        return f"承認後の操作を実行しましたが、失敗しました。理由: {error}"
-
-    def _generate_chat_approval_followup(self, request: Any, result: Any) -> str:
-        metadata = getattr(request, "metadata", {}) or {}
-        original_message = str(
-            metadata.get("original_user_message")
-            or metadata.get("user_message")
-            or metadata.get("prompt")
-            or ""
-        )
-        capability_id = getattr(request, "capability_id", "")
-        tool_name = getattr(request, "tool_name", "") or capability_id
-        approval_reason = getattr(request, "approval_reason", "")
-        result_payload = {
-            "success": bool(getattr(result, "success", False)),
-            "error": getattr(result, "error", ""),
-            "capability_id": capability_id,
-            "tool_name": tool_name,
-            "output": getattr(result, "output", {}) or {},
-        }
-        prompt = (
-            "承認後に実行された操作の結果を、ユーザー向けの自然な最終回答にしてください。\n"
-            "固定文やraw JSONではなく、何が実行され、結果がどうだったかを簡潔に説明してください。\n"
-            "失敗している場合は、ユーザーが次に何をすればよいかを自然に伝えてください。\n\n"
-            f"元のユーザー依頼:\n{original_message or '(不明)'}\n\n"
-            f"承認理由:\n{approval_reason or '(未指定)'}\n\n"
-            f"実行した操作:\n{tool_name}\n\n"
-            f"実行結果(JSON・安全化済み):\n{self._approval_result_for_llm(result_payload)}"
-        )
-        system_prompt = (
-            "あなたはAEGISアシスタントです。承認済み操作の実行結果をもとに、"
-            "ユーザーへ自然な日本語で最終回答してください。tool呼び出しは行わず、"
-            "内部IDやraw JSONを不要に露出しないでください。"
-        )
-        llm = getattr(self._runtime, "llm_gateway", None)
-        if llm is None or not hasattr(llm, "generate"):
-            return self._fallback_approval_followup(result)
-        context_meta = {
-            "caller": "dashboard_chat_approval_followup",
-            "approval_id": getattr(request, "approval_id", ""),
-            "conversation_id": getattr(request, "conversation_id", ""),
-            "audit_group_id": metadata.get("audit_group_id", ""),
-            "audit_group_type": metadata.get("audit_group_type", "chat"),
-            "audit_group_title": metadata.get("audit_group_title", ""),
-        }
-        try:
-            kwargs: dict[str, Any] = {
-                "prompt": prompt,
-                "system_prompt": system_prompt,
-                "max_tokens": 800,
-            }
-            try:
-                parameters = inspect.signature(llm.generate).parameters
-            except (TypeError, ValueError):
-                parameters = {}
-            if "temperature" in parameters:
-                kwargs["temperature"] = 0.2
-            if "context_meta" in parameters:
-                kwargs["context_meta"] = context_meta
-            if "profile" in parameters:
-                kwargs["profile"] = "chat_balanced"
-            response = llm.generate(**kwargs)
-            if getattr(response, "success", False) and str(getattr(response, "content", "") or "").strip():
-                return _clean_llm_response(str(response.content).strip())
-            logger.warning(
-                "Approval follow-up LLM failed for %s: %s",
-                getattr(request, "approval_id", ""),
-                getattr(response, "error", "empty response"),
-            )
-        except Exception:
-            logger.exception("Approval follow-up LLM call failed for %s", getattr(request, "approval_id", ""))
-        return self._fallback_approval_followup(result)
-
-    def _handle_chat_approval_event(self, event: dict[str, Any]) -> None:
-        request = event.get("request")
-        if request is None or getattr(request, "origin_channel", "") != "dashboard_chat":
-            return
-        if event.get("event_type") not in ("approved", "modified"):
-            return
-
-        approval_id = getattr(request, "approval_id", "")
-        if self._continue_chat_approval_with_audit(request, approval_id):
-            return
-        try:
-            result = self._runtime.tool_broker.execute_approved(approval_id)
-            if result.success:
-                output = result.output or {}
-                detail = (
-                    output.get("result")
-                    or output.get("content")
-                    or output.get("message")
-                    or output.get("raw_output")
-                    or "操作が完了しました。"
-                )
-                text = f"承認された操作を実行しました: {detail}"
-                status = "completed"
-                if getattr(request, "task_id", ""):
-                    if getattr(request, "step_id", ""):
-                        self._runtime.task_manager.resume_after_approval(request.task_id, request.step_id)
-                        self._runtime.task_manager.update_step_status(
-                            request.task_id,
-                            request.step_id,
-                            "completed",
-                            result=result.output,
-                        )
-                        self._runtime.task_manager.set_waiting_approval(request.task_id, "", "")
-                    self._runtime.task_manager.complete_task(request.task_id, result_summary=text[:200])
-            else:
-                text = f"承認後の操作に失敗しました: {result.error or 'Unknown error'}"
-                status = "failed"
-                if getattr(request, "task_id", ""):
-                    self._runtime.task_manager.fail_task(request.task_id, error=result.error)
-            self._append_chat_history("", text)
-            self._broadcast_chat_message(text, approval_id=approval_id, status=status)
-        except Exception as exc:
-            logger.exception("Dashboard chat approval continuation failed for %s", approval_id)
-            text = f"承認後の操作に失敗しました: {exc}"
-            if getattr(request, "task_id", ""):
-                try:
-                    self._runtime.task_manager.fail_task(request.task_id, error=str(exc))
-                except Exception:
-                    logger.debug("Failed to fail chat approval task", exc_info=True)
-            self._append_chat_history("", text)
-            self._broadcast_chat_message(text, approval_id=approval_id, status="failed")
-
-    def _continue_chat_approval_with_audit(self, request: Any, approval_id: str) -> bool:
-        metadata = getattr(request, "metadata", {}) or {}
-        group_id = str(metadata.get("audit_group_id") or getattr(request, "task_id", "") or "")
-        if group_id:
-            from aegis_ai.audit.context import audit_group
-
-            audit_ctx = audit_group(
-                group_id,
-                group_type=str(metadata.get("audit_group_type") or "chat"),
-                group_title=str(metadata.get("audit_group_title") or f"Chat approval: {approval_id}"),
-            )
-        else:
-            audit_ctx = nullcontext()
-
-        try:
-            with audit_ctx:
-                result = self._runtime.tool_broker.execute_approved(approval_id)
-                text = self._generate_chat_approval_followup(request, result)
-                if result.success:
-                    status = "completed"
-                    if getattr(request, "task_id", ""):
-                        if getattr(request, "step_id", ""):
-                            self._runtime.task_manager.resume_after_approval(request.task_id, request.step_id)
-                            self._runtime.task_manager.update_step_status(
-                                request.task_id,
-                                request.step_id,
-                                "completed",
-                                result=result.output,
-                            )
-                            self._runtime.task_manager.set_waiting_approval(request.task_id, "", "")
-                        self._runtime.task_manager.complete_task(request.task_id, result_summary=text[:200])
-                else:
-                    status = "failed"
-                    if getattr(request, "task_id", ""):
-                        self._runtime.task_manager.fail_task(request.task_id, error=result.error)
-                self._append_chat_history("", text, conversation_id=getattr(request, "conversation_id", ""))
-                self._broadcast_chat_message(text, approval_id=approval_id, status=status)
-            return True
-        except Exception as exc:
-            logger.exception("Dashboard chat approval continuation failed for %s", approval_id)
-            text = f"承認後の操作に失敗しました。理由: {exc}"
-            if getattr(request, "task_id", ""):
-                try:
-                    self._runtime.task_manager.fail_task(request.task_id, error=str(exc))
-                except Exception:
-                    logger.debug("Failed to fail chat approval task", exc_info=True)
-            self._append_chat_history("", text, conversation_id=getattr(request, "conversation_id", ""))
-            self._broadcast_chat_message(text, approval_id=approval_id, status="failed")
-            return True
 
     @property
     def app(self) -> Flask:
@@ -1608,7 +1380,7 @@ class DashboardApp:
 
         @app.route("/api/audit/stream")
         def audit_stream():
-            from flask import Response, request as flask_request
+            from flask import Response
             import json as j
 
             def generate():
@@ -1622,7 +1394,7 @@ class DashboardApp:
                         if os.path.exists(audit_path):
                             size = os.path.getsize(audit_path)
                             if size > last_size:
-                                with open(audit_path, "r", encoding="utf-8") as f:
+                                with open(audit_path, encoding="utf-8") as f:
                                     f.seek(last_size)
                                     for line in f:
                                         line = line.strip()
@@ -1825,4 +1597,3 @@ class DashboardApp:
                 "component": "dashboard",
                 "revision": revision or "unknown",
             })
-

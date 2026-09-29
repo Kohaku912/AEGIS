@@ -52,7 +52,7 @@ class OperationRecord:
     changed_state: str = ""
     verification_status: str = "unknown"  # passed | failed | unmet | skipped | unknown
     goal_status: str = "unknown"  # achieved | unmet | in_progress | not_applicable | unknown
-    result_status: str = "unknown"  # success | partial | failed | awaiting_approval | non_action
+    result_status: str = "unknown"  # success | partial | failed | non_action
     next_action: str = ""
     wait_reason: str = ""
     evidence_refs: list[str] = field(default_factory=list)
@@ -293,7 +293,6 @@ class OperationStore:
         linked_tasks: list[str] = []
         linked_caps: list[str] = []
         any_failed = False
-        any_approval = False
 
         for index, task in enumerate(tasks or []):
             result = results[index] if index < len(results or []) else {}
@@ -304,13 +303,6 @@ class OperationStore:
             success = bool(result.get("success", True)) if result else False
             if not success or str(out).lower().startswith("failed"):
                 any_failed = True
-            step_needs_approval = (
-                "awaiting approval" in out.lower()
-                or str(result.get("status") or "").lower() in {"awaiting_approval", "approval_required"}
-                or str(result.get("action_state") or "").lower() == "awaiting_approval"
-            )
-            if step_needs_approval:
-                any_approval = True
             if cap:
                 linked_caps.append(cap)
                 server = cap.split(".", 1)[0]
@@ -332,7 +324,7 @@ class OperationStore:
                     "input_summary": json.dumps(task.get("arguments") or {}, ensure_ascii=False)[:180],
                     "output_summary": out[:280],
                     "changed_state": state[:200],
-                    "status": "failed" if not success else ("awaiting_approval" if step_needs_approval else "ok"),
+                    "status": "ok" if success else "failed",
                     "timestamp_ms": ts,
                     "summary": (out or done)[:220],
                     "narrative": (out or done)[:220],
@@ -346,12 +338,6 @@ class OperationStore:
             result_summary = action_summary
             goal_status = "not_applicable"
             verification_status = "skipped"
-        elif any_approval:
-            action_summary = narratives[0] if narratives else "承認待ちの操作を開始"
-            result_status = "awaiting_approval"
-            result_summary = " / ".join(narratives[:3]) or action_summary
-            goal_status = "in_progress"
-            verification_status = "unknown"
         elif any_failed and narratives:
             action_summary = narratives[0]
             result_status = "partial" if any(s.get("status") == "ok" for s in steps) else "failed"
@@ -388,7 +374,7 @@ class OperationStore:
             goal_status=goal_status,
             result_status=result_status,
             next_action="" if result_status == "success" else (reason if result_status == "non_action" else "結果を確認して必要なら再試行"),
-            wait_reason=reason if result_status in {"non_action", "awaiting_approval"} else "",
+            wait_reason=reason if result_status == "non_action" else "",
             linked_entity_ids={
                 "task": linked_tasks[:12],
                 "capability": linked_caps[:12],

@@ -4,23 +4,21 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import threading
 import time
 import uuid
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 from aegis_ai.memory.memory_types import (
-    FailureType,
     MemoryRecord,
-    MemorySource,
     MemoryType,
     Sensitivity,
     Visibility,
     _mask_sensitive,
     _score_for_context,
 )
+from aegis_ai.memory.retrieval_scoring import combined_text_score
 
 logger = logging.getLogger("aegis_ai.memory.memory_store")
 
@@ -34,7 +32,7 @@ class MemoryStore:
     """
 
     # Categories that require explicit user permission to save
-    _REQUIRES_USER_PERMISSION: set[str] = {
+    _REQUIRES_USER_PERMISSION: ClassVar[set[str]] = {
         "personal_info", "location", "schedule", "contacts",
         "financial", "health", "relationship", "opinion",
     }
@@ -110,10 +108,21 @@ class MemoryStore:
             records = [r for r in records if r.confidence >= min_confidence]
         if min_importance > 0:
             records = [r for r in records if r.importance >= min_importance]
-        if query:
-            q = query.lower()
-            records = [r for r in records if q in r.title.lower() or q in r.content.lower() or q in " ".join(r.tags).lower()]
         records = [r for r in records if not r.is_expired() and not r.superseded_by]
+        if query:
+            scored = []
+            for record in records:
+                score = combined_text_score(
+                    query,
+                    texts=[record.title, record.content, " ".join(record.tags)],
+                    importance=record.importance,
+                    confidence=record.confidence,
+                    timestamp_ms=int(record.updated_at or record.created_at or 0),
+                )
+                if score > 0:
+                    scored.append((score + _score_for_context(record), record))
+            scored.sort(key=lambda item: item[0], reverse=True)
+            return [record for _, record in scored[:limit]]
         records.sort(key=_score_for_context, reverse=True)
         return records[:limit]
 

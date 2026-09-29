@@ -10,8 +10,8 @@ from aegis_ai.permissions.service_scope_types import (
     OAuthScopeMapping,
     Operation,
     get_operation_category,
-    infer_operation_from_element,
     infer_service_from_url,
+    resolve_browser_operation,
 )
 
 logger = logging.getLogger("aegis_ai.permissions.policy")
@@ -131,16 +131,21 @@ class ServicePermissionPolicy:
     def evaluate_browser_action(
         self,
         url: str,
-        element_label: str,
+        operation: str,
         source: str = "user_explicit",
         world_state: Any = None,
     ) -> dict[str, Any]:
-        """Evaluate a browser action by inferring service/operation from URL and element."""
+        """Evaluate a browser action against the service scopes.
+
+        ``operation`` is supplied by the caller (the LLM/planner owns intent).
+        It is never inferred from page text. An unrecognized operation keeps the
+        conservative default: the store categorizes it as MEDIUM_RISK_WRITE and
+        requires approval.
+        """
         service = infer_service_from_url(url)
-        operation = infer_operation_from_element(element_label)
         return self.evaluate_service_operation(
             service=service,
-            operation=operation,
+            operation=resolve_browser_operation(operation),
             resource=url,
             source=source,
             world_state=world_state,
@@ -225,12 +230,11 @@ class ServicePermissionPolicy:
 
 def infer_service_operation_from_browser_action(
     url: str,
-    element_label: str,
+    operation: str,
 ) -> dict[str, str]:
-    """Infer service and operation from browser URL and element label.
+    """Return the service/operation pair for a browser action.
 
-    Used by PolicyEngine to apply service scopes to browser-based actions.
+    ``operation`` is provided by the caller and is never inferred from page text.
     """
     service = infer_service_from_url(url)
-    operation = infer_operation_from_element(element_label)
-    return {"service": service, "operation": operation}
+    return {"service": service, "operation": resolve_browser_operation(operation)}

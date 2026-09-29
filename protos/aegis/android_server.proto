@@ -5,7 +5,8 @@ package aegis;
 import "aegis/common.proto";
 
 // Android Server — mobile device integration (Kotlin/Android).
-// SMS/DM sending is Level 2+ and must go through approval.
+// SMS/DM sending is elevated impact and is annotated as such; the forced
+// approval gate was removed on 2026-09-28, so this server does not block on it.
 
 option go_package = "github.com/Kohaku912/AEGIS/protos/aegis";
 
@@ -32,7 +33,6 @@ service AndroidServer {
   // ── App Control ──────────────────────────────────────────
   rpc OpenApp(OpenAppRequest) returns (OpenAppResponse);
   rpc ShowOverlay(AndroidShowOverlayRequest) returns (AndroidShowOverlayResponse);
-  rpc RequestApproval(AndroidApprovalRequest) returns (AndroidApprovalResponse);
   rpc EmergencyStop(AndroidEmergencyStopRequest) returns (AndroidEmergencyStopResponse);
 
   // ── Health ───────────────────────────────────────────────
@@ -344,18 +344,10 @@ message AndroidShowOverlayResponse {
   Status status = 1;
 }
 
-message AndroidApprovalRequest {
-  string approval_id = 1;
-  string title = 2;
-  string body = 3;
-  string summary_json = 4;
-  int64 expires_at_ms = 5;
-}
-
-message AndroidApprovalResponse {
-  Status status = 1;
-  string surface_id = 2;
-}
+// `AndroidApprovalRequest` / `AndroidApprovalResponse` — the payloads of the
+// unary `RequestApproval` RPC — were deleted on 2026-09-28 with the forced
+// approval gate. Asking the phone is still supported: that is the streamed
+// `AndroidApprovalCommand` below, which pairs with `AndroidApprovalDecision`.
 
 message AndroidEmergencyStopRequest {
   string reason = 1;

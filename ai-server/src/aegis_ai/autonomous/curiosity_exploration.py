@@ -126,7 +126,7 @@ class CuriosityDrivenExplorationSystem:
     3. Explores the best candidate
     4. Records findings to memory systems
 
-    Safety: All exploration is read-only. Side effects require approval.
+    Safety: All exploration is read-only — nothing on this path has side effects.
     """
 
     def __init__(
@@ -139,6 +139,7 @@ class CuriosityDrivenExplorationSystem:
         action_trace: Any = None,
         person_memory: Any = None,
         tool_broker: Any = None,
+        skill_memory: Any = None,
         curiosity_threshold: float = 6.0,
         data_dir: str = "data/autonomous",
     ) -> None:
@@ -150,11 +151,40 @@ class CuriosityDrivenExplorationSystem:
         self._action_trace = action_trace
         self._person = person_memory
         self._broker = tool_broker
+        self._skill = skill_memory
         self._curiosity_threshold = curiosity_threshold
         self._data_dir = Path(data_dir)
         self._data_dir.mkdir(parents=True, exist_ok=True)
         self._exploration_history: list[dict[str, Any]] = []
         self._agenda: Any = None
+
+    def _skill_memory(self) -> Any:
+        """Return the SkillMemory backend owned by the runtime MemoryManager.
+
+        Architecture invariant: memory backends are accessed through
+        ``runtime.memory_manager.get_backend()`` so that in-memory counters
+        updated by ``record_result`` are visible. Only when no runtime is
+        available do we fall back to a direct file reader.
+        """
+        if self._skill is not None:
+            return self._skill
+        try:
+            from aegis_ai.runtime import peek_runtime
+
+            runtime = peek_runtime()
+            manager = getattr(runtime, "memory_manager", None) if runtime is not None else None
+            if manager is not None and hasattr(manager, "get_backend"):
+                backend = manager.get_backend("skill")
+                if backend is not None:
+                    self._skill = backend
+                    return backend
+        except Exception:
+            logger.debug("Skill memory runtime lookup failed", exc_info=True)
+
+        from aegis_ai.memory.skill_memory import SkillMemory
+
+        self._skill = SkillMemory(path=str(self._data_dir.parent / "memory" / "skills.jsonl"))
+        return self._skill
 
     @property
     def curiosity_level(self) -> float:
@@ -297,8 +327,7 @@ class CuriosityDrivenExplorationSystem:
 
         # Check skill memory for underperforming skills
         try:
-            from aegis_ai.memory.skill_memory import SkillMemory
-            sm = SkillMemory(path=str(self._data_dir.parent / "memory" / "skills.jsonl"))
+            sm = self._skill_memory()
             for skill in sm.get_active():
                 if skill.success_rate < 0.6 and (skill.success_count + skill.failure_count) >= 3:
                     candidates.append(ExplorationCandidate(
@@ -484,7 +513,7 @@ Be specific and actionable. Focus on what's useful to remember."""
                 result.findings = f"LLM exploration failed: {llm_result.error}"
                 result.success = False
         except Exception as e:
-            result.findings = f"Exploration error: {str(e)}"
+            result.findings = f"Exploration error: {e!s}"
             result.success = False
 
         result.duration_ms = int(time.time() * 1000) - start_time
@@ -685,8 +714,7 @@ Be specific and actionable. Focus on what's useful to remember."""
 
         # Related skills
         try:
-            from aegis_ai.memory.skill_memory import SkillMemory
-            sm = SkillMemory(path=str(self._data_dir.parent / "memory" / "skills.jsonl"))
+            sm = self._skill_memory()
             related_skills = sm.find_relevant(candidate.topic, count=2)
             if related_skills:
                 parts.append("Related skills: " + "; ".join(s.name for s in related_skills))

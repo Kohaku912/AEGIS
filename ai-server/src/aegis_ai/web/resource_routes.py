@@ -175,8 +175,19 @@ def _available_actions(resource_type: str, status: str) -> list[dict[str, str]]:
         actions.append({"id": "refresh", "label": "Refresh health", "level": "safe"})
     if resource_type == "capability":
         actions.append({"id": "edit-policy", "label": "Review effective policy", "level": "controlled"})
-    if resource_type == "approval":
-        actions.append({"id": "review", "label": "Review approval", "level": "dangerous"})
+    if resource_type == "approval" and status.lower() == "pending":
+        # Phase 5a: the actions that answer an open confirmation. The ids match the
+        # ``/api/approvals/<id>/<action>`` suffixes, so a client can wire them directly.
+        # None of them is "dangerous": answering a question cannot start or block an
+        # action, it only records what the user decided.
+        actions.extend(
+            [
+                {"id": "approve", "label": "Approve", "level": "controlled"},
+                {"id": "modify-and-approve", "label": "Modify and approve", "level": "controlled"},
+                {"id": "reject", "label": "Reject", "level": "safe"},
+                {"id": "cancel", "label": "Cancel the question", "level": "safe"},
+            ]
+        )
     return actions
 
 
@@ -280,10 +291,24 @@ def _servers(rt: Any) -> list[dict[str, Any]]:
 
 
 def _approvals(rt: Any) -> list[dict[str, Any]]:
-    manager = rt.approval_manager
-    queue = getattr(manager, "_queue", None)
-    values = queue.get_all() if queue is not None and hasattr(queue, "get_all") else manager.list_pending()
-    return [_summary("approval", item) for item in values]
+    """Every confirmation AEGIS has raised, newest first.
+
+    Phase 5a. This returned ``[]`` unconditionally while the forced approval gate was
+    being retired. It now serves ``aegis_ai.confirmation`` — the questions AEGIS chooses
+    to ask the user.
+
+    This is the **history** view, not the pending view: the dashboard's Approvals page
+    loads its queue from here (``fetchResourceEntities("approvals")``) and buckets the
+    result itself, so resolved and expired questions must be included. The pending-only
+    view lives in the overview payload and ``GET /api/approvals/pending``.
+    """
+    store = getattr(rt, "confirmation_store", None)
+    if store is None:
+        return []
+    return [
+        _summary("approval", item, fallback_id=item.approval_id)
+        for item in store.all()
+    ]
 
 
 def _capabilities(rt: Any) -> list[dict[str, Any]]:
@@ -732,7 +757,6 @@ def simulate_policy():
     if evaluator is None:
         return jsonify({"error": "unsupported_context", "supported": sorted(evaluators)}), 400
     result = evaluator(capability, params)
-    approval_type = getattr(result.required_approval_type, "name", None)
     return jsonify(
         {
             "simulation": {
@@ -740,11 +764,8 @@ def simulate_policy():
                 "decision": result.decision.name,
                 "reason": result.reason,
                 "effective_risk": result.risk_level.name,
-                "requires_approval": result.decision.name == "ASK_APPROVAL",
                 "fresh_auth_required": result.risk_level.name in {"APPROVAL_REQUIRED", "HIGH_RISK", "FORBIDDEN"},
                 "matching_rule": "PolicyEngine deterministic effective-policy evaluation",
-                "required_approval_type": approval_type,
-                "approval_expires_at_ms": result.expires_at_ms or None,
                 "audit_required": bool(result.audit_required),
                 "context": context,
                 "arguments": _jsonable(params),

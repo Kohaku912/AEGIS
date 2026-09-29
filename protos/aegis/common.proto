@@ -19,7 +19,10 @@ enum SafetyLevel {
   SAFETY_LEVEL_UNSPECIFIED = 0;    // Invalid — treated as LEVEL_3_RESTRICTED
   LEVEL_0_READ = 1;                // Observe only, no side effects (screenshot, sensor)
   LEVEL_1_SAFE_ACT = 2;            // Non-destructive, reversible (open app, navigate)
-  LEVEL_2_APPROVAL = 3;            // Requires user approval (delete file, send DM)
+  // Historical tier label. It is a *descriptive* classification only: nothing
+  // gates on it. The forced approval gate was removed on 2026-09-28, so this
+  // tier no longer implies that anyone is asked before the capability runs.
+  LEVEL_2_APPROVAL = 3;            // Elevated impact (delete file, send DM)
   LEVEL_3_RESTRICTED = 4;          // May be prohibited entirely (purchase, rm -rf)
 }
 
@@ -66,31 +69,22 @@ enum EventPriority {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// Approval & Audit
+// Audit
 // ═══════════════════════════════════════════════════════════════
 
-enum ApprovalStatus {
-  APPROVAL_STATUS_UNSPECIFIED = 0;
-  APPROVAL_STATUS_PENDING = 1;
-  APPROVAL_STATUS_APPROVED = 2;
-  APPROVAL_STATUS_REJECTED = 3;
-  APPROVAL_STATUS_EXPIRED = 4;
-}
-
-enum ApprovalType {
-  APPROVAL_TYPE_UNSPECIFIED = 0;
-  APPROVAL_TYPE_ONE_TIME = 1;       // Valid for a single execution
-  APPROVAL_TYPE_SESSION = 2;        // Valid for duration of a session
-  // NOTE: No PERMANENT type. Nothing is permanently auto-approved.
-}
+// `ApprovalStatus` (PENDING/APPROVED/REJECTED/EXPIRED) and `ApprovalType`
+// (ONE_TIME/SESSION) were deleted on 2026-09-28 together with the forced
+// approval gate. They described a pending-request lifecycle and a grant
+// validity window — i.e. the mechanism that made execution wait for a human.
+// AEGIS may still *ask* the user a question, but nothing is queued or granted.
 
 enum AuditAction {
   AUDIT_ACTION_UNSPECIFIED = 0;
   AUDIT_ACTION_TOOL_INVOKED = 1;
   AUDIT_ACTION_TOOL_DENIED = 2;
-  AUDIT_ACTION_APPROVAL_REQUESTED = 3;
-  AUDIT_ACTION_APPROVAL_GRANTED = 4;
-  AUDIT_ACTION_APPROVAL_REJECTED = 5;
+  // 3–5 were AUDIT_ACTION_APPROVAL_REQUESTED / _GRANTED / _REJECTED.
+  reserved 3, 4, 5;
+  reserved "AUDIT_ACTION_APPROVAL_REQUESTED", "AUDIT_ACTION_APPROVAL_GRANTED", "AUDIT_ACTION_APPROVAL_REJECTED";
   AUDIT_ACTION_EVENT_RECEIVED = 6;
   AUDIT_ACTION_TRIGGER_FIRED = 7;
   AUDIT_ACTION_POLICY_DECISION = 8;
@@ -99,7 +93,10 @@ enum AuditAction {
 enum PolicyDecisionType {
   POLICY_DECISION_UNSPECIFIED = 0;
   POLICY_DECISION_ALLOW = 1;
-  POLICY_DECISION_ASK_APPROVAL = 2;
+  // 2 was POLICY_DECISION_ASK_APPROVAL — a decision that blocked execution
+  // until the user answered. Removed with the forced approval gate.
+  reserved 2;
+  reserved "POLICY_DECISION_ASK_APPROVAL";
   POLICY_DECISION_DENY = 3;
 }
 
@@ -176,7 +173,12 @@ message Capability {
   string output_schema = 7;         // JSON Schema
 
   SafetyLevel safety_level = 8;
-  bool requires_approval = 9;
+  // 9 was `requires_approval`. Nothing gates on it: the PC/Android servers
+  // never blocked on this flag, and the forced approval gate is gone
+  // (2026-09-28). The manifest keeps an equivalent value as an *internal*
+  // annotation, so it no longer belongs in the cross-server contract.
+  reserved 9;
+  reserved "requires_approval";
   repeated string side_effects = 10;
   repeated string tags = 11;
 
@@ -243,8 +245,12 @@ message ToolInvocationRequest {
   string invocation_id = 2;
   string caller = 3;                // agent name, user, system
   string params_json = 4;           // JSON-encoded parameters
-  bool is_approved = 5;
-  string approval_id = 6;
+  // 5 and 6 were `is_approved` / `approval_id` — the "present your approval
+  // token and you may run" gate. Removed with the forced approval gate: a
+  // capability now runs because the LLM decided to run it, and the only
+  // boundaries are the egress gate and the policy hard stops.
+  reserved 5, 6;
+  reserved "is_approved", "approval_id";
 }
 
 message ToolInvocationResult {
@@ -254,7 +260,9 @@ message ToolInvocationResult {
   string output_json = 4;
   string error = 5;
   int64 duration_ms = 6;
-  bool was_approved = 7;
+  // 7 was `was_approved` — removed with the forced approval gate.
+  reserved 7;
+  reserved "was_approved";
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -268,25 +276,6 @@ message PolicyDecision {
   string capability_id = 4;
   SafetyLevel required_level = 5;
   bool audit_required = 6;
-}
-
-// ═══════════════════════════════════════════════════════════════
-// Approval Request
-// ═══════════════════════════════════════════════════════════════
-
-message ApprovalRequest {
-  string approval_id = 1;
-  string capability_id = 2;
-  string tool_name = 3;
-  string requested_action = 4;
-  string human_readable_summary = 5;
-  string risk_explanation = 6;
-  string payload_preview = 7;
-  SafetyLevel safety_level = 8;
-  ApprovalStatus status = 9;
-  ApprovalType approved_type = 10;
-  int64 created_at_ms = 11;
-  int64 expires_at_ms = 12;
 }
 
 // ═══════════════════════════════════════════════════════════════

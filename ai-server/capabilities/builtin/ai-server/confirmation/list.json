@@ -1,0 +1,45 @@
+{
+  "title": "Read Confirmations and Their Answers",
+  "description": "Read the questions you have raised and how the user answered them. Use this to find out what the user decided before continuing with the work a question was about. This only reads: it cannot answer a question, and nothing about it changes what you are allowed to do. Only the user decides.",
+  "server_id": "ai-server",
+  "app_id": "confirmation",
+  "action": "list",
+  "operation_category": "confirmation",
+  "risk": {"level": "low", "side_effects": [], "requires_approval": false},
+  "ownership_scope": "aegis",
+  "reversibility": "fully_reversible",
+  "destructive_effects": [],
+  "data_loss_risk": "none",
+  "active_work_loss_risk": "none",
+  "blast_radius": "single",
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "approval_id": {
+        "type": "string",
+        "description": "Return this one confirmation instead of a list."
+      },
+      "status": {
+        "type": "string",
+        "enum": [
+          "pending",
+          "approved",
+          "rejected",
+          "expired",
+          "cancelled",
+          "executed",
+          "failed",
+          "superseded",
+          "any"
+        ],
+        "description": "Which confirmations to return. Defaults to 'pending'."
+      },
+      "limit": {
+        "type": "integer",
+        "description": "Maximum number to return. Defaults to 20, capped at 100."
+      }
+    },
+    "additionalProperties": false
+  },
+  "tags": ["confirmation", "interruption", "personal-ai", "read"]
+}

@@ -11,6 +11,8 @@ import time
 from pathlib import Path
 from typing import Any
 
+from pydantic import BaseModel, ValidationError
+
 from aegis_ai.settings.defaults import create_default_settings
 from aegis_ai.settings.models import AEGISSettings
 from aegis_ai.settings.validation import validate_settings_change
@@ -77,20 +79,41 @@ class SettingsStore:
         """Update a single settings section.
 
         Returns a list of validation errors.
+
+        The proposal is built by **construction**, not by assignment: the schema's
+        ``ge``/``le`` bounds bind at construction, and pydantic does not validate
+        assignment (no model here sets ``validate_assignment``). An earlier version
+        ``setattr``-ed onto the loaded object, which made **26 of the 27** declared
+        bounds exceedable through this API with the value persisted to disk — including
+        the retention caps, which ``backup/retention.py`` turns into the prune cutoff.
+        Recorded as B-20 / register A-9; pinned by
+        ``tests/test_settings_edit_path_enforces_schema_bounds.py``.
+
+        The alternative repair — re-checking every bound inside
+        ``validate_settings_change`` — is deliberately rejected: it would place a second
+        copy of the schema in the write path, which is the duplication this repo keeps
+        finding. Constructing means there is exactly one definition of each bound.
         """
         current = self.get()
         section_obj = getattr(current, section, None)
-        if section_obj is None:
+        if not isinstance(section_obj, BaseModel):
             return [f"Unknown settings section: {section}"]
 
-        # Update fields
-        for key, value in values.items():
-            if hasattr(section_obj, key):
-                setattr(section_obj, key, value)
-            else:
-                return [f"Unknown field '{key}' in section '{section}'"]
+        unknown = [key for key in values if key not in type(section_obj).model_fields]
+        if unknown:
+            return [f"Unknown field '{unknown[0]}' in section '{section}'"]
 
-        return self.update(current, changed_by, reason)
+        merged = current.model_dump()
+        merged[section] = {**merged[section], **values}
+        try:
+            proposed = AEGISSettings.model_validate(merged)
+        except ValidationError as exc:
+            return [
+                f"{'.'.join(str(part) for part in error['loc'])}: {error['msg']}"
+                for error in exc.errors()
+            ]
+
+        return self.update(proposed, changed_by, reason)
 
     def reset_to_defaults(self, changed_by: str = "user") -> None:
         """Reset all settings to defaults."""

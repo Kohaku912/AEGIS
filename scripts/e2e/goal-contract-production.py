@@ -16,7 +16,6 @@ from pathlib import Path
 from typing import Any
 
 import requests
-
 from aegis_ai.auth.passkey_store import PasskeyStore
 from aegis_ai.auth.session_store import SessionStore
 

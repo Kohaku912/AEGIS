@@ -1,0 +1,77 @@
+{
+  "title": "Delegate task to agent runtime",
+  "description": "Hands a natural-language task off to the configured AgentBackend (Phase 1: LocalBackend, echo-only). Read-only DoD: returns an AgentResult containing a single echo action; never touches the AEGIS repository, filesystem, or network.",
+  "server_id": "ai-server",
+  "app_id": "agent",
+  "action": "delegate",
+  "operation_category": "read_only",
+  "requires_feature": "agents",
+  "risk": {
+    "level": "low",
+    "side_effects": [],
+    "requires_approval": false
+  },
+  "ownership_scope": "aegis",
+  "reversibility": "fully_reversible",
+  "destructive_effects": [],
+  "data_loss_risk": "none",
+  "active_work_loss_risk": "none",
+  "blast_radius": "single",
+  "tags": [
+    "builtin",
+    "ai",
+    "agent",
+    "delegate",
+    "phase1"
+  ],
+  "examples": [
+    {
+      "user": "ローカル agent にエコーを試して",
+      "arguments": {
+        "goal": "echo hello"
+      }
+    }
+  ],
+  "only_master": false,
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "goal": {
+        "type": "string",
+        "description": "Natural language goal handed to the agent runtime."
+      },
+      "profile": {
+        "type": "string",
+        "default": "general",
+        "description": "Agent profile name (Phase 5 で AgentRouter が使用)."
+      },
+      "max_steps": {
+        "type": "integer",
+        "default": 10
+      },
+      "timeout_seconds": {
+        "type": "integer",
+        "default": 600
+      }
+    },
+    "required": [
+      "goal"
+    ]
+  },
+  "completion": {
+    "mode": "all",
+    "retry": {
+      "max_attempts": 0,
+      "delay_ms": 0
+    },
+    "on_failure": "ignore",
+    "checks": [
+      {
+        "name": "delegate_completed",
+        "type": "output_field",
+        "field": "status",
+        "equals": "completed"
+      }
+    ]
+  }
+}

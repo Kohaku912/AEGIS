@@ -237,7 +237,6 @@ class DevState:
 class TaskPhase(Enum):
     IDLE = "idle"
     PLANNING = "planning"
-    WAITING_APPROVAL = "waiting_approval"
     EXECUTING = "executing"
     OBSERVING = "observing"
     VERIFYING = "verifying"

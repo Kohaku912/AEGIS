@@ -20,13 +20,15 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 class RiskLevel(IntEnum):
     """Safety classification for capabilities and actions.
 
-    Higher values = more dangerous. The Policy Engine uses this to decide
-    whether to allow, ask for approval, or deny an action.
+    Higher values = more dangerous. The Policy Engine keys on this to select a
+    ``PolicyDecision`` through ``DEFAULT_RISK_MAP``; the level is an **annotation,
+    not a gate**, so no level causes a prompt. Mirrors ``SafetyLevel`` in
+    ``protos/aegis/common.proto``.
     """
     UNSPECIFIED = 0
     READ_ONLY = 1          # Observe only, no side effects
     SAFE_ACTION = 2        # Non-destructive, reversible
-    APPROVAL_REQUIRED = 3  # Needs explicit user confirmation
+    APPROVAL_REQUIRED = 3  # Historical tier label — descriptive only; nobody is asked
     HIGH_RISK = 4          # Potentially dangerous
     FORBIDDEN = 5          # Never allowed autonomously
 
@@ -211,16 +213,22 @@ class Capability(BaseModel):
 
     @model_validator(mode="after")
     def id_server_type_consistency(self) -> Capability:
-        """Ensure the capability ID prefix matches the declared server_type."""
-        prefix_map = {
-            ServerType.PC: ("pc", "pc-server"),
-            ServerType.ANDROID: ("android", "android-server"),
-            ServerType.BROWSER: ("browser", "browser-server"),
-            ServerType.ROOM: ("room", "room-server"),
-            ServerType.DEV: ("dev", "dev-server"),
-            ServerType.AI: ("ai", "ai-server"),
-        }
-        expected_prefixes = prefix_map.get(self.server_type)
+        """Ensure the capability ID prefix matches the declared server_type.
+
+        The map comes from the single roster (B-15), retired entries included:
+        ``PREFIXES_BY_TYPE_WITH_RETIRED`` carries ``ServerType.DEV`` because the server is
+        **retired but still reachable** — a ``DEV`` capability is constructible — and because
+        dropping the entry would make ``expected_prefixes`` ``None`` and skip this check
+        entirely (B-18). ``ServerType.UNSPECIFIED`` is absent, and that absence *is* the
+        recorded fail-open: declaring it turns the check off.
+
+        The import is function-level: ``aegis_schema.roster`` imports ``ServerType`` from this
+        module, so a module-level import here would be a cycle. Same pattern as
+        ``tool_broker.execute()``.
+        """
+        from aegis_schema.roster import PREFIXES_BY_TYPE_WITH_RETIRED
+
+        expected_prefixes = PREFIXES_BY_TYPE_WITH_RETIRED.get(self.server_type)
         if expected_prefixes and not any(self.id.startswith(p + ".") for p in expected_prefixes):
             raise ValueError(
                 f"Capability ID '{self.id}' should start with one of {expected_prefixes} "
@@ -267,30 +275,6 @@ class ServerInfo(BaseModel):
     metadata: dict[str, str] = Field(
         default_factory=dict,
         description="Arbitrary key-value metadata",
-    )
-
-
-class ApprovalRequirement(BaseModel):
-    """Describes what approval is needed before executing a capability."""
-    capability_id: str = Field(..., min_length=1, description="Which capability this applies to")
-    risk_level: RiskLevel = Field(..., description="Risk level of the capability")
-    requires_user_approval: bool = Field(
-        default=True,
-        description="Whether user MUST approve",
-    )
-    approval_message: str = Field(
-        default="",
-        description="Message to show in Approval UI",
-    )
-    timeout_seconds: int = Field(
-        default=30,
-        ge=0,
-        le=86400,  # max 24 hours
-        description="How long to wait for approval before auto-deny (0 = wait indefinitely)",
-    )
-    allow_session_remember: bool = Field(
-        default=True,
-        description="Whether 'remember for session' is offered",
     )
 
 

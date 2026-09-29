@@ -5,22 +5,8 @@ from types import SimpleNamespace
 
 from flask import Flask
 
+from aegis_ai.confirmation import ConfirmationStore
 from aegis_ai.web.resource_routes import init_resource_routes
-
-
-@dataclass
-class _Approval:
-    approval_id: str
-    capability_id: str
-    status: str = "pending"
-
-    def to_dict(self):
-        return {
-            "approval_id": self.approval_id,
-            "capability_id": self.capability_id,
-            "status": self.status,
-            "created_at": 1_700_000_000_000,
-        }
 
 
 @dataclass
@@ -56,11 +42,6 @@ class _StatusManager:
 
     def check_now(self):
         return self.get_snapshot()
-
-
-class _Queue:
-    def get_all(self):
-        return [_Approval("approval-1", "pc-server.input.click")]
 
 
 class _MemoryManager:
@@ -111,7 +92,7 @@ class _AuditManager:
         return {"entries": [{"audit_id": "audit-1", "action": "tool.execute", "status": "success"}]}
 
 
-def _runtime():
+def _runtime(confirmation_store=None):
     capabilities = [_Capability("android-server.screen.get_ui_tree", "Read UI tree", "android-server")]
     manifest = SimpleNamespace(
         capability_id=capabilities[0].capability_id,
@@ -130,7 +111,7 @@ def _runtime():
     return SimpleNamespace(
         task_manager=_TaskManager(),
         status_manager=_StatusManager(),
-        approval_manager=SimpleNamespace(_queue=_Queue(), list_pending=lambda: []),
+        confirmation_store=confirmation_store,
         capability_catalog=SimpleNamespace(
             list_all=lambda: capabilities,
             describe=lambda capability_id: (
@@ -181,9 +162,9 @@ def _runtime():
     )
 
 
-def _client():
+def _client(confirmation_store=None):
     app = Flask(__name__)
-    init_resource_routes(app, _runtime())
+    init_resource_routes(app, _runtime(confirmation_store))
     return app.test_client()
 
 
@@ -214,10 +195,51 @@ def test_global_search_reads_across_managers():
     assert "capability" in kinds
 
 
-def test_full_approval_lifecycle_and_memory_alias():
-    approvals = _client().get("/api/approvals").get_json()
+def test_approvals_resource_serves_the_confirmation_history(tmp_path):
+    """Phase 5a: the resource is a real view of AEGIS's own questions again.
+
+    It carries the full lifecycle, not just the open ones, because the dashboard's
+    Approvals page loads its queue from here and buckets the result itself.
+    """
+    store = ConfirmationStore(str(tmp_path))
+    open_item = store.request(
+        summary="Send the revised draft?",
+        capability_id="mail.send",
+        target="sato@example.com",
+    )
+    decided = store.request(summary="Already answered", capability_id="mail.send")
+    store.approve(decided.approval_id, decided_by="user")
+
+    payload = _client(store).get("/api/approvals").get_json()
+
+    ids = [item["id"] for item in payload["items"]]
+    assert set(ids) == {open_item.approval_id, decided.approval_id}
+    # The detail payload is what the UI's approvalFromEntity reads.
+    open_row = next(item for item in payload["items"] if item["id"] == open_item.approval_id)
+    assert open_row["detail"]["summary"] == "Send the revised draft?"
+    assert open_row["detail"]["target"] == "sato@example.com"
+    assert open_row["status"] == "pending"
+    assert {action["id"] for action in open_row["available_actions"]} >= {"approve", "reject"}
+
+
+def test_approvals_resource_is_empty_without_a_store():
+    """No store means "nothing to show", not a crash and not a fabricated approval."""
+    assert _client().get("/api/approvals").get_json()["items"] == []
+
+
+def test_a_resolved_confirmation_offers_no_decisions(tmp_path):
+    store = ConfirmationStore(str(tmp_path))
+    item = store.request(summary="Answered", capability_id="mail.send")
+    store.reject(item.approval_id, decided_by="user")
+
+    row = _client(store).get("/api/approvals").get_json()["items"][0]
+
+    assert row["status"] == "rejected"
+    assert [action["id"] for action in row["available_actions"]] == ["inspect"]
+
+
+def test_memory_alias_works():
     memories = _client().get("/api/memories?q=project&type=semantic").get_json()
-    assert approvals["items"][0]["id"] == "approval-1"
     assert memories["items"][0]["type"] == "memory"
     assert "project" in memories["items"][0]["detail"]["content"]
 

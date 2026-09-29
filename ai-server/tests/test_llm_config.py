@@ -12,6 +12,7 @@ from aegis_ai.llm.gateway import LLMGateway
 from aegis_ai.llm.prompt_registry import PromptRegistry
 from aegis_ai.llm.router import LLMResponse
 from aegis_ai.llm.settings_resolver import LLMSettings, LLMSettingsResolver
+from aegis_ai.runtime import _audit_llm_profile_health
 
 # ── Fixtures ──────────────────────────────────────────────────
 
@@ -118,6 +119,10 @@ class TestLLMSettingsResolver:
         models = sr.get_allowed_models()
         assert "deepseek-v4-flash" in models
         assert "gpt-4o" in models
+
+    def test_list_profile_ids(self, llm_yaml: Path) -> None:
+        sr = LLMSettingsResolver(str(llm_yaml))
+        assert sr.list_profile_ids() == ["chat_balanced", "json_generation"]
 
     def test_get_max_tokens_upper_bound(self, llm_yaml: Path) -> None:
         sr = LLMSettingsResolver(str(llm_yaml))
@@ -260,6 +265,69 @@ class TestLLMGateway:
         gw = LLMGateway(router=_FakeRouter(), settings_resolver=None)
         resp = gw.generate("Hello")
         assert resp.success is True
+
+    def test_unknown_profile_returns_failure_when_resolver_is_present(self, llm_yaml: Path) -> None:
+        sr = LLMSettingsResolver(str(llm_yaml))
+        gw = LLMGateway(router=_FakeRouter(), settings_resolver=sr)
+        resp = gw.generate("Hello", profile="missing_profile")
+        assert resp.success is False
+        assert "missing_profile" in resp.error
+
+
+class TestRuntimeLlmHealth:
+    def test_audit_llm_profile_health_reports_missing_key(self, tmp_path: Path, monkeypatch) -> None:
+        llm_yaml = tmp_path / "llm.yaml"
+        llm_yaml.write_text(
+            yaml.dump(
+                {
+                    "version": "1.0.0",
+                    "profiles": {
+                        "l1_default": {
+                            "provider": "typesafe",
+                            "model": "jev-latest",
+                            "api_key_env": "TYPESAFE_API_KEY",
+                            "base_url": "https://api.typesafe.ai/v1/systemone",
+                            "max_tokens": 512,
+                            "temperature": 0.0,
+                        }
+                    },
+                    "safety": {
+                        "allowed_models": ["jev-latest"],
+                        "max_tokens_upper_bound": 128000,
+                        "max_temperature": 2.0,
+                        "min_temperature": 0.0,
+                    },
+                },
+                allow_unicode=True,
+            ),
+            encoding="utf-8",
+        )
+        monkeypatch.delenv("TYPESAFE_API_KEY", raising=False)
+
+        class _Audit:
+            def __init__(self) -> None:
+                self.calls: list[dict[str, object]] = []
+
+            def log_decision(self, action, capability_id, decision, reason="", actor="aegis", detail=None):
+                self.calls.append(
+                    {
+                        "action": action,
+                        "capability_id": capability_id,
+                        "decision": decision,
+                        "reason": reason,
+                        "actor": actor,
+                        "detail": detail or {},
+                    }
+                )
+
+        audit = _Audit()
+        issues = _audit_llm_profile_health(audit, LLMSettingsResolver(str(llm_yaml)))
+
+        assert len(issues) == 1
+        assert issues[0]["profile_id"] == "l1_default"
+        assert issues[0]["issue"] == "missing_api_key"
+        assert audit.calls[0]["action"] == "llm_profile_health"
+        assert audit.calls[0]["decision"] == "FAILED"
 
 
 # ── AuditEntry ────────────────────────────────────────────────

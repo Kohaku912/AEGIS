@@ -79,7 +79,7 @@ private data class Tab(val route: String, val label: String, val icon: ImageVect
 private val tabs = listOf(
     Tab("home", "Home", Icons.Outlined.Home),
     Tab("chat", "Chat", Icons.Outlined.ChatBubbleOutline),
-    Tab("approvals", "Approvals", Icons.Outlined.FactCheck),
+    Tab("approvals", "Confirm", Icons.Outlined.FactCheck),
     Tab("tasks", "Tasks", Icons.Outlined.Checklist),
     Tab("devices", "Devices", Icons.Outlined.Devices),
     Tab("permissions", "Permissions", Icons.Outlined.Security),

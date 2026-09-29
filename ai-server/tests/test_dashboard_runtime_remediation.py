@@ -168,8 +168,9 @@ def test_social_json_uses_decision_profile_token_limit(tmp_path: Path) -> None:
         {
             "prompt": "Decide how to handle this social item.",
             "system_prompt": (
-                "You are AEGIS SocialManager. Make a reasoned social decision "
-                "and return JSON only."
+                "You are AEGIS SocialManager. Teach socially restrained, "
+                "non-spammy behavior without turning it into rigid hard rules. "
+                "Make a reasoned social decision and return JSON only."
             ),
             "json_mode": True,
             "profile": "decision",
@@ -258,6 +259,33 @@ def test_recovered_server_connectivity_errors_are_not_active() -> None:
     assert [item["id"] for item in result["items"]] == ["android-permission"]
 
 
+def test_recovered_structured_connectivity_errors_are_not_active() -> None:
+    class Repair:
+        def list_history(self, limit=30):
+            return [
+                {
+                    "repair_id": "browser-timeout",
+                    "capability_id": "browser-server.page.read",
+                    "timestamp": 10,
+                    "error": "opaque failure",
+                    "final_result": "recorded",
+                    "detail": {"network_state": "offline"},
+                },
+            ]
+
+        def get_status(self):
+            return {}
+
+    class Status:
+        def get_snapshot(self):
+            return {
+                "browser-server": {"status": "ONLINE"},
+            }
+
+    result = _errors(SimpleNamespace(repair_manager=Repair(), status_manager=Status()))
+    assert result["items"] == []
+
+
 def test_recovered_capability_permission_errors_are_not_active() -> None:
     class Repair:
         def list_history(self, limit=30):
@@ -268,6 +296,41 @@ def test_recovered_capability_permission_errors_are_not_active() -> None:
                     "timestamp": 20,
                     "error": "Android permission missing: media_projection",
                     "final_result": "recorded",
+                },
+            ]
+
+        def get_status(self):
+            return {}
+
+    class Status:
+        def get_snapshot(self):
+            return {
+                "android-server": {
+                    "status": "ONLINE",
+                    "capability_health": {
+                        "android-server.screen.get_screenshot": {
+                            "available": True,
+                            "missing_permissions": [],
+                        }
+                    },
+                }
+            }
+
+    result = _errors(SimpleNamespace(repair_manager=Repair(), status_manager=Status()))
+    assert result["items"] == []
+
+
+def test_recovered_structured_permission_errors_are_not_active() -> None:
+    class Repair:
+        def list_history(self, limit=30):
+            return [
+                {
+                    "repair_id": "android-permission",
+                    "capability_id": "android-server.screen.get_screenshot",
+                    "timestamp": 20,
+                    "error": "opaque failure",
+                    "final_result": "recorded",
+                    "detail": {"requires_permission": True},
                 },
             ]
 

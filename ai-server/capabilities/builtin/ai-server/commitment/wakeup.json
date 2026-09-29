@@ -6,6 +6,12 @@
   "action": "wakeup",
   "operation_category": "commitment_wakeup",
   "risk": {"level": "low", "side_effects": [], "requires_approval": false},
+  "ownership_scope": "aegis",
+  "reversibility": "fully_reversible",
+  "destructive_effects": [],
+  "data_loss_risk": "none",
+  "active_work_loss_risk": "none",
+  "blast_radius": "single",
   "input_schema": {
     "type": "object",
     "properties": {
