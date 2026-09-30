@@ -26,6 +26,7 @@ from contextlib import nullcontext
 from pathlib import Path
 from typing import Any
 
+from aegis_ai.confirmation.models import ConfirmationStatus
 from aegis_ai.llm.json_utils import extract_json_object
 from aegis_ai.llm.memory_context import build_shared_memory_context
 from aegis_schema import safety_vocab
@@ -125,6 +126,7 @@ class AutonomousLoop:
         policy_engine: Any = None,
         audit_log: Any = None,
         task_manager: Any = None,
+        confirmation_store: Any = None,
         status_manager: Any = None,
         settings_resolver: Any = None,
         data_dir: str = "data/autonomous",
@@ -152,6 +154,13 @@ class AutonomousLoop:
         self._capability_retriever = None
         self._audit_log = audit_log
         self._task_manager = task_manager
+        #: Read-only here, on purpose. The loop may look at what the user *decided*
+        #: (``all`` / ``get`` / ``pending``) so a rejection can become an approval lesson;
+        #: it may never ask or answer. ``request`` / ``approve`` / ``reject`` / ``resolve``
+        #: belong to AEGIS-as-asker and to the user, and calling them from here would
+        #: rebuild the forced approval gate retired on 2026-09-27
+        #: (``tests/test_forced_gate_stays_retired.py`` pins that boundary).
+        self._confirmations = confirmation_store
         self._status_manager = status_manager
         self._data_dir = Path(data_dir)
         self._data_dir.mkdir(parents=True, exist_ok=True)
@@ -179,6 +188,13 @@ class AutonomousLoop:
         self._last_desire_check_ms: int = 0
         self._last_desire_signature: str = ""
         self._last_pressure_signature: str = ""
+        #: Approval ids already turned into an ``approval_lesson``. A rejected
+        #: confirmation stays in the store forever, so without this every cycle would
+        #: reflect the same rejection again — duplicating lessons, and (because the
+        #: readers charge ``0.2 * len(rejected)`` up to a 0.9 ceiling) inflating the
+        #: penalty until it pinned at the cap. Bounded and persisted with the rest of
+        #: the loop state.
+        self._reflected_approval_ids: set[str] = set()
         # Allow immediate fire when pressure crosses threshold (no artificial 60s gate).
         self._min_execution_interval_ms: int = int(
             os.environ.get("AEGIS_MIN_EXECUTION_INTERVAL_MS", "5000")
@@ -261,6 +277,9 @@ class AutonomousLoop:
                 self._last_candidate_capability_ids = data.get("last_candidate_capability_ids", [])
                 self._last_decision_axes = data.get("last_decision_axes", self._last_decision_axes)
                 self._consecutive_no_action = data.get("consecutive_no_action", 0)
+                raw_reflected = data.get("reflected_approval_ids", []) or []
+                if isinstance(raw_reflected, list):
+                    self._reflected_approval_ids = {str(x) for x in raw_reflected if x}
                 raw_no_effect = data.get("no_effect_counts", {}) or {}
                 if isinstance(raw_no_effect, dict):
                     self._no_effect_counts = {
@@ -295,6 +314,7 @@ class AutonomousLoop:
             "consecutive_no_action": self._consecutive_no_action,
             "no_effect_counts": dict(list(self._no_effect_counts.items())[-40:]),
             "capability_cooldowns": dict(list(self._capability_cooldowns.items())[-40:]),
+            "reflected_approval_ids": sorted(self._reflected_approval_ids)[-100:],
             "timestamp_ms": int(time.time() * 1000),
         }
         with open(state_path, "w", encoding="utf-8") as f:
@@ -1065,6 +1085,27 @@ class AutonomousLoop:
                 except Exception as e:
                     logger.warning("Reflection failed: %s", e)
 
+            # The other half of the growth loop: the user's rejection is a lesson about the
+            # desire it belonged to. One reflect() call per desire, because reflect()
+            # attributes every record it writes to a single ``source_desire``.
+            for desire, decisions in self._rejected_confirmations_by_desire().items():
+                try:
+                    self._reflection.reflect(
+                        task_id=f"confirmation_review_{desire}",
+                        task_description=f"User decisions on confirmations raised for {desire}",
+                        approval_decisions=decisions,
+                        source_desire=desire,
+                        desire_before=desire_before,
+                    )
+                except Exception as e:
+                    # Deliberately *not* marked as reflected: a transient failure must not
+                    # swallow the lesson permanently.
+                    logger.warning("Reflection on confirmations failed for %s: %s", desire, e)
+                    continue
+                self._reflected_approval_ids.update(
+                    str(decision.get("approval_id") or "") for decision in decisions
+                )
+
         self._update_desires(results)
         self._record_experiences(tasks, results)
         self._release_cycle_pressure(tasks, results)
@@ -1422,6 +1463,62 @@ class AutonomousLoop:
             reasons.append(f"{len(rejected)} approval rejection lesson(s) for {source_desire}")
         # Soften: never hard-skip via penalty >= 1.0; dampen score only.
         return min(penalty, 0.9), "; ".join(reasons)
+
+    def _rejected_confirmations_by_desire(self) -> dict[str, list[dict[str, Any]]]:
+        """Group the user's **rejected** confirmations by the desire they belong to.
+
+        This is the missing half of the growth loop. ``ReflectionEngine.reflect`` turns
+        ``approval_decisions`` into ``approval_lesson`` memories, and both penalty readers
+        (``_recent_failure_penalty`` here, ``MotivationArbiter._check_memory_penalties``)
+        find those records with ``search_memories(related_desire=...)``. A rejection is
+        therefore only *learnable* if something can say which desire it was about — and
+        until now nothing could: a ``ConfirmationRequest`` carried no desire, and this
+        module never looked at the confirmation store at all.
+
+        ``ConfirmationRequest.desire`` is LLM-supplied, so it is **validated here, against
+        the live desire set, before use**. An empty or unknown value is dropped. The
+        failure mode being avoided is *misattribution* — the user says no to one thing and
+        an unrelated desire gets punished — and a missing lesson is strictly better than a
+        wrong one.
+
+        Read-only by construction; see the note on ``self._confirmations``.
+        """
+        if self._confirmations is None or self._desire is None:
+            return {}
+
+        try:
+            items = self._confirmations.all(limit=200)
+        except Exception:
+            logger.debug("Failed to read confirmations", exc_info=True)
+            return {}
+
+        try:
+            known_desires = {str(name) for name in self._desire.get_all_desires()}
+        except Exception:
+            logger.debug("Failed to read the live desire set", exc_info=True)
+            return {}
+
+        grouped: dict[str, list[dict[str, Any]]] = {}
+        for item in items:
+            if str(getattr(item, "status", "") or "") != ConfirmationStatus.REJECTED.value:
+                continue
+            approval_id = str(getattr(item, "approval_id", "") or "")
+            # A rejection that has already become a lesson must not become a second one:
+            # the store keeps it forever, and the readers charge per record.
+            if not approval_id or approval_id in self._reflected_approval_ids:
+                continue
+            desire = str(getattr(item, "desire", "") or "")
+            if not desire or desire not in known_desires:
+                continue
+            grouped.setdefault(desire, []).append(
+                {
+                    "status": ConfirmationStatus.REJECTED.value,
+                    "approval_id": approval_id,
+                    "capability_id": str(getattr(item, "capability_id", "") or ""),
+                    "reason": str(getattr(item, "note", "") or getattr(item, "reason", "") or ""),
+                }
+            )
+        return grouped
 
     def _normalize_tool_call(
         self,

@@ -434,10 +434,11 @@ Audit logs are written to `data/settings_audit.jsonl`.
 
 ### Test Status
 
-Measured 2026-09-30 — `ai-server`, full suite:
+Measured 2026-10-01 — `ai-server`, full suite:
 
-- **Total tests**: **1885 passed / 8 skipped**
-  — the skip count fell from 30 to 8 because **B-6 deleted 22 settings fields** that were declared but
+- **Total tests**: **1889 passed / 8 skipped**
+  — the **+4** over the 2026-09-30 figure are **all new pins** (B-5①, the confirmation↔desire link; see
+  `PROJECT_STATUS_REVIEW.md` §0.1). The skip count fell from 30 to 8 because **B-6 deleted 22 settings fields** that were declared but
   read by nothing; their parametrized cases went with them. The **only** deliberately unread field left
   is `voice.push_to_talk_only`, recorded in `tests/test_ineffective_flags.py::_INTENTIONALLY_UNREAD`;
   the debt inventory `_UNOWNED_DEBT` is now **empty**, which is the point of the deletion rather than an

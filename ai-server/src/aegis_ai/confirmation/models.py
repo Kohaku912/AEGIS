@@ -81,6 +81,15 @@ class ConfirmationRequest:
     expected_effect: str = ""
     fresh_auth_required: bool = False
     task_id: str = ""
+    #: Which desire this question belongs to, when the asker knows.
+    #:
+    #: **LLM-supplied, and therefore untrusted.** It exists so the growth loop can
+    #: attribute a rejection to a desire — without it a resolved confirmation cannot be
+    #: linked to anything, and the "approval lesson" the penalty readers look for can
+    #: never be written. The value is carried verbatim here; the *reader*
+    #: (``AutonomousLoop``) validates it against the live desire set before using it, so
+    #: an unknown or empty value yields **no lesson** rather than a wrong one.
+    desire: str = ""
     step_id: str = ""
     request_id: str = ""
     status: str = ConfirmationStatus.PENDING.value

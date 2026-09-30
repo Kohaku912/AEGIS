@@ -90,8 +90,10 @@ class AegisRuntime:
     saved_view_manager: Any = None
     operation_store: Any = None
     # Phase 5a: AEGIS-initiated confirmations. Holds the questions AEGIS chose to ask
-    # the user and the answers it received. Nothing in the execution path consults it,
-    # so it can never block a capability — see `aegis_ai.confirmation`.
+    # the user and the answers it received. Nothing in the execution path *waits* on it,
+    # so it can never block a capability — see `aegis_ai.confirmation`. Since 2026-10-01
+    # the autonomous loop also *reads* it, to turn a rejection into an approval lesson;
+    # it never asks or answers, which is what keeps the forced gate retired.
     confirmation_store: Any = None
     personal_data_core: Any = None
     l1_router: Any = None
@@ -1635,6 +1637,7 @@ def _create_autonomous_loop(runtime: AegisRuntime) -> Any:
         policy_engine=runtime.policy_engine,
         audit_log=runtime.audit_log,
         task_manager=runtime.task_manager,
+        confirmation_store=runtime.confirmation_store,
         status_manager=runtime.status_manager,
         settings_resolver=runtime.settings_resolver,
         data_dir=os.path.join(data_dir, "autonomous"),

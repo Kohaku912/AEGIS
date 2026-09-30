@@ -75,12 +75,18 @@ _USER_ONLY_STORE_METHODS: tuple[str, ...] = (
 #: list on purpose: adding a reader is a decision that should require editing this
 #: test, because "who can see the questions" is exactly the question that matters.
 #: (Phase 5a's LLM-callable capability will be added here when it lands.)
+#:
+#: ``autonomous_loop.py`` joined on 2026-10-01 (B-5 ①). It imports only
+#: ``ConfirmationStatus`` — an enum — and reads the store through ``all()``, so it cannot
+#: block on an answer; ``test_the_loop_reads_the_confirmation_store_without_answering``
+#: pins exactly which methods it may call.
 _ALLOWED_IMPORTERS: frozenset[str] = frozenset(
     {
         "aegis_ai/confirmation/__init__.py",
         "aegis_ai/confirmation/store.py",
         "aegis_ai/runtime.py",
         "aegis_ai/web/routes/approval.py",
+        "aegis_ai/autonomous/autonomous_loop.py",
     }
 )
 
@@ -393,11 +399,11 @@ def test_the_permissions_gate_still_says_ask_approval(tmp_path) -> None:
     assert decision["requires_approval"] is True
 
 
-# ── the fourth surface: an approval-era argument that nothing supplies ────────
+# ── the fourth surface: the approval-era argument, now supplied by one caller ──
 #
-# ``ReflectionEngine.reflect`` still takes ``approval_decisions``. **No caller anywhere
-# passes it**, so every branch that reads it is unreachable — including the only
-# producer of ``approval_lesson`` memories.
+# ``ReflectionEngine.reflect`` still takes ``approval_decisions``. Until 2026-10-01 **no
+# caller anywhere passed it**, so every branch that reads it was unreachable — including
+# the only producer of ``approval_lesson`` memories.
 #
 # A-11 decided ③: keep the argument, but **pin and record** it. This is that record.
 # The point is that the surface must not change silently in *either* direction —
@@ -408,9 +414,18 @@ def test_the_permissions_gate_still_says_ask_approval(tmp_path) -> None:
 # **2026-09-30 — the record shape was repaired; the wiring deliberately was not.** The
 # producer used to write neither of the two keys its consumers query, so supplying the
 # argument alone would not have closed the growth loop. That half is fixed (register §3.1
-# item 4, holes ② and ③). The loop is still cut, but now at exactly one place — the caller —
-# which is the deliberate A-11 ③ state. The last tests therefore pin the **agreement**
-# between producer and consumers, so that a revert on either side trips them.
+# item 4, holes ② and ③). The loop was left cut at exactly one place — the caller — which
+# was the deliberate A-11 ③ state.
+#
+# **2026-10-01 — the caller was wired (B-5 ①, owner decision).** The blocker was that a
+# resolved confirmation could not be attributed to a desire, so feeding rejections through
+# would have punished an *unrelated* desire. Measuring it narrowed the link to two options
+# and killed neither; the owner chose to record the desire on the confirmation. So
+# ``AutonomousLoop`` now reads the store (read-only) and supplies the argument, grouped per
+# desire, dropping every confirmation whose ``desire`` is empty or absent from the live
+# desire set. The tests below therefore pin **three** things: that exactly one caller
+# supplies it, that the caller fails closed, and that the lesson it produces reaches both
+# readers.
 
 _REFLECTION_ENGINE = _SRC / "aegis_ai" / "reflection" / "reflection_engine.py"
 _TESTS = Path(__file__).resolve().parent
@@ -597,21 +612,45 @@ def test_the_engine_scan_is_not_vacuous() -> None:
     assert "reflect" in functions
 
 
-def test_no_caller_anywhere_supplies_approval_decisions() -> None:
-    """The argument is declared, read four ways, and supplied by nobody.
+#: Call sites that supply ``approval_decisions``. **Discovered by AST, never hand-listed for
+#: matching** — this map only supplies the *reason* each entry is expected, and an equality
+#: is asserted against the discovered set, so a second supplier is a deliberate edit.
+#:
+#: Until 2026-10-01 this set was **empty** and the pin asserted exactly that. B-5 ① was then
+#: decided (owner) and executed, so the record moves from "nobody supplies it" to "exactly
+#: one does, and it validates the desire first". A second entry is not automatically wrong,
+#: but it does change where the growth loop is fed, and the reason has to be written here.
+_RECORDED_APPROVAL_DECISION_CALLERS: dict[str, str] = {
+    "autonomous_loop.py": (
+        "the only supplier: _rejected_confirmations_by_desire() groups the user's rejected "
+        "confirmations by a desire it has checked against the live desire set"
+    ),
+}
 
-    ``tests/`` is scanned too, and deliberately: a test that passed it would make the
-    branches look live while production never did — and would quietly make this pin pass
-    for the wrong reason.
+
+def test_exactly_the_recorded_callers_supply_approval_decisions() -> None:
+    """Exactly one place feeds the growth loop, and the record names it.
+
+    Re-pointed 2026-10-01 (B-5 ①). This test previously asserted ``offenders == []`` —
+    "supplied by nobody" — which was the A-11 ③ state. Wiring it was an owner decision,
+    taken *after* measuring that the link had to be defined first (register §3.1 item 4).
+
+    ``tests/`` is scanned too, and deliberately: a test that supplied the argument would
+    make the branches look live while production never did — and would quietly make this
+    pin pass for the wrong reason.
     """
-    offenders = _calls_supplying("approval_decisions")
+    callers = _calls_supplying("approval_decisions")
+    discovered = {entry.split("/")[-1].split(":")[0] for entry in callers}
 
-    assert offenders == [], (
-        f"something now supplies approval_decisions: {offenders}. That makes all four "
-        "unreachable branches live, including the only producer of approval_lesson "
-        "memories. A-11 decided ③ (keep, pinned) — wiring it revives approval-decision "
-        "recording, which is a product call against D4=(b). Make it deliberately, then "
-        "re-measure the producer/reader contract below before updating this record."
+    assert discovered == set(_RECORDED_APPROVAL_DECISION_CALLERS), (
+        f"the set of call sites supplying approval_decisions changed: {sorted(discovered)} "
+        f"(expected {sorted(_RECORDED_APPROVAL_DECISION_CALLERS)}). This is the feed into the "
+        "growth loop — a second supplier, or the loss of the only one, moves where the loop "
+        "closes. Re-measure, then update this record deliberately."
+    )
+    assert len(callers) == 1, (
+        f"expected exactly one supplying call site, found {callers}. Two suppliers means two "
+        "paths into approval-lesson recording; decide which is authoritative."
     )
 
 
@@ -646,16 +685,16 @@ def test_the_detector_recognises_a_supplied_keyword(tmp_path) -> None:
     assert len(supplied) == 1, "the detector cannot see a supplied keyword; the scan is blind"
 
 
-def test_the_only_approval_lesson_producer_sits_behind_the_unsupplied_parameter() -> None:
-    """Why the producer is dead: its sole guard is the argument nobody passes.
+def test_the_only_approval_lesson_producer_is_guarded_by_the_argument() -> None:
+    """Why the producer is reachable now, and what still guards it.
 
-    This is the reachability link, asserted structurally rather than argued in prose. If
-    the loop is moved, or the producer hoisted out of it, the producer stops being guarded
-    by the dead parameter and this pin must be re-measured.
-
-    Two functions iterate the argument, and the split matters: ``reflect`` iterates it to
-    *produce* memories, ``_identify_root_cause`` to *classify*. Pinning the set keeps the
-    two from being confused for one another.
+    Re-pointed 2026-10-01 (B-5 ①) from "...sits behind the *unsupplied* parameter": the
+    argument is supplied now, so "unsupplied" is no longer the reason the producer is dead
+    — the reason it is *safe* is that the supplier drops every confirmation it cannot
+    attribute. The structural half is unchanged and still load-bearing: two functions
+    iterate the argument, and the split matters — ``reflect`` iterates it to *produce*
+    memories, ``_identify_root_cause`` to *classify*. Pinning the set keeps the two from
+    being confused for one another.
     """
     looping = _functions_looping_over("approval_decisions")
     assert looping == {"reflect", "_identify_root_cause"}, (
@@ -828,3 +867,171 @@ def test_the_penalty_readers_filter_on_a_key_the_producer_writes() -> None:
         "these modules filter on 'decision' but were not found as approval_lesson readers: "
         f"{sorted(filtering - set(_approval_lesson_readers()))}"
     )
+
+
+# ── B-5 ① (2026-10-01): the link that was missing, and its failure mode ────────
+#
+# The argument is supplied now, so the thing worth pinning changed: not "is it supplied"
+# but "can the supplier be wrong". It can — ``ConfirmationRequest.desire`` is LLM-supplied
+# — so the supplier drops anything it cannot attribute, and these tests hold that line.
+
+
+class _FakeDesires:
+    """Minimal stand-in for the desire system: the loop only calls get_all_desires()."""
+
+    def __init__(self, names: list[str]) -> None:
+        self._names = list(names)
+
+    def get_all_desires(self) -> dict[str, object]:
+        return {name: object() for name in self._names}
+
+
+def _loop_with(tmp_path, names: list[str]):
+    """A real loop over a real ConfirmationStore, with a stub desire system."""
+    from aegis_ai.autonomous.autonomous_loop import AutonomousLoop
+    from aegis_ai.confirmation import ConfirmationStore
+
+    confirmations = ConfirmationStore(str(tmp_path / "confirmations"))
+    loop = AutonomousLoop(
+        desire_system=_FakeDesires(names),
+        confirmation_store=confirmations,
+        data_dir=str(tmp_path / "autonomous"),
+    )
+    return loop, confirmations
+
+
+def test_a_rejection_is_only_learned_when_its_desire_is_real(tmp_path) -> None:
+    """The link fails **closed**: no desire, or an invented one, yields no lesson.
+
+    This is why B-5 ① needed a decision rather than a one-line wiring. Attributing a
+    rejection to a desire that did not raise it punishes an unrelated desire, and a wrong
+    penalty silently trains AEGIS against the wrong thing — whereas a missing lesson is
+    merely a loop that stays open, which is the state it was already in.
+    """
+    loop, confirmations = _loop_with(tmp_path, ["security"])
+
+    confirmations.request(summary="delete the logs?", desire="")
+    confirmations.request(summary="delete the logs?", desire="does-not-exist")
+    for item in confirmations.all(limit=10):
+        confirmations.reject(item.approval_id, decided_by="user")
+
+    assert loop._rejected_confirmations_by_desire() == {}, (
+        "an unattributable rejection became a lesson. The supplier must drop confirmations "
+        "whose desire is empty or absent from the live desire set."
+    )
+
+    # Positive control — without it, a supplier that always returned {} would pass.
+    confirmations.request(summary="delete the logs?", desire="security")
+    good = [
+        item
+        for item in confirmations.all(limit=10)
+        if item.desire == "security" and item.status == "pending"
+    ]
+    assert good, "the positive-control confirmation was not recorded"
+    confirmations.reject(good[0].approval_id, decided_by="user")
+
+    grouped = loop._rejected_confirmations_by_desire()
+    assert set(grouped) == {"security"}, f"a real desire was not learned: {grouped}"
+    assert len(grouped["security"]) == 1
+
+
+def test_a_rejection_is_reflected_once_not_every_cycle(tmp_path) -> None:
+    """A decided confirmation stays in the store forever, so the supplier must not re-emit it.
+
+    Without the record, every cycle would write another ``approval_lesson`` for the same
+    rejection. The readers charge ``0.2 * len(rejected)`` against a 0.9 ceiling, so a single
+    user decision would ratchet the penalty to the cap.
+    """
+    loop, confirmations = _loop_with(tmp_path, ["security"])
+    confirmations.request(summary="delete the logs?", desire="security")
+    item = confirmations.all(limit=10)[0]
+    confirmations.reject(item.approval_id, decided_by="user")
+
+    first = loop._rejected_confirmations_by_desire()
+    assert set(first) == {"security"}, f"the rejection was not learned at all: {first}"
+
+    loop._reflected_approval_ids.update(
+        str(decision.get("approval_id") or "") for decision in first["security"]
+    )
+    assert loop._rejected_confirmations_by_desire() == {}, (
+        "the same rejection would be reflected again on the next cycle"
+    )
+
+    # And the record has to survive a restart, or the loop re-learns everything on boot.
+    loop._save()
+    loop._reflected_approval_ids.clear()
+    loop._load()
+    assert item.approval_id in loop._reflected_approval_ids, (
+        "the already-reflected ids were not persisted, so a restart re-reflects every "
+        "rejection still in the store"
+    )
+
+
+def test_the_loop_reads_the_confirmation_store_without_answering() -> None:
+    """The loop may see what the user decided; it may never ask or answer.
+
+    Reading is the new half of B-5 ①. The boundary that must not move is the other
+    direction: calling ``request`` / ``approve`` / ``reject`` / ``resolve`` from the loop
+    would rebuild the forced approval gate retired on 2026-09-27.
+    """
+    tree = _parsed(_SRC / "aegis_ai" / "autonomous" / "autonomous_loop.py")
+
+    called = {
+        node.func.attr
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and isinstance(node.func.value, ast.Attribute)
+        and node.func.value.attr == "_confirmations"
+    }
+
+    assert called, "the loop no longer reads the confirmation store; re-measure this pin"
+    assert called <= {"all", "get", "pending", "pending_count"}, (
+        f"the loop calls more of the confirmation store than it may: {sorted(called)}. "
+        "request/approve/reject/resolve belong to AEGIS-as-asker and to the user — the loop "
+        "answering its own question is the retired gate."
+    )
+
+
+def test_a_rejected_confirmation_reaches_both_readers_through_the_loop(tmp_path) -> None:
+    """End to end through the **loop**: rejection -> lesson -> both readers charge.
+
+    The older end-to-end test drives ``reflect()`` directly, so it proves the producer and
+    the readers agree about the record — but not that anything supplies the producer. This
+    one starts from a rejected confirmation and runs the loop's own supplier, which is the
+    link B-5 ① was about, then asks both readers.
+    """
+    from aegis_ai.autonomous.motivation_arbiter import MotivationArbiter
+    from aegis_ai.memory.memory_manager import MemoryManager
+    from aegis_ai.memory.memory_store import MemoryStore
+    from aegis_ai.reflection.reflection_engine import ReflectionEngine
+
+    memory = MemoryStore(data_dir=str(tmp_path / "store"))
+    loop, confirmations = _loop_with(tmp_path, ["security"])
+    loop._reflection = ReflectionEngine(memory_store=memory)
+    loop._memory_manager = MemoryManager(memory_store=memory)
+
+    confirmations.request(
+        summary="Delete the old logs?",
+        capability_id="pc-server.files.delete",
+        desire="security",
+    )
+    item = confirmations.all(limit=10)[0]
+    confirmations.reject(item.approval_id, decided_by="user")
+
+    decisions = loop._rejected_confirmations_by_desire()["security"]
+    loop._reflection.reflect(
+        task_id="confirmation_review_security",
+        approval_decisions=decisions,
+        source_desire="security",
+    )
+
+    assert loop._recent_failure_penalty("security")[0] > 0.0, (
+        "the loop's own supplier produced a lesson the loop's own reader cannot see"
+    )
+    arbiter = MotivationArbiter(memory_store=memory)
+    assert arbiter._check_memory_penalties("t", "security")[0] > 0.0, (
+        "the arbiter cannot see the lesson the loop produced"
+    )
+    # Negative control: the charge must be scoped to the desire that was rejected.
+    assert loop._recent_failure_penalty("finance")[0] == 0.0

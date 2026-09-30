@@ -818,7 +818,10 @@ class AegisCoreCapabilityClient:
         return {"ok": False, "error": "Unsupported presentation capability"}
 
     #: Fields ``ai-server.confirmation.request`` accepts from the LLM. Everything the
-    #: dashboard renders is here; the store fills in ids and timestamps.
+    #: dashboard renders is here; the store fills in ids and timestamps. ``desire`` is the
+    #: exception on both counts — the dashboard does not render it, and it is carried
+    #: purely so the growth loop can attribute a rejection to a desire. The loop validates
+    #: it against the live desire set before use, because this value is LLM-supplied.
     _CONFIRMATION_FIELDS: ClassVar[tuple[str, ...]] = (
         "summary",
         "reason",
@@ -830,6 +833,7 @@ class AegisCoreCapabilityClient:
         "expected_effect",
         "side_effects",
         "task_id",
+        "desire",
         "step_id",
     )
 
