@@ -9,10 +9,18 @@
 > IDs (which resolve under no alias rule — `CapabilityCatalog` derives only `app.action` and
 > `<prefix>.app.action`), described an "Approval UI → execute" flow, and documented notification
 > machinery (`NotificationFilter`, a five-package authenticator denylist, an allowlist,
-> `contains_password_field`, `MockAndroidProvider`) that lives **only** in the orphaned
+> `contains_password_field`, `MockAndroidProvider`) that lived **only** in the orphaned
 > `ai-server/src/android_server_client.py`. Corrections are marked inline.
+>
+> ⚠️ **That module was deleted on 2026-09-29** (P1-5, the approval-era residue sweep). This document
+> was not updated at the time and said "lives in" throughout, so **every present-tense reference to
+> the module below has been corrected to past tense — the machinery is no longer in the
+> repository.** What it contained, and why it was deliberately not ported, is recorded in
+> `PROJECT_STATUS_REVIEW.md` §5.1 (*`android_server_client.py` の保全対象*); the code itself is
+> recoverable with `git show ebe1506^:ai-server/src/android_server_client.py`.
 
-> **Status**: rewritten 2026-09-28 to match the code
+> **Status**: rewritten 2026-09-28 to match the code; corrected 2026-09-30 after
+> `android_server_client.py` turned out to have been deleted
 > **Related**: [`android-server.md`](android-server.md), [`architecture.md`](architecture.md) §7
 
 ## Safety tiers are descriptive, not gates
@@ -124,22 +132,23 @@ The listener keeps at most `MAX_RECENT = 100` items.
 > ⚠️ **The notification redaction described in the previous revision is not in the live path.** The
 > `NotificationFilter` class, its card/email/phone/OTP patterns, the five-package denylist
 > (including `com.google.android.apps.authenticator`, `com.azure.authenticator`,
-> `com.duosecurity.duomobile`) and the "always allowed" allowlist all live in
-> **`ai-server/src/android_server_client.py`, which has zero importers** — the live Android path is
-> `aegis_ai/integrations/android/`, which contains no redaction or denylist logic. So
-> **2FA/authenticator notifications are not filtered by package** the way this document used to claim;
-> only the three packages above are. Whether to wire the richer filter up (or delete it) is an open
-> owner decision.
+> `com.duosecurity.duomobile`) and the "always allowed" allowlist all lived in
+> **`ai-server/src/android_server_client.py` — an orphaned module with zero importers, since deleted
+> (P1-5, 2026-09-29)**. The live Android path is `aegis_ai/integrations/android/`, which contains no
+> redaction or denylist logic. So **2FA/authenticator notifications are not filtered by package** the
+> way this document used to claim; only the three packages above are. **Whether to reimplement the
+> richer filter in the live path is an open owner decision** (register B-4); the original code is
+> recoverable from git history rather than rewritten from this description.
 
 ## UI tree and password fields
 
 - The UI tree may contain sensitive text (form fields, displayed content) and should not be logged
   without redaction.
 - `android-server.ui.type_text` is the input path and carries `audited_action`.
-- `contains_password_field()` — the recursive `is_password` walk documented previously — exists **only**
-  in the orphaned `android_server_client.py`, not in the live path. **Password-field refusal is
-  therefore not enforced server-side today**; the device-side accessibility service does not
-  re-check it either.
+- `contains_password_field()` — the recursive `is_password` walk documented previously — existed
+  **only** in `android_server_client.py` (deleted 2026-09-29), never in the live path.
+  **Password-field refusal is therefore not enforced server-side today**; the device-side
+  accessibility service does not re-check it either.
 
 ## Permission requirements
 
@@ -183,9 +192,9 @@ AEGIS Core
 
 ## Testing
 
-- `MockAndroidProvider` exists **only** in the orphaned `ai-server/src/android_server_client.py`; the
-  live integration is covered by `ai-server/tests/test_android_integration.py` against
-  `aegis_ai/integrations/android/`.
+- `MockAndroidProvider` existed **only** in `ai-server/src/android_server_client.py` (deleted
+  2026-09-29); the live integration is covered by `ai-server/tests/test_android_integration.py`
+  against `aegis_ai/integrations/android/`.
 - The `android_local` marker is **not** registered in `pyproject.toml` — the previous revision
   advertised it, but no test uses it. Android-side tests live in `android-server/app/src/test/`.
 - No secrets, tokens, or credentials should appear in test fixtures.
