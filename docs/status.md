@@ -34,7 +34,15 @@ deliberately *not* repeated here — a quantity written in two places goes stale
 | Room Server | Python | 50055 | IoT / sensor data |
 | Dashboard | Flask | 8090 | Web UI, chat, monitoring |
 
-Android builds are **not compile-verified on the dev machine** (no JDK). Static checks only.
+Android builds **are** compile-verified on the dev machine. The toolchain has been installed since
+2026-09-25 — JDK 17 (`~/.workbuddy-ai/binaries/jdk17/jdk-17.0.20.1+1`) and the Android SDK
+(`~/AppData/Local/Android/Sdk`, platform `android-35`) — and `BUG_REPORT.md` ("android-server: 実ビルドで
+§36 を検証") already records that installation and a `BUILD SUCCESSFUL`. It is simply **not on `PATH`**
+with the env vars unset, which is why an earlier record read "no JDK": `command -v java` looks only at
+`PATH`, so it reports an installed tool as absent. Re-measured 2026-09-30: `:app:compileDebugKotlin`
+executes and `:app:assembleDebug` produces `app/build/outputs/apk/debug/app-debug.apk`
+(21,024,388 bytes). **On-device** verification is still out of scope: no device is attached
+(`adb devices` is empty). The exact command is in the `aegis-verify-and-test` skill, §2.
 
 ## Retired — do not go looking for it
 

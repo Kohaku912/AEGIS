@@ -1323,6 +1323,11 @@ POST は `X-CSRF-Token` 必須、`/approve` `/modify-and-approve` `/cancel` は�
 > （`JAVA_HOME` 未設定、`java.exe` 不在）。静的な記号検査では削除済み proto シンボルの
 > 参照はゼロ。
 >
+> **追記（2026-09-30）— 検証済みになった。** JDK 17（`~/.workbuddy-ai/binaries/jdk17/…`）と
+> Android SDK（`~/AppData/Local/Android/Sdk`）は**入っており**、`PATH` に無いだけだった。
+> `:app:compileDebugKotlin` が**実行**され、`:app:assembleDebug` が `app-debug.apk`
+> （21,024,388 bytes、sha256 `6c5d0eda…`）を生成した。上の「JDK が無い」は**当時の測定**で、今は偽。
+>
 > **副産物**: 死んでいた重複スタブパッケージ `ai-server/src/aegis/`（6 ファイル、git 追跡下）を削除。
 > これは `generated/aegis/` の**不完全な**コピー（`common` と `room_server` のみ）で、
 > しかも `ApprovalStatus`/`ApprovalType`/`ASK_APPROVAL` を**生きたメンバーとして**保持していた

@@ -80,6 +80,10 @@ web-ui `tsc -b` clean、vitest **134 passed**。`cargo check --all-targets` clea
 **注意（未検証）**: Android の Kotlin コンパイルは**このマシンに JDK が無いため未検証**
 （`JAVA_HOME` 未設定・`java.exe` 不在）。静的な記号検査では削除済み proto シンボルの参照はゼロ。
 
+> **追記（2026-09-30）— 検証済みになった。** JDK 17 と Android SDK は**入っており**（`PATH` に
+> 無いだけ）、`:app:compileDebugKotlin` が実行され `:app:assembleDebug` が `app-debug.apk`
+> （21,024,388 bytes）を生成した。上の記述は**当時の測定**。**実機確認は未実施**（デバイス未接続）。
+
 ### 実装中に新たに判明した未着手の面
 
 | 面 | 状態 |

@@ -554,6 +554,10 @@ for server_id, old_status, new_status in pending_changes:   # ロック解放後
 **修正**: キャプチャ＋push を専用の single-thread executor に委譲。`AtomicBoolean` で多重投入を防止し、`onDestroy` で `shutdownNow()`。イベント自体は従来どおり失われない（キャプチャ実行中はスクリーンショット無しで即 push）。
 
 > 注: 本環境には Android SDK / JDK が無いため**コンパイル検証は未実施**（手動レビューとブレース整合チェックのみ）。実機/CI でのビルド確認を推奨。
+>
+> **追記（2026-09-30）**: ツールチェーンが導入済みであることを実測し、**コンパイル検証を実施した** —
+> `:app:compileDebugKotlin` が実行され、`:app:assembleDebug` が `app-debug.apk`（21,024,388 bytes）を
+> 生成。上の「無いため未実施」は**当時の測定**。**実機確認は依然として未実施**（`adb devices` は空）。
 
 ---
 
