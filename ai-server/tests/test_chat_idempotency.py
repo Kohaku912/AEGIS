@@ -36,13 +36,13 @@ def test_chat_request_id_prevents_duplicate_execution(monkeypatch) -> None:
             tool_broker=SimpleNamespace(_catalog=object()),
             llm_gateway=object(),
         ),
-        _append_chat_history=lambda *_args: None,
+        _append_chat_history=lambda *_args, **_kwargs: None,
         _chat_history_path="unused.jsonl",
     )
     calls = []
     monkeypatch.setattr(
         "aegis_ai.web.routes.chat._build_chat_system_prompt",
-        lambda text: ("system", {}, text),
+        lambda text, **_kwargs: ("system", {}, text),
     )
     monkeypatch.setattr(
         "aegis_ai.web.routes.chat._call_llm_with_runtime",
@@ -72,10 +72,10 @@ def test_chat_accepts_legacy_message_field(monkeypatch) -> None:
             tool_broker=SimpleNamespace(_catalog=object()),
             llm_gateway=object(),
         ),
-        _append_chat_history=lambda *_args: None,
+        _append_chat_history=lambda *_args, **_kwargs: None,
         _chat_history_path="unused.jsonl",
     )
-    monkeypatch.setattr("aegis_ai.web.routes.chat._build_chat_system_prompt", lambda text: ("system", {}, text))
+    monkeypatch.setattr("aegis_ai.web.routes.chat._build_chat_system_prompt", lambda text, **_kwargs: ("system", {}, text))
     monkeypatch.setattr(
         "aegis_ai.web.routes.chat._call_llm_with_runtime",
         lambda *_args, **_kwargs: {"response": "ok", "tool_results": []},

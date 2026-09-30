@@ -388,7 +388,8 @@ git ls-remote origin refs/heads/cf-grpc-and-goal-hygiene refs/heads/main \
 | vision のローカル代替 | ❌ `llm.yaml` が Aliyun を指したまま。egress ゲートが止めるため**視覚機能は実質不可**（オーナー判断で「ローカル LLM は追わない」ため許容） |
 | gRPC TLS | ⚠️ `security/tls_config.py` はあるが gRPC 統合が未完（Tailscale 前提） |
 | Room 実機 | ❌ `UNCONFIGURED/DISABLED`（Orange Pi の実プロバイダ待ち）。`GetEnvironment` は**ハードコード fixture を返す** |
-| cross-device context 共有 / 端末オフライン時の縮退 | ❌ 未着手 |
+| cross-device context 共有 | ✅ **実装**（2026-09-30）— chat history は全サーフェス共通の**ローカル 1 ファイル**で、各エントリが `source`（デバイス）を持つ。プロンプトを **conversation 単位**に絞り、各ターンにデバイス名を付ける（`web/chat_history.py` の `conversation_entries` / `context_excerpt`）。**他会話は混入せず、会話 id の無いエントリは決して混ぜない**。dashboard は `conversation_id` を**受理して再利用**する（以前はリクエストごとに新規採番していたため、そもそも会話を継続できなかった） |
+| 端末オフライン時の縮退 | ❌ **v1 に入れない**（`DECISION_DRAFTS.md` C-2: 複雑さの割に北極星へ寄与しない） |
 | 音声 I/O（STT/TTS） | ✅ **実装**（2026-09-30）— ローカル TTS は `integrations/local_tts.py`（Windows `sapi` で実測、日本語 132,734 バイト）、ローカル STT は `integrations/stt_service.py`（`faster-whisper` は**この環境に未インストール**）。外部 TTS は egress の許可制を通る。**残り**: wake word・ハブの音声チャネル・`push_to_talk_only` の強制（フィールドは依然として読み手ゼロ） |
 | 外部メッセージング（LINE / Discord / SMTP） | ✅ 実装 — 3 チャネルとも **egress ゲート経由**で、既定では拒否される（`notification/channels/{line,discord,email}.py` + 共通の `outbound.py`）。許可は standing（master switch + `privacy.external_messaging_allowed` + allowlist）か**記録済み grant**。Webhook は `WebhookSender` が `personal_ai/social_proxy.py` で使われているが `NotificationRouter` 経由ではない。`interaction/channels/{line,discord}.py` は**内向き**の置物（外向きは実装済み） |
 | multi-user / plugin marketplace | ❌ 未着手（v1 スコープ外） |

@@ -104,3 +104,84 @@ def entries_to_mobile_messages(entries: list[dict[str, Any]]) -> list[dict[str, 
     for entry in entries:
         messages.extend(entry_to_mobile_messages(entry))
     return messages
+
+
+# ── Cross-device context ──────────────────────────────────────────────────────
+#
+# The chat history is one local file shared by every surface (dashboard, mobile, …), and each
+# entry carries the ``source`` that wrote it. That is enough to give the **assistant** the same
+# continuity the UI already has: the context of a conversation is not the context of a device.
+#
+# Both helpers below are pure — they read the entries they are handed and touch no I/O — so the
+# cross-device behaviour can be tested without a server or a file.
+
+#: Used when an entry was written by a caller that did not say which device it was.
+UNKNOWN_DEVICE = "unknown device"
+
+
+def device_label(entry: dict[str, Any]) -> str:
+    """Which device produced this entry.
+
+    ``source`` is written by the callers that know ("dashboard", "android", …). An entry
+    without one is labelled rather than left blank, so the prompt never shows an
+    unattributed turn as if it were the current device's.
+    """
+    return str(entry.get("source", "") or "").strip() or UNKNOWN_DEVICE
+
+
+def conversation_entries(
+    entries: list[dict[str, Any]],
+    *,
+    conversation_id: str,
+    limit: int = 8,
+) -> list[dict[str, Any]]:
+    """The most recent entries of one conversation, from every device that took part.
+
+    Cross-device context is scoped to the **conversation**, not to the device: a turn typed on
+    the dashboard and a turn typed on the phone are the same conversation, so both are returned.
+
+    An entry with no ``conversation_id`` is **never** matched. It cannot be attributed to a
+    conversation, and folding an unattributable turn into one would invent a continuity the
+    record does not support.
+    """
+    if not conversation_id or limit <= 0:
+        return []
+    matched = [
+        entry
+        for entry in entries
+        if str(entry.get("conversation_id", "") or "") == conversation_id
+    ]
+    return matched[-limit:]
+
+
+def context_excerpt(
+    entries: list[dict[str, Any]],
+    *,
+    conversation_id: str = "",
+    limit: int = 5,
+) -> tuple[str, str]:
+    """Build the continuity excerpt for the chat prompt, and name the scope that produced it.
+
+    Returns ``(excerpt, scope)``. ``scope`` is ``"conversation"`` when the excerpt is one
+    conversation's turns — possibly across several devices — or ``"recent"`` when it fell back
+    to the most recent turns overall. The caller needs the scope because the two are different
+    instructions to the model: a conversation continues, a recent excerpt is background only.
+
+    ``entries`` must already have internal bookkeeping entries removed; this function does not
+    know which entries those are.
+    """
+    scoped = conversation_entries(entries, conversation_id=conversation_id, limit=limit)
+    if scoped:
+        lines = [
+            f"[{device_label(entry)}] Past user: {entry.get('user', '')}\n"
+            f"[{device_label(entry)}] Past AEGIS: {str(entry.get('bot', ''))[:200]}"
+            for entry in scoped
+        ]
+        return "\n".join(lines), "conversation"
+
+    recent = entries[-limit:] if limit > 0 else []
+    lines = [
+        f"Past user: {entry.get('user', '')}\nPast AEGIS: {str(entry.get('bot', ''))[:200]}"
+        for entry in recent
+    ]
+    return "\n".join(lines), "recent"

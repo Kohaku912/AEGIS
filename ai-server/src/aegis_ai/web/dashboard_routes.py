@@ -31,10 +31,10 @@ _server_status_context_for_prompt = _legacy._server_status_context_for_prompt
 # and uses task_manager.create_task through the split route shell.
 
 
-def _build_chat_system_prompt(user_message: str):
+def _build_chat_system_prompt(user_message: str, *, conversation_id: str = ""):
     _legacy.build_shared_memory_context = build_shared_memory_context
     _legacy._server_status_context_for_prompt = _server_status_context_for_prompt
-    return _legacy._build_chat_system_prompt(user_message)
+    return _legacy._build_chat_system_prompt(user_message, conversation_id=conversation_id)
 
 
 class DashboardApp(_legacy.DashboardApp):

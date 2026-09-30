@@ -53,7 +53,9 @@ def execute_chat_message(
             logger.debug("Failed to create chat task", exc_info=True)
 
     try:
-        system_prompt, memory_meta, _ = _build_chat_system_prompt(clean_text)
+        system_prompt, memory_meta, _ = _build_chat_system_prompt(
+            clean_text, conversation_id=conversation_id
+        )
         memory_meta = dict(memory_meta)
         memory_meta.update(
             {

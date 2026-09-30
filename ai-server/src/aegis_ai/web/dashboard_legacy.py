@@ -35,7 +35,7 @@ from flask import Flask, jsonify, request
 from aegis_ai.capability_catalog import aligned_policy, normalize_risk_label
 from aegis_ai.llm.memory_context import build_shared_memory_context
 from aegis_ai.web.auth import install_dashboard_token_auth
-from aegis_ai.web.chat_history import ChatHistoryStore, entry_to_mobile_messages
+from aegis_ai.web.chat_history import ChatHistoryStore, context_excerpt, entry_to_mobile_messages
 
 logger = logging.getLogger("aegis_ai.web.dashboard")
 
@@ -449,22 +449,35 @@ def _is_internal_chat_history_entry(entry: dict[str, Any]) -> bool:
     return user_text.startswith("Previous task:")
 
 
-def _build_chat_system_prompt(user_message: str) -> tuple[str, dict[str, Any], str]:
+def _build_chat_system_prompt(
+    user_message: str, *, conversation_id: str = ""
+) -> tuple[str, dict[str, Any], str]:
     memory_context = build_shared_memory_context(
         query=user_message,
         data_dir=_DATA_DIR,
         profile="decision",
     )
-    history = _load_chat_history_entries()
+    history = [item for item in _load_chat_history_entries() if not _is_internal_chat_history_entry(item)]
+    excerpt, scope = context_excerpt(history, conversation_id=conversation_id)
     history_context = ""
-    if history:
-        recent = [item for item in history if not _is_internal_chat_history_entry(item)][-5:]
-        history_context = (
-            "\nPrevious conversation excerpt for continuity only. "
-            "Do not continue old tasks unless the current user request explicitly asks you to:\n"
-        )
-        for item in recent:
-            history_context += f"Past user: {item.get('user', '')}\nPast AEGIS: {item.get('bot', '')[:200]}\n"
+    if excerpt:
+        if scope == "conversation":
+            # The same conversation, resumed — possibly on a different device. This is the
+            # cross-device case: the bracketed label says which device each turn came from,
+            # and the instruction is to treat it as one continuous conversation rather than
+            # as background, which is the opposite of the fallback below.
+            history_context = (
+                "\nThis conversation so far, in order. The bracketed label is the device the "
+                "user was using; they may have moved between devices mid-conversation, and it "
+                "is still one continuous conversation:\n"
+                f"{excerpt}\n"
+            )
+        else:
+            history_context = (
+                "\nPrevious conversation excerpt for continuity only. "
+                "Do not continue old tasks unless the current user request explicitly asks you to:\n"
+                f"{excerpt}\n"
+            )
 
     system_prompt = (
         "You are AEGIS, a trusted multi-device agent acting for the user on Windows.\n\n"

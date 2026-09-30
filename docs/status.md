@@ -50,13 +50,25 @@ Pins that keep this true: `ai-server/tests/test_goal_change_guard.py` (the delet
 deleted) and `ai-server/tests/test_forced_gate_stays_retired.py` (no live path can reach a gate — this
 also covers the unwired `aegis_ai/permissions/` service-permission gate).
 
+## Implemented (moved out of "Not started", 2026-09-30)
+
+These were listed as not started; the owner moved them into v1 and they are now real.
+
+- **External messaging** — LINE push, Discord webhook, SMTP (`notification/channels/`). All three
+  send for real and are refused by the egress gate until the user permits the destination. The
+  webhook path is `integrations/webhook_sender.py`, used by `personal_ai/social_proxy.py`.
+- **Voice I/O** — local STT/TTS engines (`integrations/stt_service.py`, `integrations/local_tts.py`),
+  plus the permission-gated external TTS path.
+- **Cross-device context sharing** — the chat history is one local file shared by every surface, and
+  the chat prompt is now scoped to the **conversation** with each turn labelled by the device that
+  produced it (`web/chat_history.py`), so context follows the user between the dashboard and the
+  phone.
+
 ## Not started
 
-- **Real external messaging**: LINE, Discord, SMTP, webhook — represented at the interface level only.
-- **Voice**: push-to-talk STT, TTS.
 - **Multi-user** and multi-tenant isolation.
-- **Cross-device context sharing**.
-- **Graceful device-offline handling**.
+- **Graceful device-offline handling** — deliberately **not** in v1 (see `DECISION_DRAFTS.md` C-2:
+  not worth the complexity relative to the north star).
 - **Room real sensor provider** — Room stays `UNCONFIGURED/DISABLED` until a real Orange Pi provider
   replaces the development mock.
 

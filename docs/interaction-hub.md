@@ -50,6 +50,26 @@ Response → User
 | Discord | Inbound not implemented | Outbound sending is implemented, gate-refused until permitted |
 | Voice | Engines only | Local STT/TTS exist (`docs/voice-io.md`); no hub channel is wired |
 
+## Cross-device context
+
+The chat history is **one local file** shared by every surface (`data/chat_history.jsonl`, via
+`web/chat_history.py`), and each entry records the `source` that wrote it. The assistant's prompt is
+therefore scoped to the **conversation**, not to the device:
+
+- Every turn of the conversation is included, whichever device produced it, each labelled with that
+  device — so the model can see the user moved from the dashboard to the phone mid-conversation.
+- Turns of a **different** conversation are never included.
+- An entry with **no** `conversation_id` is never matched. It cannot be attributed to a conversation,
+  and folding it into one would invent a continuity the record does not support.
+- With no `conversation_id` at all, the previous behaviour is kept: a recent-turns excerpt framed as
+  background only.
+
+A client joins a conversation by sending its id (`conversation_id` in `POST /api/chat/send`); the
+server echoes the id it actually used, so a client that sent none can keep it and continue from
+another device. Nothing here leaves the local environment.
+
+**Device-offline degradation is deliberately out of v1** — see `DECISION_DRAFTS.md` C-2.
+
 ## Intent Classification
 
 **All intent classification is LLM-driven** — no keyword matching, no regex patterns.
