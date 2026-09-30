@@ -427,7 +427,7 @@ Audit logs are written to `data/settings_audit.jsonl`.
 
 Measured 2026-09-30 — `ai-server`, full suite:
 
-- **Total tests**: **1777 passed / 30 skipped**
+- **Total tests**: **1776 passed / 30 skipped**
   — of the skips, **22 are recorded debt**: settings fields that are declared but have no reader,
   enumerated with a reason in `tests/test_ineffective_flags.py::_UNOWNED_DEBT` (23 fields are recorded
   unread in total: those 22 plus one intentionally unread). That detector now

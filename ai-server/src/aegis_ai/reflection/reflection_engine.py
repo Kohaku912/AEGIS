@@ -27,6 +27,12 @@ _OUTCOME_DENIED = "denied"
 _OUTCOME_REJECTED = "rejected"
 _OUTCOME_UNVERIFIED = "unverified"
 
+#: The value the penalty readers compare ``structured_data["decision"]`` against, and the
+#: guard that produces the record in the first place. Deliberately *not* ``_OUTCOME_REJECTED``:
+#: the outcome vocabulary and the decision vocabulary share this spelling today, but they are
+#: two lists, and coupling them would let a rename of one silently move the other.
+_DECISION_REJECTED = "rejected"
+
 
 class ReflectionEngine:
     """Analyzes task outcomes and produces ReflectionResult with lessons."""
@@ -88,7 +94,7 @@ class ReflectionEngine:
             ))
 
         for dec in approval_decisions:
-            if dec.get("status") == "rejected":
+            if dec.get("status") == _DECISION_REJECTED:
                 memory_records.append(MemoryRecord(
                     memory_type=MemoryType.APPROVAL_LESSON.value,
                     title=f"Approval rejected: {dec.get('capability_id', '')}",
@@ -96,6 +102,15 @@ class ReflectionEngine:
                     source=MemorySource.APPROVAL_DECISION.value,
                     related_approval_id=dec.get("approval_id", ""),
                     related_task_id=task_id,
+                    # The two penalty readers — ``autonomous_loop._recent_failure_penalty``
+                    # and ``motivation_arbiter._check_memory_penalties`` — find this record
+                    # with ``search_memories(related_desire=...)`` and then keep only the
+                    # ones whose ``structured_data["decision"]`` is "rejected". Writing
+                    # neither key left the record invisible to both of them, so supplying
+                    # ``approval_decisions`` alone would not have closed the growth loop.
+                    # See PROJECT_STATUS_REVIEW.md §3.1 item 4.
+                    related_desire=source_desire,
+                    structured_data={"decision": _DECISION_REJECTED},
                     confidence=0.9,
                     importance=0.8,
                     visibility=Visibility.LLM_VISIBLE.value,

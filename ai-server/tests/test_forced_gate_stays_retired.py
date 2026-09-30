@@ -397,8 +397,7 @@ def test_the_permissions_gate_still_says_ask_approval(tmp_path) -> None:
 #
 # ``ReflectionEngine.reflect`` still takes ``approval_decisions``. **No caller anywhere
 # passes it**, so every branch that reads it is unreachable — including the only
-# producer of ``approval_lesson`` memories, which is why that memory type has been empty
-# for the whole life of the code.
+# producer of ``approval_lesson`` memories.
 #
 # A-11 decided ③: keep the argument, but **pin and record** it. This is that record.
 # The point is that the surface must not change silently in *either* direction —
@@ -406,9 +405,12 @@ def test_the_permissions_gate_still_says_ask_approval(tmp_path) -> None:
 # the boundary where the forced gate stays deleted but the voluntary ask stays?), and
 # deleting it is a separate decision. Both must trip this file.
 #
-# The subtle part, and the reason this pin does not stop at counting readers: the
-# producer and its consumers **disagree about the record shape**, so supplying the
-# argument alone would still not close the loop. See the last two tests.
+# **2026-09-30 — the record shape was repaired; the wiring deliberately was not.** The
+# producer used to write neither of the two keys its consumers query, so supplying the
+# argument alone would not have closed the growth loop. That half is fixed (register §3.1
+# item 4, holes ② and ③). The loop is still cut, but now at exactly one place — the caller —
+# which is the deliberate A-11 ③ state. The last tests therefore pin the **agreement**
+# between producer and consumers, so that a revert on either side trips them.
 
 _REFLECTION_ENGINE = _SRC / "aegis_ai" / "reflection" / "reflection_engine.py"
 _TESTS = Path(__file__).resolve().parent
@@ -686,18 +688,19 @@ def test_the_only_approval_lesson_producer_sits_behind_the_unsupplied_parameter(
     )
 
 
-def test_the_producer_omits_the_keys_its_readers_query() -> None:
-    """The producer and its consumers disagree about the record shape.
+def test_the_producer_writes_the_keys_its_readers_query() -> None:
+    """The producer and its consumers must agree about the record shape.
 
-    **This is why wiring ``approval_decisions`` alone does not close the growth loop.**
-    Two of the three readers search by ``related_desire`` *and* filter on
-    ``structured_data["decision"]``; the producer sets neither. Only ``context_builder``,
-    which filters on the memory type alone, would start seeing records — so the loop would
-    still not close, and it would look like the fix had failed.
+    Two of the three readers search by ``related_desire`` *and* keep only the records whose
+    ``structured_data["decision"]`` is "rejected". The producer used to set **neither**, so
+    the record was invisible to both of them: wiring ``approval_decisions`` would have looked
+    like a failed fix, and only ``context_builder`` — which filters on the memory type alone —
+    would have started seeing records.
 
-    The assertion is deliberately written against the *disagreement*: repairing either
-    side has to trip this, which is what forces the register's B-5 and A-11 rows to be
-    re-measured in the same change.
+    Repaired 2026-09-30 (register §3.1 item 4, holes ② and ③). The pin is now written against
+    the *agreement*: dropping either key from the producer trips it. The end-to-end test below
+    is the stronger one because it runs the readers; this one names the two keys, so a failure
+    here says which half broke.
     """
     producer_keywords = {kw.arg for kw in _approval_lesson_producer().keywords}
 
@@ -706,28 +709,115 @@ def test_the_producer_omits_the_keys_its_readers_query() -> None:
 
     desire_readers = sorted(name for name, kws in readers.items() if "related_desire" in kws)
     assert desire_readers, (
-        "no reader searches approval_lesson by related_desire any more — the mismatch this "
-        "pin records is gone. Re-measure the loop and update this record."
+        "no reader searches approval_lesson by related_desire any more. Either the readers "
+        "changed or the scan went blind — re-measure the loop and update this record."
     )
 
     assert "related_approval_id" in producer_keywords, (
         "the producer no longer records which decision it came from"
     )
-    assert "related_desire" not in producer_keywords, (
-        "the producer now sets related_desire. That is one of the two keys its consumers "
-        f"need ({desire_readers}), so the loop may be closer to closing than this record "
-        "says. Re-measure which readers can now see the record, then update this pin and "
-        "the register's A-11 / B-5 rows."
+    assert "related_desire" in producer_keywords, (
+        f"the producer stopped setting related_desire, which {desire_readers} search by — "
+        "the record is invisible to them again. See PROJECT_STATUS_REVIEW.md §3.1 item 4."
     )
-    assert "structured_data" not in producer_keywords, (
-        "the producer now sets structured_data. Both penalty readers filter on "
-        'structured_data["decision"], so this is the change that would make them work — '
-        "re-measure and update this pin (and A-11 / B-5 in the register)."
+    assert "structured_data" in producer_keywords, (
+        "the producer stopped setting structured_data. Both penalty readers keep only the "
+        'records whose structured_data["decision"] is "rejected", so they go blind again. '
+        "See PROJECT_STATUS_REVIEW.md §3.1 item 4."
     )
 
 
-def test_the_penalty_readers_filter_on_a_key_the_producer_never_writes() -> None:
-    """Name the second half of the mismatch, so neither side can drift unobserved."""
+def test_a_rejected_decision_reaches_both_penalty_readers(tmp_path) -> None:
+    """End to end: the real producer, the real store, both real readers.
+
+    **This is the pin that can see a value mismatch.** The structural test above only shows
+    that the two sides *name* the same keys; they could name the same keys and still disagree
+    about what ``decision`` holds. So this one runs ``ReflectionEngine.reflect`` and then the
+    two penalty readers themselves, and asserts that each charges something.
+
+    Nothing supplies ``approval_decisions`` in production yet (A-11 ③), so **no other test
+    exercises this path at all** — which is precisely why it is pinned here rather than left
+    to an integration suite that would report nothing.
+
+    The negative controls carry the weight: the same query under a *different* desire must
+    find nothing, and an ``approved`` decision must produce no record. Without them, a reader
+    that ignored its arguments entirely would pass.
+    """
+    from aegis_ai.autonomous.autonomous_loop import AutonomousLoop
+    from aegis_ai.autonomous.motivation_arbiter import MotivationArbiter
+    from aegis_ai.memory.memory_manager import MemoryManager
+    from aegis_ai.memory.memory_store import MemoryStore
+    from aegis_ai.reflection.reflection_engine import ReflectionEngine
+
+    store = MemoryStore(data_dir=str(tmp_path / "store"))
+    ReflectionEngine(memory_store=store).reflect(
+        task_id="t1",
+        approval_decisions=[
+            {
+                "status": "rejected",
+                "capability_id": "pc-server.files.delete",
+                "reason": "not now",
+                "approval_id": "ap1",
+            }
+        ],
+        source_desire="security",
+    )
+
+    # The query both readers make, verbatim.
+    found = store.search_memories(
+        memory_type="approval_lesson",
+        related_desire="security",
+        min_importance=0.5,
+        limit=3,
+    )
+    assert len(found) == 1, (
+        "the producer's approval_lesson is not visible to the query both readers make "
+        f"({len(found)} found) — the growth loop would stay open even once a caller supplies "
+        "approval_decisions"
+    )
+    assert found[0].structured_data.get("decision") == "rejected", (
+        "the record is found but carries a different decision value than the readers compare "
+        f"against: {found[0].structured_data!r}"
+    )
+
+    arbiter = MotivationArbiter(memory_store=store)
+    penalty, reason = arbiter._check_memory_penalties("t2", "security")
+    assert penalty > 0.0, f"the arbiter no longer penalizes a rejected desire: {reason!r}"
+
+    loop = AutonomousLoop(data_dir=str(tmp_path / "autonomous"))
+    loop._memory_manager = MemoryManager(memory_store=store)
+    penalty, reason = loop._recent_failure_penalty("security")
+    assert penalty > 0.0, f"the autonomous loop no longer penalizes a rejected desire: {reason!r}"
+
+    # Negative controls — the readers must be matching on something, not merely returning rows.
+    other = store.search_memories(
+        memory_type="approval_lesson",
+        related_desire="finance",
+        min_importance=0.5,
+        limit=3,
+    )
+    assert other == [], "the record is visible under an unrelated desire; related_desire is ignored"
+    assert loop._recent_failure_penalty("finance")[0] == 0.0
+    assert arbiter._check_memory_penalties("t3", "finance")[0] == 0.0
+
+    empty = MemoryStore(data_dir=str(tmp_path / "store2"))
+    ReflectionEngine(memory_store=empty).reflect(
+        task_id="t4",
+        approval_decisions=[{"status": "approved", "capability_id": "x"}],
+        source_desire="security",
+    )
+    assert empty.search_memories(memory_type="approval_lesson", limit=10) == [], (
+        "an approved decision now produces an approval_lesson; the producer's guard moved"
+    )
+
+
+def test_the_penalty_readers_filter_on_a_key_the_producer_writes() -> None:
+    """Name the reader half of the contract, so neither side can drift unobserved.
+
+    Kept separate from the producer-side pin on purpose: this one discovers the readers by
+    AST, so a new module that starts filtering on ``structured_data["decision"]`` without
+    also searching ``approval_lesson`` fails here.
+    """
     filtering = _modules_filtering_on_structured_data_key("decision")
 
     assert filtering, (
