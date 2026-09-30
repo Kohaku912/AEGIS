@@ -5,7 +5,7 @@
 
 ## 緊急時の停止 (Phase 1-9 すべてを 1 行で切る)
 
-`config/settings.json` または環境変数で:
+`config/settings.json` で:
 
 ```json
 {
@@ -13,15 +13,22 @@
 }
 ```
 
-または:
+> ⚠️ **環境変数 `AEGIS_AGENTS_ENABLED` はどこからも読まれていません**（2026-09-30 実測）。
+> 設定は `config/settings.json` からのみ読み込まれ（`SettingsStore` →
+> `AEGISSettings.model_validate_json`）、`aegis_ai/settings/` には環境変数を読む箇所が 1 つも
+> ありません（`BaseSettings` / `env_prefix` / `getenv` いずれも無し）。リポジトリ全体で
+> `AEGIS_AGENTS_ENABLED` を**読むコードは 1 行もありません**（2026-09-30 実測 — 出現は
+> この文書の散文のみ）。したがって
+> `export AEGIS_AGENTS_ENABLED=false` は**何もせず、エラーも出しません** — サービスは正常に
+> 起動するので、止まったと誤認します。**緊急停止に使えるのは `config/settings.json` の
+> `agents.enabled` だけです**（`runtime.py:1479` が `agent_backend = None` にします）。
+> なお既定値は `False` で、現在の `config/settings.json` に `agents` 節は無いため、
+> **この停止は既に効いています**（＝切るべきものが動いていない）。
 
-```bash
-export AEGIS_AGENTS_ENABLED=false
-systemctl restart aegis.service
-```
-
-これで `aegis_ai/agents/` 配下の全コードは feature flag で bypass され、
+これで `aegis_ai/agents/` の**バックエンドは**起動しなくなり、
 `LLMTaskInterpreter.interpret()` 経由の旧挙動に戻る。
+（`requires_feature: "agents"` による capability の**非表示化は起きません** — その機構は
+配線済みなのに、フラグ集合を渡す呼び出し元がリポジトリに 1 つも無いためです。登録簿を参照。）
 
 ## Dev Server への完全切り戻し (Phase 9 完了後のため参考)
 
@@ -63,7 +70,8 @@ systemctl restart aegis.service
    ```bash
    git checkout 7c0ffe5 -- .env.example
    ```
-6. AEGIS 設定で `AEGIS_AGENTS_ENABLED=false` を維持しつつ、`dev-server` を有効化:
+6. AEGIS 設定で `agents.enabled=false` を維持しつつ、`dev-server` を有効化
+   （環境変数 `AEGIS_AGENTS_ENABLED` は読まれないので使わない — 冒頭の注記を参照）:
    ```bash
    export AEGIS_DISABLED_SERVERS=""
    docker compose up -d dev-server
@@ -78,7 +86,7 @@ systemctl restart aegis.service
 | 2 | Dev Server container が起動している | `docker ps | grep dev-server` |
 | 3 | `aegis.service` が健康 | `journalctl -u aegis -n 50 | grep -i error` |
 | 4 | dev-server.* capability が manifest に復活 | `curl localhost:8090/api/capabilities | jq '.[] | select(.id | startswith("dev-server"))'` |
-| 5 | 既存 157 tests が緑 | `cd ai-server && pytest -q` |
+| 5 | 既存の ai-server スイートが緑（**件数は書かない** — 数は腐る。実測は登録簿） | `cd ai-server && pytest -q` |
 | 6 | Capability Catalog に旧 dev-server 11 個が見える | Dashboard `/capabilities` 画面 |
 
 ## 旧 systemd unit の退避場所
