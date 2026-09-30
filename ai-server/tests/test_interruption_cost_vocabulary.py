@@ -1,7 +1,17 @@
-"""`interruption_cost` is one name with three defaults, and one vacuous comparison.
+"""`interruption_cost` is one name with three defaults, and the vacuous comparison is now closed.
 
-Two separate defects live in the interruption-cost vocabulary. B-17 is measured here and is not
-fixed, because it needs a call that is not a mechanical one.
+Two separate defects live in the interruption-cost vocabulary. **Both are now pinned against
+regression rather than merely recorded** — and in each case the module used to assert the *defect*,
+so both halves were re-pointed in the shape the `aegis-pin-a-dead-surface` skill describes: same
+file, opposite claim, history kept deliberately. A reader who finds only the new claim cannot tell
+whether the old one was resolved or quietly dropped.
+
+**B-17's production half was FIXED on 2026-09-30** (register B-1 ②). Section 2 used to record that
+``expected_usefulness >= interruption_cost`` was ``0.5 >= 0.5`` — always true — because
+``_present_autonomous_result`` read *both* operands off the task dict with the same fallback and
+nothing in ``src/`` ever wrote either key. The loop was also the **only** construction site of
+``PresentationRoutingContext`` in ``src/``, so the vacuous comparison was the whole of production
+behaviour, not one caller's mistake.
 
 **1. The two interruptibility maps disagree (B-11) — order half FIXED 2026-09-30.** This module
 used to *record* a disagreement; it now pins the agreement that replaced it. Same file, opposite
@@ -40,18 +50,38 @@ discovery+equality guard on its key set (``test_interruption_utility.py``), so a
 ``batch_later``** — the ghost-field pattern that ``_RECEPTIVITY``'s own docstring warns against,
 applied to one map and not its sibling.
 
-**2. The routing comparison is constant in production (B-17).**
+**2. The routing comparison WAS constant in production (B-17) — FIXED 2026-09-30.**
 ``PresentationRoutingPolicy.decide`` ends with::
 
     should_interrupt = important and not occupied and expected_usefulness >= interruption_cost
 
-The third conjunct reads two fields that the autonomous loop fills from a task dict with the *same*
-fallback — ``task.get(..., 0.5) or 0.5`` for both — and **nothing in the repository ever writes
-either key into a task**. So the conjunct is ``0.5 >= 0.5``: always true. ``should_interrupt``
-reduces to ``important and not occupied``, and the policy's own docstring calls these fields "facts
-used to choose presentation surfaces". The field is live — lowering ``expected_usefulness`` does flip
-the answer — but its default decides it. ``>=`` on two equal defaults also biases the boundary
+The third conjunct used to read two fields that the autonomous loop filled from a task dict with the
+*same* fallback — ``task.get(..., 0.5) or 0.5`` for both — and **nothing in the repository ever wrote
+either key into a task**. So the conjunct was ``0.5 >= 0.5``: always true. ``should_interrupt``
+reduced to ``important and not occupied``, and the policy's own docstring calls these fields "facts
+used to choose presentation surfaces". The field was live — lowering ``expected_usefulness`` did flip
+the answer — but its default decided it. ``>=`` on two equal defaults also biased the boundary
 toward interrupting.
+
+**What replaced it.** The loop now derives both operands from live signals, and neither is read off
+the task dict:
+
+* ``interruption_cost`` ← ``_current_interruption_cost()``, the real ladder (register B-1 ①), instead
+  of ``task.get("interruption_cost", 0.5)``.
+* ``expected_usefulness`` ← ``_expected_usefulness(task)``, the producing desire's pressure
+  normalised with ``min(1.0, pressure / 10.0)`` — the same conversion this module's sibling already
+  applies to pressure for an ``ActionCandidate``'s ``expected_benefit`` / ``urgency``. So the routing
+  axis and the initiative axis agree on what a given pressure is worth, and no new vocabulary was
+  introduced.
+
+The pin below therefore no longer asserts "both operands share a fallback"; it asserts the opposite —
+that neither operand is a task-dict lookup with a constant, and that the usefulness operand is
+monotone in pressure with a *documented* neutral when the signal is unreadable.
+
+**The context dataclass still defaults both to ``0.5``, and that is now a trap rather than a bug.**
+The loop is the only ``src/`` caller, so production is fixed; but any *new* caller that omits the two
+fields silently re-creates the vacuous comparison. The last pin in this section keeps demonstrating
+that the field is live so the trap stays visible.
 
 The name carries **three** defaults across the subsystem: ``0.0`` on ``ActionCandidate``,
 ``0.2`` as the cost map's fallback, ``0.5`` on ``PresentationRoutingContext``. One name, three
@@ -71,9 +101,12 @@ level is unnamed. The first version of this module recorded only ``0.2`` — i.e
 "one name, N answers" under-counted the answers on its own axis. Both are recorded now, and the
 scan classifies *every* ``Return`` of the function so a third answer cannot appear unnoticed.
 
-Recorded as B-11 and B-17 in ``PROJECT_STATUS_REVIEW.md``. Fixing either moves behaviour the owner
-owns (initiative cadence; what an autonomous result's usefulness is), so this module pins the state
-so the divergence cannot widen unnoticed and the record cannot rot.
+Recorded as B-11 and B-17 in ``PROJECT_STATUS_REVIEW.md``. Both were fixed on 2026-09-30 under the
+owner's blanket go-ahead, and both moved behaviour the owner owns — the initiative cadence (the ①
+swap) and what an autonomous result's usefulness is (②). Each fix therefore keeps a **named revert
+detector**, so a regression reports which change it is undoing rather than "something moved":
+``test_the_pair_that_used_to_be_transposed_is_now_ordered_correctly`` for ①, and
+``test_the_presenter_no_longer_reads_either_operand_off_the_task`` for ②.
 """
 
 from __future__ import annotations
@@ -84,6 +117,7 @@ import itertools
 from pathlib import Path
 from typing import Any
 
+from aegis_ai.autonomous.autonomous_loop import AutonomousLoop
 from aegis_ai.personal_ai.interruption import _RECEPTIVITY, InterruptionController
 from aegis_ai.presentation.routing_policy import PresentationRoutingContext, PresentationRoutingPolicy
 
@@ -244,8 +278,8 @@ def _dict_literal_writers(keys: frozenset[str]) -> set[tuple[str, str]]:
     return writers
 
 
-def _task_fallbacks_in_the_presenter() -> list[Any]:
-    """The fallback values the presenter uses when it reads the two routing fields off a task."""
+def _presenter_function() -> ast.FunctionDef:
+    """``_present_autonomous_result``'s AST node, or a failure naming what to revisit."""
     tree = ast.parse(_LOOP_SRC.read_text(encoding="utf-8"))
     function = next(
         (
@@ -256,22 +290,95 @@ def _task_fallbacks_in_the_presenter() -> list[Any]:
         None,
     )
     assert function is not None, "autonomous_loop.py no longer defines _present_autonomous_result"
+    return function
 
-    fallbacks: list[Any] = []
-    for node in ast.walk(function):
-        if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "float"):
-            continue
-        for inner in ast.walk(node):
-            if (
-                isinstance(inner, ast.Call)
-                and isinstance(inner.func, ast.Attribute)
-                and inner.func.attr == "get"
-                and len(inner.args) == 2
-                and isinstance(inner.args[0], ast.Constant)
-                and inner.args[0].value in _ROUTING_COMPARISON_FIELDS
-            ):
-                fallbacks.append(inner.args[1].value)
-    return fallbacks
+
+def _usefulness_function() -> ast.FunctionDef:
+    """``_expected_usefulness``'s AST node — the derivation that replaced the constant."""
+    tree = ast.parse(_LOOP_SRC.read_text(encoding="utf-8"))
+    function = next(
+        (
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.FunctionDef) and node.name == "_expected_usefulness"
+        ),
+        None,
+    )
+    assert function is not None, (
+        "autonomous_loop.py no longer defines _expected_usefulness — if the presenter reads "
+        "expected_usefulness off a task again, B-17 has been reverted"
+    )
+    return function
+
+
+def _routing_context_keywords() -> dict[str, ast.AST]:
+    """The values the presenter hands to ``PresentationRoutingContext``, by keyword name."""
+    calls = [
+        node
+        for node in ast.walk(_presenter_function())
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "PresentationRoutingContext"
+    ]
+    assert len(calls) == 1, (
+        f"expected the presenter to build exactly one routing context, found {len(calls)}"
+    )
+    return {keyword.arg: keyword.value for keyword in calls[0].keywords if keyword.arg}
+
+
+def _task_lookups_of_the_routing_fields() -> list[int]:
+    """Line numbers of every ``<obj>.get("<routing field>")`` left in the presenter.
+
+    **This is the revert detector for B-1 ②.** Both operands used to be read here — with a shared
+    ``0.5`` fallback — which made ``expected_usefulness >= interruption_cost`` always true. The fix
+    requires this to be empty. The receiver is deliberately not constrained: *any* lookup of these
+    two keys in this function is the shape being reverted, whatever it is called on.
+    """
+    found: list[int] = []
+    for node in ast.walk(_presenter_function()):
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "get"
+            and node.args
+            and isinstance(node.args[0], ast.Constant)
+            and node.args[0].value in _ROUTING_COMPARISON_FIELDS
+        ):
+            found.append(node.lineno)
+    return found
+
+
+def _called_name(expression: ast.AST) -> str:
+    """The attribute name of a ``self.<name>(...)`` call, else ``"<not a self-call>"``."""
+    if (
+        isinstance(expression, ast.Call)
+        and isinstance(expression.func, ast.Attribute)
+        and isinstance(expression.func.value, ast.Name)
+        and expression.func.value.id == "self"
+    ):
+        return expression.func.attr
+    return "<not a self-call>"
+
+
+def _pressure_divisor() -> float:
+    """The constant ``_expected_usefulness`` divides pressure by, read from its source.
+
+    Read from the AST rather than re-typed, so the check that it still equals the engine's maximum
+    is a real comparison rather than a literal compared with itself.
+    """
+    divisors = [
+        node.right.value
+        for node in ast.walk(_usefulness_function())
+        if isinstance(node, ast.BinOp)
+        and isinstance(node.op, ast.Div)
+        and isinstance(node.right, ast.Constant)
+        and isinstance(node.right.value, (int, float))
+    ]
+    assert len(divisors) == 1, (
+        f"expected _expected_usefulness to divide by exactly one constant, found {divisors} — "
+        "the pressure normalisation was rewritten, so the divisor check below is stale"
+    )
+    return float(divisors[0])
 
 
 # ── 1. The two maps describe one ladder ─────────────────────────────────────
@@ -414,34 +521,148 @@ def test_the_cost_value_reaches_the_initiative_engine_and_not_the_controller() -
     )
 
 
-# ── 2. The routing comparison is constant in production ─────────────────────
+# ── 2. The routing comparison: constant until 2026-09-30 ────────────────────
 
-def test_the_presenter_gives_both_routing_fields_the_same_fallback() -> None:
-    """``expected_usefulness >= interruption_cost`` is ``0.5 >= 0.5`` whenever neither is set."""
-    fallbacks = _task_fallbacks_in_the_presenter()
+def test_the_presenter_no_longer_reads_either_operand_off_the_task() -> None:
+    """**The named revert detector for B-1 ②.**
 
-    assert len(fallbacks) == 2, (
-        f"expected the presenter to default both routing fields, found {fallbacks}"
+    ``expected_usefulness=float(task.get("expected_usefulness", 0.5) or 0.5)`` and the same for
+    ``interruption_cost`` made the policy's last conjunct ``0.5 >= 0.5``. Restoring either line turns
+    this red, and the failure says which line.
+    """
+    lookups = _task_lookups_of_the_routing_fields()
+    assert lookups == [], (
+        "the presenter reads expected_usefulness/interruption_cost off the task dict again at "
+        f"line(s) {lookups} — that is the B-1 ② constant being reverted: with both operands "
+        "defaulted to the same value the routing comparison is always true"
     )
-    assert fallbacks[0] == fallbacks[1], (
-        f"the two operands of the routing comparison now default differently: {fallbacks} — "
-        "the comparison may no longer be constant"
+
+    keywords = _routing_context_keywords()
+    for field in sorted(_ROUTING_COMPARISON_FIELDS):
+        assert field in keywords, (
+            f"the presenter no longer passes {field} to PresentationRoutingContext, so it falls "
+            "back to the dataclass default of 0.5 — the vacuous comparison this test guards"
+        )
+
+
+def test_the_two_operands_come_from_the_live_signals() -> None:
+    """Which signals, exactly — so a swap or a third source fails loudly rather than silently."""
+    keywords = _routing_context_keywords()
+
+    assert _called_name(keywords["interruption_cost"]) == "_current_interruption_cost", (
+        "interruption_cost no longer comes from the real cost ladder: "
+        f"{ast.dump(keywords['interruption_cost'])[:120]}"
     )
+    assert _called_name(keywords["expected_usefulness"]) == "_expected_usefulness", (
+        "expected_usefulness no longer comes from the pressure derivation: "
+        f"{ast.dump(keywords['expected_usefulness'])[:120]}"
+    )
+
+
+def test_the_pressure_divisor_still_matches_the_engine_maximum() -> None:
+    """The normalisation is a *second* copy of the pressure range, so it is checked, not trusted.
+
+    ``min(1.0, pressure / 10.0)`` mirrors what the loop already does for an ``ActionCandidate``'s
+    ``expected_benefit`` / ``urgency``, and what ``intrinsic_task_generator`` does for task priority.
+    Three copies of one fact is a divergence waiting to happen, so the divisor is compared with the
+    engine's own constant instead of being assumed to agree with it.
+    """
+    from aegis_ai.desire.pressure import _MAX_PRESSURE
+
+    assert _pressure_divisor() == _MAX_PRESSURE, (
+        f"_expected_usefulness divides pressure by {_pressure_divisor()} but the engine's maximum is "
+        f"{_MAX_PRESSURE} — the routing axis would no longer mean what the initiative axis means"
+    )
+
+
+class _StubDesireSystem:
+    """Just the one accessor ``_expected_usefulness`` is allowed to use."""
+
+    def __init__(self, state: Any, *, raises: bool = False) -> None:
+        self._state = state
+        self._raises = raises
+
+    def get_pressure_state(self) -> Any:
+        if self._raises:
+            raise RuntimeError("situation snapshot failed")
+        return self._state
+
+
+class _StubLoop:
+    """Enough of ``AutonomousLoop`` to call the method — the real loop is never constructed."""
+
+    def __init__(self, state: Any = None, *, raises: bool = False, has_desire: bool = True) -> None:
+        if has_desire:
+            self._desire = _StubDesireSystem(state, raises=raises)
+
+
+def _usefulness(state: Any = None, task: Any = None, **loop_kwargs: Any) -> float:
+    return AutonomousLoop._expected_usefulness(_StubLoop(state, **loop_kwargs), task or {})
+
+
+def test_expected_usefulness_is_monotone_in_pressure() -> None:
+    """A more pressuring desire is a more useful result — the axis the comparison now reads."""
+    readings = [
+        _usefulness({"growth": {"pressure": p}}, {"desire": "growth"})
+        for p in (0.0, 2.5, 5.0, 7.5, 10.0)
+    ]
+
+    assert readings == [0.0, 0.25, 0.5, 0.75, 1.0], (
+        f"the pressure ladder is no longer the documented min(1.0, pressure / 10.0): {readings}"
+    )
+    assert readings[0] != readings[-1], (
+        "the derivation is constant again — the whole point of B-1 ② is that this operand moves"
+    )
+
+
+def test_expected_usefulness_clamps_to_the_unit_interval() -> None:
+    """The routing axis is 0–1, so a pressure outside the engine's range must not escape it."""
+    assert _usefulness({"growth": {"pressure": 99.0}}, {"desire": "growth"}) == 1.0
+    assert _usefulness({"growth": {"pressure": -3.0}}, {"desire": "growth"}) == 0.0
+
+
+def test_expected_usefulness_reads_as_unknown_when_the_signal_is_unreadable() -> None:
+    """Every unreadable path must read as the *documented* neutral — not as confident, not as zero.
+
+    ``0.5`` is pressure 5.0: the module's own unknown default (``low_desires[...].get("pressure",
+    5.0)``), not an invented midpoint. A silent zero here would read as "never worth interrupting
+    for", which is a claim the loop cannot support.
+    """
+    neutral = 0.5
+    assert _usefulness(None, {"desire": "growth"}) == neutral, "an empty pressure state"
+    assert _usefulness({"growth": {"pressure": 3.0}}, {}) == neutral, "no desire on the task"
+    assert _usefulness({"growth": {"pressure": 3.0}}, {"desire": ""}) == neutral, "a blank desire"
+    assert _usefulness({"growth": {"pressure": 3.0}}, {"desire": "social"}) == neutral, "unknown desire"
+    assert _usefulness(None, {"desire": "growth"}, has_desire=False) == neutral, "no desire system"
+    assert _usefulness(None, {"desire": "growth"}, raises=True) == neutral, "the accessor raises"
+    assert _usefulness({"growth": {}}, {"desire": "growth"}) == neutral, "an entry with no pressure"
+    assert _usefulness({"growth": {"pressure": "abc"}}, {"desire": "growth"}) == neutral, "non-numeric"
 
 
 def test_nothing_in_src_writes_the_two_fields_into_a_task() -> None:
-    """The only writers are the echoes into the presentation payload, not task construction."""
+    """Now a guard against a *new* writer rather than evidence of the defect.
+
+    The loop used to read both keys off a task while nothing wrote them — the mismatch that made the
+    comparison constant. The read is gone; this keeps the write side honest, because a new dict
+    literal carrying these names is how a future task-feeding path would announce itself.
+    """
     writers = _dict_literal_writers(_ROUTING_COMPARISON_FIELDS)
 
     assert writers, "discovery found no writers at all — the scan has drifted"
     assert writers == _RECORDED_KEY_WRITERS, (
         "a new place now writes expected_usefulness/interruption_cost as a dict key: "
-        f"{sorted(writers)} — if it feeds a task, B-17 may be closed"
+        f"{sorted(writers)} — if it feeds a task, the presenter's operand sourcing is in question"
     )
 
 
-def test_the_routing_comparison_is_decided_by_its_defaults() -> None:
-    """The field is live — its *default* is what makes the guard vacuous, so both halves are pinned."""
+def test_the_context_defaults_still_make_the_comparison_vacuous_for_a_direct_caller() -> None:
+    """The trap that survives the fix, pinned so a new caller cannot walk into it silently.
+
+    The loop is the only ``src/`` construction site and now supplies both operands, so production is
+    fixed. But ``PresentationRoutingContext`` still defaults both to ``0.5``, so a caller that omits
+    them re-creates ``0.5 >= 0.5``. This keeps demonstrating that the field is *live* — the guard is
+    vacuous because of the default, not because the comparison is dead.
+    """
     policy = PresentationRoutingPolicy()
     base: dict[str, Any] = {"importance": "high", "user_attention": "idle"}
 

@@ -721,6 +721,59 @@ class AutonomousLoop:
             "interruptible": 0.1,
         }.get(kind, 0.2)
 
+    def _expected_usefulness(self, task: dict[str, Any]) -> float:
+        """Map the producing desire's pressure onto the routing policy's usefulness axis.
+
+        **Why this replaced a constant** (B-1, 2026-09-30). ``_present_autonomous_result``
+        used to read ``task.get("expected_usefulness", 0.5)`` and
+        ``task.get("interruption_cost", 0.5)``. Measured: **nothing in ``src/`` writes
+        either key**, and autonomous task dicts carry no ``importance`` either, so
+        ``importance`` always fell back to ``"high"`` and both numbers were constants.
+        ``routing_policy`` then compares ``expected_usefulness >= interruption_cost``,
+        which with a constant left-hand side reduces the interrupt decision to *a
+        function of cost alone* — the reason string "High-value information is timely"
+        was not backed by anything.
+
+        The cost half is now the real ladder (``_current_interruption_cost``). This half
+        is the desire's accumulated pressure — the signal the loop actually acts on, so a
+        result produced by a pressuring desire is the one worth interrupting for.
+
+        **A derivation, not a new scale.** Pressure runs 0–10 (``pressure._MAX_PRESSURE``)
+        and is normalised here with ``min(1.0, pressure / 10.0)`` — the *same* conversion
+        this module already applies when it builds an ``ActionCandidate``
+        (``expected_benefit`` / ``urgency``, ~1200 lines above), and the same one
+        ``intrinsic_task_generator`` uses for task priority. The routing axis and the
+        initiative axis therefore agree on what a given pressure is worth, and no new
+        vocabulary is introduced. The divisor is a literal to match those two sites; the
+        pin asserts it still equals ``pressure._MAX_PRESSURE``, so the duplication is
+        checked rather than hidden.
+
+        ``get_pressure_state()`` is the only accessor ``DesireSystem`` exposes here — it
+        has no ``get_pressure`` (that lives on its internal ``PressureEngine``), and it
+        **omits hidden desires**, so a hidden desire reads as the neutral rather than as
+        its pressure. The neutral is ``0.5``, i.e. pressure 5.0: the module's own unknown
+        default (``low_desires[...].get("pressure", 5.0)``). An unreadable signal
+        therefore reads as *unknown*, never as confident.
+        """
+        neutral = 0.5
+        desire = str(task.get("desire") or "")
+        if not desire:
+            return neutral
+        aggregate = getattr(getattr(self, "_desire", None), "get_pressure_state", None)
+        if not callable(aggregate):
+            return neutral
+        try:
+            entry = (aggregate() or {}).get(desire)
+        except Exception:
+            return neutral
+        value = entry.get("pressure") if isinstance(entry, dict) else entry
+        if value is None:
+            return neutral
+        try:
+            return max(0.0, min(1.0, float(value) / 10.0))
+        except (TypeError, ValueError):
+            return neutral
+
     def _has_interval_bypass_work(self) -> bool:
         """Whether queued work may wake an LLM cycle without desire pressure.
 
@@ -3065,8 +3118,8 @@ Recent capability ids:
             active_device=str(device or "unknown"),
             user_attention=str(attention.get("label") or situation.get("attention_state") or "unknown"),
             privacy=str(task.get("privacy") or "normal"),
-            expected_usefulness=float(task.get("expected_usefulness", 0.5) or 0.5),
-            interruption_cost=float(task.get("interruption_cost", 0.5) or 0.5),
+            expected_usefulness=self._expected_usefulness(task),
+            interruption_cost=self._current_interruption_cost(),
         )
         routing = PresentationRoutingPolicy().decide(routing_context)
 
