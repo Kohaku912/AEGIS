@@ -220,6 +220,15 @@ git ls-remote origin refs/heads/cf-grpc-and-goal-hygiene refs/heads/main \
   | while read -r sha ref; do printf '%s\n' "$sha" > ".git/refs/remotes/origin/${ref#refs/heads/}"; done
 ```
 
+> **2026-09-30 18:04 に再発した（この日の 10 回目の push で 1 回）** — 症状は記録どおり:
+> `.git/refs/remotes/origin/` が**ディレクトリごと**消え、**push と無関係な兄弟 ref の `main` と
+> `origin/HEAD` も道連れ**になった（`git for-each-ref refs/remotes/` が空、`packed-refs` は無い）。
+> **新しい観測**: `.git/logs/refs/remotes/origin/` は**残っており**、追跡 ref の reflog は
+> **push 自身が書いていた**（mtime 18:04:27、内容 `update by push`）— つまり
+> **reflog は着地し、ref は着地しない**。**壊れたのは `refs/` 側だけで `logs/` 側ではない。**
+> **引き金は依然として未特定**（同じコマンドが 9 回は成功した）。復旧は上記の手順で完了
+> （3 ref を復元、`git status` の `[gone]` は解消）。
+>
 > **リモート名はフラットに移行済み**（2026-09-30 — PR が無く既定ブランチが `main` であることを確認した上で
 > 入れ子のリモートブランチを削除し、フラットなブランチを `--set-upstream` で push した）。
 
