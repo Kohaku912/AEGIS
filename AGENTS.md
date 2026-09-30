@@ -432,7 +432,7 @@ Measured 2026-09-29 — `ai-server`, full suite:
   enumerated with a reason in `tests/test_ineffective_flags.py::_UNOWNED_DEBT`. That detector now
   discovers settings models automatically (**95 fields across 12 models**, up from 26 across 2), so a
   newly added dead flag fails the suite instead of shipping quietly.
-- **Other suites**: `room-server` 14 · `browser-server` 100 · `aegis-sdk-python` 48 ·
+- **Other suites**: `room-server` 14 · `browser-server` 100 · `aegis-sdk-python` 71 ·
   `web-ui` `vitest` 144 · `web-ui` `playwright` 42.
   **The three Python suites are wired into CI** by `scripts/test-all-suites.ps1`, which delegates to
   `scripts/test-ai-server.ps1` (the constraint gate, unchanged) and then runs the SDK / room / browser
