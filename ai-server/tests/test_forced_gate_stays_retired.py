@@ -391,3 +391,350 @@ def test_the_permissions_gate_still_says_ask_approval(tmp_path) -> None:
 
     assert decision["decision"] == "ask_approval"
     assert decision["requires_approval"] is True
+
+
+# ── the fourth surface: an approval-era argument that nothing supplies ────────
+#
+# ``ReflectionEngine.reflect`` still takes ``approval_decisions``. **No caller anywhere
+# passes it**, so every branch that reads it is unreachable — including the only
+# producer of ``approval_lesson`` memories, which is why that memory type has been empty
+# for the whole life of the code.
+#
+# A-11 decided ③: keep the argument, but **pin and record** it. This is that record.
+# The point is that the surface must not change silently in *either* direction —
+# wiring it revives approval-decision recording (a product call: does that fit D4=(b),
+# the boundary where the forced gate stays deleted but the voluntary ask stays?), and
+# deleting it is a separate decision. Both must trip this file.
+#
+# The subtle part, and the reason this pin does not stop at counting readers: the
+# producer and its consumers **disagree about the record shape**, so supplying the
+# argument alone would still not close the loop. See the last two tests.
+
+_REFLECTION_ENGINE = _SRC / "aegis_ai" / "reflection" / "reflection_engine.py"
+_TESTS = Path(__file__).resolve().parent
+
+#: Functions whose signature takes ``approval_decisions``. **Discovered by AST, never
+#: hand-listed for matching** — the map only supplies the *reason* each one is expected,
+#: and an equality is asserted against the discovered set so a new reader is a deliberate
+#: edit. The four are the whole surface: the entry point plus the three classifiers it
+#: delegates to.
+_RECORDED_APPROVAL_DECISION_CONSUMERS: dict[str, str] = {
+    "reflect": "entry point, and the only *producer* of approval_lesson memories",
+    "_classify_outcome": "reads it for _OUTCOME_REJECTED",
+    "_identify_root_cause": "reads it for the 'Approval rejected' root cause",
+    "_classify_failure": "reads it for APPROVAL_REJECTED / APPROVAL_EXPIRED",
+}
+
+
+def _parsed(path: Path) -> ast.Module:
+    """Parse a file. AST, so a docstring naming the parameter is not mistaken for a use."""
+    return ast.parse(path.read_text(encoding="utf-8", errors="replace"))
+
+
+def _test_files() -> list[Path]:
+    return [
+        path
+        for path in _TESTS.rglob("*.py")
+        if "__pycache__" not in path.parts and "pb2" not in path.parts
+    ]
+
+
+def _functions_declaring(tree: ast.Module, parameter: str) -> set[str]:
+    """Names of every function that declares ``parameter``."""
+    found: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            args = node.args
+            declared = {a.arg for a in (*args.posonlyargs, *args.args, *args.kwonlyargs)}
+            if parameter in declared:
+                found.add(node.name)
+    return found
+
+
+def _calls_supplying(parameter: str) -> list[str]:
+    """Every ``src/`` or ``tests/`` call site that passes ``parameter=``, as ``where:line``."""
+    self_path = Path(__file__).resolve()
+    offenders: list[str] = []
+    for label, files in (("src", _src_files()), ("tests", _test_files())):
+        for path in files:
+            if path.resolve() == self_path:
+                continue
+            for node in ast.walk(_parsed(path)):
+                if isinstance(node, ast.Call) and any(kw.arg == parameter for kw in node.keywords):
+                    offenders.append(f"{label}/{path.name}:{node.lineno}")
+    return offenders
+
+
+def _modules_filtering_on_structured_data_key(key: str) -> set[str]:
+    """Modules calling ``<something>.structured_data.get("<key>")``.
+
+    AST rather than a substring scan: a comment or docstring quoting the filter must not
+    count as the filter.
+    """
+    found: set[str] = set()
+    for path in _src_files():
+        for node in ast.walk(_parsed(path)):
+            if not isinstance(node, ast.Call):
+                continue
+            func = node.func
+            if not (isinstance(func, ast.Attribute) and func.attr == "get"):
+                continue
+            if not (
+                isinstance(func.value, ast.Attribute) and func.value.attr == "structured_data"
+            ):
+                continue
+            if node.args and isinstance(node.args[0], ast.Constant) and node.args[0].value == key:
+                found.add(path.stem)
+    return found
+
+
+def _enum_member_name(node: ast.expr) -> str | None:
+    """The member name in ``MemoryType.MEMORY_TYPE.value``, and in the bare ``MemoryType.X``.
+
+    The extra ``.value`` layer is easy to miss and makes a predicate silently match nothing —
+    which is exactly how a discovery helper goes blind while every assertion still passes.
+    """
+    if not isinstance(node, ast.Attribute):
+        return None
+    if node.attr == "value" and isinstance(node.value, ast.Attribute):
+        return node.value.attr
+    return node.attr
+
+
+def _memory_record_calls(tree: ast.Module, member: str) -> list[ast.Call]:
+    """Every ``MemoryRecord(...)`` built with ``MemoryType.<member>``."""
+    return [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "MemoryRecord"
+        and any(
+            kw.arg == "memory_type" and _enum_member_name(kw.value) == member
+            for kw in node.keywords
+        )
+    ]
+
+
+def _function_named(tree: ast.Module, name: str) -> ast.FunctionDef | ast.AsyncFunctionDef | None:
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == name:
+            return node
+    return None
+
+
+def _functions_looping_over(parameter: str) -> set[str]:
+    """Functions containing a ``for ... in <parameter>`` loop."""
+    found: set[str] = set()
+    for node in ast.walk(_parsed(_REFLECTION_ENGINE)):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        if any(
+            isinstance(inner, ast.For)
+            and isinstance(inner.iter, ast.Name)
+            and inner.iter.id == parameter
+            for inner in ast.walk(node)
+        ):
+            found.add(node.name)
+    return found
+
+
+def _approval_lesson_producer() -> ast.Call:
+    """The single ``MemoryRecord(...)`` built with ``MemoryType.APPROVAL_LESSON``."""
+    producers = _memory_record_calls(_parsed(_REFLECTION_ENGINE), "APPROVAL_LESSON")
+    assert len(producers) == 1, (
+        f"expected exactly one approval_lesson producer, found {len(producers)}; "
+        "re-measure this pin"
+    )
+    return producers[0]
+
+
+def _approval_lesson_readers() -> dict[str, set[str]]:
+    """Module stem -> keyword names of its ``search_memories(memory_type="approval_lesson")``."""
+    readers: dict[str, set[str]] = {}
+    for path in _src_files():
+        for node in ast.walk(_parsed(path)):
+            if not isinstance(node, ast.Call):
+                continue
+            if not (isinstance(node.func, ast.Attribute) and node.func.attr == "search_memories"):
+                continue
+            if any(
+                kw.arg == "memory_type"
+                and isinstance(kw.value, ast.Constant)
+                and kw.value.value == "approval_lesson"
+                for kw in node.keywords
+            ):
+                readers[path.stem] = {kw.arg for kw in node.keywords if kw.arg}
+    return readers
+
+
+def test_the_approval_decision_parameter_is_read_by_exactly_the_recorded_functions() -> None:
+    """Pin the reader set, so adding or removing a reader is a deliberate act."""
+    declared = _functions_declaring(_parsed(_REFLECTION_ENGINE), "approval_decisions")
+
+    assert declared == set(_RECORDED_APPROVAL_DECISION_CONSUMERS), (
+        "the set of functions reading approval_decisions changed: "
+        f"discovered {sorted(declared)}, recorded "
+        f"{sorted(_RECORDED_APPROVAL_DECISION_CONSUMERS)}. Update both the record and its "
+        "reasons, and re-check whether the argument has acquired a caller."
+    )
+
+
+def test_the_engine_scan_is_not_vacuous() -> None:
+    """Guard the guard: a parse that returned nothing would satisfy the equality above."""
+    functions = {
+        node.name
+        for node in ast.walk(_parsed(_REFLECTION_ENGINE))
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    }
+
+    # 7 is the measured count: __init__, reflect, and five private helpers. A floor equal to
+    # the current count fails if the scan loses a function, which is the point — a scan that
+    # silently returns nothing would satisfy every equality below.
+    assert len(functions) >= 7, f"only {len(functions)} functions parsed; the scan is broken"
+    assert "reflect" in functions
+
+
+def test_no_caller_anywhere_supplies_approval_decisions() -> None:
+    """The argument is declared, read four ways, and supplied by nobody.
+
+    ``tests/`` is scanned too, and deliberately: a test that passed it would make the
+    branches look live while production never did — and would quietly make this pin pass
+    for the wrong reason.
+    """
+    offenders = _calls_supplying("approval_decisions")
+
+    assert offenders == [], (
+        f"something now supplies approval_decisions: {offenders}. That makes all four "
+        "unreachable branches live, including the only producer of approval_lesson "
+        "memories. A-11 decided ③ (keep, pinned) — wiring it revives approval-decision "
+        "recording, which is a product call against D4=(b). Make it deliberately, then "
+        "re-measure the producer/reader contract below before updating this record."
+    )
+
+
+def test_the_caller_scan_sees_real_call_sites() -> None:
+    """Guard the guard: an empty result is only meaningful if the scan reads real calls."""
+    callers = [
+        f"{path.relative_to(_SRC).as_posix()}:{node.lineno}"
+        for path in _src_files()
+        for node in ast.walk(_parsed(path))
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "reflect"
+    ]
+
+    assert callers, "the scan found no .reflect( call sites at all; the scan is broken"
+
+
+def test_the_detector_recognises_a_supplied_keyword(tmp_path) -> None:
+    """Prove the scan can fail, so its empty result above is not vacuous."""
+    probe = tmp_path / "probe.py"
+    probe.write_text(
+        "engine.reflect(task_id='t', approval_decisions=[{'status': 'rejected'}])\n",
+        encoding="utf-8",
+    )
+
+    supplied = [
+        node
+        for node in ast.walk(_parsed(probe))
+        if isinstance(node, ast.Call) and any(kw.arg == "approval_decisions" for kw in node.keywords)
+    ]
+
+    assert len(supplied) == 1, "the detector cannot see a supplied keyword; the scan is blind"
+
+
+def test_the_only_approval_lesson_producer_sits_behind_the_unsupplied_parameter() -> None:
+    """Why the producer is dead: its sole guard is the argument nobody passes.
+
+    This is the reachability link, asserted structurally rather than argued in prose. If
+    the loop is moved, or the producer hoisted out of it, the producer stops being guarded
+    by the dead parameter and this pin must be re-measured.
+
+    Two functions iterate the argument, and the split matters: ``reflect`` iterates it to
+    *produce* memories, ``_identify_root_cause`` to *classify*. Pinning the set keeps the
+    two from being confused for one another.
+    """
+    looping = _functions_looping_over("approval_decisions")
+    assert looping == {"reflect", "_identify_root_cause"}, (
+        f"the functions iterating approval_decisions changed: {sorted(looping)}. One of them "
+        "guards the only approval_lesson producer — re-measure this pin."
+    )
+
+    tree = _parsed(_REFLECTION_ENGINE)
+    producers = _memory_record_calls(tree, "APPROVAL_LESSON")
+    assert len(producers) == 1, f"expected one approval_lesson producer, found {len(producers)}"
+    producer = producers[0]
+
+    reflect = _function_named(tree, "reflect")
+    assert reflect is not None, "reflect() vanished; re-measure this pin"
+    assert any(node is producer for node in ast.walk(reflect)), (
+        "the approval_lesson producer has moved out of reflect()"
+    )
+
+    guarding = [
+        node
+        for node in ast.walk(reflect)
+        if isinstance(node, ast.For)
+        and isinstance(node.iter, ast.Name)
+        and node.iter.id == "approval_decisions"
+        and any(inner is producer for inner in ast.walk(node))
+    ]
+    assert len(guarding) == 1, (
+        "the approval_lesson producer is no longer the body of a loop over "
+        "approval_decisions, so it may have become reachable"
+    )
+
+
+def test_the_producer_omits_the_keys_its_readers_query() -> None:
+    """The producer and its consumers disagree about the record shape.
+
+    **This is why wiring ``approval_decisions`` alone does not close the growth loop.**
+    Two of the three readers search by ``related_desire`` *and* filter on
+    ``structured_data["decision"]``; the producer sets neither. Only ``context_builder``,
+    which filters on the memory type alone, would start seeing records — so the loop would
+    still not close, and it would look like the fix had failed.
+
+    The assertion is deliberately written against the *disagreement*: repairing either
+    side has to trip this, which is what forces the register's B-5 and A-11 rows to be
+    re-measured in the same change.
+    """
+    producer_keywords = {kw.arg for kw in _approval_lesson_producer().keywords}
+
+    readers = _approval_lesson_readers()
+    assert len(readers) >= 3, f"only {len(readers)} approval_lesson readers found; scan is broken"
+
+    desire_readers = sorted(name for name, kws in readers.items() if "related_desire" in kws)
+    assert desire_readers, (
+        "no reader searches approval_lesson by related_desire any more — the mismatch this "
+        "pin records is gone. Re-measure the loop and update this record."
+    )
+
+    assert "related_approval_id" in producer_keywords, (
+        "the producer no longer records which decision it came from"
+    )
+    assert "related_desire" not in producer_keywords, (
+        "the producer now sets related_desire. That is one of the two keys its consumers "
+        f"need ({desire_readers}), so the loop may be closer to closing than this record "
+        "says. Re-measure which readers can now see the record, then update this pin and "
+        "the register's A-11 / B-5 rows."
+    )
+    assert "structured_data" not in producer_keywords, (
+        "the producer now sets structured_data. Both penalty readers filter on "
+        'structured_data["decision"], so this is the change that would make them work — '
+        "re-measure and update this pin (and A-11 / B-5 in the register)."
+    )
+
+
+def test_the_penalty_readers_filter_on_a_key_the_producer_never_writes() -> None:
+    """Name the second half of the mismatch, so neither side can drift unobserved."""
+    filtering = _modules_filtering_on_structured_data_key("decision")
+
+    assert filtering, (
+        "no module filters approval lessons on structured_data['decision'] any more; "
+        "re-measure this pin"
+    )
+    assert filtering <= set(_approval_lesson_readers()), (
+        "these modules filter on 'decision' but were not found as approval_lesson readers: "
+        f"{sorted(filtering - set(_approval_lesson_readers()))}"
+    )
