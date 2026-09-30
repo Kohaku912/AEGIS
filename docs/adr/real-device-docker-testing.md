@@ -4,6 +4,17 @@
 
 Accepted
 
+> ⚠️ **2026-09-30 追記 — 「Test Separation」の 3 コマンドは動作しない（実測）。**
+> `real_browser` は **`pyproject.toml` に未登録**のマーカーで、`pc_local` は**登録済みだがテストが
+> 1 つも使っていない**。よって `pytest -m real_browser` と `pytest -m pc_local` は
+> **`no tests collected (1807 deselected)` で exit 5**、`pytest -m "not real_browser and not pc_local"`
+> は **1807 件すべてを選択**する（＝「mock のみ」には絞れていない）。
+> 「Consequences」の *CI remains fast with mock-only tests* と *Real device tests are opt-in via
+> markers* も、この 2 つの前提に依存している。
+> **決定そのもの（Docker で実機テストを分離する）は有効**で、撤回するのは**マーカー名の部分**だけ。
+> 実測の詳細は `PROJECT_STATUS_REVIEW.md` §0.1、現在の正典は `docs/testing-real-devices.md`。
+> ADR は決定の記録なので本文は書き換えず、この追記で訂正する。
+
 ## Context
 
 AEGIS needs to support real device testing for browser automation and PC control.

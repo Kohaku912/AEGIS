@@ -5,42 +5,58 @@
 AEGIS supports real device testing for browser automation and PC control.
 Tests are separated into mock (CI) and real-device (opt-in) categories.
 
+> ⚠️ **Status (2026-09-30): most of this document describes test infrastructure that was never
+> built.** Of the five markers in the table below, **three are not registered at all**; of the
+> registered ones, **three are used by no test**; the pytest files it names **do not exist**; and
+> its `docker compose --profile …` flags name **profiles that no compose file declares**. **The
+> Android section is the part that is real.** Each claim is corrected in place below; the
+> measurements are in `PROJECT_STATUS_REVIEW.md` §0.1.
+
 ## Test Markers
 
-| Marker | Description | Where |
-|--------|-------------|-------|
-| `mock` | Mock providers only (default) | CI |
-| `real_browser` | Real Chromium browser | Docker |
-| `real_pc_host` | Real PC Server on Windows host | Windows |
-| `android_local` | Real Android companion app via ADB + reverse stream | Local |
-| `e2e` | End-to-end integration | Docker + host |
+Only **two** markers are both *registered* (`ai-server/pyproject.toml`) and *used* by a test:
+
+| Marker | Description | What it actually selects |
+|--------|-------------|--------------------------|
+| `android_local` | Real Android companion app via ADB + reverse stream | **4 tests** (`ai-server/tests/test_android_local.py`) |
+| `egress` | Guards the single constraint — user information never leaves the local environment | **233 tests**; `scripts/test-ai-server.ps1` enforces a floor |
+
+**Registered but used by no test:** `pc_local`, `room_local`, `e2e`. `pytest -m <one of these>`
+collects nothing and exits **5** with `no tests collected (1807 deselected)`.
+
+**Not registered at all:** `mock`, `real_browser`, `real_pc_host`. This table used to list those
+three and the sections below used to give commands for them. pytest does not know those names, so
+the commands did not do what they said. The worst case is the "CI mock" command:
+`pytest -m "not real_browser and not real_pc_host"` selects **all 1807 tests** — it filters
+nothing, because no test carries either marker.
 
 ## Running Tests
 
-### CI Mock Tests (default)
+### The suite as it actually runs (default)
 
 ```bash
 cd ai-server
-pytest -m "not real_browser and not real_pc_host" -q
+pytest -q                                       # the whole suite — already hermetic
+pytest -m egress --require-egress-tests=160 -q  # the constraint subset, with its floor
 ```
 
-### Real Browser Tests (Docker)
+There is no marker-filtered "mock only" run, because there is nothing to filter out: the suite is
+hermetic by default, so plain `pytest -q` *is* the CI run. `scripts/test-ai-server.ps1` does exactly
+these two steps.
 
-```bash
-docker compose --profile real-browser up -d
-pytest -m real_browser -v
-```
+### Real Browser Tests (Docker) — **no such pytest tests, and no such profile**
 
-### PC Host Tests (Windows)
+`real_browser` is not a registered marker and no test carries it, so `pytest -m real_browser -v`
+collects nothing and exits 5. **`real-browser` is also not a declared compose profile** — the only
+`profiles:` entry in any compose file is `room`, in `docker-compose.production.yml`. The browser
+suite is `cd browser-server && pytest`.
 
-```powershell
-# Start pc-server on Windows
-.\scripts\start-pc-server-host.ps1
+### PC Host Tests (Windows) — **no such pytest tests**
 
-# Run tests
-cd ai-server
-pytest -m real_pc_host -v
-```
+`real_pc_host` is not a registered marker and no test carries it, so `pytest -m real_pc_host -v`
+collects nothing and exits 5. `scripts/start-pc-server-host.ps1` does exist and does start the
+server, but there are no Python E2E tests for it — `docs/pc-server.md` documents the same gap. The
+nearest registered marker, `pc_local`, is also used by no test.
 
 ### Android Device Tests
 
@@ -79,15 +95,15 @@ route is not a valid LAN-outside reconnect test.
 # Start PC Server
 .\scripts\start-pc-server-host.ps1
 
-# Start Docker services
-docker compose --profile pc-host --profile real-browser up -d
+# Start Docker services (no profiles: docker-compose.yml declares none)
+docker compose up -d
 
 # Run integration tests
 .\scripts\test-real-integration.ps1
-
-# Run pytest
-pytest -m e2e -v
 ```
+
+**The `pytest -m e2e -v` step is gone**: `e2e` is registered but no test carries it, so it collected
+nothing and exited 5. `scripts/test-real-integration.ps1` is the integration run.
 
 ## PowerShell Scripts
 
@@ -100,27 +116,17 @@ pytest -m e2e -v
 
 ## Test Categories
 
-### 1. PC Server Health (real_pc_host)
+**This section used to tabulate three pytest categories — PC Server Health (`real_pc_host`), Browser
+Read-Only (`real_browser`) and Integration E2E (`e2e`) — with the individual checks each would make.
+None of those test files was ever committed, and none of the three markers is used by a test.** What
+the listed checks describe is what the *scripts and the other suites* exercise:
 
-- Health endpoint responds
-- OS info returns valid data
-- Screenshot returns result
-- Active window returns result
-- Window list returns result
-
-### 2. Browser Read-Only (real_browser)
-
-- Open local test HTML
-- Extract title, text, links
-- Screenshot capture
-
-### 3. Integration E2E (e2e)
-
-- Docker AI Server connects to Windows PC Server
-- capability registration
-- pc.get_screenshot from AI Server
-- pc.get_active_window from AI Server
-- AuditLog records actions
+| Category | Exercised by | As pytest? |
+|---|---|---|
+| PC Server health | `scripts/start-pc-server-host.ps1` + the Rust unit tests in `pc-server/` | no |
+| Browser read-only | `cd browser-server && pytest` | no `real_browser` marker |
+| Integration E2E | `scripts/test-real-integration.ps1` | no `e2e` marker |
+| Android companion | `android_local` — 4 tests, `scripts/test-android-real.ps1` | **yes — the real one** |
 
 ## Environment Setup
 
