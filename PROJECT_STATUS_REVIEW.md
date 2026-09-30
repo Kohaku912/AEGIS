@@ -239,6 +239,19 @@ git ls-remote origin refs/heads/cf-grpc-and-goal-hygiene refs/heads/main \
 > **引き金は依然として未特定**（同じコマンドが 9 回は成功した）。復旧は上記の手順で完了
 > （3 ref を復元、`git status` の `[gone]` は解消）。
 >
+> **2026-09-30 19:52 に 2 回目の再発 — 今度は `fetch` で**（18:04 は push）。`git fetch origin
+> cf-grpc-and-goal-hygiene` は `* [new branch] … -> origin/cf-grpc-and-goal-hygiene` と**成功を表示し**、
+> 追跡 ref の reflog も 19:52 に**書かれた**（2,957 バイト）のに、**`.git/refs/remotes/origin/` は
+> 作られなかった** — 18:04 と**同じ署名**（reflog は着地、ref は着地しない）。**新しい観測 2 つ**:
+> ① **push だけでなく fetch でも起きる** — fetch は読み取りに見えるので「安全な方」と書いていた
+> （同日の成功例を根拠にしていた）が、**その前提は反証された**。② **被害が軽い回がある** — 今回は
+> `refs/remotes/` ディレクトリ自体は残り、**中身が空**だった（18:04 はディレクトリごと消えた）。
+> よって**「ディレクトリが在るか」を見る検査は不十分**で、`git rev-parse refs/remotes/origin/<branch>`
+> のように**ref を解決して**確かめる必要がある。**`refs/heads/` と HEAD は無傷**、`ls-remote` は
+> 一貫して正しかった — **リモートは常に正しく、欠けていたのはローカルキャッシュだけ**。
+> 復旧は上記の手順で **3 ref**（`cf-grpc-and-goal-hygiene` / `main` / `origin/HEAD`）を復元した。
+> **推奨の記録先は skill `aegis-verify-and-test` §1.0f の push 節**（そちらに検査と診断を追記済み）。
+>
 > **リモート名はフラットに移行済み**（2026-09-30 — PR が無く既定ブランチが `main` であることを確認した上で
 > 入れ子のリモートブランチを削除し、フラットなブランチを `--set-upstream` で push した）。
 
