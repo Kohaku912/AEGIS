@@ -11,11 +11,13 @@ logger = logging.getLogger("aegis_ai.voice.privacy")
 class VoicePrivacy:
     """Privacy controls for voice I/O.
 
-    Ensures:
-    - No always-listening
-    - No audio storage by default
-    - No external STT/TTS by default
-    - Sensitive conversation redaction
+    Ensures — ``tests/test_voice_io.py`` pins which of these are actually reached:
+    - Sensitive conversation redaction — ``redact_sensitive_text``, called per segment
+    - No external STT/TTS by default — enforced by ``VoiceGate``, not here
+      (``is_external_api_allowed`` below has no caller)
+    - No always-listening — **not enforced**; no wake-word path exists
+    - No audio storage by default — **not enforced**; ``should_store_audio`` has no caller and
+      nothing stores audio
     """
 
     def __init__(self, settings_store: Any = None) -> None:

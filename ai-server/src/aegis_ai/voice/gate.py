@@ -5,12 +5,14 @@ False. The engines behind it are real — local faster-whisper STT and a
 local-or-permission-gated TTS (``integrations/stt_service.py``,
 ``integrations/tts_service.py``). This gate is what decides whether they may run.
 
-Safety:
-- No always-listening
-- No external STT/TTS by default
-- No audio storage by default
-- Push-to-talk only (a settings default; nothing enforces it yet)
-- Voice approval requires additional auth (not implemented)
+Safety — ``tests/test_voice_io.py`` pins which of these are *enforced* and which are only *true*:
+- No external STT/TTS by default — **enforced** (``is_stt_allowed`` / ``is_tts_allowed``, called)
+- No always-listening — **not enforced**; true only because no wake-word path exists, and
+  ``is_wake_word_enabled``, which would gate it, has no caller
+- No audio storage by default — **not enforced**; true only because nothing stores audio, and
+  ``record_audio`` / ``voice_data_retention_hours`` have no live reader
+- Push-to-talk only — **not enforced** (a settings default)
+- Voice approval requires additional auth — **not implemented**
 """
 
 from __future__ import annotations

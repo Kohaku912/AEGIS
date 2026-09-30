@@ -436,11 +436,16 @@ Audit logs are written to `data/settings_audit.jsonl`.
 
 Measured 2026-10-01 — `ai-server`, full suite:
 
-- **Total tests**: **1890 passed / 8 skipped**
-  — the **+5** over the 2026-09-30 figure are **all new pins**: four for B-5① (the confirmation↔desire
-  link) and one for the general invariant that **the shipped `config/settings.json` declares no key that
+- **Total tests**: **1893 passed / 8 skipped**
+  — the **+8** over the 2026-09-30 figure are **all new pins**: four for B-5① (the confirmation↔desire
+  link), one for the general invariant that **the shipped `config/settings.json` declares no key that
   no settings model declares** (which caught the dead `autonomy` block; see
-  `PROJECT_STATUS_REVIEW.md` §0.1). The skip count fell from 30 to 8 because **B-6 deleted 22 settings fields** that were declared but
+  `PROJECT_STATUS_REVIEW.md` §0.1), and three for the voice gate: four `VoiceGate` / `VoicePrivacy`
+  check methods with **no caller** (`is_audio_recording_allowed`, `is_wake_word_enabled`,
+  `should_store_audio`, `is_external_api_allowed`), which leaves three settings — `voice.record_audio`,
+  `voice.voice_data_retention_hours`, `voice.wake_word_enabled` — with **no live reader** even though
+  `test_ineffective_flags.py` reports them as read (**a reader inside dead code still counts as a
+  reader**; `tests/test_voice_io.py`). The skip count fell from 30 to 8 because **B-6 deleted 22 settings fields** that were declared but
   read by nothing; their parametrized cases went with them. The **only** deliberately unread field left
   is `voice.push_to_talk_only`, recorded in `tests/test_ineffective_flags.py::_INTENTIONALLY_UNREAD`;
   the debt inventory `_UNOWNED_DEBT` is now **empty**, which is the point of the deletion rather than an

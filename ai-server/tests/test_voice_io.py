@@ -318,3 +318,186 @@ def test_push_to_talk_is_the_default_and_wake_word_is_off():
 def test_this_module_is_marked_egress():
     """Guard for the roster invariant: if this marker is dropped, the drift guard fires."""
     assert sys.modules[__name__].pytestmark.mark.name == "egress"
+
+
+# ── Checks that enforce nothing, and the blind spot that hid them ─────────────
+#
+# Measured 2026-10-01: four public check methods on the two voice classes have **no caller
+# anywhere in ``src/``**. Two sit on ``VoiceGate`` (``is_audio_recording_allowed``,
+# ``is_wake_word_enabled``); two on ``VoicePrivacy`` (``should_store_audio``,
+# ``is_external_api_allowed``). Between them they are the *only* readers of three settings —
+# ``voice.record_audio``, ``voice.voice_data_retention_hours``, ``voice.wake_word_enabled`` —
+# so those three flags have **no live reader at all**.
+#
+# Why this is a blind spot rather than a caught defect: ``tests/test_ineffective_flags.py``
+# enforces "no settings flag without a reader" by counting *appearances* of the identifier in
+# ``src/``. All three flags appear, so it reports them as read — but every appearance is inside a
+# method nothing calls. **A reader inside dead code still counts as a reader**: the mirror image
+# of B-13 ("a validator-only reader still counts as unread"). The detector's contract is
+# *satisfied* while the flags are behaviourally dead, which is why the fact is pinned here.
+#
+# Recorded, not wired, deliberately: each flag gates a feature that does not exist (there is no
+# audio-storage path and no wake-word path — ``docs/voice-io.md``), so wiring a check would mean
+# building the feature. These pins fire in **both** directions: wire a check and the dead set
+# shrinks; add a new dead check and it grows.
+
+
+def _public_checks(cls: type) -> set[str]:
+    """Every public check method on ``cls``, discovered from the class itself."""
+    import inspect
+
+    return {
+        name
+        for name, value in inspect.getmembers(cls, inspect.isfunction)
+        if not name.startswith("_")
+    }
+
+
+def _check_calls(cls: type, module: str) -> set[str]:
+    """Every check on ``cls`` that is actually called under ``src/``.
+
+    Matches ``Cls(...).x()`` anywhere, plus ``self.x()`` **inside that class's own module** (where
+    the entry points delegate internally). A bare ``.x()`` on some other object is deliberately
+    *not* counted: a same-named method on another class is not a caller of this one, and accepting
+    it would let a false caller hide a genuinely unreachable check.
+    """
+    import ast
+
+    methods = _public_checks(cls)
+    cls_name = cls.__name__
+    src = Path(__file__).resolve().parents[1] / "src"
+    found: set[str] = set()
+    for path in src.rglob("*.py"):
+        if "__pycache__" in path.parts:
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8", errors="replace"))
+        for node in ast.walk(tree):
+            if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)):
+                continue
+            if node.func.attr not in methods:
+                continue
+            receiver = node.func.value
+            if isinstance(receiver, ast.Call) and getattr(receiver.func, "id", None) == cls_name:
+                found.add(node.func.attr)
+            elif (
+                isinstance(receiver, ast.Name)
+                and receiver.id == "self"
+                and path.name == module
+            ):
+                found.add(node.func.attr)
+    return found
+
+
+def _unreachable_checks(cls: type, module: str, live: set[str]) -> list[str]:
+    """Public checks on ``cls`` with no caller, given the ``live`` entry points that must exist."""
+    called = _check_calls(cls, module)
+    # Non-vacuity: the live entry points must be found, or the scan is blind and the "uncalled"
+    # set below would be an artefact of a broken walk rather than a fact about the code.
+    assert live <= called, (
+        f"the call scan found none of {sorted(live)} on {cls.__name__}; called={sorted(called)}"
+    )
+    return sorted(_public_checks(cls) - called)
+
+
+def test_the_unreachable_gate_checks_are_recorded():
+    """``VoiceGate``'s two safety checks have **no caller** — measured 2026-10-01.
+
+    ``voice/gate.py``'s docstring lists "No always-listening" and "No audio storage by default"
+    among its safety properties; ``is_wake_word_enabled`` / ``is_audio_recording_allowed`` are the
+    methods that would enforce them. Nothing calls either one, so those two lines describe
+    **intent, not a control**. The docstring already annotates its push-to-talk and
+    voice-approval lines this way; these two were the ones left unqualified.
+    """
+    uncalled = _unreachable_checks(
+        VoiceGate, "gate.py", {"check_voice_input", "check_voice_output"}
+    )
+    assert uncalled == ["is_audio_recording_allowed", "is_wake_word_enabled"], (
+        f"the set of unreachable VoiceGate checks changed: {uncalled}. If one was wired, the "
+        "safety property it guards is now enforced — update this record and `docs/voice-io.md`."
+    )
+
+
+def test_the_unreachable_privacy_checks_are_recorded():
+    """``VoicePrivacy``'s two settings checks have **no caller** — measured 2026-10-01.
+
+    Only ``redact_sensitive_text`` is called (from ``integrations/stt_service.py``, per segment).
+    ``should_store_audio`` and ``is_external_api_allowed`` are never reached, so the retention and
+    external-API postures they encode are **unenforced** — and ``should_store_audio`` is the only
+    reader of ``voice.record_audio`` / ``voice.voice_data_retention_hours``.
+    """
+    uncalled = _unreachable_checks(VoicePrivacy, "privacy.py", {"redact_sensitive_text"})
+    assert uncalled == ["is_external_api_allowed", "should_store_audio"], (
+        f"the set of unreachable VoicePrivacy checks changed: {uncalled}. If one was wired, the "
+        "posture it encodes is now enforced — update this record and `docs/voice-io.md`."
+    )
+
+
+def _src_reads(identifier: str) -> set[tuple[str, str | None]]:
+    """``(file, enclosing function)`` for each **read** of ``identifier`` under ``src/``.
+
+    Only ``Load``-context names count, so a field *declaration* (``record_audio: bool = ...``, a
+    ``Store`` context) is not mistaken for a read. The enclosing function is the innermost
+    ``def``/``async def`` containing the read, or ``None`` at class/module level.
+    """
+    import ast
+
+    src = Path(__file__).resolve().parents[1] / "src"
+    found: set[tuple[str, str | None]] = set()
+
+    def scan(node: ast.AST, rel: str, fn: str | None) -> None:
+        for child in ast.iter_child_nodes(node):
+            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                scan(child, rel, child.name)
+                continue
+            if isinstance(child, ast.Name):
+                if child.id == identifier and isinstance(child.ctx, ast.Load):
+                    found.add((rel, fn))
+            elif isinstance(child, ast.Attribute):
+                if child.attr == identifier and isinstance(child.ctx, ast.Load):
+                    found.add((rel, fn))
+            scan(child, rel, fn)
+
+    for path in src.rglob("*.py"):
+        if "__pycache__" in path.parts:
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8", errors="replace"))
+        scan(tree, path.relative_to(src).as_posix(), None)
+    return found
+
+
+# The four methods the two pins above prove unreachable. Kept as a literal so the field pin below
+# is checked *against the same list*: a change to one forces a look at the other.
+_DEAD_VOICE_CHECKS = {
+    "is_audio_recording_allowed",
+    "is_wake_word_enabled",
+    "should_store_audio",
+    "is_external_api_allowed",
+}
+
+
+def test_the_voice_flags_with_no_live_reader_are_recorded():
+    """Three voice settings are read *only* inside methods that nothing calls.
+
+    ``voice.record_audio`` (read by the dead ``VoiceGate.is_audio_recording_allowed`` **and** the
+    dead ``VoicePrivacy.should_store_audio``), ``voice.voice_data_retention_hours`` (the latter
+    only), and ``voice.wake_word_enabled`` (the former only). Each flag's *entire* readership is
+    unreachable — the exact condition ``tests/test_ineffective_flags.py`` exists to catch, and the
+    exact condition its identifier-appearance method cannot see.
+
+    Asserted by **enclosing function**, not by file: a file-level scan would pass unchanged if
+    someone added a read inside a live method in one of the same two files.
+    """
+    for field in ("record_audio", "voice_data_retention_hours", "wake_word_enabled"):
+        readers = {fn for _, fn in _src_reads(field)}
+        assert readers, f"the read scan found no read of {field} at all — it has gone blind"
+        assert readers <= _DEAD_VOICE_CHECKS, (
+            f"{field} is now read from {sorted(readers - _DEAD_VOICE_CHECKS)}, which is not one of "
+            "the unreachable checks — the flag has a live reader, so this record is stale"
+        )
+    # Positive control: ``voice_enabled`` *is* read on a live path (``is_voice_enabled``, reached
+    # via both entry points), so the scan can tell a live reader from a dead one and the subset
+    # assertions above are not passing because every reader happens to look dead.
+    live = {fn for _, fn in _src_reads("voice_enabled")}
+    assert "is_voice_enabled" in live and not live <= _DEAD_VOICE_CHECKS, (
+        f"the read scan cannot distinguish a live reader from a dead one; readers={sorted(live)}"
+    )

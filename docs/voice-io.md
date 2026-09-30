@@ -9,7 +9,10 @@
 
 
 > **Status**: Implemented — the local STT/TTS engines are real; push-to-talk enforcement and
-> wake word are **not** implemented
+> wake word are **not** implemented. Four voice checks have **no caller**
+> (`VoiceGate.is_audio_recording_allowed`, `is_wake_word_enabled`; `VoicePrivacy.should_store_audio`,
+> `is_external_api_allowed`), so three settings (`record_audio`, `voice_data_retention_hours`,
+> `wake_word_enabled`) have **no live reader** — pinned by `tests/test_voice_io.py`
 > **Related**: `docs/architecture.md`, `docs/settings.md`, `docs/egress-gate.md`
 
 ## Overview
@@ -66,7 +69,7 @@ It was previously declared out of scope with "stubs only", and **both halves of 
 |----------|--------|
 | Push-to-talk | **Not enforced** — `voice.push_to_talk_only` is read by nothing (`tests/test_ineffective_flags.py`) |
 | Local wake word | Not implemented |
-| Always listening | **Forbidden** |
+| Always listening | **Forbidden** — but see Safety: nothing enforces it |
 
 ## Settings
 
@@ -75,23 +78,30 @@ It was previously declared out of scope with "stubs only", and **both halves of 
 | `voice_enabled` | false | Enable voice I/O |
 | `stt_provider` | "none" | STT provider |
 | `tts_provider` | "none" | TTS provider |
-| `record_audio` | false | Record audio |
+| `record_audio` | false | Record audio (**no live reader**) |
 | `external_voice_api_allowed` | false | Allow external STT/TTS |
 | `push_to_talk_only` | true | Push-to-talk only (**not enforced**) |
-| `wake_word_enabled` | false | Wake word detection |
-| `voice_data_retention_hours` | 0 | Audio retention (0=never) |
+| `wake_word_enabled` | false | Wake word detection (**no live reader**) |
+| `voice_data_retention_hours` | 0 | Audio retention (0=never) (**no live reader**) |
 
 ## Safety
 
+`tests/test_voice_io.py` pins which of these are **enforced** and which are only **true**.
+
 - Default disabled, and the gate is **fail-closed**: with no settings store every check returns False
-- No always-listening
-- No audio storage by default
-- No external STT/TTS by default; the external TTS path also goes through the egress gate
+- No external STT/TTS by default — **enforced** by `is_stt_allowed` / `is_tts_allowed` (both called
+  by the services); the external TTS path also goes through the egress gate
+- No always-listening — **not enforced**: no wake-word path exists, so `is_wake_word_enabled`, which
+  would gate it, has no caller
+- No audio storage by default — **not enforced**: nothing stores audio, and `record_audio` /
+  `voice_data_retention_hours` are read only by unreachable checks
 - **A local provider is never served by the cloud engine.** If a local engine is named but is
   unavailable or unimplemented, the request is **refused** — falling back would send the user's text
   out at the exact moment they asked it not to. Pinned by `tests/test_voice_io.py`.
 - Push-to-talk is a settings default only; nothing enforces it
 - Voice approval requires additional auth (not implemented)
+- `VoicePrivacy`'s only live method is `redact_sensitive_text`; `should_store_audio` and
+  `is_external_api_allowed` have **no caller**
 
 ## Next Steps
 
@@ -99,3 +109,6 @@ It was previously declared out of scope with "stubs only", and **both halves of 
 2. Enforce `push_to_talk_only` in the capture path, or delete the field
 3. Implement the wake-word path
 4. Integrate with Interaction Hub
+5. Wire or delete the four callerless voice checks — `is_audio_recording_allowed`,
+   `is_wake_word_enabled`, `should_store_audio`, `is_external_api_allowed` — or the three settings
+   they read (`record_audio`, `voice_data_retention_hours`, `wake_word_enabled`)
