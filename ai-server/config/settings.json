@@ -54,18 +54,5 @@
     "push_to_talk_only": true,
     "wake_word_enabled": false,
     "voice_data_retention_hours": 0
-  },
-  "autonomy": {
-    "profile": "permissive_owner_assisted",
-    "owned_account_reading_enabled": true,
-    "owned_message_summary_enabled": true,
-    "low_risk_signup_enabled": true,
-    "low_risk_signup_without_approval": true,
-    "external_send_requires_approval": false,
-    "publish_requires_approval": false,
-    "payment_requires_approval": true,
-    "captcha_bypass_forbidden": true,
-    "bulk_signup_forbidden": true,
-    "stealth_browser_forbidden": true
   }
 }

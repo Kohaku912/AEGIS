@@ -16,12 +16,16 @@ which is normally the defect this repo warns about. It is acceptable here only b
 is **frozen**: the fields no longer exist, so there is nothing left to discover them from.
 Every live-set assertion in this file derives its expectation from the models instead.
 
-Three directions, and a positive control that keeps the first from passing vacuously:
+Four directions, and a positive control that keeps the first from passing vacuously:
 
 * the names appear nowhere under ``src/`` — code **and prose**;
 * they are absent from the models' own declarations (an independent detector, so blinding
   either one is visible);
 * the shipped ``config/settings.json`` carries none of their keys;
+* and — the **general** form, added 2026-10-01 — no key in the shipped config is undeclared
+  by a settings model. The first three cover only the 22 *named* fields, which is exactly why
+  the dead ``autonomy`` block (the ``AutonomyProfile`` residue P1-3 left behind, eleven keys
+  nothing read) survived them;
 * ``test_the_scan_can_see_a_live_field`` proves the scan works by finding a field that is
   still there — the one unread field B-6 deliberately **kept**. An absence assertion is
   vacuously true once its scan breaks, so this control is the only thing covering it.
@@ -201,4 +205,79 @@ def test_the_shipped_config_carries_no_retired_key() -> None:
     retired = {field.split(".", 1)[1] for field in _RETIRED_FIELDS}
     assert sorted(shipped & retired) == [], (
         f"the shipped settings file still carries retired keys: {sorted(shipped & retired)}"
+    )
+
+
+# ── The general invariant the test above only sampled ─────────────────────────
+
+
+def _walk_shipped_against_models() -> tuple[list[str], list[str]]:
+    """Walk the shipped config against the models: ``(dead_paths, visited_paths)``.
+
+    ``dead_paths`` are keys no settings model declares. Recurse only into fields whose
+    annotation *is* a settings model — a ``dict[...]`` field
+    (``capabilities.per_capability`` is ``dict[str, CapabilityPermission]``) holds
+    user-chosen keys, not schema, so its contents are not judged.
+    """
+    from pydantic import BaseModel
+
+    from aegis_ai.settings.models import AEGISSettings
+
+    payload = json.loads(_SHIPPED_CONFIG.read_text(encoding="utf-8"))
+    dead: list[str] = []
+    visited: list[str] = []
+
+    def walk(node: dict, model: type[BaseModel], prefix: str) -> None:
+        for key, value in node.items():
+            visited.append(prefix + key)
+            if key not in model.model_fields:
+                dead.append(prefix + key)
+                continue
+            annotation = model.model_fields[key].annotation
+            if (
+                isinstance(value, dict)
+                and isinstance(annotation, type)
+                and issubclass(annotation, BaseModel)
+            ):
+                walk(value, annotation, prefix + key + ".")
+
+    walk(payload, AEGISSettings, "")
+    return dead, visited
+
+
+def test_every_shipped_key_is_a_live_settings_field() -> None:
+    """The shipped config offers **no** key that no model declares.
+
+    This is the general form of the B-6 defect, and the assertion the docstring at the top
+    of this file has claimed all along ("every key it carries must be live"). Until
+    2026-10-01 only the 22 *named* retired keys were checked, so a dead block that was never
+    one of those names survived: ``autonomy``, the residue of the ``AutonomyProfile`` that
+    P1-3 deleted. Eleven keys nothing reads — and several spelled out approval
+    requirements (``external_send_requires_approval``, ``payment_requires_approval``,
+    ``publish_requires_approval``), so the shipped file **read as though those gates were
+    configured**. Pydantic ignores extras, so setting one neither works nor fails; the only
+    symptom is a reader believing a control exists. Deleted 2026-10-01.
+
+    One-directional, like the test above: the file is a *sample* (it omits whole sections
+    such as ``agents`` and ``intake``), so a live key may be absent — but every key it does
+    carry must exist.
+    """
+    dead, visited = _walk_shipped_against_models()
+    payload = json.loads(_SHIPPED_CONFIG.read_text(encoding="utf-8"))
+    # Non-vacuity. A walk that visited nothing would report no dead keys, so prove it
+    # covered every top-level section *and* descended into at least one sub-model. These
+    # are deliberately not a count — a count would rot when the config changes size.
+    top_level_seen = {path.split(".", 1)[0] for path in visited}
+    assert top_level_seen == set(payload), (
+        f"the walk missed top-level sections: {sorted(set(payload) - top_level_seen)} — "
+        "the dead-key result below cannot be trusted"
+    )
+    assert "voice.push_to_talk_only" in visited, (
+        "the walk did not descend into a sub-model, so it never judged any leaf key"
+    )
+    assert dead == [], (
+        f"the shipped settings file carries keys no settings model declares: {dead}. "
+        "Pydantic ignores extras, so setting one neither works nor fails — and a key named "
+        "like a control (e.g. ``*_requires_approval``) reads as though a gate were "
+        "configured. Either declare the field and give it a reader, or delete the key."
     )
