@@ -7,13 +7,13 @@ through a lightweight stub in `test_aegis_runtime_bootstrap_*`.
 """
 from __future__ import annotations
 
+import ast
 import asyncio
 import hashlib
 import json
 from pathlib import Path
 
 import pytest
-
 
 # ---------------------------------------------------------------------------
 # LocalBackend (subprocess) — read-only DoD
@@ -314,8 +314,8 @@ def test_import_agents_package_does_not_require_openhands() -> None:
 
 def test_runtime_models_do_not_import_openhands() -> None:
     """aegis_ai.agents.runtime.models は openhands を import していない."""
-    import aegis_ai.agents.runtime.models as models_mod
     import aegis_ai.agents.runtime.interface as iface_mod
+    import aegis_ai.agents.runtime.models as models_mod
 
     for name in ("openhands", "openhands_sdk", "openhands_tools", "openhands_workspace"):
         assert name not in dir(models_mod)
@@ -360,6 +360,262 @@ def test_agent_backend_registry_register_and_resolve() -> None:
         assert get_backend("does-not-exist") is None
     finally:
         clear_backends()
+
+
+# ---------------------------------------------------------------------------
+# A-12 — the `requires_feature` filter is plumbed but never supplied
+# ---------------------------------------------------------------------------
+#
+# `list_for_llm(feature_flags=...)` filters only when a caller supplies a flag
+# set; `None` — the default — preserves everything. Measured 2026-09-30: **no
+# caller under `src/` supplies one**, so the filter never runs on the live path
+# and `ai-server.agent.delegate` — the only manifest carrying
+# `requires_feature` — stays visible to the LLM even though
+# `settings.agents.enabled` defaults to `False`.
+#
+# Same shape as A-11: a parameter that is declared, documented and *tested*, and
+# that nothing supplies. (Tests legitimately supply flags, to exercise the
+# filter; that is exactly why this scan reads `src/` only — a test supplying a
+# flag must never be able to make production look gated.)
+#
+# The register (A-12) holds the decision: wire the filter, or delete the
+# mechanism. Until it is made, these tests pin the *status quo* so neither can
+# happen silently — each has to fail here first and update the register.
+
+_FEATURE_FLAG_ENTRY_POINTS = (
+    "list_for_llm",
+    "list_for_agent",
+    "mcp_tool_schemas",
+    "list_tools_for_agent",
+)
+
+#: Positional slot of `feature_flags` per entry point (`None` = keyword-only).
+_FEATURE_FLAG_POSITION: dict[str, int | None] = {
+    "list_for_llm": 0,
+    "list_for_agent": 1,
+    "mcp_tool_schemas": 1,
+    "list_tools_for_agent": None,
+}
+
+#: Functions that accept a feature-flag set. Deleting the mechanism is a
+#: deliberate act (register A-12), so this set is asserted equal.
+_RECORDED_FEATURE_FLAG_DECLARERS = {
+    "src/aegis_ai/capability_catalog.py:list_for_llm",
+    "src/aegis_ai/capability_catalog.py:list_for_agent",
+    "src/aegis_ai/capability_catalog.py:mcp_tool_schemas",
+    "src/aegis_ai/tools/mcp_gateway.py:list_tools_for_agent",
+}
+
+#: Call sites that pass a **concrete** flag set — i.e. that make the filter run.
+#: Measured 2026-09-30: none. If this ever becomes non-empty, the filter is live
+#: and A-12's premise ("nothing supplies it") has stopped being true.
+_RECORDED_FEATURE_FLAG_SUPPLIERS: set[str] = set()
+
+#: Call sites that pass on their own `feature_flags` parameter — plumbing, not a
+#: supply. Recorded so that removing one is visible.
+_RECORDED_FEATURE_FLAG_FORWARDERS = {
+    "src/aegis_ai/capability_catalog.py:list_for_agent",
+    "src/aegis_ai/capability_catalog.py:mcp_tool_schemas",
+    "src/aegis_ai/tools/mcp_gateway.py:list_tools_for_agent",
+}
+
+#: The production callers: they reach an entry point and pass **no** feature-flag
+#: argument, so the filter stays off. These are the call sites A-12 is about.
+_RECORDED_FEATURE_FLAG_SILENT_CALLERS = {
+    "src/aegis_ai/llm_task_interpreter.py:_build_capability_list",
+    "src/aegis_ai/web/ui_overview.py:_capabilities",
+    "src/aegis_ai/tools/mcp_gateway.py:mcp_tools_list_payload",
+    "src/aegis_agent_server/main.py:_tools_list_response",
+}
+
+
+def _src_root() -> Path:
+    return Path(__file__).resolve().parents[2] / "src"
+
+
+def _called_name(func: ast.expr) -> str | None:
+    if isinstance(func, ast.Attribute):
+        return func.attr
+    if isinstance(func, ast.Name):
+        return func.id
+    return None
+
+
+def _feature_flag_argument(call: ast.Call, name: str) -> ast.expr | None:
+    """The value passed for `feature_flags`, or `None` if the call omits it.
+
+    An explicit `feature_flags=None` is *the same as omitting it* — both leave the
+    filter off — so it is reported as omitted rather than as a supply. `set()` is
+    deliberately **not** treated this way: it turns the filter on with nothing
+    enabled, which *hides* every `requires_feature` capability, so it is a supply.
+    """
+    value: ast.expr | None = None
+    for keyword in call.keywords:
+        if keyword.arg == "feature_flags":
+            value = keyword.value
+            break
+    else:
+        position = _FEATURE_FLAG_POSITION.get(name)
+        if position is not None and len(call.args) > position:
+            value = call.args[position]
+    if isinstance(value, ast.Constant) and value.value is None:
+        return None
+    return value
+
+
+class _FeatureFlagVisitor(ast.NodeVisitor):
+    """Classify calls to the feature-flag entry points, one file at a time."""
+
+    def __init__(self, rel: str, found: dict[str, set[str]]) -> None:
+        self.rel = rel
+        self.found = found
+        self.stack: list[tuple[str, set[str]]] = []
+
+    def _visit_func(self, node: ast.FunctionDef | ast.AsyncFunctionDef) -> None:
+        args = node.args
+        params = {a.arg for a in (*args.posonlyargs, *args.args, *args.kwonlyargs)}
+        if "feature_flags" in params:
+            self.found["declarers"].add(f"{self.rel}:{node.name}")
+        self.stack.append((node.name, params))
+        self.generic_visit(node)
+        self.stack.pop()
+
+    # `ast.NodeVisitor` dispatches on these exact names, so the mixedCase is forced.
+    visit_FunctionDef = _visit_func  # noqa: N815
+    visit_AsyncFunctionDef = _visit_func  # noqa: N815
+
+    def visit_Call(self, node: ast.Call) -> None:
+        name = _called_name(node.func)
+        if name in _FEATURE_FLAG_ENTRY_POINTS:
+            owner, params = self.stack[-1] if self.stack else ("<module>", set())
+            key = f"{self.rel}:{owner}"
+            value = _feature_flag_argument(node, name)
+            if value is None:
+                self.found["silent"].add(key)
+            elif isinstance(value, ast.Name) and value.id in params:
+                self.found["forwarders"].add(key)
+            else:
+                self.found["suppliers"].add(key)
+        self.generic_visit(node)
+
+
+def _feature_flag_scan(root: Path) -> dict[str, set[str]]:
+    found: dict[str, set[str]] = {k: set() for k in ("declarers", "suppliers", "forwarders", "silent")}
+    for path in sorted(root.rglob("*.py")):
+        rel = path.relative_to(root.parent).as_posix()
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        _FeatureFlagVisitor(rel, found).visit(tree)
+    return found
+
+
+def test_the_feature_flag_scan_is_not_vacuous() -> None:
+    """An equality against an empty scan proves nothing — the scan must see the surface."""
+    scan = _feature_flag_scan(_src_root())
+    assert len(scan["declarers"]) >= 4, f"scan saw only {scan['declarers']}"
+    assert len(scan["forwarders"]) >= 3, f"scan saw only {scan['forwarders']}"
+    assert len(scan["silent"]) >= 4, f"scan saw only {scan['silent']}"
+
+
+def test_the_feature_flag_entry_points_are_exactly_the_recorded_ones() -> None:
+    """`feature_flags` is accepted in exactly these four places (A-12 option ②)."""
+    scan = _feature_flag_scan(_src_root())
+    assert scan["declarers"] == _RECORDED_FEATURE_FLAG_DECLARERS
+
+
+def test_no_caller_under_src_supplies_feature_flags() -> None:
+    """A-12: nothing makes the filter run. If this fails, the premise changed."""
+    scan = _feature_flag_scan(_src_root())
+    assert scan["suppliers"] == _RECORDED_FEATURE_FLAG_SUPPLIERS, (
+        "a caller now supplies feature_flags, so `requires_feature` is live — "
+        f"update register A-12: {sorted(scan['suppliers'])}"
+    )
+
+
+def test_the_feature_flag_call_sites_are_exactly_the_recorded_ones() -> None:
+    """Forwarders and silent callers, as an equality — both directions matter."""
+    scan = _feature_flag_scan(_src_root())
+    assert scan["forwarders"] == _RECORDED_FEATURE_FLAG_FORWARDERS
+    assert scan["silent"] == _RECORDED_FEATURE_FLAG_SILENT_CALLERS
+
+
+def test_the_detector_finds_a_supplied_flag(tmp_path: Path) -> None:
+    """Blinding check: a genuine supply must be classified as one."""
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "fake.py").write_text(
+        "def go(catalog):\n"
+        "    return catalog.list_for_llm(feature_flags={'agents'})\n",
+        encoding="utf-8",
+    )
+    scan = _feature_flag_scan(tmp_path / "src")
+    assert scan["suppliers"] == {"src/fake.py:go"}
+    assert scan["silent"] == set()
+
+
+def test_the_detector_finds_a_positionally_supplied_flag(tmp_path: Path) -> None:
+    """`list_for_llm` takes flags positionally, so a positional supply must count."""
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "fake.py").write_text(
+        "def go(catalog):\n    return catalog.list_for_llm({'agents'})\n",
+        encoding="utf-8",
+    )
+    assert _feature_flag_scan(tmp_path / "src")["suppliers"] == {"src/fake.py:go"}
+
+
+def test_the_detector_distinguishes_forwarding_from_supplying(tmp_path: Path) -> None:
+    """The discriminator the whole pin rests on: passing your own parameter on is not a supply."""
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "fake.py").write_text(
+        "def go(catalog, feature_flags):\n"
+        "    return catalog.list_for_llm(feature_flags=feature_flags)\n",
+        encoding="utf-8",
+    )
+    scan = _feature_flag_scan(tmp_path / "src")
+    assert scan["forwarders"] == {"src/fake.py:go"}
+    assert scan["suppliers"] == set()
+
+
+def test_an_explicit_none_is_not_a_supply(tmp_path: Path) -> None:
+    """`feature_flags=None` leaves the filter off, exactly like omitting it."""
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "fake.py").write_text(
+        "def go(catalog):\n    return catalog.list_for_llm(feature_flags=None)\n",
+        encoding="utf-8",
+    )
+    scan = _feature_flag_scan(tmp_path / "src")
+    assert scan["suppliers"] == set()
+    assert scan["silent"] == {"src/fake.py:go"}
+
+
+def test_an_empty_flag_set_is_a_supply_not_an_omission(tmp_path: Path) -> None:
+    """`set()` turns the filter ON with nothing enabled, so it hides — a supply."""
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "fake.py").write_text(
+        "def go(catalog):\n    return catalog.list_for_llm(feature_flags=set())\n",
+        encoding="utf-8",
+    )
+    scan = _feature_flag_scan(tmp_path / "src")
+    assert scan["suppliers"] == {"src/fake.py:go"}
+    assert scan["silent"] == set()
+
+
+def test_the_live_path_shows_the_delegate_capability_because_nothing_supplies_flags() -> None:
+    """The consequence of A-12, measured on the real catalog."""
+    from aegis_ai.capability_catalog import CapabilityCatalog
+    from aegis_ai.settings.models import AgentSettings
+
+    catalog = CapabilityCatalog(capabilities_dir=str(_src_root().parent / "capabilities"))
+
+    # The way production calls it: no flags.
+    shown = {entry["id"] for entry in catalog.list_for_llm()}
+    assert "ai-server.agent.delegate" in shown
+
+    # The same catalog *can* hide it, so the two states genuinely differ and the
+    # permissive one is the one production takes.
+    hidden = {entry["id"] for entry in catalog.list_for_llm(feature_flags=set())}
+    assert "ai-server.agent.delegate" not in hidden
+
+    # And the switch that would gate it is off by default.
+    assert AgentSettings().enabled is False
 
 
 if __name__ == "__main__":

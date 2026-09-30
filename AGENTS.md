@@ -425,12 +425,13 @@ Audit logs are written to `data/settings_audit.jsonl`.
 
 ### Test Status
 
-Measured 2026-09-29 — `ai-server`, full suite:
+Measured 2026-09-30 — `ai-server`, full suite:
 
-- **Total tests**: **1766 passed / 31 skipped**
+- **Total tests**: **1776 passed / 31 skipped**
   — of the skips, **22 are recorded debt**: settings fields that are declared but have no reader,
-  enumerated with a reason in `tests/test_ineffective_flags.py::_UNOWNED_DEBT`. That detector now
-  discovers settings models automatically (**95 fields across 12 models**, up from 26 across 2), so a
+  enumerated with a reason in `tests/test_ineffective_flags.py::_UNOWNED_DEBT` (23 fields are recorded
+  unread in total: those 22 plus one intentionally unread). That detector now
+  discovers settings models automatically (**93 fields across 11 models**, up from 26 across 2), so a
   newly added dead flag fails the suite instead of shipping quietly.
 - **Other suites**: `room-server` 14 · `browser-server` 100 · `aegis-sdk-python` 71 ·
   `web-ui` `vitest` 144 · `web-ui` `playwright` 42.

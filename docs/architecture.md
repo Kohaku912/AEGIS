@@ -6,7 +6,7 @@
 > requirements. See [`GOAL-CHANGE.md`](GOAL-CHANGE.md) and [`IMPROVEMENT_PROPOSAL.md`](../IMPROVEMENT_PROPOSAL.md) §9.
 
 > **Status**: Implemented. Counts are date-stamped measurements; re-measure before trusting them.  
-> **Tests**: **1766 passed / 31 skipped** (ai-server suite, measured 2026-09-30)  
+> **Tests**: **1776 passed / 31 skipped** (ai-server suite, measured 2026-09-30)  
 > **Capabilities**: **128 registered** (pc 58 / ai 32 / android 17 / browser 16 / room 5)  
 > **Target audience**: AI coding agents, contributors, and future AEGIS itself  
 > **Related**: [`AGENTS.md`](../AGENTS.md) — rules and conventions for agents working on this repo
@@ -402,7 +402,7 @@ ai-server/src/
 ├── config/
 │   ├── prompts.yaml                  # Prompt source of truth
 │   └── llm.yaml                      # LLM profile source of truth
-└── tests/                            # 1766 tests total
+└── tests/                            # 1776 tests total
 ```
 
 ### 5.2 Context Builder
@@ -739,7 +739,7 @@ AEGIS can improve its own codebase — but only through a PR-based workflow.
 | **LLM Integration** | ✅ Complete | LLMGateway + PromptRegistry + text-based tool calling |
 | **Confirmation** | ✅ Complete | AEGIS-initiated questions; the forced gate was removed 2026-09-28 |
 | **Memory System** | ✅ Complete | AdvancedMemory + Chroma + learning pipeline |
-| **E2E Testing** | ✅ Complete | 1766 tests passing (ai-server suite) |
+| **E2E Testing** | ✅ Complete | 1776 tests passing (ai-server suite) |
 
 ### Deferred Items
 
