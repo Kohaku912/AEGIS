@@ -1,9 +1,11 @@
 """The goal change stays applied.
 
-AEGIS's goal was narrowed to a **single constraint**: the user's information must
-never leave the local environment. Approval, reversibility, policy and
-reliability-proof were removed as *constraints*; they survive only as post-hoc
-annotations (see ``docs/irreversibility-ledger.md``).
+AEGIS's goal was narrowed to a **single constraint**: user-information egress. The
+constraint itself was **re-scoped 2026-09-30** (owner) — *unpermitted* disclosure is
+forbidden, outbound connections are allowed, and disclosure **with the user's
+permission** is allowed. Approval, reversibility, policy and reliability-proof were
+removed as *constraints*; they survive only as post-hoc annotations (see
+``docs/irreversibility-ledger.md``).
 
 Phase 2 deleted the code that enforced them. Phase 5b deleted what still *read* as
 a gate: the interpreter branches, the policy-store duplication, and the wire fields

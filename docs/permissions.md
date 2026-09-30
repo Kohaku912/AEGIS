@@ -1,8 +1,15 @@
 # Permissions — AEGIS Permission Management
 
-> ⚠️ **Goal change (2026-09-27)**: the only constraint is now **"the user's information must never
-> leave the local environment."** Approval, reversibility, policy, and reliability-proof are **no
-> longer constraints**. Approval-centric language below is **historical**. See [`GOAL-CHANGE.md`](GOAL-CHANGE.md).
+> ⚠️ **Goal change (2026-09-27)**: the only constraint is now **user-information egress**. Approval,
+> reversibility, policy, and reliability-proof are **no longer constraints**. Approval-centric
+> language below is **historical**. See [`GOAL-CHANGE.md`](GOAL-CHANGE.md).
+>
+> ⚠️ **Constraint re-scoped (2026-09-30)**: the constraint is **"*unpermitted* user information must
+> not leave the local environment"** — outbound connections are allowed, and user information may be
+> sent externally **with the user's permission**. So the egress gate is a **permission check**, not a
+> deny-all wall, and the **voluntary ask** (`confirmation/`) is what carries it. ⚠️ The gate still
+> implements the pre-re-scope deny-all form; wiring the permission check is open work
+> (`PROJECT_STATUS_REVIEW.md` §3.2).
 
 > **Status**: Implemented
 > **Related**: `docs/settings.md`, `docs/architecture.md` §7

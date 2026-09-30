@@ -119,11 +119,31 @@ def test_no_row_promises_an_approval_surface(row_level: str) -> None:
 # ── The other half: the one real constraint must be named ─────────────────────
 
 
-def test_the_readme_names_the_single_constraint() -> None:
-    """The front door described a 5-level approval ladder and never named the constraint."""
-    section = _section()
-    assert "egress gate" in section
-    assert "never leaves the local environment" in section
+def test_the_readme_names_the_single_constraint_in_its_re_scoped_form() -> None:
+    """Re-pointed 2026-09-30: the constraint was re-scoped, so the old pin held a false claim.
+
+    This test used to assert ``"never leaves the local environment" in section``. That sentence was
+    the *pre-2026-09-30* constraint — a flat deny-all with no consent exception. The owner re-scoped
+    it: outbound connections are allowed, and user information may go external **with the user's
+    permission**; only the *unpermitted* case is still absolute. Keeping the old assertion would have
+    made the front door's wording the thing that had to stay wrong, so the pin checks the re-scoped
+    claim instead — the same re-pointing shape as ``test_interruption_cost_vocabulary.py``.
+
+    Three parts, because the re-scope has three: the enforcement point is named, permission is the
+    condition, and outbound connections are explicitly allowed. A revert to the flat deny-all fails
+    the third.
+    """
+    section = _section().lower()
+
+    assert "egress gate" in section, "the front door must name what enforces the constraint"
+    assert "permission" in section, (
+        "the constraint is permission-gated now — a README that never says 'permission' is still "
+        "describing the retired deny-all version"
+    )
+    assert "outbound connections are allowed" in section, (
+        "the re-scoped constraint allows outbound connections; without that the README reads as the "
+        "old absolute and contradicts docs/GOAL-CHANGE.md"
+    )
 
 
 def test_the_readme_says_the_voluntary_ask_still_exists() -> None:

@@ -156,8 +156,11 @@ def create_llm_provider(
 
     # ── Egress gate: the single constraint ──────────────────────────────────
     # A cloud provider must not be constructed while egress is closed. This is the
-    # structural enforcement of "the user's information must never leave the local
-    # environment" — it cannot be bypassed by a settings flag alone.
+    # structural enforcement of the constraint — re-scoped 2026-09-30 to "**unpermitted**
+    # user information must never leave the local environment", with outbound connections
+    # and user-permitted disclosure allowed. The check below still implements the
+    # pre-re-scope deny-all form; the permission wiring is open work. It cannot be
+    # bypassed by a settings flag alone.
     if provider_name != "mock" and not egress_allows_llm(base_url, component="llm.factory"):
         return _local_or_mock(audit_log=audit_log, model=model_name)
 

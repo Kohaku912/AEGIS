@@ -682,8 +682,8 @@ User answers ──► the answer informs what AEGIS does next.
 
 ### 7.4 Data Protection
 
-- **The single constraint**: user data must **never** leave the local environment. There is no consent exception.
-- External API calls (LLM, web search, cloud TTS, webhooks) are **denied by default** and routed through the egress gate (`aegis_ai/egress/`). Local alternatives are the only permitted option.
+- **The single constraint** (re-scoped 2026-09-30): **unpermitted** user data must **never** leave the local environment. Outbound connections are allowed, and user data may be sent externally **with the user's permission** — so the gate is a permission check, not a deny-all wall, and the *voluntary ask* carries it.
+- External API calls (LLM, web search, cloud TTS, webhooks) route through the egress gate (`aegis_ai/egress/`). ⚠️ The gate **still implements the pre-re-scope deny-all form** — external calls are denied by default until the permission check is wired.
 - Local-only stores (SQLite, Chroma, JSONL) are the norm.
 - Secrets via environment variables — **never** in source code or proto files
 - TLS available for gRPC (`security/tls_config.py`) — for protecting the local hop, not for reaching out

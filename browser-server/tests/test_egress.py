@@ -1,9 +1,9 @@
 """Egress gate tests for the Browser Server.
 
-The only constraint is: **the user's information must never leave the local
-environment.** The browser server drives a real browser, so it is the most
-egress-prone component in AEGIS. These tests exist so no future change can
-silently open it.
+The only constraint is user-information egress — **re-scoped 2026-09-30** to
+*unpermitted* disclosure, with outbound connections and user-permitted disclosure
+allowed. The browser server drives a real browser, so it is the most egress-prone
+component in AEGIS. These tests exist so no future change can silently bypass the check.
 
 Mirrors ``ai-server/tests/test_egress_gate.py`` — see ``docs/egress-gate.md``.
 """

@@ -3,12 +3,15 @@
 NOT an LLM. NOT configurable by prompt. This is a structural gate that decides
 whether an action is a **hard stop**; it no longer decides whether to *ask*.
 
-Scope (narrowed 2026-09-27)
----------------------------
-The project goal changed: the **only constraint** is that the user's information
-must never leave the local environment. Approval, reversibility, policy consent and
-reliability-proof are **no longer constraints**, so the interactive approval flow has
-been retired (see ``docs/GOAL-CHANGE.md``).
+Scope (narrowed 2026-09-27; **constraint re-scoped 2026-09-30**)
+----------------------------------------------------------------
+The project goal changed: the **only constraint** is user-information egress.
+**Re-scoped 2026-09-30** (owner): *unpermitted* disclosure is forbidden, outbound
+connections are allowed, and disclosure **with the user's permission** is allowed — so
+the constraint is a permission check, not a deny-all wall. Approval, reversibility,
+policy consent and reliability-proof are **no longer constraints** in the forced sense,
+so the interactive approval flow has been retired (see ``docs/GOAL-CHANGE.md``); the
+*voluntary* ask is kept.
 
 Three hard stops remain (AGENTS.md §Security Policy):
 

@@ -1,7 +1,8 @@
 # test-ai-server.ps1 - Run the ai-server test suite plus the egress constraint checks.
 #
-# The egress suite guards AEGIS's single constraint: the user's information must
-# never leave the local environment. Three checks run here, all mandatory:
+# The egress suite guards AEGIS's single constraint: **unpermitted** user information
+# must never leave the local environment (re-scoped 2026-09-30 — outbound connections,
+# and disclosure the user permits, are allowed). Three checks run here, all mandatory:
 #
 #   1. The full ai-server suite.
 #   2. The egress suite with --require-egress-tests=N. This is the retired

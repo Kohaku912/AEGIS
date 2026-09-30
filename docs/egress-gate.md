@@ -44,9 +44,11 @@ component → EgressGate.require(request) → ALLOW (local)
    Loopback, RFC1918, link-local, Tailscale CGNAT (`100.64.0.0/10`), IPv6 ULA (`fc00::/7`), loopback
    hostnames, `.local` mDNS names, single-label LAN hostnames, and unix sockets are local.
 3. **Fail closed.** If a destination cannot be classified, the request is denied.
-4. **No consent exception.** The old "must be explicitly configured" escape hatch is gone. External
-   egress requires **all three**: the master switch, the matching feature flag, **and** an allowlist
-   entry.
+4. **Permission, not a wall** (re-scoped 2026-09-30). The constraint is now *unpermitted* egress, so
+   the intended mechanism is the **voluntary ask**, not an absolute refusal. ⚠️ **The code still
+   enforces the pre-re-scope form**: external egress requires **all three** — the master switch, the
+   matching feature flag, **and** an allowlist entry. Wiring the permission check is open work; until
+   it lands this list describes current behaviour, not the target.
 5. **Auditable.** Every decision is recorded so the constraint can be verified after the fact.
 
 ### Three locks

@@ -1,7 +1,9 @@
 """Egress gate for the Browser Server — the single constraint, enforced locally.
 
-The only constraint is: **the user's information must never leave the local
-environment.** This module is the Browser Server's enforcement point.
+The only constraint is user-information egress — **re-scoped 2026-09-30** (owner) to
+*unpermitted* disclosure, with outbound connections and user-permitted disclosure
+allowed. This module is the Browser Server's enforcement point; it currently implements
+the pre-re-scope deny-all form, and the permission wiring is open work.
 
 Why this is duplicated rather than imported
 -------------------------------------------

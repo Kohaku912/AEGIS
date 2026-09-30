@@ -1,8 +1,16 @@
-"""Egress Gate — deny-by-default control for all outbound transmission.
+"""Egress Gate — control for all outbound transmission.
 
-The gate is the *single* structural enforcement point for AEGIS's single constraint:
+The gate is the *single* structural enforcement point for AEGIS's single constraint.
+**Re-scoped 2026-09-30** (owner):
 
-    **The user's information must never leave the local environment.**
+    **Unpermitted** user information must never leave the local environment. Outbound
+    connections are allowed, and user information may be sent externally **with the
+    user's permission**.
+
+⚠️ **What the code currently implements is the pre-re-scope version of that rule** —
+deny by default, allowlist only, no consent exception (principle 4 below). The
+re-scoped constraint makes this a *permission check* rather than a wall; wiring that is
+open work. Read the principles below as the *current* behaviour, not as the target.
 
 Design principles
 -----------------
@@ -11,8 +19,12 @@ Design principles
 2. **Local is allowed.** AEGIS is a multi-device system; its own LAN *is* the local
    environment. Loopback, RFC1918, link-local, Tailscale CGNAT and IPv6 ULA are local.
 3. **Fail closed.** If a destination cannot be classified, the request is denied.
-4. **No consent exception.** There is no "explicitly configured" escape hatch beyond
-   the explicit allowlist. A flag alone never permits egress.
+4. **Permission, not a wall** (re-scoped 2026-09-30). The old "must be explicitly configured"
+   escape hatch is gone, and the constraint is now *unpermitted* egress — so the intended
+   mechanism is the **voluntary ask**, not an absolute refusal. ⚠️ The code still enforces
+   the pre-re-scope form: external egress requires **all three** of the master switch, the
+   matching feature flag, **and** an allowlist entry, so a flag alone never permits egress.
+   Wiring the permission check is open work.
 5. **Auditable.** Every decision is recorded so the constraint can be verified after
    the fact (post-hoc visibility, Phase 3).
 

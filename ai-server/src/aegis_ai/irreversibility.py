@@ -3,9 +3,10 @@
 Why this exists
 ---------------
 Approval was retired as a constraint on 2026-09-27 — the only constraint left is
-that the user's information must never leave the local environment. Removing a
-pre-execution gate only works if it is replaced by *post-hoc visibility*, which
-is what this module provides. It answers two questions and blocks nothing:
+user-information egress, **re-scoped 2026-09-30** so that *unpermitted* disclosure is
+forbidden while outbound connections, and disclosure the user permits, are allowed.
+Removing a pre-execution gate only works if it is replaced by *post-hoc visibility*,
+which is what this module provides. It answers two questions and blocks nothing:
 
 1. **Inventory** — which capabilities can do something that cannot be taken
    back? (derived from the manifests, so it is complete by construction)

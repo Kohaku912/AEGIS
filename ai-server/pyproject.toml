@@ -55,7 +55,7 @@ markers = [
     # The single constraint. Counted by --require-egress-tests (see tests/conftest.py):
     # if the egress suite ever shrinks below the floor, the run fails instead of
     # silently passing with no coverage.
-    "egress: guards AEGIS's single constraint — user information must never leave the local environment",
+    "egress: guards AEGIS's single constraint — unpermitted user information must not leave the local environment",
 ]
 
 [tool.ruff.lint]

@@ -27,7 +27,8 @@ reaches this endpoint, and ``safety.BLOCKED_ACTIONS`` refuses ``captcha_bypass``
 ``bot_evasion``, ``credential_store_read``, ``purchase`` and ``contract_acceptance``
 at the boundary. Egress is gated in ``browser_use_agent.py`` and
 ``safety_boundary.py`` through ``egress.py``, which enforces the single constraint —
-the user's information never leaves the local environment. Because this server is
+user-information egress, **re-scoped 2026-09-30** to *unpermitted* disclosure (outbound
+connections, and disclosure the user permits, are allowed). Because this server is
 agent-private, user-visible pages must be routed to the PC or Android server.
 """
 

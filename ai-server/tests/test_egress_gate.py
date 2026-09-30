@@ -1,7 +1,9 @@
 """Egress gate tests — regression protection for AEGIS's single constraint.
 
-The only constraint is: **the user's information must never leave the local
-environment.** These tests exist so that no future change can silently open egress.
+The only constraint is user-information egress — **re-scoped 2026-09-30**: *unpermitted*
+disclosure is forbidden, outbound connections are allowed, and disclosure the user permits
+is allowed. These tests exist so that no future change can silently bypass the check —
+today the gate still enforces the pre-re-scope deny-all form.
 
 They also cover the *"ineffective flag"* class of bug: a settings flag that exists
 but is never read (the same shape as the retired ``web_search_allowed``).

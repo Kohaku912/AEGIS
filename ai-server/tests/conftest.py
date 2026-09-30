@@ -176,8 +176,9 @@ def closed_egress_gate():
 
 # ── The --fail-on-empty discipline for the egress suite ───────────────────────
 #
-# AEGIS has exactly one constraint: the user's information must never leave the
-# local environment. The egress tests are the regression protection for it.
+# AEGIS has exactly one constraint: user-information egress — re-scoped 2026-09-30 so
+# that *unpermitted* disclosure is forbidden while outbound connections, and disclosure
+# the user permits, are allowed. The egress tests are the regression protection for it.
 #
 # The failure mode this guards against is not "a test fails" but "no test runs".
 # A rename, a moved directory, a marker typo, or a narrowed ``-k`` expression can

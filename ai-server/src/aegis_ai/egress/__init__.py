@@ -1,13 +1,20 @@
 """Egress — the single enforcement point for AEGIS's single constraint.
 
-The only constraint in AEGIS is:
+The constraint, **re-scoped 2026-09-30** (owner):
 
-    **The user's information must never leave the local environment.**
+    **Unpermitted** user information must never leave the local environment. Outbound
+    connections are allowed, and user information may be sent externally **with the
+    user's permission**.
 
-Every outbound transmission must pass through this gate. External destinations are
-denied by default, with no consent exception.
+So the rule this package is *for* is a permission check, not a deny-all wall.
 
-See ``AGENTS.md`` (Security Policy), ``docs/GOAL-CHANGE.md`` and
+⚠️ **The code below still implements the pre-re-scope deny-all rule.** "No consent
+exception" is the current behaviour, not the re-scoped intent. Making the gate
+permission-aware — while keeping the forced-approval gate retired and letting the
+*voluntary* ask carry the constraint — is open work. Until it lands, this docstring must
+not be read as describing a mechanism that already exists.
+
+See ``AGENTS.md`` (Security Policy), ``docs/GOAL-CHANGE.md``, ``docs/egress-gate.md`` and
 ``IMPROVEMENT_PROPOSAL.md`` §9.3 Phase 1.
 """
 

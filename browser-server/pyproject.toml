@@ -37,7 +37,7 @@ markers = [
     # Counted by --require-egress-tests (see tests/conftest.py). The browser server
     # is the most egress-prone component in AEGIS, so its gate gets the same
     # --fail-on-empty discipline as the ai-server's.
-    "egress: guards AEGIS's single constraint — user information must never leave the local environment",
+    "egress: guards AEGIS's single constraint — unpermitted user information must not leave the local environment",
 ]
 
 [tool.ruff]

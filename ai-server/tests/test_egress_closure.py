@@ -1,7 +1,8 @@
 """Every guarded egress point refuses while the constraint is closed.
 
-AEGIS has exactly one constraint: **the user's information must never leave the
-local environment.** Phase 1 built the gate (``aegis_ai/egress/``) and wired it
+AEGIS has exactly one constraint: user-information egress — **re-scoped 2026-09-30** so
+that *unpermitted* disclosure is forbidden while outbound connections, and disclosure the
+user permits, are allowed. Phase 1 built the gate (``aegis_ai/egress/``) and wired it
 into the components that transmit data. ``test_egress_gate.py`` covers the gate
 itself plus the LLM factory/gateway and a few wired points.
 
