@@ -30,6 +30,16 @@ Accepted — **superseded in part (2026-09-27)**
 > decide. Pinned by
 > `tests/test_ineffective_flags.py::test_the_retired_autonomy_profile_stays_retired`.
 >
+> ⚠️ **Update (2026-10-01) — the claim above was half false when it was written.** The *model* was
+> deleted (P1-3), but the **shipped `config/settings.json` still carried an `autonomy` block** with the
+> same eleven keys, and nothing checked it: the detector above only ever looks at models. It survived
+> until 2026-10-01, when it was deleted. It was **not harmless** — it spelled
+> `external_send_requires_approval`, `payment_requires_approval` and `publish_requires_approval`, so the
+> shipped file **read as though those gates were configured**, while Pydantic ignored every key (setting
+> one neither worked nor failed). Now pinned in the **general** form — every key the shipped config
+> carries must be declared by a settings model
+> (`tests/test_settings_debt_stays_retired.py::test_every_shipped_key_is_a_live_settings_field`).
+>
 > See [`docs/GOAL-CHANGE.md`](../GOAL-CHANGE.md) and [`IMPROVEMENT_PROPOSAL.md`](../../IMPROVEMENT_PROPOSAL.md) §9.
 
 ## Context
