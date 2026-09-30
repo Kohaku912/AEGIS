@@ -7,10 +7,20 @@ The gate is the *single* structural enforcement point for AEGIS's single constra
     connections are allowed, and user information may be sent externally **with the
     user's permission**.
 
-⚠️ **What the code currently implements is the pre-re-scope version of that rule** —
-deny by default, allowlist only, no consent exception (principle 4 below). The
-re-scoped constraint makes this a *permission check* rather than a wall; wiring that is
-open work. Read the principles below as the *current* behaviour, not as the target.
+The gate now implements that rule with **two permission paths**:
+
+1. **Standing configuration** — the master switch, the per-purpose feature flag and the
+   host allowlist (principles 1-4 below). Unchanged from before the re-scope.
+2. **A permission the user gave about a specific destination** — read from
+   ``aegis_ai.egress.permissions``, which adapts the confirmation store. The gate
+   **consults** it and never asks; raising the question is the *voluntary* ask's job, so
+   the retired forced gate stays retired (pinned by
+   ``tests/test_forced_gate_stays_retired.py``).
+
+A request that carries **no user information** may connect out without either path,
+because the constraint is about user information, not connectivity.
+``EgressRequest.carries_user_information`` defaults to ``True``, so a caller that has not
+reasoned about it gets the gated path rather than the open one.
 
 Design principles
 -----------------
@@ -86,12 +96,20 @@ class EgressRequest:
         component: The code path making the request, e.g. ``llm.router``.
         data_summary: Human-readable description of what would be transmitted.
             Never contains the payload itself — only a summary, for audit.
+        carries_user_information: Whether the request would transmit anything about the
+            user. **Defaults to True — the strict reading**, so a caller that has not
+            reasoned about it gets the permission-gated path rather than the open one.
+            The re-scoped constraint is about *user information*, not connectivity, so a
+            caller that genuinely sends nothing user-specific may say so; the claim is
+            recorded in the audit. It is the caller's explicit claim, not an inference —
+            AEGIS does not scan payloads to decide this (that would be a prose scanner).
     """
 
     destination: str
     purpose: str
     component: str = "unknown"
     data_summary: str = ""
+    carries_user_information: bool = True
 
 
 @dataclass
@@ -286,6 +304,12 @@ class EgressGate:
         allowed_hosts: Explicit external-host allowlist. Defaults to empty — external
             egress is refused even when a feature flag is on.
         strict: When True (default), unknown destinations are denied.
+        permission_source: Optional object with ``grant_for(*, host, purpose,
+            moment_ms)`` — the **second** permission path added by the 2026-09-30
+            re-scope (see ``aegis_ai.egress.permissions``). Read-only: the gate asks it
+            what the user has already permitted and never asks the user itself. When
+            absent, only the standing configuration path exists, which is the
+            pre-re-scope behaviour.
     """
 
     def __init__(
@@ -295,11 +319,13 @@ class EgressGate:
         audit: Any = None,
         allowed_hosts: Iterable[str] | None = None,
         strict: bool = True,
+        permission_source: Any = None,
     ) -> None:
         self._settings = settings_store
         self._audit = audit
         self._lock = threading.Lock()
         self._strict = strict
+        self._permission_source = permission_source
         self._allowed_hosts: frozenset[str] = frozenset(
             h.strip().lower() for h in (allowed_hosts or []) if h and h.strip()
         )
@@ -312,6 +338,11 @@ class EgressGate:
             self._allowed_hosts = frozenset(
                 h.strip().lower() for h in hosts if h and h.strip()
             )
+
+    def set_permission_source(self, permission_source: Any) -> None:
+        """Attach (or clear) the read-only source of user egress permissions."""
+        with self._lock:
+            self._permission_source = permission_source
 
     def set_settings_store(self, settings_store: Any) -> None:
         with self._lock:
@@ -428,14 +459,50 @@ class EgressGate:
         if not self._external_egress_enabled():
             return EgressDecision.DENY, "external egress is disabled (single constraint)"
 
+        # The re-scoped constraint is about *user information*, not connectivity: a request
+        # that carries none needs no permission. The claim is the caller's, and it is audited.
+        if not request.carries_user_information:
+            return EgressDecision.ALLOW, "external connection carrying no user information"
+
         host = _extract_host(request.destination)
-        if host not in self.allowed_hosts:
-            return EgressDecision.DENY, f"host '{host}' is not in the egress allowlist"
+        allowlisted = host in self.allowed_hosts
+        purpose_allowed = self._purpose_allowed(request.purpose)
+        if allowlisted and purpose_allowed:
+            return EgressDecision.ALLOW, "explicitly allowlisted external destination"
 
-        if not self._purpose_allowed(request.purpose):
-            return EgressDecision.DENY, f"feature flag for purpose '{request.purpose}' is off"
+        # Second path, added by the 2026-09-30 re-scope: permission the user gave about
+        # this exact destination. Read-only — the gate consults, it never asks.
+        grant = self._user_grant(host=host, purpose=request.purpose)
+        if grant is not None:
+            return EgressDecision.ALLOW, f"permitted by the user ({grant.grant_id})"
 
-        return EgressDecision.ALLOW, "explicitly allowlisted external destination"
+        if not allowlisted:
+            return (
+                EgressDecision.DENY,
+                f"host '{host}' is not in the egress allowlist and the user has not permitted it",
+            )
+        return (
+            EgressDecision.DENY,
+            f"feature flag for purpose '{request.purpose}' is off and the user has not permitted it",
+        )
+
+    def _user_grant(self, *, host: str, purpose: str) -> Any:
+        """The user's recorded permission for this destination, or ``None``. Never asks.
+
+        A source that is missing, misconfigured, or raising yields ``None`` — i.e. the
+        request falls back to the standing-configuration path and is denied. The failure
+        mode is closed, never open.
+        """
+        with self._lock:
+            source = self._permission_source
+        lookup = getattr(source, "grant_for", None)
+        if not callable(lookup):
+            return None
+        try:
+            return lookup(host=host, purpose=purpose)
+        except Exception as exc:  # pragma: no cover - defensive, exercised by the pin
+            logger.warning("egress permission lookup failed (falling back to deny): %s", exc)
+            return None
 
     # ── Audit ────────────────────────────────────────────────────────────────
 
@@ -521,6 +588,7 @@ def configure_egress_gate(
     settings_store: Any = None,
     audit: Any = None,
     allowed_hosts: Iterable[str] | None = None,
+    permission_source: Any = None,
 ) -> EgressGate:
     """Configure the process-wide egress gate. Called from the composition root."""
     global _GATE
@@ -529,5 +597,6 @@ def configure_egress_gate(
             settings_store=settings_store,
             audit=audit,
             allowed_hosts=allowed_hosts,
+            permission_source=permission_source,
         )
         return _GATE

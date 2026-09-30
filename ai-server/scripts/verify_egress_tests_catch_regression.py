@@ -52,8 +52,17 @@ def _harden_stdout() -> None:
 
 #: The whole egress surface. A mutation must be caught by at least one of these, and
 #: the unmutated run must pass all of them.
+#:
+#: **This roster is a second copy of a fact the marker already carries** — every file
+#: below sets ``pytestmark = pytest.mark.egress``. A hand-maintained list that must be
+#: kept in sync with a marker drifts silently, and it did: ``test_egress_permission.py``
+#: was added by the 2026-09-30 re-scope and was *not* listed here, so the mutation check
+#: would not have exercised the new permission path.
+#: ``tests/test_egress_closure.py::test_the_mutation_roster_covers_every_marked_file``
+#: now asserts the two agree, so the next egress file cannot be forgotten.
 EGRESS_TESTS = (
     "tests/test_egress_gate.py",
+    "tests/test_egress_permission.py",
     "tests/test_egress_closure.py",
     "tests/test_egress_reliability.py",
     "tests/test_ineffective_flags.py",

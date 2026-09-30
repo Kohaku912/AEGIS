@@ -453,9 +453,9 @@ Measured 2026-09-30 — `ai-server`, full suite:
   If every check reports FAIL with an **empty** exit code, the script host cannot launch native
   binaries — that is an environment limit, not a regression. Verify the suites individually (see the
   `aegis-verify-and-test` skill) rather than "fixing" code that is fine.
-- **Egress regression suite**: **210 passed / 23 skipped** (233 tests carry the `egress` marker).
+- **Egress regression suite**: **245 passed / 23 skipped** (268 tests carry the `egress` marker).
   CI enforces a floor of 160 (`--require-egress-tests=160`) **and** mutation-proves the gate:
-  breaking it yields 38 failures, restoring it yields 210 passes.
+  breaking it yields 62 failures, restoring it yields 245 passes.
 - **Canonical command**:
   `cd ai-server && PYTHONPATH=src CODEBUDDY_SAFE_DELETE_ENABLED=0 $VENV -m pytest -q`
 
@@ -568,7 +568,7 @@ capabilities in the Catalog. Quiet hours still apply to notifications only.
 | **PC Server** | ✅ Complete | Rust, TCP protocol, 58 capabilities |
 | **Browser Server** | ✅ Complete | browser-use, DeepSeek compatibility patch, verification detection |
 | **LLM Integration** | ✅ Complete | Profile-driven OpenAI-compatible providers, tool calling, JSON fallback |
-| **Egress Gate** | ✅ Complete — constraint **re-scoped 2026-09-30** | Deny-by-default, fail-closed (`egress/gate.py`). ⚠️ That is the **pre-re-scope** form: the constraint is now *unpermitted* egress, so the target is a **permission check** carried by the voluntary ask, and wiring it is open work (`PROJECT_STATUS_REVIEW.md` §3.2). Wired into 25 modules with 10 real enforcement sites. CI-enforced: **233 egress-marked tests** (210 passed / 23 skipped) against a floor of 160, plus a mutation check that fails the build when the gate is broken. |
+| **Egress Gate** | ✅ Complete — constraint **re-scoped 2026-09-30** | Deny-by-default and fail-closed (`egress/gate.py`), **plus the second permission path the re-scope requires**: a permission the user gave about a *specific* destination, read out of the confirmation store via `egress/permissions.py`. The gate **consults and never asks**, so the retired forced gate stays retired (`test_forced_gate_stays_retired.py`). A request carrying **no user information** needs no permission — the constraint is about user information, not connectivity. Wired into 25 modules with 10 real enforcement sites. CI-enforced: **268 egress-marked tests** (245 passed / 23 skipped) against a floor of 160, plus a mutation check that fails the build when the gate is broken (62 failures). |
 | **Confirmation (AEGIS-initiated)** | ✅ Complete (Phase 5a) | Approval is **not** a constraint, but AEGIS may still *choose* to ask the user. `confirmation/` supplies the store, the endpoints, and LLM-callable capabilities. What stays retired is the mechanism that *forced* a confirmation before certain capabilities could be used — pinned by `tests/test_forced_gate_stays_retired.py`. |
 | **Wire contract (no forced gate)** | ✅ Complete (Phase 5b) | The `.proto` files no longer declare `ApprovalStatus` / `ApprovalType` / `ApprovalRequest`, the three approval RPCs, `Capability.requires_approval`, `ToolInvocationRequest.is_approved` / `approval_id`, `ToolInvocationResult.was_approved`, `ChatResponse.approval_needed` / `approval_id`, or `PolicyDecisionType.ASK_APPROVAL` — removals use `reserved` numbers and names so wire numbering is never reused. **Deliberately kept:** `SafetyLevel.LEVEL_2_APPROVAL` (a descriptive tier label), the audit RPCs, and the streamed ask-the-user transport. Python stubs regenerated **for every consumer** (`ai-server` and `room-server` copies are byte-identical); Rust `pc-server` and the Kotlin Android client updated. Pinned by `tests/test_goal_change_guard.py`, which scans all `*_pb2.py` in the repo, not just `ai-server/src`. |
 | **Manager Architecture** | ✅ Complete | TaskManager, MemoryManager, SleepManager, EventManager, AuditManager, StatusManager, NotificationManager |

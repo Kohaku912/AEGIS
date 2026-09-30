@@ -152,6 +152,51 @@ def test_browser_server_points_are_covered_in_its_own_suite():
         )
 
 
+def test_the_mutation_roster_covers_every_marked_file():
+    """The mutation check's file roster must equal the set of egress-marked files.
+
+    ``scripts/verify_egress_tests_catch_regression.py`` names the files it runs, and every
+    one of them *also* carries ``pytestmark = pytest.mark.egress`` — one fact in two
+    places. It drifted: ``test_egress_permission.py`` was added by the 2026-09-30 re-scope
+    without being added to the roster, so the mutation check would not have exercised the
+    new permission path. Both sides are **discovered** here rather than re-listed, so a new
+    egress file cannot be forgotten again.
+    """
+    import ast
+
+    roster_path = _REPO_ROOT / "ai-server" / "scripts" / "verify_egress_tests_catch_regression.py"
+    tree = ast.parse(roster_path.read_text(encoding="utf-8"))
+
+    listed: set[str] = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Assign):
+            continue
+        if not any(getattr(target, "id", "") == "EGRESS_TESTS" for target in node.targets):
+            continue
+        assert isinstance(node.value, ast.Tuple), "EGRESS_TESTS is no longer a literal tuple"
+        listed = {
+            str(element.value).replace("\\", "/")
+            for element in node.value.elts
+            if isinstance(element, ast.Constant)
+        }
+    assert listed, "could not read EGRESS_TESTS out of the mutation script"
+
+    marked: set[str] = set()
+    for path in sorted(_TESTS_DIR.glob("test_*.py")):
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if isinstance(node, ast.Attribute) and node.attr == "egress":
+                marked.add(f"tests/{path.name}")
+                break
+
+    assert marked, "no test file carries the egress marker — the discovery has drifted"
+    assert listed == marked, (
+        "the mutation roster and the egress marker have drifted.\n"
+        f"  marked but not run by the mutation check: {sorted(marked - listed)}\n"
+        f"  listed but not marked: {sorted(listed - marked)}\n"
+        "Add the file to EGRESS_TESTS, or drop its marker."
+    )
+
+
 # ── Web search (integrations/duckduckgo_search.py) ────────────────────────────
 
 

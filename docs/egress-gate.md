@@ -44,16 +44,19 @@ component → EgressGate.require(request) → ALLOW (local)
    Loopback, RFC1918, link-local, Tailscale CGNAT (`100.64.0.0/10`), IPv6 ULA (`fc00::/7`), loopback
    hostnames, `.local` mDNS names, single-label LAN hostnames, and unix sockets are local.
 3. **Fail closed.** If a destination cannot be classified, the request is denied.
-4. **Permission, not a wall** (re-scoped 2026-09-30). The constraint is now *unpermitted* egress, so
-   the intended mechanism is the **voluntary ask**, not an absolute refusal. ⚠️ **The code still
-   enforces the pre-re-scope form**: external egress requires **all three** — the master switch, the
-   matching feature flag, **and** an allowlist entry. Wiring the permission check is open work; until
-   it lands this list describes current behaviour, not the target.
+4. **Permission, not a wall** (re-scoped 2026-09-30). The constraint is *unpermitted* egress, so the
+   mechanism is permission rather than absolute refusal. There are **two permission paths**: standing
+   configuration (the three locks below) and a permission the user gave about a **specific**
+   destination — read from the confirmation store through `aegis_ai.egress.permissions`, matched on
+   `(host, purpose)` with **no wildcard**, and honoured only while unexpired. The gate **consults**
+   that store and never asks, so the retired forced gate stays retired.
 5. **Auditable.** Every decision is recorded so the constraint can be verified after the fact.
 
-### Three locks
+### Three locks (the standing path)
 
-An external destination is permitted only when **all** of these hold:
+An external destination carrying user information is permitted by *standing configuration* only when
+**all** of these hold. The second path — a permission the user gave about a specific destination — is
+an **alternative** to this table rather than an addition to it (see principle 4).
 
 | Lock | Setting | Default |
 |---|---|---|

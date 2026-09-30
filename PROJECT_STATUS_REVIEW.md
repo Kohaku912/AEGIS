@@ -12,7 +12,7 @@
 | 観点 | 現状 |
 |---|---|
 | テスト | **ai-server 1776 passed / 30 skipped / 0 failed**（実測 304.06 秒）。egress **210 passed / 23 skipped**（233 件がマーカー付き、床 160）・room 14 / browser **100** / SDK **71** / vitest 144 / playwright 42。**P2-0 で 3 つの Python スイートが CI に入った**（`scripts/test-all-suites.ps1`）— それまで誰も走らせておらず、SDK の 6 件赤が誰にも見えなかった。**この数は A-12（−3）と B-1①（+1）で動いたのに、3 つの写し（本行・§1.1 の表・`AGENTS.md`）が追随していなかった** — §1.1 の脚注が警告している「片方だけが動く」型の再発。B-5② の実装時に 3 写しとも揃えた |
-| 唯一の制約（Egress Gate） | **構造的に強制済み（L3）**。**2026-09-30 に再定義** — 禁止されるのは「**許可の無い**ユーザー情報の外部送信」で、**接続自体は可**（旧: deny-all）。起動時アサーション・CI 床 160・mutation 証明は維持 |
+| 唯一の制約（Egress Gate） | **構造的に強制済み（L3）**。**2026-09-30 に再定義** — 禁止されるのは「**許可の無い**ユーザー情報の外部送信」で、**接続自体は可**（旧: deny-all）。**許可の 2 経路を実装済み**（常設設定 / ユーザーが特定の宛先に与えた許可）。起動時アサーション・CI 床 160・mutation 証明は維持 |
 | 北極星（先回り・委譲・成長） | **L2**。割り込み制御は**実装済みだが人間から見えなかった**（P1-1 で是正、§5 参照）。**Horvitz 型の期待効用モデルは P1-6 で実装済み**（`InterruptionController.decide` が `net = benefit × P(receptive) − cost`、判断ログに内訳を載せ再計算可能）。**本項は 2026-09-29 まで「残る空白」と誤記していた** — 同じファイルの §5 P1-6 行が ✅ 完了と書いており、自己矛盾していた。残るのは P1-5 の個別メンバー判定と長期項目（P2-5） |
 | 最大のリスク | ~~18 日分の作業が未コミット~~ → **解消**。**2026-09-29、この「最大のリスク」が実際に顕在化した** — ローカルの **git オブジェクトストアが全消失**し（`count: 0 / in-pack: 0 / packs: 0`、`.idx` だけが残り `.pack` が無い）、未 push だった約 105 コミットが**履歴として失われた**（**内容は作業ツリーに残存**。§0.1 の `ebe1506` 行と `INCIDENT_2026-09-29_git-object-loss.md`）。復旧済み・作業ツリーは無傷。**原因は未確定**だが、引き金は**入れ子ブランチ名での ref 消失（B-6）が HEAD を unborn にしたこと**と相関しており、**A-5 でブランチをフラット名に改名したのでその引き金は消えた**（フラット名での 2 回のコミットはいずれも ref が正しく書かれた）。**残るリスクだった「未 push のままであること」は 2026-09-30 に解消** — A-7 を実行し、リモートに全コミットが届いた（§1.4）。~~期待効用モデルの不在~~ は P1-6 で解消済み（本項は 2026-09-29 まで残っていた誤記） |
 | 既知の実バグ | ~~SDK の 6 テスト失敗~~ / ~~`pc-server.file.read` のパス検査欠如~~ → **いずれも修正済み**（P1-4）。ただし P1-5 後半の実測で **B-12〜B-15 を新規に記録**（§4.1）— 単一制約への実害は無い（egress は別経路で強制）が、**SDK は「第三者サーバを建てる道具」として機能していない**（B-14） |
@@ -333,7 +333,7 @@ git ls-remote origin refs/heads/cf-grpc-and-goal-hygiene refs/heads/main \
 
 | 系統 | 状態 | 根拠 |
 |---|---|---|
-| **Egress Gate（唯一の制約）** | ✅ 強制（**2026-09-30 に再定義**） | `ai-server/src/aegis_ai/egress/{gate.py,startup.py}`、25 モジュール配線、10 実効点、起動時 fail-closed、CI 床 160（実測 **234 marked / 211 passed / 23 skipped**）、**mutation 証明**（壊すと 38 failed）。**再定義の内容**: 禁止されるのは「**許可の無い**ユーザー情報の外部送信」で、**接続自体は可**（旧: deny-all）。`external_llm_allowed` / `web_search_allowed` は**既定 False のまま**＝「許可が要る」状態で、**許可の取得経路（自発的な問い）へ接続する実装は未着手**（実装タスクとして起票済み） |
+| **Egress Gate（唯一の制約）** | ✅ 強制（**2026-09-30 に再定義**） | `ai-server/src/aegis_ai/egress/{gate.py,permissions.py,startup.py}`、25 モジュール配線、10 実効点、起動時 fail-closed、CI 床 160（実測 **268 marked / 245 passed / 23 skipped**）、**mutation 証明**（壊すと **62 failed**）。**再定義の内容**: 禁止されるのは「**許可の無い**ユーザー情報の外部送信」で、**接続自体は可**（旧: deny-all）。**許可の 2 経路を実装済み**: ①常設設定（マスタスイッチ＋目的別フラグ＋allowlist。既定 False のまま）②**ユーザーが特定の宛先について与えた許可**（`egress/permissions.py` が confirmation ストアを読む。`(host, purpose)` 完全一致・**ワイルドカード無し**・期限内のみ）。ゲートは**読むだけで問わない**ため、退職済みの強制ゲートは退職のまま（`test_forced_gate_stays_retired.py`）。ユーザー情報を運ばない要求は許可不要（既定は `carries_user_information=True`＝厳しい側） |
 | **L1/L2/L3 三層 LLM** | ✅ 完了 | `intake/l1_router.py` / `autonomous/l2_mind.py` / `llm/l3_reasoner.py`、`l1.*`/`l2.*`/`l3.*` イベント、`LLMGateway.request(layer=...)` |
 | **Dashboard** | ✅ D1–D9 + L1–L6 | `web-ui/src`（Live Overlay / Agent Session 9 tabs / Timeline Gantt / Token-Cost / L1–L3 パネル） |
 | **Agent runtime（OpenHands）** | ✅ Phase 1–9 完了 | `agents/runtime/` + `agents/backends/{local,openhands}/`、MCP gateway、`aegis-openhands-agent.service`、**dev-server は完全削除** |
