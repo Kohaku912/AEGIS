@@ -110,7 +110,6 @@ def list_tools_for_agent(
     profile: Any,
     *,
     catalog: Any | None = None,
-    feature_flags: set[str] | None = None,
 ) -> list[dict[str, Any]]:
     """Return the list of MCP tool schemas visible to ``profile``.
 
@@ -118,7 +117,7 @@ def list_tools_for_agent(
     picks the right catalog instance by default.
     """
     cat = _get_catalog(catalog)
-    return cat.mcp_tool_schemas(profile, feature_flags=feature_flags)
+    return cat.mcp_tool_schemas(profile)
 
 
 def mcp_tools_list_payload(

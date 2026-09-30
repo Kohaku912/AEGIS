@@ -78,8 +78,14 @@ class AgentSettings(BaseModel):
     """Agent runtime settings (instruction.md §36).
 
     `enabled=False` is the safe default. When False, the agent_backend field
-    on `AegisRuntime` stays `None` and any capability manifest that has
-    `requires_feature: "agents"` is filtered out of `CapabilityCatalog.list_for_llm`.
+    on `AegisRuntime` stays `None`, so an `ai-server.agent.*` step fails with
+    "agent backend is not registered" instead of running.
+
+    Note what this switch does **not** do: it does not hide the agent
+    capability from the LLM-facing list. `CapabilityCatalog.list_for_llm`
+    lists every enabled capability unconditionally — a manifest-declared
+    feature flag once gated that and was removed as never-supplied, since no
+    caller ever passed a flag set (PROJECT_STATUS_REVIEW.md row A-12).
     """
 
     enabled: bool = Field(

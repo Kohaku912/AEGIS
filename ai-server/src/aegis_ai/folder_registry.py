@@ -78,10 +78,6 @@ class CapabilityManifest:
     data_loss_risk: str = safety_vocab.UNKNOWN
     active_work_loss_risk: str = safety_vocab.UNKNOWN
     blast_radius: str = safety_vocab.UNKNOWN
-    # Phase 1 (instruction.md §36): feature flag name. Non-empty value means the
-    # capability is only exposed when the corresponding flag is enabled (e.g.
-    # `requires_feature: "agents"` requires `settings.agents.enabled=True`).
-    requires_feature: str = ""
 
     def to_tool_description(self) -> str:
         parts = [self.title or self.capability_id]
@@ -286,7 +282,6 @@ class FolderCapabilityRegistry:
             blast_radius=safety_vocab.normalize_dimension(
                 "blast_radius", data.get("blast_radius")
             ),
-            requires_feature=str(data.get("requires_feature", "")),
         )
         if short not in self._short_names:
             self._short_names[short] = cap_id

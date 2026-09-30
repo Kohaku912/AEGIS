@@ -251,26 +251,17 @@ class CapabilityCatalog:
         with self._lock:
             return self._cap_reg.list_all(origin=origin)
 
-    def list_for_llm(
-        self,
-        feature_flags: set[str] | None = None,
-    ) -> list[dict[str, Any]]:
+    def list_for_llm(self) -> list[dict[str, Any]]:
         """Get capability list formatted for LLM consumption.
 
-        Phase 1 (instruction.md §36): if `feature_flags` is provided, any
-        capability whose `requires_feature` is non-empty and not contained in
-        `feature_flags` is filtered out. Passing `None` (default) preserves the
-        historical "no filter" behavior so existing call sites are unaffected.
+        Every enabled capability is listed. A manifest-declared feature flag used
+        to hide capabilities here, but no caller ever supplied a flag set, so the
+        filter never ran on the live path and was removed
+        (PROJECT_STATUS_REVIEW.md row A-12).
         """
         self._maybe_reload()
         with self._lock:
             manifests = [m for m in self._cap_reg.list_all() if m.enabled]
-        if feature_flags is not None:
-            manifests = [
-                m
-                for m in manifests
-                if not m.requires_feature or m.requires_feature in feature_flags
-            ]
         return [
             {
                 "id": m.capability_id,
@@ -431,8 +422,6 @@ class CapabilityCatalog:
     def list_for_agent(
         self,
         profile: Any,
-        *,
-        feature_flags: set[str] | None = None,
     ) -> list[dict[str, Any]]:
         """Return capabilities visible to an agent profile.
 
@@ -440,24 +429,21 @@ class CapabilityCatalog:
         `list_for_llm`. The same LLM-friendly dict shape is returned, but
         the set is filtered by:
 
-        1. ``requires_feature`` (same as ``list_for_llm``)
-        2. ``profile.allows_capability(cap_id)`` — deny > allow
-        3. ``profile.risk_ceiling`` — exclude any capability whose
+        1. ``profile.allows_capability(cap_id)`` — deny > allow
+        2. ``profile.risk_ceiling`` — exclude any capability whose
            normalised risk exceeds the ceiling
-        4. ``profile.requires_approval_for`` — does not filter (it only
+        3. ``profile.requires_approval_for`` — does not filter (it only
            influences the approval path, not visibility)
 
         Args:
             profile: An ``AgentProfile`` (or any object exposing
                 ``allows_capability``, ``denied_capabilities``,
                 ``allowed_capabilities`` and ``risk_ceiling``).
-            feature_flags: Optional feature-flag set; ``None`` means
-                "no feature filter".
 
         Returns:
             List of capability dicts (same shape as ``list_for_llm``).
         """
-        manifests = self.list_for_llm(feature_flags=feature_flags)
+        manifests = self.list_for_llm()
         out: list[dict[str, Any]] = []
         for entry in manifests:
             cap_id = entry.get("id", "")
@@ -480,8 +466,6 @@ class CapabilityCatalog:
     def mcp_tool_schemas(
         self,
         profile: Any,
-        *,
-        feature_flags: set[str] | None = None,
     ) -> list[dict[str, Any]]:
         """Return agent-visible capabilities as MCP tool schemas.
 
@@ -499,7 +483,7 @@ class CapabilityCatalog:
         This method does NOT call any LLM or remote service — it is a
         pure transform of the in-memory catalog.
         """
-        visible = self.list_for_agent(profile, feature_flags=feature_flags)
+        visible = self.list_for_agent(profile)
         schemas: list[dict[str, Any]] = []
         for entry in visible:
             schemas.append(_capability_dict_to_mcp_tool(entry))

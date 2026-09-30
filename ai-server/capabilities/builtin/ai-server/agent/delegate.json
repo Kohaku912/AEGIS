@@ -5,7 +5,6 @@
   "app_id": "agent",
   "action": "delegate",
   "operation_category": "read_only",
-  "requires_feature": "agents",
   "risk": {
     "level": "low",
     "side_effects": [],

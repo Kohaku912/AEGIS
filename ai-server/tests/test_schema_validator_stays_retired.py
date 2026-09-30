@@ -14,8 +14,9 @@ Deleted 2026-09-29. The evidence, measured rather than assumed:
 * **Its one universal warning had a false rationale.** 128 of those 133 warnings —
   one per capability — said the tags should include ``risk:<level>`` **"for Policy
   Engine filtering"**. Nothing filters capabilities by a risk tag: ``PolicyEngine``
-  keys on ``RiskLevel`` through ``DEFAULT_RISK_MAP``, the only filter in
-  ``capability_catalog.list_for_llm`` is ``requires_feature``, and ``tags`` is
+  keys on ``RiskLevel`` through ``DEFAULT_RISK_MAP``, ``capability_catalog.list_for_llm``
+  applies no filter at all (a manifest-declared feature flag used to gate it and was
+  removed as never-supplied — ``PROJECT_STATUS_REVIEW.md`` row A-12), and ``tags`` is
   merely serialised into the LLM listing. No manifest carries a ``risk:`` tag
   either. So wiring it would have emitted 128 false warnings on every load.
 * **Its distinctive checks encoded retired eras.** One warned that a high-risk

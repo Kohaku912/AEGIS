@@ -99,9 +99,11 @@ class AegisRuntime:
     l2_mind: Any = None
     l3_reasoner: Any = None
     # Phase 1 (instruction.md §36): injected by _build_runtime when
-    # `settings.agents.enabled=True`. None means the agent runtime is disabled
-    # and any capability with `requires_feature: "agents"` is hidden from the
-    # LLM-facing capability list.
+    # `settings.agents.enabled=True`. None means the agent runtime is disabled:
+    # an `ai-server.agent.*` step fails with "agent backend is not registered"
+    # rather than running. The capability itself stays visible to the LLM —
+    # hiding it was a manifest-declared feature flag that nothing supplied, and
+    # it was removed (PROJECT_STATUS_REVIEW.md row A-12).
     agent_backend: Any = None
     # Phase 5 (instruction.md §36): loaded from `config/agent_profiles.yaml`.
     # Always present; empty registry when YAML is missing.
@@ -1432,8 +1434,9 @@ def _build_runtime(config: Config) -> AegisRuntime:
 
     # Phase 1: OpenHands agent backend bootstrap. No-op unless `agents.enabled=True`.
     # LocalBackend は default で常駐 (dependency なし). `enabled=False` なら `agent_backend`
-    # フィールドは `None` のままにし、capability manifest 側に `requires_feature: "agents"`
-    # を置くことで `list_for_llm(feature_flags=...)` から除外される.
+    # フィールドは `None` のままになり、`ai-server.agent.*` のステップは
+    # "agent backend is not registered" で失敗する (capability を隠す機構は持たない —
+    # 供給者の居なかった feature flag は削除した; PROJECT_STATUS_REVIEW.md A-12 参照).
     try:
         from aegis_ai.agents.backends import (
             clear_backends as _clear_agent_backends,
