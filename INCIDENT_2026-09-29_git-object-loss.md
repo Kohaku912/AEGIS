@@ -70,6 +70,39 @@ garbage: 3        size-garbage: 340
 **判断できない理由**: どちらの機序も観測された形の一部を説明するが、全部は説明しない。
 stderr を `2>/dev/null` で捨てていたため、当該操作のエラー出力が残っていない。
 
+> **2026-09-30 追記 — 候補 A / B のその後（実測）**
+>
+> **候補 A（gc/prune）の「自動で発火する」経路は閉じた。** `.git/config` は `gc.auto=0` /
+> `maintenance.auto=false` / `fetch.writeCommitGraph=false` を設定済み（config の mtime
+> 2026-09-30 12:20）なので `gc --auto` / `maintenance --auto` はもう走らない。
+> **ただしこれは候補 A の反証ではない** — 手動の `gc` / `prune` は残る。そして
+> **B-6（ref の消失）はこれで止まらない**: skill `aegis-verify-and-test` §1.0 が
+> 「`gc.auto=0` / `maintenance.auto=false` / `fetch.writeCommitGraph=false` にしても
+> **ref の消失は止まらなかった**」と記録している。**オブジェクトの消失と ref の消失は別の症状**で、
+> 同じ設定が両方に効くとは限らない — 混同しないこと。
+>
+> **候補 B（外部要因）は支持が増えた。** 実測（2026-09-30）: `.git/` の中に **git 以外のツールが
+> 所有するディレクトリが 2 つ以上**ある。
+>
+> | パス | 実測（2026-09-30） |
+> |---|---|
+> | `.git/cursor/crepe/9b443bd…` | **20 MB**、2026-09-04 19:19 |
+> | `.git/refs/codex/turn-diffs/` | **空のディレクトリ**。親 `.git/refs/codex` は 2026-09-04 19:19 だが、**中身が変わったのは 2026-09-29 18:54** ＝ **消失の検知と同時刻** |
+> | `.git/mimocode-project-id` | 2026-06-11 |
+>
+> すなわち **`.git/` の中を git 以外のツールが読み書きしており、そのうち 1 つは ref のパスを
+> 書く**（`refs/codex/turn-diffs/` は ref の名前空間）。**「ref の書き込みが rc=0 で失敗し、囲む
+> ディレクトリごと消える」という症状の形と整合する** — ただし**相関であって機序の証明ではない**。
+>
+> **除外できたもの（2026-09-30 実測）**: `.git/hooks/` に**有効なフックは 1 つも無い**（すべて
+> `.sample`）し `core.hooksPath` も未設定なので、`reference-transaction` / `post-commit` の類が
+> ref を消す経路は無い。
+>
+> **`git fsck` は reflog 以外に何も報告しない**（2026-09-30 実測: `HEAD` **226** 件 /
+> `refs/heads/cursor/cf-grpc-and-goal-hygiene` **30** 件 / `refs/heads/cf-grpc-and-goal-hygiene`
+> **30** 件、**すべて `invalid reflog entry`**）。**オブジェクト / ref の整合性エラーは 0** ＝
+> オブジェクトストアは健全。**この reflog は失われたコミットの唯一の記録なので prune しない**（§8）。
+
 ## 4. 実施した復旧（すべて非破壊）
 
 1. **保全**: reflog を `.workbuddy-ai/incident-2026-09-29/` にコピー（履歴の唯一の記録）
