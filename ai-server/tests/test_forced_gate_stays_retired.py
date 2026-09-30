@@ -24,6 +24,11 @@ precisely because it *works* and its own tests assert the gate semantics — wir
 would look **better** supported than leaving it alone. So it is pinned here too: no
 execution-path module may import it.
 
+A **fourth** surface is quieter — not a gate but an *audit* API: ``log_approval`` (three
+definitions, no caller outside its own forwarding chain) and the ``AuditEntry.source_desire``
+field that only its dead bodies write, which leaves an audit column that is **always empty**.
+See the section at the end of this file.
+
 So the assertions are structural: **nothing in the execution path may even import the
 confirmation package.** An unenforced invariant is not an invariant.
 """
@@ -1035,3 +1040,116 @@ def test_a_rejected_confirmation_reaches_both_readers_through_the_loop(tmp_path)
     )
     # Negative control: the charge must be scoped to the desire that was rejected.
     assert loop._recent_failure_penalty("finance")[0] == 0.0
+
+
+# ── The approval *audit* surface stays unwired ────────────────────────────────
+#
+# A fourth approval-era surface, and a quieter one than the gate. `log_approval` has three
+# definitions (`audit.py`, `audit/audit_log.py`, `audit/audit_manager.py`) and **no caller
+# outside its own forwarding chain** — `AuditManager.log_approval` forwards to
+# `AuditLog.log_approval`, and nothing calls either. Its one apparent "caller" is itself.
+#
+# The consequence is the part worth pinning: `AuditEntry.source_desire` is written **only** by
+# those dead bodies, and read by two serializers (`audit.py`'s record builder and
+# `audit/audit_log.py`'s insert dict). So every audit record production can produce carries
+# `source_desire == ""` — `audit.py`'s `if entry.source_desire:` branch and the SQLite column of
+# the same name are **always empty**. A column that reads as "audit events are attributed to the
+# desire that caused them" while nothing ever attributes one.
+#
+# `IMPROVEMENT_PROPOSAL.md` already recommends deleting `log_approval` ("3 definitions, zero
+# callers … no reason to double-record what the confirmation store already emits"). These pins
+# hold the measurement so the recommendation cannot be quietly lost, and so that *wiring* the
+# surface is a deliberate change rather than an accident.
+#
+# **Recorded, not deleted**, deliberately: removing it cascades into a **persisted** audit column
+# and **two** `AuditEntry` dataclasses, so it is a data-surface change, not a pure code cleanup.
+# `DELEGATION.md` §4 carries the deletion as an owner item.
+
+
+def _callers_of(method: str) -> set[str]:
+    """Names of the functions that call ``.<method>(`` anywhere under ``src/`` or ``tests/``.
+
+    The **enclosing function** is what matters. Counting call sites would report
+    ``AuditManager.log_approval``'s forward to ``AuditLog.log_approval`` as a live caller — but
+    that forwarder is itself called by nobody.
+    """
+    self_path = Path(__file__).resolve()
+    found: set[str] = set()
+
+    def walk(node: ast.AST, enclosing: str | None) -> None:
+        for child in ast.iter_child_nodes(node):
+            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                walk(child, child.name)
+                continue
+            if isinstance(child, ast.Call):
+                func = child.func
+                if isinstance(func, ast.Attribute) and func.attr == method:
+                    found.add(enclosing or "<module>")
+            walk(child, enclosing)
+
+    for path in (*_src_files(), *_test_files()):
+        if path.resolve() == self_path:
+            continue
+        walk(_parsed(path), None)
+    return found
+
+
+def _audit_entry_writers_of(parameter: str) -> set[str]:
+    """Functions that build an ``AuditEntry`` and pass ``parameter=``.
+
+    Scoped to ``AuditEntry`` constructions on purpose: ``source_desire=`` is also passed to
+    *other* APIs that are very much alive (``ContinuationManager.create`` in ``tool_broker.py``,
+    the task models), so a bare keyword scan would report live writers and prove nothing.
+    """
+    self_path = Path(__file__).resolve()
+    found: set[str] = set()
+
+    def walk(node: ast.AST, enclosing: str | None) -> None:
+        for child in ast.iter_child_nodes(node):
+            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                walk(child, child.name)
+                continue
+            if isinstance(child, ast.Call):
+                func = child.func
+                name = getattr(func, "id", None) or getattr(func, "attr", None)
+                if name == "AuditEntry" and any(kw.arg == parameter for kw in child.keywords):
+                    found.add(enclosing or "<module>")
+            walk(child, enclosing)
+
+    for path in (*_src_files(), *_test_files()):
+        if path.resolve() == self_path:
+            continue
+        walk(_parsed(path), None)
+    return found
+
+
+def test_the_approval_audit_api_has_no_caller_outside_itself() -> None:
+    """``log_approval`` is called only by ``log_approval`` — measured 2026-10-01."""
+    callers = _callers_of("log_approval")
+    assert callers == {"log_approval"}, (
+        f"log_approval gained a caller outside its own forwarding chain: "
+        f"{sorted(callers - {'log_approval'})}. The approval audit path is live again — update "
+        "this record, and re-measure whether AuditEntry.source_desire is now populated."
+    )
+    # Positive control: the sibling API *is* called from live code, so an empty result above would
+    # be a broken scan rather than a fact about log_approval.
+    assert _callers_of("log_decision") - {"log_decision"}, (
+        "the caller scan found no live caller of log_decision, so its result for log_approval is "
+        "unusable"
+    )
+
+
+def test_audit_source_desire_has_no_live_writer() -> None:
+    """``AuditEntry.source_desire`` is written only inside the dead ``log_approval`` bodies."""
+    writers = _audit_entry_writers_of("source_desire")
+    assert writers == {"log_approval"}, (
+        f"AuditEntry.source_desire gained a writer outside log_approval: "
+        f"{sorted(writers - {'log_approval'})}. The audit column is no longer always empty — "
+        "update this record."
+    )
+    # Positive control: `decision=` is passed to AuditEntry from live code, so the scan can see a
+    # writer that is not a dead log_* method.
+    assert _audit_entry_writers_of("decision") - {"log_decision"}, (
+        "the AuditEntry scan cannot see a field written from live code, so its result above is "
+        "unusable"
+    )
