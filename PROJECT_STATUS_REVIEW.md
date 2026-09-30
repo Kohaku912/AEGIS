@@ -178,18 +178,17 @@ stash: 0 件
 リモート ref: origin/cf-grpc-and-goal-hygiene — **フラット**（2026-09-30 に移行済み。下記参照）
 ```
 
-> **B-6 の正体は「入れ子名」ではなく `refs/` 下の *深さ* だった**（2026-09-30 実測、5 名の探針表）。
-> `refs/` 直下から **深さ 1** の ref（`refs/heads/x` / `refs/tags/x` / `refs/remotes/x`）は書けるが、
-> **深さ 2 以上は書けない**（rc=0 のまま ref が消える）**うえ、その親ディレクトリごと消える**。
-> したがって**フラット名のブランチが救うのは `refs/heads/` だけ**で、**`refs/remotes/<remote>/<branch>` は
-> 常に深さ 2**（`refs/remotes/origin/main` も同じ）なので、**`fetch` も `push` もリモート追跡 ref を
-> 丸ごと消す** — 入れ子のリモートブランチを削除してフラットに移行した**後も**再現した。
-> **自動 maintenance でも reflog でもない**ことは実測で否定済み（`gc.auto=0` / `maintenance.auto=false` /
-> `fetch.writeCommitGraph=false` を切っても再現し、`core.logAllRefUpdates=false` と
-> `.git/logs/refs/remotes` の削除でも再現）。**原因は未特定**なので、推測ではなく**挙動として**記録する。
-> **push / fetch の後は必ず `refs/remotes/origin/` を確認する**（`git commit` の後に `git log -1` を
-> 見るのと同じ理由）。**`git ls-remote` が唯一の真実**で、`git status` の `[gone]` は**失敗の印ではない**。
-> 復旧は既知の SHA を**ファイルに直接書く**（`git update-ref` は同じ深さで失敗するので使えない）:
+> **B-6 の機構は「入れ子名」でも「深さ」でもなかった — そして今は再現しない**（2026-09-30 実測）。
+> **この日、以前の記録を反証する測定が出た**: `git update-ref` は **深さ 2**（`refs/remotes/probe2`）・
+> **深さ 3**（`refs/remotes/origin/probe-existing`）・**深さ 4**（`refs/remotes/origin/probe-new/deep` —
+> **中間ディレクトリの新規作成を要する**）の**すべてで成功し、生存した**。`git push` は
+> `refs/remotes/origin/<branch>` を正しく更新し（`f1ed4ed` → `bc6e870`）、`git fetch origin` は
+> `refs/remotes/origin/HEAD` を新規作成した。**深さ説・入れ子名説・「新規ディレクトリが要る」説は
+> いずれも反証**なので、**機構の主張は撤回する**。
+> **失敗そのものは実在する**（`INCIDENT_2026-09-29_git-object-loss.md` に複数回。ref が rc=0 のまま消え、
+> **囲むディレクトリごと**消える）が、**引き金は未特定**で、**いまは再現しない**。
+> **予防だけは残す** — push / fetch の後は `refs/remotes/origin/` を確認し、`git ls-remote` を真実として
+> **ファイルに直接書いて**復旧する（ref の書き込み自体が失敗する場合に備えて）:
 
 ```bash
 mkdir -p .git/refs/remotes/origin
@@ -199,7 +198,13 @@ git ls-remote origin refs/heads/cf-grpc-and-goal-hygiene refs/heads/main \
 
 > **リモート名はフラットに移行済み**（2026-09-30 — PR が無く既定ブランチが `main` であることを確認した上で
 > 入れ子のリモートブランチを削除し、フラットなブランチを `--set-upstream` で push した）。
-> ただし**移行しても `refs/remotes/` の消失は止まらない**（上記のとおり深さの問題であって名前の問題ではない）。
+
+> **未検証の手がかり（次の実測候補）**: `git fsck` は
+> **`.git/logs/refs/heads/cursor/cf-grpc-and-goal-hygiene` の reflog 15 行を `invalid reflog entry`** と
+> 報告する — A-5 で改名した**旧い入れ子名**の reflog が残っており、その参照先はオブジェクト消失で消えている。
+> **以前の「reflog は無関係」という除外は `.git/logs/refs/remotes` を消して試したもので、この壊れた
+> reflog は試していない**。あわせて `.git/refs/codex/turn-diffs`（非標準の ref 名前空間）と、
+> 対応する ref の無い reflog（`dev` / `main`）が残っている。**reflog は復旧の手段なので prune しない。**
 
 > **先行コミット数は本節に書かない。** これは**コミットのたびに増える量**で、書いた瞬間から
 > 古くなる（型 9 / 型 13）。正確な値は:
