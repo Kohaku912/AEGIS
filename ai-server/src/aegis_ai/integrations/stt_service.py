@@ -35,17 +35,60 @@ class STTResult:
 
 
 class SpeechToTextService:
-    """Speech-to-text using faster-whisper."""
+    """Speech-to-text using faster-whisper, which runs **locally** — no egress involved.
 
-    def __init__(self, model_size: str = "base") -> None:
+    Two gates decide whether a transcription may happen at all, and neither was consulted
+    before: ``voice.voice_enabled`` / ``voice.stt_provider`` (through ``VoiceGate``) and the
+    privacy layer's redaction of the transcript. Both are wired here, because a safety
+    class that nothing calls is not a control.
+
+    Args:
+        model_size: faster-whisper model size.
+        settings_store: Optional SettingsStore. Without it the gate cannot be consulted, so
+            transcription is **refused** rather than allowed — the same fail-closed
+            direction as everywhere else.
+    """
+
+    def __init__(self, model_size: str = "base", settings_store: Any = None) -> None:
         self._model_size = model_size
         self._model: Any = None
+        self._settings_store = settings_store
+
+    def _gate_refusal(self) -> str:
+        """Why the voice gate refuses input, or ``""`` when it allows it."""
+        if self._settings_store is None:
+            return "no settings store is configured, so voice input cannot be authorised"
+        from aegis_ai.voice import VoiceGate
+
+        check = VoiceGate(self._settings_store).check_voice_input()
+        return "" if check.get("allowed") else str(check.get("reason") or "voice input is not allowed")
+
+    def _redact(self, text: str) -> str:
+        """Apply the privacy layer's redaction to a transcript.
+
+        A transcript is the user's own speech, which is exactly the content the privacy
+        layer exists to scrub before it is stored or forwarded.
+        """
+        if self._settings_store is None:
+            return text
+        from aegis_ai.voice import VoicePrivacy
+
+        return VoicePrivacy(self._settings_store).redact_sensitive_text(text)
 
     def transcribe(self, request: STTRequest) -> STTResult:
         if not request.stt_id:
             request.stt_id = f"stt_{uuid.uuid4().hex[:10]}"
         if not request.created_at:
             request.created_at = int(time.time() * 1000)
+
+        refusal = self._gate_refusal()
+        if refusal:
+            return STTResult(
+                stt_id=request.stt_id,
+                success=False,
+                error=f"Speech-to-text is disabled: {refusal}.",
+                created_at=int(time.time() * 1000),
+            )
 
         if not request.audio_path or not Path(request.audio_path).exists():
             return STTResult(
@@ -72,13 +115,17 @@ class SpeechToTextService:
             segments = []
             full_text_parts = []
             for seg in segments_raw:
+                # Redact per segment, then build the joined text from the redacted pieces —
+                # otherwise the whole-transcript field and the per-segment fields could
+                # disagree about what was scrubbed.
+                piece = self._redact(seg.text.strip())
                 segments.append({
                     "start": seg.start,
                     "end": seg.end,
-                    "text": seg.text.strip(),
+                    "text": piece,
                     "confidence": seg.avg_logprob,
                 })
-                full_text_parts.append(seg.text.strip())
+                full_text_parts.append(piece)
 
             duration = (time.perf_counter() - start) * 1000
             full_text = " ".join(full_text_parts)

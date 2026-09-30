@@ -222,7 +222,13 @@ class PrivacySettings(BaseModel):
 
 
 class VoiceSettings(BaseModel):
-    """Voice I/O settings — default disabled, stubs only."""
+    """Voice I/O settings — **default disabled**.
+
+    The providers are real, not stubs: ``stt_provider`` selects the local
+    faster-whisper engine and ``tts_provider`` dispatches between a local OS
+    engine and a permission-gated external one. A request that names a *local*
+    provider is never served by the cloud engine.
+    """
 
     voice_enabled: bool = Field(default=False, description="Enable voice I/O")
     stt_provider: str = Field(

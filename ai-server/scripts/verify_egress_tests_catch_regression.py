@@ -67,6 +67,7 @@ EGRESS_TESTS = (
     "tests/test_egress_reliability.py",
     "tests/test_ineffective_flags.py",
     "tests/test_local_llm_path.py",
+    "tests/test_voice_io.py",
 )
 
 

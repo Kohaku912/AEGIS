@@ -13,7 +13,7 @@ class Channel(Enum):
     CLI = auto()
     LINE = auto()       # Stub only
     DISCORD = auto()    # Stub only
-    VOICE = auto()      # Stub only
+    VOICE = auto()      # engines exist; no hub channel yet
 
 
 class PrivacyLevel(Enum):

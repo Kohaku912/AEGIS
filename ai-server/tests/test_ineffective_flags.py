@@ -55,10 +55,11 @@ _DEFINITION_MODULE = _SRC / "aegis_ai" / "settings" / "models.py"
 #: so an entry cannot outlive its justification.
 _INTENTIONALLY_UNREAD: dict[str, str] = {
     "VoiceSettings.push_to_talk_only": (
-        "Voice I/O is stubs-only (see VoiceSettings' own docstring): voice_enabled "
-        "defaults to False and no capture path reads this. Kept in the schema so the "
-        "shipped settings file stays valid; wiring it is part of the voice workstream, "
-        "not the constraint. It is *not* an egress risk — it cannot transmit anything."
+        "The voice engines are real (local faster-whisper STT, provider-dispatched "
+        "TTS), but none of them reads this: VoiceGate never consults it, so no capture "
+        "path can be gated on it. Kept in the schema so the shipped settings file stays "
+        "valid; wiring it is part of the voice workstream, not the constraint. It is "
+        "*not* an egress risk — it cannot transmit anything."
     ),
 }
 

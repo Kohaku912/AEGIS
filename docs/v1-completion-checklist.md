@@ -33,7 +33,7 @@ Legend:
 - [x] Production readiness output is the canonical release gate.
 - [x] Production blocker mock/stub count is zero, or explicitly deferred out of v1 scope.
 - [x] Room Server mock provider is never treated as production-online.
-- [x] Voice, LINE, Discord, Email, and external send stubs are disabled/blocker-marked in production.
+- [x] LINE, Discord, Email, and external send stubs are disabled/blocker-marked in production. (Voice I/O is **no longer a stub** — see §11.)
 - [x] Production Docker bind scope avoids unnecessary `0.0.0.0` exposure.
 - [x] Cloudflare Tunnel recovery and systemd autostart are verified.
 - [x] Ubuntu reboot restores AI Server, Cloudflare Tunnel, and Display kiosk.
@@ -166,12 +166,22 @@ Legend:
 - [x] 72-hour-equivalent Display/server soak shows no memory/SSE/UI degradation.
 - [ ] Daily operation works across PC, Android, Browser, Display, Approval, and LLM Usage.
 
+## 11. v1 Scope Added 2026-09-30
+
+The owner moved these **into v1** (see [`GOAL-CHANGE.md`](GOAL-CHANGE.md)). They were previously
+listed as deferred, which is no longer true.
+
+- [x] Local TTS engine (`integrations/local_tts.py`) — verified on Windows (`sapi`).
+- [~] Local STT wiring (`integrations/stt_service.py`) — code complete; the `faster-whisper` package is not installed.
+- [x] External TTS through the permission check (`integrations/tts_service.py`).
+- [x] Egress gate accepts a recorded user permission (`egress/permissions.py`).
+- [ ] External messaging — LINE Bot real integration.
+- [ ] External messaging — Discord Bot real integration.
+- [ ] External messaging — Email SMTP real sending.
+- [ ] Wake word (STT and TTS themselves are done above).
+
 ## Deferred After v1
 
-- [ ] LINE Bot real integration.
-- [ ] Discord Bot real integration.
-- [ ] Email SMTP real sending.
-- [ ] Voice I/O real STT/TTS/wake word.
 - [ ] Smart Glasses UI.
 - [ ] Multi-user support.
 - [ ] Payment or money-spending actions.

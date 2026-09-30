@@ -1,12 +1,15 @@
 """Voice I/O Gate — safe gateway for voice input/output.
 
-Default disabled. Stubs only. Real implementation requires user confirmation.
+Default disabled, and **fail-closed**: with no settings store every check returns
+False. The engines behind it are real — local faster-whisper STT and a
+local-or-permission-gated TTS (``integrations/stt_service.py``,
+``integrations/tts_service.py``). This gate is what decides whether they may run.
 
 Safety:
 - No always-listening
 - No external STT/TTS by default
 - No audio storage by default
-- Push-to-talk only
+- Push-to-talk only (a settings default; nothing enforces it yet)
 - Voice approval requires additional auth (not implemented)
 """
 

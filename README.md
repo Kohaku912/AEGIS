@@ -98,7 +98,7 @@ cd ai-server
 | [Interaction Hub](docs/interaction-hub.md) | Web Chat + CLI |
 | [Notification Gateway](docs/notification-gateway.md) | Notification routing |
 | [External Integrations](docs/external-integrations.md) | LINE/Discord/Email stubs |
-| [Voice I/O](docs/voice-io.md) | Voice gate + stubs |
+| [Voice I/O](docs/voice-io.md) | Local STT/TTS; external path is permission-gated |
 | [Testing](docs/testing.md) | Unit, integration, real-device checks |
 
 ## Current Runtime Notes

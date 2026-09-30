@@ -14,7 +14,8 @@
 The Interaction Hub provides unified user interaction across multiple channels:
 - **Web Chat** — browser-based chat interface
 - **CLI** — command-line interface
-- **LINE / Discord / Voice** — stubs only (requires user confirmation)
+- **LINE / Discord** — stubs only (requires user confirmation); v1 scope as of 2026-09-30
+- **Voice** — local STT/TTS engines exist (`docs/voice-io.md`), but **no hub channel is wired**
 
 ## Architecture
 
@@ -43,7 +44,7 @@ Response → User
 | CLI | ✅ Implemented | Interactive command-line interface |
 | LINE | Stub only | Requires user confirmation |
 | Discord | Stub only | Requires user confirmation |
-| Voice | Stub only | Requires user confirmation |
+| Voice | Engines only | Local STT/TTS exist (`docs/voice-io.md`); no hub channel is wired |
 
 ## Intent Classification
 

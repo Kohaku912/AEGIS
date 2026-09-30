@@ -389,8 +389,8 @@ git ls-remote origin refs/heads/cf-grpc-and-goal-hygiene refs/heads/main \
 | gRPC TLS | ⚠️ `security/tls_config.py` はあるが gRPC 統合が未完（Tailscale 前提） |
 | Room 実機 | ❌ `UNCONFIGURED/DISABLED`（Orange Pi の実プロバイダ待ち）。`GetEnvironment` は**ハードコード fixture を返す** |
 | cross-device context 共有 / 端末オフライン時の縮退 | ❌ 未着手 |
-| 音声 I/O（STT/TTS） | ❌ スタブ |
-| 外部メッセージング（LINE / Discord / SMTP / Webhook） | ❌ スタブ（egress ゲート配下） |
+| 音声 I/O（STT/TTS） | ✅ **実装**（2026-09-30）— ローカル TTS は `integrations/local_tts.py`（Windows `sapi` で実測、日本語 132,734 バイト）、ローカル STT は `integrations/stt_service.py`（`faster-whisper` は**この環境に未インストール**）。外部 TTS は egress の許可制を通る。**残り**: wake word・ハブの音声チャネル・`push_to_talk_only` の強制（フィールドは依然として読み手ゼロ） |
+| 外部メッセージング（LINE / Discord / SMTP / Webhook） | ❌ 未着手 — **v1 スコープ**（オーナー 2026-09-30）。前提の egress 許可制は実装済み（`egress/permissions.py`）。`interaction/channels/{line,discord}.py` は docstring だけの置物 |
 | multi-user / plugin marketplace | ❌ 未着手（v1 スコープ外） |
 | Docker 全体検証 | ⚠️ compose と Dockerfile はあるがマルチサービス実機検証が未完 |
 
