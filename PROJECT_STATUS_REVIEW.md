@@ -408,8 +408,25 @@ git ls-remote origin refs/heads/cf-grpc-and-goal-hygiene refs/heads/main \
    `store.reject()` は記録を返すだけ（`web/routes/approval.py::_decide`）、`_confirmation()` は
    `request`/`list` のみ、**ループは store を 1 度も参照しない**（`confirmation` の出現 0 件）。
    よって「拒否された確認」をそのまま渡すと、**その質問とは無関係なタスクの欲求に罰則が付く**
-   （誤帰属）。正しく配線するには**「確認 ↔ 欲求」のリンクを先に決める**必要がある
-   （案: 確認に欲求を記録させる／`task_id` で照合する — どちらも契約と挙動を変える**製品判断**）。
+   （誤帰属）。正しく配線するには**「確認 ↔ 欲求」のリンクを先に決める**必要がある（どれも契約と
+   挙動を変える**製品判断**）。
+   **（2026-10-01 実測）`task_id` 案は「死んでいない」— ただし繋がるのは片側だけ。** `task_id` は
+   **3 つの名前空間**に現れる: ① **ループは実在の `task_id` を作る** — `TaskManager` のタスクを起こし、
+   その metadata に **`autonomous_task.desire`** を書く（`autonomous_loop.py:2716-2753`）。つまり
+   **`task_id` → 欲求** の表は**既にある** ② 同じ `task_id` と `source_desire` は実行要求にも渡る
+   （`:2806-2812`）③ reflection の `task_id` は reflect 時に合成（`:1051`）で①②とは無関係。
+   **繋がらないのは確認側**: `ConfirmationRequest.task_id` は **LLM が自由に渡す値**
+   （`core_capabilities.py:832` の `_CONFIRMATION_FIELDS` に含まれ、`:868` で `params` から素通し）なので、
+   **渡さなければ空・渡しても未検証**。**LLM に loop の `task_id` を知らせる経路も今は無い。**
+   **副産物（未配線の発見）**: `AuditEntry` は `task_id` と **`source_desire`** を持ち、
+   `AuditManager.log_approval(source_desire=...)` も用意されているのに、**`log_approval` を呼ぶコードが
+   `src/` にも `tests/` にも 1 つも無い** — **承認イベントに欲求を載せる配線は設計済みで、繋がれていない**。
+   候補は 2 つ: **(A)** 確認に欲求（または loop の `task_id`）を記録させる — LLM 供給なので、使う前に
+   **実在する欲求集合と照合**しないと信頼できない。**(B)** 教訓を `related_desire` ではなく
+   **`capability_id` で引く** — 確認が確実に持つ唯一のフィールドだが、**読者 2 つはどちらも
+   `related_desire` で厳密に引く**（`autonomous_loop.py:1389`・`motivation_arbiter.py:164`）ので
+   **読者の問い合わせを変える**＝挙動変更で、**意味も変わる**（「この欲求は高コスト」ではなく
+   「この行動を提案するな」を学ぶ）。
    **① の配線は「1 手」ではない** — **残る穴は 3 と ① の 2 つ**。
 
 ### 3.2 機能面
