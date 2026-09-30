@@ -124,9 +124,9 @@ tool, or a recomputed state flag.
 
 **Threat**: gRPC traffic intercepted on network.
 
-**Mitigation**: TLSConfig exists, but it is not fully integrated with all gRPC server/client paths.
+**Mitigation**: **None in code.** `TLSConfig` exists in `aegis_ai/security/`, but that entire package is imported by nothing and no live server calls `add_secure_port` — gRPC is plaintext (measured 2026-10-01). The local hop relies on the Tailscale / private-network boundary.
 
-**Action**: Implement TLS before any network-exposed deployment.
+**Action**: Implement TLS before any network-exposed deployment. The dead package is recorded, not wired, in `DELEGATION.md` §4.
 
 ## Risk Review Schedule
 

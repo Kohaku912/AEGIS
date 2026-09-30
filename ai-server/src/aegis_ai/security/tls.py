@@ -1,5 +1,10 @@
 """TLS — optional TLS configuration for local network security.
 
+⚠️ UNWIRED (measured 2026-10-01): nothing outside ``aegis_ai/security/`` imports this module, no
+live server calls ``add_secure_port``, and ``get_grpc_credentials`` / ``generate_self_signed_cert``
+have no caller. gRPC is plaintext inside a Tailscale boundary. Do not wire without a decision —
+``DELEGATION.md`` §4; ``tests/test_security_package_stays_unwired.py``.
+
 Provides helpers for generating self-signed certificates and
 configuring TLS for gRPC and Flask servers.
 

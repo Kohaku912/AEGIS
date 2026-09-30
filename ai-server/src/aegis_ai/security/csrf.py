@@ -1,4 +1,9 @@
-"""CSRF protection — cross-site request forgery prevention."""
+"""CSRF protection — cross-site request forgery prevention.
+
+⚠️ UNWIRED (measured 2026-10-01): nothing outside ``aegis_ai/security/`` imports this module.
+The live CSRF path is ``aegis_ai/auth/csrf.py`` (``csrf_valid`` / ``CSRF_HEADER``). Do not wire
+without a decision — ``DELEGATION.md`` §4; ``tests/test_security_package_stays_unwired.py``.
+"""
 
 from __future__ import annotations
 

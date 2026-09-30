@@ -436,8 +436,8 @@ Audit logs are written to `data/settings_audit.jsonl`.
 
 Measured 2026-10-01 — `ai-server`, full suite:
 
-- **Total tests**: **1895 passed / 8 skipped**
-  — the **+10** over the 2026-09-30 figure are **all new pins**: four for B-5① (the confirmation↔desire
+- **Total tests**: **1900 passed / 8 skipped**
+  — the **+15** over the 2026-09-30 figure are **all new pins**: four for B-5① (the confirmation↔desire
   link), one for the general invariant that **the shipped `config/settings.json` declares no key that
   no settings model declares** (which caught the dead `autonomy` block; see
   `PROJECT_STATUS_REVIEW.md` §0.1), three for the voice gate — four `VoiceGate` / `VoicePrivacy`
@@ -448,7 +448,12 @@ Measured 2026-10-01 — `ai-server`, full suite:
   reader**; `tests/test_voice_io.py`) — and two for the approval **audit** API: `log_approval` (three
   definitions, no caller outside its own forwarding chain), which leaves `AuditEntry.source_desire`
   **always empty** because its only writers are those dead bodies
-  (`tests/test_forced_gate_stays_retired.py`). The skip count fell from 30 to 8 because **B-6 deleted 22 settings fields** that were declared but
+  (`tests/test_forced_gate_stays_retired.py`) — and five for the `aegis_ai.security` package, which
+  **nothing outside itself imports**: six documented classes (token auth, token store, CSRF, rate
+  limit, origin check, TLS) plus `generate_self_signed_cert`, with no importer outside the package,
+  no class name used outside it, and `add_secure_port` called only inside the module nobody imports —
+  so gRPC stays plaintext. The live auth path is `aegis_ai/auth/` (passkey + its own CSRF).
+  `tests/test_security_package_stays_unwired.py`. The skip count fell from 30 to 8 because **B-6 deleted 22 settings fields** that were declared but
   read by nothing; their parametrized cases went with them. The **only** deliberately unread field left
   is `voice.push_to_talk_only`, recorded in `tests/test_ineffective_flags.py::_INTENTIONALLY_UNREAD`;
   the debt inventory `_UNOWNED_DEBT` is now **empty**, which is the point of the deletion rather than an
@@ -467,9 +472,9 @@ Measured 2026-10-01 — `ai-server`, full suite:
   If every check reports FAIL with an **empty** exit code, the script host cannot launch native
   binaries — that is an environment limit, not a regression. Verify the suites individually (see the
   `aegis-verify-and-test` skill) rather than "fixing" code that is fine.
-- **Egress regression suite**: **302 passed / 1 skipped** (303 tests carry the `egress` marker).
+- **Egress regression suite**: **305 passed / 1 skipped** (306 tests carry the `egress` marker).
   CI enforces a floor of 160 (`--require-egress-tests=160`) **and** mutation-proves the gate:
-  breaking it yields 74 failures, restoring it yields 302 passes.
+  breaking it yields 74 failures, restoring it yields 305 passes.
 - **Canonical command**:
   `cd ai-server && PYTHONPATH=src CODEBUDDY_SAFE_DELETE_ENABLED=0 $VENV -m pytest -q`
 

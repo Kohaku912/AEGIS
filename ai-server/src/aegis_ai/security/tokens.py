@@ -1,4 +1,9 @@
-"""Token management — generation, validation, rotation for AEGIS security."""
+"""Token management — generation, validation, rotation for AEGIS security.
+
+⚠️ UNWIRED (measured 2026-10-01): nothing outside ``aegis_ai/security/`` imports this module.
+Do not wire without a decision — ``DELEGATION.md`` §4;
+``tests/test_security_package_stays_unwired.py``.
+"""
 
 from __future__ import annotations
 

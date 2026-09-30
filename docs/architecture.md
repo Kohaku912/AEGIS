@@ -8,7 +8,7 @@
 > requirements. See [`GOAL-CHANGE.md`](GOAL-CHANGE.md) and [`IMPROVEMENT_PROPOSAL.md`](../IMPROVEMENT_PROPOSAL.md) §9.
 
 > **Status**: Implemented. Counts are date-stamped measurements; re-measure before trusting them.  
-> **Tests**: **1777 passed / 30 skipped** (ai-server suite, measured 2026-09-30)  
+> **Tests**: **1900 passed / 8 skipped** (ai-server suite, measured 2026-10-01)  
 > **Capabilities**: **128 registered** (pc 58 / ai 32 / android 17 / browser 16 / room 5)  
 > **Target audience**: AI coding agents, contributors, and future AEGIS itself  
 > **Related**: [`AGENTS.md`](../AGENTS.md) — rules and conventions for agents working on this repo
@@ -398,13 +398,14 @@ ai-server/src/
 │   │   ├── chat_tools.py             # call_llm_with_tools() + regex parsing
 │   │   ├── settings_routes.py        # Settings CRUD API
 │   │   └── settings_ui_routes.py     # Settings Web UI
-│   ├── security/                     # Auth, CSRF, rate limit, TLS
+│   ├── auth/                         # Live auth: passkey + CSRF (installed by web/auth.py)
+│   ├── security/                     # ⚠️ UNWIRED — imported by nothing (docs/security.md)
 │   ├── observation/                  # Multi-server observation aggregation
 │   └── ...                           # (additional modules)
 ├── config/
 │   ├── prompts.yaml                  # Prompt source of truth
 │   └── llm.yaml                      # LLM profile source of truth
-└── tests/                            # 1777 passed / 30 skipped
+└── tests/                            # 1900 passed / 8 skipped
 ```
 
 ### 5.2 Context Builder
@@ -688,7 +689,7 @@ User answers ──► the answer informs what AEGIS does next.
 - External API calls (LLM, web search, cloud TTS, webhooks) route through the egress gate (`aegis_ai/egress/`). ⚠️ The gate **still implements the pre-re-scope deny-all form** — external calls are denied by default until the permission check is wired.
 - Local-only stores (SQLite, Chroma, JSONL) are the norm.
 - Secrets via environment variables — **never** in source code or proto files
-- TLS available for gRPC (`security/tls_config.py`) — for protecting the local hop, not for reaching out
+- ⚠️ **TLS is not wired for gRPC.** The whole `aegis_ai/security/` package is imported by nothing, and both live servers bind `add_insecure_port`. The local hop is protected by the Tailscale / private-network boundary, not TLS. See `docs/security.md`.
 
 ---
 
@@ -741,7 +742,7 @@ AEGIS can improve its own codebase — but only through a PR-based workflow.
 | **LLM Integration** | ✅ Complete | LLMGateway + PromptRegistry + text-based tool calling |
 | **Confirmation** | ✅ Complete | AEGIS-initiated questions; the forced gate was removed 2026-09-28 |
 | **Memory System** | ✅ Complete | AdvancedMemory + Chroma + learning pipeline |
-| **E2E Testing** | ✅ Complete | 1777 tests passing (ai-server suite) |
+| **E2E Testing** | ✅ Complete | 1900 tests passing (ai-server suite) |
 
 ### Deferred Items
 

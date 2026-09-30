@@ -1,5 +1,12 @@
 """Security — authentication, authorization, and network security for AEGIS.
 
+⚠️ **UNWIRED (measured 2026-10-01).** Nothing outside this package imports it, and none of the
+names below is used outside it. The live authentication system is ``aegis_ai.auth/`` (passkey,
+with its own ``csrf.py``), installed by ``aegis_ai/web/auth.py``. This package is **superseded**,
+not missing: wiring it would create a *second* auth/CSRF implementation. Do not wire it without a
+decision — ``DELEGATION.md`` §4 carries it, and ``tests/test_security_package_stays_unwired.py``
+pins the measurement.
+
 Provides:
 - LocalTokenAuth: Server-to-server token authentication
 - TokenStore: Token persistence and rotation

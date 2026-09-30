@@ -82,8 +82,10 @@ These were listed as not started; the owner moved them into v1 and they are now 
 
 ## Partial / in progress
 
-- **gRPC TLS**: `security/tls_config.py` exists; server/client integration is incomplete, so v1 gRPC
-  must stay inside Tailscale / a private network boundary.
+- **gRPC TLS**: **not wired.** `security/tls_config.py` exists but the whole `aegis_ai/security/`
+  package is imported by nothing and no live server binds a secure port, so v1 gRPC stays plaintext
+  and must stay inside a Tailscale / private network boundary. Recorded, not wired, in
+  `DELEGATION.md` §4 (`tests/test_security_package_stays_unwired.py` pins the measurement).
 - **Docker Compose**: compose file and Dockerfiles exist; full multi-service validation is pending.
 - **Completion verification**: manifests may declare `completion`; ToolBroker verifies and retries for
   manifest-backed checks.

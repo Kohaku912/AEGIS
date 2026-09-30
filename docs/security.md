@@ -7,95 +7,65 @@
 > (`ai-server/src/aegis_ai/egress/`), which denies unpermitted user-information egress.
 > See [`GOAL-CHANGE.md`](GOAL-CHANGE.md).
 
-> **Status**: Verified against current code snapshot
+> **Status**: ⚠️ **Corrected 2026-10-01.** This page used to document six classes as if they were
+> wired. **Measured: nothing outside `aegis_ai/security/` imports that package** — the whole
+> package is a dead end. `tests/test_security_package_stays_unwired.py` pins the measurement.
 > **Related**: `docs/local-network-security.md`, `docs/architecture.md` §7
 
-## Overview
+## What is actually enforced
 
-AEGIS Security provides authentication, CSRF protection, rate limiting,
-and origin checking for local network operation.
+The live authentication system is **`aegis_ai/auth/`** (passkey-based; it has its own `csrf.py`),
+installed by `aegis_ai/web/auth.py` via `install_passkey_auth`. The egress gate
+(`aegis_ai/egress/`) is the constraint enforcement point.
 
-## Components
+| Property | Enforced by | Status |
+|---|---|---|
+| Passkey authentication / session middleware | `aegis_ai/auth/` | ✅ live |
+| CSRF protection for web routes | `aegis_ai/auth/csrf.py` (`csrf_valid`) | ✅ live |
+| Unpermitted user-information egress | `aegis_ai/egress/` | ✅ live |
+| Token auth for server-to-server calls | — | ❌ not wired (see below) |
+| Rate limiting | — | ❌ not wired |
+| Origin checking | — | ❌ not wired |
+| gRPC TLS | — | ❌ not wired (Tailscale boundary instead) |
 
-### LocalTokenAuth (`auth.py`)
+## `aegis_ai/security/` — declared but not effective
 
-Token-based authentication for server-to-server communication.
+`aegis_ai/security/` defines six classes and one helper. **No file outside the package imports it,
+and none of these names is used outside it** (measured 2026-10-01 across ai-server, pc-server,
+browser-server, room-server, android-server, the Python SDK, scripts and web-ui). The only non-self
+references anywhere are `logging.getLogger("aegis_ai.security.…")` strings inside the package, its
+own `__init__.py` re-exports, and this page.
 
-```python
-from aegis_ai.security import LocalTokenAuth, generate_token
+| Module | Provides | Importers outside the package |
+|---|---|---|
+| `auth.py` | `LocalTokenAuth`, `generate_token`, `hash_token` | none |
+| `tokens.py` | `TokenStore` | none |
+| `csrf.py` | `CSRFProtection` | none (superseded by `aegis_ai/auth/csrf.py`) |
+| `rate_limit.py` | `RateLimiter` | none |
+| `origin.py` | `OriginChecker` | none |
+| `tls.py` | `TLSConfig`, `generate_self_signed_cert` | none |
+| `tls_config.py` | `TLSConfig` (`from_env` / `configure_server` / `configure_channel`) | none |
 
-auth = LocalTokenAuth(token="my-secret-token")
-result = auth.validate_server("pc-server", token)
-if result.authenticated:
-    # Server is authorized
-```
+Two further notes on TLS specifically:
 
-### TokenStore (`tokens.py`)
+- **Two `TLSConfig` classes** exist, with incompatible APIs. `security/__init__.py` re-exports only
+  `tls.py`'s; `tls_config.py` is imported by nothing at all — yet it is the one whose
+  `configure_server` actually calls `add_secure_port`.
+- **No live server binds a secure port.** `add_secure_port` is called only inside
+  `tls_config.configure_server`; `grpc_server.serve` and `room-server` both use
+  `add_insecure_port`. So gRPC stays plaintext, and the local hop is protected by the Tailscale /
+  private-network boundary instead (see `docs/status.md`).
 
-Persists and rotates authentication tokens.
-
-```python
-from aegis_ai.security import TokenStore
-
-store = TokenStore(path="data/tokens.json")
-token = store.get_or_create_token("pc-server")
-store.rotate_token("pc-server")
-```
-
-### CSRFProtection (`csrf.py`)
-
-Cross-site request forgery prevention for web routes.
-
-```python
-from aegis_ai.security import CSRFProtection
-
-csrf = CSRFProtection()
-token = csrf.generate_token(session_id)
-# ... later ...
-csrf.validate_token(session_id, token)
-```
-
-### RateLimiter (`rate_limit.py`)
-
-Token bucket rate limiter to prevent abuse.
-
-```python
-from aegis_ai.security import RateLimiter
-
-limiter = RateLimiter(max_requests=60, window_seconds=60)
-result = limiter.check("client_id")
-if result.allowed:
-    # Process request
-```
-
-### OriginChecker (`origin.py`)
-
-Validates request origins (localhost only by default).
-
-```python
-from aegis_ai.security import OriginChecker
-
-checker = OriginChecker()
-if checker.is_allowed(origin, remote_addr):
-    # Allow request
-```
-
-### TLSConfig (`tls.py`)
-
-Optional TLS configuration for local network.
-
-```python
-from aegis_ai.security import TLSConfig
-
-config = TLSConfig(enabled=True, cert_file="certs/server.crt", key_file="certs/server.key")
-```
+**Recorded, not wired, not deleted.** Wiring `security/` would re-introduce a *second* auth/CSRF
+implementation alongside the live `aegis_ai/auth/`; deleting a whole documented package is an owner
+judgement. The decision is carried in `DELEGATION.md` §4.
 
 ## Security Principles
 
 - **Localhost only** by default — no external access
-- **Token auth** for server-to-server communication
-- **CSRF protection** for all web forms
-- **Rate limiting** to prevent abuse
-- **Origin checking** to block unauthorized access
+- **Passkey auth** for the web UI (`aegis_ai/auth/`)
+- **CSRF protection** for web routes (`aegis_ai/auth/csrf.py`)
 - **Secrets never logged** — tokens are redacted in audit
-- **TLS optional** — local network trust is default for MVP
+- **Unpermitted egress denied** by the egress gate
+- **Local network trust is the default for MVP** — gRPC is plaintext inside a Tailscale boundary,
+  not TLS

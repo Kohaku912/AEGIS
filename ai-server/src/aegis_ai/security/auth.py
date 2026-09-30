@@ -1,5 +1,9 @@
 """Authentication — server and user authentication for AEGIS.
 
+⚠️ UNWIRED (measured 2026-10-01): nothing outside ``aegis_ai/security/`` imports this module.
+The live auth path is ``aegis_ai/auth/`` (passkey). Do not wire without a decision —
+``DELEGATION.md`` §4; ``tests/test_security_package_stays_unwired.py``.
+
 Provides:
 - Local token authentication for server-to-server communication
 - Optional password auth for Web UI

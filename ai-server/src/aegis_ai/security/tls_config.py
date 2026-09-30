@@ -1,5 +1,10 @@
 """TLS Configuration for gRPC server.
 
+⚠️ UNWIRED (measured 2026-10-01): this module is imported by **nothing at all**, and its
+``configure_server`` is the only code in the repo that calls ``add_secure_port`` — so TLS never
+takes effect. It duplicates ``security/tls.py``'s ``TLSConfig`` with a different API. Do not wire
+without a decision — ``DELEGATION.md`` §4; ``tests/test_security_package_stays_unwired.py``.
+
 Provides TLS support for secure gRPC communication.
 Default: disabled (plaintext). Enable via settings or environment.
 
