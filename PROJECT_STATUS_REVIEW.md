@@ -252,6 +252,36 @@ git ls-remote origin refs/heads/cf-grpc-and-goal-hygiene refs/heads/main \
 > 復旧は上記の手順で **3 ref**（`cf-grpc-and-goal-hygiene` / `main` / `origin/HEAD`）を復元した。
 > **推奨の記録先は skill `aegis-verify-and-test` §1.0f の push 節**（そちらに検査と診断を追記済み）。
 >
+> **2026-09-30 19:58 — 機序を絞り込んだ。「間欠的」ではない**（同日 3 回目の実測。18:04 と 19:52 の
+> 記録は「この日の 10 回の push で 1 回」と書いていたが、**再現手順が確定した**）:
+> **このリポジトリでは `git fetch origin` が `refs/remotes/origin/` 配下のファイルを毎回すべて消す。**
+> 対照実験（すべて同一バイナリ `git 2.55.0.windows.3` / PortableGit）:
+>
+> | 操作 | `refs/remotes/` のファイル数 |
+> |---|---|
+> | 何もしない（10 秒放置） | 2 → 2（消えない） |
+> | `git status` / `for-each-ref` | 2 → 2（消えない） |
+> | `git ls-remote --heads origin` | 2 → 2（消えない） |
+> | `git gc --auto` | 2 → 2（消えない） |
+> | **`git fetch origin`** | **2 → 0（毎回）** |
+> | `git fetch --no-auto-gc`（`gc.auto=0`・`maintenance.auto=false` 済み） | **2 → 0** |
+> | `git -c remote.origin.fetch= fetch origin`（追跡 ref を 1 つも書かない空 refspec） | **origin の 2 件が消える** |
+> | 別リポジトリ（`git init` + ローカル remote）で `git fetch` | 2 → 2（**正常**） |
+>
+> **fetch は「管理していない」ref も消す** — `refs/remotes/origin/HEAD` と、私が作った
+> `refs/remotes/origin/nested/deep` も消えた。逆に **refspec の外にある `refs/remotes/probe` は残った**。
+> よって消えているのは **`refs/remotes/origin/` という名前空間まるごと**で、ref の**更新**ではない。
+> しかも **fetch は `= [up to date]` と表示して 1 つも書いていないのに消える**（`GIT_TRACE=1` で確認 —
+> 追跡 ref の書き込みは実行されず、`git rev-list … --exclude-hidden=fetch` だけが走る）。
+> **除外できた原因**: フック無し（`.git/hooks/` に非 `.sample` は 0 件、`core.hooksPath` 未設定）、
+> ジャンクション無し、`objects/info/alternates`・`commondir` 無し、`fetch.prune` 無し、
+> `.git/config` は正常（`safe.directory=*` 以外のグローバル設定も無し）。
+> **同一バイナリが別リポジトリでは正常**なので、**原因はこのリポジトリの `.git/` 側にある**。
+> `.git/` には git 以外のツールの痕跡がある（`.git/cursor/`、`.git/refs/codex/turn-diffs`）。
+> **結論は変わらないが頻度の前提が変わる**: `fetch` も `push` も**毎回**追跡 ref を失うものとして扱う。
+> `git ls-remote` が真実、`git status -sb` の `[gone]` は意味を持たない、復旧はファイルを直接書く。
+> **リモートは一貫して無傷**（失われるのはローカルキャッシュだけ）。**引き金は fetch と確定、機序は未確定。**
+>
 > **リモート名はフラットに移行済み**（2026-09-30 — PR が無く既定ブランチが `main` であることを確認した上で
 > 入れ子のリモートブランチを削除し、フラットなブランチを `--set-upstream` で push した）。
 
