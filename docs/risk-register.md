@@ -39,14 +39,14 @@
 | R-07 | Room物理操作 (robot arm) | Low | Critical | FORBIDDEN pattern, emergency stop only | ✅ Mitigated |
 | R-08 | Self-dev safety weakening | Medium | Critical | PolicyEngine DENY for modify_policy, main merge FORBIDDEN (dev-flow rule) | ✅ Mitigated |
 | R-09 | Memory privacy (secrets stored) | Medium | High | Scrub before storage, secrets pattern detection | ✅ Mitigated |
-| R-10 | External integrations misuse | Low | High | All stubs, default disabled, **egress gate** | 🔄 Phase 1 |
+| R-10 | External integrations misuse | Low | High | Real senders behind the **egress gate**, all locks closed by default | ✅ Mitigated |
 | R-11 | Long-running autonomy cost | Medium | Medium | Cost tracker, daily/monthly budgets | ✅ Mitigated |
 | R-12 | Real LLM hallucination | High | Medium | Mock for CI, prompt safety, untrusted content wrapping | ⚠️ Partial |
 | R-13 | Docker misconfiguration | Medium | Medium | Compose/Dockerfiles exist, needs full validation | Partial |
 | R-14 | gRPC plaintext | Low | Medium | TLS config helper exists; gRPC integration pending | Partial |
 | R-15 | Single-user credential theft | Low | High | Token-based auth, localhost binding | ✅ Mitigated |
 | R-16 | Real device damage (Room) | Low | Critical | FORBIDDEN patterns, emergency stop | ✅ Mitigated |
-| R-17 | SNS/DM/email auto-send | Low | Critical | FORBIDDEN patterns, all stubs | ✅ Mitigated |
+| R-17 | SNS/DM/email auto-send | Low | Critical | Egress-gate permission required before any send; note `send_dm`/`send_sns` are **not** in `EXPLICIT_DENY_PATTERNS` | ✅ Mitigated |
 | R-18 | Purchase/payment | Low | Critical | FORBIDDEN patterns, no real payment integration | ✅ Mitigated |
 | **R-19** | **Egress gate bypass** | Medium | **Critical** | Single gate + startup assertion + egress regression tests (`--fail-on-empty`, pass^k) | 🔄 Phase 1 |
 

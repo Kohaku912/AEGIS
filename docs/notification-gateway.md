@@ -17,8 +17,11 @@ The Notification Gateway sends notifications to users through local channels:
 - **Dashboard** — stored for display on Operations Dashboard
 - **Web Chat** — sent to active chat sessions
 - **CLI** — displayed in terminal
+- **OS notification** — PC Server overlay, or a logged fallback when no overlay is available
 
-External channels (LINE, Discord, Email, OS notifications) are stubs only.
+External channels (**LINE**, **Discord**, **Email**) are implemented senders, refused by the egress
+gate until the user permits the destination. They are not stubs; see
+[`external-integrations.md`](external-integrations.md).
 
 ### NotificationManager
 

@@ -11,8 +11,8 @@ class Channel(Enum):
     """Interaction channels."""
     WEB_CHAT = auto()
     CLI = auto()
-    LINE = auto()       # Stub only
-    DISCORD = auto()    # Stub only
+    LINE = auto()       # inbound not implemented; outbound sending is gate-permitted
+    DISCORD = auto()    # inbound not implemented; outbound sending is gate-permitted
     VOICE = auto()      # engines exist; no hub channel yet
 
 

@@ -219,6 +219,14 @@ class PrivacySettings(BaseModel):
     web_search_allowed: bool = Field(
         default=False, description="Allow external web search (default: closed)"
     )
+    external_messaging_allowed: bool = Field(
+        default=False,
+        description=(
+            "Allow outbound messaging (LINE/Discord/Email) to allowlisted hosts (default: closed). "
+            "A message body is always the user's own content, so the standing path needs the master "
+            "switch AND this flag AND an allowlist entry; a recorded (host, purpose) grant also works."
+        ),
+    )
 
 
 class VoiceSettings(BaseModel):

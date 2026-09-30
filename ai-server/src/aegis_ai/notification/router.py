@@ -37,6 +37,9 @@ class NotificationRouter:
         dashboard_channel: Any = None,
         web_chat_channel: Any = None,
         cli_channel: Any = None,
+        line_channel: Any = None,
+        discord_channel: Any = None,
+        email_channel: Any = None,
         preferences: NotificationPreferences | None = None,
         quiet_hours: QuietHoursManager | None = None,
         audit_log: Any = None,
@@ -49,6 +52,17 @@ class NotificationRouter:
             self._channels[NotificationChannel.WEB_CHAT] = web_chat_channel
         if cli_channel:
             self._channels[NotificationChannel.CLI] = cli_channel
+        # The three external channels are opt-in: they are registered only when a caller
+        # passes one. Passing one does not grant it anything — each refuses at the egress
+        # gate unless the user has permitted its host, so a router wired for email still
+        # sends nothing until `privacy.external_messaging_allowed` and the allowlist (or a
+        # recorded grant) say so.
+        if line_channel:
+            self._channels[NotificationChannel.LINE] = line_channel
+        if discord_channel:
+            self._channels[NotificationChannel.DISCORD] = discord_channel
+        if email_channel:
+            self._channels[NotificationChannel.EMAIL] = email_channel
 
         self._preferences = preferences or NotificationPreferences()
         self._quiet_hours = quiet_hours or QuietHoursManager()
@@ -85,8 +99,14 @@ class NotificationRouter:
             logger.warning("Notification spam detected for %s — suppressing", type_key)
             return False
 
-        # Redact sensitive content for external channels
-        notification = self._redact_if_needed(notification)
+        # No content redaction happens here. A previous revision blanked the body whenever an
+        # external channel was declared; that was written when external channels were forbidden
+        # outright, and the 2026-09-30 re-scope turned egress into a **permission check** — a
+        # blanked body would make the permission meaningless. It also mutated
+        # `notification.body` before the fan-out below, so a notification declaring both a
+        # dashboard and an email channel lost its body on the dashboard too. The control is the
+        # egress gate, which each outbound channel consults per destination; content-level
+        # redaction belongs in the caller (the voice path does it per transcript segment).
 
         # Route to channels
         channels = notification.channels or DEFAULT_CHANNEL_MAP.get(
@@ -114,18 +134,6 @@ class NotificationRouter:
             )
 
         return sent
-
-    def _redact_if_needed(self, notification: Notification) -> Notification:
-        """Redact sensitive content for external channels."""
-        # For local channels, no redaction needed
-        # For external channels (LINE, Discord, Email), redact
-        external_channels = {NotificationChannel.LINE, NotificationChannel.DISCORD, NotificationChannel.EMAIL}
-        if not any(ch in external_channels for ch in notification.channels):
-            return notification
-
-        # Redact body for external channels
-        notification.body = "[REDACTED — sensitive content]"
-        return notification
 
     def get_sent_count(self, notification_type: NotificationType) -> int:
         """Get sent count for a notification type."""

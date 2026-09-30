@@ -36,10 +36,14 @@ class NotificationChannel(Enum):
     DASHBOARD = auto()
     WEB_CHAT = auto()
     CLI = auto()
-    LINE = auto()        # Stub only
-    DISCORD = auto()     # Stub only
-    EMAIL = auto()       # Stub only
-    OS_NOTIFICATION = auto()  # Stub only
+    # External: implemented in `channels/{line,discord,email}.py`. Each is gated per
+    # destination by the egress gate under a `messaging.*` purpose, so declaring one here
+    # does not deliver anything until the user has permitted that host.
+    LINE = auto()
+    DISCORD = auto()
+    EMAIL = auto()
+    # Local: see `channels/os_notification.py`.
+    OS_NOTIFICATION = auto()
 
 
 @dataclass

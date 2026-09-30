@@ -16,7 +16,9 @@
 The Interaction Hub provides unified user interaction across multiple channels:
 - **Web Chat** — browser-based chat interface
 - **CLI** — command-line interface
-- **LINE / Discord** — stubs only (requires user confirmation); v1 scope as of 2026-09-30
+- **LINE / Discord** — no **inbound** channel: nothing receives external messages or routes them
+  into the hub. **Outbound** sending is implemented behind the egress gate
+  (`docs/external-integrations.md`); v1 scope as of 2026-09-30
 - **Voice** — local STT/TTS engines exist (`docs/voice-io.md`), but **no hub channel is wired**
 
 ## Architecture
@@ -44,8 +46,8 @@ Response → User
 |---------|--------|-------------|
 | Web Chat | ✅ Implemented | Flask-based chat UI at `/chat` |
 | CLI | ✅ Implemented | Interactive command-line interface |
-| LINE | Stub only | Requires user confirmation |
-| Discord | Stub only | Requires user confirmation |
+| LINE | Inbound not implemented | Outbound sending is implemented, gate-refused until permitted |
+| Discord | Inbound not implemented | Outbound sending is implemented, gate-refused until permitted |
 | Voice | Engines only | Local STT/TTS exist (`docs/voice-io.md`); no hub channel is wired |
 
 ## Intent Classification

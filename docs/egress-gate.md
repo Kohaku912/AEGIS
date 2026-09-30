@@ -173,10 +173,14 @@ this section came to exist.
 
 ### Not yet guarded (tracked)
 
-- LINE / Discord senders (currently stubs)
 - internal health checks (`status/status_manager.py`) and LAN discovery
   (`net/endpoint_resolver.py`) — loopback/LAN only, inside the environment by construction
 - `llm/providers/typesafe_provider.py` — reachable only via the factory/gateway, both guarded
+
+**Removed from this list 2026-09-30**: LINE / Discord / Email senders. They were stubs when this
+list was written, so there was nothing to guard. They are now real senders that consult the gate
+before any transport call (`notification/channels/outbound.py`), which makes them guarded points
+rather than tracked gaps.
 
 ## Verifying the constraint
 

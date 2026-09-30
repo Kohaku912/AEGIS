@@ -68,6 +68,7 @@ EGRESS_TESTS = (
     "tests/test_ineffective_flags.py",
     "tests/test_local_llm_path.py",
     "tests/test_voice_io.py",
+    "tests/test_external_messaging.py",
 )
 
 

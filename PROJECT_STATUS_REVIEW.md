@@ -390,7 +390,7 @@ git ls-remote origin refs/heads/cf-grpc-and-goal-hygiene refs/heads/main \
 | Room 実機 | ❌ `UNCONFIGURED/DISABLED`（Orange Pi の実プロバイダ待ち）。`GetEnvironment` は**ハードコード fixture を返す** |
 | cross-device context 共有 / 端末オフライン時の縮退 | ❌ 未着手 |
 | 音声 I/O（STT/TTS） | ✅ **実装**（2026-09-30）— ローカル TTS は `integrations/local_tts.py`（Windows `sapi` で実測、日本語 132,734 バイト）、ローカル STT は `integrations/stt_service.py`（`faster-whisper` は**この環境に未インストール**）。外部 TTS は egress の許可制を通る。**残り**: wake word・ハブの音声チャネル・`push_to_talk_only` の強制（フィールドは依然として読み手ゼロ） |
-| 外部メッセージング（LINE / Discord / SMTP / Webhook） | ❌ 未着手 — **v1 スコープ**（オーナー 2026-09-30）。前提の egress 許可制は実装済み（`egress/permissions.py`）。`interaction/channels/{line,discord}.py` は docstring だけの置物 |
+| 外部メッセージング（LINE / Discord / SMTP） | ✅ 実装 — 3 チャネルとも **egress ゲート経由**で、既定では拒否される（`notification/channels/{line,discord,email}.py` + 共通の `outbound.py`）。許可は standing（master switch + `privacy.external_messaging_allowed` + allowlist）か**記録済み grant**。Webhook は `WebhookSender` が `personal_ai/social_proxy.py` で使われているが `NotificationRouter` 経由ではない。`interaction/channels/{line,discord}.py` は**内向き**の置物（外向きは実装済み） |
 | multi-user / plugin marketplace | ❌ 未着手（v1 スコープ外） |
 | Docker 全体検証 | ⚠️ compose と Dockerfile はあるがマルチサービス実機検証が未完 |
 
@@ -588,8 +588,12 @@ live 経路に無い安全サブシステムを含んでいた:
 
 **live 経路の実測**: `android-server.notification.get_notifications` は**配線済み**
 （`integrations/android/capability_mapper.py:58`）で、端末の通知は実際に AEGIS へ流れ込む。
-一方 `notification/router.py` の `_redact_if_needed` は**外向きチャネル（LINE/Discord/Email）宛のときだけ**
-マスクし、**端末から取り込む時点では何も絞っていない**。
+かつて `notification/router.py` には `_redact_if_needed` があり、**外向きチャネル（LINE/Discord/Email）宛のときだけ**
+本文を空にしていたが、**2026-09-30 に削除した**。理由は 2 つで、どちらも実測にもとづく:
+① 空にした本文がそのまま配送されるので **ユーザーが与えた許可が無意味になる**（egress 許可制と正面から矛盾する）;
+② `notification.body` はローカルチャネルと**同じオブジェクト**なので、外向きチャネルを 1 つでも宣言すると
+**ダッシュボードの表示まで本文を失う**。今は **egress ゲートが唯一の制御点**である。
+端末から取り込む時点では今も何も絞っていない。
 
 **それでも移植しなかった理由**: これは製品判断であって機械的な移植ではない。とくに
 `REDACTION_PATTERNS` の OTP 規則 `(?<!\d)\d{4,8}(?!\d)` は **4〜8 桁の数字を無差別に潰す**ので、

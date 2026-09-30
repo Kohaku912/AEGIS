@@ -269,6 +269,7 @@ _PURPOSE_FLAGS: dict[str, tuple[str, str]] = {
     "web": ("privacy", "web_search_allowed"),
     "search": ("privacy", "web_search_allowed"),
     "voice": ("voice", "external_voice_api_allowed"),
+    "messaging": ("privacy", "external_messaging_allowed"),
 }
 
 

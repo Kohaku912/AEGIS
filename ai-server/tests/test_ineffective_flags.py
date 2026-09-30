@@ -131,6 +131,7 @@ _EGRESS_LOCKS: tuple[tuple[str, str], ...] = (
     ("privacy.external_llm_allowed", "llm.chat"),
     ("privacy.web_search_allowed", "web.search"),
     ("voice.external_voice_api_allowed", "voice.tts"),
+    ("privacy.external_messaging_allowed", "messaging.line"),
 )
 
 #: For each lock: the configuration with that lock closed, and the same
@@ -185,6 +186,16 @@ _LOCK_BEHAVIOUR: tuple[tuple[str, str, tuple, tuple], ...] = (
             {"external_egress_allowed": True, "external_llm_allowed": True},
             {},
             ["api.deepseek.com"],
+        ),
+    ),
+    (
+        "privacy.external_messaging_allowed",
+        "messaging.line",
+        ({"external_egress_allowed": True}, {}, ["api.line.me"]),
+        (
+            {"external_egress_allowed": True, "external_messaging_allowed": True},
+            {},
+            ["api.line.me"],
         ),
     ),
 )
@@ -380,13 +391,17 @@ def test_each_egress_lock_changes_the_decision(
     """
     from aegis_ai.egress import EgressDecision, EgressRequest
 
-    destination = "https://api.deepseek.com/v1" if purpose == "llm.chat" else None
-    if destination is None:
-        destination = {
-            "web.search": "https://html.duckduckgo.com/html/",
-            "voice.tts": "https://speech.platform.bing.com",
-        }[purpose]
-    request = EgressRequest(destination, purpose=purpose, component="ineffective-flag-detector")
+    # The probe destination is derived from the configuration under test rather than from a
+    # second hand-written purpose→host table. The host a lock is meant to permit is exactly
+    # the one in `opened`'s allowlist, so the two cannot drift apart — adding a lock to
+    # `_LOCK_BEHAVIOUR` is now sufficient, and no third copy of the mapping exists to forget.
+    opened_hosts = opened[2]
+    assert len(opened_hosts) == 1, (
+        f"[{label}] the behaviour table must name exactly one host to probe"
+    )
+    request = EgressRequest(
+        f"https://{opened_hosts[0]}/", purpose=purpose, component="ineffective-flag-detector"
+    )
 
     closed_decision = _gate(settings_store_factory, *closed).check(request)
     opened_decision = _gate(settings_store_factory, *opened).check(request)

@@ -35,7 +35,7 @@ Legend:
 - [x] Production readiness output is the canonical release gate.
 - [x] Production blocker mock/stub count is zero, or explicitly deferred out of v1 scope.
 - [x] Room Server mock provider is never treated as production-online.
-- [x] LINE, Discord, Email, and external send stubs are disabled/blocker-marked in production. (Voice I/O is **no longer a stub** — see §11.)
+- [x] LINE, Discord, and Email sends are refused by the egress gate in production (all locks closed by default). (Voice I/O and external messaging are **no longer stubs** — see §11.)
 - [x] Production Docker bind scope avoids unnecessary `0.0.0.0` exposure.
 - [x] Cloudflare Tunnel recovery and systemd autostart are verified.
 - [x] Ubuntu reboot restores AI Server, Cloudflare Tunnel, and Display kiosk.
@@ -177,9 +177,9 @@ listed as deferred, which is no longer true.
 - [~] Local STT wiring (`integrations/stt_service.py`) — code complete; the `faster-whisper` package is not installed.
 - [x] External TTS through the permission check (`integrations/tts_service.py`).
 - [x] Egress gate accepts a recorded user permission (`egress/permissions.py`).
-- [ ] External messaging — LINE Bot real integration.
-- [ ] External messaging — Discord Bot real integration.
-- [ ] External messaging — Email SMTP real sending.
+- [x] External messaging — LINE push (`notification/channels/line.py`); refused by the gate by default.
+- [x] External messaging — Discord webhook (`notification/channels/discord.py`); refused by the gate by default.
+- [x] External messaging — Email SMTP (`notification/channels/email.py`); refused by the gate by default.
 - [ ] Wake word (STT and TTS themselves are done above).
 
 ## Deferred After v1
