@@ -7,9 +7,16 @@ Accepted — **superseded in part (2026-09-27)**
 > ⚠️ **Update (2026-09-27)**: The goal was narrowed to a **single constraint** — the user's
 > information must never leave the local environment. **Approval is no longer a constraint.**
 >
+> ⚠️ **Update (2026-09-30) — the constraint was re-scoped.** Outbound connections are now **allowed**,
+> and user information may be sent externally **with the user's permission**. The *unpermitted* case is
+> still absolute. The enforcement point is therefore the **voluntary ask**, not a deny-all wall, and
+> the bullet below changes accordingly: external publish/send is **permission-gated**, not blocked
+> outright. Approval remains **not a constraint** in the forced sense.
+>
 > This ADR's *approval* distinctions are therefore historical. What survives:
-> - **`publish_or_send_external`** — now split: **external** publish/send is blocked by the
->   **egress gate** (the single constraint); **local** publish/send is allowed without approval.
+> - **`publish_or_send_external`** — now split: **external** publish/send is **permission-gated** by the
+>   **egress gate** (the single constraint, re-scoped 2026-09-30); **local** publish/send is allowed
+>   without approval.
 > - **`purchase_or_paid_subscription`** — remains a **hard stop** (kept per D1=(b); an irreversible
 >   financial loss is a separate axis from privacy).
 > - **`captcha_or_anti_bot`** — remains forbidden.

@@ -9,8 +9,10 @@
 ## Why this exists
 
 Approval was retired as a constraint. The project has exactly one constraint left —
-the user's information must never leave the local environment — and that one is
-enforced structurally by the egress gate, not by asking the user.
+the user's information must never be sent outside **without the user's permission** — and it is
+enforced by the egress gate. **Re-scoped 2026-09-30**: the gate no longer blocks all egress; it blocks
+*unpermitted* egress, so the **voluntary ask** is now part of how that constraint is satisfied (see
+[`GOAL-CHANGE.md`](GOAL-CHANGE.md)).
 
 Removing a **pre-execution gate** only works if something replaces it. The
 replacement is **post-hoc visibility**: AEGIS may do irreversible things, but

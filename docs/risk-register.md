@@ -31,7 +31,7 @@
 | R-01 | Prompt injection via web pages | High | Critical | PolicyEngine structural safety, untrusted content wrapping | ✅ Mitigated |
 | R-02 | Prompt injection via tool results | High | Critical | Tool results treated as data, not instructions | ✅ Mitigated |
 | ~~R-03~~ | ~~Approval bypass~~ | — | — | **Retired** — approval is no longer a constraint. Replaced by R-19. | ⛔ N/A |
-| R-04 | **External data leakage (THE single constraint)** | Medium | **Critical** | Egress gate (`aegis_ai/egress/`) deny-by-default; `external_llm_allowed=false`; no consent exception | 🔄 Phase 1 |
+| R-04 | **Unpermitted external data leakage (THE single constraint)** | Medium | **Critical** | Egress gate (`aegis_ai/egress/`) — **re-scoped 2026-09-30**: it forbids *unpermitted* user-information egress, and outbound connections are allowed; `external_llm_allowed=false` by default, i.e. permission is required | 🔄 Phase 1 |
 | R-05 | PC误操作 (mouse/keyboard) | Medium | High | Risk annotation (was "Level 2 approval"); mock only in CI | ✅ Mitigated |
 | R-06 | Android误操作 (tap/swipe) | Medium | High | Risk annotation; password deny | ✅ Mitigated |
 | R-07 | Room物理操作 (robot arm) | Low | Critical | FORBIDDEN pattern, emergency stop only | ✅ Mitigated |
@@ -53,14 +53,17 @@
 ### R-04: External Data Leakage — the single constraint
 
 **Threat**: Any code path transmits user data, context, or knowledge derived from them to an external
-service (cloud LLM, web search, cloud TTS, webhook, third-party API).
+service (cloud LLM, web search, cloud STT/TTS, webhook, third-party API) **without the user's
+permission**.
 
 **Mitigation**:
-- Single **egress gate** (`ai-server/src/aegis_ai/egress/`), denied by default
-- `external_llm_allowed` and `web_search_allowed` default to **False**
-- Startup assertion: if egress is not structurally blocked, AEGIS **refuses to start**
+- Single **egress gate** (`ai-server/src/aegis_ai/egress/`) — **re-scoped 2026-09-30**: it denies
+  *unpermitted user-information* egress; outbound connections are allowed
+- `external_llm_allowed` and `web_search_allowed` default to **False**, i.e. permission is required
+- Startup assertion: if the gate is not structurally in place, AEGIS **refuses to start**
 - Local LLM path (Ollama) must be functional so cloud is never a functional prerequisite
-- **No consent exception** — the old "explicitly configured" escape hatch is removed
+- **Unpermitted egress has no exception** — the old "explicitly configured" escape hatch is removed;
+  the user's own permission is the one route out
 
 **Residual Risk**: A new dependency may open a socket outside the gate. Egress regression tests and
 the "ineffective flag" detector must be extended whenever a dependency is added.

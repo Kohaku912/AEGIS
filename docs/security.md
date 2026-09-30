@@ -1,9 +1,10 @@
 # Security — Local Network Authentication & Protection
 
-> ⚠️ **Goal change (2026-09-27)**: the only constraint is now **"the user's information must never
-> leave the local environment."** Approval, reversibility, policy, and reliability-proof are no
-> longer constraints. The primary structural enforcement is the **egress gate**
-> (`ai-server/src/aegis_ai/egress/`) — all outbound transmission is denied by default.
+> ⚠️ **Goal change (2026-09-27), re-scoped 2026-09-30**: the only constraint is now **"the user's
+> information is not sent outside without the user's permission."** Outbound connections are allowed;
+> *unpermitted* disclosure is not. Approval, reversibility, policy, and reliability-proof are no
+> longer constraints. The enforcement point is the **egress gate**
+> (`ai-server/src/aegis_ai/egress/`), which denies unpermitted user-information egress.
 > See [`GOAL-CHANGE.md`](GOAL-CHANGE.md).
 
 > **Status**: Verified against current code snapshot

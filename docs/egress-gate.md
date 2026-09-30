@@ -12,19 +12,27 @@
 
 AEGIS has exactly **one constraint**:
 
-> **The user's information must never leave the local environment.**
+> **The user's information must never be sent outside without the user's permission.**
+
+**Re-scoped 2026-09-30** (owner): this used to read "must never leave the local environment", with no
+consent exception. Outbound **connections** are now allowed; what the gate still forbids is
+**unpermitted** disclosure of user information. See [`GOAL-CHANGE.md`](GOAL-CHANGE.md).
 
 Everything else — approval, reversibility, policy, reliability-proof — is no longer a constraint.
-That makes the constraint *load-bearing*: if egress is not structurally blocked, AEGIS has **no
-constraint at all**. The egress gate is that structural block.
+That makes the constraint *load-bearing*: if egress is not checked, AEGIS has **no
+constraint at all**. The egress gate is that check.
 
 ## Design
 
-The gate is a single object through which **all** outbound transmission must pass. External
-destinations are **denied by default**.
+The gate is a single object through which **all** outbound transmission must pass. **Local**
+destinations pass. **External** destinations pass when the request carries no user information, or when
+the user has permitted that egress; otherwise they are denied.
 
 ```
-component → EgressGate.require(request) → ALLOW (local) | DENY (external, fail closed)
+component → EgressGate.require(request) → ALLOW (local)
+                                        | ALLOW (external, no user data)
+                                        | ALLOW (external, user-permitted)
+                                        | DENY  (external, fail closed)
                      │
                      └── every decision → AuditManager (post-hoc verification)
 ```

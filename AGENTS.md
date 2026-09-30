@@ -37,7 +37,16 @@ In practice, this means:
 - **Being honest about uncertainty** — stating what is known, what is inferred, and what is unknown.
   This is a posture of the response, not a constraint on action.
 
-**The single constraint**: the user's information must never leave the local environment. AEGIS must not transmit, disclose, or expose the user's data, context, or knowledge derived from them to any external service or third party. This is the only constraint, and it is inviolable.
+**The single constraint**: AEGIS must not send the user's information to any external service or third party **without the user's permission**. Outbound connections are allowed — what is forbidden is the *unpermitted* disclosure of the user's data, context, or knowledge derived from them. This is the only constraint, and it is inviolable.
+
+> **Revised 2026-09-30 (owner).** This used to read "must never leave the local environment", with no
+> consent exception. The owner has **reinstated the permission exception**: egress may connect out
+> freely, and user information **may** be sent externally **when the user permits it**. Everything else
+> about the constraint is unchanged, and the *forbidden* case is still absolute: no unpermitted
+> disclosure, no "configured" exception, no silent telemetry. The voluntary ask (confirmation store,
+> Android streamed approval, PC overlay) is the permission mechanism — which is why D4=(b) still holds:
+> the **forced** gate stays retired, the **voluntary** ask is what carries this constraint. See
+> `docs/GOAL-CHANGE.md`.
 
 This objective is aspirational at life scale, but implementation must remain realistic: AEGIS should aggressively reduce burden wherever it has the capability to do so, and prepare or recommend the next best support when full automation is not yet possible.
 
@@ -458,19 +467,22 @@ Measured 2026-09-30 — `ai-server`, full suite:
 
 ## Security Policy
 
-### The single constraint (DENY, inviolable)
+### The single constraint (permission-gated, inviolable)
 
-**User information must never leave the local environment.** Every outbound transmission must pass
-through the egress gate (`aegis_ai/egress/`) and is **denied by default**. This is not a configurable
-policy — there is no consent exception.
+**User information must never be sent outside without the user's permission.** Every outbound
+transmission passes through the egress gate (`aegis_ai/egress/`). **Outbound connections are allowed**;
+the gate's job is to stop **unpermitted** user-information egress. Re-scoped 2026-09-30 — see
+`docs/GOAL-CHANGE.md`.
 
 ### Hard stops (DENY)
 
 These remain structurally denied:
 
-1. **Egress** — transmitting, disclosing, or exposing the user's data, context, or knowledge derived
-   from them to any external service or third party. Includes external LLM calls, telemetry, external
-   search, cloud TTS, webhooks, and any third-party API.
+1. **Unpermitted user-information egress** — transmitting, disclosing, or exposing the user's data,
+   context, or knowledge derived from them to any external service or third party **without the user's
+   permission**. Telemetry and silent background disclosure are unpermitted by construction. External
+   LLM calls, external search, cloud STT/TTS, webhooks and third-party APIs are **allowed once the user
+   has permitted that egress**. (Re-scoped 2026-09-30: this used to be a flat deny of all egress.)
 2. **Purchases / payments** — irreversible financial actions. Kept as a hard stop even though it is
    not part of the single constraint (an irreversible loss is a separate axis from privacy).
 3. **Gate bypass** — Agent (OpenHands / Coding Agent / RemoteBackend) or any component attempting to
@@ -485,7 +497,9 @@ proof are no longer constraints** — AEGIS may act autonomously. The user may s
 capabilities in the Catalog. Quiet hours still apply to notifications only.
 
 ### Data Handling
-- User data **never** leaves the local environment — no consent exception, no "configured" exception
+- User data is **never sent outside without the user's permission** (re-scoped 2026-09-30). Unpermitted
+  disclosure is forbidden — no "configured" exception, no silent telemetry — while **permitted**
+  external use is allowed
 - Secrets managed via environment variables (never committed)
 - Proto files must not contain sensitive defaults
 - Local-only stores (SQLite, Chroma, JSONL) are permitted and encouraged; any new store must be local
@@ -512,10 +526,11 @@ capabilities in the Catalog. Quiet hours still apply to notifications only.
 
 ## Current Status (2026-09-28)
 
-> **Goal change (2026-09-27)**: the Long-Term Objective now has a **single constraint** — user
-> information must never leave the local environment. Approval, reversibility, policy, and
-> reliability-proof are **no longer constraints**. See `IMPROVEMENT_PROPOSAL.md` §9 for the full
-> migration plan (Phase 0–5).
+> **Goal change (2026-09-27, re-scoped 2026-09-30)**: the Long-Term Objective has a **single
+> constraint** — user information is not sent outside **without the user's permission** (outbound
+> connections are allowed; *unpermitted* disclosure is not). Approval, reversibility, policy, and
+> reliability-proof are **no longer constraints**. See `docs/GOAL-CHANGE.md` for the re-scope and
+> `IMPROVEMENT_PROPOSAL.md` §9 for the migration plan (Phase 0–5).
 >
 > **Migration status (2026-09-28)**: Phases 0–5 are complete. Phase 5a made the voluntary path
 > live — AEGIS may still *choose* to ask the user for confirmation. Phase 5b deleted the

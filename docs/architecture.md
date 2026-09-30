@@ -23,7 +23,7 @@ AEGIS is an **autonomous, event-driven, self-improving AI assistant** that spans
 - **Learns** from outcomes via a learning pipeline (ActionTrace → Lesson → Workflow → Skill)
 - **Desires** driven by 10 intrinsic motivations (D2A-inspired)
 
-**Key design constraint**: **the user's information must never leave the local environment.** This is the single constraint. All outbound transmission passes through the egress gate and is denied by default. Approval, reversibility, and reliability-proof are **not** constraints. See [§7 Security Design](#7-security-design).
+**Key design constraint**: **the user's information must never be sent outside without the user's permission.** This is the single constraint. All outbound transmission passes through the egress gate, which **denies unpermitted user-information egress and allows plain outbound connections** (re-scoped 2026-09-30 — see `docs/GOAL-CHANGE.md`). Approval, reversibility, and reliability-proof are **not** constraints. See [§7 Security Design](#7-security-design).
 
 ---
 

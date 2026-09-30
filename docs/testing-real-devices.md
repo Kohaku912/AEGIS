@@ -19,7 +19,7 @@ Only **two** markers are both *registered* (`ai-server/pyproject.toml`) and *use
 | Marker | Description | What it actually selects |
 |--------|-------------|--------------------------|
 | `android_local` | Real Android companion app via ADB + reverse stream | **4 tests** (`ai-server/tests/test_android_local.py`) |
-| `egress` | Guards the single constraint — user information never leaves the local environment | **233 tests**; `scripts/test-ai-server.ps1` enforces a floor |
+| `egress` | Guards the single constraint — user information is not sent outside without the user's permission | **233 tests**; `scripts/test-ai-server.ps1` enforces a floor |
 
 **Registered but used by no test:** `pc_local`, `room_local`, `e2e`. `pytest -m <one of these>`
 collects nothing and exits **5** with `no tests collected (1807 deselected)`.

@@ -113,8 +113,9 @@ cd ai-server
 
 ## Safety Model
 
-The single constraint is that **the user's information never leaves the local environment**, and the
-egress gate is what enforces it. Approval, reversibility, policy, and reliability-proof are **not**
+The single constraint is that **the user's information is never sent outside without the user's
+permission**, and the egress gate is what enforces it. Outbound connections are allowed; *unpermitted*
+disclosure of user data is not. Approval, reversibility, policy, and reliability-proof are **not**
 constraints — see [`docs/GOAL-CHANGE.md`](docs/GOAL-CHANGE.md).
 
 AEGIS uses **structural safety** — `PolicyEngine` is a deterministic rules engine, not LLM-based.
