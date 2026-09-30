@@ -103,6 +103,14 @@ class TestTaskManagerIntegration:
         rt.task_manager.start_task(task_id)
         rt.task_manager.complete_task(task_id, result_summary="done")
 
+        # The name claims "can complete", so check the completion. `complete_task`
+        # returns None for an unknown id, so "it did not raise" would also hold if
+        # the id were wrong — this assertion is what makes the name true.
+        finished = rt.task_manager.get_task(task_id)
+        assert finished is not None
+        assert finished["status"] == "completed"
+        assert finished["result_summary"] == "done"
+
     def test_task_manager_can_fail_task(self, tmp_path):
         """Verify TaskManager can fail tasks."""
         rt = _runtime(tmp_path)
@@ -114,6 +122,13 @@ class TestTaskManagerIntegration:
         task_id = task["task_id"]
         rt.task_manager.start_task(task_id)
         rt.task_manager.fail_task(task_id, error="Test error")
+
+        # Same reasoning as above: assert the transition, not just the absence of
+        # an exception.
+        finished = rt.task_manager.get_task(task_id)
+        assert finished is not None
+        assert finished["status"] == "failed"
+        assert finished["error"] == "Test error"
 
 
 class TestSleepManagerIntegration:

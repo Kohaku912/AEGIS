@@ -1,4 +1,9 @@
-"""E2E lifecycle test — full approval lifecycle through Managers."""
+"""E2E lifecycle tests — task, status, memory/sleep and notification lifecycles.
+
+Approval is *not* part of the lifecycle: the forced gate was removed 2026-09-27, so
+there is no approval leg left to exercise (see ``TestE2ELifecycle``). The old module
+docstring still said "full approval lifecycle", which read as if one existed.
+"""
 
 from __future__ import annotations
 

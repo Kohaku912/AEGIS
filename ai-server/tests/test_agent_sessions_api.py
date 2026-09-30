@@ -430,17 +430,29 @@ def test_audit_manager_does_not_publish_non_policy_actions(tmp_path) -> None:
 
 
 def test_audit_manager_with_no_event_manager_is_noop(tmp_path) -> None:
-    """event_manager=None でも append は例外なく成功し、policy.decision は publish しない."""
+    """event_manager=None でも append は例外なく成功し、エントリは実際に書き込まれる.
+
+    The docstring used to *also* claim this proves ``policy.decision`` is not
+    published. It cannot: with ``event_manager=None`` there is no publisher to
+    observe, so that half was never checked. What is checkable — and what a "noop"
+    would hide — is that the entry actually landed: "append did not raise" is also
+    true of an append that silently drops the entry.
+    """
     from aegis_ai.audit import AuditEntry, AuditLog
     from aegis_ai.audit.audit_manager import AuditManager
 
     log = AuditLog(path=str(tmp_path / "audit.jsonl"))
     am = AuditManager(audit_log=log, data_dir=str(tmp_path), event_manager=None)
 
-    # 例外を出さずに成功する
     am.append(AuditEntry(
         action="tool_invoked",
         capability_id="mcp.test",
         decision="ALLOW",
         reason="ok",
     ))
+
+    assert log.count() == 1, "append must persist the entry, not merely return"
+    written = log.read_all()[0]
+    assert written["action"] == "tool_invoked"
+    assert written["capability_id"] == "mcp.test"
+    assert written["decision"] == "ALLOW"
