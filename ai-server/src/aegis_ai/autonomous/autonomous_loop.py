@@ -711,10 +711,13 @@ class AutonomousLoop:
         except Exception:
             return 0.15
         kind = str(situation.get("interruptibility") or "").lower()
+        # Values ascend this ladder, which is the order
+        # ``personal_ai/interruption.py::_RECEPTIVITY`` descends: a level that is more
+        # receptive must not also be charged more. See PROJECT_STATUS_REVIEW.md (B-11).
         return {
             "suppress": 0.9,
-            "important_only": 0.55,
-            "batch_later": 0.4,
+            "important_only": 0.4,
+            "batch_later": 0.55,
             "interruptible": 0.1,
         }.get(kind, 0.2)
 

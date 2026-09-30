@@ -1,10 +1,16 @@
 """`interruption_cost` is one name with three defaults, and one vacuous comparison.
 
-Two separate defects live in the interruption-cost vocabulary. Both are measured here; neither
-is fixed, because both need a call that is not a mechanical one.
+Two separate defects live in the interruption-cost vocabulary. B-17 is measured here and is not
+fixed, because it needs a call that is not a mechanical one.
 
-**1. The two interruptibility maps disagree (B-11).** ``SituationModel.interruptibility`` is
-mapped to "how interruptible is now" twice, for two different consumers:
+**1. The two interruptibility maps disagree (B-11) — order half FIXED 2026-09-30.** This module
+used to *record* a disagreement; it now pins the agreement that replaced it. Same file, opposite
+claim, which is the re-pointing shape the `aegis-pin-a-dead-surface` skill describes. The history is
+kept deliberately: a reader who finds only the new claim cannot tell whether the old one was
+resolved or quietly dropped.
+
+``SituationModel.interruptibility`` is mapped to "how interruptible is now" twice, for two different
+consumers:
 
 * ``personal_ai/interruption.py::_RECEPTIVITY`` — P(the user welcomes an interruption now), the
   ``P(receptive)`` term of ``InterruptionController``'s expected-utility model (P1-6).
@@ -13,23 +19,26 @@ mapped to "how interruptible is now" twice, for two different consumers:
 
 They are **not** copies of one another — different consumers, different axes — so unifying them
 would be wrong. But both are monotone readings of one ladder, so they must agree on its *order*:
-a level that is more receptive must not also be more costly. Exactly one pair violates that::
+a level that is more receptive must not also be more costly. Exactly one pair violated that::
 
     batch_later vs important_only
       receptivity  0.20 vs 0.35  -> important_only is the MORE receptive of the two
       cost         0.40 vs 0.55  -> important_only is the MORE costly of the two
 
-So ``InterruptionController`` speaks *more* readily when the user asked for important things only,
-while ``InitiativeEngine`` is charged *more* to act — opposite conclusions from one input. The
-cost map's middle two entries are transposed relative to the ladder
+So ``InterruptionController`` spoke *more* readily when the user asked for important things only,
+while ``InitiativeEngine`` was charged *more* to act — opposite conclusions from one input. The cost
+map's middle two entries were transposed relative to the ladder
 ``interruptible > important_only > batch_later > suppress`` that ``_RECEPTIVITY`` follows and that
-the level names themselves imply.
+the level names themselves imply. **They were swapped on 2026-09-30** (register B-1 ①), so the cost
+map now ascends the ladder ``_RECEPTIVITY`` descends. That swap moves the autonomous loop's
+initiative cadence, which is why it is on the owner's review list (``DELEGATION.md`` §4).
 
-There is a structural half too. ``_RECEPTIVITY`` carries a discovery+equality guard on its key set
-(``test_interruption_utility.py``), so a new ``interruptibility`` value cannot fall through to a
-default. The cost map instead ends in a bare ``.get(kind, 0.2)``, so **a new level would silently
-read as cheaper to interrupt than ``batch_later``** — the ghost-field pattern that
-``_RECEPTIVITY``'s own docstring warns against, applied to one map and not its sibling.
+There is a structural half too, and it is **still open**. ``_RECEPTIVITY`` carries a
+discovery+equality guard on its key set (``test_interruption_utility.py``), so a new
+``interruptibility`` value cannot fall through to a default. The cost map instead ends in a bare
+``.get(kind, 0.2)``, so **a new level would silently read as cheaper to interrupt than
+``batch_later``** — the ghost-field pattern that ``_RECEPTIVITY``'s own docstring warns against,
+applied to one map and not its sibling.
 
 **2. The routing comparison is constant in production (B-17).**
 ``PresentationRoutingPolicy.decide`` ends with::
@@ -84,9 +93,11 @@ _LOOP_SRC = _SRC / "autonomous" / "autonomous_loop.py"
 #: The ladder the level names imply, most interruptible first. `_RECEPTIVITY` follows it.
 _LADDER = ("interruptible", "important_only", "batch_later", "suppress")
 
-#: The one pair whose order the two maps disagree on. **Recorded debt, not an approval** —
-#: fixing it changes when the autonomous loop raises an initiative.
-_DISAGREEING_PAIR = frozenset({"batch_later", "important_only"})
+#: The pair whose order the two maps **used to** disagree on (B-11). Transposed until 2026-09-30,
+#: when the two values were swapped (register B-1 ①), so `_disagreeing_pairs()` is now empty.
+#: Kept as a name so the regression detector below can point at *this* pair rather than at
+#: "some pair somewhere" — and because a swap is exactly the kind of change that gets reverted.
+_THE_TRANSPOSED_PAIR = frozenset({"batch_later", "important_only"})
 
 #: The cost map's fallback for a level it does not name.
 _RECORDED_COST_DEFAULT = 0.2
@@ -327,8 +338,45 @@ def test_the_receptivity_map_follows_the_ladder_the_level_names_imply() -> None:
     )
 
 
-def test_the_two_maps_disagree_on_exactly_the_recorded_pair() -> None:
-    assert _disagreeing_pairs() == {_DISAGREEING_PAIR}
+def test_the_two_maps_agree_on_the_ladder_order() -> None:
+    """B-11's order half: the cost map ascends the ladder `_RECEPTIVITY` descends.
+
+    Non-vacuous by construction. An empty disagreement set over two maps that share nothing proves
+    nothing, so both *inputs* are asserted before the agreement is — and the receptivity map is
+    checked to still descend, or the agreement would be measured against a map that is itself out
+    of order.
+    """
+    cost, _ = _cost_map_and_default()
+    shared = sorted(set(_RECEPTIVITY) & set(cost))
+    assert len(shared) >= 4, f"the two maps no longer share the ladder: {shared}"
+
+    receptivity = [_RECEPTIVITY[level] for level in _LADDER]
+    assert receptivity == sorted(receptivity, reverse=True), (
+        f"_RECEPTIVITY no longer descends {_LADDER}: {receptivity} — the agreement below would "
+        "be measured against a map that is itself out of order"
+    )
+    costs = [cost[level] for level in _LADDER]
+    assert costs == sorted(costs), (
+        f"the cost map no longer ascends {_LADDER}: {costs} — a level that is more receptive "
+        "must not also be more costly (PROJECT_STATUS_REVIEW.md B-11)"
+    )
+    assert _disagreeing_pairs() == set(), (
+        f"the two maps disagree again: {sorted(sorted(pair) for pair in _disagreeing_pairs())}"
+    )
+
+
+def test_the_pair_that_used_to_be_transposed_is_now_ordered_correctly() -> None:
+    """The revert detector for the 2026-09-30 swap — named, so a regression says which pair.
+
+    The ladder-order test above would also catch a revert, but it reports "the cost map no longer
+    ascends" and leaves the reader to find the pair. This one names it.
+    """
+    cost, _ = _cost_map_and_default()
+    a, b = sorted(_THE_TRANSPOSED_PAIR)
+    assert (_RECEPTIVITY[a] - _RECEPTIVITY[b]) * (cost[a] - cost[b]) < 0, (
+        f"{a} and {b} are transposed again: receptivity {_RECEPTIVITY[a]} vs {_RECEPTIVITY[b]}, "
+        f"cost {cost[a]} vs {cost[b]} — this is the B-1 ① swap being reverted"
+    )
 
 
 def test_the_cost_value_reaches_the_initiative_engine_and_not_the_controller() -> None:
