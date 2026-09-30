@@ -1,7 +1,9 @@
 # AEGIS Beta Runbook
 
-> ⚠️ **Goal change (2026-09-27)**: the only constraint is now **"the user's information must never
-> leave the local environment."** Approval, reversibility, policy, and reliability-proof are **no
+> ⚠️ **Goal change (2026-09-27); constraint re-scoped 2026-09-30**: the only constraint is now
+> **"*unpermitted* user information must not leave the local environment"** — outbound connections are
+> allowed, and user information may be sent externally **with the user's permission**.
+> Approval, reversibility, policy, and reliability-proof are **no
 > longer constraints**. Any "requires approval" / "Level 2" language below is a **risk annotation**,
 > not a gate. See [`GOAL-CHANGE.md`](GOAL-CHANGE.md).
 

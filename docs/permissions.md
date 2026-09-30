@@ -7,9 +7,10 @@
 > ⚠️ **Constraint re-scoped (2026-09-30)**: the constraint is **"*unpermitted* user information must
 > not leave the local environment"** — outbound connections are allowed, and user information may be
 > sent externally **with the user's permission**. So the egress gate is a **permission check**, not a
-> deny-all wall, and the **voluntary ask** (`confirmation/`) is what carries it. ⚠️ The gate still
-> implements the pre-re-scope deny-all form; wiring the permission check is open work
-> (`PROJECT_STATUS_REVIEW.md` §3.2).
+> deny-all wall, and the **voluntary ask** (`confirmation/`) is what carries it. ✅ That permission
+> check is now **implemented** (`aegis_ai/egress/permissions.py`, `4d3f825`): a grant is a
+> `(host, purpose)` pair, matched exactly with **no wildcard**, read out of the confirmation store —
+> the gate only ever *reads* what the user already decided; it never asks.
 
 > **Status**: Implemented
 > **Related**: `docs/settings.md`, `docs/architecture.md` §7
@@ -51,7 +52,11 @@ User Request → ToolBroker → SettingsPermissionGuard → PolicyEngine → Egr
 - Bypass the **egress gate** (the single constraint)
 - Allow purchases / payments (hard stop)
 - Remove explicit deny patterns
-- **Enable external transmission** — no setting can permit user data to leave the local environment
+- **Transmit user information with no permission.** A setting can *open* a destination (master switch
+  + per-purpose flag + host allowlist) and a recorded grant can authorise one `(host, purpose)`, but
+  neither makes an **unpermitted** disclosure go out — the gate denies every destination no path has
+  opened. Before the 2026-09-30 re-scope this read "no setting can permit user data to leave the local
+  environment"; that absolute is gone, and the permission check replaced it.
 
 ## Autonomy Profiles
 
@@ -66,7 +71,7 @@ What actually governs what AEGIS may do, in order:
 
 | Layer | Where | What it decides |
 |-------|-------|-----------------|
-| **Egress gate** | `aegis_ai/egress/gate.py` | Whether anything may leave the local environment. Deny-by-default. No setting can open it. |
+| **Egress gate** | `aegis_ai/egress/gate.py` | Whether anything may leave the local environment. **Deny-by-default**, but it is a **permission check**: a destination goes out only if a setting opened it *or* the user granted that exact `(host, purpose)` (`egress/permissions.py`). A request carrying **no user information** passes without either. |
 | **Policy engine** | `aegis_ai/policy_engine.py` | Per-capability decision from the manifest's risk annotation: `ALLOW` / `ALLOW_WITH_AUDIT` / `DENY` / `UNAVAILABLE`. |
 | **Explicit deny patterns** | `policy_engine.py` | Purchases/payments, egress-gate bypass, policy self-modification. |
 | **Voluntary confirmation** | `ConfirmationStore` | AEGIS *may ask* before acting. It is never *forced* to wait — that gate is gone. |
@@ -78,11 +83,12 @@ What actually governs what AEGIS may do, in order:
 
 Behaviour the old table described as profile-dependent is now uniform: AEGIS reads owned accounts,
 summarises, drafts, and acts, recording everything for post-hoc visibility (see the irreversibility
-ledger). External transmission stays blocked by the gate; payments stay denied.
+ledger). External transmission goes through the **permission check**; payments stay denied.
 
 Still denied, and *why*:
 
-- **Any external transmission** — the egress gate (the single constraint)
+- **External transmission with no permission** — the egress gate (the single constraint). A setting or
+  a recorded grant can open a destination; nothing can open an *unpermitted* one.
 - **Purchases and paid subscriptions** — explicit deny pattern (hard stop)
 - **CAPTCHA / ToS bypass** — **prompt-level only** (`browser_use/executor.py` and
   `llm_task_interpreter.py`). The `FORBIDDEN_CAPABILITIES` half never enforced it, and has been

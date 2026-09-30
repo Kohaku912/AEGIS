@@ -1,7 +1,9 @@
 # AI Server — AGENTS.md
 
-> ⚠️ **Goal change (2026-09-27)**: the only constraint is now **"the user's information must never
-> leave the local environment."** Approval, reversibility, policy, and reliability-proof are **no
+> ⚠️ **Goal change (2026-09-27); constraint re-scoped 2026-09-30**: the only constraint is now
+> **"*unpermitted* user information must not leave the local environment"** — outbound connections are
+> allowed, and user information may be sent externally **with the user's permission**.
+> Approval, reversibility, policy, and reliability-proof are **no
 > longer constraints**. The **egress gate** (`src/aegis_ai/egress/`) is the single enforcement point.
 > See [`docs/GOAL-CHANGE.md`](../docs/GOAL-CHANGE.md).
 
@@ -203,6 +205,6 @@ AEGIS output layer for rich user-facing content. NOT a state viewer — it deliv
 11. **Recursive tool calling loop**: LLM can call multiple tools in sequence, results are fed back to LLM for next decision
 12. **Multiple tool call formats**: Supports `<tool_call>`, DeepSeek DSML, XML tag, and plain JSON formats
 13. **Browser verification detection**: Browser agent detects CAPTCHA/phone verification and returns `needs_user_input` to pause for user intervention
-14. **The single constraint — egress**: All outbound transmission goes through `aegis_ai/egress/`. **Re-scoped 2026-09-30 (owner):** *unpermitted* user-information egress is forbidden, outbound **connections are allowed**, and disclosure the user **permits** is allowed — so the gate is a permission check, not a deny-all wall, and the **voluntary ask** (`/api/confirmation/`) carries it. ⚠️ **The code still implements the pre-re-scope deny-all form**: `external_egress_allowed`, `external_llm_allowed`, `web_search_allowed` all default to `False`; a non-empty `egress_allowed_hosts` is required for any external host, and startup refuses to run when egress is open. Wiring the permission check is open work (`PROJECT_STATUS_REVIEW.md` §3.2).
+14. **The single constraint — egress**: All outbound transmission goes through `aegis_ai/egress/`. **Re-scoped 2026-09-30 (owner):** *unpermitted* user-information egress is forbidden, outbound **connections are allowed**, and disclosure the user **permits** is allowed — so the gate is a permission check, not a deny-all wall, and the **voluntary ask** (`/api/confirmation/`) carries it. ✅ **That permission check is implemented** (`aegis_ai/egress/permissions.py`, `4d3f825`): a grant is a `(host, purpose)` pair, matched exactly with **no wildcard**, read out of the confirmation store. The three standing locks still bound everything — `external_egress_allowed`, `external_llm_allowed`, `web_search_allowed` all default to `False`, a non-empty `egress_allowed_hosts` is required for any external host, and startup still refuses to run when egress is open — and a request carrying **no user information** passes without either path. The gate only ever *reads* decisions the user already made; it never asks, and the forced approval gate stays retired (D4=(b)).
 15. **Approval is not a constraint**: The PolicyEngine now produces **risk annotations** and enforces only the **egress** and **purchase/payment** hard stops. `requires_approval` in the catalog is a user-tightening hint, not a gate.
 16. The current full-authority blocker matrix is documented in `docs/full-authority-blocker-matrix.md` (approval rows there are historical).

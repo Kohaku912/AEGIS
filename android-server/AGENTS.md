@@ -1,7 +1,9 @@
 # Android Server — AGENTS.md
 
-> ⚠️ **Goal change (2026-09-27)**: the only constraint is now **"the user's information must never
-> leave the local environment."** Approval, reversibility, policy, and reliability-proof are **no
+> ⚠️ **Goal change (2026-09-27); constraint re-scoped 2026-09-30**: the only constraint is now
+> **"*unpermitted* user information must not leave the local environment"** — outbound connections are
+> allowed, and user information may be sent externally **with the user's permission**.
+> Approval, reversibility, policy, and reliability-proof are **no
 > longer constraints**. The L0–L3 "Approval" column below is now a **risk annotation**, not a gate.
 > Note: these L0–L3 are **autonomy levels** — distinct from the L1/L2/L3 **LLM 3-layer** architecture.
 > See [`docs/GOAL-CHANGE.md`](../docs/GOAL-CHANGE.md).

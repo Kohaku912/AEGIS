@@ -1,7 +1,9 @@
 # AEGIS Risk Register
 
-> ⚠️ **Goal change (2026-09-27)**: the only constraint is now **"the user's information must never
-> leave the local environment."** Approval, reversibility, policy, and reliability-proof are **no
+> ⚠️ **Goal change (2026-09-27); constraint re-scoped 2026-09-30**: the only constraint is now
+> **"*unpermitted* user information must not leave the local environment"** — outbound connections are
+> allowed, and user information may be sent externally **with the user's permission**.
+> Approval, reversibility, policy, and reliability-proof are **no
 > longer constraints**. Consequently:
 > - **R-03 (Approval bypass) is retired** as a risk — replaced by **R-19 (Egress gate bypass)**.
 > - **R-04 (External data leakage) is elevated to the single highest-priority risk** — it is now the
