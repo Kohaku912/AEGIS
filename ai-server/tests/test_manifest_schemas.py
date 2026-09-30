@@ -172,3 +172,27 @@ def test_audited_action_is_classified_as_safe_action() -> None:
         f"only {len(declared)} manifests declare 'audited_action' — if the label was "
         "retired, update this test and the dict comment rather than deleting it blindly"
     )
+
+
+def test_android_ui_input_manifests_do_not_declare_an_approval_requirement() -> None:
+    """Moved here from ``test_android_local.py`` (2026-09-30), where it had never run.
+
+    That module carries a module-wide ``pytestmark`` that skips everything unless
+    ``AEGIS_ANDROID_LOCAL=1``, so a check needing no device was skipped in every run —
+    "a suite that is not run is not a control". The substance is unchanged: the forced
+    approval gate is retired (D4=(b)), so an Android UI-input manifest must not claim
+    the capability needs approval. It now *discovers* the manifests instead of naming
+    three files, so a fourth cannot slip past, and it refuses to pass vacuously if the
+    directory moves. Absence is a failure, not a pass — the same stance the safety
+    annotation test above takes, because an absent key used to read as a safe default.
+    """
+    ui = _capabilities_root() / "builtin" / "android-server" / "ui"
+    manifests = sorted(ui.glob("*.json"))
+    assert len(manifests) >= 3, f"expected Android UI-input manifests under {ui}, found {len(manifests)}"
+
+    claiming = {
+        path.name
+        for path in manifests
+        if json.loads(path.read_text(encoding="utf-8")).get("risk", {}).get("requires_approval") is not False
+    }
+    assert not claiming, f"these manifests still claim an approval requirement: {sorted(claiming)}"

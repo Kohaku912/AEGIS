@@ -5,7 +5,6 @@ import os
 import subprocess
 import time
 import urllib.request
-from pathlib import Path
 
 import grpc
 import pytest
@@ -55,7 +54,10 @@ def _invoke(capability_id: str, params: dict | None = None) -> dict:
             invocation_id=f"android-local-{capability_id.split('.')[-1]}-{int(time.time() * 1000)}",
             caller="pytest-android-local",
             params_json=json.dumps(params or {}),
-            is_approved=True,
+            # `is_approved` is gone: the forced approval gate was retired and
+            # `ToolInvocationRequest` reserves 5/6 for it. Passing it raises
+            # `ValueError: Protocol message ToolInvocationRequest has no "is_approved"
+            # field.` — measured 2026-09-30, which is why this call must not carry it.
         ),
         timeout=30,
     )
@@ -143,8 +145,7 @@ def test_android_ui_tree_reports_data_or_permission_gap() -> None:
         assert "accessibility" in output.get("missing_permissions", [])
 
 
-def test_android_ui_input_manifests_are_executable() -> None:
-    root = Path(__file__).resolve().parents[1] / "capabilities" / "builtin" / "android-server" / "ui"
-    for name in ("tap.json", "swipe.json", "type_text.json"):
-        manifest = json.loads((root / name).read_text(encoding="utf-8"))
-        assert manifest["risk"]["requires_approval"] is False
+# `test_android_ui_input_manifests_are_executable` used to live here. It needed no
+# device at all — it only read manifest JSON — yet this module's `pytestmark` skips
+# everything unless `AEGIS_ANDROID_LOCAL=1`, so it had never run. It now lives in
+# `tests/test_manifest_schemas.py`, which is not device-gated (moved 2026-09-30).

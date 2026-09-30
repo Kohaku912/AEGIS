@@ -11,7 +11,7 @@
 
 | 観点 | 現状 |
 |---|---|
-| テスト | **ai-server 1776 passed / 31 skipped / 0 failed**（実測 355.77 秒）。egress **210 passed / 23 skipped**（233 件がマーカー付き、床 160）・room 14 / browser **100** / SDK **71** / vitest 144 / playwright 42。**P2-0 で 3 つの Python スイートが CI に入った**（`scripts/test-all-suites.ps1`）— それまで誰も走らせておらず、SDK の 6 件赤が誰にも見えなかった |
+| テスト | **ai-server 1777 passed / 30 skipped / 0 failed**（実測 303.75 秒）。egress **210 passed / 23 skipped**（233 件がマーカー付き、床 160）・room 14 / browser **100** / SDK **71** / vitest 144 / playwright 42。**P2-0 で 3 つの Python スイートが CI に入った**（`scripts/test-all-suites.ps1`）— それまで誰も走らせておらず、SDK の 6 件赤が誰にも見えなかった |
 | 唯一の制約（Egress Gate） | **構造的に強制済み（L3）**。deny-by-default + 起動時アサーション + CI 床 160 + mutation 証明 |
 | 北極星（先回り・委譲・成長） | **L2**。割り込み制御は**実装済みだが人間から見えなかった**（P1-1 で是正、§5 参照）。**Horvitz 型の期待効用モデルは P1-6 で実装済み**（`InterruptionController.decide` が `net = benefit × P(receptive) − cost`、判断ログに内訳を載せ再計算可能）。**本項は 2026-09-29 まで「残る空白」と誤記していた** — 同じファイルの §5 P1-6 行が ✅ 完了と書いており、自己矛盾していた。残るのは P1-5 の個別メンバー判定と長期項目（P2-5） |
 | 最大のリスク | ~~18 日分の作業が未コミット~~ → **解消**。**2026-09-29、この「最大のリスク」が実際に顕在化した** — ローカルの **git オブジェクトストアが全消失**し（`count: 0 / in-pack: 0 / packs: 0`、`.idx` だけが残り `.pack` が無い）、未 push だった約 105 コミットが**履歴として失われた**（**内容は作業ツリーに残存**。§0.1 の `ebe1506` 行と `INCIDENT_2026-09-29_git-object-loss.md`）。復旧済み・作業ツリーは無傷。**原因は未確定**だが、引き金は**入れ子ブランチ名での ref 消失（B-6）が HEAD を unborn にしたこと**と相関しており、**A-5 でブランチをフラット名に改名したのでその引き金は消えた**（フラット名での 2 回のコミットはいずれも ref が正しく書かれた）。**残るリスクだった「未 push のままであること」は 2026-09-30 に解消** — A-7 を実行し、リモートに全コミットが届いた（§1.4）。~~期待効用モデルの不在~~ は P1-6 で解消済み（本項は 2026-09-29 まで残っていた誤記） |
@@ -71,6 +71,8 @@
 | `（本節）` | **`AEGIS_AGENTS_ENABLED` の一般化監査 — 文書・compose が名指しする環境変数を、読者と突き合わせた**: A-12 は「文書だけが読む統制」の 1 例にすぎないので、掃き出しを一般化した。**名前の権威ある出所**（`export NAME=` / `${NAME}` / compose の `environment:` キー / `.env.example` のキー）から **94 名**を集め、コード側の出現と突き合わせた。**当初 17 名が「読者なし」と出たが、そのほとんどは計測法の artefact だった** — ① `_env_host("ANDROID_SERVER_HOST")` のような**ヘルパー経由**の読み（`status_manager.py:44` / `alert_manager.py:32`）② `f"{prefix}_HOSTS"` / `f"{prefix}_MACS"` / `f"{prefix}_MAC"` のような**動的構築**（`endpoint_resolver.py:203,296,392`）は、名前のリテラル検索では見つからない。**「リテラルが無い＝読者がいない」は成り立たない**（A-12 の grep-key artefact と同じ罠を、今度は自分の道具で踏んだ）。**実際に読者ゼロだったのは 4 名**: **`AGORA_MASTER_USER`**（compose が ai-server コンテナへ渡すのに読むコードが無い — `AGORA_TOKEN` / `AGORA_BASE_URL` は `agora_client.py:34,38` が直接読むので、AGORA 系に動的構築は無い）と、**`.env.example` にしか出現しない** `AEGIS_PUBLIC_CORE_HOST` / `AEGIS_PUBLIC_CORE_GRPC_PORT` / `AEGIS_PUBLIC_DASHBOARD_URL`。**残りは健全と確認**: `AEGIS_LAN_SCAN_ENABLED`（`endpoint_resolver.py:404` の `_env_bool`）、`ANDROID_SERVER_HOST/PORT`、`PC_SERVER_HOSTS/MACS`・`ROOM_SERVER_HOSTS/MACS` は読まれており、`AEGIS_CORE_GRPC_PORT` / `AEGIS_DASHBOARD_PORT` は compose の**ポート対応のホスト側置換**、`POSTGRES_USER/PASSWORD` / `COLLECTOR_OTLP_ENABLED` は**第三者コンテナ**の設定。→ **§0.2 に A-13 として登録** |
 | `（本節）` | **A-12 の ③ を完遂 — 「誰も渡さない引数」を固定して記録した**: A-12 の推奨 ③ は「現状維持（**固定して記録**）」で、A-11 と同様に**ピンの無い半分が残っていた**。`requires_feature` を所有する唯一のファイル `ai-server/tests/agents/test_agent_runtime.py` に **10 テスト**を追加（同ファイル **16 → 26**）。**記録した 4 集合**（実測 2026-09-30、`src/` 全体）: 宣言 **4** / **供給 0** / 転送 **3** / 無言の本番呼び出し **4**。検出器は `ast` で入口 4 つ（`list_for_llm` / `list_for_agent` / `mcp_tool_schemas` / `list_tools_for_agent`）を走査し、**位置引数とキーワード引数の両方**を扱い、`list_tools_for_agent` は**キーワード専用**として位置を `None` にする。**`feature_flags=None` は供給ではなく省略**（既定と同じなのでフィルタは OFF のまま）だが、**`set()` は供給**として扱う — フィルタを **ON** にして何も有効にしないので**隠す**側に働き、`None` とは意味が反対になる（両方に専用テスト）。生きた経路のテストは `ai-server.agent.delegate` が `list_for_llm()` に**見え**、`list_for_llm(feature_flags=set())` では**消え**、かつ `AgentSettings().enabled is False` であることを同時に固定する（＝**欠陥そのものを記録**する形。どれか 1 つでも配線されたら落ちる）。**変異 7/7 捕捉 + 方向プローブ 1/1 緑**、原ファイル 4 本はバイト単位で復元（sha256 一致）。**M3 は正直に弱い** — 「宣言を 1 つ消す」変異は assertion ではなく `SyntaxError`（`named arguments must follow bare *`）による collection ERROR で落ちた。ビルドは止まるが**狙った assertion は発火していない**ので、捕捉として数えるが**弱い捕捉**と明記する（原因を確かめずに「捕捉」と報告しかけた）。集合を直接壊す M5（走査の盲目化）・M7（転送/供給の判別破壊）が本命。**A-12 の ①/② はオーナー判断のまま行を残す**（③ だけが済んだ）。ai-server **1766 → 1776 passed / 31 skipped**（実測 355.77 秒）。**同じコミットで `AGENTS.md` の数値表も実測して訂正** — `95 fields across 12 models` は**古く**、実測は **93 fields / 11 models**（`22 are recorded debt` は正しかった — 記録済み未読 **23** = 意図的な 1 + 負債 22） |
 
+| `（本節）` | **デバイス不要なのに一度も走っていなかった Android manifest 検査を移し、Android の「検証不能」を §0.2 に登録した（C-4）**: 出発点は「**`pytestmark` によるモジュール全体スキップは、`-m` の絞り込みと違って CI の通常実行からも見えない**」という一点。`test_android_local.py` は `AEGIS_ANDROID_LOCAL=1` が無いとモジュール全部をスキップするが、その中の `test_android_ui_input_manifests_are_executable` は**デバイスを一切使わず manifest の JSON を読むだけ**で、`BUG_REPORT.md` も「デバイス不要で通る」と記録していた — にもかかわらず**毎回スキップされていた**（CI はマーカーで絞らないので、理由はモジュールスキップだけ）。① 検査を `test_manifest_schemas.py` へ移し、**3 ファイルの名指しをやめて `ui/` を発見**する形に一般化（4 つ目がすり抜けない）、**非空虚ガード**（`>= 3`）と「**キーの不在は合格ではなく不合格**」を追加 — 後者は A-12 の「何も供給しない」の manifest 版で、**不在キーが安全な既定値として読まれていた**旧挙動を閉じる。② 同じファイルの `_invoke` が**退役済みの `is_approved=True` を渡していた**ので削除（**推測ではなく実測**: `ValueError: Protocol message ToolInvocationRequest has no "is_approved" field.` — フィールドは `capability_id` / `invocation_id` / `caller` / `params_json` の 4 つ、proto は `reserved 5, 6;`）。**変異 3/3 捕捉 + baseline 緑**、原ファイル 3 本はバイト単位で復元（sha256 一致）。今回は**各失敗の理由文が狙った assertion であること**まで確認した（A-12 の M3 は `SyntaxError` による collection ERROR で狙った assertion が発火しておらず、**原因を確かめないと「捕捉」と誤報告するところだった**）。ai-server **1776 → 1777 passed / 31 → 30 skipped**（実測 303.75 秒）。**総数 1807 は不変** — これは**追加ではなく移動**なので通過 +1 / スキップ −1 が正しい期待値（当初「1778」と予測したのは**算術の誤り**で、正しい予測は 1777）。egress は**派生量なので測り直した**: 233 マーカー / 210 passed / 23 skipped（不変、床 160）。**§0.2 に C-4 を新設** — Android は `java` / `javac` / `adb` / `gradle` / `kotlinc` が**すべて不在**で、**待っても直らない環境の不在**（時間の問題ではない）。登録簿の「ここが未決の*すべて*」は**この行が抜けていたぶんだけ偽だった**。`AGENTS.md` の Android 行の「**Builds**」も、ツールチェーンが無い以上**測っていない記憶**なので「Not verified」に訂正した。**§1.4 も訂正** — リモートは既にフラットへ移行済み（`origin/cf-grpc-and-goal-hygiene`）で、B-6 の説明を「入れ子名」から**深さ**へ差し替え、**腐る SHA を削除**した |
+
 > **台帳の範囲**: ここには**実質的な変更**だけを載せる。台帳に行を足すだけの記録コミットは
 > 行を持たない。この規則は遡って適用していないため、**初期の `docs(review)` 系
 > （`6067c20`・`b17da28`・`55ac93f`・`6249bfb`）と `fed358e` は未記載**のまま —
@@ -111,6 +113,8 @@
 | **C-2** | P2-5 長期 6 項目の優先順位 | vision のローカル化 / gRPC TLS / Room 実機プロバイダ / cross-device context / 音声 I/O / multi-user |
 | **C-3** | §4.3 バグクラス集の正典をどこにするか | クラス数は **§4.3 を参照**（この行に数を書かない）。各スキルが独自に列挙している（内容のオーナーシップ）。**この行は型 9 の実例だった** — 「12」と書いてあったが §4.3 は既に 16 になっており、数を書いた側だけが動かないまま残っていた。台帳自身の設計「測定値を書かない」に反していたので、数を削除した |
 
+| **C-4** | **Android/Kotlin を検証可能にするか、検証不能のまま受け入れるか**（**この行は §0.2 に無かった** — 冒頭の「ここが未決の*すべて*」という主張は、この行が抜けていたぶんだけ偽だった） | 実測 2026-09-30: `java` / `javac` / `adb` / `gradle` / `kotlinc` はいずれも**不在**、`JAVA_HOME` / `ANDROID_HOME` / `ANDROID_SDK_ROOT` は**未設定**、`android-server/local.properties` も無い。よって **Kotlin はコンパイル検証も実機検証もできない**。**時間の問題ではなく環境の不在**（待っても直らない）。`AGENTS.md` の Android 行は「Builds」と書いていたが、ツールチェーンが無い以上それは**測っていない記憶**なので訂正した。実機スイート `scripts/test-android-real.ps1` は**この環境では実行不能**（PowerShell が native を起動できない）で、実機 `192.168.50.41` も要る。**「JDK を入れれば直る」とは言えない** — 入れて初めて分かる。**副産物**: デバイス不要なのに `test_android_local.py` のモジュール全体スキップに巻き込まれて**一度も走っていなかった** manifest 検査を `test_manifest_schemas.py` へ移した（`pytestmark` によるスキップは `-m` の絞り込みと違い、CI にも見えない） |
+
 > **このレジスタ自体が型 9 の入口にならないように**: 各行は**問いと選択肢**だけを持ち、
 > **測定値は書かない**（正典は §0 / §1.1 / `AGENTS.md`）。決定が済んだ行は**削除する**ので、
 > この節は**短くなる一方**であるべきです。
@@ -123,7 +127,7 @@
 
 | サーバ | 言語 | ポート | 役割 | テスト |
 |---|---|---|---|---|
-| **AI Server** | Python 3.13/3.14 | 50051 | 中枢（LLM / 記憶 / 欲求 / 自律ループ） | **1776 passed / 31 skipped** |
+| **AI Server** | Python 3.13/3.14 | 50051 | 中枢（LLM / 記憶 / 欲求 / 自律ループ） | **1777 passed / 30 skipped** |
 | **PC Server** | Rust | 50052 | Windows 操作（TCP JSON プロトコル） | Python テスト **0**（Rust 側のみ） |
 | **Browser Server** | Python | 50053 | Web 閲覧（HTTP、`ThreadingHTTPServer`） | **100 passed** |
 | **Android Server** | Kotlin | 契約上 50054（実機は 50051 へ outbound） | 端末コンパニオン | 実機テストのみ（`android_local`） |
@@ -135,7 +139,7 @@
 > （AI Server 1597 / Browser 62 / vitest 134 / SDK「6 failed / 17 passed」）— いずれも §0 と食い違い、
 > どちらが正しいか読者には判別できなかった。**同じ量を 2 箇所に書かない**（§4.3 型 9）原則の実例。
 >
-> **2026-09-30 に全行を再実測**（AI Server 1776 / browser 100 / room 14 / SDK 71 / vitest 144 /
+> **2026-09-30 に全行を再実測**（AI Server 1777 / browser 100 / room 14 / SDK 71 / vitest 144 /
 > playwright 42）。**7 行中 1 行が古くなっていた** — SDK が **48** のままで、正しい 71 は §0 と検証スキル
 > §1 にしか無かった。**前回と同じ型が、前回と同じ「片方だけが動く」形で再発している**: B-14（25→48）と
 > A-2（48→69）と A-2 残渣（69→71）が §0 側だけを動かし、**§1.1 と `AGENTS.md` と、当の検証スキルの
@@ -168,27 +172,34 @@
 
 ```
 branch: cf-grpc-and-goal-hygiene   (フラット名 — A-5 で改名済み。2026-09-30 に push 済み)
-最新コミット: b6706d8  docs(register): the owner register was missing one decision, and three sites claimed four phantom ones
+最新コミット: 本節に SHA を書かない — コミットのたびに古くなる。`git log -1 --format='%h %s'`
 作業ツリー: clean（`query` は A-8 で削除済み）
 stash: 0 件
-リモート ref: origin/cursor/cf-grpc-and-goal-hygiene — **入れ子名**（読める。書き込みは B-6 が壊す）
+リモート ref: origin/cf-grpc-and-goal-hygiene — **フラット**（2026-09-30 に移行済み。下記参照）
 ```
 
-> **リモート側は入れ子名のまま。** ローカルのブランチは A-5 でフラット名にしたが、**リモートの ref は
-> `origin/cursor/cf-grpc-and-goal-hygiene`**。**この名前の ref を書こうとする git 操作は、書き込みに
-> 失敗するだけでなく、`refs/remotes/origin/` の中身を巻き添えにする** — 2026-09-30 の push で実測:
-> 入れ子 ref の更新に失敗し、**兄弟の `refs/remotes/origin/main` ごと消えた**（push の前後で
-> `git for-each-ref refs/remotes/origin/` が 2 件 → **0 件**。`packed-refs` に退避も無し）。
+> **B-6 の正体は「入れ子名」ではなく `refs/` 下の *深さ* だった**（2026-09-30 実測、5 名の探針表）。
+> `refs/` 直下から **深さ 1** の ref（`refs/heads/x` / `refs/tags/x` / `refs/remotes/x`）は書けるが、
+> **深さ 2 以上は書けない**（rc=0 のまま ref が消える）**うえ、その親ディレクトリごと消える**。
+> したがって**フラット名のブランチが救うのは `refs/heads/` だけ**で、**`refs/remotes/<remote>/<branch>` は
+> 常に深さ 2**（`refs/remotes/origin/main` も同じ）なので、**`fetch` も `push` もリモート追跡 ref を
+> 丸ごと消す** — 入れ子のリモートブランチを削除してフラットに移行した**後も**再現した。
+> **自動 maintenance でも reflog でもない**ことは実測で否定済み（`gc.auto=0` / `maintenance.auto=false` /
+> `fetch.writeCommitGraph=false` を切っても再現し、`core.logAllRefUpdates=false` と
+> `.git/logs/refs/remotes` の削除でも再現）。**原因は未特定**なので、推測ではなく**挙動として**記録する。
 > **push / fetch の後は必ず `refs/remotes/origin/` を確認する**（`git commit` の後に `git log -1` を
-> 見るのと同じ理由）。復旧は既知の SHA を直接書く:
+> 見るのと同じ理由）。**`git ls-remote` が唯一の真実**で、`git status` の `[gone]` は**失敗の印ではない**。
+> 復旧は既知の SHA を**ファイルに直接書く**（`git update-ref` は同じ深さで失敗するので使えない）:
 
 ```bash
-mkdir -p .git/refs/remotes/origin/cursor
-git ls-remote origin refs/heads/cursor/cf-grpc-and-goal-hygiene refs/heads/main \
+mkdir -p .git/refs/remotes/origin
+git ls-remote origin refs/heads/cf-grpc-and-goal-hygiene refs/heads/main \
   | while read -r sha ref; do printf '%s\n' "$sha" > ".git/refs/remotes/origin/${ref#refs/heads/}"; done
 ```
 
-> リモート名をフラットに移行すればこの経路自体が消えるが、**リモート可視の変更なのでオーナー判断**。
+> **リモート名はフラットに移行済み**（2026-09-30 — PR が無く既定ブランチが `main` であることを確認した上で
+> 入れ子のリモートブランチを削除し、フラットなブランチを `--set-upstream` で push した）。
+> ただし**移行しても `refs/remotes/` の消失は止まらない**（上記のとおり深さの問題であって名前の問題ではない）。
 
 > **先行コミット数は本節に書かない。** これは**コミットのたびに増える量**で、書いた瞬間から
 > 古くなる（型 9 / 型 13）。正確な値は:
