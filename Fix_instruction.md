@@ -841,6 +841,13 @@ AGORA固有CapabilityはChannel Adapterとして残し、社会的判断はSocia
 
 # 15. 自律実行の設定を分離する
 
+> **2026-09-30 追記（B-6）**: 本文書は**提案**であり、下の分離案は実装されなかった。むしろ逆で、
+> ここに挙げた `max_actions_per_hour` / `social_poll_interval_seconds` /
+> `browser_exploration_budget_per_day` / `normal_interruption_budget_per_hour` /
+> `approval_proposal_limit` / `follow_up_timeout` の **6 つは、誰も読まない設定フィールド**として
+> B-6 で**削除**された（`max_autonomous_runs_per_hour` だけが生き残り、バリデータが読む）。
+> 本文は設計意図の記録として残す。
+
 現在は一部設定が複数目的に流用されている。Autonomous Loop生成時には、`max_autonomous_runs_per_hour`が一Cycle内Task数へ使われ、`cooldown_seconds`がFallback intervalとMinimum execution intervalの両方へ使われている。
 
 次へ分ける。

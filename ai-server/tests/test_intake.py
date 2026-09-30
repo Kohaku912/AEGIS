@@ -581,10 +581,7 @@ def test_intake_settings_defaults() -> None:
 
     s = IntakeSettings()
     assert s.enabled is True
-    assert s.classifier_profile == "local_chat"
     assert s.requires_agent_threshold == 0.5
-    assert s.dedup_window_size == 64
-    assert s.dedup_novelty_threshold == 0.3
     assert s.fallback_requires_agent is False
 
 
@@ -598,8 +595,6 @@ def test_intake_settings_validation() -> None:
         IntakeSettings(requires_agent_threshold=1.5)
     with pytest.raises(ValidationError):
         IntakeSettings(requires_agent_threshold=-0.1)
-    with pytest.raises(ValidationError):
-        IntakeSettings(dedup_window_size=-1)
 
 
 def test_aegis_settings_contains_intake() -> None:

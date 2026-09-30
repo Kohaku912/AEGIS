@@ -229,11 +229,7 @@ def test_settings_section_update_persists(monkeypatch, tmp_path) -> None:
         json={
             "autonomous_loop_enabled": False,
             "support_agent_enabled": True,
-            "research_watch_enabled": True,
-            "self_dev_proposal_enabled": True,
-            "daily_briefing_enabled": True,
             "max_autonomous_runs_per_hour": 12,
-            "max_autonomous_runs_per_day": 100,
             "cooldown_seconds": 120,
         },
     )

@@ -190,7 +190,6 @@ def test_settings_default_agents_disabled() -> None:
     s = AEGISSettings()
     assert s.agents.enabled is False
     assert s.agents.backend == "local"
-    assert s.agents.default_profile == "general"
     assert s.agents.timeout_seconds == 600
 
 

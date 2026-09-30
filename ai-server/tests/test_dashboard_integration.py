@@ -14,7 +14,6 @@ class _FakeSettings:
     class autonomous:
         autonomous_loop_enabled = False
         support_agent_enabled = False
-        self_dev_proposal_enabled = False
     class privacy:
         clipboard_capture_enabled = False
         camera_snapshot_enabled = False

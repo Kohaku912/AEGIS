@@ -1,8 +1,11 @@
 """The settings edit path enforces every bound the schema declares (B-20, fixed by A-9).
 
-`AEGISSettings` and its sub-models declare numeric bounds on **27** fields — `ge` / `le`,
+`AEGISSettings` and its sub-models declare numeric bounds on **15** fields — `ge` / `le`,
 e.g. `memory.episodic_retention_days` is `ge=1, le=365` and
-`autonomous.max_tasks_per_cycle` is `le=20`.
+`autonomous.max_tasks_per_cycle` is `le=20`. (It was **27** until 2026-09-30, when B-6
+deleted the 22 unread settings fields — 12 of which carried bounds. The numbers below are
+the live count; the measurements in the next two sections are dated records and keep the
+value they were taken at.)
 
 ## The defect (measured 2026-09-29, B-20)
 
@@ -16,10 +19,10 @@ only write path for a live process — used to build the proposed settings with 
     return self.update(current, changed_by, reason)
 
 `update` then ran `validate_settings_change`, which re-implemented exactly **one** of the
-27 bounds by hand — `max_autonomous_runs_per_hour > 100`, which merely duplicates that
-field's own `le=100` and was reachable *only* because assignment was unvalidated. So **26
-of the 27 declared bounds could be exceeded through the settings API, and the value
-persisted to disk.**
+27 bounds that existed at the time by hand — `max_autonomous_runs_per_hour > 100`, which
+merely duplicates that field's own `le=100` and was reachable *only* because assignment
+was unvalidated. So **26 of those 27 declared bounds could be exceeded through the
+settings API, and the value persisted to disk.**
 
 That was not cosmetic. The bypassable set included the **retention caps**, and those reach
 real purge arithmetic — `backup/retention.py` turns `settings.memory.episodic_retention_days`
@@ -34,7 +37,8 @@ inside the validator was rejected: that would put a second copy of the schema in
 path, which is the duplication this repo keeps finding. Constructing means each bound is
 defined exactly once, where it already was.
 
-Measured after the fix: **0 of 27 bounds bypassable, 27 of 27 blocked.**
+Measured after the fix (2026-09-29, on the 27 fields that existed then): **0 of 27 bounds
+bypassable, 27 of 27 blocked.**
 
 ## What this file is now
 
@@ -45,7 +49,7 @@ equality-checked in both directions, so:
   here until it is looked at;
 * `blocked` must still equal the full recorded set, so a write path that starts refusing
   *everything* fails too — see `test_the_edit_path_still_accepts_legal_edits`, which is the
-  non-vacuity guard for that direction (`blocked == all 27` is equally satisfied by a store
+  non-vacuity guard for that direction (`blocked == all 15` is equally satisfied by a store
   that rejects every edit).
 
 `validate_settings_change` still re-checks its one bound. That copy is now **unreachable
@@ -81,26 +85,14 @@ _RECORDED_BYPASSED: frozenset[str] = frozenset()
 #: fail — the point is that a *new* bounded field has to be added here deliberately.
 _RECORDED_ENFORCED: frozenset[str] = frozenset(
     {
-        "servers.health_check_interval_seconds",
         "autonomous.max_autonomous_runs_per_hour",
-        "autonomous.max_autonomous_runs_per_day",
         "autonomous.cooldown_seconds",
         "autonomous.evaluation_interval_seconds",
         "autonomous.min_action_interval_seconds",
-        "autonomous.max_actions_per_hour",
         "autonomous.max_tasks_per_cycle",
         "autonomous.min_llm_interval_seconds",
-        "autonomous.social_poll_interval_seconds",
-        "autonomous.browser_exploration_budget_per_day",
-        "autonomous.normal_interruption_budget_per_hour",
-        "autonomous.approval_proposal_limit",
-        "autonomous.follow_up_timeout",
-        "agents.max_concurrent",
         "agents.timeout_seconds",
         "intake.requires_agent_threshold",
-        "intake.dedup_window_size",
-        "intake.dedup_novelty_threshold",
-        "intake.max_importance",
         "memory.episodic_retention_days",
         "privacy.screenshot_retention_hours",
         "privacy.notification_text_retention_hours",
@@ -110,6 +102,10 @@ _RECORDED_ENFORCED: frozenset[str] = frozenset(
         "voice.voice_data_retention_hours",
     }
 )
+#: **27 → 15 on 2026-09-30.** B-6 deleted the 22 unread settings fields; 12 of them
+#: carried bounds and are gone from this set. The 12 are pinned as *retired* by
+#: ``tests/test_settings_debt_stays_retired.py``, so this set shrinking cannot be
+#: mistaken for a field that stopped being bounded.
 
 #: The bounds `validate_settings_change` re-checks by hand. Recorded so that *extending* the
 #: validator (a plausible but rejected repair) turns this file red instead of making it stale.
@@ -234,7 +230,8 @@ def _observe(tmp_path: Path) -> dict[str, str]:
 
 def test_the_probe_values_are_actually_rejected_by_the_schema() -> None:
     """A probe the schema *accepts* would prove nothing about the edit path."""
-    assert len(PROBES) >= 20, f"only {len(PROBES)} constrained fields were discovered"
+    # 15 measured after B-6 deleted 12 of the 27 bounded fields (2026-09-30).
+    assert len(PROBES) >= 15, f"only {len(PROBES)} constrained fields were discovered"
     not_rejected: list[str] = []
     for key, (section, name, value) in PROBES.items():
         try:

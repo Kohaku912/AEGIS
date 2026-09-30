@@ -1,4 +1,4 @@
-"""The settings UI has no contract with the settings schema (B-21).
+"""The settings UI's contract with the settings schema (B-21).
 
 `web-ui/src/pages/Settings.tsx::editableSettings` **discovers** the controls it renders
 from the `GET /api/settings` payload (`AEGISSettings.model_dump()`): every boolean /
@@ -6,46 +6,34 @@ number / string field in every section, with a hand-written `preferred` list sor
 first, a `result.length >= 24` cutoff for unpreferred fields, and a `.slice(0, 32)`.
 
 Because it discovers rather than lists, the set of controls it *offers* can never fall
-out of date with the schema — there is no inventory in the UI to go stale. Measured: 80
-fields are in the payload, **26 are rendered** as controls (the cutoff binds before the
-slice does), and **10 of those are fields nothing in the backend reads** — so the
-dashboard offers the user ten switches that change nothing. The `_UNOWNED_DEBT` entry for
-`sensitive_data_storage_enabled` already says the quiet part: *"a privacy switch that
-does nothing is worse than no switch."* This file is that debt seen from the user's side.
+out of date with the schema — there is no inventory in the UI to go stale. What
+discovery does **not** fix is the *coupling*: a control the dashboard offers is a promise
+that moving it does something, and nothing tied that promise to whether any backend code
+reads the field. So the dashboard could offer a control for a field with no reader, and
+no test would notice.
 
-What discovery does **not** fix is the coupling. The unread fields are recorded in
-`tests/test_ineffective_flags.py`; nothing tied that record to what the dashboard offers.
-So the record could shrink (a field wired up, or deleted) while the UI kept offering its
-control, or grow, and no test would notice. That tie is what this file adds — and it
-binds in a direction worth being precise about: a *newly declared* unread field does not
-by itself move the set below, because the set is an intersection with a static record. It
-is `test_ineffective_flags.py` that catches the new field; this file fails once the
-record is updated and the two disagree. The exception is the interesting one — a field
-declared early enough **pushes another dead field out of the rendered window**, so the
-visible set changes without anyone touching the record.
+## What this file used to be, and what it is now
 
-The reverse direction was wrong too: **5 of the 15 `preferred` keys named no settings
-field at all** (`display_privacy_mode`, `notifications_enabled`, `daily_budget_usd`,
-`monthly_budget_usd`, `memory_budget_tokens` — the last is a `context_builder` runtime
-attribute, not a setting). The list that says "always show these first" was spending a
-third of its entries on controls that cannot exist. A hand-maintained list is the defect;
-here it was a hand-maintained list that was **unverifiable**, because nothing compared it
-to the schema. That half is fixed now — the five were pruned (register A-10) and
-`test_every_preferred_key_names_a_real_settings_field` keeps them out — but the
-unverifiability, not the five keys, is what this file is about.
+It was written to record that coupling's **defect**: 10 of the 26 rendered controls were
+for fields nothing read — *"a privacy switch that does nothing is worse than no switch."*
+That record was the pending B-6 owner call, and B-6 resolved it on 2026-09-30 by
+**deleting** the 22 recorded-dead fields (see `test_ineffective_flags.py`). The record of
+10 dead controls is therefore gone, and this file is **re-pointed** from the defect to the
+invariant that defect was evidence for: the dashboard must render **no** control for a
+field with no reader. That is a stronger claim than the old one, because it constrains
+fields that do not exist yet — and the old record could not, since it was an intersection
+with a static list.
+
+The `preferred` list is the other half, and it is a **regression pin**: *which* controls
+deserve prominence is still a UI judgement, but every entry must name a real field. It
+has been pruned twice — five entries that could never match (register A-10, 2026-09-29),
+and `self_dev_proposal_enabled` on 2026-09-30 (B-6 deleted the field it named) — and
+`test_every_preferred_key_names_a_real_settings_field` keeps them out.
 
 **The algorithm is transcribed, not imported** — a Python test cannot execute TypeScript.
 Two things keep the transcription honest: the constants are **parsed out of the TS** (so a
 change there moves this test), and the shape of the loop is asserted (so a rewrite that
 invalidates the transcription fails rather than silently measuring the wrong thing).
-
-The half of this file that is a **record** is the 10 dead controls: that is the pending B-6
-owner call (wire the field or delete it), so all this file does is make their visibility
-impossible to change silently. The `preferred` list was the other half, and it is a
-**regression pin** now: *which* controls deserve prominence is still a UI judgement, but
-every entry must name a real field. Pruning the five that could not was
-behaviour-preserving — an unmatched key is never consulted, because the set is only ever
-queried with payload keys — and is recorded as **A-10** in `PROJECT_STATUS_REVIEW.md` §0.2.
 """
 
 from __future__ import annotations
@@ -54,7 +42,6 @@ import ast
 import re
 from pathlib import Path
 
-import pytest
 from pydantic import BaseModel
 
 from aegis_ai.settings.models import AEGISSettings
@@ -69,24 +56,11 @@ _DEBT_SOURCE = Path(__file__).resolve().parent / "test_ineffective_flags.py"
 #: `memory_budget_tokens` is a `context_builder` runtime attribute, not a settings field.
 #: Equality-checked, so re-introducing one fails here — and so does emptying the list,
 #: which would make `unmatched == ∅` true for the wrong reason (see the test).
+#:
+#: `self_dev_proposal_enabled` was pruned on 2026-09-30 (B-6) and is **not** recorded
+#: here: its key was never wrong, its *field* was deleted, so an entry for it would
+#: excuse a key that can no longer be legitimate.
 _RECORDED_NONEXISTENT_PREFERRED: frozenset[str] = frozenset()
-
-#: Controls the UI renders for fields recorded as unread. Equality-checked in both
-#: directions, so wiring a field up (or adding a new dead one) fails until this moves.
-_RECORDED_DEAD_CONTROLS: frozenset[str] = frozenset(
-    {
-        "autonomous.browser_exploration_budget_per_day",
-        "autonomous.daily_briefing_enabled",
-        "autonomous.max_actions_per_hour",
-        "autonomous.max_autonomous_runs_per_day",
-        "autonomous.normal_interruption_budget_per_hour",
-        "autonomous.research_watch_enabled",
-        "autonomous.self_dev_proposal_enabled",
-        "autonomous.social_poll_interval_seconds",
-        "servers.health_check_interval_seconds",
-        "servers.reconnect_policy",
-    }
-)
 
 #: The shape the transcription depends on. If the TS is rewritten, these must be revisited.
 _REQUIRED_TS_SHAPE: tuple[str, ...] = (
@@ -228,7 +202,9 @@ def test_the_transcription_still_matches_the_ui_source() -> None:
 def test_the_scan_actually_sees_controls_and_preferences() -> None:
     """Non-vacuity: the parse found a real preference list and a real rendered set."""
     preferred = _preferred_keys(_ui_source())
-    assert len(preferred) >= 10, f"only {len(preferred)} preferred keys parsed: {preferred}"
+    # 9 since B-6 deleted `self_dev_proposal_enabled` (was 10); the floor guards the
+    # *parse*, not the UI judgement, so it tracks the live list.
+    assert len(preferred) >= 9, f"only {len(preferred)} preferred keys parsed: {preferred}"
     rendered = _rendered_controls()
     assert len(rendered) >= 10, f"only {len(rendered)} controls rendered: {rendered}"
     assert "privacy.clipboard_capture_enabled" in rendered, (
@@ -243,53 +219,53 @@ def test_the_debt_record_is_readable() -> None:
 
     This is the non-vacuity guard for the *whole* file: the maps are annotated
     assignments, so a scan that only understands `ast.Assign` returns the empty set and
-    `test_the_ui_offers_a_control_for_every_unread_field_it_can_fit` would then assert
-    that the empty set equals the record — which is not the same claim at all.
+    the intersection in the test below would be empty for the wrong reason.
+
+    Equality, and the record holds exactly one entry since B-6 cleared the debt map — so
+    a scan that goes blind fails here rather than quietly reporting nothing unread.
     """
     recorded = _recorded_unread()
-    assert len(recorded) >= 20, (
-        f"only {len(recorded)} unread entries parsed: {sorted(recorded)}. The maps are "
-        "annotated assignments (`_UNOWNED_DEBT: dict[str, str] = {...}`); a bare-"
-        "`ast.Assign` scan misses them and silently reports nothing unread."
-    )
-    assert "autonomous.max_actions_per_hour" in recorded, (
-        "the record parsed but not in the expected shape — the class→section "
-        f"translation produced {sorted(recorded)[:5]}…"
+    assert recorded == {"voice.push_to_talk_only"}, (
+        f"the unread record parsed as {sorted(recorded)}. Expected exactly the one "
+        "deliberate entry (`_INTENTIONALLY_UNREAD`); the debt map has been empty since "
+        "B-6 (2026-09-30). The maps are annotated assignments "
+        "(`_UNOWNED_DEBT: dict[str, str] = {...}`); a bare-`ast.Assign` scan misses them "
+        "and silently reports nothing unread."
     )
 
 
-# ── Direction 1: the UI renders controls for fields nothing reads ─────────────
+# ── The invariant: a control the user can move must change something ──────────
 
 
-def test_the_ui_offers_a_control_for_every_unread_field_it_can_fit() -> None:
-    """The user-facing half of the unread-settings debt.
+def test_the_ui_offers_no_control_for_a_field_nothing_reads() -> None:
+    """The user-facing half of the unread-settings debt, as an invariant.
 
-    Equality both ways, so the record here and the record in
-    `test_ineffective_flags.py` have to move together:
+    This test **replaced** a record (B-6, 2026-09-30). It used to assert that the
+    dashboard offered exactly ten controls for fields nothing read — the debt seen from
+    the user's side. The owner resolved that debt by deleting the fields, so the record
+    is gone and the claim it was evidence for is what gets pinned: the dashboard offers
+    **no** control for a field with no reader.
 
-    * the record grows (a field is found unowned) and the field is rendered → fails;
-    * the record shrinks (a field is wired up or deleted) and the field *was* rendered
-      → fails, because the UI is still offering the control;
-    * a field is declared early enough to push a dead field out of the rendered window
-      → fails, with nobody having touched either record.
-
-    What it deliberately does not assert is that a new unread field *arrives* here: the
-    intersection is with a static record, so a new field is caught by
-    `test_ineffective_flags.py` first. This file's job is that the two cannot disagree.
+    The assertion is an *absence*, so on its own it is vacuously true the moment either
+    scan breaks. Three positive guards are what make it worth keeping:
+    ``test_the_scan_actually_sees_controls_and_preferences`` (the rendered set is real),
+    ``test_the_debt_record_is_readable`` (the unread record parsed), and the non-empty
+    check below (a record that emptied would make the intersection empty for the wrong
+    reason).
     """
     rendered = set(_rendered_controls())
-    dead = rendered & _recorded_unread()
+    unread = _recorded_unread()
 
-    assert dead == set(_RECORDED_DEAD_CONTROLS), (
-        "the set of dead controls the settings page offers changed.\n"
-        f"  newly offered : {sorted(dead - _RECORDED_DEAD_CONTROLS)}\n"
-        f"  no longer offered : {sorted(_RECORDED_DEAD_CONTROLS - dead)}\n"
-        "A control the user can move that changes nothing is worse than a missing one. "
-        "If a field was wired up, drop it from _UNOWNED_DEBT *and* from this set."
+    assert unread, (
+        "the unread record is empty, so this test proves nothing. If the last recorded "
+        "field was wired up or deleted, delete this test with a reason rather than "
+        "leaving a vacuous one."
     )
-    assert dead, (
-        "no dead control is rendered — either the debt was cleared (then delete this "
-        "test and its record) or the transcription stopped working"
+    assert rendered & unread == set(), (
+        "the settings page offers a control for a field nothing reads:\n"
+        f"  {sorted(rendered & unread)}\n"
+        "A control the user can move that changes nothing is worse than a missing one. "
+        "Either wire the field up, or delete it and drop it from the record."
     )
 
 
@@ -299,13 +275,14 @@ def test_the_ui_offers_a_control_for_every_unread_field_it_can_fit() -> None:
 def test_every_preferred_key_names_a_real_settings_field() -> None:
     """`preferred` says "show these first"; every entry must name a field that exists.
 
-    The list was pruned to its ten live entries on 2026-09-29 (register A-10). Which
+    The list was pruned to its ten live entries on 2026-09-29 (register A-10) and to nine
+    on 2026-09-30 (B-6 deleted the field behind `self_dev_proposal_enabled`). Which
     controls deserve prominence is still a UI judgement, so this pins the *claim* and not
     the content: add a key freely, but it has to name a real settings field.
 
     The second assertion is the non-vacuity guard. `unmatched == ∅` is equally true of an
     emptied list — and an empty `preferred` would quietly disable the preference sort,
-    which is the opposite of the defect this file records. The `len(preferred) >= 10`
+    which is the opposite of the defect this file records. The `len(preferred) >= 9`
     floor in `test_the_scan_actually_sees_controls_and_preferences` covers the rest of
     that direction.
     """
@@ -339,9 +316,10 @@ def test_a_new_field_is_rendered_only_if_it_is_declared_early_enough() -> None:
 
     Measured, the window is "the first `cutoff` rendered entries in declaration order,
     plus any preferred field anywhere". So declaring fields early evicts the tail of that
-    window — and a *dead* field can leave the visible set without anyone touching either
-    record. That is why `test_the_ui_offers_a_control_for_every_unread_field_it_can_fit`
-    can fail on a model change that never mentions an unowned field.
+    window — which is why a field with no reader can leave the visible set (or arrive in
+    it) without anyone touching a record. That is also why
+    `test_the_ui_offers_no_control_for_a_field_nothing_reads` can fail on a model change
+    that never mentions an unread field.
     """
     text = _ui_source()
     preferred = set(_preferred_keys(text))
@@ -384,9 +362,3 @@ def test_a_new_field_is_rendered_only_if_it_is_declared_early_enough() -> None:
     assert f"{late}.{probe}" not in _rendered(
         with_probe(late, at_end=True), preferred=preferred, cutoff=cutoff, limit=limit
     )
-
-
-@pytest.mark.parametrize("key", sorted(_RECORDED_DEAD_CONTROLS))
-def test_a_recorded_dead_control_is_still_a_real_field(key: str) -> None:
-    """Catch a typo in the record, which would excuse nothing."""
-    assert key in _settings_fields(), f"{key} is not a settings field any more"

@@ -210,7 +210,6 @@ function editableSettings(settings: Record<string, unknown>): Array<{ section: s
   const preferred = new Set([
     "autonomous_loop_enabled",
     "support_agent_enabled",
-    "self_dev_proposal_enabled",
     "pc_server_enabled",
     "android_server_enabled",
     "browser_server_enabled",

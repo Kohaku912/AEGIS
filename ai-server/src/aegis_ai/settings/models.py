@@ -20,9 +20,6 @@ class ServerSettings(BaseModel):
     room_server_enabled: bool = Field(default=True, description="Enable Room Server")
     dev_server_enabled: bool = Field(default=True, description="Enable Dev Server")
 
-    health_check_interval_seconds: int = Field(default=30, ge=5, le=3600)
-    reconnect_policy: str = Field(default="exponential", description="exponential | linear | manual")
-
 
 class CapabilityPermission(BaseModel):
     """Per-capability permission override."""
@@ -54,24 +51,14 @@ class AutonomousSettings(BaseModel):
 
     autonomous_loop_enabled: bool = Field(default=True)
     support_agent_enabled: bool = Field(default=True)
-    research_watch_enabled: bool = Field(default=True)
-    self_dev_proposal_enabled: bool = Field(default=True)
-    daily_briefing_enabled: bool = Field(default=True)
 
     max_autonomous_runs_per_hour: int = Field(default=20, ge=1, le=100)
-    max_autonomous_runs_per_day: int = Field(default=100, ge=1, le=1000)
     cooldown_seconds: int = Field(default=60, ge=0, le=3600)
     evaluation_interval_seconds: int = Field(default=60, ge=1, le=3600)
     min_action_interval_seconds: int = Field(default=60, ge=0, le=86400)
-    max_actions_per_hour: int = Field(default=20, ge=1, le=100)
     max_tasks_per_cycle: int = Field(default=8, ge=1, le=20)
     min_llm_interval_seconds: int = Field(default=0, ge=0, le=86400)
-    social_poll_interval_seconds: int = Field(default=60, ge=5, le=86400)
-    browser_exploration_budget_per_day: int = Field(default=10, ge=0, le=1000)
-    normal_interruption_budget_per_hour: int = Field(default=4, ge=0, le=100)
     quiet_hours: str = Field(default="22:00-08:00")
-    approval_proposal_limit: int = Field(default=3, ge=0, le=20)
-    follow_up_timeout: int = Field(default=3600, ge=30, le=604800)
 
 
 class AgentSettings(BaseModel):
@@ -96,16 +83,6 @@ class AgentSettings(BaseModel):
         default="local",
         description="Agent backend name registered in aegis_ai.agents.backends.",
     )
-    default_profile: str = Field(
-        default="general",
-        description="Default agent profile used when AgentTask.profile is omitted.",
-    )
-    max_concurrent: int = Field(
-        default=2,
-        ge=1,
-        le=64,
-        description="Max concurrent agent tasks.",
-    )
     timeout_seconds: int = Field(
         default=600,
         ge=1,
@@ -117,9 +94,11 @@ class AgentSettings(BaseModel):
 class IntakeSettings(BaseModel):
     """Intake filter settings (instruction.md §36 Phase 4).
 
-    全 Event をそのまま Agent に投げず、小型 LLM (`intake.classifier_profile`) で
-    「Agent 不要」を早期判定する。`enabled=False` で Intake を OFF にして
-    既存挙動に戻す。
+    全 Event をそのまま Agent に投げず、小型 LLM で「Agent 不要」を早期判定する経路の
+    ための設定。`enabled=False` で Intake を OFF にして既存挙動に戻す。
+
+    注: この節の値は live な経路からは読まれない — 実行時に構築されるのは
+    `L1Router`/`L1Executor` で、どちらも設定を取らない。
     """
 
     enabled: bool = Field(
@@ -127,34 +106,12 @@ class IntakeSettings(BaseModel):
         description="Master switch for the intake filter. When False, intake is skipped and "
         "all observations flow through the existing autonomous loop.",
     )
-    classifier_profile: str = Field(
-        default="local_chat",
-        description="LLM profile used by the intake classifier (see LLMSettingsResolver).",
-    )
     requires_agent_threshold: float = Field(
         default=0.5,
         ge=0.0,
         le=1.0,
         description="intake.classifier() が返した `requires_agent_score` がこの値以上のときだけ "
         "Agent delegate 経路に進む。それ以下は LLMTaskInterpreter 既存経路。",
-    )
-    dedup_window_size: int = Field(
-        default=64,
-        ge=0,
-        le=4096,
-        description="IntakeDeduplicator が保持する最近の fingerprint 数。",
-    )
-    dedup_novelty_threshold: float = Field(
-        default=0.3,
-        ge=0.0,
-        le=1.0,
-        description="novelty スコアがこの値未満なら重複とみなす。",
-    )
-    max_importance: float = Field(
-        default=0.3,
-        ge=0.0,
-        le=1.0,
-        description="intake が importance を 0.0-1.0 で返すときの上限 (UI 表示用)。",
     )
     fallback_requires_agent: bool = Field(
         default=False,
@@ -166,10 +123,6 @@ class MemorySettings(BaseModel):
     """Memory system settings."""
 
     episodic_retention_days: int = Field(default=90, ge=1, le=365)
-    semantic_memory_enabled: bool = Field(default=True)
-    procedural_learning_enabled: bool = Field(default=True)
-    reflection_enabled: bool = Field(default=True)
-    sensitive_data_storage_enabled: bool = Field(default=False, description="Store sensitive data in memory")
 
 
 class NotificationSettings(BaseModel):

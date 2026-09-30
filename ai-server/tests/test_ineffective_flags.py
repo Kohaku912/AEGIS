@@ -31,6 +31,11 @@ this way.
 
 The detector is itself tested (``test_the_detector_reports_a_dead_flag``) so it
 cannot rot into a no-op — the inverse of the bug it exists to catch.
+
+**2026-09-30 (B-6)**: the debt map is **empty** now — the owner deleted the 22 fields
+it recorded rather than wiring them. The skip count therefore fell from 23 to 1, and
+that drop is the *record* being cleared, not debt paid quietly: the retired names are
+pinned by ``tests/test_settings_debt_stays_retired.py``.
 """
 
 from __future__ import annotations
@@ -57,72 +62,41 @@ _INTENTIONALLY_UNREAD: dict[str, str] = {
     "VoiceSettings.push_to_talk_only": (
         "The voice engines are real (local faster-whisper STT, provider-dispatched "
         "TTS), but none of them reads this: VoiceGate never consults it, so no capture "
-        "path can be gated on it. Kept in the schema so the shipped settings file stays "
-        "valid; wiring it is part of the voice workstream, not the constraint. It is "
-        "*not* an egress risk — it cannot transmit anything."
+        "path can be gated on it. It is kept because it is a *default posture* that a "
+        "test pins — 'no always-listening by default' "
+        "(test_voice_io.py::test_push_to_talk_is_the_default_and_wake_word_is_off) — and "
+        "enforcing it is part of the voice workstream, not the constraint. It is *not* "
+        "an egress risk — it cannot transmit anything. This entry used to add 'kept in "
+        "the schema so the shipped settings file stays valid'; that is false and was "
+        "withdrawn on 2026-09-30 (B-6) — no settings model sets `extra=`, so pydantic's "
+        "default `extra='ignore'` drops an unknown key either way, and no test compares "
+        "the shipped file's keys against the schema."
     ),
 }
 
 # ── Declared but unowned ──────────────────────────────────────────────────────
 #
-# This is an inventory of debt, **not** a set of approvals. These fields are not
-# "intentionally unread"; they are unread because nobody owns the feature they
-# configure. They are recorded here so the number is visible and pinned rather than
-# hidden, and so a *new* dead flag still fails the suite. Every entry should be
-# resolved — wired, or deleted — not left. Tracked in PROJECT_STATUS_REVIEW.md §3.
+# This is an inventory of debt, **not** a set of approvals: fields that are unread
+# because nobody owns the feature they configure. They are recorded here so the number
+# is visible and pinned rather than hidden, and so a *new* dead flag still fails the
+# suite.
+#
+# **Empty since 2026-09-30 (B-6), and that is a deletion rather than a payment.** The
+# owner resolved the debt by deleting the 22 fields it held. Each was measured first:
+# none was referenced anywhere under ``src/`` outside this definition module, so for the
+# runtime the removal is behaviour-preserving. Two consequences are *not* behaviour-free
+# and are recorded deliberately, because "delete an unread field" sounds like a no-op:
+#
+#   * the settings API now **refuses** a write that names a retired key —
+#     ``SettingsStore.update_section`` rejects unknown fields rather than ignoring them,
+#     so a client that used to set one of these now gets an error;
+#   * the dashboard no longer **renders** a control for them, because it discovers its
+#     controls from the payload rather than listing them.
+#
+# The retired names are pinned in ``tests/test_settings_debt_stays_retired.py``, and the
+# shipped ``config/settings.json`` no longer carries their keys.
 
-_AUTONOMOUS = (
-    "The autonomous loop runs on hardcoded budgets and intervals; no code path reads "
-    "this field, so editing it in the settings file changes nothing. Unowned: wire it "
-    "into the loop, or delete it."
-)
-_AGENT = (
-    "The agent runner does not consult settings for this; profile selection and "
-    "concurrency are fixed in code. Unowned: wire it, or delete it."
-)
-_INTAKE = (
-    "The intake pipeline does not consult settings for this; classification and "
-    "deduplication use fixed values. Unowned: wire it, or delete it."
-)
-_MEMORY = (
-    "The memory subsystem does not consult settings for this; the behaviour is fixed "
-    "in code. Unowned: wire it, or delete it."
-)
-_SERVER = (
-    "Server connection behaviour is fixed in code and not read from settings. "
-    "Unowned: wire it, or delete it."
-)
-
-_UNOWNED_DEBT: dict[str, str] = {
-    "AutonomousSettings.approval_proposal_limit": _AUTONOMOUS,
-    "AutonomousSettings.browser_exploration_budget_per_day": _AUTONOMOUS,
-    "AutonomousSettings.daily_briefing_enabled": _AUTONOMOUS,
-    "AutonomousSettings.follow_up_timeout": _AUTONOMOUS,
-    "AutonomousSettings.max_actions_per_hour": _AUTONOMOUS,
-    "AutonomousSettings.max_autonomous_runs_per_day": _AUTONOMOUS,
-    "AutonomousSettings.normal_interruption_budget_per_hour": _AUTONOMOUS,
-    "AutonomousSettings.research_watch_enabled": _AUTONOMOUS,
-    "AutonomousSettings.self_dev_proposal_enabled": _AUTONOMOUS,
-    "AutonomousSettings.social_poll_interval_seconds": _AUTONOMOUS,
-    "AgentSettings.default_profile": _AGENT,
-    "AgentSettings.max_concurrent": _AGENT,
-    "IntakeSettings.classifier_profile": _INTAKE,
-    "IntakeSettings.dedup_novelty_threshold": _INTAKE,
-    "IntakeSettings.dedup_window_size": _INTAKE,
-    "IntakeSettings.max_importance": _INTAKE,
-    "MemorySettings.procedural_learning_enabled": _MEMORY,
-    "MemorySettings.reflection_enabled": _MEMORY,
-    "MemorySettings.semantic_memory_enabled": _MEMORY,
-    "MemorySettings.sensitive_data_storage_enabled": (
-        "Reads like a privacy control and is not one: nothing reads it, so turning it "
-        "off changes no behaviour. Under the single constraint the *egress* gate is what "
-        "actually protects user data, and that gate is separately enforced and "
-        "mutation-proved. Unowned: wire it to real storage policy, or delete it — a "
-        "privacy switch that does nothing is worse than no switch."
-    ),
-    "ServerSettings.health_check_interval_seconds": _SERVER,
-    "ServerSettings.reconnect_policy": _SERVER,
-}
+_UNOWNED_DEBT: dict[str, str] = {}
 
 #: The egress locks, as (settings path, purpose used to probe the gate).
 _EGRESS_LOCKS: tuple[tuple[str, str], ...] = (
@@ -273,7 +247,9 @@ def test_the_scan_actually_covers_the_settings_surface():
     fields = _scanned_fields()
 
     assert len(models) >= 10, f"only {len(models)} settings models were discovered"
-    assert len(fields) >= 90, f"only {len(fields)} settings flags were scanned"
+    # 72 measured after B-6 deleted the 22 recorded-dead fields (the pre-deletion count
+    # was 94). The floor guards the *discovery*, so it tracks the live surface.
+    assert len(fields) >= 70, f"only {len(fields)} settings flags were scanned"
     assert "PrivacySettings.external_egress_allowed" in fields
     assert "VoiceSettings.external_voice_api_allowed" in fields
 

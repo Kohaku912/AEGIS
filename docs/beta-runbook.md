@@ -174,9 +174,7 @@ python -c "from aegis_ai.settings.store import SettingsStore; SettingsStore().re
 |------|--------|------|
 | `autonomous_loop_enabled` | false | 手動確認后再有効化 |
 | `support_agent_enabled` | true | 提案のみ、自動実行なし |
-| `self_dev_proposal_enabled` | true | 提案のみ、PR は承認必要 |
 | `camera_snapshot_enabled` | false | プライバシー保護 |
-| `sensitive_data_storage_enabled` | false | セキュリティ |
 
 ---
 
