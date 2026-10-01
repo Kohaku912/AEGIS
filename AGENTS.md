@@ -443,8 +443,8 @@ Audit logs are written to `data/settings_audit.jsonl`.
 
 Measured 2026-10-01 — `ai-server`, full suite:
 
-- **Total tests**: **1902 passed / 8 skipped**
-  — the **+17** over the 2026-09-30 figure are **all new pins**: four for B-5① (the confirmation↔desire
+- **Total tests**: **1905 passed / 8 skipped**
+  — the **+20** over the 2026-09-30 figure are **all new pins**: four for B-5① (the confirmation↔desire
   link), one for the general invariant that **the shipped `config/settings.json` declares no key that
   no settings model declares** (which caught the dead `autonomy` block; see
   `PROJECT_STATUS_REVIEW.md` §0.1), three for the voice gate — four `VoiceGate` / `VoicePrivacy`
@@ -462,7 +462,11 @@ Measured 2026-10-01 — `ai-server`, full suite:
   so gRPC stays plaintext. The live auth path is `aegis_ai/auth/` (passkey + its own CSRF).
   `tests/test_security_package_stays_unwired.py` — and two for the manifest `aliases` field, which the
   retriever weights **higher than any other field** (1.6, above `title`'s 1.2) while **0 of the 128**
-  shipped manifests declares it (`tests/test_capability_index.py`). The skip count fell from 30 to 8 because **B-6 deleted 22 settings fields** that were declared but
+  shipped manifests declares it (`tests/test_capability_index.py`) — and three for the checked-in executor
+  command, whose interpreter `ExecutorRegistry._normalize_command` **discards** whenever the command
+  mentions `executor.py`, so the value is decorative: **one of the seven** shipped command manifests named
+  a host-absolute path into a venv that does not exist on the machine that shipped it, and no test read
+  the field at all (`tests/test_executor_commands_stay_portable.py`). The skip count fell from 30 to 8 because **B-6 deleted 22 settings fields** that were declared but
   read by nothing; their parametrized cases went with them. The **only** deliberately unread field left
   is `voice.push_to_talk_only`, recorded in `tests/test_ineffective_flags.py::_INTENTIONALLY_UNREAD`;
   the debt inventory `_UNOWNED_DEBT` is now **empty**, which is the point of the deletion rather than an
