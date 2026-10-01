@@ -443,7 +443,7 @@ Audit logs are written to `data/settings_audit.jsonl`.
 
 Measured 2026-10-01 — `ai-server`, full suite:
 
-- **Total tests**: **1919 passed / 8 skipped**
+- **Total tests**: **1923 passed / 8 skipped**
   — the **+20** over the 2026-09-30 figure are **all new pins**: four for B-5① (the confirmation↔desire
   link), one for the general invariant that **the shipped `config/settings.json` declares no key that
   no settings model declares** (which caught the dead `autonomy` block; see
@@ -480,6 +480,15 @@ Measured 2026-10-01 — `ai-server`, full suite:
   and the `.proto` -> generated-stub link, which nothing compared, alongside an orphan stub whose
   `.proto` source was deleted (`tests/test_generated_stubs_have_proto_sources.py`; `DELEGATION.md`
   §4 item 19).
+  The **+4** over that figure is the measurement of **§3.1 hole 3's premise** — `DECISION_DRAFTS.md`
+  §B-5 answers the burden metric with "derive it from the existing decision log; no new instrumentation
+  is needed", and measuring shows that holds for **one of the three** proposed sub-metrics: interruptions
+  per day are computable (`AuditEntry.timestamp_ms` plus the `interruption_decision` audit action), the
+  fraction the user responded to is **not** (`NotificationManager` makes no audit call at all, and
+  `dismiss(notification_id)` is called by the user's route *and* by `PresentationManager.dismiss` with no
+  marker argument), and the median cost covers **1 of the 5** `_decision(...)` paths, because the four
+  hard gates report no breakdown (`tests/test_burden_metric_has_no_instrument.py`; `DELEGATION.md`
+  §4 item 20).
 - **Other suites**: `room-server` 16 · `browser-server` 100 · `aegis-sdk-python` 71 ·
   `web-ui` `vitest` 144 · `web-ui` `playwright` 42.
   **The three Python suites are wired into CI** by `scripts/test-all-suites.ps1`, which delegates to
