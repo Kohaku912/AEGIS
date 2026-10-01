@@ -204,6 +204,13 @@ the short form `app_id.action`, plus — via `_PREFIX_MAP` — the prefixed form
 manifest's own `aliases` key is **not** consulted for ID resolution; it only feeds
 `CapabilityIndex` search keywords. Code MUST use canonical format.
 
+> **Measured 2026-10-01**: no shipped manifest declares `aliases` — **0 of 128** — while **113**
+> declare `tags`. So the manifest-alias retrieval term is currently inert. It is not a safety
+> issue (an empty alias list is dropped from the score's denominator, so nothing changes), and the
+> key is still emitted by `list_for_llm()`. It is pinned in `tests/test_capability_index.py`; the
+> open question — populate the 128 manifests, or drop the field and its 1.6 weight — is
+> `DELEGATION.md` §4 item 15.
+
 ### Key Components
 
 | Component | File | Purpose |
@@ -436,7 +443,7 @@ Audit logs are written to `data/settings_audit.jsonl`.
 
 Measured 2026-10-01 — `ai-server`, full suite:
 
-- **Total tests**: **1900 passed / 8 skipped**
+- **Total tests**: **1902 passed / 8 skipped**
   — the **+15** over the 2026-09-30 figure are **all new pins**: four for B-5① (the confirmation↔desire
   link), one for the general invariant that **the shipped `config/settings.json` declares no key that
   no settings model declares** (which caught the dead `autonomy` block; see
@@ -587,7 +594,7 @@ capabilities in the Catalog. Quiet hours still apply to notifications only.
 | **PC Server** | ✅ Complete | Rust, TCP protocol, 58 capabilities |
 | **Browser Server** | ✅ Complete | browser-use, DeepSeek compatibility patch, verification detection |
 | **LLM Integration** | ✅ Complete | Profile-driven OpenAI-compatible providers, tool calling, JSON fallback |
-| **Egress Gate** | ✅ Complete — constraint **re-scoped 2026-09-30** | Deny-by-default and fail-closed (`egress/gate.py`), **plus the second permission path the re-scope requires**: a permission the user gave about a *specific* destination, read out of the confirmation store via `egress/permissions.py`. The gate **consults and never asks**, so the retired forced gate stays retired (`test_forced_gate_stays_retired.py`). A request carrying **no user information** needs no permission — the constraint is about user information, not connectivity. Wired into 25 modules with 10 real enforcement sites. CI-enforced: **303 egress-marked tests** (302 passed / 1 skipped) against a floor of 160, plus a mutation check that fails the build when the gate is broken (74 failures, measured 2026-09-30). |
+| **Egress Gate** | ✅ Complete — constraint **re-scoped 2026-09-30** | Deny-by-default and fail-closed (`egress/gate.py`), **plus the second permission path the re-scope requires**: a permission the user gave about a *specific* destination, read out of the confirmation store via `egress/permissions.py`. The gate **consults and never asks**, so the retired forced gate stays retired (`test_forced_gate_stays_retired.py`). A request carrying **no user information** needs no permission — the constraint is about user information, not connectivity. Wired into 25 modules with 10 real enforcement sites. CI-enforced: **306 egress-marked tests** (305 passed / 1 skipped) against a floor of 160, plus a mutation check that fails the build when the gate is broken (74 failures, measured 2026-09-30). |
 | **Confirmation (AEGIS-initiated)** | ✅ Complete (Phase 5a) | Approval is **not** a constraint, but AEGIS may still *choose* to ask the user. `confirmation/` supplies the store, the endpoints, and LLM-callable capabilities. What stays retired is the mechanism that *forced* a confirmation before certain capabilities could be used — pinned by `tests/test_forced_gate_stays_retired.py`. |
 | **Wire contract (no forced gate)** | ✅ Complete (Phase 5b) | The `.proto` files no longer declare `ApprovalStatus` / `ApprovalType` / `ApprovalRequest`, the three approval RPCs, `Capability.requires_approval`, `ToolInvocationRequest.is_approved` / `approval_id`, `ToolInvocationResult.was_approved`, `ChatResponse.approval_needed` / `approval_id`, or `PolicyDecisionType.ASK_APPROVAL` — removals use `reserved` numbers and names so wire numbering is never reused. **Deliberately kept:** `SafetyLevel.LEVEL_2_APPROVAL` (a descriptive tier label), the audit RPCs, and the streamed ask-the-user transport. Python stubs regenerated **for every consumer** (`ai-server` and `room-server` copies are byte-identical); Rust `pc-server` and the Kotlin Android client updated. Pinned by `tests/test_goal_change_guard.py`, which scans all `*_pb2.py` in the repo, not just `ai-server/src`. |
 | **Manager Architecture** | ✅ Complete | TaskManager, MemoryManager, SleepManager, EventManager, AuditManager, StatusManager, NotificationManager |

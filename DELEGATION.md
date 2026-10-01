@@ -108,6 +108,7 @@
 | 13 | **承認の監査 API を削除するか**（`log_approval` は定義 3 つで**呼び出し元ゼロ**、`AuditEntry.source_desire` の書き手はその死んだ本体 2 つだけなので**監査カラムは常に空**。`IMPROVEMENT_PROPOSAL.md` は削除を推奨） | 記録のみ（**削除しない** — 意図的） | 削除は**永続カラムと 2 つの `AuditEntry` データクラスに波及**（データ面の変更）。1 コミットで戻せる |
 
 | 14 | **`aegis_ai/security/` パッケージをどうするか**（パッケージ外からの import が **0 件**と実測。6 クラス — token auth / token store / CSRF / rate limit / origin / TLS — と `generate_self_signed_cert` がすべて未参照。**生きた認証は `aegis_ai/auth/`** なので欠落ではなく**置換済み**。TLS は `add_secure_port` の呼び出し元が死んだ `configure_server` だけなので **gRPC は平文**） | 記録のみ（**配線も削除もしない** — 意図的） | 配線は**二重の認証実装**を作る / 削除は文書化されたパッケージ全体の話で 1 コミット（`git revert`） |
+| 15 | **`CapabilityManifest.aliases` をどうするか**（出荷 manifest **128 件のうち 0 件**が `aliases` を宣言（`tags` は 113 件が宣言）と実測 2026-10-01。ところが `capability_index._keyword_score` は `aliases` に **1.6** を与えており**全フィールド中で最高**（`title` の 1.2 より上）。つまり**最高重みの検索項が生産者を持たない** — ただし空文字列は分母の `if text` で除外されるので**挙動への影響は無い**（純粋な死んだ重み）。読者と生産者の帰属は `tests/test_capability_index.py` のピン 2 本） | 記録のみ（**配線も削除もしない** — 意図的） | 配線＝128 件に alias を書く（検索品質の製品判断）/ 削除＝`CapabilityManifest.aliases` + `CapabilityDocument.aliases` + `_keyword_score` の 1 行（manifest スキーマの縮小、`git revert`） |
 
 ## 5. 閉じた行（実行日順）
 

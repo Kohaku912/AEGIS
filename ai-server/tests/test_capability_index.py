@@ -136,3 +136,65 @@ def test_chroma_query_uses_current_embedding_protocol(tmp_path: Path) -> None:
 
     assert results
     assert any(result.vector_score > 0 for result in results)
+
+
+# ---------------------------------------------------------------------------
+# The alias tests above pass on *fixtures*. No live manifest supplies aliases.
+#
+# Measured 2026-10-01: of the 128 shipped manifests under ``capabilities/builtin/``,
+# **none declares ``aliases``** — while 113 declare non-empty ``tags``. So the alias term
+# in ``_keyword_score`` (weight **1.6**, the highest of any field — above ``title`` at 1.2)
+# contributes nothing for any production capability, and alias-based retrieval fires only in
+# the tests above, which write their own fixtures.
+#
+# The word "alias" names **three** different mechanisms here, and only the manifest one is empty:
+#   * ``CapabilityManifest.aliases`` — search keywords from the manifest. **Empty in production.**
+#   * ``CapabilityCatalog._aliases`` — short name / legacy id → canonical id, built at load
+#     (254 entries live).
+#   * ``FolderCapabilityRegistry._short_names`` — short name → canonical id, consulted by
+#     ``resolve()`` *before* the catalog map, so the two live paths mask each other.
+# Same name, opposite liveness — a reader cannot tell which one a mention means.
+# ---------------------------------------------------------------------------
+
+_LIVE_CAPABILITIES = Path(__file__).resolve().parents[1] / "capabilities"
+_LIVE_APPS = Path(__file__).resolve().parents[1] / "apps"
+
+
+def _live_catalog(tmp_path: Path) -> CapabilityCatalog:
+    """The catalog over the **shipped** manifests, with all writes kept in ``tmp_path``."""
+    return CapabilityCatalog(
+        capabilities_dir=str(_LIVE_CAPABILITIES),
+        apps_dir=str(_LIVE_APPS),
+        data_dir=str(tmp_path),
+    )
+
+
+def test_no_live_manifest_declares_aliases(tmp_path: Path) -> None:
+    """The field the keyword scorer weights highest has no producer — measured 2026-10-01."""
+    entries = _live_catalog(tmp_path).list_for_llm()
+
+    assert entries, "no live capabilities were loaded, so this measurement is vacuous"
+    # Positive control: another list-valued field *is* populated, so the scan reads real manifests.
+    assert any(entry["tags"] for entry in entries), (
+        "no live capability has tags, so the scan is not reading real manifests"
+    )
+
+    with_aliases = sorted(entry["id"] for entry in entries if entry["aliases"])
+    assert with_aliases == [], (
+        f"a live manifest now declares aliases: {with_aliases}. Alias-based retrieval has "
+        "production data again — update this record and re-measure the 1.6-weighted term."
+    )
+
+
+def test_the_alias_key_is_still_part_of_the_llm_surface(tmp_path: Path) -> None:
+    """The empty field is still *emitted* — so it is a claim the model can read.
+
+    If the key leaves ``list_for_llm()`` the premise of the record above changes: the emptiness
+    would no longer be something the LLM sees. This is the falsifiable half of that record.
+    """
+    entries = _live_catalog(tmp_path).list_for_llm()
+
+    assert entries
+    assert all("aliases" in entry for entry in entries), (
+        "list_for_llm() no longer emits 'aliases' — update the record in the comment above"
+    )
