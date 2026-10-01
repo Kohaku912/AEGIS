@@ -443,7 +443,7 @@ Audit logs are written to `data/settings_audit.jsonl`.
 
 Measured 2026-10-01 — `ai-server`, full suite:
 
-- **Total tests**: **1923 passed / 8 skipped**
+- **Total tests**: **1926 passed / 8 skipped**
   — the **+20** over the 2026-09-30 figure are **all new pins**: four for B-5① (the confirmation↔desire
   link), one for the general invariant that **the shipped `config/settings.json` declares no key that
   no settings model declares** (which caught the dead `autonomy` block; see
@@ -489,6 +489,14 @@ Measured 2026-10-01 — `ai-server`, full suite:
   marker argument), and the median cost covers **1 of the 5** `_decision(...)` paths, because the four
   hard gates report no breakdown (`tests/test_burden_metric_has_no_instrument.py`; `DELEGATION.md`
   §4 item 20).
+  The **+3** over that figure is the **dismiss path**: `PresentationManager.dismiss` looks up
+  `dismiss_notification` first and falls back to `dismiss`, but production's `NotificationManager`
+  defines only `dismiss`, and the sole class in the repository defining `dismiss_notification` is a
+  **test double** — so the one test covering this path takes the branch production never takes, and
+  the branch production always takes is covered by nothing. Measured rather than inferred: deleting
+  the fallback leaves the suite at **1923 passed / 8 skipped**, i.e. production would silently stop
+  dismissing notifications and nothing would fail (`tests/test_dismiss_fallback_is_uncovered.py`;
+  `DELEGATION.md` §4 item 21).
 - **Other suites**: `room-server` 16 · `browser-server` 100 · `aegis-sdk-python` 71 ·
   `web-ui` `vitest` 144 · `web-ui` `playwright` 42.
   **The three Python suites are wired into CI** by `scripts/test-all-suites.ps1`, which delegates to
