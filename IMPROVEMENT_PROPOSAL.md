@@ -1402,8 +1402,12 @@ POST は `X-CSRF-Token` 必須、`/approve` `/modify-and-approve` `/cancel` は�
    **唯一の制約が守られないまま自律性だけが上がる**（最悪の組み合わせ）。
 2. **Phase 1-4（ローカル LLM）は他と並行必須**。クラウドを切ると Mock に落ちて**機能しなくなる**ため、
    ローカル経路が動くことを確認してから既定を反転する。
-3. **vision のローカル化が未解決**。`llm.yaml:48-57` が Aliyun を指しておりローカル代替が無い。
-   ここが埋まらない限り「視覚機能」と「唯一の制約」は両立しない。
+3. **vision のローカル化** — ~~未解決~~ → **2026-10-01 実測で解消済み**。`llm.yaml` の
+   `profiles.local_vision` が `http://localhost:11434/v1`（Ollama `qwen2.5vl:7b`）を指し、
+   `LLMSettingsResolver._LOCAL_PROFILE_MAP` が `vision_observation → local_vision` に remap する。
+   元の記述（`llm.yaml:48-57` が Aliyun を指しておりローカル代替が無い）は**誤り**だった —
+   Aliyun 定義は **cloud 用で local モードでは使われない**。よって「視覚機能」と「唯一の制約」は
+   両立している（`verify_egress_configuration` → `local_llm_readiness: ok`／違反ゼロ）。
 4. **`web_search_allowed` が未使用**という事実は Phase 1 の**最初に潰すべき穴**
    （フラグがあるのに効かない＝最も危険なパターン。§1／§4 と同じ根）。
 

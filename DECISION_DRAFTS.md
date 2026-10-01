@@ -153,9 +153,9 @@
 
 | 項目 | 回答案 |
 |---|---|
-| vision のローカル代替 | **入れない（現状維持）** — オーナー決定と一致。加えて **UI/文書で「視覚機能は無効」と明示**する（今は ❌ がこの表にしかない） |
+| vision のローカル代替 | ~~**入れない（現状維持）**＋**UI/文書で「視覚機能は無効」と明示**~~ → **取り下げ（2026-10-01 実測で前提が崩れた）**。`llm.yaml` の `profiles.local_vision` は**既に在り**（`http://localhost:11434/v1`、Ollama `qwen2.5vl:7b`）、`LLMSettingsResolver._LOCAL_PROFILE_MAP` が `vision_observation → local_vision` に remap する。**egress ゲートは止めない**（`verify_egress_configuration` は `local_llm_readiness: ok`／違反ゼロ）。したがって「視覚機能は無効」を UI/文書に書くと、**システム自身の判定と矛盾する嘘を公開する**ことになるため**実行しない**。§3.2 の ❌ は ✅ に訂正済み（ピン: `tests/test_vision_row_matches_the_local_profile.py`） |
 | gRPC TLS | **v1 は現状維持** — Tailscale 前提。外すときの前提条件として §4 に残す |
-| Room 実機 | **現状維持（ハード待ち）** — `GetEnvironment` は**ハードコード fixture を返す**ので、**fixture であることを応答に明示**する（偽の環境を本物として見せない） |
+| Room 実機 | **現状維持（ハード待ち）** — **実行済み（2026-10-01）**: `GetEnvironment` の `Status.message` が「hardcoded fixture … constants rather than measurements」を返す（`code=0` のまま＝成功。注記であってエラーではない）。ピン 2 本（room-server 側で fixture を名乗る／ai-server 側で client の `_status_dict` を通って届く）。**実機プロバイダは依然ハード待ち** |
 | cross-device context | **v1 に入れる**（C-2 の 1 位）。**縮退は入れない** → **実装済み**（2026-09-30） |
 | 音声 I/O（STT/TTS） | ~~**v1 では入れない**~~ → **オーナーが覆した**（2026-09-30、`DELEGATION.md` §2）。**v1 に入れて実装済み**。「ローカル LLM は追わない」の対象は **LLM に限る**（STT/TTS は対象内）とオーナーが確認 |
 | 外部メッセージング | ~~**入れない** — egress と**構造的に矛盾**~~ → **オーナーが覆した**（2026-09-30）。egress が「**許可があれば**外部利用可」に再定義されたので、この「構造的矛盾」は**解消**。**実装済み** |

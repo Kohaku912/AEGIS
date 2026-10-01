@@ -68,7 +68,12 @@ class RoomServer(room_server_pb2_grpc.RoomServerServicer):
         env = dict(self._environment)
         env["timestamp_ms"] = now_ms()
         return room_server_pb2.GetEnvironmentResponse(
-            status=_status(),
+            status=_status(
+                message=(
+                    "hardcoded fixture: no environment sensors are configured, so these "
+                    "values are constants rather than measurements"
+                )
+            ),
             temperature_c=float(env["temperature_c"]),
             humidity_pct=float(env["humidity_pct"]),
             brightness_lux=float(env["brightness_lux"]),
