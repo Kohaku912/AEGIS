@@ -235,7 +235,7 @@ def test_registry_validates_required_fields() -> None:
 # ---------------------------------------------------------------------------
 
 
-def _build_router(*profiles: dict) -> "AgentRouter":  # type: ignore[name-defined]
+def _build_router(*profiles: dict) -> "AgentRouter":  # noqa: F821
     """Convenience builder: dict → AgentProfileRegistry → AgentRouter."""
     from aegis_ai.agents.profiles import AgentProfile, AgentProfileRegistry
     from aegis_ai.agents.runtime.router import AgentRouter

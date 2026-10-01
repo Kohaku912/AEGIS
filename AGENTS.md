@@ -444,7 +444,7 @@ Audit logs are written to `data/settings_audit.jsonl`.
 Measured 2026-10-01 — `ai-server`, full suite:
 
 - **Total tests**: **1902 passed / 8 skipped**
-  — the **+15** over the 2026-09-30 figure are **all new pins**: four for B-5① (the confirmation↔desire
+  — the **+17** over the 2026-09-30 figure are **all new pins**: four for B-5① (the confirmation↔desire
   link), one for the general invariant that **the shipped `config/settings.json` declares no key that
   no settings model declares** (which caught the dead `autonomy` block; see
   `PROJECT_STATUS_REVIEW.md` §0.1), three for the voice gate — four `VoiceGate` / `VoicePrivacy`
@@ -460,7 +460,9 @@ Measured 2026-10-01 — `ai-server`, full suite:
   limit, origin check, TLS) plus `generate_self_signed_cert`, with no importer outside the package,
   no class name used outside it, and `add_secure_port` called only inside the module nobody imports —
   so gRPC stays plaintext. The live auth path is `aegis_ai/auth/` (passkey + its own CSRF).
-  `tests/test_security_package_stays_unwired.py`. The skip count fell from 30 to 8 because **B-6 deleted 22 settings fields** that were declared but
+  `tests/test_security_package_stays_unwired.py` — and two for the manifest `aliases` field, which the
+  retriever weights **higher than any other field** (1.6, above `title`'s 1.2) while **0 of the 128**
+  shipped manifests declares it (`tests/test_capability_index.py`). The skip count fell from 30 to 8 because **B-6 deleted 22 settings fields** that were declared but
   read by nothing; their parametrized cases went with them. The **only** deliberately unread field left
   is `voice.push_to_talk_only`, recorded in `tests/test_ineffective_flags.py::_INTENTIONALLY_UNREAD`;
   the debt inventory `_UNOWNED_DEBT` is now **empty**, which is the point of the deletion rather than an
@@ -471,7 +473,8 @@ Measured 2026-10-01 — `ai-server`, full suite:
 - **Other suites**: `room-server` 14 · `browser-server` 100 · `aegis-sdk-python` 71 ·
   `web-ui` `vitest` 144 · `web-ui` `playwright` 42.
   **The three Python suites are wired into CI** by `scripts/test-all-suites.ps1`, which delegates to
-  `scripts/test-ai-server.ps1` (the constraint gate, unchanged) and then runs the SDK / room / browser
+  `scripts/test-ai-server.ps1` (the constraint gate — now **four** checks, the first being a scoped
+  `ruff --select F821` lint added 2026-10-01) and then runs the SDK / room / browser
   suites. They used to be unwired, and the SDK suite silently drifted to 6 failures (it still
   referenced the deleted `PolicyEngine.approval_store`) with nobody noticing — a suite that is not run
   is not a control. `web-ui` (vitest / playwright) is still not wired: it needs a node toolchain and,

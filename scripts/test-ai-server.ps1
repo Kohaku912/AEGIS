@@ -2,15 +2,18 @@
 #
 # The egress suite guards AEGIS's single constraint: **unpermitted** user information
 # must never leave the local environment (re-scoped 2026-09-30 — outbound connections,
-# and disclosure the user permits, are allowed). Three checks run here, all mandatory:
+# and disclosure the user permits, are allowed). Four checks run here, all mandatory:
 #
-#   1. The full ai-server suite.
-#   2. The egress suite with --require-egress-tests=N. This is the retired
+#   1. Ruff, scoped to F821 (undefined name). This is the only check that is not
+#      dynamic, and it runs first because it is sub-second while the suite is minutes.
+#      It is scoped deliberately — see the block below.
+#   2. The full ai-server suite.
+#   3. The egress suite with --require-egress-tests=N. This is the retired
 #      --fail-on-empty discipline: a rename, a marker typo, or a narrowed -k
 #      expression can leave the egress selection empty while pytest reports the
 #      rest of the suite as passing, so the constraint silently stops being
 #      checked. The floor makes that a hard failure.
-#   3. The mutation check. The egress suite must FAIL when the gate is
+#   4. The mutation check. The egress suite must FAIL when the gate is
 #      deliberately disabled; a suite that has never been observed failing is an
 #      assumption, not a control.
 #
@@ -54,9 +57,40 @@ Push-Location $AiServer
 
 $failed = @()
 
-# ── 1. Full suite ────────────────────────────────────────────────────────────
+# ── 1. Ruff, scoped to F821 ──────────────────────────────────────────────────
+# Deliberately `--select F821`, not a wholesale `ruff check`. The declared rule set
+# in pyproject.toml (E, F, I, N, W, UP) has 994 outstanding findings across src/, so
+# an unscoped gate would fail on its first run and be switched off again. F821 is the
+# one rule that is BOTH zero-debt across src/ and tests/ AND demonstrated to catch what
+# pytest cannot: a live path that passed the entire suite green while calling an
+# undefined name (`_create_autonomous_loop` passing `confirmation_store`, a local of
+# the separate `_build_runtime`). ruff was the only tool that saw it, and ruff was not
+# in CI. Widening this scope is a follow-up, not a prerequisite — see DELEGATION.md §4.
 Write-Host ""
-Write-Host "[1/3] Full ai-server suite ..." -ForegroundColor Green
+Write-Host "[1/4] Ruff F821 (undefined names) ..." -ForegroundColor Green
+# Non-vacuity guard, for the same reason the egress floor exists. Measured: `ruff check
+# <missing path>` **exits 0** and only warns ("Failed to lint ...: os error 2"), so a
+# renamed or moved directory would leave this check reporting [PASS] while linting nothing.
+# Assert the surface first, then lint it.
+$ruffTargets = @("src", "tests")
+$missingTargets = @($ruffTargets | Where-Object { -not (Test-Path $_) })
+$lintableFiles = @(Get-ChildItem -Path $ruffTargets -Recurse -Filter *.py -ErrorAction SilentlyContinue)
+if ($missingTargets.Count -gt 0 -or $lintableFiles.Count -eq 0) {
+    Write-Host "  [FAIL] ruff has no surface to lint (missing: $($missingTargets -join ', '); .py files found: $($lintableFiles.Count))" -ForegroundColor Red
+    $failed += "ruff F821 (no surface)"
+} else {
+    & $Python -m ruff check src tests --select F821
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "  [FAIL] ruff found an undefined name" -ForegroundColor Red
+        $failed += "ruff F821"
+    } else {
+        Write-Host "  [PASS] ruff F821 ($($lintableFiles.Count) files)" -ForegroundColor Green
+    }
+}
+
+# ── 2. Full suite ────────────────────────────────────────────────────────────
+Write-Host ""
+Write-Host "[2/4] Full ai-server suite ..." -ForegroundColor Green
 & $Python -m pytest tests/ -q -p no:cacheprovider
 if ($LASTEXITCODE -ne 0) {
     Write-Host "  [FAIL] full suite exited $LASTEXITCODE" -ForegroundColor Red
@@ -65,9 +99,9 @@ if ($LASTEXITCODE -ne 0) {
     Write-Host "  [PASS] full suite" -ForegroundColor Green
 }
 
-# ── 2. Egress suite with the --fail-on-empty floor ───────────────────────────
+# ── 3. Egress suite with the --fail-on-empty floor ───────────────────────────
 Write-Host ""
-Write-Host "[2/3] Egress suite (-m egress --require-egress-tests=$EgressFloor) ..." -ForegroundColor Green
+Write-Host "[3/4] Egress suite (-m egress --require-egress-tests=$EgressFloor) ..." -ForegroundColor Green
 & $Python -m pytest -m egress --require-egress-tests=$EgressFloor -q -p no:cacheprovider
 if ($LASTEXITCODE -ne 0) {
     Write-Host "  [FAIL] the egress suite failed or fell below the floor of $EgressFloor" -ForegroundColor Red
@@ -76,13 +110,13 @@ if ($LASTEXITCODE -ne 0) {
     Write-Host "  [PASS] egress suite" -ForegroundColor Green
 }
 
-# ── 3. Mutation check ────────────────────────────────────────────────────────
+# ── 4. Mutation check ────────────────────────────────────────────────────────
 if ($SkipMutation) {
     Write-Host ""
-    Write-Host "[3/3] Mutation check ... SKIPPED (-SkipMutation)" -ForegroundColor Yellow
+    Write-Host "[4/4] Mutation check ... SKIPPED (-SkipMutation)" -ForegroundColor Yellow
 } else {
     Write-Host ""
-    Write-Host "[3/3] Mutation check (the egress suite must fail when the gate is broken) ..." -ForegroundColor Green
+    Write-Host "[4/4] Mutation check (the egress suite must fail when the gate is broken) ..." -ForegroundColor Green
     & $Python $MutationScript
     if ($LASTEXITCODE -ne 0) {
         Write-Host "  [FAIL] the egress suite does not catch a disabled gate" -ForegroundColor Red
