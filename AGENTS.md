@@ -443,7 +443,7 @@ Audit logs are written to `data/settings_audit.jsonl`.
 
 Measured 2026-10-01 — `ai-server`, full suite:
 
-- **Total tests**: **1911 passed / 8 skipped**
+- **Total tests**: **1914 passed / 8 skipped**
   — the **+20** over the 2026-09-30 figure are **all new pins**: four for B-5① (the confirmation↔desire
   link), one for the general invariant that **the shipped `config/settings.json` declares no key that
   no settings model declares** (which caught the dead `autonomy` block; see
@@ -474,6 +474,9 @@ Measured 2026-10-01 — `ai-server`, full suite:
   discovers settings models automatically (**72 fields across 11 models** — 94 before B-6, and 26 across
   2 when the detector was written), so a
   newly added dead flag fails the suite instead of shipping quietly.
+  The **+3** over that figure are the pin for `mypy`, which is declared and installed yet run by
+  nothing, so the 53 `# type: ignore` comments it justifies are unverified
+  (`tests/test_type_suppressions_are_unverified.py`; `DELEGATION.md` §4 item 18).
 - **Other suites**: `room-server` 14 · `browser-server` 100 · `aegis-sdk-python` 71 ·
   `web-ui` `vitest` 144 · `web-ui` `playwright` 42.
   **The three Python suites are wired into CI** by `scripts/test-all-suites.ps1`, which delegates to
