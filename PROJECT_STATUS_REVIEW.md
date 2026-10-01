@@ -366,6 +366,29 @@ git ls-remote origin refs/heads/cf-grpc-and-goal-hygiene refs/heads/main \
 >
 > **リモート名はフラットに移行済み**（2026-09-30 — PR が無く既定ブランチが `main` であることを確認した上で
 > 入れ子のリモートブランチを削除し、フラットなブランチを `--set-upstream` で push した）。
+>
+> **2026-10-01 追記 — 09-30 の「`update-ref` はどの深さでも成功した」は再現せず、そして上の 19:58 の表は
+> すでに深さを指していた。** 同日、`refs/` 下の**深さ ≥ 2** の ref を `git update-ref` で書くと
+> **25/25 回**、`rc=0`・stderr 空のまま**ref を書かず、囲むディレクトリを削除**した
+> （`refs/remotes/origin/<name>` / `refs/remotes/other/<name>` / `refs/heads/<dir>/<name>` /
+> `refs/remotes/origin/a/b`）。**深さ ≤ 1** は **15/15 回生存**（`refs/heads/<flat>` /
+> `refs/remotes/<remote>` / `refs/<name>` / 新規作成した親の `refs/newdir/<name>`）。
+> **制御で除外済み**: 外部の監視者（直後および 2 秒後で既に消えている。かつ
+> **同一マシン・同一バイナリ・同一設定の新規 `git init` リポジトリは深さ 2 を正常に書ける**）、
+> バイナリ差（PortableGit 1.2.0 とシステム Git for Windows は**どちらも `2.55.0.windows.3`** で両方失敗）、
+> 新規作成か更新か（**既存 ref も死ぬ**）、親ディレクトリが新規か（深さ 1 の新規親は生存）、
+> reflog の有無（`logs/refs/remotes/origin/` を退避しても不変）、
+> フック / `core.fsmonitor` / `core.hooksPath`（未設定、`repositoryformatversion=0`）。
+> **上の 19:58 の表は、実は同じ結論を含んでいた** — `refs/remotes/origin/HEAD`（深さ 2）と
+> `refs/remotes/origin/nested/deep`（深さ 3）は消え、**`refs/remotes/probe`（深さ 1）だけが残った**。
+> つまり **`fetch` も `update-ref` も、深さ ≥ 2 の ref を壊し、深さ ≤ 1 は壊さない** — 引き金は
+> コマンドではなく **ref の形**である。**別リポジトリは正常**という 19:58 の対照も、10-01 の対照と
+> **一致**する。**結論**: 失敗は **git の挙動ではない** — **このリポジトリの `.git` 固有**。
+> **機序は依然未特定**、09-30 の反証も未説明なので**どちらの規則も確定していない**。**実務上の結論は
+> 変わらない**（入れ子 ref は**ファイルへ直接書く**）が、**フラット名が効く理由**が付いた —
+> `refs/heads/<flat>` は**深さ 1**、`refs/remotes/origin/<flat>` は**深さ 2**。
+> **正典は skill `aegis-verify-and-test` §1.0**（表と制御はそちら）。**コードは不変** — テスト数は
+> `f58d685` の **1905 / 8 skipped** のまま。
 
 > **未検証の手がかり（2026-09-30 に更新）**: 以前ここに書いていた「腐った reflog
 > `.git/logs/refs/heads/cursor/…`」は**手がかりではない**と判定した — **破壊せずに試せない唯一の
@@ -557,7 +580,7 @@ git ls-remote origin refs/heads/cf-grpc-and-goal-hygiene refs/heads/main \
 | **B-3** | `AGENTS.md` のテスト数が実測と乖離（1528 → 実測 1550） | ✅ **修正済み**。他 suite の件数と「CI が見ているのは ai-server だけ」という事実も併記した |
 | **B-4** | **`.gitignore` の穴** — egress テストが書く `ai-server/.tmp-egress-run/`（1 回あたり約 1.6k ファイル）が無視されておらず、**未追跡 1,729 件のうち 1,636 件**がこれだった。実ソース 79 件が埋もれていた | ✅ **修正済み**（`3d6ae62`）。`.workbuddy-ai/`・`.trae/` も併せて無視（既存の `.mimocode/`・`.omo/` と同じ扱い） |
 | **B-5** | **18 日分が未コミット**（HEAD が 2026-09-10 で停止、stash 0 件） | ✅ **対応済み**（`495105e`）。3 コミットで取り込み済み。**中間コミットが独立して緑であることは保証していない**（検証済みは最終状態のみ） |
-| **B-6** | **この環境で `git commit` が ref を書かないことがある** — コミット自体は成功し reflog に記録されるが `.git/refs/heads/<branch>` が作られず HEAD が unborn になる。⚠️ **この行の機構は 2026-09-30 に撤回した（実測で反証）** — ①「**原因を特定**」は誤り: rename が無音で失敗するという説明は**仮説**で、`update-ref`（同じ lock+rename 経路）が成功した測定がこれを弱める。**原因は未特定**。②「**入れ子名でのみ発生**」も**反証**（平坦な `refs/heads/<branch>` は入れ子の `refs/remotes/origin/<branch>` と**同時に**失われた）。③「**`git update-ref` は解決策にならない**」も**反証**（深さを問わず成功）。**残るのは予防だけ** — コミット後に `git log -1` で確認し、失敗していれば`.git/refs/heads/` を `mkdir -p` して `.git/logs/HEAD` の最終行から ref を直接書く。**正典は §1.4 と skill `aegis-verify-and-test` §1.0** | ⚠️ **回避策を確立**: コミット後に `git log -1` で必ず確認し、失敗していれば `mkdir -p .git/refs/heads` + `.git/logs/HEAD` の最終行から ref を直接書く（作業内容は無傷。今回 6 回とも復旧済み） |
+| **B-6** | **この環境で `git commit` が ref を書かないことがある** — コミット自体は成功し reflog に記録されるが `.git/refs/heads/<branch>` が作られず HEAD が unborn になる。⚠️ **この行の機構は 2026-09-30 に撤回した（実測で反証）— ただし 2026-10-01 に深さ説が再現し、撤回は未決着に戻った（§1.4 の 10-01 追記）** — ①「**原因を特定**」は誤り: rename が無音で失敗するという説明は**仮説**で、`update-ref`（同じ lock+rename 経路）が成功した測定がこれを弱める。**原因は未特定**。②「**入れ子名でのみ発生**」も**反証**（平坦な `refs/heads/<branch>` は入れ子の `refs/remotes/origin/<branch>` と**同時に**失われた）。③「**`git update-ref` は解決策にならない**」は**いったん反証されたが、2026-10-01 に再現した** — 深さ ≥ 2 で **25/25 失敗**（`rc=0`・ref を書かず囲むディレクトリを削除）、深さ ≤ 1 で **15/15 生存**。**残るのは予防だけ** — コミット後に `git log -1` で確認し、失敗していれば`.git/refs/heads/` を `mkdir -p` して `.git/logs/HEAD` の最終行から ref を直接書く。**正典は §1.4 と skill `aegis-verify-and-test` §1.0** | ⚠️ **回避策を確立**: コミット後に `git log -1` で必ず確認し、失敗していれば `mkdir -p .git/refs/heads` + `.git/logs/HEAD` の最終行から ref を直接書く（作業内容は無傷。今回 6 回とも復旧済み） |
 | **B-7** | **設定サーフェスの 31% が誰にも読まれていない** — 12 モデル 106 フィールド中 **33 が未読**。最悪は `AutonomyProfile` で、`# Always forbidden (structural)` と書きながら**その挙動を守っているものは何も無かった**（CAPTCHA は別経路で守られているが、bulk signup は**プロンプト文にしか無い** — §4.2 B-8 で判明）。検出器 `test_ineffective_flags.py` はモデルを**手書きのリスト**（privacy / voice の 2 つ）で持っていたため、サーフェスが増えても追随せず、**この 10 フィールドを一度も見ていなかった** | ✅ **対応済み**（P1-3）。`AutonomyProfile` を削除。検出器を**モデル自動発見**に変更し、残る 22 は理由付きで `_UNOWNED_DEBT` に記録し、**「未読の集合」と「記録の集合」の一致**をテストで固定。**未走査だったモデルに死にフラグを足しても落ちる**ことを変異検査で確認。**2026-09-29 訂正**: ここは「**12 モデル / 95 フィールド**」と書いていたが、実測は当時 **11 / 94**、A-1 後は **11 / 93**。**モデル数は削除前の値**（`b73309e^` = 12 モデル / 106 フィールド、AutonomyProfile は 11 フィールド）、**フィールド数は 106 から AutonomyProfile の 11 だけを引いた手計算**で、親の `AEGISSettings.autonomy` 参照フィールドを引き忘れていた（106 − 11 − 1 = 94）。**引いて作った数は測った数ではない** |
 | **B-8** | **browser-server の安全層が丸ごと休眠している** — `BrowserSafetyBoundary` は構築され `get_actions_taken()` だけが読まれるが、**`check_*` は 4 つとも `src/` から一度も呼ばれない**。`record_action()` も呼ばれないので `actions_taken` は常に空。`forbidden_actions` の `use_proxy_for_evasion` / `bulk_signup` は**プロンプト文としてのみ**届く。`except SafetyStop` / `ApprovalBoundary` / `UserInputNeeded` は**死んだ `except`**（対応する `raise` が無い）なので `STOPPED` / `NEEDS_APPROVAL` は到達不能な enum 値。さらに `test_goal_change_guard.py` は **`ai-server/src` しか走査しない**ため、browser-server 側に残る**強制ゲート（`ApprovalBoundary` / `NEEDS_APPROVAL`）が視界の外**にある。**単一制約への実害**: `check_domain`（ナビゲーション毎の egress 検査）も死んでおり、事前検査は宣言済み target しか見ない | ⚠️ **記録済み・未修正**（P1-7）。休眠を `browser-server/tests/test_safety_boundary_dormancy.py` が**発見＋等式**で固定（変異 2 種で load-bearing を証明）。配線には action 語彙の翻訳と `APPROVAL_BOUNDARIES` の扱いの判断が要る。**うち egress 半分は P1-7 で閉じた**（下記 B-9 と P1-7 行） |
 | **B-9** | **egress ゲートの 2 コピーが乖離していた** — browser-server は `aegis_ai` に依存しない別ディストリビューションなので `egress.py` を自前で持つ。docstring と `docs/egress-gate.md` は「意味論は意図的に同一」と書いていたが、**実際は乖離していた**: browser 側の `_extract_host` に IPv6 リテラルの処理が無く、`is_local_destination` の単一ラベル判定に `":" not in host` のガードも無かった。結果、**同じホストが書き方で別判定**（`::1` は external、`http://[::1]/` は local）になり、`_admissible_host` と `egress_allowed` が食い違っていた | ✅ **修正済み**（`a5c2cdc`）。ai-server 側の実装を移植。**移植だけでは不十分だった**: ガードが無いまま IPv6 対応を入れると、ドットを含まない `::2`（グローバル到達可能）が**単一ラベル規則で local になる** — fail-open。両方を同時に入れて初めて閉じる。残る相違（`.lan`/`.home`/`.internal` の有無、`is_private` と明示ネットワーク）は**意図的**として `docs/egress-gate.md` に表で明記した |
