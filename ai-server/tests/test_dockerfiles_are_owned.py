@@ -35,7 +35,7 @@ _RECORDED_UNREFERENCED: frozenset[str] = frozenset(
     {
         # Deliberate placeholder — its own header says docker-compose.yml must not build it.
         "infra/docker/pc-server.Dockerfile",
-        # Drift (measured 2026-10-02): pre-refactor variants, referenced by no build path, and
+        # Drift (measured 2026-10-01): pre-refactor variants, referenced by no build path, and
         # divergent from the live files. Kept pending an owner call — DELEGATION.md §4 item 17.
         "ai-server/Dockerfile",
         "browser-server/Dockerfile",
