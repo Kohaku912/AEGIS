@@ -1,7 +1,6 @@
 param(
     [string]$ReportDir = "data/reports/e2e/latest",
     [switch]$Rebuild,
-    [switch]$IncludeDev,
     [switch]$IncludeRoom
 )
 $ErrorActionPreference = "Stop"
@@ -28,7 +27,8 @@ function Wait-HttpOk([string]$Url, [int]$Attempts = 24, [int]$DelaySec = 3) {
 try {
     $compose = @("compose", "-f", "docker-compose.yml", "-f", "docker-compose.production.yml")
     $services = @("ai-server", "browser-server")
-    if ($IncludeDev) { $compose += @("--profile", "dev"); $services += "dev-server" }
+    # The -IncludeDev switch was removed with dev-server in Phase 9: no compose file declares a
+    # `dev` profile any more, so the branch could only ever have produced a failing invocation.
     if ($IncludeRoom) { $compose += @("--profile", "room"); $services += "room-server" }
     if ($Rebuild) { docker @compose build @services | Out-File "$ReportDir/docker-build.log" -Encoding utf8 }
     docker @compose up -d @services | Out-File "$ReportDir/docker-up.log" -Encoding utf8

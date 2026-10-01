@@ -14,6 +14,35 @@
 > **そのコードが動いていない**。記録は `DELEGATION.md` §4、ピンは
 > `ai-server/tests/test_security_package_stays_unwired.py`、詳細は `docs/security.md`。
 
+> ⚠️ **2026-10-01 追記（Docker 検証）— §9 と §28 は実測で反証。**
+>
+> **§9（dev-server の残骸）の表は「残存」と書いているが、5 行すべてが既に解消済み。** 実測:
+> `docker-compose.production.yml` は 23 行・3 サービスで `dev-server` も `build:` も無い／同ファイルの
+> `AEGIS_DISABLED_SERVERS` の既定値は `room-server`／`docker-compose.yml`・`.env.example`・`README.md` に
+> `dev-server`・`DEV_SERVER`・`50056` は **0 件**。つまり同じレポートの「修正実施サマリ」行 9 の方が正しく、
+> **§9 の本文が腐っていた**（同一ファイルが 1 つの事実を 2 通りに書いている）。
+>
+> **ただし掃討は 4 ファイルで止まっており、実際の残存は一覧に無い場所にあった。** `docs/docker-services.md`
+> — `README.md:66` から「Canonical Docker Compose startup」としてリンクされる正典 — が `dev-server`
+> (gRPC 50056) を Compose 所有サービスとして記載し続け、さらに
+> `scripts/start-beta-docker.ps1` と `scripts/start-docker-real.ps1` が
+> `docker compose build/up ... dev-server` を実行していた。**`dev-server` サービスは存在しないので、
+> この 2 つは必ず失敗する**（`docker compose` は未知のサービス名で停止する）。2026-10-01 に修正したのは
+> 正典・その 2 スクリプト・`scripts/e2e/run-docker-core.ps1` の死んだ `-IncludeDev` スイッチ
+> （`--profile dev` はどの compose にも無く、呼び出し元も無い）・`scripts/audit_common.py` の死んだ除外項。
+> **残り 2 件は記録のみ** — `scripts/e2e/run-dev-real.ps1` とその呼び出し元
+> `scripts/e2e/run-all-real.ps1:25`（e2e ハーネスの削除とオーケストレータの張り替えはオーナー判断）→
+> `DELEGATION.md` §4 項目 17。
+>
+> **§28（`ai-server.Dockerfile` が `[dev]` extra を同梱）の記録は、指しているファイル名が実際に直したファイルと違う。**
+> `pip install --no-cache-dir . flask pyyaml requests` が入っているのは `infra/docker/ai-server.Dockerfile`
+> （本番経路）であり、**`ai-server/Dockerfile` という名前のファイルは今も `pip install -e ".[dev]"` のまま**
+> （実測 2026-10-01）。両者は別物で、`ai-server/Dockerfile` は web-ui ビルド段も HEALTHCHECK も持たず
+> `aegis_ai.main` を起動する（本番は `aegis_ai.docker_entrypoint`）。§27 の補足が言う
+> `pc-server.Dockerfile` の孤立は記録済みの事実で、こちらは正しい。
+>
+> ピン: `ai-server/tests/test_dockerfiles_are_owned.py`（参照先の実在＋未参照集合の等値固定）。
+
 ---
 
 ## 0. サマリ

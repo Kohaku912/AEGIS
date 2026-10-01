@@ -143,13 +143,18 @@ to the user, not a gate.
 services:
   browser-server:
     build:
-      context: ./browser-server
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: infra/docker/browser-server.Dockerfile
     environment:
       - AEGIS_BROWSER_HEADLESS=true
       - AEGIS_EXTERNAL_EGRESS_ALLOWED=false        # default; keep it false
       - AEGIS_EGRESS_ALLOWED_HOSTS=
 ```
+
+> ⚠️ The build paths above are the ones `docker-compose.yml` actually uses. **`browser-server/Dockerfile`
+> is not it** — that file is an unreferenced pre-refactor variant (apt `chromium` + `DISPLAY=:99`
+> instead of `python -m playwright install chromium --with-deps`, no HEALTHCHECK, and its install
+> steps swallow failures with `|| true`). See `DELEGATION.md` §4 item 17.
 
 > The previous revision passed `OPENAI_API_KEY` into the container. The agent *does* read
 > `OPENAI_API_KEY` / `OPENAI_BASE_URL` (falling back to `browser-server/config.json`, which ships

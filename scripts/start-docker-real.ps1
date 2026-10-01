@@ -2,6 +2,9 @@
 #
 # Usage:
 #   .\scripts\start-docker-real.ps1
+#
+# Note: dev-server was deleted in Phase 9. It used to be passed to `docker compose build/up`
+# here, which made every invocation fail with "no such service: dev-server".
 
 $ErrorActionPreference = "Stop"
 
@@ -29,11 +32,11 @@ Write-Host "  PC Server expected at host.docker.internal:$pcPort" -ForegroundCol
 Set-Location "$PSScriptRoot\.."
 
 Write-Host "[3/4] Building Docker images..." -ForegroundColor Green
-docker compose build ai-server browser-server room-server dev-server 2>&1 |
+docker compose build ai-server browser-server room-server 2>&1 |
     ForEach-Object { Write-Host "  $_" -ForegroundColor Gray }
 
 Write-Host "[4/4] Starting services..." -ForegroundColor Green
-docker compose up -d ai-server browser-server room-server dev-server
+docker compose up -d ai-server browser-server room-server
 
 Write-Host ""
 Write-Host "  AI Dashboard:   http://0.0.0.0:8090" -ForegroundColor White
@@ -41,5 +44,4 @@ Write-Host "  AI Chat:        http://0.0.0.0:8090/chat" -ForegroundColor White
 Write-Host "  AI gRPC:        0.0.0.0:50051" -ForegroundColor White
 Write-Host "  Browser Server: http://0.0.0.0:50053" -ForegroundColor White
 Write-Host "  Room Server:    gRPC 0.0.0.0:50055" -ForegroundColor White
-Write-Host "  Dev Server:     gRPC 0.0.0.0:50056" -ForegroundColor White
 Write-Host ""

@@ -443,7 +443,7 @@ Audit logs are written to `data/settings_audit.jsonl`.
 
 Measured 2026-10-01 — `ai-server`, full suite:
 
-- **Total tests**: **1905 passed / 8 skipped**
+- **Total tests**: **1907 passed / 8 skipped**
   — the **+20** over the 2026-09-30 figure are **all new pins**: four for B-5① (the confirmation↔desire
   link), one for the general invariant that **the shipped `config/settings.json` declares no key that
   no settings model declares** (which caught the dead `autonomy` block; see

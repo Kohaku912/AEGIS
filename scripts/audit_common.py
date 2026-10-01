@@ -35,7 +35,6 @@ DEFAULT_EXCLUDE_PARTS = {
     ("pc-server", "target"),
     ("browser-server", "data", "traces"),
     ("ai-server", "src", "generated"),
-    ("dev-server", "src", "generated"),
     ("android-server", "app", "build"),
     ("data", "reports"),
 }
