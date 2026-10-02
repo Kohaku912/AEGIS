@@ -105,9 +105,11 @@ def _local_or_mock(
         )
 
     logger.warning(
-        "No local LLM reachable at %s — falling back to Mock. "
-        "Install and run Ollama (or set LLM_LOCAL_BASE_URL) for a functional local model. "
-        "Cloud providers remain unavailable under the single constraint.",
+        "Local LLM fallback at %s is not listening — falling back to Mock. "
+        "Start Ollama (or set LLM_LOCAL_BASE_URL) for a working local model. "
+        "An external provider is used only when the egress gate permits its host "
+        "(privacy.egress_allowed_hosts in settings.json), so a refused cloud profile "
+        "degrades here rather than transmitting.",
         resolved_base_url,
     )
     return MockLLMProvider()

@@ -83,8 +83,11 @@ class LLMSettingsResolver:
         "long_answer": "local_long_answer",
         "self_development": "local_chat",
         "task_analysis": "local_tool_planning",
-        # Vision must also resolve locally — the single constraint forbids sending
-        # images to a cloud provider.
+        # Vision remaps locally too — a chosen default, not something the constraint
+        # forces: under the re-scoped constraint (docs/GOAL-CHANGE.md) an image may
+        # leave when the gate permits the host. This entry fires only in `mode: local`;
+        # the shipped `mode: cloud` leaves `vision_observation` on its declared endpoint
+        # and the gate decides (the shipped allowlist permits JEV only, so it degrades).
         "vision_observation": "local_vision",
         # DASHBOARD_V3_PLAN.md Phase L1 — L1/L2/L3 layer profiles
         # local mode では local_decision (小サイズ・低温度) / local_chat / local_long_answer に remap

@@ -207,8 +207,10 @@ profiles:
     timeout_seconds: 60
     max_tool_rounds: 5
 
-  # Local vision — required by the single constraint. Images must never be sent to a
-  # cloud provider, so a local VLM is the only permitted vision path.
+  # Local vision — the local path that `mode: local` remaps `vision_observation` onto
+  # (_LOCAL_PROFILE_MAP). Not a constraint requirement: under the re-scoped constraint
+  # (docs/GOAL-CHANGE.md) an image may leave when the egress gate permits the host, so
+  # the shipped `mode: cloud` resolves vision to the endpoint declared above instead.
   local_vision:
     provider: "openai"
     model: "qwen2.5vl:7b"

@@ -371,10 +371,11 @@ class LLMRouter:
     def _select_provider(self, task_type: TaskType) -> str:
         """Select provider based on task type, egress gate, and settings.
 
-        The egress gate is consulted first: while it is closed (the default under the
-        single constraint), only a local provider may be selected — even if a settings
-        flag has been flipped. This prevents the retired "declared but ineffective"
-        class of bug.
+        The egress gate is consulted first: for any destination the gate refuses, only a
+        local provider may be selected — even if a settings flag has been flipped. This
+        prevents the retired "declared but ineffective" class of bug. Note the gate is
+        closed only until the runtime configures it from ``settings.json``, which ships
+        an open-but-scoped allowlist (``api.typesafe.ai``) rather than a closed gate.
         """
         from aegis_ai.egress import EgressRequest, get_egress_gate
 
