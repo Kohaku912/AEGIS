@@ -6,7 +6,7 @@ browser server. Phase 1 fixed the known instances and added a behavioural test f
 one of them. This module generalises the detector: it enumerates the settings
 surface and fails when a flag has no reader.
 
-Three layers, weakest to strongest:
+Four layers, weakest to strongest:
 
 1. **Static** — every flag on every settings model must be referenced somewhere in
    ``src/`` outside its own definition. Fields that are not read must appear in one
@@ -17,6 +17,13 @@ Three layers, weakest to strongest:
 3. **Behavioural** — flipping each lock must actually change a gate decision.
    This is the only layer that proves the flag is *effective* rather than merely
    *mentioned*.
+4. **The second surface** — layers 1–3 scan the *pydantic settings models*, and that
+   unit is a choice: on 2026-10-02 the survey pointed out that a whole configuration
+   *surface* can sit outside it. One does. ``aegis_ai/config.py``'s ``Config`` dataclass
+   is filled straight from the environment and never validated by the settings store, and
+   measured that day 5 of its 13 fields were referenced nowhere and 1 only by a startup
+   log line. Layer 4 discovers that dataclass and applies the same rule to it — with the
+   stricter reading of "read" described below.
 
 The models are **discovered, not listed**. A hand-maintained model list is how this
 detector missed ``AutonomyProfile`` entirely for months: the settings surface grew
@@ -27,7 +34,9 @@ discovery still finds every model.
 Known limitation of layer 1: the reader scan is textual on the bare field name, so
 a field whose name also appears in an unrelated module reads as "read". Prefer
 distinctive field names; a name like ``profile`` or ``enabled`` cannot be checked
-this way.
+this way. Layer 4 does not share this limitation — it parses with ``ast``, so it knows
+*which* object a reference is on and whether the reference sits inside a logging call —
+but it is deliberately narrower: it covers the ``Config`` surface only.
 
 The detector is itself tested (``test_the_detector_reports_a_dead_flag``) so it
 cannot rot into a no-op — the inverse of the bug it exists to catch.
@@ -40,6 +49,8 @@ pinned by ``tests/test_settings_debt_stays_retired.py``.
 
 from __future__ import annotations
 
+import ast
+import functools
 import re
 from pathlib import Path
 
@@ -418,3 +429,214 @@ def test_the_detector_reports_a_dead_flag(tmp_path: Path):
         assert _readers("unread_flag", definition_module=definition) == []
     finally:
         globals()["_SRC"] = original
+
+
+# ── Layer 4: the second configuration surface ─────────────────────────────────
+#
+# Layers 1–3 scan the pydantic settings models. That unit is a choice, and it has a blind
+# spot: a whole configuration *surface* can sit outside it. ``aegis_ai/config.py``'s
+# ``Config`` dataclass does — filled straight from the environment, never validated by the
+# settings store, and invisible to layers 1–3. Measured 2026-10-02: of its 13 fields, 5
+# were referenced nowhere outside their own declaration, 1 only by a startup log line, and
+# 1 duplicated a settings-model field that the runtime actually reads.
+#
+# A *mention* is not a reader. ``logger.info("Trigger Engine: %s", "enabled" if
+# config.trigger_enabled else "disabled")`` cannot change any decision, so layer 4 counts
+# only references that are not inside a logging call. It parses with ``ast`` rather than
+# text, which also means a docstring example is not a call site — the reason
+# ``TriggerEngine``'s "Usage: engine = TriggerEngine()" block stayed invisible.
+
+_CONFIG_MODULE = _SRC / "aegis_ai" / "config.py"
+
+#: The logging methods whose arguments are a mention rather than a use.
+_LOG_METHODS = frozenset(
+    {"debug", "info", "warning", "warn", "error", "critical", "exception", "log"}
+)
+
+#: ``Config`` fields with no reader that can change anything. Every entry carries its
+#: reason, and the equality assertion below fails the moment one gains a real reader.
+_INEFFECTIVE_CONFIG_FIELDS: dict[str, str] = {
+    "trigger_enabled": (
+        "Read only by the startup log line (``main.py:27``), which therefore prints "
+        "'Trigger Engine: enabled' in a process that never constructs a TriggerEngine — "
+        "the survey's G-2. The flag reaches no execution path. Wiring it means building the "
+        "event-driven core (an owner decision), so it is recorded rather than deleted or "
+        "wired."
+    ),
+    "policy_default_deny": (
+        "Read nowhere. The live default-deny posture belongs to the policy engine, not to "
+        "this environment variable, so setting it changes nothing."
+    ),
+    "approval_timeout_ms": "Read nowhere — the approval timeout comes from the settings store.",
+    "approval_validity_ms": "Read nowhere — approval validity comes from the settings store.",
+    "llm_model": "Read nowhere — the model is chosen by the LLM gateway's own configuration.",
+    "loop_cooldown_seconds": (
+        "Read nowhere — the autonomous loop's cadence comes from the settings store."
+    ),
+}
+
+#: ``Config`` fields sharing a name with a settings-model field: **two declarations of one
+#: fact**, which nothing asserts agree. Recorded rather than merged, because which
+#: declaration wins is an owner decision.
+_DUPLICATED_CONFIG_FIELDS: dict[str, str] = {
+    "autonomous_loop_enabled": (
+        "Also on ``AutonomousSettings`` (``settings/models.py:52``). ``runtime.py:122`` gates "
+        "on ``settings.autonomous.autonomous_loop_enabled`` (default **True**) while "
+        "``main.py:28`` logs this copy (default **False**), so a default start prints "
+        "'Autonomous Loop: disabled' while the loop is in fact started. The startup log "
+        "reports a different declaration than the runtime obeys."
+    ),
+}
+
+#: Settings-model fields whose only references are inside logging calls. Measured empty on
+#: 2026-10-02 — layer 1's textual scan cannot tell the difference, so this records the
+#: claim explicitly instead of leaving it untested.
+_LOG_ONLY_SETTINGS_FIELDS: dict[str, str] = {}
+
+
+def _config_fields() -> list[str]:
+    """Every ``Config`` field, discovered from the dataclass rather than listed."""
+    from dataclasses import fields as dataclass_fields
+
+    from aegis_ai.config import Config
+
+    return sorted(f.name for f in dataclass_fields(Config))
+
+
+def _settings_field_names() -> set[str]:
+    return {name for model in _settings_models() for name in model.model_fields}
+
+
+def _is_logging_call(node: ast.Call) -> bool:
+    func = node.func
+    if isinstance(func, ast.Name):
+        return func.id == "print"
+    return isinstance(func, ast.Attribute) and func.attr in _LOG_METHODS
+
+
+@functools.lru_cache(maxsize=4)
+def _reference_index(
+    src: Path,
+) -> tuple[dict[str, frozenset[str]], dict[str, frozenset[str]]]:
+    """(real references, log-only references) per identifier, as ``module:line``.
+
+    Keyed on ``src`` so the detector's own regression test, which swaps the tree, gets a
+    fresh index rather than the real one.
+    """
+    real: dict[str, set[str]] = {}
+    logged: dict[str, set[str]] = {}
+    for path in sorted(src.rglob("*.py")):
+        if "__pycache__" in path.parts:
+            continue
+        rel = path.relative_to(src).as_posix()
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8", errors="replace"))
+        except SyntaxError:
+            continue
+        log_lines: set[int] = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call) and _is_logging_call(node):
+                log_lines.update(sub.lineno for sub in ast.walk(node) if hasattr(sub, "lineno"))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Attribute):
+                name = node.attr
+            elif isinstance(node, ast.Name):
+                name = node.id
+            else:
+                continue
+            bucket = logged if node.lineno in log_lines else real
+            bucket.setdefault(name, set()).add(f"{rel}:{node.lineno}")
+    return (
+        {name: frozenset(where) for name, where in real.items()},
+        {name: frozenset(where) for name, where in logged.items()},
+    )
+
+
+def _real_readers(field: str, *, definition_module: Path) -> list[str]:
+    """Modules with a reference to ``field`` that is *not* inside a logging call."""
+    real, _ = _reference_index(_SRC)
+    exclude = definition_module.relative_to(_SRC).as_posix()
+    return sorted({where.rsplit(":", 1)[0] for where in real.get(field, ())} - {exclude})
+
+
+def _log_only_readers(field: str, *, definition_module: Path) -> list[str]:
+    """Modules that mention ``field`` *only* inside logging calls."""
+    real, logged = _reference_index(_SRC)
+    exclude = definition_module.relative_to(_SRC).as_posix()
+    if {where.rsplit(":", 1)[0] for where in real.get(field, ())} - {exclude}:
+        return []
+    return sorted({where.rsplit(":", 1)[0] for where in logged.get(field, ())} - {exclude})
+
+
+def test_the_config_scan_actually_covers_the_config_surface():
+    """Guard the layer: an empty discovery would pass every assertion below vacuously."""
+    fields = _config_fields()
+    assert len(fields) >= 10, f"only {len(fields)} Config fields were discovered"
+    assert "trigger_enabled" in fields, "the discovery missed a known field"
+
+
+def test_every_config_field_has_a_real_reader_or_is_recorded():
+    """A value the environment can set but nothing acts on is a lie in the log."""
+    for field in _config_fields():
+        if field in _INEFFECTIVE_CONFIG_FIELDS:
+            continue
+        readers = _real_readers(field, definition_module=_CONFIG_MODULE)
+        assert readers, (
+            f"Config.{field} has no reader outside its own declaration (log-only mentions: "
+            f"{_log_only_readers(field, definition_module=_CONFIG_MODULE)}). Wire it, delete "
+            f"it, or record it in _INEFFECTIVE_CONFIG_FIELDS with a reason."
+        )
+
+
+def test_the_ineffective_config_fields_are_accounted_for():
+    """The headline number for the second surface, asserted rather than reported."""
+    ineffective = {
+        field
+        for field in _config_fields()
+        if not _real_readers(field, definition_module=_CONFIG_MODULE)
+    }
+    assert ineffective == set(_INEFFECTIVE_CONFIG_FIELDS), (
+        f"unrecorded: {sorted(ineffective - set(_INEFFECTIVE_CONFIG_FIELDS))}. "
+        f"recorded but now read: {sorted(set(_INEFFECTIVE_CONFIG_FIELDS) - ineffective)}."
+    )
+
+
+def test_the_ineffective_config_record_is_accurate():
+    """Every entry must name a real field, and a log-only one must say so."""
+    unknown = sorted(set(_INEFFECTIVE_CONFIG_FIELDS) - set(_config_fields()))
+    assert unknown == [], f"_INEFFECTIVE_CONFIG_FIELDS names fields that do not exist: {unknown}"
+    for field, reason in _INEFFECTIVE_CONFIG_FIELDS.items():
+        if _log_only_readers(field, definition_module=_CONFIG_MODULE):
+            assert "log" in reason.lower(), (
+                f"Config.{field} is mentioned only inside a logging call — its reason must "
+                f"say so, or a reader will take it for merely unwired."
+            )
+
+
+def test_the_duplicated_config_fields_are_recorded():
+    """Two declarations of one fact must be recorded, never silently tolerated."""
+    duplicated = set(_config_fields()) & _settings_field_names()
+    assert duplicated == set(_DUPLICATED_CONFIG_FIELDS), (
+        f"unrecorded: {sorted(duplicated - set(_DUPLICATED_CONFIG_FIELDS))}. "
+        f"recorded but no longer duplicated: "
+        f"{sorted(set(_DUPLICATED_CONFIG_FIELDS) - duplicated)}."
+    )
+
+
+def test_no_settings_flag_is_read_only_by_a_log_line():
+    """The same rule as layer 4, applied to layer 1's surface.
+
+    Layer 1's textual scan counts any mention, so a settings flag whose only reference is a
+    log line would read as "read". This records the measured answer (empty) so the claim is
+    tested rather than assumed.
+    """
+    log_only = {
+        key
+        for key in _scanned_fields()
+        if _log_only_readers(_field_of(key), definition_module=_DEFINITION_MODULE)
+        and not _real_readers(_field_of(key), definition_module=_DEFINITION_MODULE)
+    }
+    assert log_only == set(_LOG_ONLY_SETTINGS_FIELDS), (
+        f"unrecorded: {sorted(log_only - set(_LOG_ONLY_SETTINGS_FIELDS))}. "
+        f"recorded but now really read: {sorted(set(_LOG_ONLY_SETTINGS_FIELDS) - log_only)}."
+    )
