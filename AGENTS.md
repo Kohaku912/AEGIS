@@ -443,7 +443,14 @@ Audit logs are written to `data/settings_audit.jsonl`.
 
 Measured 2026-10-01 — `ai-server`, full suite:
 
-- **Total tests**: **1926 passed / 8 skipped**
+> **Re-measured 2026-10-02: `1942 passed / 8 skipped`.** The +16 over the record below is +2
+> (S-1①, the passkey route-coverage invariant), +6 (M-2, the ineffective-flag detector's fourth
+> layer over `aegis_ai/config.py`) and +4 (S-2, the display-access consolidation). **The remaining
+> +4 landed after 2026-10-01 and is *not attributed*** — the count-history table in the
+> `aegis-verify-and-test` skill carries the same gap. Egress is now **311 passed / 1 skipped**
+> (312 carry the marker, 1638 deselected), not 305.
+
+- **Total tests (2026-10-01 record)**: **1926 passed / 8 skipped**
   — the **+20** over the 2026-09-30 figure are **all new pins**: four for B-5① (the confirmation↔desire
   link), one for the general invariant that **the shipped `config/settings.json` declares no key that
   no settings model declares** (which caught the dead `autonomy` block; see
@@ -509,9 +516,11 @@ Measured 2026-10-01 — `ai-server`, full suite:
   If every check reports FAIL with an **empty** exit code, the script host cannot launch native
   binaries — that is an environment limit, not a regression. Verify the suites individually (see the
   `aegis-verify-and-test` skill) rather than "fixing" code that is fine.
-- **Egress regression suite**: **305 passed / 1 skipped** (306 tests carry the `egress` marker).
-  CI enforces a floor of 160 (`--require-egress-tests=160`) **and** mutation-proves the gate:
-  breaking it yields 74 failures, restoring it yields 305 passes.
+- **Egress regression suite**: **311 passed / 1 skipped** (312 tests carry the `egress` marker,
+  1638 deselected). CI enforces a floor of 160 (`--require-egress-tests=160`) **and** mutation-proves
+  the gate: breaking it yields failures, restoring it yields 311 passes. (The `74 failures` figure
+  belongs to the 2026-10-01 baseline of 305 and has **not** been re-measured since — re-run the
+  mutation before quoting it.)
 - **Canonical command**:
   `cd ai-server && PYTHONPATH=src CODEBUDDY_SAFE_DELETE_ENABLED=0 $VENV -m pytest -q`
 
