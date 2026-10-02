@@ -8,9 +8,8 @@ from typing import Any
 
 from flask import Response, abort, jsonify, request, send_from_directory
 
+from aegis_ai.auth.display_access import is_display_read_allowed
 from aegis_ai.web.ui_overview import build_display_power_state, build_ui_overview
-
-_LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
 
 # Legacy Jinja pages historically registered on these exact paths. When ui-v2 is
 # enabled they must not win over the SPA on browser reload.
@@ -114,23 +113,5 @@ def _ui_dist_dir() -> Path:
 def _require_display_read() -> None:
     if request.method != "GET":
         abort(405)
-    token = os.getenv("AEGIS_DISPLAY_TOKEN", "").strip() or os.getenv("AEGIS_DISPLAY_READ_TOKEN", "").strip()
-    provided = request.args.get("display_token", "") or request.headers.get("X-AEGIS-Display-Token", "")
-    if token and provided == token:
-        return
-    host = _request_host_without_port()
-    remote = (request.remote_addr or "").strip().lower()
-    if host in _LOOPBACK_HOSTS:
-        return
-    if request.headers.get("X-Forwarded-Host"):
+    if not is_display_read_allowed():
         abort(403)
-    if remote in _LOOPBACK_HOSTS:
-        return
-    abort(403)
-
-
-def _request_host_without_port() -> str:
-    host = (request.headers.get("X-Forwarded-Host") or request.host or "").strip().lower()
-    if host.startswith("["):
-        return host.split("]", 1)[0].lstrip("[")
-    return host.split(":", 1)[0]

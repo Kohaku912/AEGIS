@@ -7,9 +7,9 @@ from typing import Any
 
 from flask import Blueprint, abort, jsonify, request
 
-logger = logging.getLogger("aegis_ai.web.presentation_routes")
+from aegis_ai.auth.display_access import is_display_read_allowed
 
-_DISPLAY_LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
+logger = logging.getLogger("aegis_ai.web.presentation_routes")
 
 
 def init_presentation_routes(owner: Any) -> None:
@@ -38,16 +38,8 @@ def init_presentation_routes(owner: Any) -> None:
 def _require_local_display_request() -> None:
     """Keep the physical display route off Cloudflare and LAN/WAN hosts."""
 
-    host = _request_host_without_port()
-    if host not in _DISPLAY_LOOPBACK_HOSTS:
+    if not is_display_read_allowed(allow_token=False, allow_remote_addr=False, trust_forwarded_host=False):
         abort(403)
-
-
-def _request_host_without_port() -> str:
-    host = (request.host or "").strip().lower()
-    if host.startswith("["):
-        return host.split("]", 1)[0].lstrip("[")
-    return host.split(":", 1)[0]
 
 
 def _display_projection(presentation: dict[str, Any]) -> dict[str, Any]:

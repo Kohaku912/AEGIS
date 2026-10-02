@@ -9,6 +9,7 @@ from typing import Any
 from flask import g, jsonify, redirect, request
 
 from aegis_ai.auth.csrf import CSRF_HEADER, csrf_valid
+from aegis_ai.auth.display_access import is_display_read_allowed, is_loopback_peer
 from aegis_ai.auth.passkey_service import PasskeyConfig, PasskeyService
 from aegis_ai.auth.passkey_store import PasskeyStore, now_ms
 from aegis_ai.auth.routes import SESSION_COOKIE, init_auth_routes
@@ -59,7 +60,7 @@ def install_passkey_auth(app: Any, *, data_dir: str | Path = "data/auth", exempt
 
         path = request.path or "/"
         if path in local_exempt:
-            if production and not _is_local_request():
+            if production and not is_loopback_peer():
                 return jsonify({"error": "health is local-only"}), 403
             return None
         if path.startswith("/static/"):
@@ -171,34 +172,16 @@ def _wants_json() -> bool:
     return request.path.startswith("/api/") or request.is_json or request.accept_mimetypes.best == "application/json"
 
 
-def _is_local_request() -> bool:
-    return (request.remote_addr or "") in {"127.0.0.1", "::1", "localhost"}
-
-
 def _display_read_allowed(path: str) -> bool:
+    """The two display reads the middleware lets through unauthenticated."""
+
     if request.method != "GET":
         return False
     is_stream = path == "/api/ui/stream" and request.args.get("surface", "").strip().lower() == "display"
     is_overview = path == "/display/overview"
     if not is_stream and not is_overview:
         return False
-    token = os.getenv("AEGIS_DISPLAY_TOKEN", "").strip() or os.getenv("AEGIS_DISPLAY_READ_TOKEN", "").strip()
-    provided = request.args.get("display_token", "") or request.headers.get("X-AEGIS-Display-Token", "")
-    if token and provided == token:
-        return True
-    host = _request_host_without_port()
-    if host in {"127.0.0.1", "::1", "localhost"}:
-        return True
-    if request.headers.get("X-Forwarded-Host"):
-        return False
-    return _is_local_request()
-
-
-def _request_host_without_port() -> str:
-    host = (request.headers.get("X-Forwarded-Host") or request.host or "").strip().lower()
-    if host.startswith("["):
-        return host.split("]", 1)[0].lstrip("[")
-    return host.split(":", 1)[0]
+    return is_display_read_allowed()
 
 
 def _auth_header_script() -> str:
