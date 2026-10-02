@@ -112,20 +112,19 @@ If a password field is detected, `android.type_text` is denied at the client lev
 
 ## Testing
 
-### Python E2E Tests (CI-safe, mock provider)
+### Python Tests (CI-safe, mock provider)
 
 ```bash
 cd ai-server
 
-# Observe E2E
-pytest tests/test_android_observe_e2e.py -v
-
-# Action E2E
-pytest tests/test_android_action_e2e.py -v
-
-# All Android tests
-pytest tests/test_android_observe_e2e.py tests/test_android_action_e2e.py -v
+# Android integration (mock provider)
+pytest tests/test_android_integration.py -v
 ```
+
+> **Corrected 2026-10-02.** This section previously gave commands for
+> `tests/test_android_observe_e2e.py` and `tests/test_android_action_e2e.py`. Neither file exists
+> anywhere in the repository; measured, not inferred — see
+> [`improvement-review.md`](improvement-review.md) §M-1.
 
 ### ADB Provider (local, real device)
 

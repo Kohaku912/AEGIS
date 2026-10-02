@@ -46,7 +46,7 @@ python -m grpc_tools.protoc -I../protos --python_out=src/generated --grpc_python
 
 ```bash
 cd ai-server
-pytest --ignore=tests/test_approval_ui.py --ignore=tests/test_android_local.py -q
+pytest --ignore=tests/test_android_local.py -q
 ```
 
 ### 1.5 Docker Compose 起動

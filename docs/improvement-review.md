@@ -27,7 +27,7 @@
 |---|---|---|
 | **1** | **egress ゲートが「全拒否」のまま実装されている**（目標は再定義済みで、接続は可・許可ある開示も可） | **唯一の制約そのもの**。今の実装は**目標より厳しい**。許可の配線が未了なので、クラウド LLM・Web 検索・外部メッセージ・音声は**許可を与えても到達不能** |
 | **2** | **宣伝されている「イベント駆動の中核」がインスタンス化されていない**（`TriggerEngine` / `Scheduler` / `EventView` の 3 つが全部） | `docs/architecture.md` は AEGIS を "**event-driven**" と定義し図とシーケンス図まで載せるが、プロセス内にトリガエンジンが存在しない。実体は**ポーリング駆動** |
-| **3** | **`docs/testing.md` が挙げる E2E テスト 6 本が、1 本も存在しない** | 「その検証はある」と読者に信じさせる。実在する e2e テストは別名で、`EventBus` しか触っていない |
+| **3** | **`docs/testing.md` が挙げるテスト **17 本**が、1 本も存在しない**（同種の写し 4 文書も — すべて修正済み） | 「その検証はある」と読者に信じさせる。しかも 2026-09-28 の掃討は**この文書を漏らしていた** |
 
 ### 0.2 測定で**反証された**懸念（＝対応不要。これも成果である）
 
@@ -108,28 +108,52 @@ ai-server/src/aegis_ai/main.py:27
 
 ---
 
-### G-3 【新規】`docs/testing.md` の E2E 節 — 挙げられた 6 本が 1 本も存在しない　`P1`
+### G-3 【新規（クラスは既知）】`docs/testing.md` は 17 本の存在しないテストを名指ししていた　`P1` — **修正済み**
 
-**現状（測定）**
+**現状（測定、2026-10-02）**
 
-`docs/testing.md` §"E2E Integration Tests" は 6 本を名指しする。存在を 1 本ずつ測った:
+`docs/testing.md` は「**Status**: Active (verified against current code snapshot)」と名乗りながら、
+名指しするテストファイルの大半が存在しない。1 本ずつ測った:
 
-| 文書の記載 | 実測 |
+| 節 | 記載 | 実測 |
+|---|---|---|
+| Quick Reference | `pytest ../tests/` | **`../tests/` はディレクトリとして存在しない**（テストは `ai-server/tests/`） |
+| Unit Tests | 8 本 | **8 本すべて存在しない** |
+| E2E Integration | 8 本 | **8 本すべて存在しない** |
+| Local-Only | `test_pc_observe_e2e.py` | 存在しない |
+| Current Test Commands | `test_approval_redesign.py` | 存在しない |
+
+**17 本**のテストファイルがリポジトリ全体で 0 件。実在するのは `test_e2e_lifecycle.py` と
+`test_e2e_integration.py` の 2 本で、後者が触るのは `EventBus` のみ（`TriggerEngine` /
+`ContextBuilder` / `AutonomousLoop` は 1 箇所も現れない）。テストモジュール総数は **144** で
+ディレクトリ自体は充実している — **名指しだけが虚構**である。
+
+**このクラスは既知であり、掃討が漏れていた。** 2026-09-28 の掃討は `docs/pc-server.md`・
+`docs/room-server.md`・`docs/testing-real-devices.md` を直し、`test_server_docs_are_accurate.py`
+を作った（`PROJECT_STATUS_REVIEW.md` に台帳行がある）。しかしそのピンが読むのは各サーバの
+`AGENTS.md` の **`## Directory Structure` フェンスだけ**なので、**別の文書の別のフェンスにある
+`pytest tests/...` は最初から視野の外**だった。**掃討の被覆は主張であり、測る必要がある** — 実例。
+
+同じ掃討が漏らしていた写し（本調査で実測・修正）:
+
+| 写し | 内容 |
 |---|---|
-| `test_android_observe_e2e.py` | **存在しない** |
-| `test_pc_observe_e2e.py` | **存在しない** |
-| `test_room_observe_e2e.py` | **存在しない** |
-| `test_research_e2e.py` | **存在しない** |
-| `test_research_approval_e2e.py` | **存在しない** |
-| `test_autonomous_loop_e2e.py` | **存在しない** |
+| `docs/android-server.md` §Testing | `test_android_observe_e2e.py` / `test_android_action_e2e.py` を実行せよと指示 |
+| `docs/research-e2e.md` §Running | 3 本。しかも**同じ文書のバナーが既に「No test file covers them」と書いていた** — バナーは足されたがその下のコマンド節は掃かれず、**文書が自分と矛盾していた** |
+| `ai-server/AGENTS.md` | エージェントが最初に読む面が、存在しないテスト 3 本を指示 |
+| `docs/beta-runbook.md` | `--ignore=tests/test_approval_ui.py`（存在しない） |
 
-実在する e2e テストは `tests/test_e2e_integration.py` と `tests/test_e2e_lifecycle.py` の 2 本で、名指しされた 6 本とは名前が違う。しかも**内容も主張に届いていない** — 両ファイルを走査したところ、触っているのは `EventBus` のみで、**`TriggerEngine` / `ContextBuilder` / `AutonomousLoop` は 1 箇所も現れない**。
+**実施した修正**: 上記 4 文書を実測に合わせた。`docs/testing.md` のテスト一覧は**フェンス内の名前を
+ディレクトリ参照に置き換えた** — 新しい手書きリストは同じ腐り方を再生産するだけだからである。
+`docs/dev-server.md` は**触っていない**（バナー付きの歴史的記録で、「do not follow the setup
+instructions below」と明記されている）。
 
-**改善の方向性**
+**ピン**: `ai-server/tests/test_docs_run_tests_that_exist.py` を追加。**フェンス内**の
+`tests/<name>.py` だけを見て（散文は自由 — 退職したテストを語る記録は残さねばならない）、
+解決しない集合が**記録済み集合と等しい**ことを主張する。除外は**規則**（ドット始まりの
+ディレクトリを丸ごと刈る）で、除外リストではない。変異 **4/4** 捕捉。
 
-文書を実在する 2 本に書き換え、**被覆の主張を実測に合わせる**。G-2 を「構築する」枝で閉じるなら、ここに `TriggerEngine` を通す e2e を足す。文書とソースが同じ事実を語るなら**一致を assert する**（`test_schema_mirrors_the_protobuf_schema.py` と同じ形）のが望ましい。
-
-**帰属**: **推奨で閉じられる**（文書修正）。テスト追加は G-2 の枝に従属。
+**帰属**: **推奨で閉じられる**（修正・ピンとも完了）。`TriggerEngine` を通す e2e の追加は G-2 の枝に従属。
 
 ---
 
@@ -266,7 +290,7 @@ ai-server/src/aegis_ai/main.py:27
 
 | 文書の主張 | ソースの実測 | 出典 |
 |---|---|---|
-| `docs/testing.md` の E2E 6 本 | **6 本すべて存在しない**（実在は別名 2 本） | **本調査**（G-3） |
+| `docs/testing.md` のテスト名 **17 本** | **17 本すべて存在しない**（実在は別名 2 本）。同種の写し 4 文書も本調査で修正 | **本調査**（G-3） |
 | `docs/architecture.md` の TriggerEngine 図・シーケンス | **未構築**（3 構成要素とも） | **本調査**（G-2） |
 | `DELEGATION.md` §4 項目 14「6 クラス」 | **9 クラス / 7 ファイル** | **本調査**（S-3） |
 | `docs/architecture.md` §3.5「AC（16-32°C 検証済み）、IR blaster（allowlist）」 | ソースは `SetAirConditioner` に **503**、許可方式は**ピン denylist（PH4/PH5）**で allowlist ではない | `feature-catalog.md` §9 |
@@ -351,7 +375,7 @@ ai-server/src/aegis_ai/main.py:27
 |---|---|---|---|---|
 | **G-1** | 目標 | egress ゲートが「全拒否」のまま。許可を与えても外部に出せない | **P0** | オーナー判断 |
 | **G-2** | 目標 | `TriggerEngine` / `Scheduler` / `EventView` が未構築。起動ログが偽を印字 | **P1** | オーナー判断（ログは即修正） |
-| **G-3** | 目標 | `docs/testing.md` の E2E 6 本が全部存在しない | **P1** | 推奨で閉じられる |
+| **G-3** | 目標 | `docs/testing.md` のテスト名 17 本が全部存在しない（写し 4 文書も） | **P1** | **修正済み**（ピン追加） |
 | **G-4** | 目標 | §3.2 の ❌ 群の v1 範囲 | **P2** | オーナー判断 |
 | **E-1** | 非効率 | 中核が死んでいるので全体がポーリング駆動 | **P1** | G-2 に従属 |
 | **E-2** | 非効率 | ワーカー 10 に対し外向きタイムアウト最大 30 秒 | **P2** | 推奨で閉じられる |

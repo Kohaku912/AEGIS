@@ -35,19 +35,12 @@
 
 ## Running
 
-```bash
-# All research E2E tests
-cd ai-server && pytest tests/test_research_e2e.py tests/test_research_approval_e2e.py tests/test_research_memory_e2e.py -v
-
-# Quick research tests (no approval)
-cd ai-server && pytest tests/test_research_e2e.py -v
-
-# Approval gating tests
-cd ai-server && pytest tests/test_research_approval_e2e.py -v
-
-# Memory persistence tests
-cd ai-server && pytest tests/test_research_memory_e2e.py -v
-```
+**Nothing to run.** Measured 2026-10-02: no test file in the repository exercises the research
+pipeline. The commands this section used to give — `tests/test_research_e2e.py`,
+`tests/test_research_approval_e2e.py`, `tests/test_research_memory_e2e.py` — named three files that
+do not exist, which contradicted this document's own banner above. The banner was added on
+2026-09-28 but this section was never swept. See
+[`improvement-review.md`](improvement-review.md) §M-1.
 
 ## Pipeline
 

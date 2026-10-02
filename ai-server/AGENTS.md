@@ -158,9 +158,12 @@ cd ai-server
 pytest
 
 # Run specific tests
-pytest tests/test_memory_system.py
-pytest tests/test_desire_system.py
-pytest tests/test_autonomous_loop.py
+pytest tests/test_memory_manager_crud.py
+pytest tests/test_desire_fulfillment.py
+pytest tests/test_autonomous_loop_behavior.py
+
+# The authoritative inventory is the directory itself:
+ls tests/*.py
 ```
 
 ## Settings Persistence
