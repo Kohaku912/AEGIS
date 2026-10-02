@@ -55,6 +55,7 @@ cd ai-server
 | Document | Description |
 |----------|-------------|
 | [Feature Catalog](docs/feature-catalog.md) | Every feature, what is live vs declared-only, and the full 128-capability inventory |
+| [Improvement Review](docs/improvement-review.md) | Codebase-wide survey: goal gaps, inefficiency, security, maintainability, extensibility — each with priority |
 | [Architecture](docs/architecture.md) | System design |
 | [Status](docs/status.md) | Servers, roadmap, backlog, and what is retired |
 | [Risk Register](docs/risk-register.md) | Risk analysis and mitigation |
