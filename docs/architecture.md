@@ -37,7 +37,7 @@ AEGIS is an **autonomous, event-driven, self-improving AI assistant** that spans
 flowchart TB
     %% User Interfaces
     U["ユーザー<br/>Voice / Chat / LINE / Web UI"]
-    DashUI["Dashboard<br/>Streaming chat + Manager API"]
+    DashUI["Dashboard<br/>Chat + Manager API"]
     ApprovalUI["Approval UI<br/>Multi-channel (SSE / PC overlay / Android / Room)"]
 
     %% Event Sources
@@ -238,8 +238,8 @@ All inter-server communication uses **gRPC** with Protocol Buffers (proto3). The
 | **Role** | Physical environment control |
 
 **Capabilities**:
-- **Observe**: Temperature, humidity, brightness, motion, camera, device status
-- **Action**: Light control, AC (16-32°C validated), IR blaster (allowlist), smart plug
+- **Observe**: Temperature, humidity, brightness, motion, device status. **Camera is not implemented** — `GetCameraSnapshot` returns **503** (`camera provider is not configured`)
+- **Action**: Light control (provider defaults to `mock`, and mock is **refused** when `AEGIS_RUNTIME_MODE=production`), IR blaster (validates `repeat`, requires `ir_code`, then delegates to the provider — **there is no allowlist**), smart plug. **AC is not implemented** — `SetAirConditioner` returns **503**; **robot arm movement is disabled** — `MoveRobotArm` returns **403** (all `room-server/src/aegis_room/server.py`)
 - **Safety**: Emergency stop is Level 1 (auto-allowed). Physical device operation requires approval.
 
 ### 3.6 Dashboard
@@ -251,7 +251,7 @@ All inter-server communication uses **gRPC** with Protocol Buffers (proto3). The
 | **Role** | Web UI — chat, monitoring, settings |
 
 **Features**:
-- Streaming chat with **tool calling** (CapabilityCatalog-driven, max 5 rounds)
+- Chat with **tool calling** (CapabilityCatalog-driven, up to 15 rounds)
 - **ask_user** support (tool pause → user input → continue)
 - Manager API routes (tasks, events, audit, status, notifications, memory, sleep)
 - Settings Web UI with persistence to `config/settings.json`
@@ -393,7 +393,7 @@ ai-server/src/
 │   │   └── goals.py                  # Goal tracking
 │   ├── web/
 │   │   ├── app.py                    # Flask DashboardApp
-│   │   ├── dashboard_routes.py       # Pages + streaming chat
+│   │   ├── dashboard_routes.py       # Pages + chat
 │   │   ├── manager_routes.py         # Manager API routes
 │   │   ├── chat_tools.py             # call_llm_with_tools() + regex parsing
 │   │   ├── settings_routes.py        # Settings CRUD API
@@ -736,7 +736,7 @@ AEGIS can improve its own codebase — but only through a PR-based workflow.
 | **Capability Management** | ✅ Complete | Folder-based JSON manifests, 128 capabilities |
 | **Desire System** | ✅ Complete | Pressure-based 3 desires, fulfillment.py rules |
 | **Autonomous Loop** | ✅ Complete | Desire-driven, TaskManager integration |
-| **Dashboard** | ✅ Complete | Streaming chat + tool calling, Manager API routes |
+| **Dashboard** | ✅ Complete | Chat + tool calling, Manager API routes |
 | **PC Server** | ✅ Complete | Rust, TCP JSON, 58 capabilities, custom overlay |
 | **Browser Server** | ✅ Complete | browser-use, DeepSeek compatibility patch |
 | **LLM Integration** | ✅ Complete | LLMGateway + PromptRegistry + text-based tool calling |

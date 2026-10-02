@@ -32,7 +32,7 @@ def main() -> int:
     checks = [
         check_files(
             "web-dashboard",
-            "Nine-domain master dashboard",
+            "Four-domain master dashboard",
             [
                 "DESIGN.md",
                 "web-ui/src/App.tsx",

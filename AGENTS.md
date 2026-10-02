@@ -145,7 +145,7 @@ The agent may proceed without asking when:
 | **Policy Engine** | `ai-server/src/aegis_ai/policy_engine.py` | Deterministic gate. Under the single constraint its role narrows to **egress control** (the only structural constraint). Approval/policy decisions are no longer constraints. |
 | **Egress Gate** | `ai-server/src/aegis_ai/egress/` | **The single enforcement point for the single constraint.** All outbound network transmission is routed here and is **denied by default**. |
 | **Presentation Engine** | `ai-server/src/aegis_ai/presentation/` | Rich output delivery (text/chart/diagram/3D/overlay) |
-| **Dashboard** | `ai-server/src/aegis_ai/web/` | Flask UI with streaming chat |
+| **Dashboard** | `ai-server/src/aegis_ai/web/` | Flask UI with chat |
 
 ---
 
@@ -353,7 +353,7 @@ manifest's own `aliases` key is **not** consulted for ID resolution; it only fee
 
 ### Features
 
-- **Streaming chat**: Real-time LLM response display with tool calling
+- **Chat with tool calling**: `POST /api/chat/send` (plain JSON). The `GET /api/chat/events` SSE route is registered but **no producer publishes to it**
 - **Memory integration**: AdvancedMemory context in LLM prompts
 - **Desire context**: Current desire states in LLM prompts
 - **Tool calling**: Chat uses CapabilityCatalog for capability execution
@@ -361,7 +361,7 @@ manifest's own `aliases` key is **not** consulted for ID resolution; it only fee
 
 ### Agentic Tool Calling Loop
 
-The chat system supports **recursive multi-step tool calling** (max 5 rounds):
+The chat system supports **recursive multi-step tool calling** (up to **15** rounds — the `call_llm_with_tools` default; `LLMSettings.max_tool_rounds = 5` is displayed in the settings UI but never passed by a caller):
 
 1. LLM receives user message and available tools
 2. LLM calls a tool (or responds directly if no tool needed)

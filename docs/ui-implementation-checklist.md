@@ -33,7 +33,7 @@ Legend: `[x]` implemented, `[~]` implemented with remaining real-device or visua
 
 ## 3. Master Dashboard Shell
 
-- [x] Nine domains exist: Command, Work, Intelligence, Capabilities, Infrastructure, Communications, Governance, Observability, Configuration.
+- [x] Four domains exist: **Cockpit, Observe, Personal, Settings** (`web-ui/src/navigation.ts:10`, `DomainId`).
 - [x] Hierarchical left navigation preserves route state and browser back/forward navigation.
 - [x] Global Search searches Overview immediately and Manager-backed resources asynchronously.
 - [x] Global Inspector displays identity, status, relations, permissions, actions, and developer-only raw detail.
@@ -117,7 +117,7 @@ Legend: `[x]` implemented, `[~]` implemented with remaining real-device or visua
 - [x] Resource API contract tests cover normalization, search, paging, approval lifecycle, and memory listing.
 - [x] Web unit tests cover primary pages and Display director states.
 - [x] Playwright covers Display scene states, no-scroll, no-focus, reduced motion, SSE latency, and canvas identity.
-- [x] Nine-domain shell, global search, command palette, relation-aware Inspector, Pins, Density, staged Settings, Policy Simulation, Prompt revision, and Hook preview have Playwright coverage.
+- [x] Four-domain shell, global search, command palette, relation-aware Inspector, Pins, Density, staged Settings, Policy Simulation, Prompt revision, and Hook preview have Playwright coverage.
 - [x] Every major dashboard domain is exercised at 1366x768, 1920x1080, and 2560x1440 with overflow checks and attached screenshots.
 - [x] Ubuntu production deployment serves the replacement bundle and restarts the local dedicated Display kiosk successfully.
 - [x] Android physical device `21121210G` is connected, authorized, awake, and visually verified with the AEGIS UI in the foreground.

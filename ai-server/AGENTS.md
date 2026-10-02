@@ -14,7 +14,7 @@ The AI Server is the **central brain** of AEGIS. It handles:
 - Memory management (AdvancedMemory, episodic/semantic, learning backends, MemoryManager)
 - Desire system (pressure-based 3-desire system)
 - Autonomous loop (desire-driven task execution)
-- Dashboard (Flask web UI with streaming chat)
+- Dashboard (Flask web UI with chat)
 - **Egress gate** (deny-by-default control for all outbound transmission — the single constraint)
 - Risk annotations (deterministic; approval is no longer a gate)
 

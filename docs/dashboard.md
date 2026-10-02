@@ -14,7 +14,7 @@
 ## Overview
 
 The Operations Dashboard provides a web-based view of AEGIS's internal state.
-Features streaming chat with tool calling, memory integration, desire context,
+Features chat with tool calling, memory integration, desire context,
 and Manager API routes.
 
 ## Screens
@@ -67,47 +67,30 @@ and Manager API routes.
 
 ## Chat API
 
-### Streaming Chat (with Tool Calling)
+### Chat With Tool Calling
 
-**Endpoint**: `POST /api/chat/stream`
-
-**Request**:
+**Send**: `POST /api/chat/send` — an ordinary JSON request. There is **no** `POST /api/chat/stream`.
 ```json
-{"text": "What is Python?"}
+{"text": "What is Python?", "conversation_id": "optional-shared-id"}
 ```
+The reply is JSON: `{"response": "...", "request_id": ..., "conversation_id": ...}` (plus `tool_results` when tools ran). When a tool pauses for input the body is `{"needs_user_input": true, "question": "...", "options": [...], "pending_context": {...}}` — answer it with `POST /api/chat/respond`. Errors: `400 invalid_request`; `409 request_in_progress` (the same `request_id` is de-duplicated for 15 minutes).
 
-**Response** (Server-Sent Events):
+**Receive**: `GET /api/chat/events` — the Server-Sent Events channel (`text/event-stream`).
 ```
-data: {"type": "text", "content": "Python is"}
-data: {"type": "text", "content": " a programming"}
-data: {"type": "text", "content": " language..."}
-data: {"type": "done"}
+data: {"type":"heartbeat"}
 ```
+⚠️ The route is registered but **no producer publishes to it** — the client queue is only ever created and removed (`dashboard_legacy.py:1135-1143`), so a connected client receives **only** the 15-second `heartbeat` frames. Wiring it or deleting it is an owner decision.
 
-The chat system supports **recursive multi-step tool calling** (max 5 rounds):
+The chat system supports **recursive multi-step tool calling** (up to **15** rounds — the `call_llm_with_tools` default; `LLMSettings.max_tool_rounds = 5` is *displayed* in the settings UI but never passed by any caller):
 1. LLM receives user message and available tools (from CapabilityCatalog)
 2. LLM calls a tool (or responds directly if no tool needed)
 3. Tool executes and returns result
 4. Result is fed back to the LLM
 5. LLM decides: call another tool OR respond with summary
 
-### Non-Streaming Chat
-
-**Endpoint**: `POST /api/chat/send`
-
-**Request**:
+A screenshot request returns a JSON body that may carry an image:
 ```json
-{"text": "Take a screenshot"}
-```
-
-**Response**:
-```json
-{
-  "response": "Here's your current screen:",
-  "image": "base64...",
-  "image_width": 1920,
-  "image_height": 1080
-}
+{"response": "Here's your current screen:", "image": "base64...", "image_width": 1920, "image_height": 1080}
 ```
 
 ### Chat History
@@ -158,7 +141,7 @@ Registered via `init_manager_routes(app, runtime)` in `DashboardApp.__init__()`.
 
 ## Design Decisions
 
-1. **Streaming chat**: Real-time LLM response display with tool calling
+1. **Chat**: LLM response display with tool calling
 2. **Memory integration**: AdvancedMemory context in LLM prompts via MemoryManager
 3. **Desire context**: Current desire states in LLM prompts
 4. **All actions through LLM**: Every result passes through LLM

@@ -368,22 +368,34 @@ loopback 限定にするか、迂回を意図として受け入れて死んだ�
 
 ## 4. 保守性のリスク
 
-### M-1 【新規 + 既知】文書とソースの食い違いが複数箇所に残っている　`P1`
+### M-1 【新規 + 既知】文書とソースの食い違いが複数箇所に残っている　`P1` — **掃討済み（①）**
 
-**現状（測定）**: この調査で新たに測ったものを含め、少なくとも以下が**文書の主張とソースが食い違う**:
+**現状（測定）**: この調査で新たに測ったものを含め、以下が**文書の主張とソースが食い違っていた**。
+**掃討＝測り直し**として全行を実行し、原典を修正した（2026-10-02）。写しの重複も**別名で**掃討済み:
 
-| 文書の主張 | ソースの実測 | 出典 |
+| 文書の主張 | ソースの実測 | 状態 |
 |---|---|---|
-| `docs/testing.md` のテスト名 **17 本** | **17 本すべて存在しない**（実在は別名 2 本）。同種の写し 4 文書も本調査で修正 | **本調査**（G-3） |
-| `docs/architecture.md` の TriggerEngine 図・シーケンス | **未構築**（3 構成要素とも） | **本調査**（G-2） |
-| `DELEGATION.md` §4 項目 14「6 クラス」 | **9 クラス / 7 ファイル** | **本調査**（S-3） |
-| `docs/architecture.md` §3.5「AC（16-32°C 検証済み）、IR blaster（allowlist）」 | ソースは `SetAirConditioner` に **503**、許可方式は**ピン denylist（PH4/PH5）**で allowlist ではない | `feature-catalog.md` §9 |
-| `docs/dashboard.md`「`POST /api/chat/stream`」 | **その route は存在しない** | `feature-catalog.md` §9 |
-| `docs/dashboard.md`「最大 5 ラウンド」 | ソースの既定は **15** | `feature-catalog.md` §9 |
-| `docs/ui-implementation-checklist.md:36`「**Nine domains exist: Command, Work, Intelligence, Capabilities, Infrastructure, Communications, Governance, Observability, Configuration**」（`:120` にも再掲） | `web-ui/src/navigation.ts:10` の `DomainId` は **4**（`cockpit \| observe \| personal \| settings`）で、**名前も 1 つも一致しない** | **本調査**（実測） |
+| `docs/testing.md` のテスト名 **17 本** | **17 本すべて存在しない**（実在は別名 2 本）。同種の写し 4 文書も修正 | 修正済み（G-3） |
+| `docs/architecture.md` の TriggerEngine 図・シーケンス | **未構築**（3 構成要素とも） | 記録（G-2） |
+| `DELEGATION.md` §4 項目 14「6 クラス」 | **9 クラス / 7 ファイル**（`class` 文の数）。ただし「6」は**機構**の数で、差の 3 は結果型 2 つと**二重定義 `TLSConfig`**。**単位が違うだけで両方正しい**（誤りではない） | 単位を明記して修正 |
+| `docs/architecture.md` §3.5「AC（16-32°C 検証済み）、IR blaster（allowlist）」 | `SetAirConditioner` は **503**、`MoveRobotArm` は **403**、IR は**許可リスト無し**でプロバイダへ委譲 | 修正済み |
+| `docs/dashboard.md`「`POST /api/chat/stream`」 | **その route は存在しない**。写しは `docs/memory.md:304` の 1 つ | 修正済み（2 ファイル） |
+| 「**streaming chat**」という別名（同じ主張の言い換え） | SSE は**両端で死んでいる**（下記）。`AGENTS.md`・`ai-server/AGENTS.md`・`docs/architecture.md`（3）・`docs/dashboard.md`（3）の **8 箇所** | 修正済み（4 ファイル / 8 箇所） |
+| 「最大 5 ラウンド」 | ソースの既定は **15**（`chat_tools.py:1004`）。`LLMSettings.max_tool_rounds = 5` は**表示のみ**で呼び出し元が渡さない。写しは `docs/architecture.md:254` | 修正済み（2 ファイル） |
+| `docs/ui-implementation-checklist.md:36`「**Nine domains exist: Command, Work, …**」（`:120` にも再掲） | `web-ui/src/navigation.ts:10` の `DomainId` は **4**（`cockpit \| observe \| personal \| settings`）で、**名前も 1 つも一致しない**。写しは `scripts/audit-ui-completeness.py:35` の検査ラベル | 修正済み（2 ファイル / 3 箇所） |
+
+**掃討の被覆（測定）**: 各主張の**別名**まで含めて `grep -F` で全リポジトリを走査した — `chat/stream` /
+`streaming chat` / `Streaming chat` / `max 5 rounds` / `5 ラウンド` / `Nine-domain` / `Nine domains` /
+`nine domain` / `9 ドメイン` / `16-32`。**残るのは訂正記録だけ**（本調査と `feature-catalog.md`）。
+⚠️ 当初 `grep "nine domains"` は**空振り**した（本文は `Nine domains` と大文字始まり）— **大小を落とさない走査は被覆の主張にならない**。
+
+**掃討中に新たに測ったこと（新規・オーナー判断）**: `GET /api/chat/events`（SSE）は**登録されているが、
+誰も publish しない** — `_chat_event_clients` は生成（`dashboard_legacy.py:1135-1139`）と削除（`:1141-1143`）
+だけで、`.put()` する生産者が **`ai-server/src` 全体に 0 件**。接続したクライアントが受け取るのは 15 秒ごとの
+`{"type":"heartbeat"}` **だけ**。配線するか削除するかは**オーナー判断**（`/display` の自己防衛ガードと同型）。
 
 **改善の方向性**: ① 各主張をソースに合わせて掃討する（**掃討は「言い換え」ではなく「測り直し」**。数値表は全行を実行してから直す）② 重要な主張は**文書ではなくソースに固定する**（`test_schema_mirrors_the_protobuf_schema.py` の形で「2 つが同じ事実を語るなら一致を assert する」）。
-**帰属**: **推奨で閉じられる**（①）。②の対象選定は判断。
+**帰属**: **①完了**（推奨で閉じられる）。②の対象選定は判断。死んだ SSE 経路は**オーナー判断**。
 
 ---
 
@@ -500,7 +512,7 @@ docstring の `Usage: engine = TriggerEngine()` は呼び出し点にならな�
 | **S-3** | セキュリティ | `security/` 未配線パッケージ（実測 9 クラス、記録は 6） | **P2** | オーナー判断（数値訂正は推奨） |
 | **S-4** | セキュリティ | `_system_one` が呼び出し時にゲートを見ない（構築経路依存）。**多層防御を追加** | **P3** | **修正済み**（ゲート＋ピン） |
 | **S-5/6** | セキュリティ | 残る `urlopen` 2 箇所・秘密情報 — **反証済み** | **P3** | 対応不要 |
-| **M-1** | 保守性 | 文書とソースの食い違いが 7 箇所以上 | **P1** | 推奨で閉じられる |
+| **M-1** | 保守性 | 文書とソースの食い違い 7 行 — **全行を測り直して原典を修正**、写しの重複も別名で掃討 | **P1** | **修正済み**（①。死んだ SSE はオーナー判断） |
 | **M-2** | 保守性 | 「宣言されているが効かない」が今も増加。走査単位の外に**第 2 の設定面**（`Config` 13 フィールド、うち 6 が死・1 が重複） | **P1** | **修正済み**（層 4 追加） |
 | **M-3** | 保守性 | レジスタが読めなくなっている（2114 行 / §0.2 空） | **P2** | 推奨で閉じられる |
 | **M-4** | 保守性 | `# type: ignore` 53 件が未検証 | **P2** | オーナー判断 |
@@ -508,7 +520,7 @@ docstring の `Usage: engine = TriggerEngine()` は呼び出し点にならな�
 | **X-2** | 拡張性 | 拡張の語彙 `aliases` が未配線 | **P2** | オーナー判断 |
 | **X-3** | 拡張性 | Room Server / Android 通知フィルタが未構成 | **P2** | オーナー判断 |
 
-**「推奨で閉じられる」= 2 件**（M-1, M-3）。**G-3・S-1・S-2・E-2・E-3・S-4・M-2 は対応済み**（上表の「修正済み」）。残りは**オーナー判断**が前提。
+**「推奨で閉じられる」= 1 件**（M-3）。**G-3・S-1・S-2・E-2・E-3・S-4・M-1・M-2 は対応済み**（上表の「修正済み」）。残りは**オーナー判断**が前提。
 
 ---
 

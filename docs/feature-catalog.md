@@ -538,8 +538,8 @@ specialUse・mediaProjection）、通知の投稿、起動完了の受信、ウ�
 IR ピンには**禁止リスト**がある（`PH4` / `PH5` を拒否）。照明の IR コードは `LIGHT_ADDR = 0xD001`
 に対し 全点灯 `0x20` / エコ `0x21` / 常夜 `0x22` / 消灯 `0x23`。
 
-> ⚠️ **`docs/architecture.md` の「AC (16-32°C validated)、IR blaster (allowlist)」は誤り。**
-> AC 経路は存在せず、IR はピンの禁止リストであってコードの許可リストではない。
+> ⚠️ **`docs/architecture.md` の「AC (16-32°C validated)、IR blaster (allowlist)」は誤りだった**
+> （**2026-10-02 に原典を修正済み**）。AC 経路は存在せず、IR はピンの禁止リストであってコードの許可リストではない。
 
 ---
 
@@ -581,7 +581,9 @@ IR ピンには**禁止リスト**がある（`PH4` / `PH5` を拒否）。照�
 Android は gRPC の `SendChat` から同じ関数を呼び、`source="android"` で追記する。
 
 > ⚠️ `docs/dashboard.md` の「`POST /api/chat/stream` で SSE 配信」「ツールループは最大 5 ラウンド」は
-> **どちらも誤り**。ストリーム用ルートは存在せず（`/api/chat/send` は普通の JSON）、ループは 15 回である。
+> **どちらも誤り**だった（**2026-10-02 に原典を修正済み**）。ストリーム用ルートは存在せず（`/api/chat/send`
+> は普通の JSON）、ループは 15 回である。SSE の `GET /api/chat/events` は登録されているが**誰も publish
+> しない**（届くのは heartbeat だけ）。
 
 ### 6.3 承認 / 確認 UI 【稼働】
 
@@ -684,12 +686,12 @@ AEGIS は **MCP サーバ**として振る舞う（クライアントではな�
 |---|---|
 | `architecture.md` §2.1 の図に TriggerEngine がある | 構築されない（§8） |
 | `architecture.md` §5.5 に Research / Support / SelfDev Agent がある | ファイルが存在しない |
-| `architecture.md` §3.5「AC (16-32°C validated)、IR blaster (allowlist)」 | AC は 503、IR はピンの禁止リスト |
-| `dashboard.md`「`POST /api/chat/stream` で SSE」「ツールループ最大 5 ラウンド」 | そのルートは無い。ループは 15 回 |
+| `architecture.md` §3.5「AC (16-32°C validated)、IR blaster (allowlist)」（**2026-10-02 修正済み**） | AC は 503、IR はピンの禁止リスト |
+| `dashboard.md`「`POST /api/chat/stream` で SSE」「ツールループ最大 5 ラウンド」（**2026-10-02 修正済み**） | そのルートは無い。ループは 15 回 |
 | `dashboard.md` の Manager API パス（`/api/memory/<backend>` 等） | `/api/memory/search`、`/api/memory/sleep/status` など |
 | `dashboard.md`「承認されたアクションは一度実行されフォローアップを投稿する」 | 強制ゲートは削除済み。確認は何もブロックしない |
 | `interaction-hub.md`「CLI ✅ Implemented」 | `CLIChannel` は生成されない |
-| `ui-implementation-checklist.md`「9 ドメインが存在する」 | `navigation.ts` は **4 ドメイン** |
+| `ui-implementation-checklist.md`「9 ドメインが存在する」（**2026-10-02 修正済み**） | `navigation.ts` は **4 ドメイン** |
 | `settings.md` の `POST /settings/import` 等 | 存在しない |
 | `notification-gateway.md`「外部チャネルはスタブのみ」 | 送信クラスは実装済み（ただし未配線） |
 | `voice-io.md`「配線済み」 | サービスは生成されない |
