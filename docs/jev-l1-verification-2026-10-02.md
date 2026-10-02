@@ -5,6 +5,20 @@
 > **結果**: チェック **20/20 合格**。ただし**設定が意図どおり効いていない箇所を 4 件**発見（§5.1〜§5.4。
 > ほかに小項目 §5.5・§5.6）。**うち 1 件（§5.1）は「L1 が JEV に一度も到達しない」**。
 
+> **⚠️ これは 2026-10-02 時点の記録です。以下はその後変わっており、読み替えが必要です:**
+> - **§5.1 / §0 の判定 4・4b → 解消**。`f8e0b06`（2026-10-03）で `llm.yaml` を `mode: "cloud"` にし、
+>   `privacy.egress_allowed_hosts` が `api.typesafe.ai` を許可したので、**L1 は JEV に到達する**（実測）。
+> - **§5.6 → 解消**。`EgressGate.status()` は「ゲートが閉じていること」ではなく「**開いているなら
+>   許可先が限定されていること**」を検査するようになったため、3 つの錠が揃った状態は**違反ではなく正常**。
+> - **§6「実サーバ起動経由の L1 は未検証」 → 検証済み**。`get_runtime()` 経由で
+>   `publish_event` → L1 購読 → JEV を実行し、`data/audit.db` に `provider=typesafe` /
+>   `model=jev-latest` / `source=l1_router.observe` を確認。
+> - **§5.2 / §5.3 / §5.4 / §5.5 → 修正済み**（2026-10-03、本ファイルを更新したコミット）。
+>   `timeout_seconds` の引き回し、`detail` の読み取り、無効パラメータの明示、成功ログの追加。
+> - **副作用 1 件**: `mode: cloud` では `vision_observation` が `local_vision` に remap されなくなり、
+>   宣言先の Aliyun ホストは未許可なので **vision は Mock に劣化する**（`verify_egress_configuration`
+>   の `reachable_destinations` が「宣言済み・未許可」として報告する）。
+
 ---
 
 ## 0. 結論（先に要点）

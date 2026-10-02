@@ -46,6 +46,11 @@ class TypeSafeProvider:
         context_meta: dict[str, Any] | None = None,
         json_mode: bool = False,
     ) -> LLMResponse:
+        # The System One endpoint takes no generation parameters — the POST body is only
+        # {model, state, questions} (measured 2026-10-02 §5.4). A profile's `max_tokens`,
+        # `temperature`, `reasoning_level` and `max_tool_rounds` are therefore **inert**
+        # for this provider: output length and sampling are the API's own defaults.
+        # Deleting them is deliberate, not an oversight — do not read them as effective.
         del max_tokens, temperature
         start = time.time()
         meta = dict(context_meta or {})
@@ -94,6 +99,18 @@ class TypeSafeProvider:
             usage = dict(payload.get("_usage") or {})
             content = json.dumps(payload["result"], ensure_ascii=False)
             duration_ms = round((time.time() - start) * 1000, 1)
+            # Log the success too, not only the audit entry. Without this line the only
+            # evidence that JEV was called is a database row, so an operator reading logs
+            # cannot tell "JEV ran" from "JEV was never reached" (2026-10-02 §5.5). Carries
+            # no prompt or user content — call site, timing and token counts only.
+            logger.info(
+                "TypeSafe %s ok in %.1fms (model=%s, input_tokens=%s, output_tokens=%s)",
+                meta.get("source") or meta.get("caller") or "call",
+                duration_ms,
+                self._model,
+                usage.get("input_tokens"),
+                usage.get("output_tokens"),
+            )
             self._audit_log(
                 action="llm_call",
                 decision="success",
@@ -489,16 +506,44 @@ class TypeSafeProvider:
 
     @staticmethod
     def _http_error_text(status_code: int, body: str) -> str:
+        """Render the API's own reason, not just the status code.
+
+        TypeSafe puts the reason under ``detail``: a dict for 401/400
+        (``{"error_type", "message"}``) and a **list** of validation objects for 422
+        (``{"type", "loc", "msg"}``). Reading only ``message``/``error`` discarded all of
+        it, so a wrong API key and a wrong model name both surfaced as a bare
+        ``TypeSafe API error 401`` / ``400`` — indistinguishable in the log, which is the
+        only place the failure is recorded (2026-10-02 §5.3).
+        """
         try:
             payload = json.loads(body)
         except json.JSONDecodeError:
             payload = {}
-        message = ""
-        if isinstance(payload, dict):
-            message = str(payload.get("message") or payload.get("error") or "").strip()
+        message = TypeSafeProvider._error_message(payload)
         if message:
             return f"TypeSafe API error {status_code}: {message}"
         return f"TypeSafe API error {status_code}"
+
+    @staticmethod
+    def _error_message(payload: Any) -> str:
+        """Extract a human-readable reason from a TypeSafe error body."""
+        if not isinstance(payload, dict):
+            return ""
+        detail = payload.get("detail")
+        if isinstance(detail, dict):
+            text = str(detail.get("message") or "").strip()
+            if text:
+                error_type = str(detail.get("error_type") or "").strip()
+                return f"{error_type}: {text}" if error_type else text
+        elif isinstance(detail, list):
+            parts = [
+                str(item.get("msg")).strip()
+                for item in detail
+                if isinstance(item, dict) and item.get("msg")
+            ]
+            if parts:
+                return "; ".join(parts)
+        return str(payload.get("message") or payload.get("error") or "").strip()
 
     def _audit_log(self, action: str, decision: str, detail: dict[str, Any]) -> None:
         try:

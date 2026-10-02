@@ -233,3 +233,104 @@ def test_typesafe_provider_success_audit_keeps_l1_source(monkeypatch) -> None:
     assert entries[0].profile_id == "l1_default"
     assert entries[0].request_id == "req-l1-audit"
     assert entries[0].detail["source"] == "l1_router.observe"
+
+
+# ── §5.3: the API's own reason must survive into the error text ───────────────
+#
+# TypeSafe reports under `detail`, not `message`/`error`. Reading only the latter made a
+# wrong API key and a wrong model name produce the *same* bare "TypeSafe API error 401" /
+# "400" — and since the failure is only ever recorded in a log line, the reason was lost
+# entirely. These pin the three shapes the live API returned on 2026-10-02.
+
+
+def test_http_error_text_keeps_the_detail_message_and_error_type() -> None:
+    body = json.dumps(
+        {
+            "detail": {
+                "error_type": "authentication_error",
+                "message": "Cannot authenticate with the server. Please check your API key.",
+            }
+        }
+    )
+
+    text = TypeSafeProvider._http_error_text(401, body)
+
+    assert "authentication_error" in text
+    assert "Please check your API key" in text
+
+
+def test_http_error_text_keeps_a_detail_list_of_validation_messages() -> None:
+    body = json.dumps(
+        {
+            "detail": [
+                {"type": "too_short", "loc": ["body", "questions"], "msg": "Needs at least 1 item"},
+                {"type": "missing", "loc": ["body", "model"], "msg": "Field required"},
+            ]
+        }
+    )
+
+    text = TypeSafeProvider._http_error_text(422, body)
+
+    assert "Needs at least 1 item" in text
+    assert "Field required" in text
+
+
+def test_http_error_text_falls_back_and_never_raises() -> None:
+    """A body we cannot parse must still yield the status code, not an exception."""
+    assert TypeSafeProvider._http_error_text(500, json.dumps({"message": "boom"})) == (
+        "TypeSafe API error 500: boom"
+    )
+    assert TypeSafeProvider._http_error_text(500, json.dumps({"error": "flat"})) == (
+        "TypeSafe API error 500: flat"
+    )
+    assert TypeSafeProvider._http_error_text(503, "<html>gateway</html>") == "TypeSafe API error 503"
+    assert TypeSafeProvider._http_error_text(503, json.dumps(["nope"])) == "TypeSafe API error 503"
+
+
+# ── §5.2: the same profile must not time out differently by construction path ──
+
+
+def _factory_typesafe(monkeypatch, **kwargs):
+    """Build a TypeSafe provider through the factory with the gate held open.
+
+    The gate is stubbed rather than opened so the test measures *timeout threading*, not
+    the permission state; `egress_allows_llm` has its own pins elsewhere.
+    """
+    from aegis_ai.llm import factory
+
+    monkeypatch.setattr(factory, "egress_allows_llm", lambda *a, **k: True)
+    return factory.create_llm_provider(
+        provider_name="typesafe",
+        api_key="test-key",
+        base_url="https://api.typesafe.ai/v1/systemone",
+        **kwargs,
+    )
+
+
+def test_factory_honours_an_explicit_timeout_for_typesafe(monkeypatch) -> None:
+    """The factory used to drop `timeout_seconds`, so this path kept the class default
+    while `gateway._get_provider_for_profile()` used the profile's value."""
+    provider = _factory_typesafe(monkeypatch, timeout_seconds=7)
+
+    assert isinstance(provider, TypeSafeProvider)
+    assert provider._timeout_seconds == 7
+
+
+def test_factory_keeps_the_provider_default_when_no_timeout_is_given(monkeypatch) -> None:
+    """Omitted means "the provider's own default" — not a silently different number."""
+    provider = _factory_typesafe(monkeypatch)
+
+    assert provider._timeout_seconds == TypeSafeProvider(api_key="k")._timeout_seconds
+
+
+def test_the_shipped_l1_profile_declares_the_timeout_the_gateway_passes() -> None:
+    """Pin the value both paths must agree on, so §5.2 cannot silently reopen."""
+    from pathlib import Path
+
+    from aegis_ai.llm.settings_resolver import LLMSettingsResolver
+
+    llm_yaml = Path(__file__).resolve().parents[2] / "config" / "llm.yaml"
+    settings = LLMSettingsResolver(str(llm_yaml)).resolve(profile_id="l1_default")
+
+    assert settings.provider == "typesafe"
+    assert settings.timeout_seconds == 20

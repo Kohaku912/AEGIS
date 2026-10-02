@@ -456,6 +456,13 @@ Measured 2026-10-01 — `ai-server`, full suite:
 > above is **untouched and still unattributed**. ⚠️ This is a **chunked sum, not one invocation**: a
 > single full-suite `pytest` here dies partway (**rc=127**, observed at 36% and 44% after ~3–4 min),
 > so the suite was run as 6 chunks whose totals equalled their collected counts exactly.
+>
+> **Re-measured 2026-10-03: `1960 passed / 8 skipped`** (1968 collected, 401.52 s, one invocation).
+> The +9 over the 1951 above is **+3 (`f8e0b06`, the JEV re-scope: 21 pins rewritten + 2 new gate tests)
+> and +6 (`31e4066`, the JEV provider fixes: `detail` in the error text, `timeout_seconds` threaded
+> through the factory, the inert generation parameters documented, a success log).** Egress is now
+> **314 passed / 1 skipped** (315 carry the marker, **1653** deselected) — only `f8e0b06` added egress
+> tests; the later 6 do not carry the marker.
 
 - **Total tests (2026-10-01 record)**: **1926 passed / 8 skipped**
   — the **+20** over the 2026-09-30 figure are **all new pins**: four for B-5① (the confirmation↔desire

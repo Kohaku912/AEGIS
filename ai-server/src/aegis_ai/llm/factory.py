@@ -121,6 +121,7 @@ def create_llm_provider(
     api_key: str | None = None,
     base_url: str | None = None,
     audit_log: Any = None,
+    timeout_seconds: int | None = None,
 ) -> Any:
     """Create an LLM provider based on configuration.
 
@@ -129,6 +130,10 @@ def create_llm_provider(
         model: Model name (e.g., "deepseek-v4-flash", "gpt-4o-mini")
         api_key: API key (or reads from OPENAI_API_KEY env)
         base_url: Base URL (or reads from OPENAI_BASE_URL env)
+        timeout_seconds: Per-request timeout for providers that take one. Omit to keep
+            the provider's own default — but do **not** leave it unset for a profile that
+            declares one, or the same profile times out differently depending on which
+            path built the provider (2026-10-02 §5.2).
 
     Returns:
         LLM provider instance
@@ -157,12 +162,13 @@ def create_llm_provider(
             provider_name = "mock"
 
     # ── Egress gate: the single constraint ──────────────────────────────────
-    # A cloud provider must not be constructed while egress is closed. This is the
-    # structural enforcement of the constraint — re-scoped 2026-09-30 to "**unpermitted**
-    # user information must never leave the local environment", with outbound connections
-    # and user-permitted disclosure allowed. The check below still implements the
-    # pre-re-scope deny-all form; the permission wiring is open work. It cannot be
-    # bypassed by a settings flag alone.
+    # A cloud provider is constructed only for a destination the gate **permits** — the
+    # constraint was re-scoped 2026-09-30 to "**unpermitted** user information must never
+    # leave the local environment", with outbound connections and user-permitted disclosure
+    # allowed. The permission wiring is live: `egress_allows_llm` consults the real gate,
+    # which reads `privacy.egress_allowed_hosts` (or a recorded user grant) through the
+    # settings store. So this is not a deny-all check, and it still cannot be bypassed by a
+    # settings flag alone.
     if provider_name != "mock" and not egress_allows_llm(base_url, component="llm.factory"):
         return _local_or_mock(audit_log=audit_log, model=model_name)
 
@@ -170,11 +176,18 @@ def create_llm_provider(
     if provider_name == "typesafe":
         from aegis_ai.llm.providers.typesafe_provider import TypeSafeProvider
 
+        # Thread `timeout_seconds` through instead of letting the class default win:
+        # omitting it made the same profile time out at 30s via this path and at the
+        # profile's own value via `gateway._get_provider_for_profile()` (2026-10-02 §5.2).
+        kwargs: dict[str, Any] = {}
+        if timeout_seconds is not None:
+            kwargs["timeout_seconds"] = timeout_seconds
         return TypeSafeProvider(
             model=model_name or model or "jev-latest",
             api_key=api_key or os.getenv("TYPESAFE_API_KEY", ""),
             base_url=base_url or "https://api.typesafe.ai/v1/systemone",
             audit_log=audit_log,
+            **kwargs,
         )
     if provider_name in ("openai", "deepseek"):
         from aegis_ai.llm.providers.openai_provider import OpenAIProvider
@@ -254,9 +267,11 @@ def create_multimodal_llm_provider(
 def create_llm_provider_from_settings(settings_store: Any = None, audit_log: Any = None) -> Any:
     """Create LLM provider from settings store.
 
-    When external LLM access is disabled (the default under the single constraint),
-    the local provider is returned so AEGIS degrades to a *functional local* model
-    rather than a silent Mock.
+    When the gate does not permit the configured destination, the local provider is
+    returned so AEGIS degrades rather than transmitting; if no local endpoint is
+    listening that degrades once more to Mock (see `_local_or_mock`). The shipped
+    `settings.json` permits exactly one destination (`api.typesafe.ai`), so every other
+    configured profile falls back here.
 
     Args:
         settings_store: SettingsStore instance
