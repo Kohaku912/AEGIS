@@ -457,13 +457,16 @@ Measured 2026-10-01 — `ai-server`, full suite:
 > single full-suite `pytest` here dies partway (**rc=127**, observed at 36% and 44% after ~3–4 min),
 > so the suite was run as 6 chunks whose totals equalled their collected counts exactly.
 >
-> **Re-measured 2026-10-03: `1978 passed / 8 skipped`** (1986 collected, 413.63 s; the canonical
-> marker-excluded form is 1978 / 4 skipped / 4 deselected).
+> **Re-measured 2026-10-03: `1984 passed / 8 skipped`** (1992 collected, 439.95 s; the canonical
+> marker-excluded form is 1984 / 4 skipped / 4 deselected).
 > The +9 over the 1951 above is **+3 (`f8e0b06`, the JEV re-scope: 21 pins rewritten + 2 new gate tests)
 > and +6 (`31e4066`, the JEV provider fixes: `detail` in the error text, `timeout_seconds` threaded
 > through the factory, the inert generation parameters documented, a success log).** Egress is now
-> **314 passed / 1 skipped** (315 carry the marker, **1671** deselected) — only `f8e0b06` added egress
-> tests; the 18 added since carry no marker.
+> **314 passed / 1 skipped** (315 carry the marker, **1677** deselected) — only `f8e0b06` added egress
+> tests; the **30** added since carry no marker (`1992 collected − 1962 collected` at `f8e0b06`, or
+> `1677 − 1647` deselected — the figure read **18** until 2026-10-03, which had been true only while
+> the total was 1972: the later edits moved the passed/deselected numbers and left this derived one
+> behind, the same "only one of the copies moved" shape).
 >
 > The **+5** on top of 1960 is `tests/test_egress_grant_source_is_unwired.py` — the recorded-grant
 > path (`ConfirmationGrantSource`) is implemented and consulted on every `check()`, but no `src/`
@@ -546,7 +549,7 @@ Measured 2026-10-01 — `ai-server`, full suite:
   binaries — that is an environment limit, not a regression. Verify the suites individually (see the
   `aegis-verify-and-test` skill) rather than "fixing" code that is fine.
 - **Egress regression suite**: **314 passed / 1 skipped** (315 tests carry the `egress` marker,
-  1671 deselected). CI enforces a floor of 160 (`--require-egress-tests=160`) **and** mutation-proves
+  1677 deselected). CI enforces a floor of 160 (`--require-egress-tests=160`) **and** mutation-proves
   the gate: breaking it yields failures, restoring it yields 314 passes. The mutation figure is
   **76 failures** (measured 2026-10-03 on the 315-marker baseline; it was 74 at the 2026-10-01
   baseline of 305 and 62 at the 268-marker baseline — **re-run it before quoting**, the number is a

@@ -86,10 +86,22 @@ ai-server/src/aegis_ai/llm/factory.py:157-164
 
 | 構成要素 | `src/` 内の構築箇所 | 判定 |
 |---|---|---|
-| `TriggerEngine` | **0 件**。唯一の `TriggerEngine()` は `trigger_engine.py:175` の**自モジュールの `__main__` デモ** | **未構築** |
-| `Scheduler` | **0 件**。唯一の `Scheduler()` は `scheduler.py:75` の**自モジュールの `__main__` デモ** | **未構築** |
-| `EventView` | **0 件**。`observability/__init__.py:5` の再輸出のみ | **未構築** |
-| `AutonomousLoop` | **構築される** — `runtime.py:1625`。フラグ `autonomous_loop_enabled` は `runtime.py:122` に**実読者**を持つ | **稼働** |
+| `TriggerEngine` | **0 件**。`trigger_engine.py:175` の `TriggerEngine()` は**クラス docstring の `Usage:` 例**（＝文字列リテラル）で、呼び出しではない — このファイルに `__main__` ブロックは**存在しない**。`TriggerEngine` を参照する識別子は `src/` 全体で**再輸出シム 1 つだけ**（`aegis_ai/trigger_engine.py`） | **未構築** |
+| `Scheduler` | **0 件**。同じ形 — `aegis_ai/scheduler.py:75` の `Usage:` 例（**`src/scheduler.py` は存在しない**）。`Scheduler` を参照する識別子は `src/` に **1 つも無い** | **未構築** |
+| `EventView` | **0 件**。`observability/__init__.py:5` の再輸出のみ — そしてそれが `EventView` を参照する**唯一**の箇所 | **未構築** |
+| `AutonomousLoop` | **構築される** — `runtime.py` の `_create_autonomous_loop`（**行番号ではなく関数名で書く** — 旧記録の `runtime.py:1625` は 2026-10-03 の実測で **1669** に動いていた）。フラグ `autonomous_loop_enabled` は `runtime.py:122` に**実読者**を持つ | **稼働** |
+
+> **2026-10-03 訂正（測定）**: 上の表の**判定（0 件 / 未構築）は実測で確認**された（`ast` 走査、
+> 408 モジュール）。ただし**証拠の記述 2 点が誤っていた**ので直した — ① 旧記録は「唯一の
+> `TriggerEngine()` は `trigger_engine.py:175` の**自モジュールの `__main__` デモ**」と書いていたが、
+> **`__main__` ブロックは両ファイルに存在しない**。175 行目（および `scheduler.py:75`）は
+> **クラス docstring の `Usage:` 例**である。**文字列リテラルの中の言及は呼び出しではない**ので、
+> 正しい件数は「1（デモ）」ではなく **0** — つまり**デモすら無い**（この訂正は発見を*強くする*方向に動く）。
+> ② `AutonomousLoop` の `runtime.py:1625` は**腐っていた**（実測 **1669**）。**行番号は日付の無い現在値**
+> なので、関数名（`_create_autonomous_loop`）に置き換えた。
+> ピン `ai-server/tests/test_event_driven_core_stays_unbuilt.py`（**6 本・変異 11/11 捕捉**）が
+> **両方向**を固定する — 3 クラスが構築されないこと、**かつ** docstring の文字列が実在すること
+> （＝抽出器が盲目ではないこと）。`DELEGATION.md` §4 **項目 24**。
 
 `TriggerEngine` には `src/trigger_engine.py` に **13 個の既定ルール**が書かれている。`EventView.get_trigger_stats()` / `get_pending_tasks()` は `self._engine` を guard するので、たとえ構築されても `{}` / `[]` を返す（`event_view.py:52,65`）。
 
@@ -100,7 +112,7 @@ ai-server/src/aegis_ai/main.py:27
     logger.info("Trigger Engine: %s", "enabled" if config.trigger_enabled else "disabled")
 ```
 
-`config.trigger_enabled` の読者は**この 1 行だけ**（`config.py:34` の宣言を除く）。つまり **`TriggerEngine` が存在しないプロセスが「Trigger Engine: enabled」と毎回出力する**。設定フラグの読者がログ 1 行だけという形は、`test_ineffective_flags.py` が「読まれている」と判定するため**検出器の死角**である（読まれること ≠ 効くこと）。
+`config.trigger_enabled` の読者は**この 1 行だけ**（`config.py:34` の宣言を除く）。つまり **`TriggerEngine` が存在しないプロセスが「Trigger Engine: enabled」と毎回出力する**。しかも `AEGIS_TRIGGER_ENABLED` の既定値は **`"true"`**（`config.py:35`）なので、**既定の起動で毎回この偽が印字される** — 環境変数を設定しなくても起きる。設定フラグの読者がログ 1 行だけという形は、`test_ineffective_flags.py` が「読まれている」と判定するため**検出器の死角**である（読まれること ≠ 効くこと）。
 
 **文書側の主張（測定）** — 齟齬は文書に明記されている:
 
@@ -113,7 +125,12 @@ ai-server/src/aegis_ai/main.py:27
 
 2 つの枝のどちらか。**① 構築する** — `runtime.py` で `TriggerEngine` を生成し `EventBus` を購読させ、`config.trigger_enabled` をその生成条件として読む（`AutonomousLoop` と同じ形）。`Scheduler` と `EventView` も同様。**② 文書を実測に合わせる** — 「イベント駆動」の記述と図を実態に直し、`trigger_enabled` を**宣言ごと外す**（読者が 1 つもいないなら、無いより無いほうが正直）。①を選ぶなら、**ログ行が主張する前に**生成を確認する順序にする。
 
-**帰属**: **オーナー判断**（①/②は製品判断）。ただし**偽の起動ログは判断を待たずに直すべき**（P0 相当の小さな修正）。
+**帰属**: **オーナー判断**（①/②は製品判断）— 戻し方は `DELEGATION.md` §4 **項目 24**、ピンは
+`tests/test_event_driven_core_stays_unbuilt.py`（**6 本・変異 11/11 捕捉**）。
+**偽の起動ログは判断を待たずに直せる**（P0 相当の小さな修正）が、**2026-10-03 時点では直していない** —
+理由は実測: あの 1 行は**枝 ②（文書を実測に合わせる）でのみ偽**で、**枝 ①（構築する）を選べば
+`trigger_enabled` が構築条件そのものになり、行はそのまま真になる**。今直すのは、① が選ばれた場合に
+**その枝が巻き戻す作業**を先にやることになる。**判断を先取りしない**（項目 14〜23 と同じ扱い）。
 
 ---
 
