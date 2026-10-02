@@ -34,7 +34,7 @@
 | 懸念 | 測定結果 |
 |---|---|
 | 「egress ゲートを迂回する外部呼び出しがあるのでは」 | **11 モジュール・12 呼び出し点**が `get_egress_gate()` を直接呼び、LLM 層はさらに `egress_allows_llm` ヘルパ経由で 4 箇所（`factory.py:164,234,267` / `gateway.py:142`）。**すべて fail-closed**。直接 `urlopen` する 2 箇所も確認済みで、両方ゲートに到達する |
-| 「ダッシュボードに認証の穴があるのでは」 | 84 の route 経路を全数分類した結果、**穴は 1 つも無い**。保護外の経路はすべて「設計上の除外」か「ハンドラが自己防衛」のいずれか |
+| 「ダッシュボードに認証の穴があるのでは」 | **passkey 態**では 169 の route を全数分類して**穴は 1 つも無い**（保護外は「設計上の除外」か「ハンドラが自己防衛」のみ）。ただし**既定の開発構成では認証ミドルウェア自体が載らない**（意図的な dev 逃げ道 — S-1） |
 | 「秘密情報がコミットされているのでは」 | **0 件**。`.gitignore` が `.env` / `secrets/` / `*.pem` / `*.key` / `data/` を覆い、`scripts/audit-secrets.py` とテストが監視している |
 | 「同期ブロッキング I/O がイベントループを止めるのでは」 | gRPC は **sync サーバ + スレッドプール**なので、ブロッキングは 1 ワーカーを占有するだけでループ飢餓にはならない（ただし §2 E-2 の容量上限は残る） |
 
@@ -212,29 +212,55 @@ instructions below」と明記されている）。
 
 ## 3. セキュリティのリスク
 
-### S-1 【新規】認証が **default-allow の接頭辞方式**で、不変条件を何も強制していない　`P1`
+### S-1 【新規・一部訂正】認証は**三態**で、既定の開発構成では**ミドルウェアが 1 つも載らない**　`P1`
 
 **現状（測定）**
 
-- `ai-server/src` 全体で route 経路は **84** 種。**route 単位の認証デコレータは 0 件**（`login_required` / `require_auth` / `master_required` 等の使用箇所がゼロ）。
-- 保護は `auth/session_middleware.py` の `before_request` **1 箇所**で、**文字列接頭辞の許可リスト**により決まる: 保護対象は `/`, `/dashboard`, `/settings`, `/chat`, `/api/`, SSE/WS のみ。**どれにも一致しない経路は `return None`（＝無認証で通す）**。
-- つまり **default-deny ではない**。新しい接頭辞に route を 1 本足すと、**既定で公開**になる。
-- **この不変条件を固定するテストは存在しない**（`url_map.iter_rules()` を使うテストは 2 本あるが、片方は blueprint 名と特定 route の存在、片方は特定 route が GET のみであることの検査で、**全数被覆ではない**）。
+> **本節は当初「保護はミドルウェア 1 箇所で決まる」と書いていたが、それは誤りだった。** 測り直すと、
+> **既定の開発構成では認証ミドルウェアがそもそも install されない**。以下は測定し直した内容である。
 
-**測定された「穴が無い」ことの内訳（84 経路を全数分類）** — 保護外に出るのは 7 種のみ:
+`install_dashboard_token_auth`（`web/auth.py:29`）は **3 態**を解決する:
 
-| 経路 | 判定 |
-|---|---|
-| `/health` | 設計上の除外（本番では `_is_local_request()` でローカル限定） |
-| `/login` | 設計上の除外（ログイン画面） |
-| `/auth/*`（9 種） | 設計上の除外だが**ハンドラが自己防衛**: `/auth/me` と `/auth/passkeys` は `_session_required()` を呼ぶ（`auth/routes.py:125,138`）。`/auth/passkeys/<id>/rename` 等は `_fresh_required` 経由で 403 |
-| `/display/*`（5 種） | **ハンドラが自己防衛**: `_require_display_read()`（`web/routes/ui_v2.py:80,87,92`） |
-| `/assets/<path:filename>` | 静的配信（`send_from_directory`） |
+| 条件 | 解決 | 実際に載るもの |
+|---|---|---|
+| `AEGIS_RUNTIME_MODE=production`、または `AEGIS_AUTH_MODE=passkey` | **passkey** | `install_passkey_auth` → 接頭辞許可リストの `before_request` |
+| 非 production かつ `AEGIS_DASHBOARD_ACCESS_TOKEN` あり（または `AEGIS_AUTH_MODE=token`） | **token** | `_require_dashboard_token` |
+| **非 production かつ token なし**（＝**素の既定**） | **disabled** | **何も載らない** — 全 route が公開 |
 
-**したがって現時点で漏れは無い。** 問題は**漏れが無いことを保証しているものが何も無い**ことである。
+実測: 素の構成で `DashboardApp` を組み立てると **169 route** に対し `before_request` は
+`ui_v2_prefer_spa_shell` / `_before_request` / `_bind_request_correlation` の 3 つだけで、
+`_load_and_require_auth` は**存在しない**。（当初「84 経路」と書いたのは**ソースのデコレータが宣言する
+経路**の数で、実際に登録される rule は 169 ある — 両者は別の量である。）
 
-**改善の方向性**: ① ミドルウェアを **default-deny** に反転し、除外を明示列挙する（除外リストが短ければ短いほど読みやすい）② または route デコレータで保護を宣言し、`app.url_map` を走査して「全 route が保護か除外のいずれかに分類されている」ことを**テストで assert する**（`url_map` 駆動なので route 追加時に自動で検査対象になる）。②のほうが「保護を宣言した」ことが読める。
-**帰属**: **推奨で閉じられる**（ただし default-deny への反転は既存 route の分類を作業として伴う）。
+**この `disabled` は意図的である** — `BUG_REPORT.md` 項目 7 が「dev 逃げ道は `web/auth.py` 側で担保」
+として記録している。安全側の向き（**production では token が拒否される**）は
+`tests/test_passkey_auth.py:282 test_production_token_mode_is_rejected` が既に固定している。
+**したがってコードの欠陥ではない。**
+
+**残る欠陥は 2 つ:**
+
+1. **route 被覆の不変条件を何も強制していない。** passkey 態の保護は
+   `auth/session_middleware.py` の接頭辞許可リスト 1 箇所で決まり、対象は `/`, `/dashboard`,
+   `/settings`, `/chat`, `/api/`, SSE/WS のみ。**一致しない経路は `return None`（無認証で通す）** —
+   default-deny ではないので、**新しい接頭辞に route を 1 本足すと既定で公開**になる。
+   この不変条件を固定するテストは無く（`url_map.iter_rules()` を使うテスト 2 本は、特定 route の
+   存在と GET 限定性しか見ない）、route 単位の認証デコレータも **0 件**。
+2. **文書が `http://0.0.0.0:8090` を案内しながら、認証の状態を書いていない。** `dashboard.py:24` と
+   `docker_entrypoint.py:53` の bind 既定は **`0.0.0.0`** で、`docs/operations.md`・
+   `docs/daily-use.md`・`docs/beta-runbook.md` がその URL を案内する。素の構成では
+   **全インターフェースに無認証で開く**ことになるが、どの文書もそれを書いていない
+   （`docs/v1-completion-checklist.md:117` は本番についてのみ「unauthenticated を拒否」と書く）。
+
+**測定された「passkey 態での穴が無い」ことの内訳** — 保護外に出る経路は 8 種のみ:
+`/assets/<path:filename>`, `/display`（5 種）, `/health`, `/static/<path:filename>`。
+`/display/*` はハンドラが `_require_display_read()` で自己防衛する（`web/routes/ui_v2.py:80,87,92`）。
+`/auth/*` は接頭辞外だが**ハンドラが自己防衛**する（`/auth/me`・`/auth/passkeys` は
+`_session_required()`、`auth/routes.py:125,138`）。
+
+**改善の方向性**: ① route 被覆の不変条件を **`url_map` 駆動のテスト**で固定する（保護でも除外でも
+分類されていない route が現れたら落ちる）② `docs/operations.md` に**既定の認証状態**を明記する
+（`0.0.0.0` に開くなら、無認証であることも書く）。
+**帰属**: **推奨で閉じられる**（①②）。dev の既定 bind を loopback に変えるかは**オーナー判断**。
 
 ---
 
@@ -381,7 +407,7 @@ instructions below」と明記されている）。
 | **E-2** | 非効率 | ワーカー 10 に対し外向きタイムアウト最大 30 秒 | **P2** | 推奨で閉じられる |
 | **E-3** | 非効率 | エージェント 1 ステップごとにスレッドプール生成 | **P2** | 推奨で閉じられる |
 | **E-4** | 非効率 | 最高重みの `aliases` に生産者 0 件 | **P3** | オーナー判断 |
-| **S-1** | セキュリティ | 認証が default-allow・接頭辞方式。不変条件のテスト無し（穴は無い） | **P1** | 推奨で閉じられる |
+| **S-1** | セキュリティ | 既定の開発構成では認証ミドルウェアが載らない（意図的）。passkey 態の route 被覆の不変条件は無検査。文書が `0.0.0.0` を案内し認証状態を書かない | **P1** | 推奨で閉じられる |
 | **S-2** | セキュリティ | 表示トークン規則が 2 箇所。片方は拒否分岐が到達不能 | **P2** | 推奨で閉じられる |
 | **S-3** | セキュリティ | `security/` 未配線パッケージ（実測 9 クラス、記録は 6） | **P2** | オーナー判断（数値訂正は推奨） |
 | **S-4** | セキュリティ | `_system_one` が呼び出し時にゲートを見ない（構築経路依存） | **P3** | 推奨で閉じられる |

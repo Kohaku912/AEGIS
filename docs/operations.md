@@ -45,6 +45,22 @@ docker compose ps
 # Sleep API: http://0.0.0.0:8090/api/sleep/status
 ```
 
+### 認証（既定の状態）
+
+Dashboard の bind 既定は **`0.0.0.0`**（全インターフェース）である。一方、認証は
+`install_dashboard_token_auth`（`ai-server/src/aegis_ai/web/auth.py`）が **3 態**を解決する:
+
+| 条件 | 状態 |
+|---|---|
+| `AEGIS_RUNTIME_MODE=production`、または `AEGIS_AUTH_MODE=passkey` | **passkey** 認証（本番で許可される唯一のモード） |
+| 非 production かつ `AEGIS_DASHBOARD_ACCESS_TOKEN` あり | token 認証 |
+| **非 production かつ token なし（＝素の既定）** | **認証なし** — 全 route が公開 |
+
+つまり**素の構成では、Dashboard は全インターフェースに無認証で開く**。LAN に置く場合や信頼できない
+ネットワークに接続する場合は、`AEGIS_RUNTIME_MODE=production` と `AEGIS_AUTH_MODE=passkey`
+（＋ `AEGIS_SESSION_SECRET`）を設定すること。`docker compose` 経由の本番構成は
+`docs/ubuntu-production.md` を参照。
+
 ### 停止
 
 ```bash
