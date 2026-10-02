@@ -41,7 +41,7 @@
 > `aegis_ai.main` を起動する（本番は `aegis_ai.docker_entrypoint`）。§27 の補足が言う
 > `pc-server.Dockerfile` の孤立は記録済みの事実で、こちらは正しい。
 >
-> ピン: `ai-server/tests/test_dockerfiles_are_owned.py`（参照先の実在＋未参照集合の等値固定）と、`ai-server/tests/test_e2e_compose_services_exist.py`（**2026-10-03 追加**。スクリプトが `docker compose` で名乗るサービス／プロファイルが compose ファイルに定義されていることを**等値**で固定し、`dev-server` と `--profile dev` だけを記録済みの例外として持つ。**両端**（スクリプトとオーケストレータの呼び出し辺）も固定する。変異 10/10 捕捉）。
+> ピン: `ai-server/tests/test_dockerfiles_are_owned.py`（参照先の実在＋未参照集合の等値固定）と、`ai-server/tests/test_e2e_compose_services_exist.py`（**2026-10-03 追加**。スクリプトが `docker compose` で名乗るサービス／プロファイルが compose ファイルに定義されていることを**等値**で固定し、`dev-server` と `--profile dev` だけを記録済みの例外として持つ。**両端**（スクリプトとオーケストレータの呼び出し辺）も固定する。変異 16/16 捕捉。走査対象は `.ps1` と `.sh` の両方 — `.ps1` だけで書いた初版は `scripts/ubuntu/*.sh` の 7 呼び出しを読んでいなかった）。
 
 ---
 

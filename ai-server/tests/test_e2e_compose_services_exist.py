@@ -1,4 +1,4 @@
-"""Every service a script asks `docker compose` for must exist, or be recorded here.
+r"""Every service a script asks `docker compose` for must exist, or be recorded here.
 
 Measured 2026-10-03, with the real CLI (`docker compose config`, no daemon needed):
 
@@ -18,21 +18,38 @@ The consequence is not hypothetical: `run-dev-real.ps1:19` records the failure i
 exits 1, and `run-all-real.ps1:25` runs that step **unconditionally** with `-ManageDocker`, so
 `run-all-real.ps1` can never exit 0.
 
-**Scope, and the three blind spots it counts rather than hides.** The scan is a static, line-based
-read of `scripts/**/*.ps1`:
+**Scope, and the blind spots it counts rather than hides.** The scan is a static read of
+`scripts/**/*.ps1` **and `scripts/**/*.sh`** — the `.sh` half is not optional: `scripts/ubuntu/start.sh`
+and `scripts/ubuntu/healthcheck.sh` invoke compose with service operands, so a `.ps1`-only scan reports
+a clean tree while **seven** invocations go unread (measured: this pin was written `.ps1`-only first;
+widening it changed nothing about the defect, but added 5 service names to the record).
 
 1. A `docker compose ...` occurrence **inside a string literal is a mention, not an invocation** —
    six lines in this tree are exactly that (`throw "docker compose up failed"`,
    `Add-Check "... docker compose restart"` ×3, `throw "docker compose build failed"`, and
    `run-dev-real.ps1:19`'s own evidence string, which quotes `docker compose --profile dev up`).
-   Quoted spans are stripped before matching, so a naive substring scan reports six phantom
-   invocations and two phantom `dev` profiles.
-2. PowerShell **splatting** (`docker @compose up -d @services`, `run-docker-core.ps1:34`) carries its
-   argv in variables, so no operand is readable from the line. Those lines are counted and pinned.
-3. A **variable operand** (`cp "${Service}:..." $dest`) is not a literal service name. Those tokens
-   are counted and pinned too, so "only literals are read" is a measurement, not a promise.
+   Quoted spans become a **placeholder token**, not nothing, so a value flag still eats the value it
+   was given instead of the next real operand (`build --build-arg "$REV" ai-server` lost `ai-server`
+   when quotes vanished to nothing). A naive substring scan reports six phantom invocations and two
+   phantom `dev` profiles.
+2. **Splatting and variable operands** carry the argv in variables, so no operand is readable from the
+   line: PowerShell `docker @compose up -d @services` (4 lines) and shell
+   `docker compose "${COMPOSE_ARGS[@]}" up -d browser-server`. Those tokens are counted and pinned, so
+   "only literals are read" is a measurement rather than a promise.
+3. **Line continuations** are folded for `.sh` only: `healthcheck.sh` splits one invocation over four
+   physical lines, so a line-based read sees `docker compose \` and never reaches `exec -T ai-server`.
+   The backtick (PowerShell's marker) is **deliberately not honoured** — it is ambiguous in this tree
+   (`start-docker-real.ps1:6` is a comment ending with an inline-code backtick, `build-portable.ps1:30`
+   a bare markdown fence) and no `.ps1` compose invocation here spans lines. A future one would surface
+   as an unrecorded subcommand rather than as a silent miss.
 
 Recorded, not deleted — the owner call is `DELEGATION.md` §4 item 17 (2).
+
+**Why `scripts/` is the whole surface, not just a convenient directory.** Measured 2026-10-03 by
+walking every non-vendored file (`scripts/`, `infra/`, `.github/`, any `Makefile`) for a compose
+command: **all 29 invocation lines live under `scripts/`** and there is no CI workflow, Makefile or
+infra script that invokes compose. So the directory is the surface, and a future invocation outside it
+is the one thing this pin cannot see — recorded here rather than left implied.
 """
 
 from __future__ import annotations
@@ -72,16 +89,20 @@ _RECORDED_SUBCOMMANDS: frozenset[str] = frozenset(
     {"build", "config", "cp", "exec", "logs", "ps", "restart", "stop", "up", "version"}
 )
 
-# How many times each service name was extracted, across every invocation (measured 2026-10-03).
-# An equality rather than a floor, because a floor cannot see the reader losing one *valid* name:
-# dropping the `)` terminator alone silently lost `ai-server` three times (the `ps -q ai-server)`
-# shape) while every other assertion here stayed green.
+# How many times each service name was extracted, across every invocation (measured 2026-10-03,
+# across both the `.ps1` and the `.sh` halves). An equality rather than a floor, because a floor
+# cannot see the reader losing one *valid* name: dropping the `)` terminator alone silently lost
+# `ai-server` three times (the `ps -q ai-server)` shape) while every other assertion here stayed green.
 _RECORDED_SERVICE_MULTISET: dict[str, int] = {
-    "ai-server": 16,
-    "browser-server": 5,
+    "ai-server": 19,
+    "browser-server": 7,
     "dev-server": 2,
     "room-server": 5,
 }
+
+# The `.sh` half alone, as a positive control: if the file walk regresses to `.ps1`-only these seven
+# invocations vanish and nothing else in this file notices.
+_RECORDED_SH_INVOCATIONS = 7
 
 # Subcommands whose bare operands are all service names (`up -d a b c`).
 _MULTI_SERVICE_SUBS = frozenset(
@@ -93,21 +114,50 @@ _MULTI_SERVICE_SUBS = frozenset(
 _FIRST_OPERAND_SUBS = frozenset({"exec", "run", "cp", "port"})
 
 # Flags that consume the following token, so it must not be read as a subcommand or a service.
+# `--profile` MUST be in here as well as in `_PROFILE_FLAGS`: membership here is what eats the
+# value, and dropping it made `dev` fall through to the subcommand position (measured: the whole
+# invocation then read as `sub='dev'` with no services at all).
 _VALUE_FLAGS = frozenset(
     {
-        "-f", "--file", "--profile", "-p", "--project-name", "--env-file", "--ansi",
-        "--progress", "--project-directory", "-c", "--context", "--log-level",
+        "-f", "--file", "-p", "--project-name", "--env-file", "--ansi", "--progress",
+        "--project-directory", "-c", "--context", "--log-level", "--profile", "--build-arg",
+        "--env", "-e", "--label", "-l", "--scale", "--index", "--user", "-u", "--workdir", "-w",
     }
 )
 
+# Of those, only `--profile` *declares* a profile. `-p` is `--project-name` — a different axis, and
+# recording it as a profile reports a project name as an undeclared profile.
+_PROFILE_FLAGS = frozenset({"--profile"})
+
+# What a quoted span becomes. It must be a *token* (so a value flag can still eat it and not swallow
+# the next real operand — `build --build-arg "$X" ai-server` lost `ai-server` when quotes vanished
+# to nothing) yet must not look like a service or a subcommand.
+_QUOTED = "\x01"
+_QUOTED_LABEL = "<quoted>"
+
 _LITERAL = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 _INVOCATION = re.compile(r"\bdocker\s+(compose|@[A-Za-z_][A-Za-z0-9_]*)")
+
+# The v1 spelling. This tree does not use it, so it is pinned as *absent* rather than supported
+# blind: an untested branch is not coverage.
+_V1_COMMAND = re.compile(r"(^|\s)docker-compose\s")
 
 # An invocation's argv ends at a pipeline, a statement separator, a closing brace or a closing
 # paren: `... up -d dev-server | Out-Null`, `try { ... } finally { Pop-Location }` and
 # `(docker compose ps -q ai-server)` must not contribute `Out-Null`, `finally`, `Pop-Location` or
 # `ai-server)` as service names.
 _ARGV_END = re.compile(r"[|;})]")
+
+# Line continuations, per language. A shell uses a trailing `\`; PowerShell uses a trailing backtick
+# — and the backtick is **ambiguous** in this tree: `start-docker-real.ps1:6` is a comment ending
+# with an inline-code backtick (``passed to `docker compose build/up` ``) and `build-portable.ps1:30`
+# is a bare markdown fence, both of which a naive "ends with a backtick" test joins across. Measured:
+# **no `.ps1` compose invocation here spans lines** (the four that do are all in `.sh`), so `.ps1`
+# is deliberately not joined — and a future multi-line `.ps1` invocation surfaces as an *unrecorded
+# subcommand* rather than as a silent miss.
+_CONTINUATION = {".sh": "\\"}
+
+_SCRIPT_SUFFIXES = (".ps1", ".sh")
 
 
 class _Invocation(NamedTuple):
@@ -125,23 +175,56 @@ def _rel(path: Path) -> str:
 
 
 @lru_cache(maxsize=1)
-def _ps1_files() -> tuple[Path, ...]:
-    """Every `.ps1` under `scripts/`, minus the skipped trees."""
+def _script_files() -> tuple[Path, ...]:
+    """Every `.ps1` and `.sh` under `scripts/`, minus the skipped trees.
+
+    The `.sh` half is not optional: `scripts/ubuntu/start.sh` and `scripts/ubuntu/healthcheck.sh`
+    both invoke `docker compose` with service operands, and a `.ps1`-only scan would report a clean
+    tree while seven more invocations went unread.
+    """
     out: list[Path] = []
     for root, dirs, files in os.walk(_SCRIPTS):
         dirs[:] = sorted(d for d in dirs if d not in _SKIP_DIRS)
-        out.extend(Path(root) / name for name in sorted(files) if name.endswith(".ps1"))
+        out.extend(
+            Path(root) / name for name in sorted(files) if name.endswith(_SCRIPT_SUFFIXES)
+        )
     return tuple(out)
 
 
-def _strip_quoted(line: str) -> str:
-    """Drop single- and double-quoted spans.
+def _logical_lines(path: Path) -> list[tuple[int, str]]:
+    """(first physical line number, joined text) — line continuations folded in.
 
-    PowerShell has no `\\` escape inside single quotes and doubles the quote inside double quotes,
-    but every string in this tree is on one line and unescaped, so removing `'...'` and `"..."` is
-    enough to tell an invocation from a mention.
+    A trailing `\\` (sh) or backtick (PowerShell) joins the next physical line. Without this,
+    `healthcheck.sh`'s four-line `docker compose \\ / -f … / exec -T ai-server` yields a bogus
+    subcommand (`\\`) and loses the service.
     """
-    return re.sub(r"'[^']*'|\"[^\"]*\"", " ", line)
+    marker = _CONTINUATION.get(path.suffix)
+    if marker is None:
+        text = path.read_text(encoding="utf-8", errors="replace")
+        return list(enumerate(text.splitlines(), 1))
+    out: list[tuple[int, str]] = []
+    buffer = ""
+    start = 0
+    for lineno, raw in enumerate(path.read_text(encoding="utf-8", errors="replace").splitlines(), 1):
+        if not buffer:
+            start = lineno
+        if raw.rstrip().endswith(marker):
+            buffer += raw.rstrip()[: -len(marker)] + " "
+            continue
+        out.append((start, buffer + raw))
+        buffer = ""
+    if buffer:
+        out.append((start, buffer))
+    return out
+
+
+def _strip_quoted(line: str) -> str:
+    """Replace single- and double-quoted spans with a placeholder token.
+
+    Both languages have no escape worth modelling here: every string in this tree is on one line and
+    unescaped. The replacement is a **token**, not nothing — see `_QUOTED`.
+    """
+    return re.sub(r"'[^']*'|\"[^\"]*\"", f" {_QUOTED} ", line)
 
 
 def _strip_comment(line: str) -> str:
@@ -152,8 +235,8 @@ def _strip_comment(line: str) -> str:
 @lru_cache(maxsize=1)
 def _invocations() -> tuple[_Invocation, ...]:
     found: list[_Invocation] = []
-    for path in _ps1_files():
-        for lineno, raw in enumerate(path.read_text(encoding="utf-8", errors="replace").splitlines(), 1):
+    for path in _script_files():
+        for lineno, raw in _logical_lines(path):
             line = _strip_comment(_strip_quoted(raw))
             match = _INVOCATION.search(line)
             if not match:
@@ -172,7 +255,7 @@ def _invocations() -> tuple[_Invocation, ...]:
             while index < len(tokens):
                 token = tokens[index]
                 if token in _VALUE_FLAGS:
-                    if token in {"--profile", "-p"} and index + 1 < len(tokens):
+                    if token in _PROFILE_FLAGS and index + 1 < len(tokens):
                         profiles.append(tokens[index + 1])
                     index += 2
                     continue
@@ -180,12 +263,13 @@ def _invocations() -> tuple[_Invocation, ...]:
                     index += 1
                     continue
                 if not sub:
-                    sub = token
+                    if token != _QUOTED:
+                        sub = token
                 elif sub in _MULTI_SERVICE_SUBS or sub in _FIRST_OPERAND_SUBS:
                     if _LITERAL.match(token):
                         services.append(token)
                     else:
-                        skipped.append(token)
+                        skipped.append(_QUOTED_LABEL if token == _QUOTED else token)
                     if sub in _FIRST_OPERAND_SUBS:
                         index = len(tokens)  # the rest is a command line, not services
                         continue
@@ -238,19 +322,26 @@ def _observed_undeclared_profiles() -> set[tuple[str, str]]:
 
 def test_the_scan_reaches_the_script_tree() -> None:
     """Non-vacuity floors on the quantities the reader walks, never on the sets it compares."""
-    scripts = _ps1_files()
+    scripts = _script_files()
     invocations = _invocations()
     literals = [service for entry in invocations for service in entry.services]
-    assert len(scripts) >= 25, (
-        f"walked only {len(scripts)} .ps1 files under scripts/ — the scan is not reading the tree, "
-        "so every equality below would pass vacuously"
+    assert len(scripts) >= 30, (
+        f"walked only {len(scripts)} .ps1/.sh files under scripts/ — the scan is not reading the "
+        "tree, so every equality below would pass vacuously"
     )
-    assert len(invocations) >= 8, (
+    assert len(invocations) >= 20, (
         f"found only {len(invocations)} `docker ...` invocation lines in {len(scripts)} scripts — "
         "the extractor is blind"
     )
-    assert len(literals) >= 6, (
+    assert len(literals) >= 20, (
         f"extracted only {len(literals)} literal service names — the operand reader is blind"
+    )
+    shell = [entry for entry in invocations if entry.script.endswith(".sh")]
+    assert len(shell) == _RECORDED_SH_INVOCATIONS, (
+        f"read {len(shell)} invocations from the .sh half, expected {_RECORDED_SH_INVOCATIONS}.\n"
+        "If the walk regressed to .ps1-only, the tree looks clean while `scripts/ubuntu/start.sh` "
+        "and `healthcheck.sh` go unread; if a shell script genuinely gained or lost one, update the "
+        "record. A `.ps1`-only scan is exactly the defect this pin was written against."
     )
     subcommands = {entry.sub for entry in invocations if not entry.splat}
     assert subcommands == _RECORDED_SUBCOMMANDS, (
@@ -284,6 +375,26 @@ def test_the_extracted_service_names_match_the_recorded_multiset() -> None:
         "This is an equality rather than a floor on purpose: losing a *valid* name (`ai-server`, "
         "three times, from the `(docker compose ps -q ai-server)` shape) leaves every other "
         "assertion in this file green."
+    )
+
+
+def test_the_v1_command_spelling_is_absent() -> None:
+    """`docker-compose` (v1) is not supported — it is pinned as *absent*, not read blind.
+
+    An untested branch is not coverage, so rather than teach the extractor a spelling this tree never
+    uses, fix the fact: if someone introduces it, this fails and forces the decision.
+    """
+    users = sorted(
+        f"{_rel(path)}:{lineno}"
+        for path in _script_files()
+        for lineno, raw in _logical_lines(path)
+        if _V1_COMMAND.search(_strip_comment(_strip_quoted(raw)))
+    )
+    assert users == [], (
+        f"`docker-compose` (v1) is now invoked as a command in {users}.\n"
+        "The extractor reads `docker compose` (v2) only. Teach it the v1 spelling and record the "
+        "subcommands it introduces — do not leave it unread, because a v1 invocation names services "
+        "the same way and would be invisible to every other assertion in this file."
     )
 
 
@@ -321,7 +432,7 @@ def test_the_recorded_residue_is_still_wired_into_the_orchestrator() -> None:
     """Pin both ends: the dead step must not become an orphan, nor silently disappear."""
     target = "scripts/e2e/run-dev-real.ps1"
     callers: set[str] = set()
-    for path in _ps1_files():
+    for path in _script_files():
         if _rel(path) == target:
             continue
         if re.search(r"run-dev-real\.ps1", path.read_text(encoding="utf-8", errors="replace")):
