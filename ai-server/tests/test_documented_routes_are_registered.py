@@ -14,10 +14,20 @@ precisely the shape that makes a hand-maintained exclusion list a defect, so the
 structural instead: **a table row is an assertion; a sentence quoting a mistake is not.**
 
 Direction: documented ⇒ registered. The converse is deliberately **not** asserted. Measured
-2026-10-03, **86 of the app's 189 rule/method pairs are referenced by no client source** — but
-most are public APIs for operators, Android or the display surface, so "no client" is a
-**candidate, not a verdict**. Each would need its own two-ended check (the chat SSE route was
-dead only because its own registry was inert as well).
+2026-10-03 with this file's own ``_app`` (production, ``AEGIS_UI_VERSION=v2``): the app registers
+**192 rules / 202 (method, path) pairs**, and under the matching rule *"the client contains the
+rule's literal path, or its static prefix up to the first ``<``"* **98 of the 202 are referenced
+by no client source** (127 if only the literal path counts; 75 if only the first two segments do).
+
+Those figures **replace a recorded "86 of 189"**, which reproduces under **none** of the four
+matching rules tried (16 / 75 / 98 / 127) nor any count of the surface (192 rules / 202 pairs /
+182 unique paths / 200 unique pairs), over either client set (`web-ui/src` + five servers, or the
+whole trees). The likely explanation is that it was quoted from an earlier state or a different
+method — but the durable lesson is that **a count quoted without its method cannot be re-derived**,
+which is how it survived: nobody could tell whether a later measurement disagreed with it.
+The **conclusion is unchanged** — most are public APIs for operators, Android or the display
+surface, so "no client" is a **candidate, not a verdict**. Each would need its own two-ended check
+(the chat SSE route was dead only because its own registry was inert as well).
 """
 
 from __future__ import annotations
