@@ -448,14 +448,14 @@ Measured 2026-10-01 — `ai-server`, full suite:
 > layer over `aegis_ai/config.py`) and +4 (S-2, the display-access consolidation). **The remaining
 > +4 landed after 2026-10-01 and is *not attributed*** — the count-history table in the
 > `aegis-verify-and-test` skill carries the same gap. Egress is now **311 passed / 1 skipped**
-> (312 carry the marker, 1644 deselected), not 305.
+> (312 carry the marker, 1647 deselected), not 305.
 >
-> **Re-measured again 2026-10-02 (E-2): `1948 passed / 8 skipped`** (1956 collected). The +6 over the
-> 1942 above is **+3 (E-3's pin, which landed in the same session *after* the 1942 figure was taken —
-> so that figure was already stale) and +3 (E-2's pin)**. The +4 gap noted above is **untouched and
-> still unattributed**. ⚠️ This is a **chunked sum, not one invocation**: a single full-suite `pytest`
-> here dies partway (**rc=127**, observed at 36% and 44% after ~3–4 min), so the suite was run as 5
-> chunks whose totals equalled their collected counts exactly.
+> **Re-measured again 2026-10-02 (E-2 + S-4): `1951 passed / 8 skipped`** (1959 collected). The +9
+> over the 1942 above is **+3 (E-3's pin, which landed in the same session *after* the 1942 figure was
+> taken — so that figure was already stale), +3 (E-2's pin) and +3 (S-4's pin)**. The +4 gap noted
+> above is **untouched and still unattributed**. ⚠️ This is a **chunked sum, not one invocation**: a
+> single full-suite `pytest` here dies partway (**rc=127**, observed at 36% and 44% after ~3–4 min),
+> so the suite was run as 6 chunks whose totals equalled their collected counts exactly.
 
 - **Total tests (2026-10-01 record)**: **1926 passed / 8 skipped**
   — the **+20** over the 2026-09-30 figure are **all new pins**: four for B-5① (the confirmation↔desire

@@ -310,6 +310,17 @@ class TypeSafeProvider:
         return {"result": result, "_usage": response.get("usage") or {}}
 
     def _system_one(self, *, state: Any, questions: dict[str, Any]) -> dict[str, Any]:
+        # Defence in depth (S-4). The gate is also consulted at construction
+        # (``llm/factory.py`` and ``llm/gateway.py``, the only two sites), but
+        # *this* method is the one that transmits, so it re-checks immediately
+        # before building the request. Without it, "the construction path is the
+        # only entrance" is a convention rather than an invariant. The gate is
+        # read-only over decided permissions; a denial raises, and ``generate``
+        # turns that into an audited failure response rather than transmitting.
+        from aegis_ai.llm.factory import egress_allows_llm
+
+        if not egress_allows_llm(self._base_url, component="llm.typesafe_provider"):
+            raise RuntimeError(f"Egress gate denied TypeSafe destination {self._base_url}")
         payload = json.dumps(
             {
                 "model": self._model,
