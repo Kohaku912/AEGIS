@@ -13,7 +13,9 @@ Measured 2026-10-03 — it is dead on **both** ends, which is two independent fa
   ``_unregister_chat_client`` pops it. Nothing ever puts into a queue, so a connected
   client receives heartbeats and nothing else, forever.
 * **No subscriber.** The path string occurs in exactly **one** file — the definition —
-  across every source tree in the repo, and no ``EventSource`` is constructed anywhere.
+  across every source tree in the repo. The repo's only ``EventSource`` targets a **different**
+  channel (``/api/ui/stream``, ``web-ui/src/api/useOverviewStream.ts:24``), so "the UI streams"
+  is satisfied by an unrelated route, not this one.
 
 Neither scan alone is evidence: a route with a subscriber but no publisher is a broken
 feature, and one with a publisher but no subscriber is an orphan. Together they say the
