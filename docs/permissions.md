@@ -11,6 +11,15 @@
 > check is now **implemented** (`aegis_ai/egress/permissions.py`, `4d3f825`): a grant is a
 > `(host, purpose)` pair, matched exactly with **no wildcard**, read out of the confirmation store —
 > the gate only ever *reads* what the user already decided; it never asks.
+>
+> ⚠️ **Measured 2026-10-03 — the grant path is implemented but *not wired*.**
+> `ConfirmationGrantSource` has **no construction site in `src/`** (the only calls are three in
+> `tests/test_egress_permission.py`), and the composition root calls
+> `configure_egress_gate(settings_store=…)` without a `permission_source` (`set_permission_source`
+> is never called). The gate still consults the source on **every** `check()`; the source is simply
+> never supplied, so no recorded grant is ever read. **Only the standing configuration can open a
+> destination today.** Pinned by `tests/test_egress_grant_source_is_unwired.py`; the wiring decision
+> is `DELEGATION.md` §4 item 22.
 
 > **Status**: Implemented
 > **Related**: `docs/settings.md`, `docs/architecture.md` §7
@@ -53,7 +62,7 @@ User Request → ToolBroker → SettingsPermissionGuard → PolicyEngine → Egr
 - Allow purchases / payments (hard stop)
 - Remove explicit deny patterns
 - **Transmit user information with no permission.** A setting can *open* a destination (master switch
-  + per-purpose flag + host allowlist) and a recorded grant can authorise one `(host, purpose)`, but
+  + per-purpose flag + host allowlist) and a recorded grant *would* authorise one `(host, purpose)` (that path is **not wired** — see the measurement above), but
   neither makes an **unpermitted** disclosure go out — the gate denies every destination no path has
   opened. Before the 2026-09-30 re-scope this read "no setting can permit user data to leave the local
   environment"; that absolute is gone, and the permission check replaced it.
@@ -71,7 +80,7 @@ What actually governs what AEGIS may do, in order:
 
 | Layer | Where | What it decides |
 |-------|-------|-----------------|
-| **Egress gate** | `aegis_ai/egress/gate.py` | Whether anything may leave the local environment. **Deny-by-default**, but it is a **permission check**: a destination goes out only if a setting opened it *or* the user granted that exact `(host, purpose)` (`egress/permissions.py`). A request carrying **no user information** passes without either. |
+| **Egress gate** | `aegis_ai/egress/gate.py` | Whether anything may leave the local environment. **Deny-by-default**, but it is a **permission check**: a destination goes out only if a setting opened it *or* the user granted that exact `(host, purpose)` (`egress/permissions.py`; **that path is not wired yet**). A request carrying **no user information** passes without either. |
 | **Policy engine** | `aegis_ai/policy_engine.py` | Per-capability decision from the manifest's risk annotation: `ALLOW` / `ALLOW_WITH_AUDIT` / `DENY` / `UNAVAILABLE`. |
 | **Explicit deny patterns** | `policy_engine.py` | Purchases/payments, egress-gate bypass, policy self-modification. |
 | **Voluntary confirmation** | `ConfirmationStore` | AEGIS *may ask* before acting. It is never *forced* to wait — that gate is gone. |
@@ -88,7 +97,7 @@ ledger). External transmission goes through the **permission check**; payments s
 Still denied, and *why*:
 
 - **External transmission with no permission** — the egress gate (the single constraint). A setting or
-  a recorded grant can open a destination; nothing can open an *unpermitted* one.
+  a recorded grant *could* open a destination (the path exists but is **not wired** — see the measurement above); nothing can open an *unpermitted* one.
 - **Purchases and paid subscriptions** — explicit deny pattern (hard stop)
 - **CAPTCHA / ToS bypass** — **prompt-level only** (`browser_use/executor.py` and
   `llm_task_interpreter.py`). The `FORBIDDEN_CAPABILITIES` half never enforced it, and has been
