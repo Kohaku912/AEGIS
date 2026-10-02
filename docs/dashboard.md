@@ -79,7 +79,7 @@ The reply is JSON: `{"response": "...", "request_id": ..., "conversation_id": ..
 ```
 data: {"type":"heartbeat"}
 ```
-⚠️ The route is registered but **no producer publishes to it** — the client queue is only ever created and removed (`dashboard_legacy.py:1135-1143`), so a connected client receives **only** the 15-second `heartbeat` frames. Wiring it or deleting it is an owner decision.
+⚠️ The route is **dead on both ends** (measured 2026-10-03). **No producer publishes to it** — the client queue is only ever created and removed (`dashboard_legacy.py:1135-1143`), and nothing calls `put` anywhere in that file, so a connected client receives **only** the 15-second `heartbeat` frames. **And no client subscribes** — the path string occurs in exactly one file (its own definition) and no `EventSource` is constructed anywhere in the repo. Pinned by `ai-server/tests/test_chat_sse_route_stays_dead.py`; wiring it or deleting it is an owner decision (`DELEGATION.md` §4 item 23).
 
 The chat system supports **recursive multi-step tool calling** (up to **15** rounds — the `call_llm_with_tools` default; `LLMSettings.max_tool_rounds = 5` is *displayed* in the settings UI but never passed by any caller):
 1. LLM receives user message and available tools (from CapabilityCatalog)

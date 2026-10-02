@@ -353,7 +353,7 @@ manifest's own `aliases` key is **not** consulted for ID resolution; it only fee
 
 ### Features
 
-- **Chat with tool calling**: `POST /api/chat/send` (plain JSON). The `GET /api/chat/events` SSE route is registered but **no producer publishes to it**
+- **Chat with tool calling**: `POST /api/chat/send` (plain JSON). The `GET /api/chat/events` SSE route is registered but **dead on both ends** (measured 2026-10-03) — **no producer publishes to it** (nothing calls `put` anywhere in `dashboard_legacy.py`) and **no client subscribes** (the path occurs in exactly one file, its own definition). Pinned by `ai-server/tests/test_chat_sse_route_stays_dead.py`; wiring or deleting it is `DELEGATION.md` §4 item 23
 - **Memory integration**: AdvancedMemory context in LLM prompts
 - **Desire context**: Current desire states in LLM prompts
 - **Tool calling**: Chat uses CapabilityCatalog for capability execution
@@ -457,17 +457,20 @@ Measured 2026-10-01 — `ai-server`, full suite:
 > single full-suite `pytest` here dies partway (**rc=127**, observed at 36% and 44% after ~3–4 min),
 > so the suite was run as 6 chunks whose totals equalled their collected counts exactly.
 >
-> **Re-measured 2026-10-03: `1965 passed / 8 skipped`** (1973 collected, 413.13 s, one invocation).
+> **Re-measured 2026-10-03: `1970 passed / 8 skipped`** (1978 collected, 420.30 s; the canonical
+> marker-excluded form is 1970 / 4 skipped / 4 deselected).
 > The +9 over the 1951 above is **+3 (`f8e0b06`, the JEV re-scope: 21 pins rewritten + 2 new gate tests)
 > and +6 (`31e4066`, the JEV provider fixes: `detail` in the error text, `timeout_seconds` threaded
 > through the factory, the inert generation parameters documented, a success log).** Egress is now
-> **314 passed / 1 skipped** (315 carry the marker, **1658** deselected) — only `f8e0b06` added egress
-> tests; the 11 added since carry no marker.
+> **314 passed / 1 skipped** (315 carry the marker, **1663** deselected) — only `f8e0b06` added egress
+> tests; the 16 added since carry no marker.
 >
 > The **+5** on top of 1960 is `tests/test_egress_grant_source_is_unwired.py` — the recorded-grant
 > path (`ConfirmationGrantSource`) is implemented and consulted on every `check()`, but no `src/`
 > module constructs one and the composition root passes no `permission_source`, so it is **inert in
-> the running system** (`DELEGATION.md` §4 item 22, `PROJECT_STATUS_REVIEW.md` §3.2).
+> the running system** (`DELEGATION.md` §4 item 22, `PROJECT_STATUS_REVIEW.md` §3.2). A further
+> **+5** is `tests/test_chat_sse_route_stays_dead.py` — `GET /api/chat/events` is dead on **both**
+> ends, which is two independent facts (`DELEGATION.md` §4 item 23).
 
 - **Total tests (2026-10-01 record)**: **1926 passed / 8 skipped**
   — the **+20** over the 2026-09-30 figure are **all new pins**: four for B-5① (the confirmation↔desire
@@ -536,7 +539,7 @@ Measured 2026-10-01 — `ai-server`, full suite:
   binaries — that is an environment limit, not a regression. Verify the suites individually (see the
   `aegis-verify-and-test` skill) rather than "fixing" code that is fine.
 - **Egress regression suite**: **314 passed / 1 skipped** (315 tests carry the `egress` marker,
-  1658 deselected). CI enforces a floor of 160 (`--require-egress-tests=160`) **and** mutation-proves
+  1663 deselected). CI enforces a floor of 160 (`--require-egress-tests=160`) **and** mutation-proves
   the gate: breaking it yields failures, restoring it yields 314 passes. The mutation figure is
   **76 failures** (measured 2026-10-03 on the 315-marker baseline; it was 74 at the 2026-10-01
   baseline of 305 and 62 at the 268-marker baseline — **re-run it before quoting**, the number is a
