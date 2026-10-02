@@ -34,7 +34,7 @@
 | 懸念 | 測定結果 |
 |---|---|
 | 「egress ゲートを迂回する外部呼び出しがあるのでは」 | **11 モジュール・12 呼び出し点**が `get_egress_gate()` を直接呼び、LLM 層はさらに `egress_allows_llm` ヘルパ経由で 4 箇所（`factory.py:164,234,267` / `gateway.py:142`）。**すべて fail-closed**。直接 `urlopen` する 2 箇所も確認済みで、両方ゲートに到達する |
-| 「ダッシュボードに認証の穴があるのでは」 | **passkey 態**では 169 の route を全数分類して**穴は 1 つも無い**（保護外は「設計上の除外」か「ハンドラが自己防衛」のみ）。ただし**既定の開発構成では認証ミドルウェア自体が載らない**（意図的な dev 逃げ道 — S-1） |
+| 「ダッシュボードに認証の穴があるのでは」 | **ほぼ反証（例外 1 件）**。passkey 態の **182 経路 / 192 rule** を全数分類すると、無認証の非 loopback 呼び出しに内容が返るのは **8 経路**のみ（`/auth/*` のログイン面、`/assets`・`/static` の静的資産、`/display` の SPA シェル HTML）。**ただしそのうち 2 本は穴である** — `/display` と `/display/presentations` は自己防衛 `_require_display_read()` が `ui_v2_prefer_spa_shell` に**迂回されている**（実測: 呼び出し 0 回。S-1①）。加えて**既定の開発構成では認証ミドルウェア自体が載らない**（意図的な dev 逃げ道 — S-1） |
 | 「秘密情報がコミットされているのでは」 | **0 件**。`.gitignore` が `.env` / `secrets/` / `*.pem` / `*.key` / `data/` を覆い、`scripts/audit-secrets.py` とテストが監視している |
 | 「同期ブロッキング I/O がイベントループを止めるのでは」 | gRPC は **sync サーバ + スレッドプール**なので、ブロッキングは 1 ワーカーを占有するだけでループ飢餓にはならない（ただし §2 E-2 の容量上限は残る） |
 
@@ -212,7 +212,7 @@ instructions below」と明記されている）。
 
 ## 3. セキュリティのリスク
 
-### S-1 【新規・一部訂正】認証は**三態**で、既定の開発構成では**ミドルウェアが 1 つも載らない**　`P1`
+### S-1 【新規・一部訂正】認証は**三態**で、既定の開発構成では**ミドルウェアが 1 つも載らない**　`P1` — **①②修正済み（③はオーナー判断）**
 
 **現状（測定）**
 
@@ -227,10 +227,11 @@ instructions below」と明記されている）。
 | 非 production かつ `AEGIS_DASHBOARD_ACCESS_TOKEN` あり（または `AEGIS_AUTH_MODE=token`） | **token** | `_require_dashboard_token` |
 | **非 production かつ token なし**（＝**素の既定**） | **disabled** | **何も載らない** — 全 route が公開 |
 
-実測: 素の構成で `DashboardApp` を組み立てると **169 route** に対し `before_request` は
-`ui_v2_prefer_spa_shell` / `_before_request` / `_bind_request_correlation` の 3 つだけで、
-`_load_and_require_auth` は**存在しない**。（当初「84 経路」と書いたのは**ソースのデコレータが宣言する
-経路**の数で、実際に登録される rule は 169 ある — 両者は別の量である。）
+実測: 素の構成で `DashboardApp` を組み立てると **169 経路（`url_map` の rule オブジェクトは 179 個）** に対し
+`before_request` は `ui_v2_prefer_spa_shell` / `_before_request` / `_bind_request_correlation` の 3 つだけで、
+`_load_and_require_auth` は**存在しない**。passkey 態では **182 経路 / 192 rule** になる（差は auth
+ブループリントの 13 rule）。（当初「84 経路」と書いたのは**ソースのデコレータが宣言する経路**の数である —
+「宣言された経路」「登録された rule オブジェクト」「異なる rule 文字列」は 3 つとも別の量である。）
 
 **この `disabled` は意図的である** — `BUG_REPORT.md` 項目 7 が「dev 逃げ道は `web/auth.py` 側で担保」
 として記録している。安全側の向き（**production では token が拒否される**）は
@@ -251,16 +252,33 @@ instructions below」と明記されている）。
    **全インターフェースに無認証で開く**ことになるが、どの文書もそれを書いていない
    （`docs/v1-completion-checklist.md:117` は本番についてのみ「unauthenticated を拒否」と書く）。
 
-**測定された「passkey 態での穴が無い」ことの内訳** — 保護外に出る経路は 8 種のみ:
-`/assets/<path:filename>`, `/display`（5 種）, `/health`, `/static/<path:filename>`。
-`/display/*` はハンドラが `_require_display_read()` で自己防衛する（`web/routes/ui_v2.py:80,87,92`）。
-`/auth/*` は接頭辞外だが**ハンドラが自己防衛**する（`/auth/me`・`/auth/passkeys` は
-`_session_required()`、`auth/routes.py:125,138`）。
+**測定された内訳（無認証のクライアントが受け取る内容）** — 呼び出し元の位置で 2 つに分かれる:
+
+| 呼び出し元 | 内容が返る経路 | 内訳 |
+|---|---|---|
+| **非 loopback（＝外部）** | **8 経路** | `/auth/bootstrap/start`・`/auth/login`・`/auth/me`・`/auth/passkey/login/options`（ログイン面）、`/assets/<path:filename>`・`/static/<path:filename>`（静的資産）、`/display`・`/display/presentations`（SPA シェル HTML） |
+| **loopback で追加** | **+4 経路** | `/health`（`local_exempt`）、`/display/overview`・`/display/power-state`（`_require_display_read()`）、`/display/presentations/data`（`presentation._require_local_display_request()`） |
+
+`/auth/*` の残り（`/auth/passkeys` 系・`/auth/logout`）は接頭辞外だが**ハンドラが自己防衛**する
+（`_session_required()`、`auth/routes.py:125,138`）。
+
+**穴（実測 2026-10-02）**: `/display` と `/display/presentations` は `display_v2_shell` の中で
+`_require_display_read()` を呼ぶが、`ui_v2_prefer_spa_shell`（`before_request`）が先にシェルを返すため
+**このガードは実行されない**。実測: 外部からの GET 4 本のうちガードが呼ばれたのは
+`/display/overview`・`/display/power-state` の 2 回のみで、`/display`・`/display/presentations` は **0 回**。
+`ui_v2_available()` が偽のとき（`AEGIS_UI_VERSION=v1`、または dist 未ビルド）だけガードが走り、その場合は
+直後に `abort(404)` する — つまり**同じ論理経路が UI 版数によって守られたり守られなかったりする**。
+漏れるのは**静的なシェル HTML のみ**で、データ経路（`/display/overview`・`/display/power-state`・
+`/display/presentations/data`）は守られている。
 
 **改善の方向性**: ① route 被覆の不変条件を **`url_map` 駆動のテスト**で固定する（保護でも除外でも
 分類されていない route が現れたら落ちる）② `docs/operations.md` に**既定の認証状態**を明記する
-（`0.0.0.0` に開くなら、無認証であることも書く）。
-**帰属**: **推奨で閉じられる**（①②）。dev の既定 bind を loopback に変えるかは**オーナー判断**。
+（`0.0.0.0` に開くなら、無認証であることも書く）③ 上の穴を**塞ぐか、意図として記録する**か。
+**帰属**: **推奨で閉じられる**（①②は**完了** — ピンは
+`ai-server/tests/test_dashboard_routes_are_protected_or_recorded.py`、上表の 8+4 を**等号**で固定し、
+新経路が増えれば落ちる）。③は**オーナー判断**: ガードを生かして（＝フックの短絡をやめて）シェルも
+loopback 限定にするか、迂回を意図として受け入れて死んだガードを消すか。どちらも振る舞いを変えるので、
+ここでは**測定結果の記録まで**。dev の既定 bind を loopback に変えるかも**オーナー判断**。
 
 ---
 
@@ -273,7 +291,7 @@ instructions below」と明記されている）。
 
 `_display_read_allowed` は「早期に**許可**する」ことしかできない。理由: 呼び出し位置は `protected` 判定の**前**にあり、`/display/...` は**保護接頭辞に 1 つも一致しない**ので、`_display_read_allowed` が `False` を返しても後段の `if not protected: return None` に落ちて**やはり通る**。つまり**この関数の拒否分岐は到達不能**である。実質的に生きた唯一の用途は `/api/ui/stream?surface=display`（`/api/` 配下なので保護され、早期許可が効く）である。
 
-実際に `/display/*` を守っているのは `ui_v2._require_display_read`（`tests/test_passkey_auth.py:217` が 403 を assert しており、そのテストは**ミドルウェアを install していない**ので、403 はハンドラ由来だと確認できる）。
+実際に `/display/*` の**データ経路**を守っているのは `ui_v2._require_display_read`（`tests/test_passkey_auth.py:217` が 403 を assert しており、そのテストは**ミドルウェアを install していない**ので、403 はハンドラ由来だと確認できる）。ただし効くのは `/display/overview` と `/display/power-state` に限る — `/display` と `/display/presentations` ではこのガードは**迂回される**（S-1① で実測）。
 
 **改善の方向性**: ① 規則を 1 実装に統合する ② または 2 つを残すなら**一致を assert する**（「同じ事実を 2 つが語るなら一致を主張する」）。統合が素直。あわせて、**拒否分岐が到達不能であること**を記録する（現状は「守っている」と読める）。
 **帰属**: **推奨で閉じられる**。
@@ -407,7 +425,7 @@ instructions below」と明記されている）。
 | **E-2** | 非効率 | ワーカー 10 に対し外向きタイムアウト最大 30 秒 | **P2** | 推奨で閉じられる |
 | **E-3** | 非効率 | エージェント 1 ステップごとにスレッドプール生成 | **P2** | 推奨で閉じられる |
 | **E-4** | 非効率 | 最高重みの `aliases` に生産者 0 件 | **P3** | オーナー判断 |
-| **S-1** | セキュリティ | 既定の開発構成では認証ミドルウェアが載らない（意図的）。passkey 態の route 被覆の不変条件は無検査。文書が `0.0.0.0` を案内し認証状態を書かない | **P1** | 推奨で閉じられる |
+| **S-1** | セキュリティ | 既定の開発構成では認証ミドルウェアが載らない（意図的）。passkey 態の route 被覆の不変条件は無検査。文書が `0.0.0.0` を案内し認証状態を書かない | **P1** | **修正済み**（①②。③と dev bind はオーナー判断） |
 | **S-2** | セキュリティ | 表示トークン規則が 2 箇所。片方は拒否分岐が到達不能 | **P2** | 推奨で閉じられる |
 | **S-3** | セキュリティ | `security/` 未配線パッケージ（実測 9 クラス、記録は 6） | **P2** | オーナー判断（数値訂正は推奨） |
 | **S-4** | セキュリティ | `_system_one` が呼び出し時にゲートを見ない（構築経路依存） | **P3** | 推奨で閉じられる |
@@ -420,13 +438,13 @@ instructions below」と明記されている）。
 | **X-2** | 拡張性 | 拡張の語彙 `aliases` が未配線 | **P2** | オーナー判断 |
 | **X-3** | 拡張性 | Room Server / Android 通知フィルタが未構成 | **P2** | オーナー判断 |
 
-**「推奨で閉じられる」= 9 件**（G-3, E-2, E-3, S-1, S-2, S-4, M-1, M-2, M-3）。残りは**オーナー判断**が前提。
+**「推奨で閉じられる」= 7 件**（E-2, E-3, S-2, S-4, M-1, M-2, M-3）。**G-3 と S-1 は対応済み**（上表の「修正済み」）。残りは**オーナー判断**が前提。
 
 ---
 
 ## 7. この調査が測っていないこと（正直な限界）
 
-- **実行時の挙動は測っていない。** すべて**ソースと文書の静的走査**である。`ai-server` を起動して観測した結果ではない（Docker デーモンは本環境で停止している）。
+- **実行時の挙動は、原則として測っていない。** 大半は**ソースと文書の静的走査**である。`ai-server` を**起動して**観測した結果ではない（Docker デーモンは本環境で停止している）。**例外は S-1①**: route 被覆だけは in-process で測った — `DashboardApp` を passkey 態で組み立て、`url_map` の全 rule / 全メソッドに**無認証のテストクライアントで実際に要求を投げ**、返った内容で分類している（その測定は `ai-server/tests/test_dashboard_routes_are_protected_or_recorded.py` が等号で固定する）。
 - **`web-ui` / `android-server` / `pc-server` / `browser-server` / `room-server` のソースは網羅していない。** 深く測ったのは `ai-server` である。他サーバーについては既存レジスタと `feature-catalog.md` の記載に依拠した。
 - **「性能」は測っていない。** E-2 / E-3 は**構造からの推定**であり、プロファイルを取った結果ではない。負荷試験なしに「遅い」とは主張しない。
 - **優先度は測定ではなく判断である。** 表の P 値は、この調査の著者が「目標にどれだけ効くか」で並べたもので、オーナーの順序を拘束しない。
