@@ -530,11 +530,12 @@ Measured 2026-10-01 — `ai-server`, full suite:
   If every check reports FAIL with an **empty** exit code, the script host cannot launch native
   binaries — that is an environment limit, not a regression. Verify the suites individually (see the
   `aegis-verify-and-test` skill) rather than "fixing" code that is fine.
-- **Egress regression suite**: **311 passed / 1 skipped** (312 tests carry the `egress` marker,
-  1638 deselected). CI enforces a floor of 160 (`--require-egress-tests=160`) **and** mutation-proves
-  the gate: breaking it yields failures, restoring it yields 311 passes. (The `74 failures` figure
-  belongs to the 2026-10-01 baseline of 305 and has **not** been re-measured since — re-run the
-  mutation before quoting it.)
+- **Egress regression suite**: **314 passed / 1 skipped** (315 tests carry the `egress` marker,
+  1653 deselected). CI enforces a floor of 160 (`--require-egress-tests=160`) **and** mutation-proves
+  the gate: breaking it yields failures, restoring it yields 314 passes. The mutation figure is
+  **76 failures** (measured 2026-10-03 on the 315-marker baseline; it was 74 at the 2026-10-01
+  baseline of 305 and 62 at the 268-marker baseline — **re-run it before quoting**, the number is a
+  function of how many tests detect the breakage).
 - **Canonical command**:
   `cd ai-server && PYTHONPATH=src CODEBUDDY_SAFE_DELETE_ENABLED=0 $VENV -m pytest -q`
 

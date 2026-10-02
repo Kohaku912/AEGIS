@@ -31,10 +31,13 @@ Design principles
 3. **Fail closed.** If a destination cannot be classified, the request is denied.
 4. **Permission, not a wall** (re-scoped 2026-09-30). The old "must be explicitly configured"
    escape hatch is gone, and the constraint is now *unpermitted* egress — so the intended
-   mechanism is the **voluntary ask**, not an absolute refusal. ⚠️ The code still enforces
-   the pre-re-scope form: external egress requires **all three** of the master switch, the
-   matching feature flag, **and** an allowlist entry, so a flag alone never permits egress.
-   Wiring the permission check is open work.
+   mechanism is the **voluntary ask**, not an absolute refusal. **Two** paths can permit a
+   destination: the standing configuration (master switch **and** feature flag **and** an
+   allowlist entry — a flag alone never permits egress), or a **recorded user grant** for that
+   host and purpose, consulted on every check via :meth:`_user_grant`. ⚠️ The grant path only
+   answers when a ``permission_source`` was supplied, and the composition root does not pass
+   one — so in the running system it always returns "no grant" and only the configuration path
+   can permit. That wiring is the open work, not the check.
 5. **Auditable.** Every decision is recorded so the constraint can be verified after
    the fact (post-hoc visibility, Phase 3).
 

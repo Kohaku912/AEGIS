@@ -178,7 +178,7 @@
 
 | サーバ | 言語 | ポート | 役割 | テスト |
 |---|---|---|---|---|
-| **AI Server** | Python 3.13/3.14 | 50051 | 中枢（LLM / 記憶 / 欲求 / 自律ループ） | **1923 passed / 8 skipped** |
+| **AI Server** | Python 3.13/3.14 | 50051 | 中枢（LLM / 記憶 / 欲求 / 自律ループ） | **1960 passed / 8 skipped** |
 | **PC Server** | Rust | 50052 | Windows 操作（TCP JSON プロトコル） | Python テスト **0**（Rust 側のみ） |
 | **Browser Server** | Python | 50053 | Web 閲覧（HTTP、`ThreadingHTTPServer`） | **100 passed** |
 | **Android Server** | Kotlin | 契約上 50054（実機は 50051 へ outbound） | 端末コンパニオン | 実機テストのみ（`android_local`） |
@@ -203,6 +203,13 @@
 > 分かるように）。**この段落の上の 1777 は「その時に測った値」なので動かさない** — 動かすのは
 > **現在値を名乗っている写し**だけ、というのがこの節の規約。**教訓**: テスト数を動かす変更は、
 > **この 3 写しを同じコミットで直す**まで終わらない。
+>
+> **2026-10-03 に再実測 — 同じ型が 4 度目。** 本表の AI Server 行が **1923** のまま §0（**1960**）と
+> 食い違っていた。`f8e0b06`（+3）と `cafac24`（+6）を含む 1926 → 1960 の **+34 が §0 の要約行にしか
+> 反映されていなかった**（台帳行は当時の値なので正しい）。本表を **1960** に揃え、他行も再実測した
+> （browser **100** / room **16** / SDK **71** / vitest **144** / playwright 42）。
+> **教訓は変わらない** — 数を動かす変更は、§0・本表・`AGENTS.md`・検証スキル §1 を**同じコミットで**
+> 直すまで終わらない。
 >
 > **同日さらに 4 度目の再発**（2026-09-30）: 音声 I/O（`d9a01cb`）・外部メッセージング（`ad9d32f`）・
 > cross-device context（`19ae1b1`）の 3 コミットが AI Server を **1776 → 1891**、egress マーカーを
@@ -535,7 +542,7 @@ git ls-remote origin refs/heads/cf-grpc-and-goal-hygiene refs/heads/main \
 
 | 系統 | 状態 | 根拠 |
 |---|---|---|
-| **Egress Gate（唯一の制約）** | ✅ 強制（**2026-09-30 に再定義**） | `ai-server/src/aegis_ai/egress/{gate.py,permissions.py,startup.py}`、25 モジュール配線、10 実効点、起動時 fail-closed、CI 床 160（実測 **268 marked / 245 passed / 23 skipped**）、**mutation 証明**（壊すと **62 failed**）。**再定義の内容**: 禁止されるのは「**許可の無い**ユーザー情報の外部送信」で、**接続自体は可**（旧: deny-all）。**許可の 2 経路を実装済み**: ①常設設定（マスタスイッチ＋目的別フラグ＋allowlist。既定 False のまま）②**ユーザーが特定の宛先について与えた許可**（`egress/permissions.py` が confirmation ストアを読む。`(host, purpose)` 完全一致・**ワイルドカード無し**・期限内のみ）。ゲートは**読むだけで問わない**ため、退職済みの強制ゲートは退職のまま（`test_forced_gate_stays_retired.py`）。ユーザー情報を運ばない要求は許可不要（既定は `carries_user_information=True`＝厳しい側） |
+| **Egress Gate（唯一の制約）** | ✅ 強制（**2026-09-30 に再定義**） | `ai-server/src/aegis_ai/egress/{gate.py,permissions.py,startup.py}`、25 モジュール配線、10 実効点、起動時 fail-closed、CI 床 160（実測 **315 marked / 314 passed / 1 skipped**）、**mutation 証明**（壊すと **76 failed**）。**再定義の内容**: 禁止されるのは「**許可の無い**ユーザー情報の外部送信」で、**接続自体は可**（旧: deny-all）。**許可の 2 経路を実装済み**: ①常設設定（マスタスイッチ＋目的別フラグ＋allowlist。**出荷 `settings.json` はマスタスイッチを開き、`egress_allowed_hosts` に `api.typesafe.ai` **のみ**を許可** — 2026-10-03）②**ユーザーが特定の宛先について与えた許可**（`egress/permissions.py` が confirmation ストアを読む。`(host, purpose)` 完全一致・**ワイルドカード無し**・期限内のみ）。ゲートは**読むだけで問わない**ため、退職済みの強制ゲートは退職のまま（`test_forced_gate_stays_retired.py`）。ユーザー情報を運ばない要求は許可不要（既定は `carries_user_information=True`＝厳しい側） |
 | **L1/L2/L3 三層 LLM** | ✅ 完了 | `intake/l1_router.py` / `autonomous/l2_mind.py` / `llm/l3_reasoner.py`、`l1.*`/`l2.*`/`l3.*` イベント、`LLMGateway.request(layer=...)` |
 | **Dashboard** | ✅ D1–D9 + L1–L6 | `web-ui/src`（Live Overlay / Agent Session 9 tabs / Timeline Gantt / Token-Cost / L1–L3 パネル） |
 | **Agent runtime（OpenHands）** | ✅ Phase 1–9 完了 | `agents/runtime/` + `agents/backends/{local,openhands}/`、MCP gateway、`aegis-openhands-agent.service`、**dev-server は完全削除** |
