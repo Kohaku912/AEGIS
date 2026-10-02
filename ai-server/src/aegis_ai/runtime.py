@@ -162,6 +162,14 @@ class AegisRuntime:
                 self.event_manager.unsubscribe(subscription)
             except Exception:
                 logger.debug("Failed to unsubscribe initiative event handler", exc_info=True)
+        l2_executor = getattr(self, "_background_l2_executor", None)
+        if l2_executor is not None:
+            # ``_submit_background_l2`` creates this lazily, so it exists only
+            # once an event has been routed to the L2 pipeline.
+            try:
+                l2_executor.shutdown(wait=False)
+            except Exception:
+                logger.debug("Failed to stop background L2 executor", exc_info=True)
         loop = self.autonomous_loop
         if loop is not None:
             try:
@@ -719,6 +727,38 @@ def _run_l2_pipeline(runtime: Any, *, trigger: str, detail: dict[str, Any]) -> d
     except Exception as exc:
         logger.exception("L2 pipeline failed for trigger=%s", trigger)
         return {"handled": False, "reason": f"L2 pipeline failed: {exc!r}", "action_type": "noop"}
+
+
+def _submit_background_l2(runtime: Any, *, trigger: str, detail: dict[str, Any]) -> None:
+    """Run the L2 pipeline off the caller's thread (E-2).
+
+    ``EventBus`` notifies subscribers **inline on the publisher's thread**
+    (``event_bus.EventBus._notify_subscribers``), and one publisher is the gRPC
+    ``PushEvent`` handler, which runs on one of the ``config.max_workers``
+    request threads. The L2 pipeline can reach a multi-second outbound call
+    (``agents/backends/openhands/workspace._default_http_post(timeout=30.0)``),
+    so running it inline occupies a request thread for the whole call.
+
+    On the background path the L2 result is discarded — only its side effects
+    matter — so it is safe to run on a dedicated single worker. That also stops
+    concurrent L2 runs from multiplying with the event rate.
+
+    Pinned by ``tests/test_background_l2_runs_off_the_request_thread.py``.
+    """
+    import concurrent.futures
+
+    executor = getattr(runtime, "_background_l2_executor", None)
+    if executor is None:
+        executor = concurrent.futures.ThreadPoolExecutor(
+            max_workers=1, thread_name_prefix="aegis-background-l2"
+        )
+        runtime._background_l2_executor = executor  # type: ignore[attr-defined]
+    try:
+        executor.submit(_run_l2_pipeline, runtime, trigger=trigger, detail=detail)
+    except RuntimeError:
+        # Executor already shut down (runtime stopping) — stay correct inline.
+        logger.debug("Background L2 executor unavailable; running inline", exc_info=True)
+        _run_l2_pipeline(runtime, trigger=trigger, detail=detail)
 
 
 def _run_l1_pipeline_for_event(runtime: Any, event: Any) -> Any | None:
@@ -1568,7 +1608,11 @@ def _build_runtime(config: Config) -> AegisRuntime:
             "observed_action": str(getattr(observation, "raw", {}).get("observed_action", "") or ""),
             "possible_intent": str(getattr(observation, "raw", {}).get("possible_intent", "") or ""),
         }
-        _run_l2_pipeline(rt, trigger=str(getattr(event, "event_type", "") or "background"), detail=detail)
+        _submit_background_l2(
+            rt,
+            trigger=str(getattr(event, "event_type", "") or "background"),
+            detail=detail,
+        )
 
     runtime._l1_event_subscription = event_manager.subscribe(  # type: ignore[attr-defined]
         _handle_background_l1_event,
