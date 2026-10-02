@@ -30,7 +30,7 @@
 > この 2 つは必ず失敗する**（`docker compose` は未知のサービス名で停止する）。2026-10-01 に修正したのは
 > 正典・その 2 スクリプト・`scripts/e2e/run-docker-core.ps1` の死んだ `-IncludeDev` スイッチ
 > （`--profile dev` はどの compose にも無く、呼び出し元も無い）・`scripts/audit_common.py` の死んだ除外項。
-> **残り 2 件は記録のみ** — `scripts/e2e/run-dev-real.ps1` とその呼び出し元
+> **残り 2 件は記録のみ**（削除はしない — 意図的）だが、**2026-10-03 にピンで両端を固定した** — `scripts/e2e/run-dev-real.ps1` とその呼び出し元
 > `scripts/e2e/run-all-real.ps1:25`（e2e ハーネスの削除とオーケストレータの張り替えはオーナー判断）→
 > `DELEGATION.md` §4 項目 17。
 >
@@ -41,7 +41,7 @@
 > `aegis_ai.main` を起動する（本番は `aegis_ai.docker_entrypoint`）。§27 の補足が言う
 > `pc-server.Dockerfile` の孤立は記録済みの事実で、こちらは正しい。
 >
-> ピン: `ai-server/tests/test_dockerfiles_are_owned.py`（参照先の実在＋未参照集合の等値固定）。
+> ピン: `ai-server/tests/test_dockerfiles_are_owned.py`（参照先の実在＋未参照集合の等値固定）と、`ai-server/tests/test_e2e_compose_services_exist.py`（**2026-10-03 追加**。スクリプトが `docker compose` で名乗るサービス／プロファイルが compose ファイルに定義されていることを**等値**で固定し、`dev-server` と `--profile dev` だけを記録済みの例外として持つ。**両端**（スクリプトとオーケストレータの呼び出し辺）も固定する。変異 10/10 捕捉）。
 
 ---
 

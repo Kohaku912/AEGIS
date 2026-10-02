@@ -457,12 +457,12 @@ Measured 2026-10-01 — `ai-server`, full suite:
 > single full-suite `pytest` here dies partway (**rc=127**, observed at 36% and 44% after ~3–4 min),
 > so the suite was run as 6 chunks whose totals equalled their collected counts exactly.
 >
-> **Re-measured 2026-10-03: `1972 passed / 8 skipped`** (1980 collected, 402.16 s; the canonical
-> marker-excluded form is 1972 / 4 skipped / 4 deselected).
+> **Re-measured 2026-10-03: `1977 passed / 8 skipped`** (1985 collected, 396.72 s; the canonical
+> marker-excluded form is 1977 / 4 skipped / 4 deselected).
 > The +9 over the 1951 above is **+3 (`f8e0b06`, the JEV re-scope: 21 pins rewritten + 2 new gate tests)
 > and +6 (`31e4066`, the JEV provider fixes: `detail` in the error text, `timeout_seconds` threaded
 > through the factory, the inert generation parameters documented, a success log).** Egress is now
-> **314 passed / 1 skipped** (315 carry the marker, **1665** deselected) — only `f8e0b06` added egress
+> **314 passed / 1 skipped** (315 carry the marker, **1670** deselected) — only `f8e0b06` added egress
 > tests; the 18 added since carry no marker.
 >
 > The **+5** on top of 1960 is `tests/test_egress_grant_source_is_unwired.py` — the recorded-grant
@@ -472,7 +472,10 @@ Measured 2026-10-01 — `ai-server`, full suite:
 > **+5** is `tests/test_chat_sse_route_stays_dead.py` — `GET /api/chat/events` is dead on **both**
 > ends, which is two independent facts (`DELEGATION.md` §4 item 23). And **+2** is
 > `tests/test_documented_routes_are_registered.py` — the route tables in `docs/approval-ui.md`
-> and `docs/feature-catalog.md` must name routes the app actually registers.
+> and `docs/feature-catalog.md` must name routes the app actually registers. And **+5** is
+> `tests/test_e2e_compose_services_exist.py` — every service and profile a script names to
+> `docker compose` must be defined by a compose file, with `dev-server` and `--profile dev`
+> recorded as the only exceptions (`DELEGATION.md` §4 item 17 (2)).
 
 - **Total tests (2026-10-01 record)**: **1926 passed / 8 skipped**
   — the **+20** over the 2026-09-30 figure are **all new pins**: four for B-5① (the confirmation↔desire
@@ -541,7 +544,7 @@ Measured 2026-10-01 — `ai-server`, full suite:
   binaries — that is an environment limit, not a regression. Verify the suites individually (see the
   `aegis-verify-and-test` skill) rather than "fixing" code that is fine.
 - **Egress regression suite**: **314 passed / 1 skipped** (315 tests carry the `egress` marker,
-  1665 deselected). CI enforces a floor of 160 (`--require-egress-tests=160`) **and** mutation-proves
+  1670 deselected). CI enforces a floor of 160 (`--require-egress-tests=160`) **and** mutation-proves
   the gate: breaking it yields failures, restoring it yields 314 passes. The mutation figure is
   **76 failures** (measured 2026-10-03 on the 315-marker baseline; it was 74 at the 2026-10-01
   baseline of 305 and 62 at the 268-marker baseline — **re-run it before quoting**, the number is a
