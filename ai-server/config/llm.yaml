@@ -1,12 +1,25 @@
 version: "1.0.0"
 # "cloud" or "local".
 #
-# SINGLE CONSTRAINT (2026-09-27): the user's information must never leave the local
-# environment. This file MUST be "local". "cloud" exists only for development and is
-# blocked at runtime by the egress gate (aegis_ai/egress/) regardless of this value —
-# the gate denies external destinations by default, so setting "cloud" cannot cause a
-# transmission; it only means the local profile remapping below does not apply.
-mode: "local"
+# CONSTRAINT — **re-scoped 2026-09-30** (canonical: docs/GOAL-CHANGE.md):
+#   **Unpermitted** user information must never leave the local environment. Outbound
+#   connections ARE allowed, and user information MAY be sent externally **with the
+#   user's permission**. The egress gate (aegis_ai/egress/) is therefore the permission
+#   check, not a deny-all wall. It still denies by default: an external destination needs
+#   the master switch, the purpose flag, AND an allowlist entry — or a recorded user grant.
+#
+# This file is "cloud" so that L1 actually reaches TypeSafe JEV: `l1_default` declares
+# provider=typesafe / model=jev-latest below, and `local` would silently remap it to an
+# Ollama profile via settings_resolver._LOCAL_PROFILE_MAP (l1_default -> local_decision).
+# "No local LLM" is a standing decision about *which* model runs (docs/GOAL-CHANGE.md),
+# and it is what makes "local" the wrong value here — under "local" the JEV declaration is
+# dead and every layer resolves to qwen2.5:3b on localhost.
+#
+# Only `api.typesafe.ai` is allowlisted (config/settings.json -> privacy.egress_allowed_hosts),
+# so the other cloud profiles below CANNOT transmit even though they resolve to a cloud
+# provider: the gate denies them and the provider degrades to Mock. JEV is the only
+# reachable external model.
+mode: "cloud"
 profiles:
   chat_balanced:
     provider: "openai"

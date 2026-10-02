@@ -263,21 +263,54 @@ def test_status_ok_when_closed():
     assert status.violations == []
 
 
-def test_status_reports_violations_when_open():
+def test_status_ok_when_the_permission_is_scoped():
+    """A permitted destination is the re-scoped goal, not a defect.
+
+    Re-scoped 2026-09-30 (`docs/GOAL-CHANGE.md`): user information may be sent externally
+    *with the user's permission*. A populated allowlist plus the purpose flag **is** that
+    permission, so the startup assertion must not refuse it. Refusing it would be the
+    pre-re-scope rule ("external LLM must be disabled"), which no longer holds — and it
+    would make a permitted configuration unable to start.
+    """
     gate = EgressGate(
         settings_store=_FakeStore(
             external_egress_allowed=True,
             external_llm_allowed=True,
-            web_search_allowed=True,
         ),
-        allowed_hosts=["api.deepseek.com"],
+        allowed_hosts=["api.typesafe.ai"],
+    )
+    status = gate.status()
+    assert status.ok is True, f"a scoped permission was rejected: {status.violations}"
+    assert status.violations == []
+    assert status.summary["allowed_hosts"] == ["api.typesafe.ai"]
+    assert status.summary["external_llm_allowed"] is True
+
+
+def test_status_reports_an_unscoped_opening():
+    """The master switch on with nothing allowlisted permits nothing.
+
+    That is the "declared but ineffective" class: the configuration claims an opening it
+    does not implement, so it is a violation rather than a permission.
+    """
+    gate = EgressGate(settings_store=_FakeStore(external_egress_allowed=True))
+    status = gate.status()
+    assert status.ok is False
+    assert any("no permitted destination" in v for v in status.violations)
+
+
+def test_status_reports_a_dead_allowlist_entry():
+    """An entry that can never match is a permission in name only.
+
+    `_extract_host` reduces a destination to a bare hostname, so an entry containing "/"
+    (a URL or a path) is dead — it looks like a grant and permits nothing.
+    """
+    gate = EgressGate(
+        settings_store=_FakeStore(external_egress_allowed=True),
+        allowed_hosts=["https://api.typesafe.ai/v1/systemone"],
     )
     status = gate.status()
     assert status.ok is False
-    assert any("external_egress_allowed" in v for v in status.violations)
-    assert any("external_llm_allowed" in v for v in status.violations)
-    assert any("web_search_allowed" in v for v in status.violations)
-    assert any("allowlist" in v for v in status.violations)
+    assert any("can never match" in v for v in status.violations)
 
 
 def test_verify_passes_when_closed():
@@ -286,14 +319,24 @@ def test_verify_passes_when_closed():
     assert status.ok is True
 
 
+def test_verify_passes_when_the_permission_is_scoped():
+    """The shipped shape: master switch + purpose flag + one allowlisted host."""
+    gate = EgressGate(
+        settings_store=_FakeStore(external_egress_allowed=True, external_llm_allowed=True),
+        allowed_hosts=["api.typesafe.ai"],
+    )
+    status = verify_egress_configuration(gate, mode="fail")
+    assert status.ok is True
+
+
 def test_verify_fails_closed_in_fail_mode():
-    gate = EgressGate(settings_store=_FakeStore(external_llm_allowed=True))
+    gate = EgressGate(settings_store=_FakeStore(external_egress_allowed=True))
     with pytest.raises(EgressConfigurationError):
         verify_egress_configuration(gate, mode="fail")
 
 
 def test_verify_warns_in_warn_mode():
-    gate = EgressGate(settings_store=_FakeStore(external_llm_allowed=True))
+    gate = EgressGate(settings_store=_FakeStore(external_egress_allowed=True))
     status = verify_egress_configuration(gate, mode="warn")
     assert status.ok is False
     assert status.violations
@@ -494,51 +537,102 @@ def _llm_yaml_path():
     return Path(__file__).resolve().parents[1] / "config" / "llm.yaml"
 
 
-def test_shipped_llm_config_is_local_only():
-    """The shipped llm.yaml must be local-mode with a local vision profile."""
+def test_shipped_llm_config_runs_l1_on_jev():
+    """The shipped llm.yaml must actually reach JEV, and JEV must be the only reachable model.
+
+    ``mode: cloud`` is what makes ``l1_default`` reach its declared provider:
+    ``settings_resolver._LOCAL_PROFILE_MAP`` would otherwise remap it to Ollama, so the
+    JEV declaration would be dead (measured 2026-10-02 — the config said typesafe while
+    every call ran on ``qwen2.5:3b``). The safety net is the **allowlist**, not the mode:
+    every other declared cloud destination is unpermitted, so the gate denies it and the
+    profile degrades to Mock.
+    """
+    import json
+
     import yaml
 
     data = yaml.safe_load(_llm_yaml_path().read_text(encoding="utf-8"))
-    assert data.get("mode") == "local"
+    assert data.get("mode") == "cloud", (
+        "mode must be 'cloud' or `l1_default` is remapped to a local profile and JEV is "
+        "never reached (settings_resolver._LOCAL_PROFILE_MAP)"
+    )
 
-    resolver_map = data["profiles"]
-    assert "local_vision" in resolver_map
-    vision = resolver_map["local_vision"]
-    assert "localhost" in vision["base_url"] or "127.0.0.1" in vision["base_url"]
+    l1 = data["profiles"]["l1_default"]
+    assert l1["provider"] == "typesafe"
+    assert l1["model"] == "jev-latest"
+    assert l1["base_url"] == "https://api.typesafe.ai/v1/systemone"
+
+    privacy = json.loads(
+        (_llm_yaml_path().parent / "settings.json").read_text(encoding="utf-8")
+    )["privacy"]
+    assert privacy["egress_allowed_hosts"] == ["api.typesafe.ai"], (
+        "the allowlist is the safety net: any other host here makes another cloud "
+        "provider reachable"
+    )
 
 
 def test_startup_assertion_passes_with_shipped_config():
-    """The real llm.yaml must satisfy the startup readiness check."""
-    from aegis_ai.egress import EgressGate, verify_egress_configuration
+    """The real llm.yaml + settings.json must satisfy the startup assertion.
 
-    gate = EgressGate(settings_store=_FakeStore())
-    status = verify_egress_configuration(
-        gate, llm_config_path=_llm_yaml_path(), mode="fail"
-    )
-    assert status.ok is True
+    This reads the **real** settings store: the assertion now evaluates the permission
+    configuration, and an earlier version of this test used a closed ``_FakeStore()`` and
+    so passed without ever looking at what the shipped config permits.
+    """
+    from aegis_ai.egress import EgressGate, verify_egress_configuration
+    from aegis_ai.settings.store import SettingsStore
+
+    settings_path = _llm_yaml_path().parent / "settings.json"
+    gate = EgressGate(settings_store=SettingsStore(path=str(settings_path)))
+    status = verify_egress_configuration(gate, llm_config_path=_llm_yaml_path(), mode="fail")
+
+    assert status.ok is True, f"the shipped config is rejected: {status.violations}"
     assert status.summary["local_llm_readiness"] == "ok"
 
+    reachable = status.summary["reachable_destinations"]
+    assert reachable.get("api.typesafe.ai") is True, "JEV must be reachable"
+    assert sorted(h for h, ok in reachable.items() if ok) == ["api.typesafe.ai"], (
+        f"more than TypeSafe is reachable: {reachable}"
+    )
 
-def test_vision_profile_resolves_to_local_in_local_mode():
-    """vision_observation must map to a local profile — images may not go to the cloud."""
+
+def test_vision_profile_resolves_to_local_when_mode_is_local(tmp_path):
+    """The remap still holds — it is a property of *local mode*, not of the shipped mode.
+
+    ``vision_observation`` must map to a local profile under ``mode: local``, because
+    images may not go to a cloud provider. The shipped config is ``cloud``, so this builds
+    a local-mode config to exercise the resolver itself.
+    """
+    import yaml
+
     from aegis_ai.llm.settings_resolver import LLMSettingsResolver
 
     assert LLMSettingsResolver._LOCAL_PROFILE_MAP.get("vision_observation") == "local_vision"
 
-    resolver = LLMSettingsResolver(str(_llm_yaml_path()))
-    resolved = resolver.resolve(profile_id="vision_observation")
+    data = yaml.safe_load(_llm_yaml_path().read_text(encoding="utf-8"))
+    data["mode"] = "local"
+    local_config = tmp_path / "llm_local.yaml"
+    local_config.write_text(yaml.safe_dump(data), encoding="utf-8")
+
+    resolved = LLMSettingsResolver(str(local_config)).resolve(profile_id="vision_observation")
     assert "localhost" in resolved.base_url or "127.0.0.1" in resolved.base_url
 
 
-def test_shipped_settings_json_is_closed():
-    """config/settings.json must ship with every egress flag closed."""
+def test_shipped_settings_json_permits_only_typesafe():
+    """config/settings.json must ship with a **scoped** permission.
+
+    Re-scoped 2026-09-30: the goal permits external disclosure *with the user's
+    permission*, so "every egress flag closed" is no longer the shipped state — but the
+    opening must name exactly the destination AEGIS is meant to use.
+    """
     import json
     from pathlib import Path
 
     path = Path(__file__).resolve().parents[1] / "config" / "settings.json"
     privacy = json.loads(path.read_text(encoding="utf-8"))["privacy"]
 
-    assert privacy["external_egress_allowed"] is False
-    assert privacy["external_llm_allowed"] is False
-    assert privacy["web_search_allowed"] is False
-    assert privacy["egress_allowed_hosts"] == []
+    assert privacy["external_egress_allowed"] is True
+    assert privacy["external_llm_allowed"] is True
+    assert privacy["egress_allowed_hosts"] == ["api.typesafe.ai"]
+    assert privacy["web_search_allowed"] is False, (
+        "web search is a separate purpose and was not permitted"
+    )

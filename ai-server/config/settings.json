@@ -40,9 +40,11 @@
     "notification_text_retention_hours": 168,
     "clipboard_capture_enabled": true,
     "camera_snapshot_enabled": false,
-    "external_egress_allowed": false,
-    "egress_allowed_hosts": [],
-    "external_llm_allowed": false,
+    "external_egress_allowed": true,
+    "egress_allowed_hosts": [
+      "api.typesafe.ai"
+    ],
+    "external_llm_allowed": true,
     "web_search_allowed": false
   },
   "voice": {

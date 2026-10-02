@@ -96,7 +96,7 @@ gate.require(EgressRequest(
     purpose="llm.chat",
     component="llm.router",
     data_summary="chat prompt + memory context",
-))  # raises EgressDenied while egress is closed
+))  # raises EgressDenied unless the destination is permitted
 
 # Or check without raising:
 if gate.allow(EgressRequest(destination=url, purpose="web.search", component="x")):
@@ -108,12 +108,20 @@ Helpers: `is_local_destination(dest) -> bool`, `classify_destination(dest) -> "l
 ## Startup assertion
 
 `verify_egress_configuration()` runs at composition-root startup (before any network-capable object
-is built):
+is built). **Re-scoped 2026-09-30** (`docs/GOAL-CHANGE.md`): the constraint is *permission*-gated, so
+an opened surface is no longer a defect by itself — the gate **is** the permission check. Asserting
+"egress is closed" would now assert something the goal does not require, and would stop a permitted
+configuration from starting.
 
-- **Violations** (fatal in `fail` mode): a flag or the allowlist is open. AEGIS refuses to start.
-- **Readiness warnings** (non-fatal by default): the local LLM path is incomplete (`llm.yaml` is not
-  `mode: local`, or vision has no local profile). Nothing is transmitted, but AEGIS would degrade to
-  Mock. Escalate with `require_local_llm=True`.
+- **Violations** (fatal in `fail` mode) — an opening that does not describe what it permits:
+  - the master switch on with an **empty allowlist**: nothing is permitted, so the configuration
+    claims an opening it does not implement;
+  - an allowlist entry that **can never match** (`_extract_host` reduces a destination to a bare
+    hostname, so an entry containing `/` — a URL or path — is a permission in name only).
+- **Readiness warnings** (non-fatal by default): the LLM config does not suit its declared mode, or
+  a declared external destination is **not permitted** so its profiles will silently degrade to Mock.
+  In `local` mode this covers a missing `local_*` / local vision profile; in `cloud` mode it is the
+  reachability report (`summary["reachable_destinations"]`). Escalate with `require_local_llm=True`.
 
 Control with `AEGIS_EGRESS_STRICT=fail|warn` (default `fail`).
 
@@ -203,7 +211,7 @@ cd ../browser-server
 
 | Layer | File | What it establishes |
 |---|---|---|
-| Gate semantics | `test_egress_gate.py` | local/external classification, deny-by-default, the three-lock requirement, fail-closed on unknown destinations, audit recording, the startup assertion, the LLM factory **and gateway** refusing cloud providers, dead-local-endpoint degradation |
+| Gate semantics | `test_egress_gate.py` | local/external classification, deny-by-default, the three-lock requirement, fail-closed on unknown destinations, audit recording, the startup assertion (**a scoped permission passes; an unscoped opening and a dead allowlist entry are the violations**), the LLM factory **and gateway** refusing cloud providers the gate does not permit, dead-local-endpoint degradation |
 | Closure | `test_egress_closure.py` | **every** point in the guarded table above is driven through its own entry point and refuses — plus a drift guard that keeps this table and the tests in sync |
 | Reliability (pass^k) | `test_egress_reliability.py` | the block holds on **every** trial, not merely once; repeated local traffic never erodes it |
 | Ineffective flags | `test_ineffective_flags.py` | every settings flag has a reader; every lock is read by the enforcement point; flipping a lock changes a decision |

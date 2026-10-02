@@ -545,26 +545,58 @@ class EgressGate:
     # ── Startup assertion ────────────────────────────────────────────────────
 
     def status(self) -> EgressStatus:
-        """Return whether egress is structurally closed."""
+        """Return whether the egress **permission configuration** is coherent.
+
+        **Re-scoped 2026-09-30** (canonical: ``docs/GOAL-CHANGE.md``). Outbound
+        connections are allowed and user information may be sent externally *with the
+        user's permission*, so an **opened** surface is no longer a defect by itself:
+        this gate *is* the permission check, and it evaluates every request. Asserting
+        "egress is closed" would now be asserting something the goal does not require —
+        and it would make a permitted configuration unable to start.
+
+        What this still has to catch is an opening that does not describe what it
+        permits — the "declared but ineffective" class:
+
+        - the master switch on with an **empty allowlist**: no destination is permitted,
+          so the configuration claims an opening it does not implement;
+        - an allowlist entry that can never match. :func:`_extract_host` reduces a
+          destination to a bare hostname, so an entry containing ``/`` (a URL or a path)
+          is dead — it looks like a permission and grants nothing.
+
+        The purpose flags and a populated allowlist are the permission itself; they are
+        reported in ``summary`` for the operator rather than as violations.
+        """
         violations: list[str] = []
 
-        if self._external_egress_enabled():
-            violations.append("privacy.external_egress_allowed is True")
-        if self._privacy_setting("privacy", "external_llm_allowed", default=False):
-            violations.append("privacy.external_llm_allowed is True")
-        if self._privacy_setting("privacy", "web_search_allowed", default=False):
-            violations.append("privacy.web_search_allowed is True")
-        if self._privacy_setting("voice", "external_voice_api_allowed", default=False):
-            violations.append("voice.external_voice_api_allowed is True")
-        if self.allowed_hosts:
-            violations.append(f"egress allowlist is non-empty: {sorted(self.allowed_hosts)}")
+        hosts = self.allowed_hosts
+        if self._external_egress_enabled() and not hosts:
+            violations.append(
+                "privacy.external_egress_allowed is True but privacy.egress_allowed_hosts "
+                "is empty — external egress is enabled with no permitted destination"
+            )
+
+        dead = sorted(host for host in hosts if "/" in host)
+        if dead:
+            violations.append(
+                f"egress allowlist entries can never match a bare hostname: {dead} "
+                "(entries must be hosts, not URLs or paths)"
+            )
 
         return EgressStatus(
             ok=not violations,
             violations=violations,
             summary={
-                "allowed_hosts": sorted(self.allowed_hosts),
+                "allowed_hosts": sorted(hosts),
                 "external_egress_allowed": self._external_egress_enabled(),
+                "external_llm_allowed": self._privacy_setting(
+                    "privacy", "external_llm_allowed", default=False
+                ),
+                "web_search_allowed": self._privacy_setting(
+                    "privacy", "web_search_allowed", default=False
+                ),
+                "external_voice_api_allowed": self._privacy_setting(
+                    "voice", "external_voice_api_allowed", default=False
+                ),
             },
         )
 

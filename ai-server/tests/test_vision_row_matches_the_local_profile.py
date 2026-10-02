@@ -61,7 +61,26 @@ def _row_body() -> str:
 
 
 def _resolved_vision_base_url() -> str:
-    settings = LLMSettingsResolver(str(_LLM_YAML)).resolve(profile_id="vision_observation")
+    """Resolve ``vision_observation`` **under local mode**.
+
+    The row's claim is that a local replacement *exists* — which is a property of
+    ``mode: local`` (the ``local_vision`` profile plus the remap that reaches it). The
+    shipped config moved to ``mode: cloud`` on 2026-10-03 so that L1 reaches JEV, and in
+    cloud mode ``vision_observation`` resolves to its declared Aliyun endpoint **by
+    configuration** — a permitted choice, not "no local replacement exists". Reading the
+    shipped mode here would conflate the two and make the row wrong for a reason it does
+    not assert.
+    """
+    import tempfile
+
+    import yaml
+
+    data = yaml.safe_load(_LLM_YAML.read_text(encoding="utf-8"))
+    data["mode"] = "local"
+    path = Path(tempfile.mkdtemp(prefix="aegis-vision-local-")) / "llm.yaml"
+    path.write_text(yaml.safe_dump(data), encoding="utf-8")
+
+    settings = LLMSettingsResolver(str(path)).resolve(profile_id="vision_observation")
     return settings.base_url
 
 
