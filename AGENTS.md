@@ -697,6 +697,30 @@ Measured 2026-10-01 — `ai-server`, full suite:
 > **unchanged at 314 passed / 1 skipped** (315 carry the marker); the deselected count moved
 > **1728 → 1746** with the 18 non-egress tests, and the **derived** "added since carry no marker"
 > figure is now **99** (`2061 − 1962` collected, or `1746 − 1647` deselected).
+>
+> **Re-measured 2026-10-03 (the Docker surface — the multi-service half of `PROJECT_STATUS_REVIEW.md`
+> §3.2): `2061 passed / 8 skipped`** (2069 collected, 453.34 s). The **+8** is the new pin file
+> `tests/test_compose_is_coherent.py`, exactly. Measured with the real CLI (Docker 29.7.2 / Compose
+> v5.5.0): `docker compose -f docker-compose.yml config --quiet` → **rc=0**; the production overlay
+> **without** `AEGIS_SESSION_SECRET` → **rc=1** (`required variable … is missing a value`) and **rc=0**
+> with it, so the overlay's `${…:?}` fail-fast is real rather than decorative. Services: base **6**,
+> production **5** (`room-server` sits behind `profiles: [room]`), production `--profile room` **6** —
+> and that profile **agrees** with the overlay's `AEGIS_DISABLED_SERVERS=room-server`: two mechanisms for
+> one intent, now pinned together. The pin calls **no docker** (CI has no daemon), so it asserts
+> properties of the *text*: no `depends_on` names an undefined service, no two services claim one host
+> port, the named-volume set is exactly what is mounted, every `build.dockerfile` exists — plus the one
+> cross-artefact pair that looks wrong and is not: `COPY --from=web-ui-build /ai-server/…` resolves
+> because `web-ui/package.json` builds with `--outDir ../ai-server/src/aegis_ai/web/static/ui-v2` from
+> `WORKDIR /web-ui`. ⚠️ **The gap it records**: all three built images declare a `HEALTHCHECK`, the
+> compose files declare none, and every `depends_on` is `condition: service_started` — the healthchecks
+> exist and **nothing gates on them** (gating is a behaviour change, `DELEGATION.md` §4 item 31). ⚠️
+> **The pin's own first version had the defect it exists to catch**: it tested `"HEALTHCHECK" in text`,
+> so a mutation replacing the instruction with a *comment* that mentions it stayed green — "a mention is
+> not an invocation", again; the check is now `startswith` on the stripped line and excludes
+> `HEALTHCHECK NONE`. **Mutation-proved 14/14** with a green control and five files restored
+> byte-identically. Egress is **unchanged at 314 passed / 1 skipped** (315 carry the marker); the
+> deselected count moved **1728 → 1754** with the 26 non-egress tests, and the **derived** "added since
+> carry no marker" figure is now **107** (`2069 − 1962` collected, or `1754 − 1647` deselected).
 
 - **Total tests (2026-10-01 record)**: **1926 passed / 8 skipped**
   — the **+20** over the 2026-09-30 figure are **all new pins**: four for B-5① (the confirmation↔desire
@@ -765,7 +789,7 @@ Measured 2026-10-01 — `ai-server`, full suite:
   binaries — that is an environment limit, not a regression. Verify the suites individually (see the
   `aegis-verify-and-test` skill) rather than "fixing" code that is fine.
 - **Egress regression suite**: **314 passed / 1 skipped** (315 tests carry the `egress` marker,
-  1746 deselected). CI enforces a floor of 160 (`--require-egress-tests=160`) **and** mutation-proves
+  1754 deselected). CI enforces a floor of 160 (`--require-egress-tests=160`) **and** mutation-proves
   the gate: breaking it yields failures, restoring it yields 314 passes. The mutation figure is
   **76 failures** (measured 2026-10-03 on the 315-marker baseline; it was 74 at the 2026-10-01
   baseline of 305 and 62 at the 268-marker baseline — **re-run it before quoting**, the number is a

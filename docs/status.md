@@ -87,7 +87,11 @@ These were listed as not started; the owner moved them into v1 and they are now 
   package is imported by nothing and no live server binds a secure port, so v1 gRPC stays plaintext
   and must stay inside a Tailscale / private network boundary. Recorded, not wired, in
   `DELEGATION.md` §4 (`tests/test_security_package_stays_unwired.py` pins the measurement).
-- **Docker Compose**: compose file and Dockerfiles exist; full multi-service validation is pending.
+- **Docker Compose**: the compose files and the Dockerfiles they reference are structurally coherent and
+  pinned (`tests/test_compose_is_coherent.py` — no service depends on an undefined name, no host port is
+  claimed twice, the named-volume set is exactly what the services mount, and the production overlay
+  refuses to default the session secret). **Running the stack** — and gating startup on the image
+  healthchecks — is still pending.
 - **Completion verification**: manifests may declare `completion`; ToolBroker verifies and retries for
   manifest-backed checks.
 

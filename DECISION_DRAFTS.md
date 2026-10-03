@@ -169,7 +169,7 @@
 | 音声 I/O（STT/TTS） | ~~**v1 では入れない**~~ → **オーナーが覆した**（2026-09-30、`DELEGATION.md` §2）。**v1 に入れて実装済み**。「ローカル LLM は追わない」の対象は **LLM に限る**（STT/TTS は対象内）とオーナーが確認 |
 | 外部メッセージング | ~~**入れない** — egress と**構造的に矛盾**~~ → **オーナーが覆した**（2026-09-30）。egress が「**許可があれば**外部利用可」に再定義されたので、この「構造的矛盾」は**解消**。**実装済み** |
 | multi-user / plugin marketplace | **入れない** — v1 スコープ外 |
-| Docker 全体検証 | **やる** — compose と Dockerfile はあり、推奨で実行できます（この環境に `docker` があるかは実行時に確認） |
+| Docker 全体検証 | **静的整合は実行済み（2026-10-03）／実機起動は未完** — `docker` はこの環境に**ある**（29.7.2 / Compose v5.5.0）。`compose config` で base rc=0・本番 secret 無し rc=1（fail-fast が実測で効いた）・有り rc=0 を確認し、サービス数・ホストポート衝突・ボリューム・`depends_on`・本番 overlay の fail-fast を**ピンで固定**（`ai-server/tests/test_compose_is_coherent.py`、**8 本・変異 14/14 捕捉**）。**実際に `compose up` してのマルチサービス検証は未完**（残る判断 = healthcheck を起動ゲートに使うか、§4 項目 31） |
 
 ---
 
