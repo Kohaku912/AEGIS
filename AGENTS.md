@@ -803,6 +803,22 @@ Measured 2026-10-01 — `ai-server`, full suite:
 > deselected count moved **1780 → 1785** with the 5 non-egress tests, and the **derived** figure is now
 > **138** (`2100 − 1962` collected, or `1785 − 1647` deselected).
 
+> **A corrupt social store is reported (2026-10-04): `2102 passed / 8 skipped`** (2110 collected,
+> 399.98 s). The **+10** is `tests/test_social_store_failures_are_reported.py`.
+> `SocialIntelligenceSystem._load` reads six JSONL stores; `_load_jsonl` (observations / episodes)
+> had always logged its failures, but the four specific loaders (relationships / reputations /
+> social_norms / social_skills) used `except Exception: pass`. The consequence is the familiar one:
+> the store falls back to an **empty dict**, and the only other signal is `_load`'s summary line,
+> which counts entries — so a store that failed to parse and a store with no entries yet produce
+> **the same line**, and a corrupted `relationships.jsonl` is indistinguishable from a fresh install.
+> The four now warn exactly as `_load_jsonl` does; the empty fallback is unchanged. The pin captures
+> the **log records** (`caplog`) rather than asserting on text, parameterised over the four stores,
+> with a control that a *missing* store stays silent and one that a single corrupt store does not
+> stop the others loading. **Mutation 7/7**, control green, both files restored byte-identically.
+> Egress is **unchanged at 314 passed / 1 skipped** (315 carry the marker); the deselected count moved
+> **1785 → 1795** with the 10 non-egress tests, and the **derived** figure is now **148**
+> (`2110 − 1962` collected, or `1795 − 1647` deselected).
+
 - **Total tests (2026-10-01 record)**: **1926 passed / 8 skipped**
   — the **+20** over the 2026-09-30 figure are **all new pins**: four for B-5① (the confirmation↔desire
   link), one for the general invariant that **the shipped `config/settings.json` declares no key that
@@ -870,7 +886,7 @@ Measured 2026-10-01 — `ai-server`, full suite:
   binaries — that is an environment limit, not a regression. Verify the suites individually (see the
   `aegis-verify-and-test` skill) rather than "fixing" code that is fine.
 - **Egress regression suite**: **314 passed / 1 skipped** (315 tests carry the `egress` marker,
-  1785 deselected). CI enforces a floor of 160 (`--require-egress-tests=160`) **and** mutation-proves
+  1795 deselected). CI enforces a floor of 160 (`--require-egress-tests=160`) **and** mutation-proves
   the gate: breaking it yields failures, restoring it yields 314 passes. The mutation figure is
   **76 failures** (measured 2026-10-03 on the 315-marker baseline; it was 74 at the 2026-10-01
   baseline of 305 and 62 at the 268-marker baseline — **re-run it before quoting**, the number is a

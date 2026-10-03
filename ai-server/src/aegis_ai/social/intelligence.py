@@ -279,8 +279,11 @@ class SocialIntelligenceSystem:
                     r = Relationship(**json.loads(line))
                     key = f"{r.person_a}|{r.person_b}"
                     self._relationships[key] = r
-        except Exception:
-            pass
+        except Exception as e:
+            # ``_load_jsonl`` above already reports its failures; these four used to
+            # swallow them, so a corrupt store was indistinguishable from an empty
+            # one (the load summary below simply counted 0).
+            logger.warning("Failed to load %s: %s", "relationships.jsonl", e)
 
     def _load_reputations(self) -> None:
         path = self._data_dir / "reputations.jsonl"
@@ -291,8 +294,8 @@ class SocialIntelligenceSystem:
                 if line.strip():
                     rep = Reputation(**json.loads(line))
                     self._reputations[rep.person_name] = rep
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Failed to load %s: %s", "reputations.jsonl", e)
 
     def _load_norms(self) -> None:
         path = self._data_dir / "social_norms.jsonl"
@@ -303,8 +306,8 @@ class SocialIntelligenceSystem:
                 if line.strip():
                     norm = SocialNorm(**json.loads(line))
                     self._norms[norm.norm_id] = norm
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Failed to load %s: %s", "social_norms.jsonl", e)
 
     def _load_skills(self) -> None:
         path = self._data_dir / "social_skills.jsonl"
@@ -315,8 +318,8 @@ class SocialIntelligenceSystem:
                 if line.strip():
                     skill = SocialSkill(**json.loads(line))
                     self._skills[skill.skill_id] = skill
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Failed to load %s: %s", "social_skills.jsonl", e)
 
     def _append_jsonl(self, filename: str, data: dict[str, Any]) -> None:
         path = self._data_dir / filename
