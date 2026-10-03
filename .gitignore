@@ -97,3 +97,14 @@ test_flask.py
 .omo/
 
 */target/
+
+# ---- 実行時のメモリ / 監査ログ ----
+# 個人情報・クレデンシャルが混入し得るため追跡しない
+ai-server/apps/builtin/ai-server/memory/save/data/
+**/memory/save/data/*.jsonl
+
+# ---- クレデンシャル ----
+.env
+.env.*
+!.env.example
+!.env.template
