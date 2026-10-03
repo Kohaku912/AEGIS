@@ -534,6 +534,18 @@ Measured 2026-10-01 — `ai-server`, full suite:
 > are unreferenced *and* registered twice. Egress is **unchanged at 314 passed / 1 skipped** (315 carry
 > the marker, **1710** deselected). The **derived** "added since carry no marker" figure is now **63**
 > (`2025 − 1962` collected, or `1710 − 1647` deselected).
+>
+> **Re-measured 2026-10-03 (the owner's decisions executed — the retired gate package deleted, the
+> burden metric defined, a leftover var removed): `2019 passed / 8 skipped`** (2027 collected, 473.55 s).
+> The **+2** is **measured, and the arithmetic is +15 − 8 − 4 − 1**: **+15** = the new burden pin's cases;
+> **−8** = `test_forced_gate_stays_retired.py` **53 → 45** (three *parametrized* positives replaced by one
+> "the package is gone ∧ unreferenced" pin); **−4** = `test_goal_alignment.py` **20 → 16**; **−1** =
+> `test_mission_contract_acceptance.py` **16 → 15**. ⚠️ **An estimate of "+8" was wrong, and the error is
+> the lesson**: it read the three replaced tests as three *cases*; collection says they were **nine** —
+> **a `def` count is not a case count, and only collection settles it**. The deletion removed a
+> **package**, not coverage: the replaced pin is *stronger* (two independent facts). Egress is
+> **unchanged at 314 passed / 1 skipped** (315 carry the marker, **1712** deselected). The **derived**
+> "added since carry no marker" figure is now **65** (`2027 − 1962` collected, or `1712 − 1647` deselected).
 
 - **Total tests (2026-10-01 record)**: **1926 passed / 8 skipped**
   — the **+20** over the 2026-09-30 figure are **all new pins**: four for B-5① (the confirmation↔desire
@@ -602,7 +614,7 @@ Measured 2026-10-01 — `ai-server`, full suite:
   binaries — that is an environment limit, not a regression. Verify the suites individually (see the
   `aegis-verify-and-test` skill) rather than "fixing" code that is fine.
 - **Egress regression suite**: **314 passed / 1 skipped** (315 tests carry the `egress` marker,
-  1710 deselected). CI enforces a floor of 160 (`--require-egress-tests=160`) **and** mutation-proves
+  1712 deselected). CI enforces a floor of 160 (`--require-egress-tests=160`) **and** mutation-proves
   the gate: breaking it yields failures, restoring it yields 314 passes. The mutation figure is
   **76 failures** (measured 2026-10-03 on the 315-marker baseline; it was 74 at the 2026-10-01
   baseline of 305 and 62 at the 268-marker baseline — **re-run it before quoting**, the number is a
