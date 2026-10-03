@@ -234,3 +234,103 @@ def test_the_recorded_contract_keeps_the_load_bearing_keyword() -> None:
     # Without this, dropping ``profile`` from BOTH the call and _GATE_KWARGS would keep
     # test 1 green while the contract that makes the gate work had been deleted.
     assert "profile" in _GATE_KWARGS
+
+
+# ---------------------------------------------------------------------------------------
+# The same call shape — ``.generate(..., profile=...)`` — appears at 9 sites in ``src/``
+# (measured 2026-10-04). Sweeping them shows the gate was the *only* site that swallowed a
+# mismatch: the other guarded sites either fall back on ``TypeError`` or record the cause.
+# Classifying them here means a new site cannot be added unclassified, and a new
+# *unguarded* site cannot be added at all.
+# ---------------------------------------------------------------------------------------
+_PROFILE_SITES = {
+    ("src/aegis_ai/analysis/prompt_usage.py", "_judge_record", "self._llm"):
+        "TypeError -> retry without profile",
+    ("src/aegis_ai/burden/metric.py", "assess", "self._llm"):
+        "records the cause and continues",
+    ("src/aegis_ai/desire/fulfillment.py", "_evaluate_with_llm._call", "llm_provider"):
+        "TypeError -> retry without profile",
+    ("src/aegis_ai/llm/gateway.py", "generate_json", "self"):
+        "the gateway itself, which accepts profile",
+    ("src/aegis_ai/llm/gateway.py", "request", "self"):
+        "the gateway itself, which accepts profile",
+    ("src/aegis_ai/social/manager.py", "_generate_json", "self._llm"):
+        "unguarded on purpose: production binds the gateway, so a mismatch raises loudly",
+    ("src/aegis_ai/temporal/activities/llm_activity.py", "_llm_generate", "gateway"):
+        "returns a failure dict",
+    ("src/aegis_ai/web/chat_tools.py", "_llm_wants_tools", "llm"):
+        "the gate - the swallow this whole pin exists for",
+    ("src/aegis_ai/web/chat_tools.py", "_llm_response_satisfies_without_tools", "llm"):
+        "the gate",
+}
+
+# Unguarded sites that are nevertheless safe, each with its reason. A site that is neither
+# guarded nor listed here can skip its work without anyone noticing — which is exactly how
+# the 706 opaque ``llm.first_stage.*.failed`` rows were produced.
+_UNGUARDED_AND_SAFE = {
+    ("src/aegis_ai/llm/gateway.py", "generate_json", "self"),
+    ("src/aegis_ai/llm/gateway.py", "request", "self"),
+    ("src/aegis_ai/social/manager.py", "_generate_json", "self._llm"),
+}
+
+_CATCHES = ("TypeError", "Exception", "BaseException", "*")
+
+
+def _profile_call_sites() -> dict[tuple[str, str, str], tuple[tuple[str, ...], bool]]:
+    """Every ``.generate(..., profile=...)`` in ``src/`` -> (handler types, guarded)."""
+    found: dict[tuple[str, str, str], tuple[tuple[str, ...], bool]] = {}
+
+    def walk(node: ast.AST, fname: str, rel: str, handlers: tuple[tuple[str, ...], ...]) -> None:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            fname = f"{fname}.{node.name}" if fname else node.name
+        if isinstance(node, ast.Try):
+            types = tuple(sorted(ast.unparse(h.type) if h.type else "*" for h in node.handlers))
+            for child in node.body:
+                walk(child, fname, rel, handlers + (types,))
+            for branch in [h.body for h in node.handlers] + [node.orelse, node.finalbody]:
+                for child in branch:
+                    walk(child, fname, rel, handlers)
+            return
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "generate"
+            and any(k.arg == "profile" for k in node.keywords)
+        ):
+            flat = tuple(t for group in handlers for t in group)
+            guarded = any(any(c in t for c in _CATCHES) for t in flat)
+            found[(rel, fname, ast.unparse(node.func.value))] = (flat, guarded)
+        for child in ast.iter_child_nodes(node):
+            walk(child, fname, rel, handlers)
+
+    for path in sorted((_AI_SERVER / "src").rglob("*.py")):
+        try:
+            module = ast.parse(path.read_text(encoding="utf-8"))
+        except SyntaxError:  # pragma: no cover - a broken file fails elsewhere
+            continue
+        walk(module, "", path.relative_to(_AI_SERVER).as_posix(), ())
+    return found
+
+
+def test_every_profile_carrying_generate_site_is_classified() -> None:
+    found = _profile_call_sites()
+    assert set(found) == set(_PROFILE_SITES), (
+        f"unclassified: {sorted(set(found) - set(_PROFILE_SITES))}; "
+        f"stale (no longer present): {sorted(set(_PROFILE_SITES) - set(found))}"
+    )
+
+
+def test_no_unguarded_profile_site_can_skip_its_work_silently() -> None:
+    found = _profile_call_sites()
+    unguarded = {site for site, (_types, guarded) in found.items() if not guarded}
+    assert unguarded == _UNGUARDED_AND_SAFE, (
+        f"new unguarded site(s): {sorted(unguarded - _UNGUARDED_AND_SAFE)}; "
+        f"no longer unguarded: {sorted(_UNGUARDED_AND_SAFE - unguarded)}"
+    )
+
+
+def test_the_profile_site_scan_is_not_vacuous() -> None:
+    found = _profile_call_sites()
+    assert len(found) >= 9, f"expected the 9 measured sites, found {len(found)}"
+    assert any(guarded for _types, guarded in found.values()), "no guarded site found"
+    assert any(not guarded for _types, guarded in found.values()), "no unguarded site found"

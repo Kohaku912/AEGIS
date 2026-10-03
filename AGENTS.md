@@ -759,6 +759,19 @@ Measured 2026-10-01 — `ai-server`, full suite:
 > **1763 → 1768** with the 5 non-egress tests, and the **derived** figure is now **121**
 > (`2083 − 1962` collected).
 
+> **Extended 2026-10-04 (the same `generate(..., profile=...)` shape, swept across `src/`):
+> `2078 passed / 8 skipped`** (2086 collected, 426.13 s). The **+3** is the pin file above growing
+> from 5 tests to 8. Sweeping every `generate(..., profile=...)` site in `src/` (**9** of them, measured)
+> showed the gate was the **only** one that swallowed a shape mismatch: 6 are guarded (a `TypeError`
+> retry, or a record that carries the cause) and 3 are unguarded-but-safe (the gateway's own two, which
+> *do* accept `profile`, and `social/manager.py::_generate_json`, where production binds the gateway so a
+> mismatch raises loudly). The pin now classifies all 9 and **refuses a new unguarded site outright** —
+> the next incomplete binding fails here instead of writing another opaque `llm.first_stage.*.failed`
+> row. **Mutation 15/15**, control green, six files restored byte-identically. Egress is **unchanged at
+> 314 passed / 1 skipped** (315 carry the marker); the deselected count moved **1768 → 1771** with the 3
+> non-egress tests, and the **derived** figure is now **124** (`2086 − 1962` collected, or
+> `1771 − 1647` deselected).
+
 - **Total tests (2026-10-01 record)**: **1926 passed / 8 skipped**
   — the **+20** over the 2026-09-30 figure are **all new pins**: four for B-5① (the confirmation↔desire
   link), one for the general invariant that **the shipped `config/settings.json` declares no key that
@@ -826,7 +839,7 @@ Measured 2026-10-01 — `ai-server`, full suite:
   binaries — that is an environment limit, not a regression. Verify the suites individually (see the
   `aegis-verify-and-test` skill) rather than "fixing" code that is fine.
 - **Egress regression suite**: **314 passed / 1 skipped** (315 tests carry the `egress` marker,
-  1768 deselected). CI enforces a floor of 160 (`--require-egress-tests=160`) **and** mutation-proves
+  1771 deselected). CI enforces a floor of 160 (`--require-egress-tests=160`) **and** mutation-proves
   the gate: breaking it yields failures, restoring it yields 314 passes. The mutation figure is
   **76 failures** (measured 2026-10-03 on the 315-marker baseline; it was 74 at the 2026-10-01
   baseline of 305 and 62 at the 268-marker baseline — **re-run it before quoting**, the number is a
