@@ -786,6 +786,23 @@ Measured 2026-10-01 — `ai-server`, full suite:
 > deselected count moved **1771 → 1780** with the 9 non-egress tests, and the **derived** figure is now
 > **133** (`2095 − 1962` collected, or `1780 − 1647` deselected).
 
+> **The shipped manifest tree is coherent (2026-10-04): `2092 passed / 8 skipped`** (2100 collected,
+> 413.30 s). The **+5** is `tests/test_shipped_manifest_tree_is_coherent.py`. No other test reads
+> `apps/` from disk, so two failure modes were invisible: an unparseable `executor.json` (the executor
+> is *absent*, and `EXECUTOR_NOT_FOUND` is also the honest answer for the ~105 capabilities served
+> in-process, so a typo is indistinguishable from a capability that never had an executor), and an
+> `executor.json` whose capability was renamed or removed (a dead manifest nothing reads). Measured
+> 2026-10-04: 23 on disk = 23 loaded, 0 load errors, 0 orphans, 128 capabilities. The counts are
+> **derived from the filesystem**, so adding a capability needs no edit here — only *breaking*
+> coherence fails it. It also `ast`-checks that `runtime.py` still binds those two directories, so the
+> pin cannot pass while testing a tree nothing uses. **Mutation 6/6**, control green, four modified
+> files restored byte-identically and two created files removed. ⚠️ The first candidate for this pin —
+> "every capability has an executor" — was **refuted by measurement**: 105 of 128 have none, because
+> in-process handlers serve them. That is the design, not a defect; **measure the premise before
+> pinning it**. Egress is **unchanged at 314 passed / 1 skipped** (315 carry the marker); the
+> deselected count moved **1780 → 1785** with the 5 non-egress tests, and the **derived** figure is now
+> **138** (`2100 − 1962` collected, or `1785 − 1647` deselected).
+
 - **Total tests (2026-10-01 record)**: **1926 passed / 8 skipped**
   — the **+20** over the 2026-09-30 figure are **all new pins**: four for B-5① (the confirmation↔desire
   link), one for the general invariant that **the shipped `config/settings.json` declares no key that
@@ -853,7 +870,7 @@ Measured 2026-10-01 — `ai-server`, full suite:
   binaries — that is an environment limit, not a regression. Verify the suites individually (see the
   `aegis-verify-and-test` skill) rather than "fixing" code that is fine.
 - **Egress regression suite**: **314 passed / 1 skipped** (315 tests carry the `egress` marker,
-  1780 deselected). CI enforces a floor of 160 (`--require-egress-tests=160`) **and** mutation-proves
+  1785 deselected). CI enforces a floor of 160 (`--require-egress-tests=160`) **and** mutation-proves
   the gate: breaking it yields failures, restoring it yields 314 passes. The mutation figure is
   **76 failures** (measured 2026-10-03 on the 315-marker baseline; it was 74 at the 2026-10-01
   baseline of 305 and 62 at the 268-marker baseline — **re-run it before quoting**, the number is a
