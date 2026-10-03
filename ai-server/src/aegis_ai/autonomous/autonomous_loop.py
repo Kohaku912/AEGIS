@@ -233,6 +233,15 @@ class AutonomousLoop:
         self._health_alert_manager: Any = None
         self._last_health_check_ms: int = 0
         self._health_check_interval_ms: int = 300_000  # 5 minutes
+        #: The burden metric (``aegis_ai.burden``), set by the composition root. ``None``
+        #: means the periodic user check is off — not that it is broken, which is why the
+        #: check is pinned where it is *set*, not only where it runs.
+        self._burden_metric: Any = None
+        #: When the user was last asked to check the burden judgement. ``None`` means no
+        #: period has been observed yet, and ``due_for_user_check(None, ...)`` is
+        #: deliberately False — a question about a period needs a period behind it.
+        #: Persisted with the rest of the loop state, or a restart would re-ask.
+        self._last_burden_ask_ms: int | None = None
         self._last_skip_reason: str = ""
         self._lock = threading.RLock()
         self._capability_metadata_cache: dict[str, dict[str, Any]] = {}
@@ -290,6 +299,12 @@ class AutonomousLoop:
                     self._capability_cooldowns = {
                         str(k): int(v) for k, v in raw_cooldowns.items() if int(v or 0) > 0
                     }
+                raw_last_burden_ask = data.get("last_burden_ask_ms")
+                # ``None`` is the "no period observed yet" sentinel, so a stored 0 or a
+                # non-integer must not be read as a real clock: it would make the first
+                # cycle report "due" and ask the user about a period that never happened.
+                if isinstance(raw_last_burden_ask, int) and raw_last_burden_ask > 0:
+                    self._last_burden_ask_ms = raw_last_burden_ask
                 logger.info("Loaded autonomous loop state")
             except Exception as e:
                 logger.warning("Failed to load loop state: %s", e)
@@ -315,6 +330,7 @@ class AutonomousLoop:
             "no_effect_counts": dict(list(self._no_effect_counts.items())[-40:]),
             "capability_cooldowns": dict(list(self._capability_cooldowns.items())[-40:]),
             "reflected_approval_ids": sorted(self._reflected_approval_ids)[-100:],
+            "last_burden_ask_ms": self._last_burden_ask_ms,
             "timestamp_ms": int(time.time() * 1000),
         }
         with open(state_path, "w", encoding="utf-8") as f:
@@ -365,6 +381,16 @@ class AutonomousLoop:
     def set_health_alert_manager(self, health_alert_manager: Any) -> None:
         """Set the health alert manager for periodic health checks."""
         self._health_alert_manager = health_alert_manager
+
+    def set_burden_metric(self, burden_metric: Any) -> None:
+        """Set the burden metric used for the periodic user check (§4 item 8).
+
+        The metric is *judged* by the judgment LLM and the user is asked to check the
+        judgement periodically; this loop owns the cadence, because it already owns the
+        clock and the persisted state. The metric object itself holds no cadence state
+        and never raises a confirmation — see ``aegis_ai.burden.metric``.
+        """
+        self._burden_metric = burden_metric
 
     def set_l2_reasoning_handler(
         self,
@@ -460,6 +486,11 @@ class AutonomousLoop:
                     finally:
                         self._last_health_check_ms = now
 
+                # Burden-metric user check (its own, much longer cadence — a week by
+                # default). Cheap when not due: the interval is checked before any LLM
+                # call is made.
+                self._maybe_ask_burden_check(now)
+
                 time_since_last_run = now - self._last_run_ms
                 can_execute = time_since_last_run >= self._min_execution_interval_ms
                 if now - self._last_observation_ms >= self._idle_wake_cap_ms:
@@ -490,6 +521,122 @@ class AutonomousLoop:
             except Exception as e:
                 logger.error("Autonomous loop error: %s", e)
                 time.sleep(60)
+
+    def _burden_activity(self, *, window_start_ms: int, limit: int = 40) -> list[str]:
+        """The period's activity, as short lines the judgement can read.
+
+        Sourced from the loop's own ``execution_log.jsonl`` — the loop's record of what
+        each cycle accomplished — and not from the audit log. ``aegis_ai.burden`` holds
+        no reference to the audit package on purpose
+        (``tests/test_burden_metric_has_no_instrument.py`` measured that deriving the
+        metric from the decision log cannot work for 2 of its 3 proposed sub-metrics), so
+        the *caller* assembles the activity and hands it in. Filtered by the window, so a
+        long-idle loop does not report last month's work as this period's.
+        """
+        activity: list[str] = []
+        for entry in self._load_recent_history(max_entries=200):
+            if not isinstance(entry, dict):
+                continue
+            try:
+                entry_ms = int(entry.get("timestamp_ms") or 0)
+            except (TypeError, ValueError):
+                continue
+            if entry_ms < window_start_ms:
+                continue
+            for task in entry.get("tasks") or []:
+                if not isinstance(task, dict):
+                    continue
+                text = str(
+                    task.get("what_was_done")
+                    or task.get("action_goal")
+                    or task.get("action")
+                    or task.get("result_summary")
+                    or ""
+                ).strip()
+                if text:
+                    activity.append(text)
+        return activity[-limit:]
+
+    def _maybe_ask_burden_check(self, now_ms: int) -> None:
+        """Ask the user to check the burden judgement — periodically, never about a Mock.
+
+        §4 item 8 / §3.1 hole 3: the metric is **judged by the judgment LLM** and the
+        user is **asked to confirm or correct it periodically**. Three things are load
+        bearing here, and each is a place this could silently do nothing:
+
+        1. **The ask goes through the capability**, ``ai-server.confirmation.request``,
+           not through ``self._confirmations``. This loop may *read* the confirmation
+           store (``all`` / ``get`` / ``pending``) and may never ask or answer —
+           ``tests/test_forced_gate_stays_retired.py`` pins that, because a loop that
+           asks its own question is the forced approval gate retired on 2026-09-27.
+           Raising it as a capability call keeps AEGIS-as-asker the only asker.
+        2. **An untrustworthy judgement is not asked about.** A profile that the egress
+           gate denies degrades to Mock, and a Mock judgement says nothing about the
+           user's life; asking the user to confirm one would be asking them to check a
+           number no model produced.
+        3. **The first cycle starts the clock instead of asking.** The question is about
+           a *period*, so there has to be one behind it; this is the same contract
+           ``BurdenMetric.due_for_user_check(last_ask_ms=None, ...)`` states by returning
+           False for a first run.
+        """
+        metric = self._burden_metric
+        if metric is None or self._broker is None:
+            return
+
+        if self._last_burden_ask_ms is None:
+            self._last_burden_ask_ms = now_ms
+            self._save()
+            return
+
+        window_start_ms = int(self._last_burden_ask_ms)
+        if not metric.due_for_user_check(last_ask_ms=window_start_ms, now_ms=now_ms):
+            return
+
+        try:
+            assessment = metric.assess(
+                window_start_ms=window_start_ms,
+                window_end_ms=now_ms,
+                activity=self._burden_activity(window_start_ms=window_start_ms),
+            )
+        except Exception:
+            logger.warning("Burden judgement failed", exc_info=True)
+            return
+
+        if not assessment.is_trustworthy:
+            logger.info(
+                "Burden check not asked: the judgement was not trustworthy "
+                "(provider=%r error=%r)",
+                assessment.judged_by_provider,
+                assessment.error,
+            )
+            return
+
+        try:
+            from tool_broker import ExecutionSource, ToolExecutionRequest
+
+            result = self._broker.execute(
+                ToolExecutionRequest(
+                    task_id="burden_check",
+                    capability_id="ai-server.confirmation.request",
+                    arguments=dict(metric.build_user_question(assessment)),
+                    source=ExecutionSource.AUTONOMOUS,
+                    reason="Periodic burden-metric user check (DELEGATION.md §4 item 8)",
+                )
+            )
+        except Exception:
+            logger.warning("Burden check ask failed", exc_info=True)
+            return
+
+        if not getattr(result, "success", False):
+            logger.warning(
+                "Burden check ask was not recorded: %s",
+                str(getattr(result, "error", "") or "unknown error"),
+            )
+            return
+
+        logger.info("Burden check asked (window %d..%d)", window_start_ms, now_ms)
+        self._last_burden_ask_ms = now_ms
+        self._save()
 
     def _unmet_desire_retry_ms(self) -> int:
         """Max wait while pressure stays above threshold after an empty/unmet cycle."""

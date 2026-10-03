@@ -1724,6 +1724,16 @@ def _create_autonomous_loop(runtime: AegisRuntime) -> Any:
     loop._sleep_manager = runtime.sleep_manager
     loop._memory_manager = runtime.memory_manager
 
+    # §4 item 8 / §3.1 hole 3: the burden metric is judged by the judgment LLM and the
+    # user is asked to check the judgement periodically. The loop owns the cadence; the
+    # metric is a plain object with no clock of its own. `JUDGMENT_PROFILE` is
+    # `jev_decision`, which resolves to the one allowlisted host (`api.typesafe.ai`) —
+    # a profile the gate denies would degrade to Mock, and the check is skipped for a
+    # Mock judgement, so a denied profile would make this wiring inert.
+    from aegis_ai.burden import BurdenMetric
+
+    loop.set_burden_metric(BurdenMetric(runtime.llm_gateway))
+
     loop.set_health_alert_manager(
         HealthAlertManager(
             data_dir=os.path.join(data_dir, "health"),

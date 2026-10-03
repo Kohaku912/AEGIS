@@ -1,11 +1,20 @@
 """The burden metric — how much lighter AEGIS made the user's life over a window.
 
 **Owner definition (2026-10-03, ``DELEGATION.md`` §4 item 8).** The metric is **judged by
-the judgment LLM** — ``profile="decision"``, the same profile the autonomous loop already
-uses for its own judgements — from the period's activity, and the user is **asked to
-confirm or correct it periodically**. The LLM's number is the *machine's* view; the user's
-answer is the ground truth. The two are kept apart on purpose and neither overwrites the
-other.
+the judgment LLM** — ``profile="jev_decision"``, a TypeSafe JEV profile — from the period's
+activity, and the user is **asked to confirm or correct it periodically**. The LLM's number
+is the *machine's* view; the user's answer is the ground truth. The two are kept apart on
+purpose and neither overwrites the other.
+
+**Why ``jev_decision`` and not ``decision``.** The first cut named ``decision``, which is
+the profile the autonomous loop uses for its own judgements — but ``decision`` resolves to
+``api.deepseek.com``, and the shipped allowlist (``privacy.egress_allowed_hosts``) permits
+``api.typesafe.ai`` only. Measured by driving the real resolver and the real egress gate:
+``decision`` → **DENY** → Mock → ``is_trustworthy`` False, so a correctly-wired caller
+would **never ask** — the whole feature would be inert while looking wired. ``jev_decision``
+resolves to ``api.typesafe.ai/v1/systemone`` → **ALLOW**. The lesson is the standing one:
+**a label names the request, not the resolution** — a profile being *declared* is not the
+same claim as it *resolving* to a permitted host, and only the second one is load-bearing.
 
 **Why it is a judgement and not a formula.** §3.1 hole 3 was the last north-star hole, and
 ``DECISION_DRAFTS.md`` §B-5 answered it with *"derive it from the existing decision log; no
@@ -43,10 +52,12 @@ from typing import Any
 
 logger = logging.getLogger("aegis_ai.burden.metric")
 
-#: The judgment LLM. ``config/llm.yaml`` declares this profile, and the autonomous loop
-#: already passes it at its own decision call sites — so the burden metric is judged by
-#: the same mind that decides what AEGIS should do, rather than by a second, private one.
-JUDGMENT_PROFILE = "decision"
+#: The judgment LLM. ``config/llm.yaml`` declares this profile as a **TypeSafe JEV** one
+#: (``provider: typesafe`` / ``base_url: https://api.typesafe.ai/v1/systemone``), which is
+#: the only external host the shipped allowlist permits — so this profile is the one that
+#: actually *resolves* to a permitted destination rather than being denied and degraded to
+#: Mock. See the module docstring for the measurement behind that choice.
+JUDGMENT_PROFILE = "jev_decision"
 
 #: How often the user is asked. The north star is *not* asking too much (C-1: "the cadence
 #: bound is what keeps the burden from growing"), so this is a **floor** on how often, not
@@ -91,10 +102,12 @@ class BurdenAssessment:
     #: The **requested** profile …
     judged_by_profile: str = JUDGMENT_PROFILE
     #: … and the **resolved** provider and model. A label names the request, not the
-    #: resolution: under the shipped allowlist (``api.typesafe.ai`` only) a
-    #: ``decision``-profile call is denied by the gate and degrades to Mock, and the
-    #: "judgement" is then not a judgement at all. These two fields are how that is
-    #: visible instead of silent — see :meth:`is_trustworthy`.
+    #: resolution: a profile whose ``base_url`` is not in the allowlist is denied by the
+    #: gate and degrades to Mock, and the "judgement" is then not a judgement at all.
+    #: These two fields are how that is visible instead of silent — see
+    #: :meth:`is_trustworthy`. Recording them is not optional bookkeeping: the profile
+    #: this module asks for was itself once a denied one, and nothing else would have
+    #: said so.
     judged_by_provider: str = ""
     judged_by_model: str = ""
     error: str = ""
@@ -248,6 +261,18 @@ class BurdenMetric:
         asker's job (``CoreCapabilities``), and this module must not become a second
         approval surface. ``test_burden_metric_is_judged.py`` asserts every key is one
         ``ConfirmationRequest`` actually declares, so the two cannot drift apart.
+
+        The ask travels as the **arguments of the capability**
+        ``ai-server.confirmation.request``, so it must satisfy that capability's
+        ``input_schema`` and not merely the dataclass. ``side_effects`` is a **string**
+        there ("Anything else the action would change"), and it was a list here —
+        measured: ``jsonschema.validate`` against the real manifest rejected ``[]`` with
+        ``[] is not of type 'string'``, so the asker's call would have been denied at the
+        broker with ``VALIDATION_DENY`` and the question would never have reached the
+        user. A key-name check against the dataclass cannot see that, which is why the
+        pin now drives the manifest's own schema. ``"none"`` rather than ``""`` because
+        the handler drops empty values, and "there is nothing to change" is worth saying
+        to the user rather than omitting.
         """
         return {
             "capability_id": BURDEN_CHECK_CAPABILITY_ID,
@@ -256,7 +281,7 @@ class BurdenMetric:
             or "AEGIS judged how much burden it removed and wants you to check that.",
             "preview": json.dumps(assessment.to_dict(), ensure_ascii=False),
             "expected_effect": "Your answer becomes the ground truth for the burden metric.",
-            "side_effects": [],
+            "side_effects": "none",
         }
 
     @staticmethod

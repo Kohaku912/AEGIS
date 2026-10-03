@@ -24,6 +24,7 @@ artefacts describing one thing are asserted to agree, rather than trusted to.
 from __future__ import annotations
 
 import ast
+import json
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -35,11 +36,23 @@ _SRC = _REPO / "ai-server" / "src"
 _METRIC = _SRC / "aegis_ai" / "burden" / "metric.py"
 _INIT = _SRC / "aegis_ai" / "burden" / "__init__.py"
 _LLM_YAML = _REPO / "ai-server" / "config" / "llm.yaml"
+_SETTINGS_JSON = _REPO / "ai-server" / "config" / "settings.json"
+#: The capability the ask travels as. Its ``input_schema`` is a second artefact describing
+#: the same question, so the two are asserted to agree rather than trusted to.
+_ASK_MANIFEST = (
+    _REPO / "ai-server" / "capabilities" / "builtin" / "ai-server" / "confirmation" / "request.json"
+)
 
 #: The judgment profile, named once. The module's constant must equal it, and
 #: ``config/llm.yaml`` must declare it — a profile the config does not know would be
 #: resolved by fallback, and the "judgment LLM" would silently be some other model.
-_RECORDED_JUDGMENT_PROFILE = "decision"
+#:
+#: ``jev_decision``, not ``decision``: the first cut used ``decision``, which resolves to
+#: ``api.deepseek.com`` — a host the shipped allowlist denies, so the judgement degraded to
+#: Mock and a correctly-wired caller could never ask. See
+#: :func:`test_the_judgment_profile_resolves_to_a_permitted_destination`, which is the
+#: half that catches it. *Declared* and *resolves* are two different claims.
+_RECORDED_JUDGMENT_PROFILE = "jev_decision"
 
 #: The verdict vocabulary, pinned so a fourth state is a deliberate edit.
 _RECORDED_VERDICTS = frozenset({"unasked", "confirmed", "corrected"})
@@ -152,12 +165,141 @@ def test_the_metric_is_judged_by_the_judgment_profile() -> None:
 
 
 def test_the_judgment_profile_is_declared_in_the_llm_config() -> None:
-    """A profile the config does not declare would be resolved by fallback, silently."""
+    """A profile the config does not declare would be resolved by fallback, silently.
+
+    This is only *half* the claim, and on its own it passed while the feature was inert:
+    see :func:`test_the_judgment_profile_resolves_to_a_permitted_destination` for the other
+    half. A profile can be declared, resolve, and still be denied by the gate.
+    """
     text = _LLM_YAML.read_text(encoding="utf-8")
     assert f"\n  {_RECORDED_JUDGMENT_PROFILE}:\n" in text, (
         f"config/llm.yaml no longer declares a `{_RECORDED_JUDGMENT_PROFILE}` profile. The "
         "judgment LLM would then be whichever profile the resolver falls back to."
     )
+
+
+def test_the_judgment_profile_resolves_to_a_permitted_destination(tmp_path: Path) -> None:
+    """*Declared* is not *resolves*. Drive the real resolver and the real gate.
+
+    The defect this closes, measured: the profile was ``decision``, ``llm.yaml`` declared
+    it, and the test above passed — while ``decision`` resolved to ``api.deepseek.com``,
+    which the shipped allowlist denies. The judgement then degraded to Mock,
+    ``is_trustworthy`` was False, and a correctly-wired asker would **never ask**. Two
+    halves each green while composing into "the metric can never ask".
+
+    The negative control matters as much as the assertion: ``decision`` is still denied, so
+    this is measuring the allowlist rather than a gate that happens to allow everything.
+    """
+    from aegis_ai.burden.metric import JUDGMENT_PROFILE
+    from aegis_ai.egress import EgressDecision, EgressGate, EgressRequest
+    from aegis_ai.llm.settings_resolver import LLMSettingsResolver
+    from aegis_ai.settings.store import SettingsStore
+
+    store = SettingsStore(
+        path=str(_SETTINGS_JSON),
+        audit_path=str(tmp_path / "settings_audit.jsonl"),
+    )
+    resolver = LLMSettingsResolver(str(_LLM_YAML))
+    # Constructed directly rather than through `configure_egress_gate`: the real class and
+    # the real settings, without mutating a process global that other tests share.
+    gate = EgressGate(settings_store=store)
+
+    def _decide(profile: str) -> tuple[Any, Any]:
+        settings = resolver.resolve(profile_id=profile)
+        decision = gate.check(
+            EgressRequest(
+                destination=settings.base_url,
+                purpose="llm.chat",
+                component="llm.factory",
+            )
+        )
+        return settings, decision
+
+    settings, decision = _decide(JUDGMENT_PROFILE)
+    assert decision is EgressDecision.ALLOW, (
+        f"the judgment profile `{JUDGMENT_PROFILE}` resolves to {settings.base_url!r}, which "
+        f"the shipped egress allowlist {sorted(gate.allowed_hosts)} denies. The judgement "
+        "would degrade to Mock, `is_trustworthy` would be False, and the user would never "
+        "be asked — the check would be wired and inert."
+    )
+    assert settings.provider == "typesafe", (
+        f"`{JUDGMENT_PROFILE}` no longer resolves to the TypeSafe provider "
+        f"(observed {settings.provider!r})"
+    )
+
+    # Negative control: the allowlist really is a filter, not a rubber stamp.
+    denied_settings, denied = _decide("decision")
+    assert denied is EgressDecision.DENY, (
+        f"the control profile `decision` ({denied_settings.base_url!r}) is now permitted, so "
+        "the assertion above proves nothing about the allowlist"
+    )
+
+
+def test_the_ask_satisfies_the_capabilitys_own_input_schema() -> None:
+    """The ask travels as the capability's arguments, so it must pass the capability's schema.
+
+    Measured defect: ``side_effects`` was a list here and the manifest declares a string, so
+    ``jsonschema.validate`` rejected it and the broker denied the ask with
+    ``VALIDATION_DENY`` — the question never reached the user. A key-name check against
+    ``ConfirmationRequest`` cannot see that (the dataclass types the field ``Any``), which
+    is why the question is now validated against the manifest itself.
+    """
+    from jsonschema import ValidationError, validate
+
+    from aegis_ai.burden.metric import BurdenAssessment, BurdenMetric
+
+    manifest = json.loads(_ASK_MANIFEST.read_text(encoding="utf-8"))
+    schema = manifest["input_schema"]
+    question = BurdenMetric.build_user_question(
+        BurdenAssessment(window_start_ms=0, window_end_ms=1, summary="Saved an errand.")
+    )
+
+    validate(instance=question, schema=schema)
+
+    # Negative control: the shape this replaced must still be rejected, or the schema is
+    # not actually constraining the field the defect was in.
+    with pytest.raises(ValidationError):
+        validate(instance={**question, "side_effects": []}, schema=schema)
+
+
+def test_the_ask_is_recorded_by_the_real_capability(tmp_path: Path) -> None:
+    """Driven through the real client and a real store: the question becomes askable.
+
+    The schema test above proves the *shape* is accepted; this proves the handler that
+    receives it records it. Both are needed — a schema the handler then drops would pass the
+    first and fail the user.
+    """
+    from aegis_ai.burden.metric import (
+        BURDEN_CHECK_CAPABILITY_ID,
+        BurdenAssessment,
+        BurdenMetric,
+    )
+    from aegis_ai.confirmation import ConfirmationStore
+    from aegis_ai.core_capabilities import AegisCoreCapabilityClient
+
+    store = ConfirmationStore(str(tmp_path / "confirmations"))
+    client = AegisCoreCapabilityClient(
+        data_dir=str(tmp_path / "core"),
+        server_executor=None,
+        personal_managers={"confirmation_store": store},
+    )
+
+    question = BurdenMetric.build_user_question(
+        BurdenAssessment(window_start_ms=0, window_end_ms=1, summary="Saved an errand.")
+    )
+    result = client.invoke_capability("ai-server.confirmation.request", dict(question))
+
+    assert result.get("ok") is True, f"the real capability refused the ask: {result}"
+    recorded = store.all(limit=5)
+    assert len(recorded) == 1, (
+        "the ask was accepted by the capability but nothing reached the store, so the user "
+        "would never see the question"
+    )
+    assert recorded[0].capability_id == BURDEN_CHECK_CAPABILITY_ID, (
+        "the ask is not filed under the burden-check id, so the dashboard cannot group it "
+        "apart from action confirmations"
+    )
+    assert recorded[0].status == "pending"
 
 
 def test_the_assessment_records_the_resolved_provider_not_just_the_request() -> None:

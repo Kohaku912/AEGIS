@@ -651,6 +651,47 @@ Measured 2026-10-01 — `ai-server`, full suite:
 > **1717 → 1728** with the 11 non-egress tests. The
 > **derived** "added since carry no marker" figure is now **81** (`2043 − 1962` collected, or
 > `1728 − 1647` deselected).
+>
+> **Re-measured 2026-10-03 (wiring the burden metric — `DELEGATION.md` §4 item 8):
+> `2051 passed / 8 skipped`** (2059 collected, 449.32 s; the canonical marker-excluded form is
+> 2051 / 4 skipped / 4 deselected). The **+16** is the new pins exactly — **+3** in
+> `tests/test_burden_metric_is_judged.py` and **+13** in the new
+> `tests/test_burden_check_is_asked_by_the_loop.py`. This is the first entry in this list where
+> **production code changed for a north-star item**: `aegis_ai/burden/metric.py`,
+> `autonomous/autonomous_loop.py` and `runtime.py`. Five places were wired — the judging profile, the
+> ask's field type, a cadence hook in `_run_loop`, `last_burden_ask_ms` persistence, and
+> `set_burden_metric` at the composition root — and **two of them are the "wired but inert" shape**,
+> which is why they are worth naming:
+>
+> * The judging profile was `decision`, which resolves to `api.deepseek.com` — a host the shipped
+>   allowlist (`privacy.egress_allowed_hosts` = `api.typesafe.ai` only) **denies**. A denied profile
+>   degrades to Mock, `is_trustworthy` is False, and a correctly-wired asker would therefore **never
+>   ask**: the whole feature wired and silent. It is now `jev_decision` (TypeSafe JEV, the one
+>   allowlisted destination). Measured by **driving the real resolver and the real gate**, not by
+>   reading config: `decision` → `EgressDecision.DENY`, `jev_decision` → `ALLOW`. The existing pin had
+>   asserted only that the profile was **declared** in `llm.yaml` — `declared` and `resolves` are two
+>   different claims, and only the second is load-bearing.
+> * The ask travels as the **arguments of the capability** `ai-server.confirmation.request`, so it must
+>   satisfy **that capability's own `input_schema`** and not merely the `ConfirmationRequest`
+>   dataclass. `side_effects` was a list where the manifest declares a **string**, so
+>   `jsonschema.validate` rejected it (`[] is not of type 'string'`) and the broker would have denied
+>   the ask with `VALIDATION_DENY` — the question never reaching the user. A key-name check against the
+>   dataclass cannot see this (`ConfirmationRequest.side_effects` is typed `Any`); the pin now drives
+>   the manifest's schema, with the old shape as a **negative control**.
+>
+> Two boundaries were kept rather than re-derived: the loop raises the ask **through the capability**,
+> never through the `confirmation_store` it holds read-only (a loop that asks its own question is the
+> forced approval gate retired 2026-09-27 — `tests/test_forced_gate_stays_retired.py`), and an
+> **untrustworthy judgement is never asked about** (asking the user to confirm a Mock's number is
+> asking them to check something no model produced), so the clock does not advance either. The first
+> cycle **starts the clock without asking**, because the question is about a *period*; the clock is
+> persisted, or every restart would re-ask. The end-to-end pins drive the **real** broker — real
+> catalog, real policy engine, real capability client, real store — because a fake broker would have
+> accepted the list and hidden exactly the defect above. **Mutation-proved 13/13 across the three
+> files** with a green control and all originals restored byte-identically (sha256-verified). Egress is
+> **unchanged at 314 passed / 1 skipped** (315 carry the marker); the deselected count moved
+> **1728 → 1744** with the 16 non-egress tests, and the **derived** "added since carry no marker"
+> figure is now **97** (`2059 − 1962` collected, or `1744 − 1647` deselected).
 
 - **Total tests (2026-10-01 record)**: **1926 passed / 8 skipped**
   — the **+20** over the 2026-09-30 figure are **all new pins**: four for B-5① (the confirmation↔desire
@@ -719,7 +760,7 @@ Measured 2026-10-01 — `ai-server`, full suite:
   binaries — that is an environment limit, not a regression. Verify the suites individually (see the
   `aegis-verify-and-test` skill) rather than "fixing" code that is fine.
 - **Egress regression suite**: **314 passed / 1 skipped** (315 tests carry the `egress` marker,
-  1728 deselected). CI enforces a floor of 160 (`--require-egress-tests=160`) **and** mutation-proves
+  1744 deselected). CI enforces a floor of 160 (`--require-egress-tests=160`) **and** mutation-proves
   the gate: breaking it yields failures, restoring it yields 314 passes. The mutation figure is
   **76 failures** (measured 2026-10-03 on the 315-marker baseline; it was 74 at the 2026-10-01
   baseline of 305 and 62 at the 268-marker baseline — **re-run it before quoting**, the number is a
