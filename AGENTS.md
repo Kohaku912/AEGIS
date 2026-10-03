@@ -506,6 +506,19 @@ Measured 2026-10-01 — `ai-server`, full suite:
 > item 26). Egress is **unchanged at 314 passed / 1 skipped** (315 carry the marker, **1690**
 > deselected — the +5 non-egress tests moved the deselected count). The **derived** "added since carry
 > no marker" figure is now **43** (`2005 − 1962` collected, or `1690 − 1647` deselected).
+>
+> **Re-measured 2026-10-03 (the memory-registry pin): `2011 passed / 8 skipped`** (2019 collected,
+> 538.07 s; the canonical marker-excluded form is 2011 / 4 skipped / 4 deselected). The **+14** is
+> `tests/test_memory_backend_registries_agree.py` (**7 functions, 7 parametrized**) — `MemoryManager`
+> names its backends **three** times and no two agree: the `get_backend()` docstring lists **11**, its
+> mapping **10**, and `get_stats()` **7**. The docstring advertises `association`, which the mapping
+> lacks, so `get_backend("association")` returns `None` — and `AssociationMemory` is real and **live**,
+> just registered on the *runtime* rather than the manager. `get_stats()` drops `person` and
+> `action_trace`, **both of which define `get_stats`**, so the live `GET /api/memory/stats`
+> (`manager_routes.py:361`) silently reports 7 of 10 (`store` is legitimately absent — `MemoryStore` has
+> no `get_stats`). `DELEGATION.md` §4 item 27. Egress is **unchanged at 314 passed / 1 skipped** (315
+> carry the marker, **1704** deselected). The **derived** "added since carry no marker" figure is now
+> **57** (`2019 − 1962` collected, or `1704 − 1647` deselected).
 
 - **Total tests (2026-10-01 record)**: **1926 passed / 8 skipped**
   — the **+20** over the 2026-09-30 figure are **all new pins**: four for B-5① (the confirmation↔desire
@@ -574,7 +587,7 @@ Measured 2026-10-01 — `ai-server`, full suite:
   binaries — that is an environment limit, not a regression. Verify the suites individually (see the
   `aegis-verify-and-test` skill) rather than "fixing" code that is fine.
 - **Egress regression suite**: **314 passed / 1 skipped** (315 tests carry the `egress` marker,
-  1690 deselected). CI enforces a floor of 160 (`--require-egress-tests=160`) **and** mutation-proves
+  1704 deselected). CI enforces a floor of 160 (`--require-egress-tests=160`) **and** mutation-proves
   the gate: breaking it yields failures, restoring it yields 314 passes. The mutation figure is
   **76 failures** (measured 2026-10-03 on the 315-marker baseline; it was 74 at the 2026-10-01
   baseline of 305 and 62 at the 268-marker baseline — **re-run it before quoting**, the number is a
