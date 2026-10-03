@@ -28,6 +28,13 @@ by ``store.add_listener`` and calls it in a ``finally``. Both bound their queue
 (``maxsize=200`` / ``_CLIENT_QUEUE_SIZE``). So this is not "the codebase does not know
 how to do it" — it is one route that does not.
 
+Measured across all five live-but-unconsumed push routes: **exactly this one leaks.**
+``/api/approvals/events`` is the model citizen — its ``add_listener`` is *inside* the
+generator and its ``finally`` comment names this very hazard — and
+``/api/stream/{desires,autonomous,memory}`` never subscribe at all (they are pure poll
+generators). The breakdown is **1 leaks / 1 correct / 3 subscribe nothing**, which is
+why this is a per-route defect rather than a class the whole module shares.
+
 Impact is **latent**: no client subscribes today (the path is named in exactly one file,
 its own definition), so the leak cannot fire in production yet — but it fires on the
 **first** connection, and compounds per connection. Fixing it (move ``subscribe`` inside
