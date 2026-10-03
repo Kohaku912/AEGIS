@@ -519,6 +519,21 @@ Measured 2026-10-01 — `ai-server`, full suite:
 > no `get_stats`). `DELEGATION.md` §4 item 27. Egress is **unchanged at 314 passed / 1 skipped** (315
 > carry the marker, **1704** deselected). The **derived** "added since carry no marker" figure is now
 > **57** (`2019 − 1962` collected, or `1704 − 1647` deselected).
+>
+> **Re-measured 2026-10-03 (the shadowed-route pin): `2017 passed / 8 skipped`** (2025 collected,
+> 488.49 s; the canonical marker-excluded form is 2017 / 4 skipped / 4 deselected). The **+6** is
+> `tests/test_no_route_is_shadowed.py` — the app registers **192 rules**, and **two `(method, path)`
+> pairs are registered twice**, so the second handler can never run. Measured by driving the adapter,
+> not by reading the file: of **186 endpoints**, **exactly two** are unreachable —
+> `GET /api/servers` resolves to `dashboard_server_status.api_servers` and leaves **`api_servers`
+> (`dashboard_legacy.py:1159`)** dead; `POST /api/memory/reload` resolves to
+> `dashboard_memory.memory_reload` and leaves **`api_memory_reload` (`dashboard_legacy.py:1372`)** dead.
+> Both losers are **legacy closures** left behind by the blueprint migration. `DELEGATION.md` §4 item 28.
+> This also corrects a stale number: §3.2's "**98** unreferenced pairs" is the **multiplicity** count —
+> the distinct count is **200** pairs and the unreferenced set is **96**, because the two shadowed pairs
+> are unreferenced *and* registered twice. Egress is **unchanged at 314 passed / 1 skipped** (315 carry
+> the marker, **1710** deselected). The **derived** "added since carry no marker" figure is now **63**
+> (`2025 − 1962` collected, or `1710 − 1647` deselected).
 
 - **Total tests (2026-10-01 record)**: **1926 passed / 8 skipped**
   — the **+20** over the 2026-09-30 figure are **all new pins**: four for B-5① (the confirmation↔desire
@@ -587,7 +602,7 @@ Measured 2026-10-01 — `ai-server`, full suite:
   binaries — that is an environment limit, not a regression. Verify the suites individually (see the
   `aegis-verify-and-test` skill) rather than "fixing" code that is fine.
 - **Egress regression suite**: **314 passed / 1 skipped** (315 tests carry the `egress` marker,
-  1704 deselected). CI enforces a floor of 160 (`--require-egress-tests=160`) **and** mutation-proves
+  1710 deselected). CI enforces a floor of 160 (`--require-egress-tests=160`) **and** mutation-proves
   the gate: breaking it yields failures, restoring it yields 314 passes. The mutation figure is
   **76 failures** (measured 2026-10-03 on the 315-marker baseline; it was 74 at the 2026-10-01
   baseline of 305 and 62 at the 268-marker baseline — **re-run it before quoting**, the number is a
