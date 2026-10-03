@@ -108,3 +108,8 @@ ai-server/apps/builtin/ai-server/memory/save/data/
 .env.*
 !.env.example
 !.env.template
+
+# ---- 実行時の監査ログ（巨大・会話内容を含む）----
+# prompt_preview に会話内容が入るため公開しない。サイズも 90MB 級になる。
+ai-server/data/*.jsonl
+ai-server/data/*.json
