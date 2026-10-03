@@ -772,6 +772,20 @@ Measured 2026-10-01 — `ai-server`, full suite:
 > non-egress tests, and the **derived** figure is now **124** (`2086 − 1962` collected, or
 > `1771 − 1647` deselected).
 
+> **Named, not dropped (2026-10-04): `2087 passed / 8 skipped`** (2095 collected, 405.54 s). The **+9**
+> is a new pin, `tests/test_executor_manifest_failures_are_named.py`. `ExecutorRegistry._load_one`
+> returned on a manifest it could not read, so the result was **an absence, not a crash**: the executor
+> is simply not in the registry, and `execute` answers `EXECUTOR_NOT_FOUND` ("No executor for <cap>")
+> for a capability whose manifest loaded fine and whose `executor.json` is sitting on disk — the caller
+> cannot tell "never written" from "written and unparseable". Its sibling loader
+> `FolderCapabilityRegistry` has always recorded this (`_errors` / `errors()` / `reload()["errors"]`);
+> the executor registry now matches, and `CapabilityCatalog.reload()` — which **discarded the executor
+> registry's result outright** — forwards it as `executor_errors`, leaving what `errors` means
+> (capability manifests) unchanged. **Mutation 10/10**, control green, three files restored
+> byte-identically. Egress is **unchanged at 314 passed / 1 skipped** (315 carry the marker); the
+> deselected count moved **1771 → 1780** with the 9 non-egress tests, and the **derived** figure is now
+> **133** (`2095 − 1962` collected, or `1780 − 1647` deselected).
+
 - **Total tests (2026-10-01 record)**: **1926 passed / 8 skipped**
   — the **+20** over the 2026-09-30 figure are **all new pins**: four for B-5① (the confirmation↔desire
   link), one for the general invariant that **the shipped `config/settings.json` declares no key that
@@ -839,7 +853,7 @@ Measured 2026-10-01 — `ai-server`, full suite:
   binaries — that is an environment limit, not a regression. Verify the suites individually (see the
   `aegis-verify-and-test` skill) rather than "fixing" code that is fine.
 - **Egress regression suite**: **314 passed / 1 skipped** (315 tests carry the `egress` marker,
-  1771 deselected). CI enforces a floor of 160 (`--require-egress-tests=160`) **and** mutation-proves
+  1780 deselected). CI enforces a floor of 160 (`--require-egress-tests=160`) **and** mutation-proves
   the gate: breaking it yields failures, restoring it yields 314 passes. The mutation figure is
   **76 failures** (measured 2026-10-03 on the 315-marker baseline; it was 74 at the 2026-10-01
   baseline of 305 and 62 at the 268-marker baseline — **re-run it before quoting**, the number is a

@@ -202,7 +202,17 @@ class CapabilityCatalog:
             self._aliases.clear()
             self._load_aliases()
             if self._exec_reg:
-                self._exec_reg.reload()
+                exec_result = self._exec_reg.reload()
+                # The executor registry is a second loader with the same failure
+                # mode: an unparseable manifest makes its executor *absent*, which
+                # is indistinguishable from one that was never written. Forward its
+                # errors under their own key — the reload endpoint already returns
+                # ``result`` verbatim, and a separate key leaves what ``errors``
+                # means (capability manifests) unchanged.
+                result = {
+                    **result,
+                    "executor_errors": exec_result.get("errors", []),
+                }
             self._last_dir_mtime = self._dir_mtime()
             self._last_reload_check_ms = int(time.time() * 1000)
             return result

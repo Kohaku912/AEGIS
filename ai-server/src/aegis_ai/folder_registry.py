@@ -319,12 +319,14 @@ class ExecutorRegistry:
         self._dir = Path(apps_dir)
         self._executors: dict[str, ExecutorManifest] = {}
         self._apps_dir = Path(apps_dir)
+        self._errors: list[dict[str, str]] = []
         self._lock = threading.RLock()
         self._load()
 
     def _load(self) -> None:
         with self._lock:
             self._executors.clear()
+            self._errors.clear()
             for origin in ("builtin", "generated"):
                 origin_dir = self._dir / origin
                 if not origin_dir.exists():
@@ -333,17 +335,31 @@ class ExecutorRegistry:
                     self._load_one(str(json_path), origin)
 
     def _load_one(self, path: str, origin: str) -> None:
+        # A manifest that cannot be loaded makes its executor *absent*, and an
+        # absent executor is indistinguishable from one that was never written:
+        # the caller only ever sees EXECUTOR_NOT_FOUND. Record why, as
+        # ``FolderCapabilityRegistry`` above does, so the reload endpoint can
+        # name it instead of leaving a capability silently unrunnable.
         try:
             data = json.loads(Path(path).read_text(encoding="utf-8-sig"))
-        except Exception:
+        except Exception as exc:
+            self._errors.append({"path": path, "error": f"{type(exc).__name__}: {exc}"})
+            logger.warning("Skipping unreadable executor manifest %s: %s", path, exc)
             return
         p = Path(path)
         try:
             relative = p.parent.relative_to(self._dir / origin)
         except ValueError:
+            self._errors.append({"path": path, "error": f"not under {origin}/"})
             return
         parts = relative.parts
         if len(parts) < 3:
+            self._errors.append(
+                {
+                    "path": path,
+                    "error": f"expected <server>/<app>/<action>, got {len(parts)} part(s)",
+                }
+            )
             return
         server_id = parts[0]
         app_id = parts[1]
@@ -362,10 +378,14 @@ class ExecutorRegistry:
             file_path=path,
         )
 
+    def errors(self) -> list[dict[str, str]]:
+        with self._lock:
+            return list(self._errors)
+
     def reload(self) -> dict[str, Any]:
         old = len(self._executors)
         self._load()
-        return {"old": old, "new": len(self._executors)}
+        return {"old": old, "new": len(self._executors), "errors": list(self._errors)}
 
     def get(self, manifest: CapabilityManifest) -> ExecutorManifest | None:
         key = f"{manifest.origin}.{manifest.server_id}.{manifest.app_id}.{manifest.action}"
