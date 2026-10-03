@@ -535,3 +535,66 @@ def test_the_composition_root_hands_the_metric_to_the_loop() -> None:
         "`set_burden_metric` is called with something other than a BurdenMetric; "
         f"observed {sorted(constructed)}"
     )
+
+
+def test_the_wiring_lines_actually_run(tmp_path: Path) -> None:
+    """Execute the composition root's two new lines — the function itself never runs.
+
+    `_create_autonomous_loop` is called **only** by `start_autonomous_if_enabled`, which
+    returns early unless `autonomous_loop_enabled` is set, so the suite never executes this
+    function's body. The project has been bitten by exactly that: a wiring edit inside it
+    left the whole suite green and only ruff's `F821` caught it. The AST test above proves
+    the lines are *present*; this proves the three runtime facts about them — the import
+    resolves, the constructor accepts one positional argument, and the loop accepts and
+    stores the result — by running the same statements.
+    """
+    from aegis_ai.burden import BurdenMetric
+    from aegis_ai.burden.metric import DEFAULT_ASK_INTERVAL_MS
+
+    loop = _loop(tmp_path)
+    assert loop._burden_metric is None, "a fresh loop already has a metric"
+
+    # The composition root's exact call shape: one positional argument.
+    loop.set_burden_metric(BurdenMetric(object()))
+
+    assert loop._burden_metric is not None, "`set_burden_metric` did not store the metric"
+    assert loop._burden_metric.ask_interval_ms == DEFAULT_ASK_INTERVAL_MS, (
+        "the stored metric is not the shipped one"
+    )
+
+
+def test_the_composition_root_passes_exactly_one_positional_argument() -> None:
+    """An arity mistake here is invisible to the suite and to `F821`.
+
+    `BurdenMetric.__init__(self, llm, *, ask_interval_ms=...)` takes the LLM positionally,
+    so `BurdenMetric()` or `BurdenMetric(a, b)` would raise only when the loop is switched
+    on. Pinned as a shape, because there is no execution to fall back on.
+    """
+    from inspect import Parameter, signature
+
+    from aegis_ai.burden import BurdenMetric
+
+    first = [
+        parameter
+        for name, parameter in signature(BurdenMetric.__init__).parameters.items()
+        if name != "self"
+    ][0]
+    assert first.kind in (Parameter.POSITIONAL_ONLY, Parameter.POSITIONAL_OR_KEYWORD), (
+        f"`BurdenMetric.__init__`'s first parameter is {first.kind.name}, so the "
+        "composition root's positional call would raise"
+    )
+
+    calls = [
+        node
+        for node in ast.walk(_tree(_RUNTIME_MODULE))
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "BurdenMetric"
+    ]
+    assert calls, "the composition root no longer constructs a BurdenMetric"
+    for call in calls:
+        assert len(call.args) == 1 and not call.keywords, (
+            "the composition root constructs `BurdenMetric` with "
+            f"{len(call.args)} positional args and {len(call.keywords)} keywords; the "
+            "constructor takes exactly one positional argument (the LLM)"
+        )

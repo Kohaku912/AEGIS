@@ -653,10 +653,14 @@ Measured 2026-10-01 — `ai-server`, full suite:
 > `1728 − 1647` deselected).
 >
 > **Re-measured 2026-10-03 (wiring the burden metric — `DELEGATION.md` §4 item 8):
-> `2051 passed / 8 skipped`** (2059 collected, 449.32 s; the canonical marker-excluded form is
-> 2051 / 4 skipped / 4 deselected). The **+16** is the new pins exactly — **+3** in
-> `tests/test_burden_metric_is_judged.py` and **+13** in the new
-> `tests/test_burden_check_is_asked_by_the_loop.py`. This is the first entry in this list where
+> `2053 passed / 8 skipped`** (2061 collected, 470.71 s; the canonical marker-excluded form is
+> 2053 / 4 skipped / 4 deselected). The **+18** is the new pins exactly — **+3** in
+> `tests/test_burden_metric_is_judged.py` and **+15** in the new
+> `tests/test_burden_check_is_asked_by_the_loop.py` (two of those 15 are the **hardening** of this
+> wiring: `_create_autonomous_loop` is never executed by the suite, so one pin *runs*
+> `set_burden_metric(BurdenMetric(object()))` and asserts storage, and another fixes the call's
+> **shape** — exactly one positional argument — via `inspect.signature` and `ast`, because an arity
+> mistake there is invisible to both the suite and `F821`). This is the first entry in this list where
 > **production code changed for a north-star item**: `aegis_ai/burden/metric.py`,
 > `autonomous/autonomous_loop.py` and `runtime.py`. Five places were wired — the judging profile, the
 > ask's field type, a cadence hook in `_run_loop`, `last_burden_ask_ms` persistence, and
@@ -687,11 +691,12 @@ Measured 2026-10-01 — `ai-server`, full suite:
 > cycle **starts the clock without asking**, because the question is about a *period*; the clock is
 > persisted, or every restart would re-ask. The end-to-end pins drive the **real** broker — real
 > catalog, real policy engine, real capability client, real store — because a fake broker would have
-> accepted the list and hidden exactly the defect above. **Mutation-proved 13/13 across the three
-> files** with a green control and all originals restored byte-identically (sha256-verified). Egress is
+> accepted the list and hidden exactly the defect above. **Mutation-proved 16/16 across the three
+> files** (13 for the wiring, 3 for its hardening) with a green control and all originals restored
+> byte-identically (sha256-verified: `86b3a9aaa644` / `b50e692729a8` / `f7139f755595`). Egress is
 > **unchanged at 314 passed / 1 skipped** (315 carry the marker); the deselected count moved
-> **1728 → 1744** with the 16 non-egress tests, and the **derived** "added since carry no marker"
-> figure is now **97** (`2059 − 1962` collected, or `1744 − 1647` deselected).
+> **1728 → 1746** with the 18 non-egress tests, and the **derived** "added since carry no marker"
+> figure is now **99** (`2061 − 1962` collected, or `1746 − 1647` deselected).
 
 - **Total tests (2026-10-01 record)**: **1926 passed / 8 skipped**
   — the **+20** over the 2026-09-30 figure are **all new pins**: four for B-5① (the confirmation↔desire
@@ -760,7 +765,7 @@ Measured 2026-10-01 — `ai-server`, full suite:
   binaries — that is an environment limit, not a regression. Verify the suites individually (see the
   `aegis-verify-and-test` skill) rather than "fixing" code that is fine.
 - **Egress regression suite**: **314 passed / 1 skipped** (315 tests carry the `egress` marker,
-  1744 deselected). CI enforces a floor of 160 (`--require-egress-tests=160`) **and** mutation-proves
+  1746 deselected). CI enforces a floor of 160 (`--require-egress-tests=160`) **and** mutation-proves
   the gate: breaking it yields failures, restoring it yields 314 passes. The mutation figure is
   **76 failures** (measured 2026-10-03 on the 315-marker baseline; it was 74 at the 2026-10-01
   baseline of 305 and 62 at the 268-marker baseline — **re-run it before quoting**, the number is a
