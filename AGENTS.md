@@ -496,7 +496,8 @@ Measured 2026-10-01 — `ai-server`, full suite:
 >
 > **Re-measured 2026-10-03 (the presentation-stream pin): `1997 passed / 8 skipped`** (2005 collected,
 > 499.73 s; the canonical marker-excluded form is 1997 / 4 skipped / 4 deselected). The **+5** is
-> `tests/test_presentation_stream_leaks_a_subscriber.py` — `GET /api/presentations/stream` calls
+> `tests/test_presentation_stream_is_sound.py` (written as `..._leaks_a_subscriber.py`; **renamed
+> 2026-10-03** when the leak was fixed and the pin was inverted to assert the fix) — `GET /api/presentations/stream` calls
 > `event_manager.subscribe(_on_event)` at **route-function scope**, i.e. once per request *before* the
 > generator starts, and **discards the returned id**, so every request retains one subscriber for ever;
 > there is no `unsubscribe` in the module and the queue is **unbounded**. Measured by *driving the
@@ -505,7 +506,10 @@ Measured 2026-10-01 — `ai-server`, full suite:
 > Latent today (no client subscribes), but it fires on the **first** connection (`DELEGATION.md` §4
 > item 26). Egress is **unchanged at 314 passed / 1 skipped** (315 carry the marker, **1690**
 > deselected — the +5 non-egress tests moved the deselected count). The **derived** "added since carry
-> no marker" figure is now **43** (`2005 − 1962` collected, or `1690 − 1647` deselected).
+> no marker" figure is now **43** (`2005 − 1962` collected, or `1690 − 1647` deselected). ⚠️ **Both
+> defects were fixed the same day** — see the last paragraph of this chain. The pin was **renamed**
+> `test_presentation_stream_is_sound.py` and now carries **7** tests (it asserts the fix instead of
+> pinning the leak).
 >
 > **Re-measured 2026-10-03 (the memory-registry pin): `2011 passed / 8 skipped`** (2019 collected,
 > 538.07 s; the canonical marker-excluded form is 2011 / 4 skipped / 4 deselected). The **+14** is
@@ -546,6 +550,24 @@ Measured 2026-10-01 — `ai-server`, full suite:
 > **package**, not coverage: the replaced pin is *stronger* (two independent facts). Egress is
 > **unchanged at 314 passed / 1 skipped** (315 carry the marker, **1712** deselected). The **derived**
 > "added since carry no marker" figure is now **65** (`2027 − 1962` collected, or `1712 − 1647` deselected).
+>
+> **Re-measured 2026-10-03 (the presentation-stream fix — the leak *and* the arity defect):
+> `2021 passed / 8 skipped`** (2029 collected, 464.32 s; the canonical marker-excluded form is
+> 2021 / 4 skipped / 4 deselected — `android_local` is the marker it drops, and it carries exactly 4
+> tests). The **+2** is the same pin going **5 → 7** tests, because the fix **inverted** it: it now
+> asserts the correct shape instead of pinning the leak. The change moved `subscribe` **inside** the
+> generator, keeps the returned id and releases it in a `finally`, bounds the queue at
+> `maxsize = _PRESENTATION_QUEUE_SIZE = 200` (the shape `routes/ui.py` already used), and rewrites the
+> handler to take **one** argument. ⚠️ **The second defect is why reading the body mattered**:
+> `_on_event(event_type, payload_json)` took **two** arguments, but `EventBus._notify_subscribers` calls
+> `sub.handler(event)` with **one** (`event_bus.py:241`) and routes a raise to `_dead_letter_handler`
+> (`:243-246`) — so the handler **never ran at all**, silently, while the subscriber count still looked
+> right. **Fixing the leak alone would have left the route delivering nothing; fixing the handler alone
+> would have left it leaking** — the concrete proof that *live / subscribed / sound* are three axes, not
+> one count (`DELEGATION.md` §4 item 26). Mutation-proved **8/8** with a control run; originals restored
+> byte-identically. Egress is **unchanged at 314 passed / 1 skipped** (315 carry the marker, **1714**
+> deselected). The **derived** "added since carry no marker" figure is now **67**
+> (`2029 − 1962` collected, or `1714 − 1647` deselected).
 
 - **Total tests (2026-10-01 record)**: **1926 passed / 8 skipped**
   — the **+20** over the 2026-09-30 figure are **all new pins**: four for B-5① (the confirmation↔desire
@@ -614,7 +636,7 @@ Measured 2026-10-01 — `ai-server`, full suite:
   binaries — that is an environment limit, not a regression. Verify the suites individually (see the
   `aegis-verify-and-test` skill) rather than "fixing" code that is fine.
 - **Egress regression suite**: **314 passed / 1 skipped** (315 tests carry the `egress` marker,
-  1712 deselected). CI enforces a floor of 160 (`--require-egress-tests=160`) **and** mutation-proves
+  1714 deselected). CI enforces a floor of 160 (`--require-egress-tests=160`) **and** mutation-proves
   the gate: breaking it yields failures, restoring it yields 314 passes. The mutation figure is
   **76 failures** (measured 2026-10-03 on the 315-marker baseline; it was 74 at the 2026-10-01
   baseline of 305 and 62 at the 268-marker baseline — **re-run it before quoting**, the number is a

@@ -21,6 +21,11 @@ manager_bp = Blueprint("managers", __name__)
 
 _runtime = None
 
+#: Bound on the per-connection SSE buffer for ``/api/presentations/stream``. A client that has
+#: disconnected cannot drain its queue, so an unbounded one grows without limit; the sibling
+#: SSE routes bound theirs (200 in ``routes/ui.py``, 100 in ``routes/approval.py``).
+_PRESENTATION_QUEUE_SIZE = 200
+
 
 def init_manager_routes(app, runtime):
     """Register manager routes on the Flask app."""
@@ -905,28 +910,49 @@ def presentation_dismiss(presentation_id):
 @manager_bp.route("/api/presentations/stream")
 def presentation_stream():
     """SSE endpoint for live presentation updates."""
+    import json
     import queue
-    q: queue.Queue = queue.Queue()
 
-    def _on_event(event_type: str, payload: dict) -> None:
-        if event_type.startswith("presentation."):
-            q.put({"event": event_type, "data": payload})
-
+    q: queue.Queue = queue.Queue(maxsize=_PRESENTATION_QUEUE_SIZE)
     rt = _get_runtime()
-    if rt.event_manager is not None:
-        rt.event_manager.subscribe(_on_event)
+    event_manager = rt.event_manager
+    subscriber_id = ""
+
+    def _on_event(event) -> None:
+        # ONE argument. `EventBus._notify_subscribers` calls `sub.handler(event)`, and a raise
+        # inside that loop is routed to the dead-letter handler — so a two-argument handler is
+        # never called at all. The event type is filtered here rather than via `event_filter`
+        # so the route works with any event manager that offers a plain `subscribe(handler)`.
+        event_type = getattr(event, "event_type", "") or ""
+        if not event_type.startswith("presentation."):
+            return
+        raw = getattr(event, "payload_json", "") or "{}"
+        try:
+            data = json.loads(raw)
+        except (TypeError, ValueError):
+            data = raw
+        try:
+            q.put_nowait({"event": event_type, "data": data})
+        except queue.Full:
+            pass
+
+    if event_manager is not None and hasattr(event_manager, "subscribe"):
+        subscriber_id = event_manager.subscribe(_on_event)
 
     def generate():
         try:
             while True:
                 try:
                     item = q.get(timeout=30)
-                    import json
                     yield f"data: {json.dumps(item)}\n\n"
                 except queue.Empty:
                     yield ": keepalive\n\n"
-        except GeneratorExit:
-            pass
+        finally:
+            # Release the subscription on disconnect. Without this every request retains one
+            # subscriber for ever, and the retained handler keeps filling a queue that nothing
+            # drains — silent, because a bounded queue simply drops the writes.
+            if subscriber_id and event_manager is not None and hasattr(event_manager, "unsubscribe"):
+                event_manager.unsubscribe(subscriber_id)
 
     from flask import Response
     return Response(generate(), mimetype="text/event-stream")
