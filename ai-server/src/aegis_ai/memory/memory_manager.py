@@ -437,6 +437,14 @@ class MemoryManager:
         return self._normalize_hit(record, str(getattr(record, "memory_type", "store")), "store")
 
     def get_stats(self) -> dict[str, Any]:
+        """Per-backend stats, returned verbatim by the live ``GET /api/memory/stats``.
+
+        The list below must name **every** backend in ``get_backend()``'s mapping that defines
+        ``get_stats``. ``store`` is the one deliberate omission — ``MemoryStore`` defines no
+        ``get_stats`` (24 methods, none of them that one) — so the two sets differ by exactly
+        ``{"store"}``. The invariant is pinned by
+        ``tests/test_memory_backend_registries_agree.py``.
+        """
         stats: dict[str, Any] = {}
         for name, backend in [
             ("advanced", self._advanced),
@@ -446,6 +454,8 @@ class MemoryManager:
             ("lesson", self._lesson),
             ("workflow", self._workflow),
             ("experiential", self._experiential),
+            ("person", self._person),
+            ("action_trace", self._action_trace),
         ]:
             if backend and hasattr(backend, "get_stats"):
                 try:
@@ -458,7 +468,12 @@ class MemoryManager:
         """Get a specific memory backend by name.
 
         Names: advanced, episodic, semantic, skill, lesson, workflow,
-               experiential, person, store, association, action_trace.
+               experiential, person, store, action_trace.
+
+        This list is the mapping's keys and nothing else. ``association`` used to be named here,
+        but ``AssociationMemory`` is constructed on the **runtime**, not on this manager, so
+        ``get_backend("association")`` always returned ``None`` — the docstring was conflating
+        the manager's registry with the runtime's.
         """
         mapping = {
             "advanced": self._advanced,

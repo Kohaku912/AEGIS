@@ -522,7 +522,8 @@ Measured 2026-10-01 — `ai-server`, full suite:
 > (`manager_routes.py:361`) silently reports 7 of 10 (`store` is legitimately absent — `MemoryStore` has
 > no `get_stats`). `DELEGATION.md` §4 item 27. Egress is **unchanged at 314 passed / 1 skipped** (315
 > carry the marker, **1704** deselected). The **derived** "added since carry no marker" figure is now
-> **57** (`2019 − 1962` collected, or `1704 − 1647` deselected).
+> **57** (`2019 − 1962` collected, or `1704 − 1647` deselected). ⚠️ **Fixed the same day** — see the
+> last paragraph of this chain; the pin now asserts the *agreement* (**9** functions / **17** cases).
 >
 > **Re-measured 2026-10-03 (the shadowed-route pin): `2017 passed / 8 skipped`** (2025 collected,
 > 488.49 s; the canonical marker-excluded form is 2017 / 4 skipped / 4 deselected). The **+6** is
@@ -568,6 +569,24 @@ Measured 2026-10-01 — `ai-server`, full suite:
 > byte-identically. Egress is **unchanged at 314 passed / 1 skipped** (315 carry the marker, **1714**
 > deselected). The **derived** "added since carry no marker" figure is now **67**
 > (`2029 − 1962` collected, or `1714 − 1647` deselected).
+>
+> **Re-measured 2026-10-03 (the memory-registry fix — the live route stops under-reporting):
+> `2024 passed / 8 skipped`** (2032 collected, 441.95 s; the canonical marker-excluded form is
+> 2024 / 4 skipped / 4 deselected). The **+3** is that same pin going **14 → 17** cases, because the
+> fix **inverted** it: it now asserts the three registries **agree** instead of pinning that they
+> disagree. `MemoryManager.get_stats()` gained `person` and `action_trace` — both define `get_stats`,
+> while `store` is the one *justified* omission (`MemoryStore` defines none) — and the
+> `get_backend()` docstring dropped the ghost `association` (the manager does not own that backend;
+> the **runtime** does, which is why `get_backend("association")` always returned `None`). So the
+> live `GET /api/memory/stats` now reports **9, not 7**. ⚠️ **The pin's own weakness was found by
+> mutation, not by review**: the "the runtime constructs the ghost class" check was a **substring**
+> test, so a mutation that *commented the construction out* left it green — **a mention in a string
+> literal is not an invocation** (the same lesson as the event-driven core's `__main__` demo). It is
+> now an `ast.Call` check, and the commented-out form is mutation **M8b**. Mutation-proved **12/12**
+> with a control run; four originals restored byte-identically (`DELEGATION.md` §4 item 27). Egress
+> is **unchanged at 314 passed / 1 skipped** (315 carry the marker, **1717** deselected). The
+> **derived** "added since carry no marker" figure is now **70** (`2032 − 1962` collected, or
+> `1717 − 1647` deselected).
 
 - **Total tests (2026-10-01 record)**: **1926 passed / 8 skipped**
   — the **+20** over the 2026-09-30 figure are **all new pins**: four for B-5① (the confirmation↔desire
@@ -636,7 +655,7 @@ Measured 2026-10-01 — `ai-server`, full suite:
   binaries — that is an environment limit, not a regression. Verify the suites individually (see the
   `aegis-verify-and-test` skill) rather than "fixing" code that is fine.
 - **Egress regression suite**: **314 passed / 1 skipped** (315 tests carry the `egress` marker,
-  1714 deselected). CI enforces a floor of 160 (`--require-egress-tests=160`) **and** mutation-proves
+  1717 deselected). CI enforces a floor of 160 (`--require-egress-tests=160`) **and** mutation-proves
   the gate: breaking it yields failures, restoring it yields 314 passes. The mutation figure is
   **76 failures** (measured 2026-10-03 on the 315-marker baseline; it was 74 at the 2026-10-01
   baseline of 305 and 62 at the 268-marker baseline — **re-run it before quoting**, the number is a
