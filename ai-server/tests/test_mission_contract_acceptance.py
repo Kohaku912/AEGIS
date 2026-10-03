@@ -466,17 +466,6 @@ def test_payment_is_denied_by_delegation_not_by_a_plan_flag(tmp_path):
     assert plan.risk_notes == []
 
 
-def test_financial_service_scope_denies_purchase(tmp_path):
-    from aegis_ai.permissions.service_permission_store import ServicePermissionStore
-
-    store = ServicePermissionStore(path=str(tmp_path / "permissions.json"))
-
-    decision = store.explain_decision("browser", "purchase")
-
-    assert decision.decision == "deny"
-    assert decision.requires_approval is False
-
-
 def test_autonomous_tasks_are_goal_owned_and_require_manifest_verification(tmp_path):
     class Broker:
         def __init__(self, verification_status):

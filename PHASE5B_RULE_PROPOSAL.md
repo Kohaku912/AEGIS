@@ -89,7 +89,7 @@ web-ui `tsc -b` clean、vitest **134 passed**。`cargo check --all-targets` clea
 | 面 | 状態 |
 |---|---|
 | ~~**proto の承認型**~~ | **完了（2026-09-28）** — 上記の表を参照。`SafetyLevel.LEVEL_2_APPROVAL` だけは意図的に残置 |
-| **`aegis_ai/permissions/`** | `ServicePermissionPolicy` / `ServicePermissionStore` が `ask_approval` / `requires_approval` を持つ**第三の承認面**。`ai-server/src` に**本番呼び出し元がゼロ**（参照はテストのみ）。丸ごと孤立 — **オーナー判断待ち**（削除には `test_goal_alignment.py` / `test_mission_contract_acceptance.py` の改修が伴う） |
+| **`aegis_ai/permissions/`** | `ServicePermissionPolicy` / `ServicePermissionStore` が `ask_approval` / `requires_approval` を持つ**第三の承認面**。`ai-server/src` に**本番呼び出し元がゼロ**（参照はテストのみ）。丸ごと孤立 — **2026-10-03 に削除**（オーナー決定。`DELEGATION.md` §4 項目 3）（削除には `test_goal_alignment.py` / `test_mission_contract_acceptance.py` の改修が伴う） |
 | **`agents/profiles`** | `requires_approval_for` リストと `Profile.requires_approval()` — もう一つの独立した承認面 |
 | **`motivation_arbiter`** | `requires_approval` フィールドを自前の dataclass に持つ |
 | **`reflection_engine.py:254`** | `{"approval_needed", "waiting_approval"}` という**到達不能な status 集合**を判定。**同日さらに追跡**（下記） |

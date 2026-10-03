@@ -20,10 +20,10 @@ first one. ``motivation_arbiter`` hangs off it and is therefore unreachable too.
 
 This is not a stray constant — it is an **execution path**, ~700 lines, described by the
 project's own architecture doc as the thing that runs. So it is **pinned, not deleted**,
-for the same reason ``aegis_ai/permissions/`` (a *working* forced gate with no importers)
-and ``aegis_ai/evaluation/`` (a sub-graph whose claims had gone false) were pinned: the
-delete-vs-wire call is the owner's, and deleting an unreachable path is only safe once you
-know what it claimed. What this file guarantees is that **either decision has to be made
+for the same reason ``aegis_ai/evaluation/`` (a sub-graph whose claims had gone false) was
+pinned: the delete-vs-wire call is the owner's, and deleting an unreachable path is only
+safe once you know what it claimed. (``aegis_ai/permissions/``, the third surface named
+here when this was written, has since been **deleted** — 2026-10-03, owner decision.) What this file guarantees is that **either decision has to be made
 deliberately** — wiring it, or deleting it, both turn a test red.
 
 **The scan is transitive, and getting that wrong over-reports deadness.** A first version

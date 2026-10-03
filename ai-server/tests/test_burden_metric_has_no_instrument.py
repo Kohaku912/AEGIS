@@ -22,11 +22,15 @@ fails for the other two**:
    `UserModel` `suppress` — return a decision **with no breakdown**. So "accepted" mixes cost-bearing
    records with cost-less ones, and the median silently depends on which gate fired.
 
-This is a **measurement, not a decision**: which sub-metrics to accept, and whether to persist the
-user's response, are the owner's calls (`DELEGATION.md` §3 and §4 item 8; `DECISION_DRAFTS.md` §B-5
-carries the answer this refutes in part). The pin fixes the structural facts so that changing any of
-them is deliberate rather than silent — if the response starts being persisted, or a gate starts
-carrying a breakdown, these assertions fire and the register row must be revisited.
+This is a **measurement — and the owner has since decided what to do with it** (2026-10-03): the
+burden metric is **judged by the judgment LLM** and **checked periodically with the user**, rather
+than computed from the log (`docs/burden-metric.md`; `aegis_ai/burden/`; `DELEGATION.md` §4 item 8;
+`DECISION_DRAFTS.md` §B-5 carries the answer this refutes in part). The decision does not invalidate
+anything here — these structural facts are now the *reason* the formula was refused. The pin keeps
+fixing them so that changing any of them is deliberate rather than silent: if the response starts
+being persisted, or a gate starts carrying a breakdown, these assertions fire and the judgement's
+inputs should be revisited (the LLM reads the period's `activity`, which is exactly what such a new
+persisted signal would change).
 """
 
 from __future__ import annotations

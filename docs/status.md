@@ -55,8 +55,9 @@ executes and `:app:assembleDebug` produces `app/build/outputs/apk/debug/app-debu
 | SelfDev Agent (`agents/self_dev.py`) | Deleted — and `SelfDevAgent` was never a class. |
 
 Pins that keep this true: `ai-server/tests/test_goal_change_guard.py` (the deleted subsystem stays
-deleted) and `ai-server/tests/test_forced_gate_stays_retired.py` (no live path can reach a gate — this
-also covers the unwired `aegis_ai/permissions/` service-permission gate).
+deleted) and `ai-server/tests/test_forced_gate_stays_retired.py` (no live path can reach a gate — the
+unwired `aegis_ai/permissions/` service-permission gate it used to cover was **deleted 2026-10-03** on the
+owner's call, and the pin now asserts the package is **gone and unreferenced** instead of merely unwired).
 
 ## Implemented (moved out of "Not started", 2026-09-30)
 

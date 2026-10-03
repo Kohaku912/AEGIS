@@ -673,7 +673,8 @@ AEGIS は **MCP サーバ**として振る舞う（クライアントではな�
 | **`ToolBroker.set_instance()`** | 定義されているが**一度も呼ばれない**。よって `ToolBroker.instance()` は常に `None` |
 | **`LLMGateway.instance()`** | `l3_reasoner.py` と `l2_mind.py` が呼ぶが、**そのメソッドは存在しない**（死んだフォールバック） |
 | **CostTracker** | `runtime.py` は `LLMRouter(cost_tracker=None)` とするので予算は効かない |
-| **world/ / recovery/ / briefing/ / browser_use/ / permissions/ / room/** | 外部 import ゼロ |
+| **world/ / recovery/ / briefing/ / browser_use/ / room/** | 外部 import ゼロ |
+| ~~**`permissions/`**~~ | **2026-10-03 に削除**（オーナー決定 — 配線しないと決めた承認ゲート。`DELEGATION.md` §4 項目 3） |
 | **`reflection_loop.py`** | 外部 import ゼロ |
 | **Dev Server（:50056）** | ディレクトリごと削除済み |
 

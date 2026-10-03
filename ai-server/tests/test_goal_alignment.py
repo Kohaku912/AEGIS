@@ -52,56 +52,19 @@ def test_explicit_gaming_activity_still_suppresses(tmp_path) -> None:
 
 
 # ═══════════════════════════════════════════════════════════════
-# §33 — browser operation inference from element label text
+# §33 — browser operation inference (removed 2026-10-03)
 # ═══════════════════════════════════════════════════════════════
-
-
-def test_keyword_operation_inference_is_removed() -> None:
-    """The keyword classifier must no longer be part of the public surface."""
-    import aegis_ai.permissions as permissions
-
-    assert not hasattr(permissions, "infer_operation_from_element")
-    source = (AI_SRC / "permissions" / "service_scope_types.py").read_text(encoding="utf-8")
-    assert "infer_operation_from_element" not in source
-    assert "_BROWSER_HIGH_RISK_KEYWORDS" not in source
-    # Japanese keywords were the tell-tale sign of the "add a word per gap" pattern.
-    assert "送信" not in source
-    assert "削除" not in source
-
-
-def test_unknown_browser_operation_requires_approval(tmp_path) -> None:
-    """An operation we cannot determine must fail safe, not default to read."""
-    from aegis_ai.permissions.service_permission_policy import ServicePermissionPolicy
-    from aegis_ai.permissions.service_permission_store import ServicePermissionStore
-
-    policy = ServicePermissionPolicy(store=ServicePermissionStore(path=str(tmp_path / "sp.json")))
-    decision = policy.evaluate_browser_action("https://mail.google.com/mail/u/0/#inbox", "")
-    assert decision["decision"] == "ask_approval"
-    assert decision["requires_approval"] is True
-
-
-def test_explicit_read_operation_is_allowed(tmp_path) -> None:
-    """A caller-supplied operation is honoured (the LLM owns intent)."""
-    from aegis_ai.permissions.service_permission_policy import ServicePermissionPolicy
-    from aegis_ai.permissions.service_permission_store import ServicePermissionStore
-
-    policy = ServicePermissionPolicy(store=ServicePermissionStore(path=str(tmp_path / "sp.json")))
-    decision = policy.evaluate_browser_action("https://mail.google.com/mail/u/0/#inbox", "read")
-    assert decision["decision"] == "allow"
-
-
-def test_browser_operation_helper_passes_operation_through() -> None:
-    from aegis_ai.permissions.service_permission_policy import (
-        infer_service_operation_from_browser_action,
-    )
-
-    result = infer_service_operation_from_browser_action("https://github.com/x/y", "publish")
-    assert result == {"service": "github", "operation": "publish"}
-
-    # An unrecognized operation survives validation unchanged so the store can
-    # apply its conservative default instead of guessing "read".
-    unknown = infer_service_operation_from_browser_action("https://github.com/x/y", "frobnicate")
-    assert unknown["operation"] == "frobnicate"
+#
+# Four tests lived here, all of them exercising ``aegis_ai.permissions``: that the
+# keyword classifier was gone from ``service_scope_types.py``, that an unknown browser
+# operation asks for approval, that an explicit ``read`` is allowed, and that the helper
+# passes an operation through unchanged.
+#
+# The owner **deleted** the ``aegis_ai.permissions`` package on 2026-10-03
+# (``DELEGATION.md`` §4 item 3) — it was a working forced gate that nothing under ``src/``
+# imported. The surface those four tests described therefore no longer exists, so they
+# went with it. The retirement is now pinned negatively instead:
+# ``test_forced_gate_stays_retired.py::test_the_permissions_gate_package_is_gone``.
 
 
 # ═══════════════════════════════════════════════════════════════

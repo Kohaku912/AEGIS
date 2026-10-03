@@ -95,22 +95,14 @@ _ALLOWED_IMPORTERS: frozenset[str] = frozenset(
     }
 )
 
-#: The third approval surface. ``aegis_ai.permissions`` decides ``ask_approval`` from
-#: service scopes — the retired gate's shape, complete with a store, a policy and a
-#: scope model. It is reachable from nothing outside its own package, and *that* is the
-#: property pinned here. It looks supported because ``tests/test_goal_alignment.py`` and
-#: ``tests/test_mission_contract_acceptance.py`` exercise it.
+#: The third approval surface — ``aegis_ai.permissions`` — was **deleted** on 2026-10-03
+#: (owner decision, ``DELEGATION.md`` §4 item 3). It decided ``ask_approval`` from service
+#: scopes: the retired gate's shape rebuilt a second time, with a store, a policy and a
+#: scope model. Nothing under ``src/`` imported it (measured, not assumed), but two test
+#: modules exercised it, so it *looked* supported. Deleting a surface nothing can reach is
+#: stronger than pinning it unwired — a surface nobody reaches for is still a surface
+#: somebody can reach for. The name survives only for the negative assertion below.
 _PERMISSIONS_PACKAGE = "aegis_ai.permissions"
-
-#: Modules under ``src/`` allowed to import the permissions gate: only the package's own
-#: modules (observed, not assumed — ``service_scope_types.py`` imports nothing from it).
-_PERMISSIONS_ALLOWED_IMPORTERS: frozenset[str] = frozenset(
-    {
-        "aegis_ai/permissions/__init__.py",
-        "aegis_ai/permissions/service_permission_policy.py",
-        "aegis_ai/permissions/service_permission_store.py",
-    }
-)
 
 
 def _imported_modules(path: Path) -> set[str]:
@@ -348,60 +340,37 @@ def test_the_executor_really_does_reach_the_store() -> None:
     assert "self._confirmations = self._personal.get(" in source
 
 
-# ── the third surface: a working gate that nothing may reach ──────────────────
+# ── the third surface was deleted: pin the absence, not the non-use ───────────
+#
+# Three assertions used to live here, all pinning that ``aegis_ai.permissions`` stayed
+# *unwired*: the execution path must not import it, only the package may import itself,
+# and it still decides ``ask_approval``. On 2026-10-03 the owner deleted the package
+# outright (``DELEGATION.md`` §4 item 3), which made all three vacuous — a package that
+# does not exist cannot be unwired.
+#
+# The intent is kept, non-vacuously, as a **negative**: the surface must not come back.
+# Re-introducing it is not a refactor, it is a goal-boundary change — the forced gate is
+# exactly what D4=(b) retired — so it has to be an explicit edit here.
 
 
-@pytest.mark.parametrize("relative", _EXECUTION_PATH)
-def test_execution_path_does_not_import_the_permissions_gate(relative: str) -> None:
-    """A module that cannot import the gate cannot park a capability on it.
+def test_the_permissions_gate_package_is_gone() -> None:
+    """The third approval surface was deleted; nothing may reach for it again.
 
-    ``aegis_ai.permissions`` returns ``ask_approval`` from a service scope — the retired
-    gate's decision, with a store behind it. Wiring it back would restore the bottleneck
-    while its own tests kept passing, which is the failure mode this module exists for.
+    Two independent facts, because either alone can pass while the other regresses: the
+    directory must not exist, and no ``src/`` module may import the name — so a re-created
+    package under another path is still caught by the import scan.
     """
-    path = _SRC / "aegis_ai" / relative
-    assert path.is_file(), f"{relative} moved; update this guard"
-    assert not _imports_package(path, _PERMISSIONS_PACKAGE), (
-        f"{relative} imports {_PERMISSIONS_PACKAGE}; the execution path must never be "
-        "able to park a capability on an approval decision"
+    package_dir = _SRC / "aegis_ai" / "permissions"
+    assert not package_dir.exists(), (
+        f"{package_dir} is back. AEGIS must not carry a second approval gate; restoring "
+        "one is a goal-boundary change and needs the owner, not a refactor."
     )
 
-
-def test_only_the_permissions_package_imports_itself() -> None:
-    """Pin the reader list, so wiring the gate becomes a deliberate act.
-
-    If this fails, something outside the package reached into the gate. If that reach is
-    intended, it must be added to ``_PERMISSIONS_ALLOWED_IMPORTERS`` here — and the
-    reviewer then has to answer whether the caller can block on ``ask_approval``.
-    """
     importers = _permissions_importers()
-
-    assert importers, "the scan found no importers at all; the prefix match is broken"
-
-    unexpected = importers - _PERMISSIONS_ALLOWED_IMPORTERS
-    assert unexpected == set(), (
-        "these modules newly import the permissions gate: "
-        f"{sorted(unexpected)}. If a new reader is intended, add it to "
-        "_PERMISSIONS_ALLOWED_IMPORTERS and confirm it cannot block on an answer."
+    assert importers == set(), (
+        f"these modules import {_PERMISSIONS_PACKAGE}: {sorted(importers)}. "
+        "The retired gate must not be reachable from the execution path."
     )
-
-
-def test_the_permissions_gate_still_says_ask_approval(tmp_path) -> None:
-    """Record *why* this surface must stay unwired: it decides ``ask_approval``.
-
-    If this ever changes — the gate deleted, or reframed as a voluntary question — then
-    the pin above is describing a different thing and must be revisited. The expectation
-    mirrors ``tests/test_goal_alignment.py::test_unknown_browser_operation_requires_approval``,
-    which is the test that makes the gate look supported.
-    """
-    from aegis_ai.permissions.service_permission_policy import ServicePermissionPolicy
-    from aegis_ai.permissions.service_permission_store import ServicePermissionStore
-
-    policy = ServicePermissionPolicy(store=ServicePermissionStore(path=str(tmp_path / "sp.json")))
-    decision = policy.evaluate_browser_action("https://mail.google.com/mail/u/0/#inbox", "")
-
-    assert decision["decision"] == "ask_approval"
-    assert decision["requires_approval"] is True
 
 
 # ── the fourth surface: the approval-era argument, now supplied by one caller ──

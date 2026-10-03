@@ -1390,7 +1390,7 @@ POST は `X-CSRF-Token` 必須、`/approve` `/modify-and-approve` `/cancel` は�
 | ToolBroker | `ai-server/src/tool_broker.py` | 大 | 承認分岐の削除（唯一の chokepoint） |
 | 承認サブシステム | `aegis_ai/approval/*`（約 1,370 行）+ channels | 大 | 撤去 or 非拘束化 |
 | 実行エンジン | `aegis_ai/task/execution_engine.py` | 中 | pause/resume の整理 |
-| 権限 | `aegis_ai/permissions/*`（約 790 行）、`settings/permissions.py`（138 行） | 中 | 撤去 or 非拘束化 |
+| 権限 | ~~`aegis_ai/permissions/*`（約 790 行）~~ **2026-10-03 に撤去**、`settings/permissions.py`（138 行） | 中 | 撤去 or 非拘束化 |
 | マニフェスト | `capabilities/**`（105 件が `requires_approval`） | 小 | `risk` メタデータの扱いを決定 |
 | Rust | `pc-server/src/safety.rs`(464) / `overlay_approval.rs`(1040) | 大 | 安全レベルの再定義 |
 | Android / Room | Kotlin 承認画面、`room-server` 安全表 | 中 | 同上 |
