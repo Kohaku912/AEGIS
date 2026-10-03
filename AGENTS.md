@@ -507,7 +507,7 @@ Measured 2026-10-01 — `ai-server`, full suite:
 > item 26). Egress is **unchanged at 314 passed / 1 skipped** (315 carry the marker, **1690**
 > deselected — the +5 non-egress tests moved the deselected count). The **derived** "added since carry
 > no marker" figure is now **43** (`2005 − 1962` collected, or `1690 − 1647` deselected). ⚠️ **Both
-> defects were fixed the same day** — see the last paragraph of this chain. The pin was **renamed**
+> defects were fixed the same day** — see the *presentation-stream fix* paragraph below. The pin was **renamed**
 > `test_presentation_stream_is_sound.py` and now carries **7** tests (it asserts the fix instead of
 > pinning the leak).
 >
@@ -523,7 +523,7 @@ Measured 2026-10-01 — `ai-server`, full suite:
 > no `get_stats`). `DELEGATION.md` §4 item 27. Egress is **unchanged at 314 passed / 1 skipped** (315
 > carry the marker, **1704** deselected). The **derived** "added since carry no marker" figure is now
 > **57** (`2019 − 1962` collected, or `1704 − 1647` deselected). ⚠️ **Fixed the same day** — see the
-> last paragraph of this chain; the pin now asserts the *agreement* (**9** functions / **17** cases).
+> *memory-registry fix* paragraph below; the pin now asserts the *agreement* (**9** functions / **17** cases).
 >
 > **Re-measured 2026-10-03 (the shadowed-route pin): `2017 passed / 8 skipped`** (2025 collected,
 > 488.49 s; the canonical marker-excluded form is 2017 / 4 skipped / 4 deselected). The **+6** is
@@ -538,7 +538,9 @@ Measured 2026-10-01 — `ai-server`, full suite:
 > the distinct count is **200** pairs and the unreferenced set is **96**, because the two shadowed pairs
 > are unreferenced *and* registered twice. Egress is **unchanged at 314 passed / 1 skipped** (315 carry
 > the marker, **1710** deselected). The **derived** "added since carry no marker" figure is now **63**
-> (`2025 − 1962` collected, or `1710 − 1647` deselected).
+> (`2025 − 1962` collected, or `1710 − 1647` deselected). ⚠️ **Both legacy copies were deleted the
+> same day** — see the *shadow deletion* paragraph below; the rule count fell **192 → 190** and the
+> multiplicity count **converged on** the distinct one (**98 → 96**).
 >
 > **Re-measured 2026-10-03 (the owner's decisions executed — the retired gate package deleted, the
 > burden metric defined, a leftover var removed): `2019 passed / 8 skipped`** (2027 collected, 473.55 s).
@@ -587,6 +589,40 @@ Measured 2026-10-01 — `ai-server`, full suite:
 > is **unchanged at 314 passed / 1 skipped** (315 carry the marker, **1717** deselected). The
 > **derived** "added since carry no marker" figure is now **70** (`2032 − 1962` collected, or
 > `1717 − 1647` deselected).
+>
+> **Re-measured 2026-10-03 (the shadow deletion — the two legacy copies are gone): `2024 passed /
+> 8 skipped`** (2032 collected, 439.40 s; the canonical marker-excluded form is 2024 / 4 skipped /
+> 4 deselected). ⚠️ **The total did not move** — the pin was **rewritten but not resized** (**6 → 6**
+> cases), so this paragraph carries the same numbers as the one above. The prediction here was
+> `+3`; the measurement says **+0**, which is the reason the figure is written from a run rather
+> than from the size of the change. What moved instead is the *route surface*: `dashboard_legacy.py`
+> no longer registers the two closure handlers that the `dashboard_server_status` and
+> `dashboard_memory` blueprints had been **shadowing** (Werkzeug matches the first rule for a path),
+> so the registered rules fell **192 → 190** and the multiplicity count **converged on** the distinct
+> one — **202 pairs / 200 distinct → 200 / 200**, i.e. **no pair is registered twice**. The §3.2
+> "unreferenced **98**" was that multiplicity artefact: the two shadowed pairs were unreferenced *and*
+> counted twice, so the honest figure is **96** (**96 + 2 = 98**), and the literal-only variant moved
+> **127 → 125** (breakdown unchanged: GET 56 / POST 35 / DELETE 3 / PATCH 2). The two paths are still
+> served — the blueprints were always the winners — and `_get_server_status` / `_load_memory_snapshot`
+> were **kept** (the winning blueprints call them). The pin is **inverted** to assert the invariant
+> (*no* shadow) instead of pinning the two unreachable handlers; mutation-proved **5/5** (M1 a *new*
+> shadow, M2 the original closure re-added, M3 a readiness route re-pointed at `/api/servers`, M4 the
+> **winner** deleted, M5 a legacy `def` renamed back) with a control run, and both originals restored
+> byte-identically (`DELEGATION.md` §4 item 28). ⚠️ **Side finding, recorded not fixed**: the deleted
+> closure was the **only** reader of `chroma_available` and the **only** caller of
+> `ChromaSemanticMemory.sync_from_advanced_memory` (defined once at `chroma_semantic.py:163`, now
+> called nowhere), and the surviving `POST /api/memory/reload` returns `"chroma_synced": 0` as a
+> **literal** — the only other mention of that key is a test asserting its *presence*, not its value.
+> The chain is dead end to end: `ChromaSemanticMemory` is constructed **only** at `factory.py:38`, and
+> that `create_semantic_memory` has **no caller** either (its sole mention is the module docstring's
+> `Usage:` example — a string literal), while the live path builds plain `SemanticMemory` directly at
+> `runtime.py:1020`. So `chroma_available` is not merely unread, it is **not even produced** on the
+> live path. ⚠️ **Wiring it is not free**: the class embeds through `OpenAIEmbeddingFunction`
+> (`OPENAI_API_KEY`, default `text-embedding-3-small`), so it would put **memory content** on the wire
+> — the single constraint's subject matter, which the *voluntary ask* must carry, not a settings flag.
+> Recorded as a new register row rather than fixed. Egress is
+> **unchanged at 314 passed / 1 skipped** (315 carry the marker, **1717** deselected). The **derived**
+> "added since carry no marker" figure is **70** (`2032 − 1962` collected, or `1717 − 1647` deselected).
 
 - **Total tests (2026-10-01 record)**: **1926 passed / 8 skipped**
   — the **+20** over the 2026-09-30 figure are **all new pins**: four for B-5① (the confirmation↔desire

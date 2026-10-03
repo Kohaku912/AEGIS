@@ -15,16 +15,29 @@ structural instead: **a table row is an assertion; a sentence quoting a mistake 
 
 Direction: documented ⇒ registered. The converse is deliberately **not** asserted. Measured
 2026-10-03 with this file's own ``_app`` (production, ``AEGIS_UI_VERSION=v2``): the app registers
-**192 rules / 202 (method, path) pairs**, and under the matching rule *"the client contains the
-rule's literal path, or its static prefix up to the first ``<``"* **98 of the 202 are referenced
-by no client source** (127 if only the literal path counts; 75 if only the first two segments do).
+**190 rules / 200 (method, path) pairs**, and under the matching rule *"the client contains the
+rule's literal path, or its static prefix up to the first ``<``"* **96 of the 200 are referenced
+by no client source** (125 if only the literal path counts). The client set is stated so the figure
+is re-derivable: every text-ish file under ``web-ui/src``, ``pc-server``, ``browser-server``,
+``room-server``, ``android-server`` and ``packages`` — **excluding ``ai-server/src``**, where a
+route's own definition would otherwise count as a reference.
 
-Those figures **replace a recorded "86 of 189"**, which reproduces under **none** of the four
-matching rules tried (16 / 75 / 98 / 127) nor any count of the surface (192 rules / 202 pairs /
-182 unique paths / 200 unique pairs), over either client set (`web-ui/src` + five servers, or the
-whole trees). The likely explanation is that it was quoted from an earlier state or a different
-method — but the durable lesson is that **a count quoted without its method cannot be re-derived**,
-which is how it survived: nobody could tell whether a later measurement disagreed with it.
+⚠️ **Both counts moved on the same day, and the direction is the point.** The two shadowed legacy
+routes were deleted (``DELEGATION.md`` §4 item 28), so pairs fell **202 → 200** and the
+unreferenced count fell **98 → 96**. The **distinct** pair count was always 200 and the distinct
+unreferenced set was always 96: the duplicates were two *extra registrations*, so removing them
+made the multiplicity count **converge on** the distinct one. The breakdown of the 96 is
+GET 56 / POST 35 / DELETE 3 / PATCH 2.
+
+⚠️ A third variant was recorded as "75 if only the first two segments do" and is **not reproduced**
+here (a re-implementation of that rule gives 69), so **do not quote it**: the rule is
+under-specified, which is the same defect as the "86 of 189" below.
+
+Those figures **replace a recorded "86 of 189"**, which reproduces under **none** of the matching
+rules tried nor any count of the surface, over either client set. The likely explanation is that it
+was quoted from an earlier state or a different method — but the durable lesson is that **a count
+quoted without its method cannot be re-derived**, which is how it survived: nobody could tell
+whether a later measurement disagreed with it.
 The **conclusion is unchanged** — most are public APIs for operators, Android or the display
 surface, so "no client" is a **candidate, not a verdict**. Each would need its own two-ended check
 (the chat SSE route was dead only because its own registry was inert as well).

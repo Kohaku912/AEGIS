@@ -1156,9 +1156,11 @@ class DashboardApp:
     def _setup_routes(self) -> None:
         app = self._app
 
-        @app.route("/api/servers")
-        def api_servers():
-            return jsonify(self._get_server_status())
+        # `/api/servers` is served by the `dashboard_server_status` blueprint (which calls
+        # `_get_server_status`). The legacy copy that used to be registered here was
+        # **shadowed** by the blueprint — Werkzeug matches the first rule for a path — so it
+        # could never run; it was removed 2026-10-03 (DELEGATION.md §4 item 28, pinned by
+        # tests/test_no_route_is_shadowed.py).
 
         @app.route("/api/production/readiness")
         def api_production_readiness():
@@ -1369,27 +1371,10 @@ class DashboardApp:
             except Exception as exc:
                 return jsonify({"error": str(exc)}), 500
 
-        @app.route("/api/memory/reload", methods=["POST"])
-        def api_memory_reload():
-            chroma_synced = 0
-            try:
-                advanced_memory = _get_mem_backend("advanced")
-                try:
-                    semantic = _get_mem_backend("semantic")
-                    if semantic and semantic.get_stats().get("chroma_available"):
-                        chroma_synced = semantic.sync_from_advanced_memory(advanced_memory)
-                except Exception as exc:
-                    logger.warning("Memory reload Chroma sync failed: %s", exc)
-
-                snapshot = _load_memory_snapshot()
-                return jsonify({
-                    "ok": True,
-                    "summary": snapshot["summary"],
-                    "chroma_synced": chroma_synced,
-                })
-            except Exception as exc:
-                logger.warning("Memory reload failed: %s", exc)
-                return jsonify({"ok": False, "error": str(exc)}), 500
+        # `/api/memory/reload` is served by the `dashboard_memory` blueprint (which calls
+        # `_load_memory_snapshot`). The legacy copy that used to be registered here was
+        # **shadowed** by the blueprint and could never run; removed 2026-10-03
+        # (DELEGATION.md §4 item 28, pinned by tests/test_no_route_is_shadowed.py).
 
         @app.route("/api/audit/stream")
         def audit_stream():
