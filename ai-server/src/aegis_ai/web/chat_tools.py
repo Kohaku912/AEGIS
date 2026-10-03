@@ -93,6 +93,18 @@ def _emit_event(
         logger.debug("Failed to emit event: %s", event_type, exc_info=True)
 
 
+def _describe_exception(exc: BaseException) -> str:
+    """Render an exception so a *record* carries the cause, not just the fact.
+
+    The gate failure record used to hold a fixed string ("exception during L1 tool gate"),
+    so the audit said *that* the gate failed and never *why*; the only place the real cause
+    appeared was a ``logger.debug(..., exc_info=True)`` line that operators do not capture
+    (measured 2026-10-04: 706 such rows, none of them diagnosable).
+    """
+    text = str(exc).strip() or exc.__class__.__name__
+    return f"{type(exc).__name__}: {text}"
+
+
 def _emit_l1_gate_failure(runtime: Any, gate_name: str, error: str) -> None:
     """Record first-stage gate failures so L1 outages are visible."""
     message = str(error or "unknown L1 gate failure")
@@ -867,9 +879,15 @@ def _llm_wants_tools(
             json_mode=True,
             profile="l1_default",
         )
-    except Exception:
-        logger.debug("Tool-use decision failed", exc_info=True)
-        _emit_l1_gate_failure(runtime=runtime, gate_name="tool_gate", error="exception during L1 tool gate")
+    except Exception as exc:
+        # The record must carry the cause: a fixed string here is why the 706 gate failures
+        # measured on 2026-10-04 could not be traced to anything.
+        logger.error("Tool-use decision failed: %s", _describe_exception(exc), exc_info=True)
+        _emit_l1_gate_failure(
+            runtime=runtime,
+            gate_name="tool_gate",
+            error=f"exception during L1 tool gate: {_describe_exception(exc)}",
+        )
         return None, None
     if not getattr(result, "success", False):
         _emit_l1_gate_failure(
@@ -892,11 +910,11 @@ def _llm_wants_tools(
         return None, None
     try:
         data = json.loads(match.group(0))
-    except Exception:
+    except Exception as exc:
         _emit_l1_gate_failure(
             runtime=runtime,
             gate_name="tool_gate",
-            error="L1 tool gate JSON parsing failed",
+            error=f"L1 tool gate JSON parsing failed: {_describe_exception(exc)}",
         )
         return None, None
     value = data.get("use_tools")
@@ -959,12 +977,13 @@ def _llm_response_satisfies_without_tools(
             json_mode=True,
             profile="l1_default",
         )
-    except Exception:
-        logger.debug("No-tool response satisfaction check failed", exc_info=True)
+    except Exception as exc:
+        # Same reason as the tool gate above: the fixed string hid the cause.
+        logger.error("No-tool response satisfaction check failed: %s", _describe_exception(exc), exc_info=True)
         _emit_l1_gate_failure(
             runtime=runtime,
             gate_name="satisfaction_gate",
-            error="exception during L1 satisfaction gate",
+            error=f"exception during L1 satisfaction gate: {_describe_exception(exc)}",
         )
         return None
     if not getattr(result, "success", False):
@@ -985,11 +1004,11 @@ def _llm_response_satisfies_without_tools(
         return None
     try:
         data = json.loads(match.group(0))
-    except Exception:
+    except Exception as exc:
         _emit_l1_gate_failure(
             runtime=runtime,
             gate_name="satisfaction_gate",
-            error="L1 satisfaction gate JSON parsing failed",
+            error=f"L1 satisfaction gate JSON parsing failed: {_describe_exception(exc)}",
         )
         return None
     value = data.get("satisfies")

@@ -722,6 +722,23 @@ Measured 2026-10-01 — `ai-server`, full suite:
 > deselected count moved **1728 → 1754** with the 26 non-egress tests, and the **derived** "added since
 > carry no marker" figure is now **107** (`2069 − 1962` collected, or `1754 − 1647` deselected).
 
+> **Re-measured 2026-10-03 (the L1 gate failure record — it recorded the *fact* and threw away the
+> *cause*): `2070 passed / 8 skipped`** (2078 collected, 445.07 s). The **+9** is the new pin file
+> `tests/test_l1_gate_failures_carry_the_cause.py`, exactly. What it fixes: `ai-server/data/audit.db`
+> held **706** `llm.first_stage.*.failed` rows whose `error` was a **fixed string**
+> (`"exception during L1 tool gate"` / `…satisfaction gate`), while the real exception went only to
+> `logger.debug(..., exc_info=True)` — so none of the 706 rows could be traced to anything, and the
+> record could not tell "the gate broke" from "the gate was never reachable". All four `except
+> Exception` sites in the gate path now carry `Type: message` via `_describe_exception`, and the
+> traceback attaches to an **ERROR** record instead of a debug one. **Mutation-proved 12/12**, green
+> control, original restored byte-identically. ⚠️ **The pin itself was vacuous twice**: it first
+> asserted "an ERROR record exists carrying the cause", but `_emit_l1_gate_failure` *already* logs at
+> ERROR — so the mutation demoting the traceback to DEBUG **survived**. What only the fixed branch can
+> supply is `exc_info`, and pinning that catches it. The **harness, not review**, found this. Egress is
+> **unchanged at 314 passed / 1 skipped** (315 carry the marker); the deselected count moved
+> **1754 → 1763** with the 9 non-egress tests, and the **derived** "added since carry no marker"
+> figure is now **116** (`2078 − 1962` collected, or `1763 − 1647` deselected).
+
 - **Total tests (2026-10-01 record)**: **1926 passed / 8 skipped**
   — the **+20** over the 2026-09-30 figure are **all new pins**: four for B-5① (the confirmation↔desire
   link), one for the general invariant that **the shipped `config/settings.json` declares no key that
@@ -789,7 +806,7 @@ Measured 2026-10-01 — `ai-server`, full suite:
   binaries — that is an environment limit, not a regression. Verify the suites individually (see the
   `aegis-verify-and-test` skill) rather than "fixing" code that is fine.
 - **Egress regression suite**: **314 passed / 1 skipped** (315 tests carry the `egress` marker,
-  1754 deselected). CI enforces a floor of 160 (`--require-egress-tests=160`) **and** mutation-proves
+  1763 deselected). CI enforces a floor of 160 (`--require-egress-tests=160`) **and** mutation-proves
   the gate: breaking it yields failures, restoring it yields 314 passes. The mutation figure is
   **76 failures** (measured 2026-10-03 on the 315-marker baseline; it was 74 at the 2026-10-01
   baseline of 305 and 62 at the 268-marker baseline — **re-run it before quoting**, the number is a
