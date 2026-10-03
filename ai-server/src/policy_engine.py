@@ -31,6 +31,7 @@ Architecture reference: docs/architecture.md §5.9, §7; docs/egress-gate.md
 from __future__ import annotations
 
 import json
+import logging
 import re
 import threading
 from collections.abc import Callable
@@ -41,6 +42,8 @@ from typing import Any, ClassVar
 
 from aegis_schema import safety_vocab
 from aegis_schema.models import Capability, RiskLevel
+
+logger = logging.getLogger("aegis_ai.policy_engine")
 
 
 class PolicyDecision(Enum):
@@ -284,9 +287,26 @@ class PolicyEngine:
                 try:
                     self._risk_overrides[cap_id] = RiskLevel[level_name]
                 except KeyError:
-                    pass
-        except Exception:
-            pass
+                    logger.warning(
+                        "Ignoring unknown risk level %r for capability %r in %s; "
+                        "the manifest value stands.",
+                        level_name,
+                        cap_id,
+                        self._overrides_path,
+                    )
+        except Exception as exc:
+            # This used to be a bare ``pass``. The consequence is not a crash but a
+            # silent *downgrade*: ``DEFAULT_RISK_MAP`` maps FORBIDDEN to DENY, so an
+            # override that raised a capability to FORBIDDEN simply stops applying,
+            # and the capability falls back to its (more permissive) manifest level.
+            logger.warning(
+                "Could not load risk overrides from %s (%s: %s); continuing with "
+                "manifest risk levels, so any override that raised a capability to "
+                "FORBIDDEN is NOT in effect.",
+                self._overrides_path,
+                type(exc).__name__,
+                exc,
+            )
 
     def _save_overrides(self) -> None:
         data = {cap_id: level.name for cap_id, level in self._risk_overrides.items()}

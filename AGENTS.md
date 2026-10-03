@@ -819,6 +819,26 @@ Measured 2026-10-01 — `ai-server`, full suite:
 > **1785 → 1795** with the 10 non-egress tests, and the **derived** figure is now **148**
 > (`2110 − 1962` collected, or `1795 − 1647` deselected).
 
+> **A corrupt `risk_overrides.json` silently dropped every override (2026-10-04): `2110 passed / 8 skipped`**
+> (2118 collected, 394.55 s). The **+8** is `tests/test_policy_override_load_failures_are_named.py`.
+> `PolicyEngine._load_overrides` (called from `__init__`, and in the **live** file — the
+> `aegis_ai/policy_engine.py` sibling is only a re-export shim) swallowed two failures with a bare `pass`:
+> an unreadable or corrupt file, and an unknown risk-level name. The consequence is not a crash but a
+> silent **downgrade** — `DEFAULT_RISK_MAP` maps `RiskLevel.FORBIDDEN` to `PolicyDecision.DENY`, so an
+> override that raised a capability to FORBIDDEN simply stops applying and the capability falls back to
+> its (more permissive) manifest level. "No overrides file" and "corrupt overrides file" were
+> indistinguishable. The **sibling mechanism** (`CapabilityCatalog`'s override store) had always reported
+> this (`corrupted` / `override_store_corrupted`), so the loader now names the cause (path + exception
+> type) and the consequence. Severity was **measured, not assumed**: the three hard stops do not depend on
+> this file (`EXPLICIT_DENY_PATTERNS` runs on every `evaluate()`), and `set_risk_override` has **no
+> production caller** today, so the exposure is **latent** — and the *fallback* asymmetry (this loader is
+> fail-**open** where its sibling is fail-**closed**) is a behaviour question recorded for the owner, not
+> changed. The pin's control **bites**: the same capability is DENY with a good file and ALLOW with a
+> corrupt one. **Mutation 7/7**, control green, restored byte-identically. Egress is **unchanged at
+> 314 passed / 1 skipped** (315 carry the marker); the deselected count moved **1795 → 1803** with the 8
+> non-egress tests, and the **derived** figure is now **156** (`2118 − 1962` collected, or
+> `1803 − 1647` deselected).
+
 - **Total tests (2026-10-01 record)**: **1926 passed / 8 skipped**
   — the **+20** over the 2026-09-30 figure are **all new pins**: four for B-5① (the confirmation↔desire
   link), one for the general invariant that **the shipped `config/settings.json` declares no key that
@@ -884,9 +904,12 @@ Measured 2026-10-01 — `ai-server`, full suite:
   for playwright, browser binaries plus a dev server.
   If every check reports FAIL with an **empty** exit code, the script host cannot launch native
   binaries — that is an environment limit, not a regression. Verify the suites individually (see the
-  `aegis-verify-and-test` skill) rather than "fixing" code that is fine.
+  `aegis-verify-and-test` skill) rather than "fixing" code that is fine. **Re-measured 2026-10-04: the
+  PowerShell tool *does* run native binaries here now** (`& $python --version` → `3.13.14`,
+  `$LASTEXITCODE` = **0**), and both `.ps1` gates ran end-to-end — so treat this as a *fallback*
+  diagnosis, not the expected state.
 - **Egress regression suite**: **314 passed / 1 skipped** (315 tests carry the `egress` marker,
-  1795 deselected). CI enforces a floor of 160 (`--require-egress-tests=160`) **and** mutation-proves
+  1803 deselected). CI enforces a floor of 160 (`--require-egress-tests=160`) **and** mutation-proves
   the gate: breaking it yields failures, restoring it yields 314 passes. The mutation figure is
   **76 failures** (measured 2026-10-03 on the 315-marker baseline; it was 74 at the 2026-10-01
   baseline of 305 and 62 at the 268-marker baseline — **re-run it before quoting**, the number is a
