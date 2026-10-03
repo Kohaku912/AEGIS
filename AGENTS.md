@@ -623,6 +623,34 @@ Measured 2026-10-01 — `ai-server`, full suite:
 > Recorded as a new register row rather than fixed. Egress is
 > **unchanged at 314 passed / 1 skipped** (315 carry the marker, **1717** deselected). The **derived**
 > "added since carry no marker" figure is **70** (`2032 − 1962` collected, or `1717 − 1647` deselected).
+>
+> **Re-measured 2026-10-03 (the dead Chroma vector path, and the `SemanticMemory` name collision):
+> `2035 passed / 8 skipped`** (2043 collected, 423.59 s; the canonical marker-excluded form is
+> 2035 / 4 skipped / 4 deselected). The **+11** is the new pin's 11 test functions, exactly; **no
+> production code changed**. What the pin records is a chain that is dead **end to end**: the deleted
+> legacy closure (`DELEGATION.md` §4 item 28) was the last link, so `create_semantic_memory` has **no
+> caller** (its only other mention is the module docstring's `Usage:` example — a string literal, the
+> same shape as the event-driven core's demo), `ChromaSemanticMemory` is constructed **only** inside
+> that function, `sync_from_advanced_memory` therefore has **no caller**, and `chroma_available` has
+> **no reader** — and is not even *produced*, because the live path builds plain `SemanticMemory`
+> directly (`runtime.py:1020`). The live `POST /api/memory/reload` answers `"chroma_synced": 0` as a
+> **literal** (pinned as an `ast.Constant`, not a call). ⚠️ **Wiring it is not a free cleanup**: the
+> class embeds through `OpenAIEmbeddingFunction` (`OPENAI_API_KEY`, default `text-embedding-3-small`),
+> so it would put **memory content** on the wire — the single constraint's subject matter, which the
+> *voluntary ask* must carry rather than a settings flag. The same pin fixes a second, entangled
+> defect: **two unrelated classes are named `SemanticMemory`** (`memory/semantic.py` — 70 lines, 6
+> methods, no `get_stats`; and `memory/semantic_memory.py` — 257 lines, 15 methods, the **live**
+> backend). The runtime and `memory_context` name the second explicitly, but the **package root
+> re-exports the first**, so `from aegis_ai.memory import SemanticMemory` hands out the 6-method
+> class — a **latent trap**, not a live bug, because nothing imports it that way yet (measured: 0 in
+> `src/` and `tests/`). ⚠️ **The first mutation run had a SURVIVOR, and it was a bad mutation rather
+> than a weak pin**: the embedding assertion requires **both** markers, so replacing only
+> `OpenAIEmbeddingFunction` left `OPENAI_API_KEY` in place and the claim still held. Removing **both**
+> caught it. Final **11/11** with a control run; seven originals restored byte-identically. Egress is
+> **unchanged at 314 passed / 1 skipped** (315 carry the marker), while the deselected count moved
+> **1717 → 1728** with the 11 non-egress tests. The
+> **derived** "added since carry no marker" figure is now **81** (`2043 − 1962` collected, or
+> `1728 − 1647` deselected).
 
 - **Total tests (2026-10-01 record)**: **1926 passed / 8 skipped**
   — the **+20** over the 2026-09-30 figure are **all new pins**: four for B-5① (the confirmation↔desire
@@ -691,7 +719,7 @@ Measured 2026-10-01 — `ai-server`, full suite:
   binaries — that is an environment limit, not a regression. Verify the suites individually (see the
   `aegis-verify-and-test` skill) rather than "fixing" code that is fine.
 - **Egress regression suite**: **314 passed / 1 skipped** (315 tests carry the `egress` marker,
-  1717 deselected). CI enforces a floor of 160 (`--require-egress-tests=160`) **and** mutation-proves
+  1728 deselected). CI enforces a floor of 160 (`--require-egress-tests=160`) **and** mutation-proves
   the gate: breaking it yields failures, restoring it yields 314 passes. The mutation figure is
   **76 failures** (measured 2026-10-03 on the 315-marker baseline; it was 74 at the 2026-10-01
   baseline of 305 and 62 at the 268-marker baseline — **re-run it before quoting**, the number is a
