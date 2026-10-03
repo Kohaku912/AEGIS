@@ -128,9 +128,44 @@ class ErroringGateLLM:
 
 
 class NativeToolLLM:
+    """An LLM that answers with native tool calls instead of a text protocol.
+
+    It must still expose ``generate``: ``call_llm_with_tools`` consults the L1 gate
+    through that method *before* the tool loop, and an object without it makes the gate
+    raise, get swallowed, and skip the decision entirely — the test stays green while
+    the gate never runs (measured 2026-10-04: this double wrote
+    ``AttributeError: 'NativeToolLLM' object has no attribute 'generate'`` rows into the
+    real audit sink). The production runtime always binds ``runtime.llm_gateway``, which
+    has both methods.
+    """
+
     def __init__(self) -> None:
         self.prompts: list[str] = []
+        self.generate_calls: list[dict[str, Any]] = []
         self._calls = 0
+
+    def generate(
+        self,
+        prompt: str,
+        system_prompt: str = "",
+        max_tokens: int = 1000,
+        context_meta: dict[str, Any] | None = None,
+        json_mode: bool = False,
+        profile: str | None = None,
+    ) -> FakeResponse:
+        self.generate_calls.append(
+            {
+                "prompt": prompt,
+                "system_prompt": system_prompt,
+                "max_tokens": max_tokens,
+                "context_meta": context_meta,
+                "json_mode": json_mode,
+                "profile": profile,
+            }
+        )
+        # The L1 gate asks "does this turn need tools?"; a native-tool model says yes,
+        # so the flow reaches ``generate_with_tools`` below.
+        return FakeResponse(content='{"use_tools": true}')
 
     def generate_with_tools(
         self,

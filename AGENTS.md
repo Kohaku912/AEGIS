@@ -739,6 +739,26 @@ Measured 2026-10-01 — `ai-server`, full suite:
 > **1754 → 1763** with the 9 non-egress tests, and the **derived** "added since carry no marker"
 > figure is now **116** (`2078 − 1962` collected, or `1763 − 1647` deselected).
 
+> **Re-measured 2026-10-04 (the L1 gate was *silently bypassed*): `2075 passed / 8 skipped`** (2083
+> collected, 519.92 s). The **+5** is the new pin file `tests/test_the_l1_gate_is_not_bypassed.py`,
+> exactly. The gate calls `llm.generate(..., profile="l1_default")`, and **only `LLMGateway.generate`
+> accepts `profile`** — `MockLLMProvider`, `openai_provider` and `typesafe_provider` all reject it
+> (three signatures read, not inferred). So whenever anything other than the gateway is bound as `llm`,
+> the call raises, the exception is **swallowed** (the caller reads `None` as "no decision"), and **the
+> gate never runs** while the test stays green. The previous commit's diagnosability fix is what
+> surfaced it: within the hour the record named two instances —
+> `TypeError: MockLLMProvider.generate() got an unexpected keyword argument 'profile'` and
+> `AttributeError: 'NativeToolLLM' object has no attribute 'generate'`. The `NativeToolLLM` double
+> (tests only) now defines `generate`, and the new pin resolves **every** `call_llm_with_tools` /
+> `_call_llm_with_runtime` site across `src/` and `tests/` and asserts the bound object accepts the
+> gate's keywords — **mutation 9/9**, control green, four files restored byte-identically. ⚠️ **The
+> 2026-10-03 paragraph above claimed "the four copies moved in the same commit"; two of them had not** —
+> this file and the skill moved, but `PROJECT_STATUS_REVIEW.md`'s §1.1 row and its footnote stayed at
+> `2061` until this commit measured them. **A record that a sweep happened is itself a claim.** Egress
+> is **unchanged at 314 passed / 1 skipped** (315 carry the marker); the deselected count moved
+> **1763 → 1768** with the 5 non-egress tests, and the **derived** figure is now **121**
+> (`2083 − 1962` collected).
+
 - **Total tests (2026-10-01 record)**: **1926 passed / 8 skipped**
   — the **+20** over the 2026-09-30 figure are **all new pins**: four for B-5① (the confirmation↔desire
   link), one for the general invariant that **the shipped `config/settings.json` declares no key that
@@ -806,7 +826,7 @@ Measured 2026-10-01 — `ai-server`, full suite:
   binaries — that is an environment limit, not a regression. Verify the suites individually (see the
   `aegis-verify-and-test` skill) rather than "fixing" code that is fine.
 - **Egress regression suite**: **314 passed / 1 skipped** (315 tests carry the `egress` marker,
-  1763 deselected). CI enforces a floor of 160 (`--require-egress-tests=160`) **and** mutation-proves
+  1768 deselected). CI enforces a floor of 160 (`--require-egress-tests=160`) **and** mutation-proves
   the gate: breaking it yields failures, restoring it yields 314 passes. The mutation figure is
   **76 failures** (measured 2026-10-03 on the 315-marker baseline; it was 74 at the 2026-10-01
   baseline of 305 and 62 at the 268-marker baseline — **re-run it before quoting**, the number is a
