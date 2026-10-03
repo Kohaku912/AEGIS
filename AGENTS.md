@@ -493,6 +493,19 @@ Measured 2026-10-01 — `ai-server`, full suite:
 > moved the deselected count). The **derived** "added since carry no marker" figure is now **38**
 > (`2000 − 1962` collected, or `1685 − 1647` deselected); it read **30** in the note above, which was
 > correct for that measurement — write the arithmetic beside a derived number or it rots silently.
+>
+> **Re-measured 2026-10-03 (the presentation-stream pin): `1997 passed / 8 skipped`** (2005 collected,
+> 499.73 s; the canonical marker-excluded form is 1997 / 4 skipped / 4 deselected). The **+5** is
+> `tests/test_presentation_stream_leaks_a_subscriber.py` — `GET /api/presentations/stream` calls
+> `event_manager.subscribe(_on_event)` at **route-function scope**, i.e. once per request *before* the
+> generator starts, and **discards the returned id**, so every request retains one subscriber for ever;
+> there is no `unsubscribe` in the module and the queue is **unbounded**. Measured by *driving the
+> route*, not reading it: **1 subscriber after the route runs, still 1 after the client disconnects** —
+> where the sibling `routes/ui.py`, which keeps the id and releases it in a `finally`, measures **1 → 0**.
+> Latent today (no client subscribes), but it fires on the **first** connection (`DELEGATION.md` §4
+> item 26). Egress is **unchanged at 314 passed / 1 skipped** (315 carry the marker, **1690**
+> deselected — the +5 non-egress tests moved the deselected count). The **derived** "added since carry
+> no marker" figure is now **43** (`2005 − 1962` collected, or `1690 − 1647` deselected).
 
 - **Total tests (2026-10-01 record)**: **1926 passed / 8 skipped**
   — the **+20** over the 2026-09-30 figure are **all new pins**: four for B-5① (the confirmation↔desire
@@ -561,7 +574,7 @@ Measured 2026-10-01 — `ai-server`, full suite:
   binaries — that is an environment limit, not a regression. Verify the suites individually (see the
   `aegis-verify-and-test` skill) rather than "fixing" code that is fine.
 - **Egress regression suite**: **314 passed / 1 skipped** (315 tests carry the `egress` marker,
-  1685 deselected). CI enforces a floor of 160 (`--require-egress-tests=160`) **and** mutation-proves
+  1690 deselected). CI enforces a floor of 160 (`--require-egress-tests=160`) **and** mutation-proves
   the gate: breaking it yields failures, restoring it yields 314 passes. The mutation figure is
   **76 failures** (measured 2026-10-03 on the 315-marker baseline; it was 74 at the 2026-10-01
   baseline of 305 and 62 at the 268-marker baseline — **re-run it before quoting**, the number is a
