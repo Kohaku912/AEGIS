@@ -1068,6 +1068,38 @@ Measured 2026-10-01 — `ai-server`, full suite:
 > ⚠️ **The behaviour is recorded, not fixed**: `should_run_l2` still cannot distinguish "no
 > actionable observations" from "every source failed" — `DELEGATION.md` §4 item 41.
 
+> **`ContextBuilder`'s four reachable swallows now name themselves — an unreadable backend looked like an empty one (2026-10-04): `2246 passed / 8 skipped`**
+>
+> `context_builder.py` has **fourteen** `except` handlers and, before this cycle, **no logger at
+> all**. Measuring *reachability before writing* changed the claim: the composition root
+> (`runtime.py:979`) constructs the builder with **7 of the ~20** backends it accepts, so ten
+> handlers sit on paths that either never run or are deliberate fallbacks — **8** on unwired
+> backends, and **2** that still produce a value (`_user_model_store` falls back to
+> `to_context_string()`, `_media_fingerprint` to `str(metadata)`). Naming the first group would
+> add a record to code that cannot run; naming the second would misdescribe a handled failure.
+> This cycle names the remaining **four** (`recent_events`, `available_capability_ids`, the
+> media payload, the media summary), each of which yields a value indistinguishable from a
+> successful-but-empty result. **The return values are unchanged**, so the pin fixes behaviour
+> that already existed.
+> Consequence, measured: `ctx.recent_events` and `ctx.recent_media_summaries` are rendered into
+> the interpreter's context (`llm_task_interpreter.py:367-370`), so a failed read silently drops
+> a line from what the LLM is told. `ctx.available_capability_ids` is read only for **token
+> accounting** (`:722`, `:759`) — its consequence is a wrong budget, **not** "the LLM sees no
+> capabilities". `ctx.dialogue_policy` is read only inside this module and rendered nowhere.
+> Pin `tests/test_context_builder_failures_are_named.py` (**7 cases** = 4 driven sites + a
+> legitimate-absence control + 2 structural, mutation **7/7** with a no-op control, original
+> restored byte-exactly). The **+7** is that pin and nothing else; egress is **unchanged at
+> 314 passed / 0 skipped**, the deselected count moved **1932 -> 1939**, and the derived
+> figure is **285 -> 292** (`2254 - 1962` collected).
+> ⚠️ **The pin encodes reachability, not just the fix**: it parses `runtime.py` and asserts the
+> `ContextBuilder(...)` keyword set **equals** the seven wired backends, so *wiring* another
+> backend turns it red and sends the reader back here (`DELEGATION.md` §4 item 43).
+> ⚠️ **My mutation harness was wrong before the pin was**: the first "rename the phrase" mutant
+> was a **no-op** — the phrase spans adjacent string literals, so `str.replace` found 0
+> occurrences and the pin "passed" for the wrong reason. A mutant identical to the original
+> reads as "the pin is vacuous", so the harness now **asserts the mutant differs** and checks
+> the phrase in the **rendered** text (`ast`), not the source.
+
 - **Total tests (2026-10-01 record)**: **1926 passed / 8 skipped**
   — the **+20** over the 2026-09-30 figure are **all new pins**: four for B-5① (the confirmation↔desire
   link), one for the general invariant that **the shipped `config/settings.json` declares no key that
@@ -1138,7 +1170,7 @@ Measured 2026-10-01 — `ai-server`, full suite:
   `$LASTEXITCODE` = **0**), and both `.ps1` gates ran end-to-end — so treat this as a *fallback*
   diagnosis, not the expected state.
 - **Egress regression suite**: **314 passed / 1 skipped** (315 tests carry the `egress` marker,
-  1932 deselected). CI enforces a floor of 160 (`--require-egress-tests=160`) **and** mutation-proves
+  1939 deselected). CI enforces a floor of 160 (`--require-egress-tests=160`) **and** mutation-proves
   the gate: breaking it yields failures, restoring it yields 314 passes. The mutation figure is
   **76 failures** (measured 2026-10-03 on the 315-marker baseline; it was 74 at the 2026-10-01
   baseline of 305 and 62 at the 268-marker baseline — **re-run it before quoting**, the number is a

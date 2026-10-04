@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import math
 import time
 from collections import OrderedDict
@@ -26,6 +27,8 @@ MAX_USER_PREFERENCES = 5
 MAX_MEDIA_SUMMARIES = 4
 MAX_TOTAL_CHARS = 8000
 MEDIA_CACHE_SIZE = 32
+
+logger = logging.getLogger("aegis_ai.context_builder")
 
 
 def _truncate(text: str, max_chars: int) -> str:
@@ -201,7 +204,13 @@ class ContextBuilder:
         if self._event_bus:
             try:
                 events = self._event_bus.list_recent_events(MAX_RECENT_EVENTS)
-            except Exception:
+            except Exception as exc:
+                logger.warning(
+                    "Could not read recent events (%s: %s); ctx.recent_events stays "
+                    "empty, so the interpreter's Recent-events line is omitted and an "
+                    "unreadable event bus looks like a quiet system.",
+                    type(exc).__name__, exc,
+                )
                 events = []
         if triggering_events:
             events = list(triggering_events) + events
@@ -239,7 +248,14 @@ class ContextBuilder:
                     top_k_summary=MAX_CAPABILITIES,
                 )
                 ctx.available_capability_ids = list(selection.all_candidate_ids[:MAX_CAPABILITIES])
-            except Exception:
+            except Exception as exc:
+                logger.warning(
+                    "Could not select capabilities for the request (%s: %s); "
+                    "ctx.available_capability_ids stays empty, so the token budget is "
+                    "computed as if no capabilities were selected and an unreadable "
+                    "retriever looks like an empty catalog.",
+                    type(exc).__name__, exc,
+                )
                 ctx.available_capability_ids = []
         elif self._tool_broker:
             try:
@@ -386,7 +402,13 @@ class ContextBuilder:
     def _media_inputs_from_event(self, event: Event) -> list[MediaInput]:
         try:
             payload = json.loads(event.payload_json or "{}")
-        except Exception:
+        except Exception as exc:
+            logger.warning(
+                "Could not parse the event payload (%s: %s); the event contributes no "
+                "media inputs, so a malformed payload looks like an event that carried "
+                "no media.",
+                type(exc).__name__, exc,
+            )
             return []
         source = event.event_type or event.source_server_id or ""
         return self._media_inputs_from_payload(payload, default_source=source)
@@ -672,7 +694,13 @@ class ContextBuilder:
                 )
                 if result.success and result.content:
                     return result.content.strip()
-        except Exception:
+        except Exception as exc:
+            logger.warning(
+                "Could not summarize the media input (%s: %s); the summary stays "
+                "empty, so the interpreter's Recent-media line is omitted and an "
+                "unreadable model looks like media with nothing to describe.",
+                type(exc).__name__, exc,
+            )
             return ""
         return ""
 
