@@ -1188,6 +1188,28 @@ Measured 2026-10-01 — `ai-server`, full suite:
 > and are still exported, and the keys the config requires are still declared -- so a rename or deletion comes
 > back here instead of making the absence assertion vacuously true. Recorded as §4 items 46-47.
 
+> **Two recorded asymmetries are now pinned: an unguarded `status_manager` read, and L1 running inline where L2 does not (2026-10-05): `2277 passed / 8 skipped`**
+>
+> **Item 44.** `dashboard_legacy._runtime_server_status` reads `runtime.status_manager.get_snapshot()` with
+> **no** getattr default (`dashboard_legacy.py:226`), so `ui_overview._server_list` -- which calls it
+> unguarded at `:2604` -- raises `AttributeError` for a runtime without a `status_manager`, while the sibling
+> `_errors` guards the *same* value with `getattr(runtime, "status_manager", None)` + `hasattr` (`:1952`), and
+> so does `_status_snapshot` (`:2672`). The correct pattern therefore already exists twice in the module and
+> the bare read is the single outlier. Cycle 18's pin had to monkeypatch `_runtime_server_status` to isolate
+> the Android path (`test_ui_overview_failures_are_named.py:140-145`); the new pin
+> `tests/test_server_list_requires_a_status_manager.py` (**5 cases, mutation 3/3**) records the *reason* --
+> it asserts the raise for both functions, a control (with a `status_manager` present `_server_list` returns a
+> list, so the raise is caused by the missing attribute), and the asymmetry (`_errors` survives).
+> **Item 48.** L1 runs **inline on the publisher's thread**: `EventBus._notify_subscribers`
+> (`src/event_bus.py:234`) calls handlers synchronously, `_evaluate_immediate_event` (`runtime.py:1557`) calls
+> `_run_l1_pipeline_for_event` directly (`:1562`), and that awaits `router.observe(...)` -- the L1 LLM
+> round-trip. The gRPC `PushEvent` handler (`grpc_server.py:169` -> `publish` at `:191`) is one publisher, so
+> a remote push blocks for the whole call. **L2 was already moved off** (`_submit_background_l2`,
+> `runtime.py:732`, whose docstring records exactly this); there is no `_submit_background_l1`. The new pin
+> `tests/test_l1_runs_inline_on_the_publisher_thread.py` (**3 cases, mutation 3/3**) measures the *asymmetry*
+> by AST: the L2 submitter exists, the L1 one does not, and the immediate handler calls the pipeline directly
+> (no `submit`). Both pins fail if the recorded fix is applied, so the record moves with the code.
+
 - **Total tests (2026-10-01 record)**: **1926 passed / 8 skipped**
   — the **+20** over the 2026-09-30 figure are **all new pins**: four for B-5① (the confirmation↔desire
   link), one for the general invariant that **the shipped `config/settings.json` declares no key that
