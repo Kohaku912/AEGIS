@@ -839,6 +839,28 @@ Measured 2026-10-01 — `ai-server`, full suite:
 > non-egress tests, and the **derived** figure is now **156** (`2118 − 1962` collected, or
 > `1803 − 1647` deselected).
 
+> **A dropped memory line was silent — and the swallow was in a shared helper (2026-10-04): `2123 passed / 8 skipped`**
+> (2131 collected, 404.81 s). The **+13** is `tests/test_advanced_memory_load_failures_are_named.py`.
+> `AdvancedMemory._load` reads three JSONL stores; a line it could not parse was dropped with a bare
+> `except Exception: pass`, so the store came back **short** — and the only other signal, `get_stats()`,
+> reports *counts*, so a store that failed to parse and a store never written produce the same kind of
+> answer: **a smaller number**. The asymmetry was *inside one class* — the same class already warns when
+> its LLM extraction fails. The three loops now count drops and warn once per file (per-line warnings
+> would flood a badly corrupted file).
+> ⚠️ **Measurement refuted a first assumption and found a second layer**: the conversation store never
+> reaches `_load`'s loop — it goes through the shared `aegis_ai.jsonl_tail.read_jsonl_tail`, which
+> swallowed the malformed line **itself**. The pin failed on exactly that case (it is parameterised over
+> all three stores; covering only the two I had reasoned about would have passed while the third stayed
+> silent). The helper now reports its per-line drops **and** its whole-read failure, which used to log at
+> **DEBUG** and `return []` — indistinguishable from "no records in the window". **Mutation 8/8**, control
+> green, both files restored byte-identically. The missing-file case stays silent and the tail-reader
+> fallback stays at DEBUG (both pinned as non-vacuity controls). ⚠️ Also a **false positive of my own
+> scanner**: `settings/store.py::import_json` was flagged as a silent `return <empty>`, but it returns
+> `[f"Invalid settings JSON: {e}"]` — an AST shape check cannot tell an empty literal from an error
+> literal. Egress is **unchanged at 314 passed / 1 skipped** (315 carry the marker); the deselected count
+> moved **1803 → 1816** with the 13 non-egress tests, and the **derived** figure is now **169**
+> (`2131 − 1962` collected, or `1816 − 1647` deselected).
+
 - **Total tests (2026-10-01 record)**: **1926 passed / 8 skipped**
   — the **+20** over the 2026-09-30 figure are **all new pins**: four for B-5① (the confirmation↔desire
   link), one for the general invariant that **the shipped `config/settings.json` declares no key that
@@ -909,7 +931,7 @@ Measured 2026-10-01 — `ai-server`, full suite:
   `$LASTEXITCODE` = **0**), and both `.ps1` gates ran end-to-end — so treat this as a *fallback*
   diagnosis, not the expected state.
 - **Egress regression suite**: **314 passed / 1 skipped** (315 tests carry the `egress` marker,
-  1803 deselected). CI enforces a floor of 160 (`--require-egress-tests=160`) **and** mutation-proves
+  1816 deselected). CI enforces a floor of 160 (`--require-egress-tests=160`) **and** mutation-proves
   the gate: breaking it yields failures, restoring it yields 314 passes. The mutation figure is
   **76 failures** (measured 2026-10-03 on the 315-marker baseline; it was 74 at the 2026-10-01
   baseline of 305 and 62 at the 268-marker baseline — **re-run it before quoting**, the number is a

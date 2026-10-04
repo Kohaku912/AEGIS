@@ -101,6 +101,7 @@ class AdvancedMemory:
         # Load entities
         entities_path = self._data_dir / "entities.jsonl"
         if entities_path.exists():
+            dropped = 0
             with open(entities_path, encoding="utf-8") as f:
                 for line in f:
                     try:
@@ -108,11 +109,18 @@ class AdvancedMemory:
                         e = Entity(**data)
                         self._entities[e.entity_id] = e
                     except Exception:
-                        pass
+                        dropped += 1
+            if dropped:
+                logger.warning(
+                    "Skipped %d unreadable line(s) in %s; those entities are not loaded.",
+                    dropped,
+                    entities_path,
+                )
 
         # Load facts
         facts_path = self._data_dir / "facts.jsonl"
         if facts_path.exists():
+            dropped = 0
             with open(facts_path, encoding="utf-8") as f:
                 for line in f:
                     try:
@@ -120,11 +128,18 @@ class AdvancedMemory:
                         fact = Fact(**data)
                         self._facts[fact.fact_id] = fact
                     except Exception:
-                        pass
+                        dropped += 1
+            if dropped:
+                logger.warning(
+                    "Skipped %d unreadable line(s) in %s; those facts are not loaded.",
+                    dropped,
+                    facts_path,
+                )
 
         # Load conversations (hot window only; file remains append-only)
         conv_path = self._data_dir / "conversations.jsonl"
         if conv_path.exists():
+            dropped = 0
             try:
                 from aegis_ai.jsonl_tail import read_jsonl_tail
 
@@ -133,20 +148,31 @@ class AdvancedMemory:
                     try:
                         self._conversations.append(ConversationEntry(**data))
                     except Exception:
-                        pass
+                        dropped += 1
                 if len(self._conversations) > hot:
                     self._conversations = self._conversations[-hot:]
-            except Exception:
+            except Exception as exc:
+                # ``read_jsonl_tail`` swallows its own failures and returns [], so this
+                # branch only guards an import error or an unexpected raise. Re-reading the
+                # whole file drops nothing, so warning here would be misleading — the
+                # per-line drops below are what gets reported.
+                logger.debug("Falling back to a full read of %s: %s", conv_path, exc)
                 with open(conv_path, encoding="utf-8") as f:
                     for line in f:
                         try:
                             data = json.loads(line.strip())
                             self._conversations.append(ConversationEntry(**data))
                         except Exception:
-                            pass
+                            dropped += 1
                     hot = int(os.environ.get("AEGIS_HOT_CONVERSATIONS", "100"))
                     if len(self._conversations) > hot:
                         self._conversations = self._conversations[-hot:]
+            if dropped:
+                logger.warning(
+                    "Skipped %d unreadable line(s) in %s; those conversations are not loaded.",
+                    dropped,
+                    conv_path,
+                )
 
     def _save_entity(self, entity: Entity) -> None:
         """Save entity to disk."""

@@ -40,6 +40,7 @@ def read_jsonl_tail(
             payload = payload[newline + 1 :] if newline >= 0 else b""
         lines = payload.splitlines()
         records: list[dict[str, Any]] = []
+        dropped = 0
         for raw in lines[-limit:]:
             line = raw.decode("utf-8", errors="replace").strip()
             if not line:
@@ -47,12 +48,23 @@ def read_jsonl_tail(
             try:
                 item = json.loads(line)
             except Exception:
+                dropped += 1
                 continue
             if isinstance(item, dict):
                 records.append(item)
+        if dropped:
+            # A malformed line used to be dropped in silence, so the caller saw a *shorter*
+            # window and could not tell it apart from a file with fewer records.
+            logger.warning(
+                "Skipped %d unreadable line(s) while tailing %s; those records are not returned.",
+                dropped,
+                target,
+            )
         return records[-limit:]
     except Exception:
-        logger.debug("Failed to tail JSONL %s", target, exc_info=True)
+        # Returning [] here is indistinguishable from "no records in the window", so the
+        # caller cannot tell an unreadable file from an empty one. Say so.
+        logger.warning("Failed to tail JSONL %s; returning an empty window.", target, exc_info=True)
         return []
 
 
