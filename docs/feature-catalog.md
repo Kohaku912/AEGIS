@@ -696,7 +696,10 @@ AEGIS は **MCP サーバ**として振る舞う（クライアントではな�
 | `interaction-hub.md`「CLI ✅ Implemented」 | `CLIChannel` は生成されない |
 | `ui-implementation-checklist.md`「9 ドメインが存在する」（**2026-10-02 修正済み**） | `navigation.ts` は **4 ドメイン** |
 | `settings.md` の `POST /settings/import` 等 | 存在しない |
-| `notification-gateway.md`「外部チャネルはスタブのみ」 | 送信クラスは実装済み（ただし未配線） |
+| `notification-gateway.md`「外部チャネルはスタブのみ」（**2026-10-04 修正済み**） | 送信クラスは実装済み（ただし未配線） |
+| `notification-gateway.md`「クワイエットアワー中は非クリティカルの通知を延期する」（**2026-10-04 修正済み**） | 判定は `QuietHoursManager.is_quiet()` で、呼ぶのは `NotificationRouter.send()` だけ。router は構築されないので一度も走らない。加えて router は `QuietHoursManager()` を**引数なしで**作るため `settings_store` が `None` のままになり、配線しても設定は読まれない（二重に死んでいる） |
+| `notification-gateway.md` §Preferences「Settings で通知種別を有効/無効にできる」（**2026-10-04 修正済み**） | 7 フィールド（`approval_notification_enabled` / `support_suggestions_enabled` / `daily_briefing_notification` / `error_notification` / `quiet_hours_enabled` / `quiet_hours_start` / `quiet_hours_end`）の唯一の読み手は未構築の 2 クラスの中。`tests/test_ineffective_flags.py` の layer 1 はフィールド名の**テキスト一致**なので死んだコード内の参照も読み手と数え、**この 7 つを「読まれている」と判定して緑のまま**になる |
+| `notification-gateway.md` §Safety「外部チャネル向けに機微な内容を赤塗りする」（**2026-10-04 修正済み**） | その赤塗りは削除済み。理由は `notification/router.py:102-109` のコメントにある（egress が「禁止」から許可制に変わったため、本文を空にすると許可の意味が消える。fan-out 前に `notification.body` を書き換えていたのでダッシュボード側の本文まで消えていた） |
 | `voice-io.md`「配線済み」 | サービスは生成されない |
 | `design-tokens/` ディレクトリ | 存在しない。実体はリポジトリ直下の `design-tokens/` |
 | PC のファイル保護が「部分一致」「read/write は無検査」 | ディレクトリ名は**完全一致**、`is_protected_path` は read/write/delete/copy/move で呼ばれる |

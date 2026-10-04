@@ -8,6 +8,25 @@
 > not a gate. See [`GOAL-CHANGE.md`](GOAL-CHANGE.md).
 
 
+> ⚠️ **2026-10-04 実測 — この文書の大半は実装より先を書いていた。**
+> `src/` の全モジュールを `ast` で走査した結果、**構築される通知クラスは
+> `NotificationManager` ただ 1 つ**である（`runtime.py` が
+> `NotificationManager(event_manager=event_manager)` として作る）。次の 9 つは
+> **どこからも生成されない**: `NotificationRouter`、`NotificationPreferences`、
+> `QuietHoursManager`、`NotificationDigest`、6 つのチャネルクラス
+> （Dashboard / WebChat / CLI / LINE / Discord / Email）、`OsNotificationProvider`。
+> したがって以下の記述は**現時点で動いていない** ——
+> **§Quiet Hours**（判定は一度も走らない）、**§Preferences**（7 フィールドは読まれない）、
+> **§Overview** の Web Chat / CLI / OS notification の各行、**§Safety** の
+> "Quiet hours respected" / "All notifications audited" / "Spam prevention"。
+> 生きているのは `NotificationManager` の `create_notification` / `mark_read` /
+> `dismiss` / `list_unread` と、それを読む `GET /api/notifications` 系 3 ルート
+> （`web/manager_routes.py:314,329,341`）だけである。
+> 正は [`feature-catalog.md`](feature-catalog.md) §7・§8（宣言のみ）と §9（文書との食い違い）。
+> ピン: `ai-server/tests/test_notification_settings_are_read_only_by_dead_code.py`（22 テスト、
+> 変異 9/9 検出）。
+
+
 > **Status**: Implemented (2026-06-17)
 > **Related**: `docs/interaction-hub.md`, `docs/settings.md`
 

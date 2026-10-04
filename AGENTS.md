@@ -861,6 +861,42 @@ Measured 2026-10-01 — `ai-server`, full suite:
 > moved **1803 → 1816** with the 13 non-egress tests, and the **derived** figure is now **169**
 > (`2131 − 1962` collected, or `1816 − 1647` deselected).
 
+> **Seven notification settings whose only readers are dead code — and the detector calls them read (2026-10-04): `2146 passed / 8 skipped`**
+> (2154 collected, 379.23 s). The **+23** is `tests/test_notification_settings_are_read_only_by_dead_code.py`.
+> Found by following the previous cycle's "sibling asymmetry" heuristic, then **narrowed by measurement**:
+> the *class*-level fact is already recorded (`docs/feature-catalog.md` §8 lists `NotificationRouter`, all
+> six channel classes and `OsNotificationProvider` as 宣言のみ; §7 says `send()` does not fan out), so the
+> new finding is the **settings-level consequence plus the detector's silence**. An `ast` sweep of every
+> `src/` module shows **`NotificationManager` is the only notification class constructed anywhere**
+> (`runtime.py:1053`, with `event_manager=` only). So the seven `NotificationSettings` fields have exactly
+> two readers — `NotificationPreferences._load_from_settings` and `QuietHoursManager._load_from_settings`
+> — inside two classes **nothing constructs**; the router that owns them is itself unconstructed, and it
+> builds `QuietHoursManager()` **with no `settings_store`**, so the loaders are dead **twice over**
+> (`if not self._settings: return`). `tests/test_ineffective_flags.py` layer 1 scans the **bare field name
+> textually**, so a reference inside dead code counts as a reader: the detector is **green on seven
+> user-settable, shipped, documented flags** and its unread maps stay empty.
+> **Two controls, because "nothing reads it" is also true of a broken reader**: (1) both classes *do*
+> honour the settings when handed a store; (2) the read-site scan is non-vacuous **and attributes scope**,
+> naming the exact `(module, class.method)` pairs for a live control field. ⚠️ **A mutation survived, and
+> it was the harness rather than the pin**: the first version of control 2 asserted only "some read site
+> lies outside the dead set", so rewriting **one of two** live reads as
+> `getattr(..., "external_llm_allowed")` left it green; the fix is to assert the expected sites. Reads are
+> attributed to the **innermost `class.method`**, not the file — a file-level check is not equivalent even
+> when the file holds only the dead class, and mutation M10 (a live module-level reader added to
+> `preferences.py`) is caught **only** by the scope-level assertion. **Mutation 12/12** after that fix,
+> control green, seven files restored byte-identically. Records: `DELEGATION.md` §4 item 35 (wiring the
+> router is a **behaviour** change — quiet hours would start deferring and the external channels would
+> start attempting sends), `feature-catalog.md` §9 +4 rows, and a dated warning block in
+> `docs/notification-gateway.md`, whose Quiet Hours / Preferences / Safety sections all claimed these work.
+> Egress is **unchanged at 314 passed / 1 skipped**; the deselected count moved **1816 → 1839** with the 23
+> non-egress tests, and the **derived** figure is now **192** (`2154 − 1962` collected, or
+> `1839 − 1647` deselected). ⚠️ **A measurement trap worth repeating**: the first full run reported
+> `2145 / 8` while the two marker runs reported `314 / 1 / 1839` and `1832 / 7 / 315` — **one test short**.
+> The cause was that I had **rewritten the pin while the full run was still going**, so it collected the
+> 22-test version. The three selections partition the collection, so `egress + non-egress == full` must
+> hold; when it does not, suspect the measurement's inputs before the suite. `--collect-only` arbitrated
+> (2154 for all three).
+
 - **Total tests (2026-10-01 record)**: **1926 passed / 8 skipped**
   — the **+20** over the 2026-09-30 figure are **all new pins**: four for B-5① (the confirmation↔desire
   link), one for the general invariant that **the shipped `config/settings.json` declares no key that
@@ -931,7 +967,7 @@ Measured 2026-10-01 — `ai-server`, full suite:
   `$LASTEXITCODE` = **0**), and both `.ps1` gates ran end-to-end — so treat this as a *fallback*
   diagnosis, not the expected state.
 - **Egress regression suite**: **314 passed / 1 skipped** (315 tests carry the `egress` marker,
-  1816 deselected). CI enforces a floor of 160 (`--require-egress-tests=160`) **and** mutation-proves
+  1839 deselected). CI enforces a floor of 160 (`--require-egress-tests=160`) **and** mutation-proves
   the gate: breaking it yields failures, restoring it yields 314 passes. The mutation figure is
   **76 failures** (measured 2026-10-03 on the 315-marker baseline; it was 74 at the 2026-10-01
   baseline of 305 and 62 at the 268-marker baseline — **re-run it before quoting**, the number is a
