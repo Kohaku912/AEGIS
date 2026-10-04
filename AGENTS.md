@@ -1084,7 +1084,7 @@ Measured 2026-10-01 — `ai-server`, full suite:
 > Consequence, measured: `ctx.recent_events` and `ctx.recent_media_summaries` are rendered into
 > the interpreter's context (`llm_task_interpreter.py:367-370`), so a failed read silently drops
 > a line from what the LLM is told. `ctx.available_capability_ids` is read only for **token
-> accounting** (`:722`, `:759`) — its consequence is a wrong budget, **not** "the LLM sees no
+> accounting** (`:750`, `:787`) — its consequence is a wrong budget, **not** "the LLM sees no
 > capabilities". `ctx.dialogue_policy` is read only inside this module and rendered nowhere.
 > Pin `tests/test_context_builder_failures_are_named.py` (**7 cases** = 4 driven sites + a
 > legitimate-absence control + 2 structural, mutation **7/7** with a no-op control, original
@@ -1155,7 +1155,7 @@ Measured 2026-10-01 — `ai-server`, full suite:
 > **(3) L1 runs inline on the publisher's thread.** `EventBus._notify_subscribers` (`src/event_bus.py:234`)
 > calls `sub.handler(event)` synchronously; `_evaluate_immediate_event` (`runtime.py:1557`) →
 > `_run_l1_pipeline_for_event` (`:764`) → `router.observe(...)` (`:771`, the LLM round-trip). The gRPC
-> `PushEvent` handler (`grpc_server.py:169` → `publish` at `:191`) is one publisher, so a remote push blocks
+> `PushEvent` handler (`grpc_server.py:169` → `publish` at `:185`) is one publisher, so a remote push blocks
 > for the whole L1 call. **L2 was already moved off the request thread** (`_submit_background_l2`,
 > `runtime.py:732`); there is **no `_submit_background_l1`**. Recorded as §4 items 47–49, together with the
 > intake-side dead classes (item 47).
@@ -1163,7 +1163,7 @@ Measured 2026-10-01 — `ai-server`, full suite:
 > and failed — but the file **is** 100% CRLF (211 CRLF, 0 bare LF); I had read it in *text mode*, where
 > universal-newline translation makes `count("\r\n")` necessarily 0. **Measure newlines in bytes.** And a
 > planned register claim ("`PushEvent` can block up to `timeout_seconds = 20`") was **false** — no such
-> constant exists in `grpc_server.py`; the measured fact is `PushEvent` → `publish` at `:191`, synchronous. A
+> constant exists in `grpc_server.py`; the measured fact is `PushEvent` → `publish` at `:185`, synchronous. A
 > register row is a claim about the code: **re-measure every line number after an edit** (my own comment moved
 > `_L1_IMMEDIATE_EVENT_TYPES` from ~808 to **826**, shifting everything below it).
 > ⚠️ **A template that looks tracked may be ignored**: `.env.production.example` matches `.gitignore:57`
@@ -1203,7 +1203,7 @@ Measured 2026-10-01 — `ai-server`, full suite:
 > **Item 48.** L1 runs **inline on the publisher's thread**: `EventBus._notify_subscribers`
 > (`src/event_bus.py:234`) calls handlers synchronously, `_evaluate_immediate_event` (`runtime.py:1557`) calls
 > `_run_l1_pipeline_for_event` directly (`:1562`), and that awaits `router.observe(...)` -- the L1 LLM
-> round-trip. The gRPC `PushEvent` handler (`grpc_server.py:169` -> `publish` at `:191`) is one publisher, so
+> round-trip. The gRPC `PushEvent` handler (`grpc_server.py:169` -> `publish` at `:185`) is one publisher, so
 > a remote push blocks for the whole call. **L2 was already moved off** (`_submit_background_l2`,
 > `runtime.py:732`, whose docstring records exactly this); there is no `_submit_background_l1`. The new pin
 > `tests/test_l1_runs_inline_on_the_publisher_thread.py` (**3 cases, mutation 3/3**) measures the *asymmetry*
@@ -1239,6 +1239,9 @@ Measured 2026-10-01 — `ai-server`, full suite:
 > ⚠️ **The scanner's other 20 flags are false positives, in two shapes worth knowing**: (a) the row names a **callee** while citing the **call site** (`scheduler.py:75`, `personal_ai/hooks.py:367`, `intake/l1_router.py:160`, `llm/gateway.py:162-169`, `tests/*:NNN`) -- a citation is not a claim about one identifier; (b) a **basename that exists more than once** resolves to the wrong file (`main.py:27` and `dashboard.py:13` are correct under `aegis_ai/`, but the scan picked `aegis_agent_server/main.py` and `notification/channels/dashboard.py`) -- a basename-only citation is ambiguous *by construction*. Verification: every corrected citation was checked to land on a line that names the cited thing, and the register re-measured as pure CRLF + one contiguous run of 52 + 4 cells in every row. Deferred, with its size measured: **31 bare `:NNN` refs** (a line number with no filename) are a distinct surface that no scanner can resolve. **Swept the same day**: of the 31, **one is not a line ref at all** (`:99` is `DISPLAY=:99`), **25 measured correct**, **3 rotten** (`runtime.py:1764`->`:1792`, `runtime.py:1020`->`:1038`, `grpc_server.py:191`->`:185`). The 2 left (item 26's `:917`/`:909`) are line numbers inside a **done** row's "as found" text -- historical, and now labelled so in the note.
 > **AGENTS.md carried a *second copy* of the register's citations, and the +18 fix missed it (2026-10-05): `2287 passed / 8 skipped`** -- unchanged again, doc-only. Sweeping this file's 53 file-qualified citations found **13 corrections, and 9 of them were exactly +18** (`runtime.py:880`->`:898`, `:977`->`:995`, `:979`->`:997`, `:1020`->`:1038`, `:1053`->`:1071`, `:1651`->`:1669`). That is the same rot cycle 24 repaired **in the register only** -- the citations live in two documents, and fixing one copy left the other stale: **"I fixed the one place" is not a sweep.** The other 3: `manager_routes.py:361`->`:371` (361 is the `/api/memory/search` route), `dashboard_legacy.py:1372`->`:1374` (the tombstone), `dashboard_legacy.py:226`->`:227` (226 is **blank**). Plus one disambiguation: `factory.py:38` -> `memory/factory.py:38` (`factory.py` exists under both `llm/` and `memory/`; only the latter constructs `ChromaSemanticMemory`).
 > ⚠️ **The corrections had to be line-targeted, not global.** This file's own cycle-25 note contains the *old* numbers as an old->new mapping, so a global replace would rewrite `:1020`->`:1038` into `:1038`->`:1038` -- **a note that records a fix must not be rewritten by the next fix.** Every correction was then checked to land on a line that names the cited thing. Residue: 7 flags remain, all expected -- 5 are that note's own mapping, 1 is a set *declaration* cited for a member (`runtime.py:826` for `browser.discovery`), 1 cites a function name where the line carries the route path (`dashboard_legacy.py:1374`).
+> **AGENTS.md's *bare* `:NNN` refs rotted too, and the same claim has a *third* copy (2026-10-05): `2287 passed / 8 skipped`** -- unchanged, doc-only. Cycle 27 swept this file's *file-qualified* citations; a **bare** `:NNN` (a line number with no filename) is a separate surface, because no scanner can resolve it -- the owning file has to be inferred from the sentence. Of **30** substantive bare refs, **25 measured correct** and **5 were rotten**: `grpc_server.py:191`->`:185` (**3 occurrences in this file alone** -- `publish` is a single line at 185, and 191 is the closing paren of `PushEventResponse(`) and `context_builder.py:722`/`:759` -> `:750`/`:787` (**+28**; both land on the two `available_capability_ids` *token-accounting* reads, one in `_recalc_chars` and one in `_annotate_usage`). The 31 bare refs inside this file's own dated notes are **records** -- old->new mappings -- and were left alone.
+> ⚠️ **A bare ref's owning file is the note's *subject*, not the file named last.** The `:722`/`:759` pair follows an explicit `llm_task_interpreter.py:367-370` in the *same sentence*, but `llm_task_interpreter.py` is **450 lines** -- the refs belong to `context_builder.py`, the paragraph's subject. That is how a bare ref rots *unresolvably*: the reader must reconstruct an inference the author never wrote down.
+> ⚠️ **The `:722`/`:759` claim had a *third* copy.** `PROJECT_STATUS_REVIEW.md:14` stated the same fact (`ctx.available_capability_ids` is read only for token accounting `:722`/`:759`); it is corrected there too. So one claim lived in **three** documents, and the "second copy" cycle 27 found was not the last: **after repairing a citation, grep every `*.md` for the *claim*, not just for the string.**
 
 - **Total tests (2026-10-01 record)**: **1926 passed / 8 skipped**
   — the **+20** over the 2026-09-30 figure are **all new pins**: four for B-5① (the confirmation↔desire
