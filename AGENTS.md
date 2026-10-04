@@ -1035,6 +1035,38 @@ Measured 2026-10-01 — `ai-server`, full suite:
 > pre-write `ast.parse` (a replacement missing a trailing comma), `git` (replacement blocks
 > built from only the `except` block **deleted** the 15 `context` lines), and the rendered-text
 > assertion (the missing spaces). None reached a commit.
+>
+> **`SpontaneousObservation`'s nine swallowed failures now name themselves — an unreadable source looked like a calm system (2026-10-04): `2239 passed / 8 skipped`**
+>
+> `spontaneous_observation.py` builds its observation list from seven sources plus a log
+> write, and nine of those paths sat in `except Exception: pass` (or a bare `return obs`).
+> A source that could not be read contributed exactly as many observations as a healthy,
+> quiet source: **zero**. The stakes are higher here than a missing log line:
+> `autonomous_loop._refresh_observations_for_cycle` filters these into
+> `_pending_actionable_observations`, and at `autonomous_loop.py:1074`
+> `should_run_l2 = bool(self._pending_actionable_observations)` — so a real signal (a full
+> disk, a stuck task, a degraded server) that could not be read is never surfaced, and the
+> loop proceeds as if the system were calm. (A failed source does not *clear* the pending
+> list; it prevents the signal from ever entering it.)
+> All nine now name the source, the exception type and the consequence. **The return values
+> are unchanged**, so the pin fixes behaviour that already existed.
+> Pin `tests/test_spontaneous_observation_failures_are_named.py` (**12 cases** = 9 driven
+> sites + a legitimate-absence control + 2 structural, mutation **11/11** with a no-op
+> control, original restored byte-exactly). The **+12** is that pin and nothing else; egress
+> is **unchanged at 314 passed / 1 skipped**, the deselected count moved **1920 -> 1932**,
+> and the derived figure is **273 -> 285** (`2247 - 1962` collected).
+> ⚠️ **The unit is a choice, and this module had a second mechanism**: three sibling handlers
+> already call `logger.debug(..., exc_info=True)`. Measured: **every entrypoint configures
+> `logging.INFO`** (`AGENT_SERVER_LOG_LEVEL` defaults to it), so those three leave a record
+> that never ships. That is a *visibility* question, not a *silence* one, so cycle 16 fixes
+> the nine that record at **no** level and records the three separately (`DELEGATION.md` §4
+> item 42). Conflating them would have blurred the unit of the scan.
+> ⚠️ **My own verifier was wrong before the code was**: the first post-edit check searched the
+> *source text* for each consequence phrase and reported five missing — but the phrases span
+> adjacent string literals, which only concatenate at runtime. Re-checking the **rendered**
+> format string via `ast` showed 9/9 present, with `%s` count == argument count.
+> ⚠️ **The behaviour is recorded, not fixed**: `should_run_l2` still cannot distinguish "no
+> actionable observations" from "every source failed" — `DELEGATION.md` §4 item 41.
 
 - **Total tests (2026-10-01 record)**: **1926 passed / 8 skipped**
   — the **+20** over the 2026-09-30 figure are **all new pins**: four for B-5① (the confirmation↔desire
@@ -1106,7 +1138,7 @@ Measured 2026-10-01 — `ai-server`, full suite:
   `$LASTEXITCODE` = **0**), and both `.ps1` gates ran end-to-end — so treat this as a *fallback*
   diagnosis, not the expected state.
 - **Egress regression suite**: **314 passed / 1 skipped** (315 tests carry the `egress` marker,
-  1920 deselected). CI enforces a floor of 160 (`--require-egress-tests=160`) **and** mutation-proves
+  1932 deselected). CI enforces a floor of 160 (`--require-egress-tests=160`) **and** mutation-proves
   the gate: breaking it yields failures, restoring it yields 314 passes. The mutation figure is
   **76 failures** (measured 2026-10-03 on the 315-marker baseline; it was 74 at the 2026-10-01
   baseline of 305 and 62 at the 268-marker baseline — **re-run it before quoting**, the number is a

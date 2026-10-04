@@ -193,8 +193,12 @@ class SpontaneousObservationSystem:
                     importance=0.5, novelty=0.2,
                     tags=["disk"],
                 ))
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning(
+                "Could not read disk usage (%s: %s); no disk-space observation is "
+                "produced, so an unreadable disk looks like a healthy one.",
+                type(exc).__name__, exc,
+            )
 
         # Storage is a change signal, not a reason to rescan and re-emit the
         # same warning every minute. HealthAlertManager owns absolute limits.
@@ -234,8 +238,14 @@ class SpontaneousObservationSystem:
                             tags=["storage", "growth"],
                         )
                     )
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning(
+                    "Could not measure autonomous data growth (%s: %s); no growth "
+                    "observation is produced, so unreadable storage looks unchanged. "
+                    "The 15-minute check window was already consumed, so growth stays "
+                    "unchecked until the next window.",
+                    type(exc).__name__, exc,
+                )
 
         return obs
 
@@ -268,8 +278,13 @@ class SpontaneousObservationSystem:
                         suggested_action="Analyze failure patterns and adjust approach",
                         tags=["failure_pattern", "learning"],
                     ))
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning(
+                    "Could not read failed action traces (%s: %s); no failure-pattern "
+                    "observation is produced, so an unreadable trace store looks like a "
+                    "system with no failures.",
+                    type(exc).__name__, exc,
+                )
 
         # Check episodic memory for unresolved episodes
         if self._episodic:
@@ -286,8 +301,13 @@ class SpontaneousObservationSystem:
                         suggested_action="Extract lessons from negative episodes",
                         tags=["memory", "lessons"],
                     ))
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning(
+                    "Could not recall recent episodes (%s: %s); no unresolved-episode "
+                    "observation is produced, so an unreadable episodic store looks like "
+                    "a store with nothing unresolved.",
+                    type(exc).__name__, exc,
+                )
 
         return obs
 
@@ -316,8 +336,13 @@ class SpontaneousObservationSystem:
                         suggested_action=f"Take action to fulfill {name} desire",
                         tags=["desire", "frustration"],
                     ))
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning(
+                "Could not read desires (%s: %s); no frustration observation is "
+                "produced, so an unreadable desire system looks like a system with no "
+                "unmet desires.",
+                type(exc).__name__, exc,
+            )
 
         return obs
 
@@ -349,8 +374,13 @@ class SpontaneousObservationSystem:
                     importance=0.5, novelty=0.5,
                     tags=["emotion", "intense"],
                 ))
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning(
+                "Could not read the affect state (%s: %s); no mood or emotion "
+                "observation is produced, so an unreadable affect system looks like a "
+                "calm one.",
+                type(exc).__name__, exc,
+            )
 
         return obs
 
@@ -360,7 +390,13 @@ class SpontaneousObservationSystem:
             return obs
         try:
             snapshot = self._status_manager.get_snapshot()
-        except Exception:
+        except Exception as exc:
+            logger.warning(
+                "Could not read the shared server status (%s: %s); no capability "
+                "observation is produced and no server state is recorded, so an "
+                "unreadable status manager looks like a fleet with no status changes.",
+                type(exc).__name__, exc,
+            )
             return obs
         for server_id, state in snapshot.items():
             status = str(state.get("status") or "unknown").lower()
@@ -411,8 +447,13 @@ class SpontaneousObservationSystem:
                                 suggested_action="Inspect or resume the stuck task",
                                 tags=["task", "stuck", "incident"],
                             ))
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning(
+                    "Could not read active action traces (%s: %s); no stuck-task "
+                    "observation is produced, so an unreadable trace store looks like a "
+                    "system with no stuck tasks.",
+                    type(exc).__name__, exc,
+                )
 
         return obs
 
@@ -558,5 +599,10 @@ class SpontaneousObservationSystem:
                     "observations": [o.to_dict() for o in observations[:10]],
                 }
                 f.write(json.dumps(entry, ensure_ascii=False) + "\n")
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning(
+                "Could not append to the observation log at %s (%s: %s); the run leaves "
+                "no record on disk, so an unwritable log looks like a system that never "
+                "observes.",
+                log_path, type(exc).__name__, exc,
+            )
