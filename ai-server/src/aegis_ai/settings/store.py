@@ -6,6 +6,7 @@ Thread-safe, with audit logging for all changes.
 from __future__ import annotations
 
 import json
+import logging
 import threading
 import time
 from pathlib import Path
@@ -16,6 +17,8 @@ from pydantic import BaseModel, ValidationError
 from aegis_ai.settings.defaults import create_default_settings
 from aegis_ai.settings.models import AEGISSettings
 from aegis_ai.settings.validation import validate_settings_change
+
+logger = logging.getLogger("aegis_ai.settings.store")
 
 
 class SettingsStore:
@@ -127,12 +130,21 @@ class SettingsStore:
         return self.get().model_dump_json(indent=2)
 
     def import_json(self, json_str: str, changed_by: str = "user") -> list[str]:
-        """Import settings from JSON string."""
+        """Import settings from JSON string.
+
+        The two failure modes are reported separately: the parse, and the *apply*
+        (``update`` validates, persists and audits). A single ``try`` around both made
+        a disk failure read as ``Invalid settings JSON`` — the same fixed-message shape
+        as ``llm.first_stage.*.failed``, sending the reader to the wrong artefact.
+        """
         try:
             settings = AEGISSettings.model_validate_json(json_str)
+        except Exception as exc:
+            return [f"Invalid settings JSON: {exc}"]
+        try:
             return self.update(settings, changed_by, "Imported from JSON")
-        except Exception as e:
-            return [f"Invalid settings JSON: {e}"]
+        except Exception as exc:
+            return [f"Could not apply imported settings: {type(exc).__name__}: {exc}"]
 
     def _persist(self) -> None:
         """Persist settings to disk."""
@@ -158,5 +170,22 @@ class SettingsStore:
             with open(self._path, encoding="utf-8") as f:
                 data = json.load(f)
             self._settings = AEGISSettings.model_validate(data)
-        except (json.JSONDecodeError, Exception):
+        except Exception as exc:
+            # Named rather than swallowed. The fallback is fail-closed: the built-in
+            # defaults differ from the shipped config in exactly three keys, all of
+            # them egress permissions (measured 2026-10-04 — `egress_allowed_hosts`
+            # [] vs ['api.typesafe.ai'], `external_egress_allowed` and
+            # `external_llm_allowed` False vs True), so nothing is opened up. But the
+            # gate then denies every external destination, and without this line the
+            # only evidence is the degradation itself.
+            logger.warning(
+                "Could not read settings from %s (%s: %s); falling back to the built-in "
+                "defaults, so the shipped configuration is not in effect. The defaults "
+                "empty `privacy.egress_allowed_hosts` and set `external_egress_allowed` "
+                "and `external_llm_allowed` to False, so the egress gate will deny every "
+                "external destination and cloud LLM profiles will degrade.",
+                self._path,
+                type(exc).__name__,
+                exc,
+            )
             self._settings = create_default_settings()

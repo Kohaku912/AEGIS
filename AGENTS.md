@@ -919,6 +919,31 @@ Measured 2026-10-01 — `ai-server`, full suite:
 > in *all* of them — the pin's own file, the register, the doc, and the status report are four copies of one
 > number, and the strengthening updated only some.
 
+> **A corrupt `settings.json` silently reverted every egress permission to the narrow default (2026-10-04): `2168 passed / 8 skipped`**
+>
+> `SettingsStore._load` runs once from `__init__` and, on any failure, substituted the built-in
+> defaults with no signal — and `runtime.py:880` points it at the **shipped** `config/settings.json`,
+> so a mistyped or corrupt file silently stopped the shipped configuration from being in effect.
+> Measured before writing the message: the built-in defaults differ from the shipped config in
+> **exactly three keys, all egress permissions** — `privacy.egress_allowed_hosts` `[]` vs
+> `['api.typesafe.ai']`, and `external_egress_allowed` / `external_llm_allowed` `False` vs `True`. So
+> the fallback is **fail-closed** (nothing is opened up — the single constraint is not at risk), but
+> every external destination is then denied by the gate and cloud LLM profiles degrade. Driving the
+> factory confirmed both halves: with defaults the gate logs `egress deny … reason=external egress is
+> disabled`, while the shipped config's profile is *permitted* and reaches Mock only because no local
+> Ollama is listening. The same file's `import_json` had the mirror defect — **one `try` around both
+> the parse and the apply** made a *disk* failure read as `Invalid settings JSON`, the fixed-message
+> shape again — now split into two messages. Pin `tests/test_settings_store_load_failures_are_named.py`
+> (**9 tests**, mutation **8/8**, four of them degrading the controls, 2 files restored
+> byte-exactly). The **+9** is that pin and nothing else; egress is **unchanged at 314 passed / 1
+> skipped**, the deselected count moved **1852 → 1861**, and the derived "added since carry no marker"
+> figure is **205 → 214** (`2176 − 1962` collected, or `1861 − 1647` deselected).
+> ⚠️ **A second defect was measured and recorded, not fixed**: `update` assigns `self._settings`
+> *before* `_persist()`, so a persist failure leaves the in-memory value changed and the disk
+> unchanged (measured: before `False`, `PermissionError`, after `True`). Persisting first would change
+> when the in-memory value moves — a behaviour change — so it is `DELEGATION.md` §4 item 37, and the
+> pin fixes the current behaviour so that fixing it must be deliberate.
+
 - **Total tests (2026-10-01 record)**: **1926 passed / 8 skipped**
   — the **+20** over the 2026-09-30 figure are **all new pins**: four for B-5① (the confirmation↔desire
   link), one for the general invariant that **the shipped `config/settings.json` declares no key that
@@ -989,7 +1014,7 @@ Measured 2026-10-01 — `ai-server`, full suite:
   `$LASTEXITCODE` = **0**), and both `.ps1` gates ran end-to-end — so treat this as a *fallback*
   diagnosis, not the expected state.
 - **Egress regression suite**: **314 passed / 1 skipped** (315 tests carry the `egress` marker,
-  1852 deselected). CI enforces a floor of 160 (`--require-egress-tests=160`) **and** mutation-proves
+  1861 deselected). CI enforces a floor of 160 (`--require-egress-tests=160`) **and** mutation-proves
   the gate: breaking it yields failures, restoring it yields 314 passes. The mutation figure is
   **76 failures** (measured 2026-10-03 on the 315-marker baseline; it was 74 at the 2026-10-01
   baseline of 305 and 62 at the 268-marker baseline — **re-run it before quoting**, the number is a

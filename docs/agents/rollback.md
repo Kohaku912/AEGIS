@@ -25,6 +25,16 @@
 > なお既定値は `False` で、現在の `config/settings.json` に `agents` 節は無いため、
 > **この停止は既に効いています**（＝切るべきものが動いていない）。
 
+> ⚠️ **`config/settings.json` が壊れていると `SettingsStore` は黙って組み込み既定へ戻ります**（2026-10-04 実測・サイクル 12）:
+> 綴りを誤った JSON や読み取り不能なファイルを置くと、`SettingsStore._load` は**例外もログも残さず**既定値に差し替えるので、
+> **ファイル全体が効いていない状態**になります。既定と出荷設定の差は**ちょうど 3 鍵で全部 egress 許可**
+> （`privacy.egress_allowed_hosts` が `[]`、`external_egress_allowed` / `external_llm_allowed` が `False`）なので、
+> この状態は **fail-closed**（何も開かない — 単一制約は危険に晒されない）ですが、egress ゲートが全ての外部宛先を拒否し、
+> クラウド LLM プロファイルは降格します。**この停止手順を打つときは、JSON が妥当かどうかを別途確かめてください** —
+> 壊れたファイルは「何も変えない」ではなく「既定へ戻す」ので、意図した変更が**効いていない**のにサービスは正常に起動します
+> （`AEGIS_AGENTS_ENABLED` を読んでいない件と同型の誤認）。サイクル 12 以降、`aegis_ai.settings.store` の WARNING が
+> この降格を名乗ります。
+
 これで `aegis_ai/agents/` の**バックエンドは**起動しなくなり、
 `LLMTaskInterpreter.interpret()` 経由の旧挙動に戻る。
 （`requires_feature: "agents"` による capability の**非表示化は起きません** — その機構は
