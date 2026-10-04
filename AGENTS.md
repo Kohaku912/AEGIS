@@ -1170,6 +1170,24 @@ Measured 2026-10-01 — `ai-server`, full suite:
 > (`.env.*`, exception only `!.env.example`), so it is **not in HEAD** and my edit to it is local-only. The
 > tracked carrier is `docs/ubuntu-production.md`. Recorded as §4 item 50.
 
+> **The L1 key requirement is now a class-level pin, and the dead intake classes are pinned too (2026-10-05): `2269 passed / 8 skipped`**
+>
+> Cycle 19 fixed *one* instance -- `TYPESAFE_API_KEY` was missing from `.env.example`. Measuring the class
+> before pinning it: `config/llm.yaml` declares 12 profiles whose `api_key_env` is one of **three** distinct
+> names (`LLM_API_KEY`, `LLM_VISION_API_KEY`, `TYPESAFE_API_KEY`), and after the fix all three are present.
+> New pin `tests/test_every_required_api_key_is_documented.py` (**4 cases, mutation 3/3**, control green)
+> parses the shipped profiles and requires each key to appear in `.env.example` as an **assignment line**
+> (`KEY=`) -- a *mention inside a comment* does not count, which is the difference between "the template tells
+> you the key exists" and "the template sets it". (The first draft used a plain substring test; the comment
+> above the assignment contains the key name, so deleting just the assignment line would **not** have failed
+> it. The control `test_the_assignment_check_rejects_a_comment_only_mention` pins that distinction.)
+> New pin `tests/test_intake_classes_are_constructed_nowhere.py` (**3 cases, mutation 3/3**) measures
+> *construction* (`ast.Call` with a bare `Name` callee), not mentions: `IntakeRouter` / `IntakeClassifier` /
+> `IntakeDeduplicator` are re-exported by `aegis_ai.intake` and built **nowhere** in `src/`, while `L1Router`
+> (`runtime.py:1104`) is the live control. Both pins also assert the *other* half -- the classes still exist
+> and are still exported, and the keys the config requires are still declared -- so a rename or deletion comes
+> back here instead of making the absence assertion vacuously true. Recorded as §4 items 46-47.
+
 - **Total tests (2026-10-01 record)**: **1926 passed / 8 skipped**
   — the **+20** over the 2026-09-30 figure are **all new pins**: four for B-5① (the confirmation↔desire
   link), one for the general invariant that **the shipped `config/settings.json` declares no key that
