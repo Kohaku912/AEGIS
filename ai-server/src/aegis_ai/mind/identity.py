@@ -8,10 +8,13 @@ Persists to JSONL for cross-session continuity.
 from __future__ import annotations
 
 import json
+import logging
 import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
+
+logger = logging.getLogger("aegis_ai.mind.identity")
 
 
 @dataclass
@@ -185,5 +188,10 @@ class Identity:
                 )
                 self._config.limitations = last.get("limitations", self._config.limitations)
                 self._config.recent_learning = last.get("recent_learning", self._config.recent_learning)
-        except (json.JSONDecodeError, OSError):
-            pass
+        except (json.JSONDecodeError, OSError) as exc:
+            logger.warning(
+                "Could not read identity from %s (%s: %s); continuing with the built-in "
+                "identity defaults, so learned values, opinions, and recent learning are "
+                "silently lost.",
+                self._path, type(exc).__name__, exc,
+            )

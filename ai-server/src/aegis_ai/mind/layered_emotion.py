@@ -21,6 +21,7 @@ Persistence: JSONL (recent emotion history for mood computation)
 from __future__ import annotations
 
 import json
+import logging
 import math
 import threading
 import time
@@ -28,6 +29,8 @@ from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger("aegis_ai.mind.layered_emotion")
 
 
 class EmotionType(Enum):
@@ -479,5 +482,9 @@ class LayeredEmotion:
                     instance = EmotionInstance.from_dict(e_data)
                     if instance.is_active:
                         self._active.append(instance)
-        except (json.JSONDecodeError, OSError):
-            pass
+        except (json.JSONDecodeError, OSError) as exc:
+            logger.warning(
+                "Could not read layered emotion state from %s (%s: %s); continuing with "
+                "no active emotions, so the current emotional state is silently lost.",
+                self._path, type(exc).__name__, exc,
+            )

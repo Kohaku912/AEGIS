@@ -17,12 +17,15 @@ Persistence: JSONL (latest record is current state)
 from __future__ import annotations
 
 import json
+import logging
 import math
 import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger("aegis_ai.mind.mood")
 
 
 @dataclass
@@ -250,5 +253,10 @@ class Mood:
             if lines:
                 last = json.loads(lines[-1])
                 self._state = MoodState.from_dict(last)
-        except (json.JSONDecodeError, OSError):
-            pass
+        except (json.JSONDecodeError, OSError) as exc:
+            logger.warning(
+                "Could not read mood state from %s (%s: %s); continuing with the default "
+                "PAD state (pleasure=0.0, arousal=0.3, dominance=0.5), so the mood history "
+                "is silently lost.",
+                self._path, type(exc).__name__, exc,
+            )

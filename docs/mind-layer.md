@@ -8,7 +8,9 @@
 > not a gate. See [`GOAL-CHANGE.md`](GOAL-CHANGE.md).
 
 
-> **Status**: Verified against current code snapshot — layered affect model
+> **Status**: Re-verified against the code **2026-10-04** — the *ContextBuilder Integration* section
+> was corrected (its example passed kwargs the constructor does not accept and read fields that do
+> not exist; it could not run). Layered affect model.
 > **Related**: `docs/architecture.md` §5.11
 
 ## Overview
@@ -22,6 +24,12 @@ It uses a **three-layer affect model** (inspired by FAtiMA + LLMA):
 3. **Emotion** (short-term) — OCC-inspired appraisal, reactive
 
 **Critical constraint**: Mind state does NOT override PolicyEngine safety decisions.
+
+> ⚠️ **Measured 2026-10-04** — read this before the component list: of the components below, only
+> **`Identity`** is actually constructed outside this package (`runtime.py:977`). `Mood`,
+> `Personality` and `LayeredEmotion` are live through `AffectSystem`; `Desire`, `Emotion`,
+> `GoalManager`, `Priorities` and `SocialIntelligence` are constructed **nowhere** in `src/`.
+> See *ContextBuilder Integration* below and `DELEGATION.md` §4 item 39.
 
 ## Components
 
@@ -214,30 +222,41 @@ Persists to `data/mind_social.jsonl`.
 
 ## ContextBuilder Integration
 
-Mind Layer components are injected into ContextBuilder:
+**Only `Identity` is injected in production.** Measured 2026-10-04: `src/` contains exactly
+**one** `ContextBuilder(` call site (`runtime.py:979`), and of the mind-layer components it
+passes **only `identity=`**:
 
 ```python
-from aegis_ai.mind import (
-    Identity, Desire, Emotion, GoalManager,
-    SocialIntelligence, AffectSystem,
+# runtime.py — the only construction site
+context_builder = ContextBuilder(
+    event_bus=event_bus,
+    tool_broker=tool_broker,
+    multimodal_llm=llm_gateway,
+    capability_retriever=capability_retriever,
+    settings_resolver=settings_resolver,
+    user_model_store=user_model_store,
+    identity=identity,          # <- from aegis_ai.mind.identity
 )
-
-builder = ContextBuilder(
-    identity=Identity(),
-    desire=Desire(),
-    emotion=Emotion(),
-    goal_manager=GoalManager(),
-    affect_system=AffectSystem(),
-    social_intelligence=SocialIntelligence(),
-)
-ctx = builder.build()
-# ctx.identity contains identity string
-# ctx.desires contains desire priorities
-# ctx.emotional_state contains emotion indicators
-# ctx.current_goals contains active goals
-# ctx.affect contains layered affect state
-# ctx.social contains social context
 ```
+
+`ContextBuilder.__init__` *does* accept `identity`, `desire`, `emotion` and `goal_manager`, so
+`ctx.desires` / `ctx.emotional_state` / `ctx.current_goals` would be populated if those were
+passed — they are not. It does **not** accept `affect_system` or `social_intelligence`, and
+`Context` has **no** `affect` or `social` field:
+
+```python
+ContextBuilder(affect_system=None)
+# TypeError: ContextBuilder.__init__() got an unexpected keyword argument 'affect_system'
+```
+
+`AffectSystem` reaches the model by a different route — `runtime.py:1651` (the autonomous
+loop) and `llm/memory_context.py:323` (the `decision` profile) construct it — but never
+through `ContextBuilder`. `SocialIntelligence` is constructed **nowhere** in `src/`.
+
+An earlier version of this section showed an example that passed `affect_system=` /
+`social_intelligence=` and read `ctx.affect` / `ctx.social`; it could not run. See
+`DELEGATION.md` §4 item 39 for the four components that are unwired, and item 38 for the
+`_load` failures that used to be silent.
 
 ## Architecture Diagram
 
@@ -263,6 +282,13 @@ ctx = builder.build()
 │  + AffectSystem + Emotion + SocialIntelligence   │
 └─────────────────────────────────────────────────┘
 ```
+
+> ⚠️ **Measured 2026-10-04**: the bottom box overstates production. The only `ContextBuilder(`
+> call site in `src/` is `runtime.py:979`, and it passes **only `Identity`** — `Desire`, `Emotion`,
+> `GoalManager`, `Priorities`, `SocialIntelligence` and `AffectSystem` are never handed to it
+> (`Desire` and `GoalManager` *would* be accepted; `AffectSystem` and `SocialIntelligence` would
+> raise `TypeError`). `Desire`, `Emotion`, `GoalManager`, `Priorities` and `SocialIntelligence` are
+> constructed nowhere in `src/` at all. See `DELEGATION.md` §4 item 39.
 
 ## Safety
 

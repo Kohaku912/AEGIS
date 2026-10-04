@@ -8,10 +8,13 @@ Persists to JSONL for cross-session continuity.
 from __future__ import annotations
 
 import json
+import logging
 import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
+
+logger = logging.getLogger("aegis_ai.mind.social_intelligence")
 
 
 @dataclass
@@ -109,5 +112,9 @@ class SocialIntelligence:
                 self._state.interaction_count = last.get("interaction_count", 0)
                 self._state.last_interaction_ms = last.get("last_interaction_ms", 0)
                 self._state.preferred_topics = last.get("preferred_topics", [])
-        except (json.JSONDecodeError, OSError):
-            pass
+        except (json.JSONDecodeError, OSError) as exc:
+            logger.warning(
+                "Could not read social state from %s (%s: %s); continuing with the default "
+                "social state, so learned interaction preferences are silently lost.",
+                self._path, type(exc).__name__, exc,
+            )

@@ -7,12 +7,15 @@ Tracks progress and status for each goal.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import threading
 import time
 from dataclasses import dataclass, field
 from enum import Enum, auto
 from pathlib import Path
+
+logger = logging.getLogger("aegis_ai.mind.goals")
 
 
 class GoalStatus(Enum):
@@ -160,5 +163,9 @@ class GoalManager:
                         completed_at_ms=g.get("completed_at_ms", 0),
                     )
                     self._goals[goal.goal_id] = goal
-        except (json.JSONDecodeError, OSError, KeyError):
-            pass
+        except (json.JSONDecodeError, OSError, KeyError) as exc:
+            logger.warning(
+                "Could not read goals from %s (%s: %s); continuing with no goals, so "
+                "the tracked goal list is silently lost.",
+                self._path, type(exc).__name__, exc,
+            )

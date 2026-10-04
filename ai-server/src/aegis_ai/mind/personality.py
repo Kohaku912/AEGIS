@@ -19,11 +19,14 @@ Persistence: JSONL (one record per update, latest wins)
 from __future__ import annotations
 
 import json
+import logging
 import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger("aegis_ai.mind.personality")
 
 
 @dataclass
@@ -216,5 +219,9 @@ class Personality:
             if lines:
                 last = json.loads(lines[-1])
                 self._traits = BigFive.from_dict(last)
-        except (json.JSONDecodeError, OSError):
-            pass
+        except (json.JSONDecodeError, OSError) as exc:
+            logger.warning(
+                "Could not read personality from %s (%s: %s); continuing with the default "
+                "Big Five traits, so the learned trait profile is silently lost.",
+                self._path, type(exc).__name__, exc,
+            )

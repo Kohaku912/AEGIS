@@ -8,10 +8,13 @@ Persists to JSONL for cross-session continuity.
 from __future__ import annotations
 
 import json
+import logging
 import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
+
+logger = logging.getLogger("aegis_ai.mind.emotion")
 
 
 @dataclass
@@ -142,5 +145,9 @@ class Emotion:
                 self._state.fatigue_proxy = last.get("fatigue_proxy", 0.0)
                 self._state.risk_sensitivity = last.get("risk_sensitivity", 0.5)
                 self._state.novelty_interest = last.get("novelty_interest", 0.5)
-        except (json.JSONDecodeError, OSError):
-            pass
+        except (json.JSONDecodeError, OSError) as exc:
+            logger.warning(
+                "Could not read emotion state from %s (%s: %s); continuing with the "
+                "default state indicators, so the previous state is silently lost.",
+                self._path, type(exc).__name__, exc,
+            )

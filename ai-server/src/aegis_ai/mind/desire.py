@@ -7,10 +7,13 @@ Persists to JSONL for cross-session continuity.
 from __future__ import annotations
 
 import json
+import logging
 import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
+
+logger = logging.getLogger("aegis_ai.mind.desire")
 
 
 @dataclass
@@ -94,5 +97,9 @@ class Desire:
                 for d in last.get("desires", []):
                     if d["name"] in self._desires:
                         self._desires[d["name"]].weight = d.get("weight", self._desires[d["name"]].weight)
-        except (json.JSONDecodeError, OSError):
-            pass
+        except (json.JSONDecodeError, OSError) as exc:
+            logger.warning(
+                "Could not read desire weights from %s (%s: %s); continuing with the "
+                "default desires, so learned weights are silently lost.",
+                self._path, type(exc).__name__, exc,
+            )

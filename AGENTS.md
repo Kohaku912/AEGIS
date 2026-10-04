@@ -944,6 +944,46 @@ Measured 2026-10-01 — `ai-server`, full suite:
 > when the in-memory value moves — a behaviour change — so it is `DELEGATION.md` §4 item 37, and the
 > pin fixes the current behaviour so that fixing it must be deliberate.
 
+> **The `mind/` persistence family named its read failures — and the family's silence turned out to be keyed on the exception type (2026-10-04): `2202 passed / 8 skipped`**
+>
+> Eight modules in `aegis_ai/mind/` (`desire`, `emotion`, `goals`, `identity`, `layered_emotion`,
+> `mood`, `personality`, `social_intelligence`) carried an **identical** `_load` whose
+> `except (json.JSONDecodeError, OSError): pass` made a corrupt file indistinguishable from
+> "no data yet" — the family had **no logger at all**. All eight now name the path, the exception
+> and the consequence (`goals.py` also catches `KeyError`).
+> ⚠️ **The boundary was measured, not assumed** — the family's silence is keyed on the exception
+> *type*, not on whether the file is usable: a valid JSON line that is **not an object** (`123`)
+> raises `AttributeError` out of `__init__` in all eight, because `json.loads` accepts it and the
+> next `last.get(...)` fails. `123` is exactly as unusable as `{"a": 1`, yet one is defaulted and
+> the other stops construction. And the exposure depends on the site: both live construction
+> points are **unguarded** (`runtime.py:977`, `runtime.py:1651`) while a third swallows the same
+> call at DEBUG (`llm/memory_context.py:323`). Widening the caught set changes behaviour, so it is
+> `DELEGATION.md` §4 item 38 and the pin fixes the current divergence.
+> ⚠️ **The family's scope was measured too** — by *construction*, not by import: of the eleven
+> modules, the only one built outside `mind/` is **`Identity`** (`runtime.py:977`); `Mood`,
+> `Personality` and `LayeredEmotion` are live only through `AffectSystem`, and `Desire`, `Emotion`,
+> `GoalManager`, `SocialIntelligence` are built **nowhere** — `Emotion`/`GoalManager` are imported
+> only by `reflection_loop.py`, which is itself never constructed (a second-order dead surface).
+> Two of the unwired ones share a name with a **live** class (`mind/desire.py::Desire` vs
+> `desire/desire_system.py::DesireSystem`; `mind/social_intelligence.py::SocialIntelligence` vs
+> `social/intelligence.py::SocialIntelligenceSystem`), so the convenient import gets the dead one.
+> `mind/social_intelligence.py` also implements **keyword matching** (`"too long" in feedback`),
+> against AGENTS.md's core rule — inert today only because the class is never built. All of it is
+> `DELEGATION.md` §4 item 39.
+> **`docs/mind-layer.md`'s "ContextBuilder Integration" was corrected** after it failed to run:
+> its example passed `affect_system=` / `social_intelligence=`, which `ContextBuilder.__init__`
+> does not accept (`TypeError` measured), and read `ctx.affect` / `ctx.social`, which do not exist.
+> The only `ContextBuilder(` call site in `src/` is `runtime.py:979`, and the only mind component
+> it receives is `identity`.
+> Pin `tests/test_mind_persistence_failures_are_named.py` (**34 cases**, mutation **8/8**, three of
+> them degrading a control, 2 files restored byte-exactly). The **+34** is that pin and nothing
+> else; egress is **unchanged at 314 passed / 1 skipped**, the deselected count moved
+> **1861 → 1895**, and the derived figure is **214 → 248** (`2210 − 1962` collected).
+> ⚠️ **My own structural test was wrong once**: it filtered out `ast.Expr` before asking "is the
+> handler body only `pass`?" — and a bare `logger.warning(...)` statement **is** an `ast.Expr`, so
+> all eight named handlers were reported as silent (eight false positives, measured). Dropping the
+> filter gave 34 passed.
+
 - **Total tests (2026-10-01 record)**: **1926 passed / 8 skipped**
   — the **+20** over the 2026-09-30 figure are **all new pins**: four for B-5① (the confirmation↔desire
   link), one for the general invariant that **the shipped `config/settings.json` declares no key that
@@ -1014,7 +1054,7 @@ Measured 2026-10-01 — `ai-server`, full suite:
   `$LASTEXITCODE` = **0**), and both `.ps1` gates ran end-to-end — so treat this as a *fallback*
   diagnosis, not the expected state.
 - **Egress regression suite**: **314 passed / 1 skipped** (315 tests carry the `egress` marker,
-  1861 deselected). CI enforces a floor of 160 (`--require-egress-tests=160`) **and** mutation-proves
+  1895 deselected). CI enforces a floor of 160 (`--require-egress-tests=160`) **and** mutation-proves
   the gate: breaking it yields failures, restoring it yields 314 passes. The mutation figure is
   **76 failures** (measured 2026-10-03 on the 315-marker baseline; it was 74 at the 2026-10-01
   baseline of 305 and 62 at the 268-marker baseline — **re-run it before quoting**, the number is a
