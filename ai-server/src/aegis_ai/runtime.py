@@ -805,6 +805,24 @@ def _run_l1_pipeline_for_event(runtime: Any, event: Any) -> Any | None:
     return decision
 
 
+# Events L1 handles on the publisher's thread (the immediate route). The
+# background route (`_should_route_to_l1_background`) takes everything else that
+# is not excluded below.
+#
+# ⚠️ Three of these are **declared but never produced** (measured 2026-10-05,
+# recorded as DELEGATION.md section 4 item 45). The concepts they name are all
+# already carried by `self_call`, so nothing is lost today:
+#   - `hook.matched`    -- the hook engine publishes `self_call` on a match
+#                          (`personal_ai/hooks.py::_emit_self_call`).
+#   - `commitment.due`  -- a due commitment gets a per-commitment hook
+#                          (`personal_ai/commitments.py::_ensure_due_hook`), so
+#                          it too arrives as `self_call`.
+#   - `browser.discovery` -- no producer anywhere in the repo, and browser-server
+#                          has no such concept.
+# They are kept (not deleted) so the intent is visible and a future producer
+# routes immediately; `tests/test_l1_immediate_triggers_have_producers.py` pins
+# that these three still have no literal publisher, and that every other member
+# still does.
 _L1_IMMEDIATE_EVENT_TYPES = {
     "social.inbox.received",
     "task.completed",

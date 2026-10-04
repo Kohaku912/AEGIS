@@ -43,6 +43,12 @@
   - 実装: `ai-server/src/aegis_ai/llm/providers/typesafe_provider.py`
   - プロファイル: `ai-server/config/llm.yaml` の `l1_default`（L1）と `jev_decision`
 - 認証: `TYPESAFE_API_KEY`（リポジトリ root の `.env` に設定済み。長さ 108、`apikey_` で始まる）
+  - ⚠️ **追記 2026-10-05**: この鍵は root の `.env` にしか無く、`.env.example` には**載っていなかった**
+    （追記済み）。`.env.production.example` も編集したが、あのファイルは `.gitignore:57` の `.env.*` に
+    一致して**追跡されていない**（HEAD に無い）ので、リポジトリに入るのは `docs/ubuntu-production.md`
+    の dotenv ブロックだけ。鍵が無いときの縮退は「Mock へ静かに」ではなく、gateway が**空鍵の
+    `TypeSafeProvider`** を作り（`llm/gateway.py:162-169`）、呼び出しが失敗 → `L1Router` が捕捉 →
+    `_l1_unavailable_observation`（value=1.0 / priority=1.0 / HIGH）→ **全イベントが ESCALATE**。
 - 実行環境: Python 3.13.14 / venv `aegis`
 - 疎通: `GET` に対して **405**（POST 専用）→ エンドポイントは生存
 

@@ -1131,6 +1131,45 @@ Measured 2026-10-01 — `ai-server`, full suite:
 > **0 handlers in a 3706-line file** because the visitor object was built twice, so the result
 > came from a fresh instance. A clean zero is the signature of a dead instrument.
 
+> **L1-only operation: the key that makes it work, the three dead triggers beside it, and two instruments that lied (2026-10-05): `2262 passed / 8 skipped`**
+>
+> The question "what is missing for full-scale L1-only operation?" was answered by measurement, not reading.
+> **(1) The LLM key.** `config/llm.yaml:125` `l1_default` is `provider=typesafe, model=jev-latest,
+> api_key_env=TYPESAFE_API_KEY`. With the key absent the gateway builds a **`TypeSafeProvider` with an empty
+> key** (`llm/gateway.py:162-169`), the call fails, `_l1_unavailable_observation` (`intake/l1_router.py:160`)
+> returns `value=1.0 / priority=1.0 / required_intelligence=HIGH`, and **every event escalates** — L1 classifies
+> nothing. This is **loud, not silent**: `_audit_llm_profile_health` (`runtime.py:276`, called `:983`) already
+> logs `profile=l1_default … issue=missing_api_key` at ERROR. Verified live with the local `.env`: `l1_default`
+> resolved to typesafe/jev-latest, the gateway built **`TypeSafeProvider`** (not Mock), and a real call returned
+> `value 0.2075 / priority 0.135 / confidence 0.722`. The requirement is now documented in `.env.example`,
+> `docs/ubuntu-production.md`, and `docs/jev-l1-verification-2026-10-02.md` (placeholder only — the real key
+> stays in the gitignored `.env`).
+> **(2) Three of the 16 immediate triggers have no producer.** `hook.matched` / `commitment.due` /
+> `browser.discovery` (`runtime.py:826`) never appear as a `publish` literal. `hook.matched` and
+> `commitment.due` are superseded by `self_call` (`personal_ai/hooks.py:367`, `commitments.py:117`);
+> `browser.discovery` has no concept anywhere. Nothing is lost today, so they are **recorded, not deleted**
+> (deleting would break `tests/test_runtime_singleton.py:617`). New pin
+> `tests/test_l1_immediate_triggers_have_producers.py` (**3 cases, mutation 3/3**, control green) pins **both
+> halves**: the three recorded triggers still have no producer, *and* the other 13 still do — without the
+> control the absence assertions would be vacuously true.
+> **(3) L1 runs inline on the publisher's thread.** `EventBus._notify_subscribers` (`src/event_bus.py:234`)
+> calls `sub.handler(event)` synchronously; `_evaluate_immediate_event` (`runtime.py:1557`) →
+> `_run_l1_pipeline_for_event` (`:764`) → `router.observe(...)` (`:771`, the LLM round-trip). The gRPC
+> `PushEvent` handler (`grpc_server.py:169` → `publish` at `:191`) is one publisher, so a remote push blocks
+> for the whole L1 call. **L2 was already moved off the request thread** (`_submit_background_l2`,
+> `runtime.py:732`); there is **no `_submit_background_l1`**. Recorded as §4 items 47–49, together with the
+> intake-side dead classes (item 47).
+> ⚠️ **Two instruments were wrong before the code was.** My `DELEGATION.md` insert asserted the file was CRLF
+> and failed — but the file **is** 100% CRLF (211 CRLF, 0 bare LF); I had read it in *text mode*, where
+> universal-newline translation makes `count("\r\n")` necessarily 0. **Measure newlines in bytes.** And a
+> planned register claim ("`PushEvent` can block up to `timeout_seconds = 20`") was **false** — no such
+> constant exists in `grpc_server.py`; the measured fact is `PushEvent` → `publish` at `:191`, synchronous. A
+> register row is a claim about the code: **re-measure every line number after an edit** (my own comment moved
+> `_L1_IMMEDIATE_EVENT_TYPES` from ~808 to **826**, shifting everything below it).
+> ⚠️ **A template that looks tracked may be ignored**: `.env.production.example` matches `.gitignore:57`
+> (`.env.*`, exception only `!.env.example`), so it is **not in HEAD** and my edit to it is local-only. The
+> tracked carrier is `docs/ubuntu-production.md`. Recorded as §4 item 50.
+
 - **Total tests (2026-10-01 record)**: **1926 passed / 8 skipped**
   — the **+20** over the 2026-09-30 figure are **all new pins**: four for B-5① (the confirmation↔desire
   link), one for the general invariant that **the shipped `config/settings.json` declares no key that

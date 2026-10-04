@@ -36,6 +36,10 @@ AEGIS_SESSION_SECRET=change-me-long-random-session-secret
 AEGIS_AUTH_BOOTSTRAP_TOKEN=change-me-one-time-bootstrap-token
 AEGIS_ANDROID_PAIRING_TOKEN=change-me
 LLM_API_KEY=...
+# L1 (config/llm.yaml -> profiles.l1_default) resolves to TypeSafe JEV and
+# requires its own key. Without it L1 builds a TypeSafe provider with an empty
+# key, every call fails, and every routed event escalates -- L1 cannot classify.
+TYPESAFE_API_KEY=...
 ```
 
 `AEGIS_DASHBOARD_ACCESS_TOKEN` is no longer accepted for normal production
