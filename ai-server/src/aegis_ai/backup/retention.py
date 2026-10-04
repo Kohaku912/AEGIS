@@ -3,7 +3,7 @@
 Measured 2026-09-29 (B-20), this class *enforces* one retention and *reports* two:
 
 - **Episodic memory retention — enforced.** `cleanup_expired` reads
-  `settings.memory.episodic_retention_days` and prunes against it (line ~49).
+  `settings.memory.episodic_retention_days` and prunes against it (line ~60).
 - **Notification retention — reported only.** `notification_text_retention_hours` is
   read by `get_retention_status()` for the dashboard; nothing prunes notifications.
 - **Screenshot retention — reported only.** Same: `get_retention_status()` reads
