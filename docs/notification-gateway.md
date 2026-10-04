@@ -23,8 +23,8 @@
 > `dismiss` / `list_unread` と、それを読む `GET /api/notifications` 系 3 ルート
 > （`web/manager_routes.py:314,329,341`）だけである。
 > 正は [`feature-catalog.md`](feature-catalog.md) §7・§8（宣言のみ）と §9（文書との食い違い）。
-> ピン: `ai-server/tests/test_notification_settings_are_read_only_by_dead_code.py`（22 テスト、
-> 変異 9/9 検出）。
+> ピン: `ai-server/tests/test_notification_settings_are_read_only_by_dead_code.py`（23 テスト、
+> 変異 12/12 検出）。
 
 
 > **Status**: Implemented (2026-06-17)

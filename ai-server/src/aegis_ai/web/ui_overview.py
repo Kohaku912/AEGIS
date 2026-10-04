@@ -1074,15 +1074,32 @@ def _operations(runtime: Any) -> list[dict[str, Any]]:
                     payload["causal_chain"] = build_causal_chain(payload)
                 seen.add(operation_id)
                 ops.append(payload)
-        except Exception:
-            pass
+        except Exception as exc:
+            # Masked by design — the audit groups and autonomous logs below still render,
+            # so a store failure looks like a timeline that simply has different entries.
+            # Name it, or the degradation is invisible.
+            logger.warning(
+                "Could not read the operation store (%s: %s); falling back to audit "
+                "groups and autonomous logs, so the timeline may show a different kind "
+                "of entry than an operation.",
+                type(exc).__name__,
+                exc,
+            )
 
     audit = getattr(runtime, "audit_manager", None)
     if audit is not None and hasattr(audit, "list_groups"):
         try:
             result = audit.list_groups(page=1, per_page=40, max_entries=300)
             groups = result.get("groups", []) if isinstance(result, dict) else []
-        except Exception:
+        except Exception as exc:
+            # Same masking as the store above: an empty fallback is
+            # indistinguishable from "no audit groups exist yet".
+            logger.warning(
+                "Could not list audit groups (%s: %s); the operation timeline will "
+                "omit audit-derived entries.",
+                type(exc).__name__,
+                exc,
+            )
             groups = []
         for group in groups:
             op = _operation_from_audit_group(group)
@@ -1889,7 +1906,15 @@ def _autonomous_logs(runtime: Any) -> dict[str, Any]:
                     "actions": actions,
                 }
             )
-    except Exception:
+    except Exception as exc:
+        # A single unparsable line above discards the whole cycle history, not just
+        # that line — and the empty result is indistinguishable from "no cycles yet".
+        logger.warning(
+            "Could not read autonomous execution logs (%s: %s); the operation "
+            "timeline will omit autonomous cycles entirely.",
+            type(exc).__name__,
+            exc,
+        )
         return {"cycles": [], "count": 0}
 
     cycles.sort(key=lambda c: c["timestamp_ms"], reverse=True)

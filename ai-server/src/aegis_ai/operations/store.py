@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import json
+import logging
 import threading
 import time
 import uuid
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger("aegis_ai.operations.store")
 
 
 def _now_ms() -> int:
@@ -233,6 +236,7 @@ class OperationStore:
         if not self._path.exists():
             return
         loaded: dict[str, OperationRecord] = {}
+        dropped = 0
         try:
             with self._path.open("r", encoding="utf-8") as handle:
                 for line in handle:
@@ -242,13 +246,35 @@ class OperationStore:
                     try:
                         raw = json.loads(line)
                     except json.JSONDecodeError:
+                        dropped += 1
                         continue
                     if not isinstance(raw, dict):
+                        dropped += 1
                         continue
                     record = OperationRecord.from_dict(raw)
                     loaded[record.operation_id] = record
-        except OSError:
+        except OSError as exc:
+            # `_load` runs once, from `__init__`, immediately after `_cache = {}`, so a
+            # failure here always leaves the cache empty: every operation already on
+            # disk looks unknown. The timeline still renders, because
+            # `ui_overview._operations` falls back to audit groups and autonomous logs —
+            # so the absence is invisible unless it is named here.
+            logger.warning(
+                "Could not read %s (%s: %s); starting from an empty operation cache, so "
+                "every previously recorded operation will look unknown until it is "
+                "written again.",
+                self._path,
+                type(exc).__name__,
+                exc,
+            )
             return
+        if dropped:
+            logger.warning(
+                "Skipped %d unreadable line(s) in %s; those operations are not loaded "
+                "and will look unknown.",
+                dropped,
+                self._path,
+            )
         self._cache = loaded
 
     def upsert(self, record: OperationRecord) -> OperationRecord:

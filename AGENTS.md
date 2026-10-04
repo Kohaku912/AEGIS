@@ -897,6 +897,28 @@ Measured 2026-10-01 — `ai-server`, full suite:
 > hold; when it does not, suspect the measurement's inputs before the suite. `--collect-only` arbitrated
 > (2154 for all three).
 
+> **The operation timeline's four silent read failures now name themselves (2026-10-04): `2159 passed / 8 skipped`**
+>
+> `web/ui_overview._operations` merges three sources, and each was wrapped in a handler that returns an
+> *absence* on failure — so a broken read is indistinguishable from "nothing recorded yet", and the
+> fallbacks keep the timeline rendering a plausible result either way. All four now log a WARNING naming
+> the cause and the consequence: the store (`operation_store.list_recent`), the audit groups
+> (`audit_manager.list_groups`), the autonomous execution log, and — one layer down — `OperationStore._load`
+> itself, where an unreadable file leaves an empty cache and a dropped line is simply not there. The two
+> *legitimate* absences (no autonomous loop; no log file yet) stay silent, and the pin asserts that, or the
+> warnings would be noise. Measured, not inferred: `_autonomous_logs` parses without a per-line guard, so
+> **one unparsable line discards the whole cycle history** — recorded as `DELEGATION.md` §4 item 36 and
+> deliberately **not** fixed, because skipping the bad line changes what the timeline shows. Pin
+> `tests/test_operation_timeline_failures_are_named.py` (**13 tests**, mutation **9/9**, controls green,
+> 2 files restored byte-exactly). The **+13** is that pin and nothing else; egress is **unchanged at
+> 314 passed / 1 skipped**, the deselected count moved **1839 → 1852**, and the derived "added since carry
+> no marker" figure is **192 → 205** (`2167 − 1962` collected, or `1852 − 1647` deselected).
+> ⚠️ **Sweeping the cycle-10 counts turned up two stale copies the strengthening had left behind**:
+> `DELEGATION.md` §4 item 35 and `docs/notification-gateway.md` both still said the notification pin was
+> **22 tests / 9 mutations** after it had become **23 / 12**. A count that moves in two places must be swept
+> in *all* of them — the pin's own file, the register, the doc, and the status report are four copies of one
+> number, and the strengthening updated only some.
+
 - **Total tests (2026-10-01 record)**: **1926 passed / 8 skipped**
   — the **+20** over the 2026-09-30 figure are **all new pins**: four for B-5① (the confirmation↔desire
   link), one for the general invariant that **the shipped `config/settings.json` declares no key that
@@ -967,7 +989,7 @@ Measured 2026-10-01 — `ai-server`, full suite:
   `$LASTEXITCODE` = **0**), and both `.ps1` gates ran end-to-end — so treat this as a *fallback*
   diagnosis, not the expected state.
 - **Egress regression suite**: **314 passed / 1 skipped** (315 tests carry the `egress` marker,
-  1839 deselected). CI enforces a floor of 160 (`--require-egress-tests=160`) **and** mutation-proves
+  1852 deselected). CI enforces a floor of 160 (`--require-egress-tests=160`) **and** mutation-proves
   the gate: breaking it yields failures, restoring it yields 314 passes. The mutation figure is
   **76 failures** (measured 2026-10-03 on the 315-marker baseline; it was 74 at the 2026-10-01
   baseline of 305 and 62 at the 268-marker baseline — **re-run it before quoting**, the number is a
