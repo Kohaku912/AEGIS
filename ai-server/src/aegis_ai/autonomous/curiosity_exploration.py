@@ -251,8 +251,13 @@ class CuriosityDrivenExplorationSystem:
                         tags=["question", "knowledge"],
                         grounding={"question": entry.content},
                     ))
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning(
+                    "Could not read open questions from semantic memory (%s: %s); the 'question' "
+                    "candidate source contributes nothing this cycle, so an unreadable store looks "
+                    "exactly like having no questions.",
+                    type(exc).__name__, exc,
+                )
 
         # Search episodic memory for open questions
         if self._episodic:
@@ -269,8 +274,13 @@ class CuriosityDrivenExplorationSystem:
                             tags=["question", "episode"],
                             grounding={"related_conversation": ep.episode_id, "question": ep.observation},
                         ))
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning(
+                    "Could not read open questions from episodic memory (%s: %s); the 'episode' "
+                    "candidate source contributes nothing this cycle, so an unreadable store looks "
+                    "exactly like having no open questions.",
+                    type(exc).__name__, exc,
+                )
 
         return candidates
 
@@ -292,8 +302,13 @@ class CuriosityDrivenExplorationSystem:
                     tags=["failure", "analysis"],
                     grounding={"related_failure": trace.trace_id},
                 ))
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning(
+                "Could not read failed action traces (%s: %s); the 'failure' candidate source "
+                "contributes nothing this cycle, so an unreadable trace store looks exactly like "
+                "a run in which nothing failed.",
+                type(exc).__name__, exc,
+            )
 
         return candidates
 
@@ -316,8 +331,12 @@ class CuriosityDrivenExplorationSystem:
                         tags=["concept", "unknown"],
                         grounding={"question": f"What evidence would raise confidence in {entry.content[:60]}?"},
                     ))
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning(
+                    "Could not read partially-understood knowledge from semantic memory (%s: %s); the "
+                    "'concept' candidate source contributes nothing this cycle.",
+                    type(exc).__name__, exc,
+                )
 
         return candidates
 
@@ -339,8 +358,12 @@ class CuriosityDrivenExplorationSystem:
                         tags=["improvement", "skill"],
                         grounding={"related_failure": skill.skill_id},
                     ))
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning(
+                "Could not read active skills from skill memory (%s: %s); the 'improvement' "
+                "candidate source contributes nothing this cycle.",
+                type(exc).__name__, exc,
+            )
 
         return candidates
 
@@ -354,15 +377,23 @@ class CuriosityDrivenExplorationSystem:
         if self._desire:
             try:
                 context_parts.append(self._desire.to_context_string())
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning(
+                    "Could not render the desire state into the exploration prompt (%s: %s); the LLM "
+                    "is asked to suggest topics with no view of what AEGIS currently wants.",
+                    type(exc).__name__, exc,
+                )
         if self._episodic:
             try:
                 recent = self._episodic.recall_recent(5)
                 if recent:
                     context_parts.append("Recent events: " + "; ".join(ep.action[:30] for ep in recent))
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning(
+                    "Could not read recent episodes for the exploration prompt (%s: %s); the LLM is "
+                    "asked to suggest topics with no view of what recently happened.",
+                    type(exc).__name__, exc,
+                )
 
         context = "\n".join(context_parts) if context_parts else "No context available"
 
@@ -534,8 +565,13 @@ Be specific and actionable. Focus on what's useful to remember."""
                         reason=f"Explored: {candidate.topic[:50]}",
                     )
                     self._desire.save()
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning(
+                    "Could not record the post-exploration curiosity change (%s: %s); the curiosity "
+                    "desire keeps its pre-exploration value, so a successful exploration does not "
+                    "reduce the pressure that produced it.",
+                    type(exc).__name__, exc,
+                )
 
         self._exploration_history.append(result.to_dict())
         return result
@@ -700,8 +736,12 @@ Be specific and actionable. Focus on what's useful to remember."""
                 related = self._episodic.recall_similar(candidate.topic, count=3)
                 if related:
                     parts.append("Related episodes: " + "; ".join(ep.summary[:40] or ep.action[:40] for ep in related))
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning(
+                    "Could not read related episodes for the exploration context (%s: %s); the LLM "
+                    "explores without the history most like this topic.",
+                    type(exc).__name__, exc,
+                )
 
         # Related knowledge
         if self._semantic:
@@ -709,8 +749,12 @@ Be specific and actionable. Focus on what's useful to remember."""
                 knowledge = self._semantic.search(candidate.topic, limit=3)
                 if knowledge:
                     parts.append("Related knowledge: " + "; ".join(k.content[:60] for k in knowledge))
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning(
+                    "Could not search semantic memory for related knowledge (%s: %s); the LLM "
+                    "explores without the knowledge AEGIS already holds on this topic.",
+                    type(exc).__name__, exc,
+                )
 
         # Related skills
         try:
@@ -718,8 +762,12 @@ Be specific and actionable. Focus on what's useful to remember."""
             related_skills = sm.find_relevant(candidate.topic, count=2)
             if related_skills:
                 parts.append("Related skills: " + "; ".join(s.name for s in related_skills))
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning(
+                "Could not read related skills for the exploration context (%s: %s); the LLM "
+                "explores without knowing which skills are relevant.",
+                type(exc).__name__, exc,
+            )
 
         return "\n".join(parts) if parts else "No related context found"
 
@@ -738,8 +786,12 @@ Be specific and actionable. Focus on what's useful to remember."""
                     importance=candidate.importance,
                     tags=candidate.tags + ["exploration", "curiosity"],
                 )
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning(
+                    "Could not record the exploration in episodic memory (%s: %s); the run is not "
+                    "recallable later, so the same topic can be explored again as if it were new.",
+                    type(exc).__name__, exc,
+                )
 
         # Save new knowledge to semantic memory
         if self._semantic and result.new_knowledge:
@@ -753,8 +805,12 @@ Be specific and actionable. Focus on what's useful to remember."""
                         importance=candidate.importance * 0.8,
                         tags=candidate.tags + ["explored"],
                     )
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning(
+                    "Could not write the exploration's new knowledge to semantic memory (%s: %s); "
+                    "what was learned this cycle is discarded.",
+                    type(exc).__name__, exc,
+                )
 
         # Save to action trace
         if self._action_trace:
@@ -774,8 +830,12 @@ Be specific and actionable. Focus on what's useful to remember."""
                     trace, success=result.success,
                     result_summary=result.findings[:200],
                 )
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning(
+                    "Could not record the exploration in the action trace (%s: %s); the trace is "
+                    "lost, so the run is invisible to failure and improvement analysis.",
+                    type(exc).__name__, exc,
+                )
 
         # Log exploration
         log_path = self._data_dir / "exploration_log.jsonl"
@@ -787,8 +847,13 @@ Be specific and actionable. Focus on what's useful to remember."""
                     "result": result.to_dict(),
                 }
                 f.write(json.dumps(entry, ensure_ascii=False) + "\n")
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning(
+                "Could not append to the exploration log at %s (%s: %s); the run leaves no record "
+                "on disk, so an unwritable log looks like a system that never explores.",
+                log_path,
+                type(exc).__name__, exc,
+            )
 
     def get_exploration_stats(self) -> dict[str, Any]:
         stats = {

@@ -1011,6 +1011,30 @@ Measured 2026-10-01 — `ai-server`, full suite:
 > ⚠️ **The consequence is recorded, not fixed**: `_build_action_history_summary` still asserts
 > "no actions executed yet. First run." on a read failure -- changing that string changes what the
 > planner is told, so it is `DELEGATION.md` §4 item 40.
+>
+> **`CuriosityExploration`'s fifteen swallowed failures now name themselves — an unreadable source scored the same as an empty one (2026-10-04): `2227 passed / 8 skipped`**
+>
+> `curiosity_exploration.py` turns seven candidate sources plus a curiosity update, three
+> context builders and a four-way save into candidate lists. Every one of the fifteen failure
+> paths was silent, so **a source that could not be read contributed exactly as many
+> candidates as an empty source: none** — an unreadable store was indistinguishable from a
+> system with nothing to be curious about. The module already named its *LLM* failure
+> (`_candidates_from_llm` logs "LLM suggestion failed"), so only the *source* failures were
+> silent: an asymmetry measurable inside one class.
+> All fifteen now name the source, the exception type and the consequence. **The return
+> values are unchanged**, so the pin fixes behaviour that already existed.
+> Pin `tests/test_curiosity_exploration_failures_are_named.py` (**18 cases** = 15 driven sites
+> + a legitimate-absence control + 2 structural, mutation **19/19** with a no-op control,
+> original restored byte-exactly). The **+18** is that pin and nothing else; egress is
+> **unchanged at 314 passed / 1 skipped**, the deselected count moved **1902 -> 1920**, and the
+> derived figure is **255 -> 273** (`2235 - 1962` collected).
+> ⚠️ **The pin caught a defect in my own message text**: adjacent string literals concatenate
+> with no separator, so a message split as `"...leaves no record"` + `"on disk..."` rendered
+> **"no recordon disk"** — visible only because the pin asserts on the *rendered* text.
+> ⚠️ **Three self-inflicted tooling defects were caught by three different mechanisms**: the
+> pre-write `ast.parse` (a replacement missing a trailing comma), `git` (replacement blocks
+> built from only the `except` block **deleted** the 15 `context` lines), and the rendered-text
+> assertion (the missing spaces). None reached a commit.
 
 - **Total tests (2026-10-01 record)**: **1926 passed / 8 skipped**
   — the **+20** over the 2026-09-30 figure are **all new pins**: four for B-5① (the confirmation↔desire
@@ -1082,7 +1106,7 @@ Measured 2026-10-01 — `ai-server`, full suite:
   `$LASTEXITCODE` = **0**), and both `.ps1` gates ran end-to-end — so treat this as a *fallback*
   diagnosis, not the expected state.
 - **Egress regression suite**: **314 passed / 1 skipped** (315 tests carry the `egress` marker,
-  1902 deselected). CI enforces a floor of 160 (`--require-egress-tests=160`) **and** mutation-proves
+  1920 deselected). CI enforces a floor of 160 (`--require-egress-tests=160`) **and** mutation-proves
   the gate: breaking it yields failures, restoring it yields 314 passes. The mutation figure is
   **76 failures** (measured 2026-10-03 on the 315-marker baseline; it was 74 at the 2026-10-01
   baseline of 305 and 62 at the 268-marker baseline — **re-run it before quoting**, the number is a
