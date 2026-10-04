@@ -831,7 +831,12 @@ class AutonomousLoop:
             return []
         try:
             return [item.to_dict() for item in agent_state.snapshot("autonomous priority").obligations]
-        except Exception:
+        except Exception as exc:
+            logger.warning(
+                "Could not read unresolved obligations from AgentState (%s: %s); returning "
+                "an empty list, so this cycle treats every duty as already resolved.",
+                type(exc).__name__, exc,
+            )
             return []
 
     def _llm_usage_high(self) -> tuple[bool, str]:
@@ -875,7 +880,13 @@ class AutonomousLoop:
             return 0.15
         try:
             situation = agent_state.snapshot("autonomous interrupt").situation or {}
-        except Exception:
+        except Exception as exc:
+            logger.warning(
+                "Could not read the situation model for interruption cost (%s: %s); "
+                "falling back to cost=0.15 -- the same value used when no AgentState is "
+                "wired -- so interruptibility is assumed mid-range rather than unknown.",
+                type(exc).__name__, exc,
+            )
             return 0.15
         kind = str(situation.get("interruptibility") or "").lower()
         # Values ascend this ladder, which is the order
@@ -1343,7 +1354,12 @@ class AutonomousLoop:
             return None
         try:
             return catalog.resolve(capability_id)
-        except Exception:
+        except Exception as exc:
+            logger.warning(
+                "Could not resolve the manifest for capability %r (%s: %s); returning "
+                "None, so callers read it as absent (_is_inventory_capability -> False).",
+                capability_id, type(exc).__name__, exc,
+            )
             return None
 
     def _is_inventory_capability(self, capability_id: str) -> bool:
@@ -3822,7 +3838,14 @@ Rules:
                 if line.strip():
                     entries.append(_json.loads(line))
             return entries
-        except Exception:
+        except Exception as exc:
+            logger.warning(
+                "Could not read the autonomous execution log at %s (%s: %s); returning "
+                "an empty history, so _build_action_history_summary tells the LLM \"no "
+                "actions executed yet. First run.\", _burden_activity reports the period "
+                "as empty, and _recent_capability_ids reports no recent capabilities.",
+                log_path, type(exc).__name__, exc,
+            )
             return []
 
     def _build_action_history_summary(self, max_entries: int = 20) -> str:

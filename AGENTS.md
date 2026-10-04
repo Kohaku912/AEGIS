@@ -984,6 +984,34 @@ Measured 2026-10-01 — `ai-server`, full suite:
 > all eight named handlers were reported as silent (eight false positives, measured). Dropping the
 > filter gave 34 passed.
 
+> **`AutonomousLoop`'s four swallowed failures now name themselves — one of them was feeding the planner a false statement (2026-10-04): `2209 passed / 8 skipped`**
+>
+> `AutonomousLoop` turned four *failures* into an *absence* or a *default*, none of them logged, so
+> each was indistinguishable from a positive fact: `_priority_obligations` -> `[]` ("every duty is
+> already resolved"); `_current_interruption_cost` -> `0.15` -- **the same value as the "no AgentState
+> wired" default**, so "read failed" and "nothing wired" were one number; `_manifest_for` -> `None`
+> ("capability absent", which `_is_inventory_capability` reads as `False`); and `_load_recent_history`
+> -> `[]`, which `_build_action_history_summary` renders as the literal string **`"Autonomous
+> execution history: no actions executed yet. First run."`** and injects into the planning LLM's
+> context -- while `_burden_activity` reports the period as empty and `_recent_capability_ids` reports
+> no recent capabilities.
+> All four now name the path (where there is one), the exception type and the consequence. **The
+> return values are unchanged**, so the pin fixes behaviour that already existed and may not move.
+> Two sibling handlers stay silent **on purpose** and are allow-listed in the pin:
+> `_call_propose_candidates_llm` degrades malformed LLM JSON to
+> `{"candidates": [], "no_action_reason": <raw content>}` (the reason is preserved, so it is not
+> silent) and `_sanitize_for_execution_log` is a masking layer, not a data read.
+> Pin `tests/test_autonomous_loop_failures_are_named.py` (**7 cases**, mutation **7/7** plus a no-op
+> control, original restored byte-exactly). The **+7** is that pin and nothing else; egress is
+> **unchanged at 314 passed / 1 skipped**, the deselected count moved **1895 -> 1902**, and the
+> derived figure is **248 -> 255** (`2217 - 1962` collected).
+> ⚠️ **The control caught my own unrealistic double**: `_capability_catalog()` reads `self._broker`
+> directly (no `getattr` default), so a bare `object.__new__` instance raised `AttributeError` instead
+> of returning `None` -- production always sets that attribute. **The double must match production.**
+> ⚠️ **The consequence is recorded, not fixed**: `_build_action_history_summary` still asserts
+> "no actions executed yet. First run." on a read failure -- changing that string changes what the
+> planner is told, so it is `DELEGATION.md` §4 item 40.
+
 - **Total tests (2026-10-01 record)**: **1926 passed / 8 skipped**
   — the **+20** over the 2026-09-30 figure are **all new pins**: four for B-5① (the confirmation↔desire
   link), one for the general invariant that **the shipped `config/settings.json` declares no key that
@@ -1054,7 +1082,7 @@ Measured 2026-10-01 — `ai-server`, full suite:
   `$LASTEXITCODE` = **0**), and both `.ps1` gates ran end-to-end — so treat this as a *fallback*
   diagnosis, not the expected state.
 - **Egress regression suite**: **314 passed / 1 skipped** (315 tests carry the `egress` marker,
-  1895 deselected). CI enforces a floor of 160 (`--require-egress-tests=160`) **and** mutation-proves
+  1902 deselected). CI enforces a floor of 160 (`--require-egress-tests=160`) **and** mutation-proves
   the gate: breaking it yields failures, restoring it yields 314 passes. The mutation figure is
   **76 failures** (measured 2026-10-03 on the 315-marker baseline; it was 74 at the 2026-10-01
   baseline of 305 and 62 at the 268-marker baseline — **re-run it before quoting**, the number is a
