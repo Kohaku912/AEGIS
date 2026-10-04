@@ -1228,6 +1228,14 @@ Measured 2026-10-01 — `ai-server`, full suite:
 > code. The control is that the guard detector is not vacuous -- on a synthetic source it reports `try/except`
 > as guarded and **`try/finally` as not** (a `finally` swallows nothing).
 
+> **A duplicate audit `entry_id` vanishes with no row, no exception and no record (2026-10-05): `2287 passed / 8 skipped`**
+>
+> `AuditLog._insert_record` (`audit/audit_log.py:245`) issues `INSERT OR IGNORE INTO audit`. `OR IGNORE` already absorbs the very constraint violation that the `except sqlite3.IntegrityError: pass` beneath it names, so a second record with an existing `entry_id` produces **no row, no exception and no log line** (measured: `count() == 1` after two appends of the same id). `append` (`:291`) writes to `self._entries` unconditionally (`:321`), so the in-memory reader `list_recent()` keeps reporting the dropped record while `count()` / `read_all()` deny it -- **two readers of the same audit log disagree**.
+> ⚠️ **Reachable from outside the process.** The gRPC `WriteAuditLog` (`grpc_server.py:402`) passes the **client-supplied** `record_id` straight into `entry_id` (`:411`) and returns `code=0 "ok"` either way (measured: two calls with the same `record_id` both return ok, and the table gains exactly one row). Recorded as §4 item 52; behaviour unchanged -- reject / merge / announce is an owner call.
+> New pin `tests/test_audit_duplicate_entry_ids_are_dropped_silently.py` (**7 cases, mutation 4/5**).
+> ⚠️ **The first version of that pin was too weak, and the harness caught it.** It asserted only that `append` did not raise -- which a plain `INSERT` plus the swallowing handler satisfies just as well, so the mutation turning `OR IGNORE` into `INSERT` **survived every case in the file**. The handler's *execution* is now measured with a line tracer (both line numbers read from the module's own AST), with `execute_line in executed` as the non-vacuity control. The 5th mutation (`pass` -> `raise` inside the handler) **survives on purpose**: its survival *is* the evidence that the handler is dead while `OR IGNORE` stands.
+> Also repaired `DELEGATION.md` §4, which was rendering as **eight** tables: 7 stray blank lines inside the register, plus three rows with the wrong cell count (row 17 an unescaped `|` inside a code span, row 40 an unclosed 4th column, row 42 a stray empty 5th cell). It is now one contiguous 52x4 table, verified as pure CRLF + one run of 1..52 + every row equal to the header's cell count.
+
 - **Total tests (2026-10-01 record)**: **1926 passed / 8 skipped**
   — the **+20** over the 2026-09-30 figure are **all new pins**: four for B-5① (the confirmation↔desire
   link), one for the general invariant that **the shipped `config/settings.json` declares no key that
