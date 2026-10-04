@@ -1089,7 +1089,7 @@ Measured 2026-10-01 — `ai-server`, full suite:
 > Pin `tests/test_context_builder_failures_are_named.py` (**7 cases** = 4 driven sites + a
 > legitimate-absence control + 2 structural, mutation **7/7** with a no-op control, original
 > restored byte-exactly). The **+7** is that pin and nothing else; egress is **unchanged at
-> 314 passed / 0 skipped**, the deselected count moved **1932 -> 1939**, and the derived
+> 314 passed / 1 skipped**, the deselected count moved **1932 -> 1939**, and the derived
 > figure is **285 -> 292** (`2254 - 1962` collected).
 > ⚠️ **The pin encodes reachability, not just the fix**: it parses `runtime.py` and asserts the
 > `ContextBuilder(...)` keyword set **equals** the seven wired backends, so *wiring* another
@@ -1099,6 +1099,37 @@ Measured 2026-10-01 — `ai-server`, full suite:
 > occurrences and the pin "passed" for the wrong reason. A mutant identical to the original
 > reads as "the pin is vacuous", so the harness now **asserts the mutant differs** and checks
 > the phrase in the **rendered** text (`ast`), not the source.
+
+> **`web/ui_overview.py`'s eight bare-absence swallows now name themselves — an unreadable source looked like an empty section (2026-10-04): `2259 passed / 8 skipped`**
+>
+> The module has **26** `except` handlers; cycle 11 had already named **four**. Measuring the
+> remaining 22 *before* naming them split them three ways, and only **eight** are swallows:
+> **8 are deliberate coercion / signature retries** (`_number`, `_as_wire_text`, `_json_preview`,
+> `_call_with_limit`, `_humanize_event_message`, `_causal_chain_from_operation`'s optional
+> `ImportError`, and two `except TypeError` retries that call a narrower signature) — naming them
+> would misdescribe a handled conversion; **5 already put the exception into the payload**
+> (`_section`, `_agent_state`, `_user_understanding`, `_initiative`, `_behavioral_reports` all
+> return `{"summary": f"... unavailable: {exc}"}`), so the failure is *visible*, not swallowed;
+> and **1 is a documented fallback** whose own comment calls the raw data usable.
+> Reachability was measured first: all five enclosing functions are live (`_mind_summary` /
+> `_usage` / `_errors` are registered as sections at `:38` / `:69` / `:70`; `_server_list` at
+> `:725`/`:769`/`:848`/`:1651`; `_recent_ui_events` at `:905`/`:939`/`:964`).
+> The heaviest consequence is `_usage`: when the read fails, `data` stays empty, `if not data:`
+> fires, and the section displays the text **"LLM usage is available from the LLM Usage
+> service."** — a failed read reported as an available service. **Return values unchanged.**
+> Pin `tests/test_ui_overview_failures_are_named.py` (**13 cases** = 8 driven sites + a
+> legitimate-absence control + 4 structural). The structural tests pin the *deliberate* handlers
+> as unnamed (26 handlers / 12 named; the coercion set stays silent; the five surfacing handlers
+> must mention `exc` in their body). **Mutation 12/12** (each site neutered individually, all
+> eight at once, an added silent handler, and a renamed phrase) with a no-op control; the module
+> was restored byte-exactly.
+> ⚠️ **The pin found a real asymmetry before it was finished**: `_server_list` reads
+> `runtime.status_manager` (via `_runtime_server_status`) with **no** getattr default, so a
+> minimal runtime raises `AttributeError` that *propagates* — while `_errors` swallows the same
+> call. Recorded as `DELEGATION.md` §4 item 44.
+> ⚠️ **The instrument lied once more, in the same way**: the recon's first scan reported
+> **0 handlers in a 3706-line file** because the visitor object was built twice, so the result
+> came from a fresh instance. A clean zero is the signature of a dead instrument.
 
 - **Total tests (2026-10-01 record)**: **1926 passed / 8 skipped**
   — the **+20** over the 2026-09-30 figure are **all new pins**: four for B-5① (the confirmation↔desire
@@ -1170,7 +1201,7 @@ Measured 2026-10-01 — `ai-server`, full suite:
   `$LASTEXITCODE` = **0**), and both `.ps1` gates ran end-to-end — so treat this as a *fallback*
   diagnosis, not the expected state.
 - **Egress regression suite**: **314 passed / 1 skipped** (315 tests carry the `egress` marker,
-  1939 deselected). CI enforces a floor of 160 (`--require-egress-tests=160`) **and** mutation-proves
+  1952 deselected). CI enforces a floor of 160 (`--require-egress-tests=160`) **and** mutation-proves
   the gate: breaking it yields failures, restoring it yields 314 passes. The mutation figure is
   **76 failures** (measured 2026-10-03 on the 315-marker baseline; it was 74 at the 2026-10-01
   baseline of 305 and 62 at the 268-marker baseline — **re-run it before quoting**, the number is a

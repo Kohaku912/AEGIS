@@ -1695,7 +1695,13 @@ def _mind_summary(runtime: Any) -> dict[str, Any]:
     if loop is not None and hasattr(loop, "get_status"):
         try:
             autonomy = dict(loop.get_status() or {})
-        except Exception:
+        except Exception as exc:
+            logger.warning(
+                "Could not read the autonomous loop status (%s: %s); the autonomy "
+                "block of the mind section stays empty, so a loop that cannot report "
+                "looks like a loop with nothing to report.",
+                type(exc).__name__, exc,
+            )
             autonomy = {}
 
     desires: dict[str, Any] = {}
@@ -1719,8 +1725,13 @@ def _mind_summary(runtime: Any) -> dict[str, Any]:
                 autonomy["pressure_threshold"] = stats.get("pressure_threshold", 5.0)
             if hasattr(desire_system, "get_pressure_state"):
                 pressure_details = desire_system.get_pressure_state()
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning(
+                "Could not read the desire pressure state (%s: %s); the desires and "
+                "pressures fields keep their empty defaults, so a broken desire system "
+                "looks like a calm one.",
+                type(exc).__name__, exc,
+            )
 
     memory_stats = {}
     manager = getattr(runtime, "memory_manager", None)
@@ -1825,8 +1836,14 @@ def _usage(runtime: Any) -> dict[str, Any]:
             prompt_registry=getattr(runtime, "prompt_registry", None),
         )
         data.update(service.get_summary(period="24h") or {})
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning(
+            "Could not read the LLM usage service (%s: %s); if nothing else "
+            "populated the data, the section falls back to the text 'LLM usage is "
+            "available from the LLM Usage service.', so a failed read is reported as "
+            "an available service.",
+            type(exc).__name__, exc,
+        )
     if not data:
         data = {"summary": "LLM usage is available from the LLM Usage service.", "input_tokens": 0, "output_tokens": 0}
     return _usage_projection(data)
@@ -1945,7 +1962,13 @@ def _errors(runtime: Any) -> dict[str, Any]:
                 str(server_id): str(value.get("status") or "").upper()
                 for server_id, value in server_snapshots.items()
             }
-        except Exception:
+        except Exception as exc:
+            logger.warning(
+                "Could not read the server status snapshot (%s: %s); the errors "
+                "section carries no per-server status, so an unreadable status source "
+                "looks like servers with nothing to report.",
+                type(exc).__name__, exc,
+            )
             server_statuses = {}
             server_snapshots = {}
     try:
@@ -2087,7 +2110,12 @@ def _errors(runtime: Any) -> dict[str, Any]:
     if repair is not None and hasattr(repair, "get_status"):
         try:
             status = repair.get_status() or {}
-        except Exception:
+        except Exception as exc:
+            logger.warning(
+                "Could not read the repair status (%s: %s); repair_status stays "
+                "empty, so an unreadable repair manager looks like a healthy one.",
+                type(exc).__name__, exc,
+            )
             status = {}
     return {"items": items, "count": len(items), "repair_status": status, "source": "repair_manager"}
 
@@ -2580,7 +2608,12 @@ def _server_list(runtime: Any) -> list[dict[str, Any]]:
     if android_mgr is not None:
         try:
             android_status = android_mgr.get_status()
-        except Exception:
+        except Exception as exc:
+            logger.warning(
+                "Could not read the Android manager status (%s: %s); android_online "
+                "is False, so an unreadable manager looks like an offline device.",
+                type(exc).__name__, exc,
+            )
             android_status = {}
         android_online = bool(android_status.get("online"))
         found = False
@@ -2701,14 +2734,25 @@ def _recent_ui_events(runtime: Any, *, limit: int) -> list[dict[str, Any]]:
         result = manager.list_recent(limit=limit)
     except TypeError:
         result = manager.list_recent(limit)
-    except Exception:
+    except Exception as exc:
+        logger.warning(
+            "Could not read recent UI events (%s: %s); the timeline shows no "
+            "events, so an unreadable event manager looks like a quiet system.",
+            type(exc).__name__, exc,
+        )
         return []
     raw_items = result.get("events", []) if isinstance(result, dict) else result
     items: list[dict[str, Any]] = []
     for raw in raw_items or []:
         try:
             items.append(normalize_ui_event(raw))
-        except Exception:
+        except Exception as exc:
+            logger.warning(
+                "Could not normalise a UI event (%s: %s); the row is dropped from "
+                "the timeline, so a malformed event is indistinguishable from an "
+                "event that never happened.",
+                type(exc).__name__, exc,
+            )
             continue
     return sorted(items, key=lambda item: int(item.get("occurred_at", 0) or 0), reverse=True)
 
