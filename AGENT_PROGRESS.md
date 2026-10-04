@@ -1102,7 +1102,7 @@ P1-5 後半（「拾ってから残骸 7 面を削除」）の**境界集合の�
 |---|---|---|
 | `ConfirmationStore.mark_executed` / `mark_failed` | **生きた契約** | `test_forced_gate_stays_retired.py:61-65` が「**意図的に**この tuple に入れない」と文書化（`core_capabilities._confirmation` は 2 つの suffix しか dispatch しない） |
 | `profile.requires_approval()` | **生きた契約** | テストが読む。`requires_approval_for` は宣言済みの agent-profile データフィールド |
-| `risk.approval_mode`（5 マニフェスト） | **消費されている** | `capability_catalog.py:165-166`・`:563-568`・`:599-606`、`folder_registry.py:258`、`capability_overrides.py` |
+| `risk.approval_mode`（5 マニフェスト） | **消費されている** | `capability_catalog.py:163-164`・`:550-555`・`:586-593`、`folder_registry.py:254`、`capability_overrides.py` |
 | `motivation_arbiter.requires_approval` | ⚠️ **削除可能だが「唯一」ではない**（B-3 で訂正） | `:214`・`:234`・`:254` で `t.requires_approval` から書かれ、`:320` は**別名** `best_task.requires_user_approval` を、`:332` はリテラル `False` を書く。**`MotivationDecision.requires_approval` を読むものは 1 つも無い**。`:214/:234/:254` は `ExternalTask.requires_approval` を**読んでいる**が、その分岐は `ExternalTask` がどこでも構築されないため**到達不能** — **「読者 0」と「読者到達不能」は別の死**。削除はオーナー判断（経路全体の去就と一体）。**下の B-3 節を参照** |
 
 ### 残作業（オーナー判断）

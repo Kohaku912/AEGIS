@@ -836,7 +836,7 @@ git ls-remote origin refs/heads/cf-grpc-and-goal-hygiene refs/heads/main \
    コスト表は `_RECEPTIVITY` が下るはしごを上る。**写像を統合しない**のが正しい — 消費者も軸も違う）。
    ~~自律的な結果の `expected_usefulness` が定数~~（**B-17 も 2026-09-30 に修正済み** —
    `_expected_usefulness(task)` が圧力を既存変換 `min(1.0, pressure / 10.0)` で正規化し、
-   `:3218-3219` で `_current_interruption_cost()` と並んで渡される）。
+   `:3381-3382` で `_current_interruption_cost()` と並んで渡される）。
    **残るのは B-11 の構造面だけ** — `_current_interruption_cost` が素の `.get(kind, 0.2)` で終わるので、
    **新しいレベルが `batch_later` より安く読まれる**（`_RECEPTIVITY` 側は discovery+等式で守られている）。
    **残余の罠**: `PresentationRoutingContext` の既定は両方 0.5 のまま。`src/` の呼び手はループだけなので
@@ -1347,7 +1347,7 @@ P1-5 後半（「拾ってから残骸 7 面を削除」）の**境界集合の�
 |---|---|---|
 | `ConfirmationStore.mark_executed` / `mark_failed` | **生きた契約** | `test_forced_gate_stays_retired.py:61-65` が「**意図的に**この tuple に入れない」と文書化している。将来の配線点 |
 | `profile.requires_approval()` | **生きた契約** | テストが読む。`requires_approval_for` は宣言済みの agent-profile データフィールド |
-| `risk.approval_mode`（5 マニフェスト） | **消費されている** | `capability_catalog.py:165-166`・`:563-568`・`:599-606`、`folder_registry.py:258`、`capability_overrides.py` |
+| `risk.approval_mode`（5 マニフェスト） | **消費されている** | `capability_catalog.py:163-164`・`:550-555`・`:586-593`、`folder_registry.py:254`、`capability_overrides.py` |
 | `motivation_arbiter.requires_approval` | ⚠️ **削除可能だが「唯一」ではない**（B-3 で訂正） | `:214`・`:234`・`:254` で `t.requires_approval` から書かれ、`:320` は `best_task.requires_user_approval`（**別名**）を、`:332` はリテラル `False` を書く。**`MotivationDecision.requires_approval` を読むものは 1 つも無い**。`:214/:234/:254` は `ExternalTask.requires_approval` を**読んでいる**が、その分岐（user / scheduled / event）は `ExternalTask` がどこでも構築されないため**到達不能** — つまり「読者が 0」と「読者が到達不能」という**別種の死**が同じフィールド名で並んでいた。削除はオーナー判断（経路全体の去就と一体） |
 
 ### 5.5 P2-3 の実測 — 承認時代の記述は、ほぼ掃討済みだった（2026-09-29）
@@ -2294,7 +2294,7 @@ ai-server **1756 → 1758 passed / 31 skipped**（**+2 = 新規 2 関数**、実
 | P2-4 | ✅ **決着**（**2026-09-30 オーナー決定 = C-1「維持」**）— `/approve` `/modify-and-approve` `/cancel` の fresh passkey（15 分）は**そのまま**。根拠: 再認証の契機はこれ 1 つで**負担に上限が付く**。短くすると 1 タスクで 2 回聞かれ**北極星に反する**。比例の根拠は「頻度の上限」であって危険度への比例ではない。正典は `DELEGATION.md` §2 の C-1（**§0.2 の行は契約どおり削除済み** — 決定済みの行は残さない） |
 | P2-5 | 長期（**在庫の正典は §3.2**。この行は元の 6 項目の記録で、状態は 2026-10-01 に実測して付け直した）: ~~vision のローカル化~~ ✅ 配線済み（`local_vision` → `localhost:11434`、egress は止めない）/ ~~gRPC TLS~~ ❌ 未配線（`DELEGATION.md` §4 項目 14）/ **Room 実機プロバイダ** ❌ Orange Pi 待ち / ~~cross-device context~~ ✅ 2026-09-30 / ~~音声 I/O~~ ✅ 2026-09-30 / **multi-user** ❌ v1 スコープ外 |
 | P2-6 | ✅ **決着**（**2026-09-30 オーナー決定 = B-2「③ 現状維持（固定済み）」**）— `aegis_ai/evaluation/` の死んだ部分グラフ（1,104 行）は**削除も配線もしない**。配線は期待の書き直しを伴う製品判断（`delete_file` → `ALLOW_WITH_AUDIT` は**今は正しい**）で、**固定済みなので急がない**。正典は `DELEGATION.md` §2 の B-2（**§0.2 の行は契約どおり削除済み**）、記録は §5.7 と `tests/test_evaluation_pack_is_dead.py` |
-| P2-7 | ✅ **決着**（**2026-09-30 オーナー決定 = B-1**）— ① コスト表の中央 2 値は**入れ替え済み**（実測: `suppress` 0.9 / `batch_later` 0.55 / `important_only` 0.4 / `interruptible` 0.1 — 受容表と単調に整合）。② は**実測で定義が不要になり実行済み**: `_expected_usefulness(task)` が圧力（0–10）を既存変換 `min(1.0, pressure / 10.0)` で正規化し、`:3218-3219` で `interruption_cost=self._current_interruption_cost()` と**並んで**生きた `PresentationRoutingPolicy().decide` に渡される。~~③~~ は撤回済み。正典は `DELEGATION.md` §2 の B-1（**§0.2 の行は契約どおり削除済み**）、ピンは `tests/test_interruption_cost_vocabulary.py` |
+| P2-7 | ✅ **決着**（**2026-09-30 オーナー決定 = B-1**）— ① コスト表の中央 2 値は**入れ替え済み**（実測: `suppress` 0.9 / `batch_later` 0.55 / `important_only` 0.4 / `interruptible` 0.1 — 受容表と単調に整合）。② は**実測で定義が不要になり実行済み**: `_expected_usefulness(task)` が圧力（0–10）を既存変換 `min(1.0, pressure / 10.0)` で正規化し、`:3381-3382` で `interruption_cost=self._current_interruption_cost()` と**並んで**生きた `PresentationRoutingPolicy().decide` に渡される。~~③~~ は撤回済み。正典は `DELEGATION.md` §2 の B-1（**§0.2 の行は契約どおり削除済み**）、ピンは `tests/test_interruption_cost_vocabulary.py` |
 
 ---
 
@@ -2410,3 +2410,14 @@ ruff は当該 2 ファイルとも clean。ai-server は対象ファイルを�
 - Agent 移行の進捗: `AGENT_PROGRESS.md`
 - Dashboard 改修: `DASHBOARD_REFINED_PLAN.md`（D1–D9）、`DASHBOARD_V3_PLAN.md`（L1–L6）
 - リスク台帳: `docs/risk-register.md`
+
+---
+
+## 7. 引用の掃討記録（サイクル 31、2026-10-05）
+
+> **本レポートの「ファイル名を持たない」裸の `:NNN` を 90 件すべて測った。** サイクル 29 は**ファイル名つき**の引用を掃討したが、裸の `:NNN`（持ち主を主語から推論するしかない）は未着手だった。90 件は 5 つに割れた: **偽陽性 4**・**本レポート自身の日付つき注記の中 28**（サイクル 29/30 の掃討記録そのもの）・**日付つき叙述／台帳行として据え置き 15**・**腐っていたので修正 4**・**実測して正しいと確認 39**。
+> ⚠️ **腐っていたのは 2 つの事実だけ**（4 件は写しの重複）。① `_expected_usefulness(task)` と `_current_interruption_cost()` が**並んで** `PresentationRoutingPolicy().decide` に渡される場所: `:3218-3219` → **`:3381-3382`**（写し **3** — 本レポート §3.1 と §0.x の P2-7 行、`DELEGATION.md` の B-1② 行）。② `risk.approval_mode` の消費サイト: `capability_catalog.py:165-166`→**`:163-164`**（override 適用）・`:563-568`→**`:550-555`**（書き）・`:599-606`→**`:586-593`**（読み）、`folder_registry.py:258`→**`:254`**（写し **2** — 本レポート §5.4 と `AGENT_PROGRESS.md`）。
+> ⚠️ **どちらも「書かれた時は正しかった」ことを `git` で確認した**（`:3218` は `a75c3db` で `expected_usefulness=` の行、`capability_catalog.py:599` と `folder_registry.py:258` は `d483813` で `approval_mode` の行）。つまり**誤った主張ではなく、腐った写像**なので現在の番号へ付け替えた。置換は**すべて同じ長さ**（`165-166`→`163-164` など）なので**バイト数は不変**（`503390`・`184139`・`186434`）。
+> ⚠️ **据え置いた腐り（記録）**: ① §3.1 と §5.8 の**日付つき叙述**の `:1379`（正 `:1583`）・`:2806-2812`・`:1051`・`:868`（正 `:872-875`）・`:708`（正 `:880`）・`:712`（正 `:890`）— これらは**同じ段落にファイル名つきの引用**（`autonomous_loop.py:1389`→正 `:1589`・`:1050`）を併せ持つので、裸の分だけ直すと**段落が半端に掃討された状態**になる。段落ごと直すのは次のサイクル。② `:917`/`:909`（`manager_routes.py` の `presentation_stream` 欠陥）は**修正前の番号**（サイクル 29 の判断と同じ）。③ §5.1 の裸の `165 / 521 / 563` は **2026-09-28 のスナップショット**で、判定（「保留」）は §5.4 に**上書き済み**。
+> ⚠️ **走査器の盲点**: 裸の番号が**コロン無し**で並ぶ形（`（165 / 521 / 563）`）は `:NNN` の走査に**掛からない** — §5.1 のそれは `approval_mode` を grep して初めて出た。**「走査した」は「全部見た」ではない。**
+> ⚠️ **同名ファイルの罠（実測）**: `event_bus.py:241`/`:243` は**正しい**が、それは `ai-server/src/event_bus.py`（262 行）の話で、`aegis_ai/event_bus.py` は**3 行の再輸出シム**。basename だけの引用は**構築上曖昧**。
