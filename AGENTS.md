@@ -1210,6 +1210,24 @@ Measured 2026-10-01 — `ai-server`, full suite:
 > by AST: the L2 submitter exists, the L1 one does not, and the immediate handler calls the pipeline directly
 > (no `submit`). Both pins fail if the recorded fix is applied, so the record moves with the code.
 
+> **The `_server_list` exposure is 4 of 5 call sites, not 1 (2026-10-05): `2280 passed / 8 skipped`**
+>
+> Cycle 21 pinned the unguarded `status_manager` read at one site. Measuring the *exposure* generalises it:
+> `web/ui_overview.py` calls `_server_list` from five enclosing functions, and only one wraps the call in a
+> `try` with an `except` -- `_core` (725), `_attention` (769), `_connection` (848) and `_servers` (1651) are
+> unguarded; `_errors` (1977) is guarded. All four unguarded callers are **registered sections** in the
+> `sections` dict (`:41`, `:42`, `:56`, `:57`), so they are reachable: a runtime without a `status_manager`
+> raises `AttributeError` in four sections while `_errors` survives on the same runtime.
+> ⚠️ **The module contradicts its own stated intent.** `_errors`' guard carries the comment "Raw StatusManager
+> data remains a usable fallback for **minimal runtimes** and focused tests that do not install all dashboard
+> managers" -- so 4 of the 5 call sites break the contract that comment declares. Recorded as §4 item 51,
+> generalising item 44.
+> New pin `tests/test_server_list_call_sites_are_guarded_or_recorded.py` (**3 cases, mutation 3/3**) records
+> the **exposure map** rather than one call: it asserts the set of unguarded enclosing functions *equals* the
+> recorded set, so guarding a site or adding a new unguarded one turns it red and the record moves with the
+> code. The control is that the guard detector is not vacuous -- on a synthetic source it reports `try/except`
+> as guarded and **`try/finally` as not** (a `finally` swallows nothing).
+
 - **Total tests (2026-10-01 record)**: **1926 passed / 8 skipped**
   — the **+20** over the 2026-09-30 figure are **all new pins**: four for B-5① (the confirmation↔desire
   link), one for the general invariant that **the shipped `config/settings.json` declares no key that
