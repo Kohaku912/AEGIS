@@ -519,7 +519,7 @@ Measured 2026-10-01 — `ai-server`, full suite:
 > lacks, so `get_backend("association")` returns `None` — and `AssociationMemory` is real and **live**,
 > just registered on the *runtime* rather than the manager. `get_stats()` drops `person` and
 > `action_trace`, **both of which define `get_stats`**, so the live `GET /api/memory/stats`
-> (`manager_routes.py:361`) silently reports 7 of 10 (`store` is legitimately absent — `MemoryStore` has
+> (`manager_routes.py:371`) silently reports 7 of 10 (`store` is legitimately absent — `MemoryStore` has
 > no `get_stats`). `DELEGATION.md` §4 item 27. Egress is **unchanged at 314 passed / 1 skipped** (315
 > carry the marker, **1704** deselected). The **derived** "added since carry no marker" figure is now
 > **57** (`2019 − 1962` collected, or `1704 − 1647` deselected). ⚠️ **Fixed the same day** — see the
@@ -532,7 +532,7 @@ Measured 2026-10-01 — `ai-server`, full suite:
 > not by reading the file: of **186 endpoints**, **exactly two** are unreachable —
 > `GET /api/servers` resolves to `dashboard_server_status.api_servers` and leaves **`api_servers`
 > (`dashboard_legacy.py:1159`)** dead; `POST /api/memory/reload` resolves to
-> `dashboard_memory.memory_reload` and leaves **`api_memory_reload` (`dashboard_legacy.py:1372`)** dead.
+> `dashboard_memory.memory_reload` and leaves **`api_memory_reload` (`dashboard_legacy.py:1374`)** dead.
 > Both losers are **legacy closures** left behind by the blueprint migration. `DELEGATION.md` §4 item 28.
 > This also corrects a stale number: §3.2's "**98** unreferenced pairs" is the **multiplicity** count —
 > the distinct count is **200** pairs and the unreferenced set is **96**, because the two shadowed pairs
@@ -613,10 +613,10 @@ Measured 2026-10-01 — `ai-server`, full suite:
 > `ChromaSemanticMemory.sync_from_advanced_memory` (defined once at `chroma_semantic.py:163`, now
 > called nowhere), and the surviving `POST /api/memory/reload` returns `"chroma_synced": 0` as a
 > **literal** — the only other mention of that key is a test asserting its *presence*, not its value.
-> The chain is dead end to end: `ChromaSemanticMemory` is constructed **only** at `factory.py:38`, and
+> The chain is dead end to end: `ChromaSemanticMemory` is constructed **only** at `memory/factory.py:38`, and
 > that `create_semantic_memory` has **no caller** either (its sole mention is the module docstring's
 > `Usage:` example — a string literal), while the live path builds plain `SemanticMemory` directly at
-> `runtime.py:1020`. So `chroma_available` is not merely unread, it is **not even produced** on the
+> `runtime.py:1038`. So `chroma_available` is not merely unread, it is **not even produced** on the
 > live path. ⚠️ **Wiring it is not free**: the class embeds through `OpenAIEmbeddingFunction`
 > (`OPENAI_API_KEY`, default `text-embedding-3-small`), so it would put **memory content** on the wire
 > — the single constraint's subject matter, which the *voluntary ask* must carry, not a settings flag.
@@ -633,7 +633,7 @@ Measured 2026-10-01 — `ai-server`, full suite:
 > same shape as the event-driven core's demo), `ChromaSemanticMemory` is constructed **only** inside
 > that function, `sync_from_advanced_memory` therefore has **no caller**, and `chroma_available` has
 > **no reader** — and is not even *produced*, because the live path builds plain `SemanticMemory`
-> directly (`runtime.py:1020`). The live `POST /api/memory/reload` answers `"chroma_synced": 0` as a
+> directly (`runtime.py:1038`). The live `POST /api/memory/reload` answers `"chroma_synced": 0` as a
 > **literal** (pinned as an `ast.Constant`, not a call). ⚠️ **Wiring it is not a free cleanup**: the
 > class embeds through `OpenAIEmbeddingFunction` (`OPENAI_API_KEY`, default `text-embedding-3-small`),
 > so it would put **memory content** on the wire — the single constraint's subject matter, which the
@@ -868,7 +868,7 @@ Measured 2026-10-01 — `ai-server`, full suite:
 > six channel classes and `OsNotificationProvider` as 宣言のみ; §7 says `send()` does not fan out), so the
 > new finding is the **settings-level consequence plus the detector's silence**. An `ast` sweep of every
 > `src/` module shows **`NotificationManager` is the only notification class constructed anywhere**
-> (`runtime.py:1053`, with `event_manager=` only). So the seven `NotificationSettings` fields have exactly
+> (`runtime.py:1071`, with `event_manager=` only). So the seven `NotificationSettings` fields have exactly
 > two readers — `NotificationPreferences._load_from_settings` and `QuietHoursManager._load_from_settings`
 > — inside two classes **nothing constructs**; the router that owns them is itself unconstructed, and it
 > builds `QuietHoursManager()` **with no `settings_store`**, so the loaders are dead **twice over**
@@ -922,7 +922,7 @@ Measured 2026-10-01 — `ai-server`, full suite:
 > **A corrupt `settings.json` silently reverted every egress permission to the narrow default (2026-10-04): `2168 passed / 8 skipped`**
 >
 > `SettingsStore._load` runs once from `__init__` and, on any failure, substituted the built-in
-> defaults with no signal — and `runtime.py:880` points it at the **shipped** `config/settings.json`,
+> defaults with no signal — and `runtime.py:898` points it at the **shipped** `config/settings.json`,
 > so a mistyped or corrupt file silently stopped the shipped configuration from being in effect.
 > Measured before writing the message: the built-in defaults differ from the shipped config in
 > **exactly three keys, all egress permissions** — `privacy.egress_allowed_hosts` `[]` vs
@@ -956,11 +956,11 @@ Measured 2026-10-01 — `ai-server`, full suite:
 > raises `AttributeError` out of `__init__` in all eight, because `json.loads` accepts it and the
 > next `last.get(...)` fails. `123` is exactly as unusable as `{"a": 1`, yet one is defaulted and
 > the other stops construction. And the exposure depends on the site: both live construction
-> points are **unguarded** (`runtime.py:977`, `runtime.py:1651`) while a third swallows the same
+> points are **unguarded** (`runtime.py:995`, `runtime.py:1669`) while a third swallows the same
 > call at DEBUG (`llm/memory_context.py:323`). Widening the caught set changes behaviour, so it is
 > `DELEGATION.md` §4 item 38 and the pin fixes the current divergence.
 > ⚠️ **The family's scope was measured too** — by *construction*, not by import: of the eleven
-> modules, the only one built outside `mind/` is **`Identity`** (`runtime.py:977`); `Mood`,
+> modules, the only one built outside `mind/` is **`Identity`** (`runtime.py:995`); `Mood`,
 > `Personality` and `LayeredEmotion` are live only through `AffectSystem`, and `Desire`, `Emotion`,
 > `GoalManager`, `SocialIntelligence` are built **nowhere** — `Emotion`/`GoalManager` are imported
 > only by `reflection_loop.py`, which is itself never constructed (a second-order dead surface).
@@ -973,7 +973,7 @@ Measured 2026-10-01 — `ai-server`, full suite:
 > **`docs/mind-layer.md`'s "ContextBuilder Integration" was corrected** after it failed to run:
 > its example passed `affect_system=` / `social_intelligence=`, which `ContextBuilder.__init__`
 > does not accept (`TypeError` measured), and read `ctx.affect` / `ctx.social`, which do not exist.
-> The only `ContextBuilder(` call site in `src/` is `runtime.py:979`, and the only mind component
+> The only `ContextBuilder(` call site in `src/` is `runtime.py:997`, and the only mind component
 > it receives is `identity`.
 > Pin `tests/test_mind_persistence_failures_are_named.py` (**34 cases**, mutation **8/8**, three of
 > them degrading a control, 2 files restored byte-exactly). The **+34** is that pin and nothing
@@ -1072,7 +1072,7 @@ Measured 2026-10-01 — `ai-server`, full suite:
 >
 > `context_builder.py` has **fourteen** `except` handlers and, before this cycle, **no logger at
 > all**. Measuring *reachability before writing* changed the claim: the composition root
-> (`runtime.py:979`) constructs the builder with **7 of the ~20** backends it accepts, so ten
+> (`runtime.py:997`) constructs the builder with **7 of the ~20** backends it accepts, so ten
 > handlers sit on paths that either never run or are deliberate fallbacks — **8** on unwired
 > backends, and **2** that still produce a value (`_user_model_store` falls back to
 > `to_context_string()`, `_media_fingerprint` to `str(metadata)`). Naming the first group would
@@ -1191,7 +1191,7 @@ Measured 2026-10-01 — `ai-server`, full suite:
 > **Two recorded asymmetries are now pinned: an unguarded `status_manager` read, and L1 running inline where L2 does not (2026-10-05): `2277 passed / 8 skipped`**
 >
 > **Item 44.** `dashboard_legacy._runtime_server_status` reads `runtime.status_manager.get_snapshot()` with
-> **no** getattr default (`dashboard_legacy.py:226`), so `ui_overview._server_list` -- which calls it
+> **no** getattr default (`dashboard_legacy.py:227`), so `ui_overview._server_list` -- which calls it
 > unguarded at `:2604` -- raises `AttributeError` for a runtime without a `status_manager`, while the sibling
 > `_errors` guards the *same* value with `getattr(runtime, "status_manager", None)` + `hasattr` (`:1952`), and
 > so does `_status_snapshot` (`:2672`). The correct pattern therefore already exists twice in the module and
@@ -1237,6 +1237,8 @@ Measured 2026-10-01 — `ai-server`, full suite:
 > Also repaired `DELEGATION.md` §4, which was rendering as **eight** tables: 7 stray blank lines inside the register, plus three rows with the wrong cell count (row 17 an unescaped `|` inside a code span, row 40 an unclosed 4th column, row 42 a stray empty 5th cell). It is now one contiguous 52x4 table, verified as pure CRLF + one run of 1..52 + every row equal to the header's cell count.
 > **The register's citations in files that were *not* shifted were rotten too (2026-10-05): `2287 passed / 8 skipped`** -- the count is **unchanged** because this cycle touched **no code and no test**: `DELEGATION.md` only (+9/-8). Cycle 24 repaired the `runtime.py` citations that the cycle-19 comment had shifted by +18; this cycle swept the *remaining* suspects, which live in files that were never shifted. Method: resolve each `path.py:NNN` against the two roots the register actually uses (`ai-server/src/aegis_ai/`, `ai-server/src/`) and flag any citation whose named neighbour is absent from the cited line, then measure each flag individually -- what the line *is* versus what the row *claims*. **6 citations were rotten**, and the largest error was not a shift but a *different statement*: `autonomous_loop.py:1092-1099` -> `:1254` (3 occurrences, **162 lines away**) -- the range named an `l2_result` assignment while the row claimed the `approval_decisions` supply site. The rest: `manager_routes.py:906`->`:911` (906 is `except Exception as e:` inside `presentation_dismiss`), `manager_routes.py:361`->`:371` (361 is the `/api/memory/search` route), `context_builder.py:203`->`:206` (203 initialises `events`), `dashboard_legacy.py:226`->`:227` (226 is **blank**), `dashboard_legacy.py:1372`->`:1374` (the `api_memory_reload` tombstone).
 > ⚠️ **The scanner's other 20 flags are false positives, in two shapes worth knowing**: (a) the row names a **callee** while citing the **call site** (`scheduler.py:75`, `personal_ai/hooks.py:367`, `intake/l1_router.py:160`, `llm/gateway.py:162-169`, `tests/*:NNN`) -- a citation is not a claim about one identifier; (b) a **basename that exists more than once** resolves to the wrong file (`main.py:27` and `dashboard.py:13` are correct under `aegis_ai/`, but the scan picked `aegis_agent_server/main.py` and `notification/channels/dashboard.py`) -- a basename-only citation is ambiguous *by construction*. Verification: every corrected citation was checked to land on a line that names the cited thing, and the register re-measured as pure CRLF + one contiguous run of 52 + 4 cells in every row. Deferred, with its size measured: **31 bare `:NNN` refs** (a line number with no filename) are a distinct surface that no scanner can resolve. **Swept the same day**: of the 31, **one is not a line ref at all** (`:99` is `DISPLAY=:99`), **25 measured correct**, **3 rotten** (`runtime.py:1764`->`:1792`, `runtime.py:1020`->`:1038`, `grpc_server.py:191`->`:185`). The 2 left (item 26's `:917`/`:909`) are line numbers inside a **done** row's "as found" text -- historical, and now labelled so in the note.
+> **AGENTS.md carried a *second copy* of the register's citations, and the +18 fix missed it (2026-10-05): `2287 passed / 8 skipped`** -- unchanged again, doc-only. Sweeping this file's 53 file-qualified citations found **13 corrections, and 9 of them were exactly +18** (`runtime.py:880`->`:898`, `:977`->`:995`, `:979`->`:997`, `:1020`->`:1038`, `:1053`->`:1071`, `:1651`->`:1669`). That is the same rot cycle 24 repaired **in the register only** -- the citations live in two documents, and fixing one copy left the other stale: **"I fixed the one place" is not a sweep.** The other 3: `manager_routes.py:361`->`:371` (361 is the `/api/memory/search` route), `dashboard_legacy.py:1372`->`:1374` (the tombstone), `dashboard_legacy.py:226`->`:227` (226 is **blank**). Plus one disambiguation: `factory.py:38` -> `memory/factory.py:38` (`factory.py` exists under both `llm/` and `memory/`; only the latter constructs `ChromaSemanticMemory`).
+> ⚠️ **The corrections had to be line-targeted, not global.** This file's own cycle-25 note contains the *old* numbers as an old->new mapping, so a global replace would rewrite `:1020`->`:1038` into `:1038`->`:1038` -- **a note that records a fix must not be rewritten by the next fix.** Every correction was then checked to land on a line that names the cited thing. Residue: 7 flags remain, all expected -- 5 are that note's own mapping, 1 is a set *declaration* cited for a member (`runtime.py:826` for `browser.discovery`), 1 cites a function name where the line carries the route path (`dashboard_legacy.py:1374`).
 
 - **Total tests (2026-10-01 record)**: **1926 passed / 8 skipped**
   — the **+20** over the 2026-09-30 figure are **all new pins**: four for B-5① (the confirmation↔desire
