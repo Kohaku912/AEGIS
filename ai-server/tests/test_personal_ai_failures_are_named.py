@@ -38,6 +38,7 @@ from pathlib import Path
 
 import pytest
 
+from aegis_ai.personal_ai.commitments import CommitmentManager
 from aegis_ai.personal_ai.delegation import DelegationPolicyStore
 from aegis_ai.personal_ai.hooks import HookEngine
 from aegis_ai.personal_ai.interruption import InterruptionController
@@ -57,8 +58,11 @@ _LOGGERS = {
     "social_proxy": "aegis_ai.personal_ai.social_proxy",
 }
 
-# (class, logger name) -- the five members of the duplicated `_audit` family.
+# (class, logger name) -- the six members of the duplicated `_audit` family.
+# Cycle 46 found the sixth (`CommitmentManager`) -- cycle 45's all-`pass` sweep could not
+# see it, because its `_audit` already named its failure (at WARNING, not DEBUG).
 _AUDIT_FAMILY = [
+    (CommitmentManager, "aegis_ai.personal_ai.commitments"),
     (DelegationPolicyStore, "aegis_ai.personal_ai.delegation"),
     (HookEngine, "aegis_ai.personal_ai.hooks"),
     (InterruptionController, "aegis_ai.personal_ai.interruption"),

@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from aegis_ai.personal_ai.storage import JsonStateFile, now_ms
+from aegis_ai.personal_ai.storage import JsonStateFile, audit_decision, now_ms
 
 logger = logging.getLogger("aegis_ai.personal_ai.commitments")
 
@@ -142,9 +142,12 @@ class CommitmentManager:
         self._state.save({"commitments": [c.to_dict() for c in self._items.values()], "updated_at": now_ms()})
 
     def _audit(self, action: str, detail: dict[str, Any]) -> None:
-        if self._audit_manager is None:
-            return
-        try:
-            self._audit_manager.log_decision(action=action, actor="commitment_manager", decision="success", reason=action, detail=detail)
-        except Exception:  # noqa: BLE001
-            logger.warning("commitment audit failed for %s", action, exc_info=True)
+        # The one site that reports a failed audit at WARNING, not DEBUG (preserved).
+        audit_decision(
+            self._audit_manager,
+            actor="commitment_manager",
+            action=action,
+            detail=detail,
+            logger=logger,
+            level=logging.WARNING,
+        )

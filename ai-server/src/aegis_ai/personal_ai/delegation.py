@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, ClassVar
 
-from aegis_ai.personal_ai.storage import JsonStateFile, now_ms
+from aegis_ai.personal_ai.storage import JsonStateFile, audit_decision, now_ms
 from aegis_schema import safety_vocab
 
 logger = logging.getLogger("aegis_ai.personal_ai.delegation")
@@ -337,12 +337,10 @@ class DelegationPolicyStore:
         self._state.save({"rules": [r.to_dict() for r in self._rules], "updated_at": now_ms()})
 
     def _audit(self, action: str, detail: dict[str, Any]) -> None:
-        if self._audit_manager is None:
-            return
-        try:
-            self._audit_manager.log_decision(
-                action=action, actor="delegation_policy", decision="success", reason=action, detail=detail
-            )
-        except Exception:
-            # An audit trail that fails silently is not an audit trail.
-            logger.debug("Failed to audit delegation decision %r", action, exc_info=True)
+        audit_decision(
+            self._audit_manager,
+            actor="delegation_policy",
+            action=action,
+            detail=detail,
+            logger=logger,
+        )

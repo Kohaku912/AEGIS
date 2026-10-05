@@ -14,7 +14,7 @@ from aegis_schema.models import Event, EventPriority, ServerType
 
 from tool_broker import ExecutionSource, ToolExecutionRequest
 
-from aegis_ai.personal_ai.storage import JsonStateFile, append_jsonl, now_ms
+from aegis_ai.personal_ai.storage import JsonStateFile, append_jsonl, audit_decision, now_ms
 
 logger = logging.getLogger("aegis_ai.personal_ai.hooks")
 
@@ -403,9 +403,10 @@ class HookEngine:
         self._state.save({"hooks": [h.to_dict() for h in self._hooks.values()], "updated_at": now_ms()})
 
     def _audit(self, action: str, detail: dict[str, Any]) -> None:
-        if self._audit_manager is None:
-            return
-        try:
-            self._audit_manager.log_decision(action=action, actor="hook_engine", decision="success", reason=action, detail=detail)
-        except Exception:
-            logger.debug("Failed to audit hook decision %r", action, exc_info=True)
+        audit_decision(
+            self._audit_manager,
+            actor="hook_engine",
+            action=action,
+            detail=detail,
+            logger=logger,
+        )

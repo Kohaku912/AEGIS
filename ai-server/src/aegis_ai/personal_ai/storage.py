@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import tempfile
 import threading
@@ -81,3 +82,31 @@ def append_jsonl(path: str | Path, entry: dict[str, Any]) -> None:
     p.parent.mkdir(parents=True, exist_ok=True)
     with p.open("a", encoding="utf-8") as f:
         f.write(json.dumps(entry, ensure_ascii=False, sort_keys=True) + "\n")
+
+def audit_decision(
+    audit_manager: Any,
+    *,
+    actor: str,
+    action: str,
+    detail: dict[str, Any],
+    logger: logging.Logger,
+    level: int = logging.DEBUG,
+) -> None:
+    """Audit a personal-AI decision, naming a failure instead of swallowing it.
+
+    The single home for the six ``_audit`` methods in this package. They were six
+    copies that differed only in ``actor`` -- and had already drifted on the level
+    (five at DEBUG, one at WARNING), which is what a copy does. ``actor`` and
+    ``level`` are therefore parameters; everything else is shared.
+
+    An audit trail that can fail silently is not an audit trail: a failed
+    ``log_decision`` must leave a record, not vanish.
+    """
+    if audit_manager is None:
+        return
+    try:
+        audit_manager.log_decision(
+            action=action, actor=actor, decision="success", reason=action, detail=detail
+        )
+    except Exception:
+        logger.log(level, "Failed to audit %s decision %r", actor, action, exc_info=True)

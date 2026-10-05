@@ -14,7 +14,7 @@ from typing import Any
 from aegis_schema.models import Event, ServerType
 
 from aegis_ai.integrations.webhook_sender import WebhookRequest, WebhookSender
-from aegis_ai.personal_ai.storage import JsonStateFile, append_jsonl, now_ms
+from aegis_ai.personal_ai.storage import JsonStateFile, append_jsonl, audit_decision, now_ms
 
 logger = logging.getLogger("aegis_ai.personal_ai.social_proxy")
 
@@ -160,9 +160,10 @@ class SocialProxy:
         self._state.save({"drafts": list(self._drafts.values()), "updated_at": now_ms()})
 
     def _audit(self, action: str, detail: dict[str, Any]) -> None:
-        if self._audit_manager is None:
-            return
-        try:
-            self._audit_manager.log_decision(action=action, actor="social_proxy", decision="success", reason=action, detail=detail)
-        except Exception:
-            logger.debug("Failed to audit social-proxy decision %r", action, exc_info=True)
+        audit_decision(
+            self._audit_manager,
+            actor="social_proxy",
+            action=action,
+            detail=detail,
+            logger=logger,
+        )
