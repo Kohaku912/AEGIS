@@ -621,7 +621,7 @@
 
 > **`PROJECT_STATUS_REVIEW.md` の引用にも +18 の腐りがあった — 登録簿の写しは 4 つ目（2026-10-05）**: `runtime.py` の行番号を名乗る引用 **17 箇所**（**12** の異なる写像）を 1 件ずつ測り直した。すべて **+18** — サイクル 19 が `runtime.py` に入れたコメントが、それより下の行を 18 行ずらした: `:880`→`:898`（`SettingsStore(`、L14・L547）・`:977`→`:995`（`Identity(`、L14・L584）・`:979`→`:997`（`ContextBuilder(`、L14・L600）・`:1053`→`:1071`（`NotificationManager(`、L14・L486）・`:1651`→`:1669`（`AffectSystem(`、L14・L584）・`:884`→`:902`（`AuditLog(path=…/audit.jsonl)`、L922）・`:1020`→`:1038`（`SemanticMemory(`、L928）・`:1009`→`:1027`（`semantic_memory` の明示 import、L929）・`:1653`→`:1671`（`AssociationMemory(`、L926）。**同じ写像は既に 2 文書で直っていた**（サイクル 24 が `DELEGATION.md`、27 が `AGENTS.md`）ので、これは**4 つ目の写し** — 「1 箇所直した」は掃討ではない。加えて `context_builder.py:203`→`:206`（`list_recent_events()`、L927）・`manager_routes.py:361`→`:371`（`get_stats()`、L926 — 361 は隣の `/api/memory/search` の呼び出し）・`factory.py:38`→`memory/factory.py:38`（L928 — 同名が `llm/` にもあり、`ChromaSemanticMemory` を構築するのは後者）。
 > ⚠️ **同じ文書の中で腐り方が違う。** L62 の 2 件（`:1586`・`:1618`）は **+67** で、しかもこの行は「訂正しなかった記述」として `AGENT_PROGRESS.md:820` の `runtime.py:1618` を**正しいと記録している**（スイート数 **1734** の時代の行 — 現在 2287）。行は書かれた時刻を運ぶので、**行ごとに測る**。L925 の `:906`/`:917`/`:909` は**修正前の欠陥叙述**（実測: 修正前の `def presentation_stream` は 906、`subscribe` は 917、`queue.Queue()` は 909 / 現在は 911・940・916）なので、**歴史的な番号として意図的に残した** — 付け替えると叙述が偽になる。
-> **同じ走査で「空白行に着地する引用」を全部見た（2026-10-05）**: 修正は **2 件** — `backup/retention.py:49`→`:60`（L63・§5.15。`episodic_retention_days`→`max_age_ms` の変換は 60-61 にあり、49 は空行。しかも**同ファイルの docstring が「(line ~49)」と自分で古い番号を書いていた**ので、その写しも直した）と `test_ineffective_flags.py:274`→`:273`（L76。`pytest.skip(f"recorded: ...")` は 273、274 は空行）。**残りは意図的に据え置いた**: `autonomous_loop.py:3065-3066`・`:3068`（L54・L995・L1559）は**欠陥叙述**で、しかもその対象（既定値 0.5 を埋めていたこと）は**その後 `_expected_usefulness` に置き換えられて直っている**（`autonomous_loop.py:902` の docstring が "used to read" と記録）— 番号は当時のもの。`capability_catalog.py:379` ほかは**「下表は実施前の測定値」と明示された表**の中。`egress/startup.py:59-76` と `test_forced_gate_stays_retired.py:61-65` は**範囲の開始が空行**というだけで、範囲としては成立している（弱い信号）。
+> **同じ走査で「空白行に着地する引用」を全部見た（2026-10-05）**: 修正は **2 件** — `backup/retention.py:49`→`:60`（L63・§5.15。`episodic_retention_days`→`max_age_ms` の変換は 60-61 にあり、49 は空行。しかも**同ファイルの docstring が「(line ~49)」と自分で古い番号を書いていた**ので、その写しも直した）と `test_ineffective_flags.py:274`→`:273`（L76。`pytest.skip(f"recorded: ...")` は 273、274 は空行）。**残りは意図的に据え置いた**: `autonomous_loop.py:3065-3066`・`:3068`（L54・L995・L1559）は**欠陥叙述**で、しかもその対象（既定値 0.5 を埋めていたこと）は**その後 `_expected_usefulness` に置き換えられて直っている**（`autonomous_loop.py:902` の docstring が "used to read" と記録）— 番号は当時のもの。`capability_catalog.py:379` ほかは**「下表は実施前の測定値」と明示された表**の中。`egress/startup.py:59-76` は**範囲の開始が空行**なだけ（範囲は主張を覆っているので据え置きが正しい）。`test_forced_gate_stays_retired.py:61-65` も同じ扱いにしたが**これは誤り** — その範囲は同じコメントの**別段落**（`request`/`list` の説明）を指していた（**→ サイクル 36 で `:66-70` に訂正**、§9）。
 
 
 ### 1.2 規模
@@ -1345,7 +1345,7 @@ P1-5 後半（「拾ってから残骸 7 面を削除」）の**境界集合の�
 
 | 候補 | 判定 | 根拠 |
 |---|---|---|
-| `ConfirmationStore.mark_executed` / `mark_failed` | **生きた契約** | `test_forced_gate_stays_retired.py:61-65` が「**意図的に**この tuple に入れない」と文書化している。将来の配線点 |
+| `ConfirmationStore.mark_executed` / `mark_failed` | **生きた契約** | `test_forced_gate_stays_retired.py:66-70` が「**意図的に**この tuple に入れない」と文書化している。将来の配線点 |
 | `profile.requires_approval()` | **生きた契約** | テストが読む。`requires_approval_for` は宣言済みの agent-profile データフィールド |
 | `risk.approval_mode`（5 マニフェスト） | **消費されている** | `capability_catalog.py:163-164`・`:550-555`・`:586-593`、`folder_registry.py:254`、`capability_overrides.py` |
 | `motivation_arbiter.requires_approval` | ⚠️ **削除可能だが「唯一」ではない**（B-3 で訂正） | `:214`・`:234`・`:254` で `t.requires_approval` から書かれ、`:320` は `best_task.requires_user_approval`（**別名**）を、`:332` はリテラル `False` を書く。**`MotivationDecision.requires_approval` を読むものは 1 つも無い**。`:214/:234/:254` は `ExternalTask.requires_approval` を**読んでいる**が、その分岐（user / scheduled / event）は `ExternalTask` がどこでも構築されないため**到達不能** — つまり「読者が 0」と「読者が到達不能」という**別種の死**が同じフィールド名で並んでいた。削除はオーナー判断（経路全体の去就と一体） |
@@ -2451,3 +2451,19 @@ ruff は当該 2 ファイルとも clean。ai-server は対象ファイルを�
 （2 件の空行着地は `jev-l1-verification-2026-10-02.md` の**日付つき記録**なので据え置き）。
 
 **長さ**: 506555 → 本節の直前で 506569 B（引用の修正で +14、CRLF 維持）。
+
+## 9. サイクル 36 の掃討記録（2026-10-05）
+
+`AGENT_PROGRESS.md` の引用を掃討した（サイクル 36）。本ファイル側で動いたのは **2 箇所**:
+
+- **L1348** `test_forced_gate_stays_retired.py:61-65` → **`:66-70`**（`AGENT_PROGRESS.md:1103` と同一事実の写し）。
+  書かれた時は正しかった（`d483813`〜`a75c3db` は `mark_executed` が **61** 行目）が `e125f04` で **+5 ずれ**。
+- **L624 のノートの訂正** — サイクル 31 は `:61-65` を「範囲としては成立している」と判定したが、その範囲は
+  **同じコメントブロックの別段落**を指していた。**「非空か」ではなく「主張の句を含むか」**で判定すべきだった
+  （対照: `egress/startup.py:59-76` は開始が空行でも主張を覆っているので据え置きが正しい）。**L624 の文面は
+  その場で直した**（行数は変えていないので以下の行番号は動いていない）。
+
+**⚠️ 削除の掃討は 2 文書を漏らしていた**: `818105f`（`aegis_ai/permissions/` 削除）は 7 文書を掃討したが、
+`AGENT_PROGRESS.md`（B-16 節）と `BUG_REPORT.md`（§33）が漏れた。両方に追記した（それぞれのファイル参照）。
+
+**長さ**: 509294 → **本節の直前で 509502 B**（L1348 の付け替えは同幅、L624 の訂正で +208。CRLF 維持）。

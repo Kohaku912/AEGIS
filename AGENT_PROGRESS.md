@@ -1038,6 +1038,14 @@ gitignore 済み。
 
 ## B-16 の固定 — 3 つ目の承認サーフェス（2026-09-28, `f2948a1`）
 
+> ⚠️ **2026-10-05 追記 — この節の結論はオーナー判断で上書きされた。** 下の「残作業（オーナー判断）」の
+> 3 択（配線する / 現状維持＋固定 / 削除する）は **2026-10-03 に ③（削除）** が選ばれ、`aegis_ai/permissions/`
+> は**パッケージごと削除**された（4 ファイル 823 行、`818105f`、`DELEGATION.md` §4 項目 3）。したがって
+> 下表の `service_permission_store.py:318-324` ほか本文が名指しする 4 モジュールへの行番号は
+> **もう解決できない**（ファイルが無い）— **当時の記録としてそのまま残す**。ピンも「到達不能」から
+> 「**存在しない ∧ `src/` に importer が 0**」へ張り替えられた（`test_forced_gate_stays_retired.py`）。
+> 以下は **2026-09-28 時点の記録**。
+
 P1-5 後半（「拾ってから残骸 7 面を削除」）の**境界集合の確認で結論が反転した**。
 `aegis_ai/permissions/` は削除すべき残骸ではなく、**配線されてはならない生きたゲート**だった。
 
@@ -1100,7 +1108,7 @@ P1-5 後半（「拾ってから残骸 7 面を削除」）の**境界集合の�
 
 | 候補 | 判定 | 根拠 |
 |---|---|---|
-| `ConfirmationStore.mark_executed` / `mark_failed` | **生きた契約** | `test_forced_gate_stays_retired.py:61-65` が「**意図的に**この tuple に入れない」と文書化（`core_capabilities._confirmation` は 2 つの suffix しか dispatch しない） |
+| `ConfirmationStore.mark_executed` / `mark_failed` | **生きた契約** | `test_forced_gate_stays_retired.py:66-70` が「**意図的に**この tuple に入れない」と文書化（`core_capabilities._confirmation` は 2 つの suffix しか dispatch しない） |
 | `profile.requires_approval()` | **生きた契約** | テストが読む。`requires_approval_for` は宣言済みの agent-profile データフィールド |
 | `risk.approval_mode`（5 マニフェスト） | **消費されている** | `capability_catalog.py:163-164`・`:550-555`・`:586-593`、`folder_registry.py:254`、`capability_overrides.py` |
 | `motivation_arbiter.requires_approval` | ⚠️ **削除可能だが「唯一」ではない**（B-3 で訂正） | `:214`・`:234`・`:254` で `t.requires_approval` から書かれ、`:320` は**別名** `best_task.requires_user_approval` を、`:332` はリテラル `False` を書く。**`MotivationDecision.requires_approval` を読むものは 1 つも無い**。`:214/:234/:254` は `ExternalTask.requires_approval` を**読んでいる**が、その分岐は `ExternalTask` がどこでも構築されないため**到達不能** — **「読者 0」と「読者到達不能」は別の死**。削除はオーナー判断（経路全体の去就と一体）。**下の B-3 節を参照** |
@@ -1510,6 +1518,15 @@ P1-6 で `InterruptionController.decide` を期待効用モデルに置き換え
 ゴーストフィールドの型が、**片方にだけ適用されている**。
 
 ### ② B-17（新規）— 判定の第 3 項が本番で定数
+
+> ⚠️ **2026-10-05 追記 — B-17 は 2026-09-30 に修正済み**（この節は 2026-09-29 時点の記録）。
+> `_present_autonomous_result` は `task.get("expected_usefulness", 0.5)` /
+> `task.get("interruption_cost", 0.5)` を読むのをやめ（`b3f797f`、B-1 (2)）、`_expected_usefulness(task)`
+> （欲求の圧力を `min(1.0, pressure / 10.0)` で正規化）と `_current_interruption_cost()`（実のはしご）を
+> 渡す（`autonomous_loop.py:3381-3382`）。下の `:3065-3066` は**当時の番号**で、その行は今は
+> `ToolExecutionRequest(...)` の構築。`0.5` の既定値は `presentation/routing_policy.py:19-20` に残る
+> （文脈が 2 つを渡さないときだけ効く）。ピン `test_interruption_cost_vocabulary.py` の docstring も
+> "Both were fixed on 2026-09-30" と記録している。
 
 ```python
 should_interrupt = important and not occupied and context.expected_usefulness >= context.interruption_cost
@@ -1991,9 +2008,9 @@ ai-server **1723 → 1724 passed / 31 skipped**（実測 377 秒）。**+1 = 新
 | サイト | 何を渡していたか |
 |---|---|
 | `capability_catalog.py:70` `_PREFIX_MAP` | `server_id → 短縮 prefix` |
-| `capability_catalog.py:379` `server_type_map` | `server_id → ServerType` |
+| `capability_catalog.py:380` `server_type_map` | `server_id → ServerType` |
 | `prompt_regression.py:276` `server_map` | `"<id>." → ServerType` |
-| `dashboard_legacy.py:103` `server_type_map` | `server_id → ServerType` |
+| `dashboard_legacy.py:104` `server_type_map` | `server_id → ServerType` |
 | `models.py:215` `prefix_map` | `ServerType → (短, 長)` |
 | `tool_broker.py:61` `server_type_map` | `server_id → ServerType` |
 
@@ -2204,7 +2221,7 @@ B-6（`max_autonomous_runs_per_hour` を配線するか削除するか）を測�
 
 ### なぜ化粧ではないか
 
-突破できる集合に**保持期間の上限**が入っており、実際の削除計算に届く。`backup/retention.py:49`
+突破できる集合に**保持期間の上限**が入っており、実際の削除計算に届く。`backup/retention.py:60`
 は `settings.memory.episodic_retention_days` を `max_age_ms` に変換して prune するので、
 スキーマが拒否する値（`le=365`）で**1 世紀分のエピソードを保持**できる。
 
@@ -2495,3 +2512,37 @@ ai-server **1756 → 1758 passed / 31 skipped**（**+2 = 新規 2 関数**、実
 
 **記録**: **§0.2 から A-9 を削除**（レジスタは短くなる一方であるべき）、**§4.3 クラス 16 に
 修復済みの注記**、§5.17、台帳、`AGENTS.md` / `docs/architecture.md` の数を 1758 に。
+
+---
+
+## 引用の掃討（サイクル 36、2026-10-05）
+
+このファイルの引用は**一度も掃討していなかった**（サイクル 31 が `:1105` の 1 行だけ直した）。
+`*.py:NNN` を全部測り（**28 健全 / 5 空行着地 / 1 未解決**）、腐っていたのは **4 件** — うち 1 件は
+**他の文書が既に直した事実の写し**だった。
+
+| 旧 | 新 | 根拠（`git show <rev>:<file>` で実測） |
+|---|---|---|
+| `test_forced_gate_stays_retired.py:61-65` | `:66-70` | 書かれた時は正しかった（`d483813`〜`a75c3db` は `mark_executed` が **61** 行目）。`e125f04` で **+5 ずれ**、今は 66 / 69 行目 |
+| `capability_catalog.py:379` | `:380` | `d483813` で **379**（当時の正）、`0cb2a42` で 380 |
+| `dashboard_legacy.py:103` | `:104` | `ed929b1` で 104 へ |
+| `backup/retention.py:49` | `:60` | **PSR.md が既に自分の写しを直していた**（`:49`→`:60`、サイクル 31）。ここは未修正の写し |
+
+**⚠️ 「範囲の開始が空行」と「範囲が主張を覆っていない」は別。** サイクル 31 は
+`test_forced_gate_stays_retired.py:61-65` を「範囲の開始が空行なだけ、成立している」と判定したが、
+その範囲は**同じコメントブロックの別段落**（`request`/`list` の説明）を指していた。対照に
+`egress/startup.py:59-76` は開始が空行でも**主張（検証本体）を覆っている**ので据え置きが正しい。
+**判定は「非空か」ではなく「主張の句を含むか」。**
+
+**⚠️ 削除の掃討は 2 文書を漏らしていた。** `818105f`（`aegis_ai/permissions/` 削除）は 7 文書を掃討したが、
+**`AGENT_PROGRESS.md` と `BUG_REPORT.md` が漏れた** — 前者は B-16 節が今もパッケージを「生きたゲート」と
+書いており、後者は §33 が「✅ 修正」と書いている。両方に追記した。**「掃討した」は「掃討した文書を
+列挙した」ではない** — 削除コミットの `--stat` に載っている文書が**全部**とは限らない。
+
+**据え置き（記録）**: ① `autonomous_loop.py:3065-3066` は**欠陥叙述**で、番号は当時のもの（PSR.md の
+同種の写し 3 つと同じ判断）— ただしこのファイルには**解決の記録**が無かったので節頭に追記した。
+② `data/reports/*.md` は**未追跡の生成物**（`Generated at: 2026-07-20`）、`.workbuddy-ai/memory/*` は
+gitignore 済みの日付ログ — どちらも掃討対象外。③ 他の 28 件は実測して正しいと確認（`capability_catalog.py:70`
+`prompt_regression.py:276` `models.py:215` `tool_broker.py:61` ほか）。
+
+**長さ**: 186434 → **本節の直前で 188141 B**（引用 4 件は同幅なので増分は 3 つの追記のみ。LF 維持）。

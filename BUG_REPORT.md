@@ -14,6 +14,12 @@
 > **そのコードが動いていない**。記録は `DELEGATION.md` §4、ピンは
 > `ai-server/tests/test_security_package_stays_unwired.py`、詳細は `docs/security.md`。
 
+> ⚠️ **2026-10-05 追記 — §33 の「✅ 修正」は対象ごと削除された。** §33 の修正は
+> `aegis_ai/permissions/service_scope_types.py` / `service_permission_policy.py` / `__init__.py` に入れたが、
+> **そのパッケージは 2026-10-03 に丸ごと削除された**（4 ファイル 823 行、`818105f`、`DELEGATION.md` §4 項目 3
+> — 配線しないと決めた承認ゲート）。したがって §33 の修正は**本番経路に存在しない**（当時の記録として残す）。
+> `resolve_browser_operation(operation)` も同様。記録は `PROJECT_STATUS_REVIEW.md` §5.1 / B-16。
+
 > ⚠️ **2026-10-01 追記（Docker 検証）— §9 と §28 は実測で反証。**
 >
 > **§9（dev-server の残骸）の表は「残存」と書いているが、5 行すべてが既に解消済み。** 実測:
