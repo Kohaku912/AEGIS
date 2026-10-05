@@ -119,7 +119,8 @@ class LLMGateway:
                 if env_path.exists():
                     load_dotenv(env_path, override=False)
         except ImportError:
-            pass
+            # dotenv is optional: without it the .env files are simply not loaded.
+            logger.debug("python-dotenv is not installed; .env will not be loaded", exc_info=True)
         if not settings.api_key_env and not settings.base_url:
             return None
         cache_key = (
@@ -230,7 +231,7 @@ class LLMGateway:
                 try:
                     metadata = self._prompt_registry.get_metadata(prompt_id)
                 except KeyError:
-                    pass
+                    logger.debug("No prompt metadata for %r", prompt_id, exc_info=True)
 
             meta_detail = dict(context_meta or {})
             meta_detail.update({

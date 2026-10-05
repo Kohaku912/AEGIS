@@ -25,7 +25,8 @@ try:
     if _env_path.exists():
         load_dotenv(_env_path)
 except ImportError:
-    pass
+    # dotenv is optional: without it the project .env is simply not loaded.
+    logger.debug("python-dotenv is not installed; .env will not be loaded", exc_info=True)
 
 # Default endpoint used when a cloud provider is requested without an explicit base_url.
 _DEFAULT_CLOUD_BASE_URL = "https://api.openai.com"

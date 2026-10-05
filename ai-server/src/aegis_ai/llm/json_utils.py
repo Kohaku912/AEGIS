@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any
+
+logger = logging.getLogger("aegis_ai.llm.json_utils")
 
 
 def extract_json_object(text: str) -> dict[str, Any]:
@@ -27,7 +30,9 @@ def extract_json_object(text: str) -> dict[str, Any]:
         if isinstance(data, dict):
             return data
     except json.JSONDecodeError:
-        pass
+        # Expected on the common path: the fallback below extracts the first {...}
+        # substring, and raises only if there is no object at all.
+        logger.debug("Whole-response JSON parse failed; trying substring extraction", exc_info=True)
 
     start = clean.find("{")
     if start < 0:

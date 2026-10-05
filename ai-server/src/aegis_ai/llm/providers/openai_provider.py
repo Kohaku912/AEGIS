@@ -651,4 +651,4 @@ class OpenAIProvider:
                     task_id=task_id,
                 ))
         except Exception:
-            pass
+            logger.debug("Failed to append the LLM audit entry for %s", action, exc_info=True)

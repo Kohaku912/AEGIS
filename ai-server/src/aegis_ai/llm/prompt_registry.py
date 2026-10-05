@@ -189,7 +189,7 @@ class PromptRegistry:
                     try:
                         tmp_path.unlink()
                     except Exception:
-                        pass
+                        logger.debug("Failed to remove the temp file %s", tmp_path, exc_info=True)
                 logger.error("Failed to save prompts: %s", e)
                 return False
 
