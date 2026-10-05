@@ -197,7 +197,7 @@ instructions below」と明記されている）。
 
 **現状（測定）**
 
-- 自律ループは `time.sleep(sleep_s)` で待つ（`autonomous/autonomous_loop.py:489`、`sleep_s` は `_compute_idle_sleep_seconds(now)`）。例外時は `time.sleep(60)`（`:492`）。
+- 自律ループは `time.sleep(sleep_s)` で待つ（`autonomous/autonomous_loop.py:520`、`sleep_s` は `_compute_idle_sleep_seconds(now)`）。例外時は `time.sleep(60)`（`:523`）。
 - 記憶の統合ループは `time.sleep(60)` の固定ポーリング（`memory/sleep_consolidation.py:107`）。
 - イベントは `EventBus` に届くが、**それを購読して早期起床させる `TriggerEngine` が居ない**（G-2）。
 
@@ -338,9 +338,9 @@ loopback 限定にするか、迂回を意図として受け入れて死んだ�
 
 **現状（測定）**: 同じ規則が **3 つ**存在する。**当初の記載「2 箇所」は測定で訂正** — 3 つ目は記載漏れだった。
 
-- `auth/session_middleware._display_read_allowed`（`:178-194`）
-- `web/routes/ui_v2._require_display_read`（`:114-129`）
-- `web/routes/presentation._require_local_display_request`（`:38-43`）— **記載漏れの 3 つ目**。`/display/presentations/data` を守っており、S-1① の実測が同経路を `LOCAL_ONLY` に分類したのはこの関数のため（`ui_v2` 側のガードではない）
+- `auth/session_middleware._display_read_allowed`（`:175-184`）
+- `web/routes/ui_v2._require_display_read`（`:113-117`）
+- `web/routes/presentation._require_local_display_request`（`:38-42`）— **記載漏れの 3 つ目**。`/display/presentations/data` を守っており、S-1① の実測が同経路を `LOCAL_ONLY` に分類したのはこの関数のため（`ui_v2` 側のガードではない）
 
 `_display_read_allowed` は「早期に**許可**する」ことしかできない。理由: 呼び出し位置は `protected` 判定の**前**にあり、`/display/...` は**保護接頭辞に 1 つも一致しない**ので、`_display_read_allowed` が `False` を返しても後段の `if not protected: return None` に落ちて**やはり通る**。つまり**この関数の拒否分岐は到達不能**である。実質的に生きた唯一の用途は `/api/ui/stream?surface=display`（`/api/` 配下なので保護され、早期許可が効く）である。
 
@@ -559,3 +559,31 @@ docstring の `Usage: engine = TriggerEngine()` は呼び出し点にならな�
 - **「性能」は測っていない。** E-2 / E-3 の**機構**は測定で確認／反証した（E-3 は枝が到達不能、E-2 は要求スレッドでインラインに走る）。だが**容量**（同時に何本の外部呼び出しが立つか）は負荷試験で測っておらず、プロファイルも取っていない。負荷試験なしに「遅い」とは主張しない。
 - **優先度は測定ではなく判断である。** 表の P 値は、この調査の著者が「目標にどれだけ効くか」で並べたもので、オーナーの順序を拘束しない。
 - **被覆は主張である。** この文書が「コードベース全体から特定した」と言えるのは、**上に列挙した走査を実行した範囲**においてだけである。走査しなかった面に同種の欠陥が無いことは、**何も主張していない**。
+
+
+## 8. 引用の掃討（サイクル 35、2026-10-05）
+
+`docs/*.md` の**裸の `:NNN`** を初めて掃討した（サイクル 34 はファイル名つきの **76 件**を走査し全部健全と
+判定していた）。35 件の候補の大半は**ポート番号**（`:50051`・`:8090`・`:50052` …）で行引用ではない。
+実際の行引用はこの文書に集中していた。**5 件が腐っており、5 件とも「書いたときは正しかった」**
+（`git-verify` 済み）ので、**主張ではなく番号**を直した。
+
+| 旧 | 正 | いつ正しかったか | 何が動かしたか |
+|---|---|---|---|
+| `autonomous_loop.py:489` | `:520` | `5fb930a1` で `time.sleep` は `:489`/`:492` | その後 +31 行 |
+| `:492` | `:523` | 同上 | 同上 |
+| `:178-194` | `:175-184` | `d4838136` で `_display_read_allowed` = `(178,194)` | `5fb930a1` |
+| `:114-129` | `:113-117` | `1327cf20` で `_require_display_read` = `(114,129)` | 同上 |
+| `:38-43` | `:38-42` | `5fb930a1` 直前 | 同上 |
+
+⚠️ `5fb930a1`（**"Give the display-read rule a single home and pin it"**）が **3 つの関数の範囲を同時に
+縮めた**ので、3 つの引用が同時に腐った — **1 つのコミットが複数の引用を動かす**。範囲の引用は関数の
+`ast` 範囲（`def` 行〜`end_lineno`）と突き合わせて検証した。
+
+**健全と確認したもの（据え置き）**: `docs/architecture.md` の 6 件（`:57`・`:84-85`・`:108`・`:170`・
+`:174`・`:559`）はすべて正しい。`:213-228`（`_default_http_post` のゲート）も正しい。`:36`/`:120`
+（`ui-implementation-checklist.md`）は「**修正済み**」と印された**記録**で修正前の文を引用しているので
+据え置き。`jev-l1-verification-2026-10-02.md` の 3 件は**日付つき記録**。`aegis_schema/validation.py`
+（削除済み）への言及は `~~取り消し線~~` 付きの**削除の記録**。
+
+**長さ**: 59625 B（5 編集すべて**長さ保存**、LF 維持）。
