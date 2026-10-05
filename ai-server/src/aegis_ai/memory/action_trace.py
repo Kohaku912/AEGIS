@@ -195,6 +195,9 @@ class ActionTraceMemory:
                 try:
                     trace = ActionTrace.from_dict(data)
                 except Exception:
+                    # One unreadable row is skipped. The "Loaded %d" line below counts
+                    # what *survived*, so a drop is only visible as a smaller number.
+                    logger.debug("Skipped an action-trace row that would not load", exc_info=True)
                     continue
                 self._traces[trace.trace_id] = trace
                 if trace.status == TraceStatus.RUNNING:

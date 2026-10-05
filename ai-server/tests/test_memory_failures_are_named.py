@@ -45,7 +45,9 @@ import ast
 import logging
 from pathlib import Path
 
+from aegis_ai.memory.action_trace import ActionTraceMemory
 from aegis_ai.memory.chroma_semantic import ChromaSemanticMemory
+from aegis_ai.memory.experiential import ExperientialMemory
 from aegis_ai.memory.memory_manager import MemoryManager
 from aegis_ai.memory.sleep import SleepManager
 
@@ -54,15 +56,20 @@ _PKG = Path(__file__).resolve().parents[1] / "src" / "aegis_ai" / "memory"
 _SLEEP = "aegis_ai.memory.sleep"
 _MEMORY_MANAGER = "aegis_ai.memory.memory_manager"
 _CHROMA = "aegis_ai.memory.chroma_semantic"
+_ACTION_TRACE = "aegis_ai.memory.action_trace"
+_EXPERIENTIAL = "aegis_ai.memory.experiential"
 
 # (module stem, enclosing function) -> the logger that must name the failure.
-# These are the five sites this cycle changed.
+# The five cycle-47 sites, plus the two cycle-52 sites whose bodies were a bare
+# `continue` (invisible to the `pass`-keyed census the pin used until then).
 _NAMED_SITES = {
     ("chroma_semantic", "get_stats"): _CHROMA,
     ("memory_manager", "classify_memory_type"): _MEMORY_MANAGER,
     ("memory_manager", "_publish_event"): _MEMORY_MANAGER,
     ("sleep", "_publish_event"): _SLEEP,
     ("sleep", "_record_audit"): _SLEEP,
+    ("action_trace", "_load"): _ACTION_TRACE,
+    ("experiential", "_load"): _EXPERIENTIAL,
 }
 
 
@@ -73,11 +80,14 @@ def _modules() -> list[Path]:
     return sorted(_PKG.rglob("*.py"))
 
 
-def _handlers(path: Path):
-    tree = ast.parse(path.read_text(encoding="utf-8"))
+def _handlers_from_tree(tree: ast.AST):
     for node in ast.walk(tree):
         if isinstance(node, ast.ExceptHandler):
             yield tree, node
+
+
+def _handlers(path: Path):
+    yield from _handlers_from_tree(ast.parse(path.read_text(encoding="utf-8")))
 
 
 def _body_without_docstring(handler: ast.ExceptHandler) -> list[ast.stmt]:
@@ -89,9 +99,25 @@ def _body_without_docstring(handler: ast.ExceptHandler) -> list[ast.stmt]:
     ]
 
 
-def _is_bare_pass(handler: ast.ExceptHandler) -> bool:
+def _is_bare_discard(handler: ast.ExceptHandler) -> str | None:
+    """``"pass"`` / ``"continue"`` / ``"break"`` when the body is exactly that one statement.
+
+    Cycle 52 widened the rule from ``pass`` to every single-statement discard. A bare
+    ``continue`` drops the failure exactly as ``pass`` does, and it was invisible to the
+    census the pin used until then: ``action_trace._load`` and ``experiential._load``
+    both swallowed ``except Exception`` that way (measured 2026-10-06).
+    """
     body = _body_without_docstring(handler)
-    return len(body) == 1 and isinstance(body[0], ast.Pass)
+    if len(body) != 1:
+        return None
+    stmt = body[0]
+    if isinstance(stmt, ast.Pass):
+        return "pass"
+    if isinstance(stmt, ast.Continue):
+        return "continue"
+    if isinstance(stmt, ast.Break):
+        return "break"
+    return None
 
 
 def _enclosing_function(tree: ast.AST, target: ast.AST) -> str:
@@ -118,14 +144,35 @@ def _names_a_logger(handler: ast.ExceptHandler) -> bool:
 # ── structural: no bare `pass` survives in the package ─────────────────────
 
 
-def test_no_handler_in_memory_is_a_bare_pass():
-    """Cycle 16's rule, package-wide: every handler names its failure."""
+def test_no_handler_in_memory_is_a_bare_discard():
+    """Cycle 16's rule, package-wide and widened in cycle 52: every handler names its failure."""
     offenders = []
     for path in _modules():
         for _tree, handler in _handlers(path):
-            if _is_bare_pass(handler):
-                offenders.append(f"{path.name}:{handler.lineno}")
-    assert offenders == [], f"bare `pass` handlers remain in memory/: {offenders}"
+            shape = _is_bare_discard(handler)
+            if shape is not None:
+                offenders.append(f"{path.name}:{handler.lineno} [{shape}]")
+    assert offenders == [], f"single-statement discards remain in memory/: {offenders}"
+
+
+def test_the_discard_detector_sees_every_shape():
+    """Detector self-test: widening the rule is only meaningful if the walker sees all three."""
+    tree = ast.parse(
+        "def f():\n"
+        "    for _ in items:\n"
+        "        try:\n"
+        "            pass\n"
+        "        except ValueError:\n"
+        "            pass\n"
+        "        except TypeError:\n"
+        "            continue\n"
+        "        except KeyError:\n"
+        "            break\n"
+        "        except OSError:\n"
+        "            logger.debug('named', exc_info=True)\n"
+    )
+    shapes = [s for _t, h in _handlers_from_tree(tree) if (s := _is_bare_discard(h)) is not None]
+    assert shapes == ["pass", "continue", "break"], shapes
 
 
 def test_the_census_is_not_vacuous():
@@ -155,11 +202,13 @@ def test_each_named_site_calls_a_logger():
     assert unnamed == [], f"these sites no longer log their failure: {unnamed}"
 
 
-def test_the_three_modules_have_their_loggers():
+def test_the_five_modules_have_their_loggers():
     for name, path in (
         (_SLEEP, _PKG / "sleep.py"),
         (_MEMORY_MANAGER, _PKG / "memory_manager.py"),
         (_CHROMA, _PKG / "chroma_semantic.py"),
+        (_ACTION_TRACE, _PKG / "action_trace.py"),
+        (_EXPERIENTIAL, _PKG / "experiential.py"),
     ):
         text = path.read_text(encoding="utf-8")
         assert f'getLogger("{name}")' in text, f"{path.name} lost its logger {name}"
@@ -310,12 +359,101 @@ def test_chroma_get_stats_without_a_collection_is_quiet(caplog):
     assert [r for r in caplog.records if r.name == _CHROMA] == []
 
 
-def test_the_named_site_map_covers_exactly_five_sites():
+def test_the_named_site_map_covers_exactly_seven_sites():
     """The map's size is part of the pin: dropping a site must not pass silently.
 
     ``test_each_named_site_calls_a_logger`` compares the map against what the scanner
     finds, so a *renamed* function makes ``seen`` smaller and fails. This asserts the
     denominator itself, so a future edit that quietly shrinks the map is visible.
     """
-    assert len(_NAMED_SITES) == 5
-    assert len({mod for mod, _fn in _NAMED_SITES}) == 3
+    assert len(_NAMED_SITES) == 7
+    assert len({mod for mod, _fn in _NAMED_SITES}) == 5
+
+
+# ── cycle 52: the two `continue` discards, which the `pass` census could not see ──
+#
+# Both load a JSONL store into a hot in-memory window. A row that cannot be
+# reconstructed is skipped, so the window silently holds fewer entries than the file
+# does. Both modules *do* log a "Loaded %d" line afterwards -- but that counts what
+# *survived*, so a drop is only visible as a smaller number, never as a drop. The
+# assertions below therefore discriminate by level: the skip record is DEBUG, the
+# "Loaded" line is INFO.
+
+
+def _debug_records(caplog, name: str) -> list[logging.LogRecord]:
+    return [r for r in caplog.records if r.name == name and r.levelno == logging.DEBUG]
+
+
+def test_action_trace_load_names_a_row_it_could_not_rebuild(tmp_path, caplog):
+    path = tmp_path / "action_traces.jsonl"
+    path.write_text(
+        '{"trace_id": "good", "status": "running"}\n'
+        '{"trace_id": "bad", "status": "not-a-status"}\n',
+        encoding="utf-8",
+    )
+    with caplog.at_level(logging.DEBUG, logger=_ACTION_TRACE):
+        memory = ActionTraceMemory(path=str(path))
+
+    assert [t.trace_id for t in memory._traces.values()] == ["good"], (
+        "the unloadable row is no longer skipped -- re-measure"
+    )
+    records = _debug_records(caplog, _ACTION_TRACE)
+    assert [r.getMessage() for r in records] == ["Skipped an action-trace row that would not load"], (
+        f"the skipped row is silent again: {[r.getMessage() for r in records]}"
+    )
+    assert isinstance(records[0].exc_info, tuple), "the record dropped the traceback"
+
+
+def test_action_trace_load_is_quiet_on_a_clean_file(tmp_path, caplog):
+    path = tmp_path / "action_traces.jsonl"
+    path.write_text('{"trace_id": "good", "status": "running"}\n', encoding="utf-8")
+    with caplog.at_level(logging.DEBUG, logger=_ACTION_TRACE):
+        memory = ActionTraceMemory(path=str(path))
+    assert [t.trace_id for t in memory._traces.values()] == ["good"]
+    assert _debug_records(caplog, _ACTION_TRACE) == [], "the healthy load path now logs a failure"
+
+
+def test_experiential_load_names_a_row_it_could_not_rebuild(tmp_path, caplog):
+    data_dir = tmp_path / "memory"
+    data_dir.mkdir()
+    (data_dir / "experiences.jsonl").write_text(
+        '{"experience_id": "good", "action": "did a thing"}\n'
+        '{"not_a_field": 1}\n',
+        encoding="utf-8",
+    )
+    with caplog.at_level(logging.DEBUG, logger=_EXPERIENTIAL):
+        memory = ExperientialMemory(data_dir=str(data_dir))
+
+    assert [e.experience_id for e in memory._experiences] == ["good"], (
+        "the unloadable row is no longer skipped -- re-measure"
+    )
+    records = _debug_records(caplog, _EXPERIENTIAL)
+    assert [r.getMessage() for r in records] == ["Skipped an experience row that would not load"], (
+        f"the skipped row is silent again: {[r.getMessage() for r in records]}"
+    )
+    assert isinstance(records[0].exc_info, tuple), "the record dropped the traceback"
+
+
+def test_experiential_load_is_quiet_on_a_clean_file(tmp_path, caplog):
+    data_dir = tmp_path / "memory"
+    data_dir.mkdir()
+    (data_dir / "experiences.jsonl").write_text(
+        '{"experience_id": "good", "action": "did a thing"}\n', encoding="utf-8"
+    )
+    with caplog.at_level(logging.DEBUG, logger=_EXPERIENTIAL):
+        memory = ExperientialMemory(data_dir=str(data_dir))
+    assert [e.experience_id for e in memory._experiences] == ["good"]
+    assert _debug_records(caplog, _EXPERIENTIAL) == [], "the healthy load path now logs a failure"
+
+
+def test_the_two_new_detectors_are_not_vacuous(caplog):
+    caplog.set_level(logging.DEBUG, logger=_ACTION_TRACE)
+    caplog.set_level(logging.DEBUG, logger=_EXPERIENTIAL)
+    logging.getLogger(_ACTION_TRACE).debug("control")
+    logging.getLogger(_EXPERIENTIAL).debug("control")
+    assert len(_debug_records(caplog, _ACTION_TRACE)) == 1, (
+        "the detector is blind; the 'is quiet' assertions above prove nothing"
+    )
+    assert len(_debug_records(caplog, _EXPERIENTIAL)) == 1, (
+        "the detector is blind; the 'is quiet' assertions above prove nothing"
+    )

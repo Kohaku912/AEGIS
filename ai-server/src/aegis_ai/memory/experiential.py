@@ -117,6 +117,9 @@ class ExperientialMemory:
                 try:
                     self._experiences.append(Experience(**data))
                 except Exception:
+                    # The "Loaded %d" line below counts what *survived*, so a dropped row
+                    # is only visible as a smaller number -- name the drop itself.
+                    logger.debug("Skipped an experience row that would not load", exc_info=True)
                     continue
             if len(self._experiences) > self._max_entries:
                 self._experiences = self._experiences[-self._max_entries :]
