@@ -49,6 +49,9 @@
     の dotenv ブロックだけ。鍵が無いときの縮退は「Mock へ静かに」ではなく、gateway が**空鍵の
     `TypeSafeProvider`** を作り（`llm/gateway.py:162-169`）、呼び出しが失敗 → `L1Router` が捕捉 →
     `_l1_unavailable_observation`（value=1.0 / priority=1.0 / HIGH）→ **全イベントが ESCALATE**。
+  - ✅ **訂正 2026-10-06（サイクル 62、§4 項目 50 枝 ①）**: `.gitignore` に
+    `!.env.production.example` を足したので、このファイルは**追跡下に入った**（実ホストは
+    `example.com` に置換）。上の「追跡されていない」は 2026-10-05 時点の測定。
 - 実行環境: Python 3.13.14 / venv `aegis`
 - 疎通: `GET` に対して **405**（POST 専用）→ エンドポイントは生存
 

@@ -1175,6 +1175,10 @@ Measured 2026-10-01 — `ai-server`, full suite:
 > ⚠️ **A template that looks tracked may be ignored**: `.env.production.example` matches `.gitignore:57`
 > (`.env.*`, exception only `!.env.example`), so it is **not in HEAD** and my edit to it is local-only. The
 > tracked carrier is `docs/ubuntu-production.md`. Recorded as §4 item 50.
+> ✅ **Fixed 2026-10-06 (cycle 62, §4 item 50 branch ①)**: `!.env.production.example` was added to
+> `.gitignore`, so the template **is** tracked now, and the real production host it carried was replaced
+> with `example.com` (a template should be generic, and this repo is public). `git show
+> HEAD:.env.production.example` resolves instead of failing.
 
 > **The L1 key requirement is now a class-level pin, and the dead intake classes are pinned too (2026-10-05): `2269 passed / 8 skipped`**
 >
