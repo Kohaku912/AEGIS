@@ -692,7 +692,9 @@ def _parse_tool_call(content: str, valid_tool_names: set[str] | None = None) -> 
                 if "name" in parsed and "arguments" in parsed:
                     matches.append(clean)
         except json.JSONDecodeError:
-            pass
+            # The regex matched a brace-delimited block that is not JSON. Expected input
+            # variety, but named anyway: "why was my tool call ignored" needs an answer.
+            logger.debug("Skipped a candidate block that would not parse as JSON", exc_info=True)
 
     if not matches:
         return None
@@ -705,6 +707,7 @@ def _parse_tool_call(content: str, valid_tool_names: set[str] | None = None) -> 
                 continue
             return parsed
         except json.JSONDecodeError:
+            logger.debug("Skipped a candidate match that would not parse as JSON", exc_info=True)
             continue
 
     return None

@@ -227,6 +227,9 @@ class PromptRegistry:
             try:
                 record = json.loads(line)
             except json.JSONDecodeError:
+                # A dropped revision is missing from the version list, so a rollback
+                # target can appear not to exist.
+                logger.debug("Skipped a prompt revision that would not parse", exc_info=True)
                 continue
             if record.get("prompt_id") == prompt_id:
                 records.append(record)

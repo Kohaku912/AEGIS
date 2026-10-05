@@ -153,6 +153,9 @@ class SessionStore:
                 try:
                     ev = json.loads(line)
                 except json.JSONDecodeError:
+                    # The summary is derived from whatever parsed, so one corrupt line
+                    # silently under-reports both the event count and the time span.
+                    logger.debug("Skipped a session event that would not parse", exc_info=True)
                     continue
                 event_count += 1
                 ts = int(ev.get("ts_ms", 0) or 0)
