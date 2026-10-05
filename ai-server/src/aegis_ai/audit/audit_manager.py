@@ -432,13 +432,20 @@ class AuditManager:
                         if len(entries) >= n:
                             break
                     except (json.JSONDecodeError, UnicodeDecodeError):
+                        # A crash mid-append leaves exactly this shape: the last line
+                        # never finished being written. Skipping it keeps the scan alive,
+                        # but the window comes back one entry short of what was asked for.
+                        logger.debug("Skipped an audit line that would not decode", exc_info=True)
                         continue
 
             if remainder.strip() and len(entries) < n:
                 try:
                     entries.insert(0, json.loads(remainder.strip().decode("utf-8", errors="replace")))
                 except (json.JSONDecodeError, UnicodeDecodeError):
-                    pass
+                    # After the loop `remainder` is the *oldest* line of the file (the
+                    # leftover of the final chunk read), not the newest -- a line
+                    # truncated by a crash is caught by the in-loop handler above.
+                    logger.debug("Dropped the leftover audit line that would not decode", exc_info=True)
 
         return entries[-n:]
 
@@ -471,6 +478,10 @@ class AuditManager:
                             if entry.get("entry_id") == entry_id:
                                 return entry
                         except (json.JSONDecodeError, UnicodeDecodeError):
+                            # Same shape as `_reverse_read`: a line truncated by a crash
+                            # mid-append lands here, and the resulting miss is
+                            # indistinguishable from a genuine "entry not found".
+                            logger.debug("Skipped an audit line that would not decode", exc_info=True)
                             continue
 
                 if remainder.strip():
@@ -479,7 +490,9 @@ class AuditManager:
                         if entry.get("entry_id") == entry_id:
                             return entry
                     except (json.JSONDecodeError, UnicodeDecodeError):
-                        pass
+                        # See `_reverse_read`: `remainder` here is the oldest line, not
+                        # the newest.
+                        logger.debug("Dropped the leftover audit line that would not decode", exc_info=True)
         except Exception:
             logger.debug("Reverse scan failed", exc_info=True)
         return None

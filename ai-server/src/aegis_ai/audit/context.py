@@ -7,12 +7,15 @@ without changing every audit call site.
 
 from __future__ import annotations
 
+import logging
 import re
 import uuid
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import Iterator
+
+logger = logging.getLogger("aegis_ai.audit.context")
 
 _TRACEPARENT_RE = re.compile(
     r"^00-(?P<trace_id>[0-9a-f]{32})-(?P<span_id>[0-9a-f]{16})-(?P<flags>[0-9a-f]{2})$",
@@ -99,7 +102,9 @@ def _safe_reset_audit_group(token: object) -> None:
         try:
             _current_audit_group.set(None)
         except Exception:
-            pass
+            # The fallback of the fallback: the reset failed AND set(None) failed.
+            # Still never raises (that is the point), but it is no longer invisible.
+            logger.debug("Could not reset the audit group in this context", exc_info=True)
 
 
 def bind_audit_group(
@@ -133,7 +138,7 @@ def clear_audit_group() -> None:
     try:
         _current_audit_group.set(None)
     except Exception:
-        pass
+        logger.debug("Could not clear the audit group in this context", exc_info=True)
 
 
 @contextmanager
