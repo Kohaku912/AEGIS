@@ -8,11 +8,14 @@ Do not wire without a decision — ``DELEGATION.md`` §4;
 from __future__ import annotations
 
 import json
+import logging
 import secrets
 import threading
 import time
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger("aegis_ai.security.tokens")
 
 
 class TokenStore:
@@ -84,5 +87,8 @@ class TokenStore:
         try:
             with open(self._path, encoding="utf-8") as f:
                 self._tokens = json.load(f)
-        except (json.JSONDecodeError, Exception):
+        except Exception:
+            # ⚠️ This module is UNWIRED (see the module docstring), so this record is
+            # inert today -- it is here because the type was wrong, not because it helps.
+            logger.debug("Failed to load tokens; treating the store as empty", exc_info=True)
             self._tokens = {}

@@ -232,8 +232,8 @@ def create_multimodal_llm_provider(
             profile_api_key = os.getenv(vs.api_key_env, "") if vs.api_key_env else ""
             profile_base_url = vs.base_url or ""
             profile_model = vs.model or ""
-        except (KeyError, Exception):
-            pass
+        except Exception:
+            logger.debug("Failed to resolve the vision profile; using defaults", exc_info=True)
 
     api_key = api_key or profile_api_key or os.getenv("LLM_VISION_API_KEY") or os.getenv("LLM_API_KEY", "")
     base_url = base_url or profile_base_url or os.getenv("LLM_VISION_BASE_URL") or os.getenv("LLM_BASE_URL", "")

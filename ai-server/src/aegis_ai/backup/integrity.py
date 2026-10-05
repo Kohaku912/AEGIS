@@ -32,7 +32,7 @@ def validate_manifest(manifest_path: str) -> tuple[bool, list[str]]:
     try:
         with open(path, encoding="utf-8") as f:
             manifest = json.load(f)
-    except (json.JSONDecodeError, Exception) as e:
+    except Exception as e:
         return False, [f"Invalid manifest JSON: {e}"]
 
     # Check required fields

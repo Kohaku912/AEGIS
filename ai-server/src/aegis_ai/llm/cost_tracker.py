@@ -9,11 +9,14 @@ Tracks:
 from __future__ import annotations
 
 import json
+import logging
 import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger("aegis_ai.llm.cost_tracker")
 
 
 @dataclass
@@ -157,5 +160,7 @@ class CostTracker:
                     if line:
                         data = json.loads(line)
                         self._entries.append(CostEntry(**data))
-        except (json.JSONDecodeError, Exception):
-            pass
+        except Exception:
+            # A malformed line aborts the whole read, so the ledger comes back
+            # *short* -- indistinguishable from a ledger that was never written.
+            logger.debug("Failed to load cost entries; ledger may be short", exc_info=True)

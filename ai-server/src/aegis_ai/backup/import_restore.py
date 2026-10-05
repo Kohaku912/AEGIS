@@ -73,7 +73,7 @@ class DataImporter:
         try:
             with open(data_path, encoding="utf-8") as f:
                 data = json.load(f)
-        except (json.JSONDecodeError, Exception) as e:
+        except Exception as e:
             result.errors.append(f"Invalid data file: {e}")
             return result
 
@@ -119,7 +119,7 @@ class DataImporter:
         try:
             with open(data_path, encoding="utf-8") as f:
                 data = json.load(f)
-        except (json.JSONDecodeError, Exception) as e:
+        except Exception as e:
             result.errors.append(f"Invalid data file: {e}")
             return result
 
