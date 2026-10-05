@@ -1,12 +1,24 @@
-"""Every L1 immediate trigger must have a publisher — except the three recorded
-ones, which must NOT (DELEGATION.md section 4 item 45).
+"""Three L1 immediate triggers are declared but unproduced — and this pin holds
+that *specific* absence, not a blanket "every trigger has a producer"
+(DELEGATION.md section 4 item 45).
 
 Measured 2026-10-05: `hook.matched`, `commitment.due` and `browser.discovery` are
 declared in `runtime._L1_IMMEDIATE_EVENT_TYPES` but nothing publishes them; the
 concepts they name are already carried by `self_call` (the hook engine emits it on
 a match, and a due commitment is turned into a hook). Keeping the declarations is
 a statement of intent; this pin makes the *absence of a producer* explicit rather
-than assumed:
+than assumed.
+
+⚠️ What this module does NOT assert (corrected 2026-10-05, cycle 32). The scanner
+below is deliberately narrow: it reads only `ai-server/src/**/*.py`, and only calls
+whose callee name contains "publish". It is blind to `Event(event_type=...)`, to
+`build_event(...)`, and to producers written in another language (Kotlin in
+`android-server`, Rust in `pc-server`). Measured with this exact scanner: only
+**one** of the sixteen declared triggers (`social.inbox.received`) has a literal
+publisher here. The other fifteen do not — so the older phrasing "every trigger
+except these three has a publisher" was a claim about *mentions* (a consumer, an
+allow-list entry or a UI reader in some other file), not about producers. The three
+assertions actually made:
 
   - a **control** proves the scanner finds real literal publishers (otherwise the
     absence assertions would be vacuously true);
@@ -75,4 +87,28 @@ def test_the_recorded_triggers_are_still_declared() -> None:
     assert not missing, (
         f"{missing} was removed from _L1_IMMEDIATE_EVENT_TYPES — if that is deliberate, "
         "drop it from _UNPRODUCED and update DELEGATION.md section 4 item 45"
+    )
+
+
+def test_the_scanner_sees_only_one_declared_trigger() -> None:
+    """Pin the scanner's *scope limit*, so its silence about the other fifteen is
+    an asserted fact rather than an assumed one.
+
+    Measured 2026-10-05: of the sixteen declared triggers this scanner (ai-server
+    Python, callee name containing "publish") finds a literal publisher for exactly
+    one. That is a statement about the *scanner*, not about the system — the other
+    fifteen are produced elsewhere (Kotlin `eventType = …` in android-server, Rust
+    `event_type: …` in pc-server) or via shapes this scanner cannot see
+    (`Event(event_type=…)`, `build_event(...)`). Adding a Python publisher for any
+    of them, or widening the scanner, comes back here.
+    """
+    from aegis_ai.runtime import _L1_IMMEDIATE_EVENT_TYPES
+
+    declared = set(_L1_IMMEDIATE_EVENT_TYPES)
+    found = sorted(_literal_published_event_types() & declared)
+    assert found == ["social.inbox.received"], (
+        f"the scanner now finds {found} among the declared triggers (was "
+        "['social.inbox.received']) — if a real publisher was added, say so here "
+        "and in DELEGATION.md section 4 item 45; if the scanner was widened, the "
+        "scope note in this module's docstring is now stale"
     )

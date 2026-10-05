@@ -1149,9 +1149,15 @@ Measured 2026-10-01 — `ai-server`, full suite:
 > `commitment.due` are superseded by `self_call` (`personal_ai/hooks.py:367`, `commitments.py:117`);
 > `browser.discovery` has no concept anywhere. Nothing is lost today, so they are **recorded, not deleted**
 > (deleting would break `tests/test_runtime_singleton.py:617`). New pin
-> `tests/test_l1_immediate_triggers_have_producers.py` (**3 cases, mutation 3/3**, control green) pins **both
-> halves**: the three recorded triggers still have no producer, *and* the other 13 still do — without the
-> control the absence assertions would be vacuously true.
+> `tests/test_l1_immediate_triggers_have_producers.py` (**4 cases, mutation 2/2**, control green) pins the
+> **negative half only**: the three recorded triggers still have no producer, and the scanner's visible
+> range is exactly one of the sixteen (`social.inbox.received`). ⚠️ **Corrected 2026-10-05 (cycle 32)**:
+> the older wording here claimed it also pinned *that the other 13 have a producer* — it never did, and
+> that claim is false: measured, only **1 of 16** has a publish-literal producer inside `ai-server/src`.
+> The earlier "3" counted *mentions* (a consumer, an allow-list entry, a UI reader) as producers; the
+> real producers live in other languages (Kotlin `eventType=`, Rust `event_type:`) or in
+> `build_event`/`Event(event_type=)` shapes this scanner cannot see. Without the control the absence
+> assertions would be vacuously true.
 > **(3) L1 runs inline on the publisher's thread.** `EventBus._notify_subscribers` (`src/event_bus.py:234`)
 > calls `sub.handler(event)` synchronously; `_evaluate_immediate_event` (`runtime.py:1557`) →
 > `_run_l1_pipeline_for_event` (`:764`) → `router.observe(...)` (`:771`, the LLM round-trip). The gRPC
