@@ -69,7 +69,9 @@ def encode_opus(pcm: bytes, *, sample_rate: int = 16000) -> tuple[bytes, str]:
             try:
                 os.unlink(path)
             except OSError:
-                pass
+                # A `finally` cleanup: the caller already has its encoded bytes, so a
+                # failure here only leaves a temporary file behind -- invisibly.
+                logger.debug("Could not remove the temporary opus file %s", path, exc_info=True)
 
 
 def encode_h265(frames: list[bytes]) -> tuple[bytes, str]:
@@ -102,11 +104,11 @@ def encode_h265(frames: list[bytes]) -> tuple[bytes, str]:
             try:
                 path.unlink()
             except OSError:
-                pass
+                logger.debug("Could not remove the temporary h265 file %s", path, exc_info=True)
         try:
             work.rmdir()
         except OSError:
-            pass
+            logger.debug("Could not remove the temporary h265 directory %s", work, exc_info=True)
 
 
 class MotionGate:

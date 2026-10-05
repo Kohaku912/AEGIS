@@ -97,7 +97,9 @@ def _run(command: list[str], *, text_file: Path | None = None) -> tuple[bool, st
             try:
                 text_file.unlink()
             except OSError:
-                pass
+                # Cleanup runs in a `finally`, so a failure here is invisible: the caller
+                # already has its result and the temporary file simply stays behind.
+                logger.debug("Could not remove the temporary text file %s", text_file, exc_info=True)
 
     if completed.returncode != 0:
         detail = (completed.stderr or completed.stdout or b"").decode("utf-8", errors="replace")

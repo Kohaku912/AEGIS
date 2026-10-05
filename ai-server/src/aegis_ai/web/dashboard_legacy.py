@@ -1589,7 +1589,13 @@ class DashboardApp:
                 try:
                     revision = Path("/app/REVISION").read_text(encoding="utf-8").strip() or revision
                 except OSError:
-                    pass
+                    # Same shape as docker_entrypoint._source_revision: an absent REVISION
+                    # file is normal, an unreadable one is not, and both report "unknown".
+                    logger.debug(
+                        "Could not read /app/REVISION; the health endpoint reports %r",
+                        revision or "unknown",
+                        exc_info=True,
+                    )
             return jsonify({
                 "status": "ok",
                 "component": "dashboard",

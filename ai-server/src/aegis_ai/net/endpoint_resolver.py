@@ -85,6 +85,9 @@ def _resolve_hostnames(candidates: list[str]) -> list[str]:
         try:
             infos = socket.getaddrinfo(candidate, None, family=socket.AF_INET, type=socket.SOCK_STREAM)
         except OSError:
+            # The literal name was already appended above, so an unresolvable candidate
+            # passes through silently and looks the same as one that resolved to nothing.
+            logger.debug("Could not resolve %r; keeping the literal name", candidate, exc_info=True)
             continue
         for info in infos:
             ip = info[4][0]

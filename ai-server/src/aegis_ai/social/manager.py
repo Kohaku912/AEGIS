@@ -47,7 +47,10 @@ def _parse_timestamp(value: Any) -> int:
             dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
             return int(dt.timestamp() * 1000)
         except (ValueError, OSError):
-            pass
+            # Falls through to `return int(time.time() * 1000)` below: an unparseable
+            # timestamp silently becomes *now*. ⚠️ The `except ValueError: pass` above is
+            # NOT this case -- it is control flow to the next strategy, so it stays bare.
+            logger.debug("Could not parse %r as a timestamp; using the current time", value, exc_info=True)
     return int(time.time() * 1000)
 
 

@@ -227,6 +227,13 @@ class CapabilityCatalog:
                 try:
                     latest = max(latest, path.stat().st_mtime)
                 except OSError:
+                    # The mtime is a *cache key*: skipping a manifest under-reports it, so a
+                    # change to that file leaves the cached catalog looking up to date.
+                    logger.debug(
+                        "Skipped %s: it could not be stat'd, so the catalog mtime may be under-reported",
+                        path,
+                        exc_info=True,
+                    )
                     continue
         except OSError:
             return latest

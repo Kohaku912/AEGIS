@@ -33,7 +33,11 @@ def _source_revision() -> str:
         if text:
             return text
     except OSError:
-        pass
+        # "no REVISION file" is normal in a dev tree; "an unreadable one" is not. Both
+        # currently collapse to the same "unknown", so name which one happened.
+        logger.debug(
+            "Could not read /app/REVISION; the source revision stays %r", value or "unknown", exc_info=True
+        )
     return value or "unknown"
 
 

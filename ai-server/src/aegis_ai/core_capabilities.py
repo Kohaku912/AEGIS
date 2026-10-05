@@ -665,6 +665,13 @@ class AegisCoreCapabilityClient:
             try:
                 stat = item.stat()
             except OSError:
+                # A file that cannot be stat'd is dropped from the listing, so the caller
+                # sees a *shorter* result and cannot tell it from a directory that holds less.
+                logger.debug(
+                    "Skipped %s: it could not be stat'd, so it is missing from the listing",
+                    item,
+                    exc_info=True,
+                )
                 continue
             metadata = self._path_metadata(item)
             files.append(

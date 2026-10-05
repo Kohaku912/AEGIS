@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import threading
 from pathlib import Path
 
 from aegis_ai.social.models import SocialInboxItem
+
+logger = logging.getLogger("aegis_ai.social.inbox")
 
 
 class SocialInboxStore:
@@ -62,7 +65,13 @@ class SocialInboxStore:
             try:
                 os.replace(self._path, corrupt)
             except OSError:
-                pass
+                # The quarantine rename failed, so the corrupt file is still in place and
+                # the store comes back *empty* -- indistinguishable from a fresh inbox.
+                logger.debug(
+                    "Could not move the unreadable inbox %s aside; it was left in place",
+                    self._path,
+                    exc_info=True,
+                )
 
     def _save(self) -> None:
         payload = {"version": 1, "items": [item.to_dict() for item in self._items.values()]}
