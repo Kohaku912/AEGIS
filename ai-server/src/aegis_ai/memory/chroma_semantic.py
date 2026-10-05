@@ -222,5 +222,7 @@ class ChromaSemanticMemory(SemanticMemory):
             try:
                 stats["chroma_count"] = self._collection.count()
             except Exception:
-                pass
+                # Leave chroma_count at 0, but say so: otherwise "count failed" and
+                # "the collection is empty" are the same reported value.
+                logger.debug("ChromaDB count() failed; reporting chroma_count=0", exc_info=True)
         return stats

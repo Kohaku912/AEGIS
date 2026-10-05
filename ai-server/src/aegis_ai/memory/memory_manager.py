@@ -380,7 +380,7 @@ class MemoryManager:
                     if t in text:
                         return t
             except Exception:
-                pass
+                logger.debug("Failed to classify memory type via LLM; using default", exc_info=True)
         return "episodic"
 
     _STORE_DEDUP_TYPES = (
@@ -603,4 +603,4 @@ class MemoryManager:
                 )
             )
         except Exception:
-            pass
+            logger.debug("Failed to publish event %s", event_type, exc_info=True)

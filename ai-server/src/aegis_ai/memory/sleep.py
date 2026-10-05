@@ -226,7 +226,7 @@ class SleepManager:
                 payload=payload,
             ))
         except Exception:
-            pass
+            logger.debug("Failed to publish event %s", event_type, exc_info=True)
 
     def _record_audit(self, action: str, **kwargs) -> None:
         if self._audit_manager is None:
@@ -239,4 +239,4 @@ class SleepManager:
                 detail=kwargs,
             ))
         except Exception:
-            pass
+            logger.debug("Failed to record sleep audit %r", action, exc_info=True)
