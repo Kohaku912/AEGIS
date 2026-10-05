@@ -4,12 +4,15 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
+import logging
 import time
 import uuid
 
 from tool_broker import ExecutionSource, InvokeStatus, ToolExecutionRequest
 
 from aegis_ai.personal_ai.storage import JsonStateFile, append_jsonl, now_ms
+
+logger = logging.getLogger("aegis_ai.personal_ai.repair")
 
 # Failures AEGIS cannot recover from autonomously — learn + ask the user.
 _UNREPAIRABLE_CATEGORIES = frozenset({"auth", "permission", "policy_denied", "validation"})
@@ -384,7 +387,7 @@ class RepairManager:
             try:
                 out.append(json.loads(line))
             except Exception:
-                pass
+                logger.debug("Skipping an unreadable repair-history line", exc_info=True)
         return out
 
     def dismiss_matching(
@@ -490,7 +493,7 @@ class RepairManager:
                     importance=0.6,
                 )
         except Exception:
-            pass
+            logger.debug("Failed to record a repair lesson", exc_info=True)
 
     def _present_fingerprint(self, entry: dict[str, Any]) -> str:
         error = str(entry.get("error") or "")[:120]
@@ -578,7 +581,7 @@ class RepairManager:
             self._state.save(self._status)
             self._audit("repair_unrepairable_presented", entry)
         except Exception:
-            pass
+            logger.debug("Failed to present an unrepairable failure", exc_info=True)
 
     def _audit(self, action: str, detail: dict[str, Any]) -> None:
         if self._audit_manager is None:
@@ -586,4 +589,4 @@ class RepairManager:
         try:
             self._audit_manager.log_decision(action=action, actor="repair_manager", decision="success", reason=action, detail=detail)
         except Exception:
-            pass
+            logger.debug("Failed to audit repair decision %r", action, exc_info=True)

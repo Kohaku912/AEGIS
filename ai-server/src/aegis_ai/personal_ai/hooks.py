@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import threading
+import logging
 import uuid
 import json
 from dataclasses import dataclass, field
@@ -14,6 +15,8 @@ from aegis_schema.models import Event, EventPriority, ServerType
 from tool_broker import ExecutionSource, ToolExecutionRequest
 
 from aegis_ai.personal_ai.storage import JsonStateFile, append_jsonl, now_ms
+
+logger = logging.getLogger("aegis_ai.personal_ai.hooks")
 
 
 @dataclass
@@ -117,7 +120,8 @@ class HookEngine:
             try:
                 self._event_manager.subscribe(self.on_event)
             except Exception:
-                pass
+                # A hook engine that could not subscribe never fires an event hook.
+                logger.debug("Failed to subscribe to the event bus", exc_info=True)
 
     def start(self) -> None:
         if self._thread and self._thread.is_alive():
@@ -384,7 +388,7 @@ class HookEngine:
                     priority=EventPriority.NORMAL,
                 ))
             except Exception:
-                pass
+                logger.debug("Failed to publish the self-call event", exc_info=True)
         loop = self._autonomous_loop_getter() if self._autonomous_loop_getter else None
         if loop is not None and hasattr(loop, "trigger"):
             loop.trigger(reason=payload["reason"], context=payload)
@@ -404,4 +408,4 @@ class HookEngine:
         try:
             self._audit_manager.log_decision(action=action, actor="hook_engine", decision="success", reason=action, detail=detail)
         except Exception:
-            pass
+            logger.debug("Failed to audit hook decision %r", action, exc_info=True)

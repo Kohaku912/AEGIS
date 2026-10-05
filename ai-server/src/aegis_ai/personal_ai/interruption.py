@@ -45,10 +45,13 @@ flips it fails loudly.
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any, ClassVar
 
 from aegis_ai.personal_ai.storage import JsonStateFile, now_ms
+
+logger = logging.getLogger("aegis_ai.personal_ai.interruption")
 
 #: How much delivering a notification of this severity is worth.
 #:
@@ -157,7 +160,8 @@ class InterruptionController:
                 if not model.allows_proactive(category):
                     return self._decision("suppress", "UserModel does not allow this proactive category.")
             except Exception:
-                pass
+                # An unreadable user model means the quiet-hours check did not run.
+                logger.debug("Failed to consult the user model", exc_info=True)
 
         # ── Expected utility of speaking now ─────────────────────────────────────
         situation = self._situation_model.get_state() if self._situation_model is not None else {}
@@ -251,4 +255,4 @@ class InterruptionController:
         try:
             self._audit_manager.log_decision(action=action, actor="interruption_controller", decision="success", reason=action, detail=detail)
         except Exception:
-            pass
+            logger.debug("Failed to audit interruption decision %r", action, exc_info=True)

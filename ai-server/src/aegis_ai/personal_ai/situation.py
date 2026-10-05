@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 from typing import Any
 
 from aegis_schema.models import Event
 
 from aegis_ai.personal_ai.storage import JsonStateFile, now_ms
+
+logger = logging.getLogger("aegis_ai.personal_ai.situation")
 
 
 class SituationModel:
@@ -35,7 +38,8 @@ class SituationModel:
             try:
                 self._event_manager.subscribe(self.on_event)
             except Exception:
-                pass
+                # A situation model that could not subscribe never updates itself.
+                logger.debug("Failed to subscribe to the event bus", exc_info=True)
 
     def get_state(self) -> dict[str, Any]:
         if self._user_state_manager is not None:
@@ -43,7 +47,7 @@ class SituationModel:
                 user_state = self._user_state_manager.get_current_user_state()
                 return self._state_from_user_state(user_state)
             except Exception:
-                pass
+                logger.debug("Failed to derive the situation from user state", exc_info=True)
         return dict(self._state)
 
     def update_from_observation(self, source: str, payload: dict[str, Any]) -> dict[str, Any]:

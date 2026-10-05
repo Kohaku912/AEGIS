@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import fnmatch
+import logging
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -10,6 +11,8 @@ from typing import Any, ClassVar
 
 from aegis_ai.personal_ai.storage import JsonStateFile, now_ms
 from aegis_schema import safety_vocab
+
+logger = logging.getLogger("aegis_ai.personal_ai.delegation")
 
 
 @dataclass
@@ -341,4 +344,5 @@ class DelegationPolicyStore:
                 action=action, actor="delegation_policy", decision="success", reason=action, detail=detail
             )
         except Exception:
-            pass
+            # An audit trail that fails silently is not an audit trail.
+            logger.debug("Failed to audit delegation decision %r", action, exc_info=True)

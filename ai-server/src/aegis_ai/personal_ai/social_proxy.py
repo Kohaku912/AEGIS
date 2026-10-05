@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import smtplib
 import json
+import logging
 import uuid
 from email.message import EmailMessage
 from pathlib import Path
@@ -14,6 +15,8 @@ from aegis_schema.models import Event, ServerType
 
 from aegis_ai.integrations.webhook_sender import WebhookRequest, WebhookSender
 from aegis_ai.personal_ai.storage import JsonStateFile, append_jsonl, now_ms
+
+logger = logging.getLogger("aegis_ai.personal_ai.social_proxy")
 
 
 class SocialProxy:
@@ -41,7 +44,7 @@ class SocialProxy:
                     payload_json=json.dumps(event_payload, ensure_ascii=False),
                 ))
             except Exception:
-                pass
+                logger.debug("Failed to publish the social-proxy event", exc_info=True)
         return {"ok": True, **event_payload}
 
     def create_draft(self, channel: str, to: str = "", subject: str = "", body: str = "", payload: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -162,4 +165,4 @@ class SocialProxy:
         try:
             self._audit_manager.log_decision(action=action, actor="social_proxy", decision="success", reason=action, detail=detail)
         except Exception:
-            pass
+            logger.debug("Failed to audit social-proxy decision %r", action, exc_info=True)
