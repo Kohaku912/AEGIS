@@ -368,7 +368,10 @@ class AegisAIServicer(ai_server_pb2_grpc.AIServerServicer):
             try:
                 event_queue.put_nowait(normalize_ui_event(event))
             except queue.Full:
-                pass
+                # Bounded queue in front of a slow gRPC stream client: deliberate
+                # back-pressure, so name the reason without a traceback (a traceback per
+                # drop would flood the log exactly when the client is behind).
+                logger.debug("Dropped a UI event for a slow gRPC stream client")
 
         subscriber_id = event_manager.subscribe(_handler)
         try:

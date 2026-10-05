@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import queue
 import time
 from typing import Any
@@ -14,6 +15,8 @@ from aegis_ai.web.ui_overview import (
     build_ui_overview,
     normalize_ui_event,
 )
+
+logger = logging.getLogger("aegis_ai.web.routes.ui")
 
 
 def init_ui_routes(owner: Any) -> None:
@@ -37,7 +40,10 @@ def init_ui_routes(owner: Any) -> None:
                     return
                 event_queue.put_nowait(normalized)
             except queue.Full:
-                pass
+                # A bounded queue in front of a slow client: the drop is deliberate
+                # back-pressure, so name the *reason* without a traceback — a traceback
+                # per drop would flood the log exactly when the client is behind.
+                logger.debug("Dropped a UI event for a slow SSE client")
 
         if event_manager is not None and hasattr(event_manager, "subscribe"):
             subscriber_id = event_manager.subscribe(_handler)

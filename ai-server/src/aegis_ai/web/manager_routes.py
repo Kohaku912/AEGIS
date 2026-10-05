@@ -934,7 +934,10 @@ def presentation_stream():
         try:
             q.put_nowait({"event": event_type, "data": data})
         except queue.Full:
-            pass
+            # Bounded queue in front of a slow SSE client: deliberate back-pressure, so
+            # name the reason without a traceback (a traceback per drop would flood the
+            # log exactly when the client is behind).
+            logger.debug("Dropped a presentation event for a slow SSE client")
 
     if event_manager is not None and hasattr(event_manager, "subscribe"):
         subscriber_id = event_manager.subscribe(_on_event)
