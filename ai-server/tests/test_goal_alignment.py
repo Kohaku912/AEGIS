@@ -317,3 +317,128 @@ def test_android_capability_routes_resolve_to_manifests(tmp_path) -> None:
         if catalog.resolve(capability_id) is None
     ]
     assert not missing, f"Android routes without a manifest: {missing}"
+
+
+def test_ai_server_core_dispatch_ids_resolve_to_manifests(tmp_path) -> None:
+    """§37 row 4: the ai-server core dispatch is a hand-written ID map, so it must not drift.
+
+    ``AegisCoreCapabilityClient.invoke_capability`` matches five exact IDs and twelve
+    prefixes. If a manifest is renamed, the branch silently stops matching and the
+    capability becomes "Unsupported" with nothing failing. The room and Android maps
+    already have this pin; §37 listed this map too, so this closes the last one.
+
+    The IDs are read from the source with ``ast`` rather than listed here: a hand-written
+    list would be a second copy, free to drift from the dispatch it is meant to guard.
+    """
+    import ast
+
+    from aegis_ai.capability_catalog import CapabilityCatalog
+
+    tree = ast.parse((AI_SRC / "core_capabilities.py").read_text(encoding="utf-8"))
+    fn = next(
+        (n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == "invoke_capability"),
+        None,
+    )
+    assert fn is not None, "invoke_capability is gone -- re-point this pin at the new dispatch"
+
+    def eq_literal(node: ast.AST) -> str | None:
+        """``capability_id == "<literal>"`` -> the literal, else None."""
+        if not isinstance(node, ast.Compare):
+            return None
+        if not (isinstance(node.left, ast.Name) and node.left.id == "capability_id"):
+            return None
+        if len(node.ops) != 1 or not isinstance(node.ops[0], ast.Eq):
+            return None
+        comparator = node.comparators[0]
+        if isinstance(comparator, ast.Constant) and isinstance(comparator.value, str):
+            return comparator.value
+        return None
+
+    def startswith_literal(node: ast.AST) -> str | None:
+        """``capability_id.startswith("<literal>")`` -> the literal, else None."""
+        if not isinstance(node, ast.Call):
+            return None
+        func = node.func
+        if not (isinstance(func, ast.Attribute) and func.attr == "startswith"):
+            return None
+        if not (isinstance(func.value, ast.Name) and func.value.id == "capability_id"):
+            return None
+        if len(node.args) != 1:
+            return None
+        arg = node.args[0]
+        if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
+            return arg.value
+        return None
+
+    exact = {v for node in ast.walk(fn) if (v := eq_literal(node))}
+    prefixes = {v for node in ast.walk(fn) if (v := startswith_literal(node))}
+
+    # Guard the guard, two independent ways. (1) A dispatch form this pin cannot parse
+    # (`capability_id in {...}`) would silently shrink the extracted set, so reconcile the
+    # extracted literals against the branch count, which comes from a different traversal.
+    def mentions_capability_id(node: ast.AST) -> bool:
+        return any(isinstance(x, ast.Name) and x.id == "capability_id" for x in ast.walk(node))
+
+    branches = [n for n in ast.walk(fn) if isinstance(n, ast.If) and mentions_capability_id(n.test)]
+    assert len(exact) + len(prefixes) == len(branches), (
+        f"extracted {len(exact)} exact + {len(prefixes)} prefix ids but the function has "
+        f"{len(branches)} capability_id branches -- an unparsed dispatch form"
+    )
+    # (2) A refactor into a constant would empty both sets; name one member of each.
+    assert "ai-server.search.web" in exact, sorted(exact)
+    assert "ai-server.memory." in prefixes, sorted(prefixes)
+
+    catalog = CapabilityCatalog(
+        capabilities_dir=str(AI_SERVER / "capabilities"),
+        apps_dir=str(tmp_path / "apps"),
+    )
+    manifest_ids = {c["id"] for c in catalog.list_for_llm()}
+
+    for capability_id in sorted(exact):
+        assert catalog.resolve(capability_id) is not None, (
+            f"the ai-server core dispatches {capability_id!r} but no manifest declares it"
+        )
+    for prefix in sorted(prefixes):
+        assert any(i.startswith(prefix) for i in manifest_ids), (
+            f"the ai-server core dispatches the prefix {prefix!r} but no manifest matches it"
+        )
+
+
+def test_android_manager_reaction_ids_match_the_route_map() -> None:
+    """§37: ``AndroidManager._after_invoke`` dispatches on three capability IDs.
+
+    It updates the cached permission/device state from the result of whichever
+    capability was invoked. Those IDs must be exactly the ones the route map
+    declares -- if a manifest is renamed, ``capability_mapper``'s pin fails first,
+    and a developer fixes ``_ROUTES``; this test makes sure the reaction branches
+    are updated too, instead of silently going stale.
+
+    ``_ROUTES`` is itself pinned against the manifests by
+    ``test_android_capability_routes_resolve_to_manifests``, so checking membership
+    here is enough -- and the IDs are read from the source, not listed.
+    """
+    import ast
+
+    from aegis_ai.integrations.android.capability_mapper import AndroidCapabilityMapper
+
+    tree = ast.parse((AI_SRC / "integrations" / "android" / "manager.py").read_text(encoding="utf-8"))
+    fn = next(
+        (n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == "_after_invoke"),
+        None,
+    )
+    assert fn is not None, "_after_invoke is gone -- re-point this pin at the new dispatch"
+
+    dispatched = {
+        node.comparators[0].value
+        for node in ast.walk(fn)
+        if isinstance(node, ast.Compare)
+        and isinstance(node.left, ast.Name)
+        and node.left.id == "capability_id"
+        and isinstance(node.comparators[0], ast.Constant)
+        and isinstance(node.comparators[0].value, str)
+    }
+    assert dispatched, "extraction is vacuous -- no capability_id comparisons found"
+    assert "android-server.device.get_status" in dispatched, sorted(dispatched)
+
+    unknown = sorted(dispatched - set(AndroidCapabilityMapper().list_capabilities()))
+    assert not unknown, f"_after_invoke reacts to IDs the route map does not declare: {unknown}"
