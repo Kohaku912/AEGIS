@@ -90,7 +90,7 @@
 | `（本節）` | **B-6 の前提を実測で反証した（行は閉じずに残した）**: 登録簿は「未読集合全体に 1 つの一貫した枝（削除 or 配線）を選ぶ」としていた。**23 件を実測したところ同質でなかった** — **群 A（対象の機能が既に無い）= 1 件だけ**（`research_watch_enabled`。`research/` は P1-5 で削除済み）、**群 B（機能は在るのにスイッチが未配線）= 21 件**（`reflection/`・`memory/semantic.py`・`semantic_memory.py`・`procedural.py`・`briefing/`・`social/`・`intake/`・`agents/` の存在を確認した）、**群 C（害の実例）= 1 件**（`sensitive_data_storage_enabled`）。**配線は「挙動が変わる」変更**なので、集合に 1 つの枝を選ぶのは**新しい判断の発明**にあたる。委任の原則（推奨列＝保守側の枝を実行するだけ）では、**枝を選ぶこと自体が発明になる行は閉じられない** — よって **§0.2 に行を残したまま**、`DELEGATION.md` §2 の当該行を**撤回**し、§4 に**項目 11** として登録した。**この行は §0.2 が空にならない理由の 1 つ**。**教訓**: 「同じ形の未読フィールド」は同じ形ではない — **未読である理由**を数えずに「集合」と呼ぶと、集合への 1 つの判断が**個別の判断 21 個をすり替える**。**副産物**: `B-6` という ID が本文書内で 2 つの意味を持つ（§0.2 の設定行 / §4.3 の git ref 消失バグクラス）— 型 9 の変種。振り直しは影響が大きいので**記録のみ** |
 | `（本節）` | **C-3 と C-5 を閉じた（「決めることが無かった」行）— そして `MEMORY.md` 自身の誤りを訂正**: どちらの行も**枝は既に決まっており**（C-3 = 正典は §4.3、C-5 = テストゲートは手動のまま）、**残った問いは `DELEGATION.md` §4 の項目 6・7 に既に移してあった**ので、**§0.2 の行だけが二重**だった — 行を削除した（コードも文書の中身も不変）。**C-3 の実測**: §4.3 に **17 クラス**、skill `aegis-pin-a-dead-surface` の見出しが「**正典は §4.3**、食い違えば §4.3 が勝つ、この一覧は直す側」と**明記済み**だった。**副産物**: `MEMORY.md` の当該行が**逆向き**（「names and glosses live in ONE place — **skill**」）と書いていたが、**§4.3 が 17 件の名前と gloss を両方持ち**、skill は圧縮語彙で、**skill 自身が §4.3 を正典と名乗っている**。つまり `MEMORY.md` は**3 つ目の成果物として配置を誤って説明**していた（次のセッションを**派生側**へ送り、それを**源**と呼ぶ）— 訂正した。**教訓**: **所有の主張も事実であり、数を数えても検査にならない**（17 という数は合っていた）。**§0.2 の残りは 6 行**（B-1②・B-5①・B-6、C-1・C-2・C-4）— いずれもオーナーの判断が要る |
 | `（本節）` | **Android のコンパイル検証を実施 — そして C-4 の前提は「書かれた時点で既に偽」だった**: 委任に従い C-4 の導入決定を実行し、`:app:compileDebugKotlin` が走り `:app:assembleDebug` が `app-debug.apk`（**21,024,388 bytes**、sha256 `6c5d0eda…`）を生成することを実測した（`--offline`、依存キャッシュ温で compile 約 76 秒 / assemble 約 27 秒）。**実機は対象外のまま**（`adb devices` は空）。**測定中に、C-4 行そのものが誤りだったと判明** — 行は「`java`/`javac`/`adb`/`gradle`/`kotlinc` すべて不在、**待っても直らない環境の不在**」と書くが、JDK 17 は **2026-08-19**、Android SDK は **2026-09-25** にディスクへ入っており、**`BUG_REPORT.md` の「android-server: 実ビルドで §36 を検証」節がその導入と `BUILD SUCCESSFUL`（21m52s）を既に記録していた**（`ebe1506`、2026-09-29）。C-4 行は **2026-09-30 14:17（`bc6e870`）** なので、**偽だったのは「当時」ではなく「書いた時点」**で、反証は**同じリポジトリの中に既にあった**。原因は**測定のスコープ** — `command -v java` は `PATH` しか見ないので、**ディスクにあるツールを「不在」と報告する**（A-12 の「リテラルが無い＝読者がいない」と同じ罠を、今度は環境で踏んだ）。**掃討**: `AGENTS.md`・`docs/status.md`・`DECISION_DRAFTS.md`・`DELEGATION.md` を実測に置換し、履歴文書（`IMPROVEMENT_PROPOSAL.md`・`PHASE5B_RULE_PROPOSAL.md`・`BUG_REPORT.md`）には**日付入りの追記**を足した（本文は書き換えない）。**ピンは足していない** — C-4 が提案していた「『検証済み』と書かれたら落とすピン」は**散文スキャナ**で、**この節自身が「検証済み」を含むので除外リストが要る**（手で保守する除外リストはこのリポジトリが警告している欠陥そのもの）。代わりに **§4.3 クラス 6 に鏡像の変種を追記**（「在る」と読める文書だけでなく「**無い**」と読める文書も測る）。**コードは不変**。ただし**テスト数はこの間のコミットで動いていた** — 実測 **1776 → 1891 passed / 30 skipped**、egress マーカー **233 → 325**（新規 3 ファイルで **72 件** = 音声 30 / メッセージング 24 / cross-device 18。**残りは既存ファイル側**で、内訳は測っていない）。live な写し 3 つ（§0 要約行・§1.1 表・`AGENTS.md`）と skill §1 を実測値に揃えた |
-| `（本節）` | **B-5① の「1 手（配線）」を実測したら 1 手ではなかった — 確認を欲求に結びつける機構が無い**: §3.1 穴 4 と `DELEGATION.md` §4 項目 9 は「`reflect()` に呼び出し元を配線する（**1 手**）」としていたので、配線先を測った。**① 読者はどちらも `related_desire=source_desire` で引く**（`autonomous_loop.py:1389`・`motivation_arbiter.py:162`）ので、`related_desire` が入らなければ**記録は作られても誰も読まない**（ループ側の読者は `:1379` で `source_desire` が空なら即 `return 0.0`）。**② `related_desire` に入るのは `reflect()` の呼び出し元が渡す `source_desire` だけ**で、唯一の呼び出し元（`autonomous_loop.py:1050`）は**失敗したタスクの `desire`** を渡す。**③ `ConfirmationRequest` は欲求を持たない**（`confirmation/models.py` — `summary`/`reason`/`capability_id`/`task_id`/… はあるが `desire` は無い）。**④ 解決済みの確認を欲求に結びつける機構が無い** — `_decide`（`web/routes/approval.py`）は `store.reject()` を呼んで記録を返すだけ、実行経路で store に触る唯一の場所 `_confirmation()` は `request`/`list` のみ、**ループは store を 1 度も参照しない**（`autonomous_loop.py` に `confirmation` の出現 **0 件**）。→ **そのまま配線すると、拒否された確認が「無関係なタスクの欲求」への罰則になる**（誤帰属）。**正しく配線するには「確認 ↔ 欲求」のリンクを先に決める必要がある**（案: 確認に欲求を記録させる／`task_id` で照合する — どちらも契約と挙動を変える**製品判断**）。つまり**推奨列の「1 手」は誤りで、実際はリンクの定義を含む製品判断**だった。**コードは不変**（§3.1 穴 4 と `DELEGATION.md` §3/§4 を実測に訂正） |
+| `（本節）` | **B-5① の「1 手（配線）」を実測したら 1 手ではなかった — 確認を欲求に結びつける機構が無い**: §3.1 穴 4 と `DELEGATION.md` §4 項目 9 は「`reflect()` に呼び出し元を配線する（**1 手**）」としていたので、配線先を測った。**① 読者はどちらも `related_desire=source_desire` で引く**（`autonomous_loop.py:1589`・`motivation_arbiter.py:162`）ので、`related_desire` が入らなければ**記録は作られても誰も読まない**（ループ側の読者は `:1583` で `source_desire` が空なら即 `return 0.0`）。**② `related_desire` に入るのは `reflect()` の呼び出し元が渡す `source_desire` だけ**で、唯一の呼び出し元（`autonomous_loop.py:1228`）は**失敗したタスクの `desire`** を渡す。**③ `ConfirmationRequest` は欲求を持たない**（`confirmation/models.py` — `summary`/`reason`/`capability_id`/`task_id`/… はあるが `desire` は無い）。**④ 解決済みの確認を欲求に結びつける機構が無い** — `_decide`（`web/routes/approval.py`）は `store.reject()` を呼んで記録を返すだけ、実行経路で store に触る唯一の場所 `_confirmation()` は `request`/`list` のみ、**ループは store を 1 度も参照しない**（`autonomous_loop.py` に `confirmation` の出現 **0 件**）。→ **そのまま配線すると、拒否された確認が「無関係なタスクの欲求」への罰則になる**（誤帰属）。**正しく配線するには「確認 ↔ 欲求」のリンクを先に決める必要がある**（案: 確認に欲求を記録させる／`task_id` で照合する — どちらも契約と挙動を変える**製品判断**）。つまり**推奨列の「1 手」は誤りで、実際はリンクの定義を含む製品判断**だった。**コードは不変**（§3.1 穴 4 と `DELEGATION.md` §3/§4 を実測に訂正） |
 | `（本節）` | **B-6 を「削除」で実行 — 未読 23 フィールドのうち 22 を削除し、ピン留めされた安全既定値 1 件を残した**: オーナー決定（削除）に従ったが、**実行前に測って範囲を変えた**。23 件は**同質ではなかった** — **22 件は純粋な負債**（`src/` 全体で読者ゼロ。定義モジュール以外に出現 0）だが、**1 件 `voice.push_to_talk_only` はピン留めされた安全既定値**で、削除すると `test_ineffective_flags.py` の `_INTENTIONALLY_UNREAD` が指す対象そのものが消える。よって**22 件を削除し `push_to_talk_only` を残した**（当初指示の「23 件削除」は**そのままでは実行できない**——集合が 1 つの枝を選べる形をしていなかった。これは §0.1 の B-6 反証行と同じ型の再発）。**削除した面**: `settings/models.py` の **5 セクション 22 フィールド**（`AutonomousSettings` 10 / `AgentSettings` 2 / `IntakeSettings` 4 / `MemorySettings` 4 / `ServerSettings` 2）、`config/settings.json` の対応 22 鍵、`web-ui/src/pages/Settings.tsx` の `preferred` から `self_dev_proposal_enabled`、`_UNOWNED_DEBT`（**空にした**——これが削除の目的そのもの）、`docs/beta-runbook.md` の 2 行。**`IntakeSettings` の docstring は偽だった** — `intake.classifier_profile` を引用していたが、生きた経路は `L1Router`/`L1Executor`（`runtime.py:1033` で構築、設定を受け取らない）で、そのフィールドは**一度も読まれていなかった**。**新ピン** `tests/test_settings_debt_stays_retired.py`（4 テスト）: `src/` 全体の**識別子単位**走査（`ast` 非依存）で 22 名の残存ゼロ、**陽性対照**（`push_to_talk_only` と `episodic_retention_days` を走査が見つけられること——不在表明は走査が壊れると空虚に真になる）、モデル側の独立検出器、出荷 config に鍵ゼロ。`test_settings_ui_matches_the_schema.py` は**記録テストを不変条件に置換**（`rendered & unread == set()` + 非空虚ガード。旧 `_RECORDED_DEAD_CONTROLS` は削除）。`_RECORDED_ENFORCED` 27 → **15**（日付付き B-20 実測の 27 はそのまま保存）。被覆床 90 → **70**（実測 72）。**挙動が変わった 2 点（「挙動に寄与しないので削除は挙動を保存する」は*ほぼ*真だが完全ではない）**: ① **書き込み経路が鍵を拒否するようになった**（`SettingsStore.update_section` が `Unknown field '{key}'` を返す——A-9/B-20 の修正で `AEGISSettings.model_validate` を通すため）② **設定画面にコントロールが出なくなった**（B-21 の死んだ 10 コントロールの一部が消えた）。**実測**: ai-server **1891 → 1885 passed / 30 → 8 skipped**（実測 324.58 秒）。**内訳は厳密**: スキップの **−22 は削除したフィールドそのもの**、通過の **−6 = 新ピン +4 − 削除されたパラメータ化ケース 10**。egress は派生量なので測り直した: **325 → 303 マーカー / 302 passed / 1 skipped / deselected 1590**。**掃討中に 2 つの腐った数値を実測で発見**: ① `AGENTS.md` の「**93 fields across 11 models**」は**古かった**——A-12 の台帳行の 93 は**当時は正しく**（`273f0c1` で実測 93）、`ad9d32f`（メッセージング）が 94 に上げたのに `AGENTS.md` が追随していなかった。**live な主張は 1 ずれ**（正: 94 → 72 = 削除 22）。② **egress 変異チェックの失敗数は 62 でも 38 でもなく 74**（`scripts/verify_egress_tests_catch_regression.py` 実測: 非変異 302 passed / 1 skipped、変異 **74 failed / 228 passed / 1 skipped**）——`AGENTS.md` の 62 と skill の 38 は**どちらも古い**。両方を実測値に置換。**副産物（B-6 の範囲外なので残置）**: `config/settings.json` の `"autonomy"` ブロックは P1-3 の `AutonomyProfile` 残骸で、**どのモデルにも対応しない**（**2026-10-01 に削除 — 次項の台帳行**）。**§0.2 は空のまま**（B-6 は決定済み） |
 
 | （本節） | **B-5① を実行 — 確認を欲求に結びつけ、成長の閉路を閉じた（オーナーが (A) を選択）**: 2026-09-30 の実測が「1 手ではない」と示した（読者 2 つは `related_desire=source_desire` で引くのに `ConfirmationRequest` は欲求を持たない）ので、**リンクの定義を先に**行った。**実装**: ① `ConfirmationRequest.desire`（`confirmation/models.py`、既定 `""`。**LLM 供給＝不信**なので「値は素通しで運び、**読者が照合する**」と docstring に明記）② `_CONFIRMATION_FIELDS` に `desire` を追加（**設定画面が描画しない唯一のフィールド**である旨をコメント）③ `AutonomousLoop` が `confirmation_store` を受け取り（`runtime.py:1589` の `_create_autonomous_loop` が `runtime.confirmation_store` を渡す）、**読み取り専用**で `all(limit=200)` を引き、`REJECTED` のみを `desire` ごとにまとめて `reflect(approval_decisions=…, source_desire=<desire>)` に渡す ④ **実在する欲求集合**（`self._desire.get_all_desires()`）と照合し、**空・未知は捨てる**（誤帰属より欠落を選ぶ）⑤ `_reflected_approval_ids` を state に永続化（無いと `0.2 × 件数` が上限 0.9 に張り付く）。**ピン 4 本**を `tests/test_forced_gate_stays_retired.py` に追加（実 desire は**両読者**に届く／未知・空の desire は教訓を作らない／同じ拒否は 1 回だけ／**ループは store を読むだけで答えない**（AST で `called ⊆ {all, get, pending, pending_count}`））。`_ALLOWED_IMPORTERS` に `autonomous_loop.py` を追加（**ピンが新 import を検出して落ちた＝設計どおり**）。**変異 4/4 捕捉**（各変異が**狙った assertion** を発火させたことまで確認）、原ファイルは sha256 一致で復元。**実測**: ピン **47 → 51 passed**、ai-server **1885 → 1889 passed / 8 skipped**（**+4 = 新ピンそのもの**、実測 326.65 秒）。egress は**派生量なので測り直した**: **303 マーカー / 302 passed / 1 skipped / deselected 1590 → 1594**（不変 — 新 4 本は非 egress）。**副産物（重い）**: 配線時に**自分でバグを入れた** — `_create_autonomous_loop` は `_build_runtime` と**別関数**で `confirmation_store` はそこに無い。**全スイートは緑のまま通った**（`autonomous_loop_enabled` が既定 `False` で、この関数はテストから一度も実行されない）。**ruff の `F821` だけが捉えたが、CI は ruff を走らせていない** → §4 の項目 7（C-5）。**残る穴は §3.1 の 3 のみ**（① は閉じた） |
@@ -867,9 +867,9 @@ git ls-remote origin refs/heads/cf-grpc-and-goal-hygiene refs/heads/main \
    実害が無いのは**この経路に到達する呼び出し元が無いから**であって、直ったからではない。
    **（2026-09-30 訂正）「① を配線した瞬間に閉路が閉じる」は誤り** — 実測すると、配線しても
    **正しくは閉じない**。理由: 読者 2 つはどちらも `search_memories(related_desire=source_desire)` で
-   引き（`autonomous_loop.py:1389`・`motivation_arbiter.py:162`）、ループ側の読者は
-   **`source_desire` が空なら即 `return 0.0`**（`:1379`）。`related_desire` に入るのは
-   **`reflect()` の呼び出し元が渡す `source_desire`** で、唯一の呼び出し元（`autonomous_loop.py:1050`）は
+   引き（`autonomous_loop.py:1589`・`motivation_arbiter.py:162`）、ループ側の読者は
+   **`source_desire` が空なら即 `return 0.0`**（`:1583`）。`related_desire` に入るのは
+   **`reflect()` の呼び出し元が渡す `source_desire`** で、唯一の呼び出し元（`autonomous_loop.py:1228`）は
    **失敗したタスクの `desire`** を渡す。ところが **`ConfirmationRequest` は欲求を持たず**
    （`confirmation/models.py`）、**解決済みの確認を欲求に結びつける機構がどこにも無い** — 実測:
    `store.reject()` は記録を返すだけ（`web/routes/approval.py::_decide`）、`_confirmation()` は
@@ -881,9 +881,9 @@ git ls-remote origin refs/heads/cf-grpc-and-goal-hygiene refs/heads/main \
    **3 つの名前空間**に現れる: ① **ループは実在の `task_id` を作る** — `TaskManager` のタスクを起こし、
    その metadata に **`autonomous_task.desire`** を書く（`autonomous_loop.py:2716-2753`）。つまり
    **`task_id` → 欲求** の表は**既にある** ② 同じ `task_id` と `source_desire` は実行要求にも渡る
-   （`:2806-2812`）③ reflection の `task_id` は reflect 時に合成（`:1051`）で①②とは無関係。
+   （`:3067`・`:3072`）③ reflection の `task_id` は reflect 時に合成（`:1228-1229`）で①②とは無関係。
    **繋がらないのは確認側**: `ConfirmationRequest.task_id` は **LLM が自由に渡す値**
-   （`core_capabilities.py:832` の `_CONFIRMATION_FIELDS` に含まれ、`:868` で `params` から素通し）なので、
+   （`core_capabilities.py:832` の `_CONFIRMATION_FIELDS` に含まれ、`:872-875` で `params` から素通し）なので、
    **渡さなければ空・渡しても未検証**。**LLM に loop の `task_id` を知らせる経路も今は無い。**
    **副産物（未配線の発見）**: `AuditEntry` は `task_id` と **`source_desire`** を持ち、
    `AuditManager.log_approval(source_desire=...)` も用意されているのに、**`log_approval` を呼ぶコードが
@@ -1582,8 +1582,8 @@ should_interrupt = important and not occupied and context.expected_usefulness >=
 > 撤回** — 寄せると「分からない」の 3 種類が 1 つに潰れる（§4.3 型 3）。③ の**有効な残り**は
 > 「同じ軸の答えを全部記録する」ことで、それはピンの拡張として実施した。
 >
-> 同じ関数 `_current_interruption_cost` は **4 つ目の値 `0.15`** も返す（`:708` agent state が無い /
-> `:712` snapshot が例外）。旧ピンは `_RECORDED_COST_DEFAULT = 0.2` しか記録しておらず、
+> 同じ関数 `_current_interruption_cost` は **4 つ目の値 `0.15`** も返す（`:880` agent state が無い /
+> `:890` snapshot が例外）。旧ピンは `_RECORDED_COST_DEFAULT = 0.2` しか記録しておらず、
 > **「1 つの名前・N 個の答え」という自分の主張を自分の軸で数え落としていた**。拡張で両方を固定した。
 
 **修正しなかった理由**: コスト表の 2 値の入れ替えは**自律ループの発火間隔**を動かし、B-17 の修正は
@@ -2418,6 +2418,36 @@ ruff は当該 2 ファイルとも clean。ai-server は対象ファイルを�
 > **本レポートの「ファイル名を持たない」裸の `:NNN` を 90 件すべて測った。** サイクル 29 は**ファイル名つき**の引用を掃討したが、裸の `:NNN`（持ち主を主語から推論するしかない）は未着手だった。90 件は 5 つに割れた: **偽陽性 4**・**本レポート自身の日付つき注記の中 28**（サイクル 29/30 の掃討記録そのもの）・**日付つき叙述／台帳行として据え置き 15**・**腐っていたので修正 4**・**実測して正しいと確認 39**。
 > ⚠️ **腐っていたのは 2 つの事実だけ**（4 件は写しの重複）。① `_expected_usefulness(task)` と `_current_interruption_cost()` が**並んで** `PresentationRoutingPolicy().decide` に渡される場所: `:3218-3219` → **`:3381-3382`**（写し **3** — 本レポート §3.1 と §0.x の P2-7 行、`DELEGATION.md` の B-1② 行）。② `risk.approval_mode` の消費サイト: `capability_catalog.py:165-166`→**`:163-164`**（override 適用）・`:563-568`→**`:550-555`**（書き）・`:599-606`→**`:586-593`**（読み）、`folder_registry.py:258`→**`:254`**（写し **2** — 本レポート §5.4 と `AGENT_PROGRESS.md`）。
 > ⚠️ **どちらも「書かれた時は正しかった」ことを `git` で確認した**（`:3218` は `a75c3db` で `expected_usefulness=` の行、`capability_catalog.py:599` と `folder_registry.py:258` は `d483813` で `approval_mode` の行）。つまり**誤った主張ではなく、腐った写像**なので現在の番号へ付け替えた。置換は**すべて同じ長さ**（`165-166`→`163-164` など）なので**バイト数は不変**（`503390`・`184139`・`186434`）。
-> ⚠️ **据え置いた腐り（記録）**: ① §3.1 と §5.8 の**日付つき叙述**の `:1379`（正 `:1583`）・`:2806-2812`・`:1051`・`:868`（正 `:872-875`）・`:708`（正 `:880`）・`:712`（正 `:890`）— これらは**同じ段落にファイル名つきの引用**（`autonomous_loop.py:1389`→正 `:1589`・`:1050`）を併せ持つので、裸の分だけ直すと**段落が半端に掃討された状態**になる。段落ごと直すのは次のサイクル。② `:917`/`:909`（`manager_routes.py` の `presentation_stream` 欠陥）は**修正前の番号**（サイクル 29 の判断と同じ）。③ §5.1 の裸の `165 / 521 / 563` は **2026-09-28 のスナップショット**で、判定（「保留」）は §5.4 に**上書き済み**。
+> ⚠️ **据え置いた腐り（記録）**: ① §3.1 と §5.8 の**日付つき叙述**の `:1379`（正 `:1583`）・`:2806-2812`・`:1051`・`:868`（正 `:872-875`）・`:708`（正 `:880`）・`:712`（正 `:890`）— これらは**同じ段落にファイル名つきの引用**（`autonomous_loop.py:1389`→正 `:1589`・`:1050`）を併せ持つので、裸の分だけ直すと**段落が半端に掃討された状態**になる。段落ごと直すのは次のサイクル（**→ サイクル 34 で実施済み**、§8）。② `:917`/`:909`（`manager_routes.py` の `presentation_stream` 欠陥）は**修正前の番号**（サイクル 29 の判断と同じ）。③ §5.1 の裸の `165 / 521 / 563` は **2026-09-28 のスナップショット**で、判定（「保留」）は §5.4 に**上書き済み**。
 > ⚠️ **走査器の盲点**: 裸の番号が**コロン無し**で並ぶ形（`（165 / 521 / 563）`）は `:NNN` の走査に**掛からない** — §5.1 のそれは `approval_mode` を grep して初めて出た。**「走査した」は「全部見た」ではない。**
 > ⚠️ **同名ファイルの罠（実測）**: `event_bus.py:241`/`:243` は**正しい**が、それは `ai-server/src/event_bus.py`（262 行）の話で、`aegis_ai/event_bus.py` は**3 行の再輸出シム**。basename だけの引用は**構築上曖昧**。
+
+## 8. §3.1・§5.8 の段落まるごとの掃討（サイクル 34、2026-10-05）
+
+§7 の ① で「次のサイクル」に据え置いた §3.1・§5.8 の**日付つき叙述**を、**段落ごと**掃討した。裸の番号
+だけを直すと段落が半端になるので、同じ段落のファイル名つき引用も同時に直した（**11 箇所 / 8 行**）。
+
+| 旧 | 正 | 実測の根拠 | 行 |
+|---|---|---|---|
+| `:1379` | `:1583` | `autonomous_loop.py:1583` = `if not source_desire:`（`:1584` が `return 0.0, ""`） | L93・L871 |
+| `autonomous_loop.py:1389` | `autonomous_loop.py:1589` | `:1589` = `related_desire=source_desire,` | L93・L870 |
+| `autonomous_loop.py:1050` | `autonomous_loop.py:1228` | `:1228` = `reflection = self._reflection.reflect(`（唯一の呼び出し元） | L93・L872 |
+| `:2806-2812` | `:3067`・`:3072` | `:3067` = `task_id=task_id,` / `:3072` = `source_desire=desire_name,` | L884 |
+| `:1051` | `:1228-1229` | `:1229` = `task_id=f"auto_{int(time.time() * 1000)}_{i}",`（reflect 時に合成） | L884 |
+| `:868` | `:872-875` | **所有者は段落の主題 `core_capabilities.py`**（最後に名指しされた `autonomous_loop.py` ではない）: `:872-875` = `fields = {key: params[key] for key in self._CONFIRMATION_FIELDS …}` | L886 |
+| `:708` | `:880` | `:880` = `return 0.15`（`if agent_state is None:` の下） | L1585 |
+| `:712` | `:890` | `:890` = `return 0.15`（snapshot の `except` ハンドラ内） | L1586 |
+
+⚠️ **裸の番号の所有者は段落の主題**であって、最後に名指しされたファイルではない — `:868` は
+`autonomous_loop.py` ではなく `core_capabilities.py` の行だった（`core_capabilities.py:872-875` が
+`params` の素通しそのもの）。
+
+⚠️ **ノートは書き換えていない**: §7 の L2421 は自分自身の old→new 写像を持つので、番号はそのまま残し、
+実施済みの印だけを足した（`段落ごと直すのは次のサイクル` の後）。
+
+**据え置き（記録）**: ② `:917`/`:909`（`manager_routes.py` の `presentation_stream`）は**修正前の番号**の
+まま（サイクル 29 と同じ判断）。③ §5.1 の裸の `165 / 521 / 563` は 2026-09-28 のスナップショットで、判定は
+§5.4 に上書き済み。④ `docs/*.md` の **76 件**のファイル名つき引用はサイクル 34 で走査し**すべて健全**
+（2 件の空行着地は `jev-l1-verification-2026-10-02.md` の**日付つき記録**なので据え置き）。
+
+**長さ**: 506555 → 本節の直前で 506569 B（引用の修正で +14、CRLF 維持）。
