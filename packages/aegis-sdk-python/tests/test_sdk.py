@@ -305,7 +305,7 @@ class TestMockAEGISCore:
 
         # NOTE: after the approval redesign, APPROVAL_REQUIRED no longer creates an
         # interactive approval request — the policy engine maps it to
-        # ALLOW_WITH_AUDIT (see ai-server/tests/test_approval_redesign.py). Only
+        # ALLOW_WITH_AUDIT (pinned by ai-server/tests/test_full_authority_policy.py). Only
         # FORBIDDEN (hard DENY) and the monetary hard-stop patterns still block.
         cap = define_capability(
             server_prefix="room", action="dangerous",
