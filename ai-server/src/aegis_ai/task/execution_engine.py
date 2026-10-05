@@ -139,16 +139,24 @@ class TaskExecutionEngine:
             if current not in ("paused",):
                 try:
                     self._task_manager.pause_task(task_id)
-                except (AttributeError, Exception):
-                    pass
+                except Exception:
+                    logger.debug(
+                        "Failed to pause task %s (requires observation)",
+                        task_id,
+                        exc_info=True,
+                    )
         elif state == TaskFinalState.HAS_RUNNING:
             pass
         elif state == TaskFinalState.HAS_WAITING_DEPENDENCY:
             if current not in ("paused",):
                 try:
                     self._task_manager.pause_task(task_id)
-                except (AttributeError, Exception):
-                    pass
+                except Exception:
+                    logger.debug(
+                        "Failed to pause task %s (waiting dependency)",
+                        task_id,
+                        exc_info=True,
+                    )
         elif state == TaskFinalState.HAS_PENDING:
             pass
         elif state == TaskFinalState.ALL_COMPLETED:
@@ -620,6 +628,14 @@ class TaskExecutionEngine:
         try:
             manifest = catalog.resolve(getattr(request, "capability_id", ""))
         except Exception:
+            # `resolve` returns None for an unknown id, so reaching here is an
+            # *unexpected* error (e.g. a reload failure). Name it; do not let it
+            # look like "this capability declares no completion".
+            logger.debug(
+                "Failed to resolve capability %r for completion checks",
+                getattr(request, "capability_id", ""),
+                exc_info=True,
+            )
             manifest = None
         completion = getattr(manifest, "completion", {}) if manifest is not None else {}
         if not isinstance(completion, dict) or not completion:
