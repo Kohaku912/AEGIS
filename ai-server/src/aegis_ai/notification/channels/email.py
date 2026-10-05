@@ -81,7 +81,7 @@ def _smtp_send(
             try:
                 client.quit()
             except Exception:
-                pass
+                logger.debug("SMTP client quit failed during cleanup", exc_info=True)
 
 
 class EmailNotificationChannel(OutboundChannel):

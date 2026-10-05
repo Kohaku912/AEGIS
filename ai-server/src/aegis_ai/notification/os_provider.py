@@ -128,5 +128,7 @@ class OsNotificationProvider:
                 result = subprocess.run(["which", "notify-send"], capture_output=True, timeout=5, check=False)
                 return result.returncode == 0
         except Exception:
-            pass
+            # The value is still False; the difference is that "the probe failed" and
+            # "OS notifications are unavailable" stop being the same answer.
+            logger.debug("OS notification probe failed; reporting unavailable", exc_info=True)
         return False

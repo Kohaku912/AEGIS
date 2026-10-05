@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import logging
 import time
 from typing import Any
+
+logger = logging.getLogger("aegis_ai.notification.quiet_hours")
 
 
 class QuietHoursManager:
@@ -64,4 +67,6 @@ class QuietHoursManager:
             self._start = settings.notifications.quiet_hours_start
             self._end = settings.notifications.quiet_hours_end
         except Exception:
-            pass
+            # Quiet hours silently not applied means non-critical notifications fire
+            # during the period the user asked to be left alone.
+            logger.debug("Failed to load quiet hours; quiet hours may not apply", exc_info=True)

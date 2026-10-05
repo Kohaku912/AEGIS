@@ -136,7 +136,7 @@ class NotificationManager:
                     payload={"notification_id": notification_id, "title": notif["title"]},
                 ))
             except Exception:
-                pass
+                logger.debug("Failed to publish notification.sent for %s", notification_id, exc_info=True)
 
         return notif
 

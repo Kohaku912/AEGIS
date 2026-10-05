@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any, ClassVar
 
 from aegis_ai.notification.models import NotificationType
+
+logger = logging.getLogger("aegis_ai.notification.preferences")
 
 
 class NotificationPreferences:
@@ -64,4 +67,6 @@ class NotificationPreferences:
                 self._enabled[NotificationType.RESEARCH_FAILED.name] = False
                 self._enabled[NotificationType.SELF_DEV_TEST_FAILED.name] = False
         except Exception:
-            pass
+            # Silently ignoring this leaves a notification type ENABLED that the user
+            # disabled in settings -- the failure changes behaviour, not just visibility.
+            logger.debug("Failed to load notification preferences; using defaults", exc_info=True)
