@@ -540,6 +540,10 @@ class AutonomousLoop:
             try:
                 entry_ms = int(entry.get("timestamp_ms") or 0)
             except (TypeError, ValueError):
+                # The entry is dropped from the window, so the burden metric sees fewer
+                # work items than the history holds -- and only a corrupt timestamp
+                # distinguishes the two.
+                logger.debug("Skipped a history entry with an unreadable timestamp", exc_info=True)
                 continue
             if entry_ms < window_start_ms:
                 continue

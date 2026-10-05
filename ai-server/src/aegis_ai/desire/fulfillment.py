@@ -391,6 +391,9 @@ def _sanitize_deltas(value: Any, desire_name: str) -> dict[str, float]:
         try:
             deltas[key] = max(-1.0, min(1.0, float(raw)))
         except (TypeError, ValueError):
+            # Dropping is fail-closed for the *value*, but the omission is invisible:
+            # the sanitized dict silently has one key fewer than the model proposed.
+            logger.debug("Skipped a desire delta that was not a number: %r", key, exc_info=True)
             continue
     return deltas
 

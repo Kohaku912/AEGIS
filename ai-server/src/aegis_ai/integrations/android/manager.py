@@ -221,6 +221,9 @@ class AndroidServerManager:
             try:
                 metrics[key] = max(metrics[key], int(metadata.get(key, 0) or 0))
             except (TypeError, ValueError):
+                # The dashboard reports the previous value for this key, so a corrupt
+                # one reads as "unchanged" rather than "unreadable".
+                logger.debug("Left connection metric %r unchanged: unreadable value", key, exc_info=True)
                 continue
         return {
             "online": online,
@@ -355,6 +358,7 @@ class AndroidServerManager:
                         int(payload.get(key, 0) or 0),
                     )
                 except (TypeError, ValueError):
+                    logger.debug("Left connection metric %r unchanged: unreadable payload value", key, exc_info=True)
                     continue
         self._publish_android_event(
             event.event_type or "android.event",

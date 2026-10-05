@@ -108,6 +108,9 @@ class PresentationPreferences:
             try:
                 score = float(raw_score)
             except (TypeError, ValueError):
+                # A skipped entry cannot win the argmax, so one corrupt score silently
+                # changes which key is returned.
+                logger.debug("Ignored %r in the preference argmax: score is not a number", key, exc_info=True)
                 continue
             if score > best_score:
                 best_key = key

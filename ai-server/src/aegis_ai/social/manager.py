@@ -545,6 +545,9 @@ Return:
             try:
                 numeric_items.append((int(item.external_message_id), item))
             except (TypeError, ValueError):
+                # The item is excluded from the ordered list, so the cursor can advance
+                # past a message this scan never considered.
+                logger.debug("Skipped an inbox item with a non-numeric id", exc_info=True)
                 continue
         items = [item for _, item in sorted(numeric_items, key=lambda pair: pair[0])]
         terminal_ids: list[int] = []

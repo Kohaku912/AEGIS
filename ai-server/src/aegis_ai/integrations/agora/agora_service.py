@@ -361,6 +361,9 @@ Recent posting cadence context:
             try:
                 at = float(event.get("at") or 0.0)
             except (TypeError, ValueError):
+                # This is the anti-burst guard's input: dropping the event means the
+                # burst window counts fewer posts than actually arrived.
+                logger.debug("Skipped a post event with an unreadable timestamp", exc_info=True)
                 continue
             if at <= 0 or now - at > max_age:
                 continue
