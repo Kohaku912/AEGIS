@@ -423,7 +423,10 @@ class LLMTaskInterpreter:
                     lines.append(line)
                 return "\n".join(lines) if lines else "No capabilities registered"
             except Exception:
-                pass
+                logger.debug(
+                    "Could not list capabilities from the catalog; falling back to the registry",
+                    exc_info=True,
+                )
 
         if self._registry is not None:
             try:
