@@ -244,7 +244,7 @@ class AuditLog:
 
     def _insert_record(self, conn: sqlite3.Connection, record: dict[str, Any]) -> None:
         try:
-            conn.execute(
+            cursor = conn.execute(
                 '''INSERT OR IGNORE INTO audit
                 (entry_id, timestamp_ms, action, actor, capability_id, decision, reason,
                  detail_json, profile_id, prompt_id, prompt_version, prompt_hash,
@@ -285,6 +285,18 @@ class AuditLog:
                     record.get('audit_group_title', ''),
                 )
             )
+            if cursor.rowcount == 0:
+                # `OR IGNORE` absorbed the UNIQUE violation on `entry_id`, so this
+                # record produced no row and no exception. Announcing it is the point:
+                # the audit trail now holds one fewer record than was submitted, and
+                # `append` has already put it in `self._entries`, so the in-memory
+                # reader and the database readers disagree (DELEGATION.md section 4
+                # item 52).
+                logger.warning(
+                    "Audit entry %s was not inserted: a row with that entry_id "
+                    "already exists, so this record is dropped from the table",
+                    record.get('entry_id', ''),
+                )
         except sqlite3.IntegrityError:
             pass
 

@@ -21,7 +21,7 @@ shape, because ``audit/`` supplies the case that shows the shape matters:
   ``_insert_record`` issues ``INSERT OR IGNORE``, which absorbs the very
   ``sqlite3.IntegrityError`` the handler names. It is allow-listed below, keyed by
   ``(file, except-type)``, and pinned behaviourally by
-  ``test_audit_duplicate_entry_ids_are_dropped_silently.py`` (whose M5 mutant survives by
+  ``test_audit_duplicate_entry_ids_are_announced.py`` (whose M5 mutant survives by
   design). Naming it would *hide* the finding rather than fix it — the finding is that
   ``OR IGNORE`` makes the handler unreachable, and what to do about that is an owner
   decision (``DELEGATION.md`` §4 item 52).
@@ -49,7 +49,7 @@ MANAGER_LOGGER = "aegis_ai.audit.audit_manager"
 ALLOWED_DISCARDS: dict[tuple[str, str], str] = {
     ("audit_log.py", "sqlite3.IntegrityError"): (
         "dead while `INSERT OR IGNORE` absorbs the violation; pinned by "
-        "test_audit_duplicate_entry_ids_are_dropped_silently.py (DELEGATION.md §4 item 52)"
+        "test_audit_duplicate_entry_ids_are_announced.py (DELEGATION.md §4 item 52)"
     ),
 }
 
@@ -430,6 +430,6 @@ def test_the_allowlisted_handler_is_the_dead_integrity_error_one() -> None:
         "the allow-listed handler is only dead while `INSERT OR IGNORE` absorbs the "
         "violation; a plain INSERT would make it live and silent again"
     )
-    assert (PKG.parent.parent.parent / "tests" / "test_audit_duplicate_entry_ids_are_dropped_silently.py").exists(), (
+    assert (PKG.parent.parent.parent / "tests" / "test_audit_duplicate_entry_ids_are_announced.py").exists(), (
         "the behavioural pin for the dead handler is gone; the allow-list no longer has a contract"
     )

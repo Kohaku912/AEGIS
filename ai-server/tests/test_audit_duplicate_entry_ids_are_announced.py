@@ -1,32 +1,34 @@
-"""Cycle 23 pin: a duplicate ``entry_id`` is dropped from the audit sink in silence.
+"""Cycle 61 pin: a duplicate ``entry_id`` is dropped from the table — and now announced.
 
-Measured 2026-10-05 (HEAD c0e1d8c). ``AuditLog._insert_record`` (``audit/audit_log.py:245``)
-issues ``INSERT OR IGNORE INTO audit``. ``OR IGNORE`` already absorbs the very constraint
-violation that the ``except sqlite3.IntegrityError: pass`` beneath it names, so:
+Measured 2026-10-06 (HEAD d0ecc27). ``AuditLog._insert_record`` issues
+``INSERT OR IGNORE INTO audit``. ``OR IGNORE`` absorbs the very constraint violation that the
+``except sqlite3.IntegrityError: pass`` beneath it names, so a second record whose
+``entry_id`` is already in the table produces **no row** and **no exception**. Measured:
 
-* a second record whose ``entry_id`` is already in the table produces **no row**, **no
-  exception** and **no log line** — the audit trail simply holds one fewer record than was
-  submitted (measured: ``count() == 1`` after two appends of the same id);
-* the handler at ``:288`` therefore never fires for that case. Asserting only "``append``
-  does not raise" would **not** establish this: a plain ``INSERT`` with the swallowing
-  handler still present looks identical from the outside (that mutant survives every other
-  case in this file). The handler's execution is therefore measured directly with a line
-  tracer, and a plain ``INSERT`` into the same-shaped table is used as the control that the
-  exception itself is real;
-* ``append`` (``:316``) adds to ``self._entries`` **unconditionally**, so the in-memory
-  reader ``list_recent()`` keeps reporting the dropped record while the database readers
-  ``count()`` / ``read_all()`` deny it — two readers of the same audit log disagree.
+* ``cursor.rowcount`` is the detector — ``1`` for an inserted row, **``0``** when the INSERT
+  was ignored. ``lastrowid`` does *not* discriminate: it keeps its previous value;
+* the handler never fires for that case, so it is *dead* while ``OR IGNORE`` stands and
+  becomes live the moment someone writes a plain ``INSERT`` — measured with a line tracer,
+  with a plain ``INSERT`` into the same-shaped table as the control that the exception is real;
+* ``append`` adds to ``self._entries`` **unconditionally**, so the in-memory reader
+  ``list_recent()`` keeps reporting the dropped record while the database readers
+  ``count()`` / ``read_all()`` deny it — two readers of the same audit log disagree. That
+  asymmetry is **still present**; this pin records it, it does not fix it.
+
+**Changed 2026-10-06 (cycle 61, ``DELEGATION.md`` section 4 item 52 branch ②,
+owner-selected).** The drop used to be silent and is now announced with ``logger.warning``
+naming the ``entry_id``. ``OR IGNORE`` is deliberately kept, so the row is still dropped and
+the two readers still disagree — branch ③ (align the memory reader) was *not* taken.
+
+This pin was written to catch exactly this change: its assertion message already read "the
+dropped record is now announced; the silence this pin records is gone", and this file is that
+branch. It fails in both directions — restoring the silence reddens the announcement
+assertion, and dropping ``OR IGNORE`` reddens the "handler never runs" case.
 
 The route is reachable from outside the process: the gRPC ``WriteAuditLog``
 (``grpc_server.py:402``) passes the **client-supplied** ``record_id`` straight into
 ``entry_id`` and returns ``code=0 "ok"`` either way (measured: two calls with the same
 ``record_id`` both return ok, and the table gains exactly one row).
-
-Behaviour is **not** changed here — whether the second record should be rejected, merged or
-announced is an owner decision (``DELEGATION.md`` §4 item 52). This pin fixes the current
-state so that changing it is deliberate. Note the asymmetry: the ``except`` clause is dead
-*while* ``OR IGNORE`` stands, and becomes live the moment someone writes a plain ``INSERT``
-— which is exactly the change this pin will catch.
 """
 
 from __future__ import annotations
@@ -57,11 +59,9 @@ def _entry(action: str, entry_id: str) -> AuditEntry:
     return AuditEntry(action=action, entry_id=entry_id, reason=action)
 
 
-# --------------------------------------------------------------- the silent drop
-
-
-def test_a_duplicate_entry_id_leaves_no_row_and_no_record(tmp_path, caplog) -> None:
-    """The finding: the record is gone and nothing anywhere says so."""
+# --------------------------------------------------- the drop, now announced
+def test_a_duplicate_entry_id_is_dropped_from_the_table_but_announced(tmp_path, caplog) -> None:
+    """The finding, as of cycle 61: the record is gone from the table — and something says so."""
     log = _log(tmp_path)
 
     with caplog.at_level(logging.WARNING, logger=_LOGGER):
@@ -69,9 +69,13 @@ def test_a_duplicate_entry_id_leaves_no_row_and_no_record(tmp_path, caplog) -> N
         log.append(_entry("egress.send", "dup"))
 
     assert log.count() == 1, "the duplicate was no longer dropped — re-measure and re-record"
-    assert _warnings(caplog) == [], (
-        "the dropped record is now announced; the silence this pin records is gone: "
-        f"{[r.getMessage() for r in _warnings(caplog)]}"
+    warnings = _warnings(caplog)
+    assert len(warnings) == 1, (
+        "the dropped record is silent again; the announcement this pin records is gone: "
+        f"{[r.getMessage() for r in warnings]}"
+    )
+    assert "dup" in warnings[0].getMessage(), (
+        f"the announcement does not name the dropped entry_id: {warnings[0].getMessage()!r}"
     )
 
 
