@@ -1,32 +1,40 @@
-"""Cycle 58 pin: an `Exception` swallow is named only where the handler can actually run.
+"""Cycles 58-59 pin: a swallow is named only where the handler can actually run, and the
+readers that drop one corrupt line say so.
 
-Why reachability is the criterion
+Cycle 58 -- reachability is the criterion
+-----------------------------------------
+Cycle 17 established it for `context_builder.py`: the composition root wires 7 of the ~20
+backends the builder accepts, so a handler behind `if self._backend:` cannot run and naming it
+would add a record to code that cannot run. Cycle 58 started from the *consequence* instead
+("a failed section build silently omits a line from the LLM's context"), named **ten** such
+handlers, and then measured the premise: **nine of the ten were unreachable**:
+
+  * `context_builder.py` (5) -- behind `if self._user_state_manager:` and friends, none of which
+    `runtime.py` passes. The section is omitted by the *guard*, not the handler.
+  * `briefing/provider.py` (3) -- `DailyBriefingProvider` has no producer anywhere in `src/`.
+  * `llm_task_interpreter.py` (1) -- the registry fallback: `capability_registry` defaults to
+    `None` and the root never passes it.
+
+Only the interpreter's *catalog* fallback is reachable, and it is the one that stays named.
+A record that cannot fire does not make a failure louder -- it only *lowers the census*.
+
+Cycle 59 -- the line-skip readers
 ---------------------------------
-Cycle 17 established it for `context_builder.py` (`test_context_builder_failures_are_named.py`):
-the composition root wires **7 of the ~20** backends the builder accepts, so a handler behind
-`if self._backend:` cannot run, and naming it would add a record to code that cannot run.
+The unit here is cycle 51's: `continue` in a loop body *is* the handler that fires for the
+realistic corruption (a process killed mid-append leaves a truncated final line). Five more
+reachable sites of that shape now name what they skipped:
 
-Cycle 58 started from the *consequence* instead -- "a failed section build silently omits a line
-from the LLM's context" -- and named **ten** such handlers across three modules.  Then it measured
-the premise, and **nine of the ten were unreachable**:
+  * `journal/journal_store.py` -- `_load_last_sequence` and `list_recent`.
+  * `user_state/manager.py` -- `TimelineStore.query_recent` and `ArchiveManager.list_archives`.
+  * `web/chat_history.py` -- `ChatHistoryStore.load` (the module had **no logger**; one was added).
 
-  * `context_builder.py` (5): the five section builders sit behind `if self._user_state_manager:`
-    / `_delegation_policy` / `_commitment_manager` / `_user_understanding_service` / `_agent_state`,
-    and `runtime.py` passes none of them.  The section is omitted by the **guard**, not by the
-    handler, so a record inside the handler changes nothing in production.
-  * `briefing/provider.py` (3): `DailyBriefingProvider` has **no producer anywhere in `src/`**
-    (only a docstring example and tests).  A dead class's handlers cannot run either.
-  * `llm_task_interpreter.py` (1 of 2): `router.__init__` defaults `capability_registry=None` and
-    the composition root does not pass it, so the registry fallback is unreachable.  The
-    **catalog** fallback *is* reachable (it is passed) and stays named.
+Each is reachable because its producer exists: `runtime.py` builds the `JournalStore` and the
+`UserStateManager`, and `web/routes/chat.py` calls `ChatHistoryStore(...).load()`. That is
+pinned below, so if a producer disappears the record becomes dead and must be re-adjudicated.
 
-Why the nine were reverted rather than kept
--------------------------------------------
-A record that cannot fire does not make a failure louder -- and it *lowers the census*, so the
-codebase looks safer than it is.  So the criterion applied here is cycle 17's: **name a swallow
-when the handler is reachable from the composition root.**  Each exclusion is pinned *with its
-reason*, and each reason is pinned against the wiring that makes it true, so that wiring a
-backend goes red here instead of silently rotting into an allow-list.
+Cycle 59 also corrected this pin's own census equation: it read `named + excluded + backlog`,
+which is *numerically* self-consistent only if the backlog is understated by the number of named
+sites. The census counts **bare** handlers, so the decomposition is `bare == excluded + backlog`.
 """
 from __future__ import annotations
 
@@ -36,7 +44,10 @@ from pathlib import Path
 
 import pytest
 
+from aegis_ai.journal.journal_store import JournalStore
 from aegis_ai.llm_task_interpreter import LLMTaskInterpreter
+from aegis_ai.user_state.manager import ArchiveManager, TimelineStore
+from aegis_ai.web.chat_history import ChatHistoryStore
 
 _AI_SERVER = Path(__file__).resolve().parents[1]
 _SRC = _AI_SERVER / "src"
@@ -45,9 +56,20 @@ _RUNTIME = _SRC / "aegis_ai" / "runtime.py"
 _LOGGER = "aegis_ai.llm_task_interpreter"
 _FAMILY_TYPE = "Exception"
 
-# The one reachable site: relpath -> a phrase only that site's record contains.
-_NAMED: dict[str, str] = {
-    "aegis_ai/llm_task_interpreter.py": "Could not list capabilities from the catalog",
+# relpath -> a phrase only that site's record contains (one phrase per named site).
+_NAMED: dict[str, list[str]] = {
+    "aegis_ai/llm_task_interpreter.py": ["Could not list capabilities from the catalog"],
+    "aegis_ai/journal/journal_store.py": [
+        "Skipped a journal line that would not parse while reading the last sequence",
+        "Skipped a journal line that would not parse; it is missing from the result",
+    ],
+    "aegis_ai/user_state/manager.py": [
+        "Skipped a user-state event that would not parse; it is missing from the recent list",
+        "Skipped an archive index line that would not parse; the archive is missing from the list",
+    ],
+    "aegis_ai/web/chat_history.py": [
+        "Skipped a chat-history line that would not parse; it is missing from the history",
+    ],
 }
 
 # relpath -> (bare handlers still expected, why they are *not* named).
@@ -68,7 +90,23 @@ _EXCLUDED: dict[str, tuple[int, str]] = {
 }
 
 # Sites neither named nor excluded -- a *budget*, so it cannot rot into an allow-list.
-_BACKLOG = 26
+_BACKLOG = 22
+
+# relpath of a named module -> bare handlers measured *after* cycle 59.
+# journal_store keeps one: `append`'s `JournalEvent.model_validate` fallback, which produces a
+# value (the unvalidated record) -- a different shape from a skipped line.
+_BARE_AFTER: dict[str, int] = {
+    "aegis_ai/journal/journal_store.py": 1,
+    "aegis_ai/user_state/manager.py": 0,
+    "aegis_ai/web/chat_history.py": 0,
+}
+
+# named module -> (file that produces it, needle) -- the reason the record can ever fire.
+_PRODUCERS: dict[str, tuple[str, str]] = {
+    "aegis_ai/journal/journal_store.py": ("aegis_ai/runtime.py", "JournalStore("),
+    "aegis_ai/user_state/manager.py": ("aegis_ai/runtime.py", "UserStateManager("),
+    "aegis_ai/web/chat_history.py": ("aegis_ai/web/routes/chat.py", "ChatHistoryStore("),
+}
 
 # Cycle 17's measurement, re-pinned here because it is the *reason* for the five exclusions.
 _CONTEXT_BUILDER_WIRED = {
@@ -157,7 +195,15 @@ def _interpreter(**attrs) -> LLMTaskInterpreter:
     return system
 
 
-# -- the named site ------------------------------------------------------------
+# The realistic corruption: the process died mid-append, so the *last* line is truncated.
+_CORRUPT = '{"sequence": 2, "event_type": "journal.appended"'
+
+
+def _records(caplog, logger_name: str) -> list[str]:
+    return [r.getMessage() for r in caplog.records if r.name == logger_name]
+
+
+# -- cycle 58: the one reachable site of the assembled-context cluster ---------
 
 
 def test_the_capability_catalog_failure_is_named(caplog) -> None:
@@ -166,9 +212,8 @@ def test_the_capability_catalog_failure_is_named(caplog) -> None:
     with caplog.at_level(logging.DEBUG, logger=_LOGGER):
         result = system._build_capability_list("hello")
 
-    messages = [r.getMessage() for r in caplog.records if r.name == _LOGGER]
-    assert any(_NAMED["aegis_ai/llm_task_interpreter.py"] in m for m in messages), (
-        f"the catalog failure left no record naming its consequence; got {messages}"
+    assert any(_NAMED["aegis_ai/llm_task_interpreter.py"][0] in m for m in _records(caplog, _LOGGER)), (
+        f"the catalog failure left no record naming its consequence; got {_records(caplog, _LOGGER)}"
     )
     assert result == "No capability registry available", (
         "the degraded value changed; the record's claim about the consequence must be re-measured"
@@ -194,21 +239,156 @@ def test_a_healthy_catalog_is_quiet(caplog) -> None:
         result = system._build_capability_list("hello")
 
     assert "cap.one" in result
-    assert [r.getMessage() for r in caplog.records if r.name == _LOGGER] == []
+    assert _records(caplog, _LOGGER) == []
+
+
+# -- cycle 59: the three reachable readers ------------------------------------
+
+
+def test_a_journal_line_that_would_not_parse_is_named(tmp_path, caplog) -> None:
+    store = JournalStore(data_dir=str(tmp_path))
+    path = tmp_path / "journal" / "events.jsonl"
+    path.write_text('{"sequence": 1, "event_type": "journal.appended"}\n' + _CORRUPT + "\n", encoding="utf-8")
+
+    with caplog.at_level(logging.DEBUG, logger="aegis_ai.journal.journal_store"):
+        rows = store.list_recent(limit=10)
+        sequence = store._load_last_sequence()
+
+    messages = _records(caplog, "aegis_ai.journal.journal_store")
+    for phrase in _NAMED["aegis_ai/journal/journal_store.py"]:
+        assert any(phrase in m for m in messages), f"{phrase!r} left no record; got {messages}"
+    assert [r["sequence"] for r in rows] == [1], "the truncated line is no longer skipped"
+    assert sequence == 1, "the last sequence must come from the readable line"
+
+
+def test_a_clean_journal_stays_quiet(tmp_path, caplog) -> None:
+    """Control: a file that parses must not warn."""
+    store = JournalStore(data_dir=str(tmp_path))
+    path = tmp_path / "journal" / "events.jsonl"
+    path.write_text('{"sequence": 1, "event_type": "journal.appended"}\n', encoding="utf-8")
+
+    with caplog.at_level(logging.DEBUG, logger="aegis_ai.journal.journal_store"):
+        assert store.list_recent(limit=10)
+        assert store._load_last_sequence() == 1
+
+    assert _records(caplog, "aegis_ai.journal.journal_store") == []
+
+
+def test_a_user_state_line_that_would_not_parse_is_named(tmp_path, caplog) -> None:
+    timeline = TimelineStore(tmp_path)
+    (tmp_path / "timeline" / "2026-10-06.jsonl").write_text(
+        '{"timestamp_ms": 1, "source": "pc"}\n' + _CORRUPT + "\n", encoding="utf-8"
+    )
+    archive = object.__new__(ArchiveManager)  # skip `_load_key`; only `_index` is needed
+    archive._index = tmp_path / "archive" / "index.jsonl"
+    archive._index.parent.mkdir(parents=True, exist_ok=True)
+    archive._index.write_text('{"day": "2026-10-05"}\n' + _CORRUPT + "\n", encoding="utf-8")
+
+    with caplog.at_level(logging.DEBUG, logger="aegis_ai.user_state.manager"):
+        events = timeline.query_recent(limit=10)
+        rows = archive.list_archives()
+
+    messages = _records(caplog, "aegis_ai.user_state.manager")
+    for phrase in _NAMED["aegis_ai/user_state/manager.py"]:
+        assert any(phrase in m for m in messages), f"{phrase!r} left no record; got {messages}"
+    assert [e["source"] for e in events] == ["pc"], "the truncated event is no longer skipped"
+    assert [r["day"] for r in rows] == ["2026-10-05"], "the truncated index line is no longer skipped"
+
+
+def test_a_clean_user_state_index_stays_quiet(tmp_path, caplog) -> None:
+    """Control: parseable input must not warn."""
+    archive = object.__new__(ArchiveManager)
+    archive._index = tmp_path / "archive" / "index.jsonl"
+    archive._index.parent.mkdir(parents=True, exist_ok=True)
+    archive._index.write_text('{"day": "2026-10-05"}\n', encoding="utf-8")
+    timeline = TimelineStore(tmp_path)
+    (tmp_path / "timeline" / "2026-10-06.jsonl").write_text('{"timestamp_ms": 1, "source": "pc"}\n', encoding="utf-8")
+
+    with caplog.at_level(logging.DEBUG, logger="aegis_ai.user_state.manager"):
+        assert timeline.query_recent(limit=10)
+        assert archive.list_archives()
+
+    assert _records(caplog, "aegis_ai.user_state.manager") == []
+
+
+def test_a_chat_history_line_that_would_not_parse_is_named(tmp_path, caplog) -> None:
+    store = ChatHistoryStore(tmp_path / "chat_history.jsonl")
+    store.path.write_text('{"timestamp_ms": 1, "user": "hi"}\n' + _CORRUPT + "\n", encoding="utf-8")
+
+    with caplog.at_level(logging.DEBUG, logger="aegis_ai.web.chat_history"):
+        entries = store.load()
+
+    messages = _records(caplog, "aegis_ai.web.chat_history")
+    assert any(_NAMED["aegis_ai/web/chat_history.py"][0] in m for m in messages), (
+        f"the truncated chat-history line left no record; got {messages}"
+    )
+    assert [e["user"] for e in entries] == ["hi"], "the truncated line is no longer skipped"
+
+
+def test_a_clean_chat_history_stays_quiet(tmp_path, caplog) -> None:
+    """Control: a parseable history must not warn."""
+    store = ChatHistoryStore(tmp_path / "chat_history.jsonl")
+    store.path.write_text('{"timestamp_ms": 1, "user": "hi"}\n', encoding="utf-8")
+
+    with caplog.at_level(logging.DEBUG, logger="aegis_ai.web.chat_history"):
+        assert store.load()
+
+    assert _records(caplog, "aegis_ai.web.chat_history") == []
+
+
+def test_the_cycle_59_records_carry_a_traceback(tmp_path, caplog) -> None:
+    """A record without the traceback is a message, not a diagnosis (cycles 54-58 pinned this)."""
+    journal = JournalStore(data_dir=str(tmp_path / "j"))
+    (tmp_path / "j" / "journal" / "events.jsonl").write_text(_CORRUPT + "\n", encoding="utf-8")
+    history = ChatHistoryStore(tmp_path / "chat_history.jsonl")
+    history.path.write_text(_CORRUPT + "\n", encoding="utf-8")
+    archive = object.__new__(ArchiveManager)
+    archive._index = tmp_path / "index.jsonl"
+    archive._index.write_text(_CORRUPT + "\n", encoding="utf-8")
+
+    with caplog.at_level(logging.DEBUG):
+        journal.list_recent(limit=10)
+        history.load()
+        archive.list_archives()
+
+    for logger_name in ("aegis_ai.journal.journal_store", "aegis_ai.web.chat_history", "aegis_ai.user_state.manager"):
+        records = [r for r in caplog.records if r.name == logger_name]
+        assert records, f"{logger_name} produced no record"
+        assert any(isinstance(r.exc_info, tuple) for r in records), (
+            f"{logger_name}: the record carries no traceback (`exc_info=False` is not None but is not a tuple)"
+        )
+
+
+def test_the_named_sites_have_a_producer() -> None:
+    """The *reason* these records can fire: a producer exists. Lose it and the record is dead."""
+    for relpath, (producer, needle) in sorted(_PRODUCERS.items()):
+        text = (_SRC / producer).read_text(encoding="utf-8")
+        assert needle in text, (
+            f"{relpath} is named because {producer} produces it, but {needle!r} is gone -- "
+            "the record is now dead and the naming must be re-adjudicated"
+        )
 
 
 # -- the exclusions, each with its reason --------------------------------------
 
 
-def test_the_exception_family_is_one_named_plus_nine_excluded_plus_a_backlog() -> None:
-    """The census is an equation, so neither a new silent handler nor a named one can hide."""
-    named = len(_NAMED)
-    excluded = sum(count for count, _reason in _EXCLUDED.values())
+def test_the_exception_family_is_excluded_plus_backlog() -> None:
+    """The census counts *bare* handlers, so the named sites must not appear on either side.
+
+    (Cycle 58's version read `named + excluded + backlog`, which balances only if the backlog is
+    understated by the number of named sites -- the same total, the wrong decomposition.)
+    """
     measured = sum(len(_bare_exception_handlers(path)) for path in _src_files())
-    assert measured == named + excluded + _BACKLOG, (
-        f"bare `{_FAMILY_TYPE}` handlers changed: measured {measured}, "
-        f"named {named} + excluded {excluded} + backlog {_BACKLOG}"
+    excluded = sum(count for count, _reason in _EXCLUDED.values())
+    assert measured == excluded + _BACKLOG, (
+        f"bare `{_FAMILY_TYPE}` handlers changed: measured {measured}, excluded {excluded} + backlog {_BACKLOG}"
     )
+
+
+@pytest.mark.parametrize("relpath", sorted(_BARE_AFTER))
+def test_the_named_modules_have_no_bare_exception_discard_left(relpath) -> None:
+    found = len(_bare_exception_handlers(_SRC / relpath))
+    assert found == _BARE_AFTER[relpath], f"{relpath}: expected {_BARE_AFTER[relpath]} bare handlers, found {found}"
 
 
 @pytest.mark.parametrize("relpath", sorted(_EXCLUDED))

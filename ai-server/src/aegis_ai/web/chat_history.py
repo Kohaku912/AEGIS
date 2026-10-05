@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import json
+import logging
 import time
 import uuid
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger("aegis_ai.web.chat_history")
 
 
 class ChatHistoryStore:
@@ -51,6 +54,10 @@ class ChatHistoryStore:
                 try:
                     parsed = json.loads(line.strip())
                 except Exception:
+                    logger.debug(
+                        "Skipped a chat-history line that would not parse; it is missing from the history",
+                        exc_info=True,
+                    )
                     continue
                 if isinstance(parsed, dict):
                     entries.append(parsed)

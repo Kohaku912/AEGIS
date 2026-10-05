@@ -73,6 +73,10 @@ class JournalStore:
                 try:
                     return int(json.loads(line).get("sequence", 0))
                 except Exception:
+                    logger.debug(
+                        "Skipped a journal line that would not parse while reading the last sequence",
+                        exc_info=True,
+                    )
                     continue
         except Exception:
             logger.debug("Failed to read journal tail sequence", exc_info=True)
@@ -143,6 +147,10 @@ class JournalStore:
                 try:
                     row = json.loads(line)
                 except Exception:
+                    logger.debug(
+                        "Skipped a journal line that would not parse; it is missing from the result",
+                        exc_info=True,
+                    )
                     continue
                 if int(row.get("sequence") or 0) <= after_sequence:
                     continue

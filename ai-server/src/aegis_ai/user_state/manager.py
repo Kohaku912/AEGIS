@@ -130,6 +130,10 @@ class TimelineStore:
                 try:
                     event = json.loads(line)
                 except Exception:
+                    logger.debug(
+                        "Skipped a user-state event that would not parse; it is missing from the recent list",
+                        exc_info=True,
+                    )
                     continue
                 if source and event.get("source") != source:
                     continue
@@ -398,6 +402,10 @@ class ArchiveManager:
             try:
                 rows.append(json.loads(line))
             except Exception:
+                logger.debug(
+                    "Skipped an archive index line that would not parse; the archive is missing from the list",
+                    exc_info=True,
+                )
                 continue
         return rows
 
