@@ -103,6 +103,23 @@ ai-server/src/aegis_ai/llm/factory.py:157-164
 > **両方向**を固定する — 3 クラスが構築されないこと、**かつ** docstring の文字列が実在すること
 > （＝抽出器が盲目ではないこと）。`DELEGATION.md` §4 **項目 24**。
 
+> **2026-10-06 更新（実行）**: オーナーが `DELEGATION.md` §4 項目 24 の**枝 ①（構築する）**を選び、
+> 中核は**構築された** — `runtime.py::_build_runtime` が `config.trigger_enabled` を**構築条件として**
+> `TriggerEngine`（`create_default_rules()` の 13 ルール）・`Scheduler`・`EventView`（両方の半分）を作り、
+> `event_manager.subscribe(trigger_engine.on_event)` で購読する。**消費側**も同時に作った
+> （`AutonomousLoop._drain_trigger_tasks` — `_run_loop` が `can_execute` のときだけ drain し、
+> `drain_tasks()` はキューを消すので走らないサイクルへ drain すると**無言で捨てる**）。
+> よって**上の表の判定（`未構築` × 3）はこの日で歴史**である。ピンは
+> `ai-server/tests/test_event_driven_core_is_constructed.py` へ**改名して向きを反転**
+> （**10 本・変異 8/8 ＋ 対照 1**）。⚠️ **変異 M1 が初版を生存した** — 「`loop._trigger_engine = ...`
+> が在る」だけを見ていたので右辺を `None` にしても緑だった（**「言及は読者ではない」の同族**）。
+> ⚠️ **1 行だけは枝 ① でも真にならなかった**: `docs/architecture.md:121` の「**No polling loops**」は
+> **今も偽**（ループは `autonomous_loop.py:531` で sleep し、`context_builder.py:206` が定期に
+> `list_recent_events()` を読む）ので、イベントが**起床源の 1 つ**であることへ書き換えた。
+> 下の「帰属」が挙げていた他の写し（`architecture.md` の 6 箇所・`android-safety.md:190`・
+> `room-safety.md:100`・`proto-overview.md:114`）は**① では正しくなった**ので不変。
+> 正典の更新は `PROJECT_STATUS_REVIEW.md` §3.2・`DELEGATION.md` §4 項目 24 と §5。
+
 `TriggerEngine` には `src/trigger_engine.py` に **13 個の既定ルール**が書かれている。`EventView.get_trigger_stats()` / `get_pending_tasks()` は `self._engine` を guard するので、たとえ構築されても `{}` / `[]` を返す（`event_view.py:52,65`）。
 
 さらに**起動ログが偽の主張を印字する**:
@@ -126,7 +143,8 @@ ai-server/src/aegis_ai/main.py:27
 2 つの枝のどちらか。**① 構築する** — `runtime.py` で `TriggerEngine` を生成し `EventBus` を購読させ、`config.trigger_enabled` をその生成条件として読む（`AutonomousLoop` と同じ形）。`Scheduler` と `EventView` も同様。**② 文書を実測に合わせる** — 「イベント駆動」の記述と図を実態に直し、`trigger_enabled` を**宣言ごと外す**（読者が 1 つもいないなら、無いより無いほうが正直）。①を選ぶなら、**ログ行が主張する前に**生成を確認する順序にする。
 
 **帰属**: **オーナー判断**（①/②は製品判断）— 戻し方は `DELEGATION.md` §4 **項目 24**、ピンは
-`tests/test_event_driven_core_stays_unbuilt.py`（**6 本・変異 11/11 捕捉**）。
+`tests/test_event_driven_core_is_constructed.py`（**10 本・変異 8/8 ＋ 対照 1**。2026-10-06 に
+`test_event_driven_core_stays_unbuilt.py` から**改名・反転**した — 枝 ① を実行したため）。
 **偽の起動ログは判断を待たずに直せる**（P0 相当の小さな修正）が、**2026-10-03 時点では直していない** —
 理由は実測: あの 1 行は**枝 ②（文書を実測に合わせる）でのみ偽**で、**枝 ①（構築する）を選べば
 `trigger_enabled` が構築条件そのものになり、行はそのまま真になる**。今直すのは、① が選ばれた場合に

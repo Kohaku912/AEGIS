@@ -118,7 +118,7 @@ flowchart TB
 |-----------|---------|
 | **Runtime singleton** | `AegisRuntime` is the sole entry point. All state mutations go through Managers. |
 | **Contract-first** | All server APIs defined in `.proto` files before implementation |
-| **Event-driven** | No polling loops — AEGIS reacts to events, schedules, and user requests |
+| **Event-driven** | Events are a *wake source*: `runtime.py` subscribes `TriggerEngine` to the event bus, and the autonomous loop drains its `TaskRequest` queue (`_drain_trigger_tasks`). ⚠️ This does **not** mean "no polling" — the loop still sleeps and re-checks on a timer (`autonomous_loop.py:531`, 5-minute idle cap), and `context_builder.py:206` reads `list_recent_events()` on a timer rather than being pushed to. See `PROJECT_STATUS_REVIEW.md` §3.2. |
 | **Graduated safety** | 4 safety levels — read, safe write, approval-required, prohibited |
 | **Self-improving** | Desire-driven autonomous loop with learning pipeline |
 | **Extensible** | Folder-based JSON capability manifests; new servers can be added |

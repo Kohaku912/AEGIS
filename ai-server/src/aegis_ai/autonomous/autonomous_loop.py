@@ -261,6 +261,11 @@ class AutonomousLoop:
         self._l2_reasoning_handler: Any = None
         self._l2_should_run_cycle: Any = None
         self._l2_event_handler: Any = None
+        #: The TriggerEngine whose queued TaskRequests this loop consumes. Assigned from
+        #: ``_create_autonomous_loop``; ``None`` when ``config.trigger_enabled`` is false,
+        #: which is why ``_drain_trigger_tasks`` treats ``None`` as "nothing to do".
+        #: Without a consumer the engine would queue tasks that nobody ever drains.
+        self._trigger_engine: Any = None
 
         # Load state
         self._load()
@@ -495,10 +500,16 @@ class AutonomousLoop:
                 can_execute = time_since_last_run >= self._min_execution_interval_ms
                 if now - self._last_observation_ms >= self._idle_wake_cap_ms:
                     self._refresh_observations_for_cycle()
+                # Event-driven wake. The engine's queued TaskRequests are the consumer side
+                # of the core built in ``_build_runtime``. Drained only when a cycle can
+                # actually run: ``drain_tasks()`` clears the queue, so draining into a
+                # cycle that cannot run would throw the tasks away silently.
+                triggered_tasks = self._drain_trigger_tasks() if can_execute else []
                 # Desire threshold owns cadence. Obligations/observations do not force LLM.
                 due = now >= self._next_run_ms
                 if can_execute and (
                     due
+                    or triggered_tasks
                     or (desire_triggered and self._unmet_desire_retry_due(now))
                 ):
                     self._execute_cycle(force_desire=desire_triggered)
@@ -521,6 +532,38 @@ class AutonomousLoop:
             except Exception as e:
                 logger.error("Autonomous loop error: %s", e)
                 time.sleep(60)
+
+    def _drain_trigger_tasks(self) -> list[Any]:
+        """Take the TriggerEngine's queued tasks, so the core has a consumer.
+
+        This is the consumption half of DELEGATION.md section 4 item 24: the engine
+        (built in ``_build_runtime``) would otherwise accumulate TaskRequests that
+        nobody ever reads. Called from ``_run_loop`` only when a cycle can actually
+        run, because ``drain_tasks()`` clears the queue -- draining into a cycle that
+        then does not execute would discard the tasks without a trace.
+
+        Returns an empty list when no engine is wired (``config.trigger_enabled``
+        false), so a runtime without the core behaves exactly as before.
+        """
+        engine = self._trigger_engine
+        if engine is None:
+            return []
+        try:
+            tasks = engine.drain_tasks()
+        except Exception:
+            # A broken engine must not kill the loop; it must also not be silent.
+            logger.warning("Trigger engine drain failed", exc_info=True)
+            return []
+        if tasks:
+            action_types = sorted(
+                {str(getattr(task, "action_type", "")) for task in tasks}
+            )
+            logger.info(
+                "Trigger engine queued %d task(s): %s",
+                len(tasks),
+                ", ".join(action_types),
+            )
+        return tasks
 
     def _burden_activity(self, *, window_start_ms: int, limit: int = 40) -> list[str]:
         """The period's activity, as short lines the judgement can read.

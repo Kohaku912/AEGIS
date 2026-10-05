@@ -1644,6 +1644,38 @@ def _build_runtime(config: Config) -> AegisRuntime:
             str(getattr(event, "event_type", "") or "")
         ),
     )
+    # The advertised event-driven core, finally constructed (DELEGATION.md section 4 item
+    # 24, branch 1 -- the owner selected "build it, including the task-consumption path").
+    # Until now `TriggerEngine`, `Scheduler` and `EventView` were fully written and
+    # constructed nowhere, and `config.trigger_enabled` was read only by the startup log
+    # line -- a flag whose only reader changed nothing. Constructing the engine here gives
+    # that flag its behavioural reader, and `EventView` is built with BOTH halves so it is
+    # not the silent no-op a bare `EventView()` is (see the pin's last test).
+    runtime.trigger_engine = None
+    runtime.scheduler = None
+    runtime.event_view = None
+    if config.trigger_enabled:
+        from aegis_ai.observability.event_view import EventView
+        from aegis_ai.scheduler import Scheduler
+        from trigger_engine import TriggerEngine, create_default_rules
+
+        trigger_engine = TriggerEngine()
+        for rule in create_default_rules():
+            trigger_engine.add_rule(rule)
+        runtime.trigger_engine = trigger_engine
+        runtime.scheduler = Scheduler()
+        runtime.event_view = EventView(event_bus=event_bus, trigger_engine=trigger_engine)
+        # Subscribed with no filter: the engine's own rules decide what matters, and a
+        # filter here would keep events out of `stats.events_received`.
+        runtime._trigger_event_subscription = event_manager.subscribe(  # type: ignore[attr-defined]
+            trigger_engine.on_event,
+        )
+        logger.info(
+            "Trigger engine: %d rules subscribed to the event bus",
+            len(trigger_engine.list_rules()),
+        )
+    else:
+        logger.info("Trigger engine: disabled by config.trigger_enabled")
     status_manager.start_background_checks()
     hook_engine.start()
     social_manager.resume_pending_processing()
@@ -1741,6 +1773,10 @@ def _create_autonomous_loop(runtime: AegisRuntime) -> Any:
     loop._operation_store = getattr(runtime, "operation_store", None)
     loop._sleep_manager = runtime.sleep_manager
     loop._memory_manager = runtime.memory_manager
+    # §4 item 24 branch 1: hand the loop the TriggerEngine built in ``_build_runtime`` so
+    # it drains the engine's queued TaskRequests. ``getattr`` because the engine is absent
+    # when ``config.trigger_enabled`` is false -- and then the loop drains nothing.
+    loop._trigger_engine = getattr(runtime, "trigger_engine", None)
 
     # §4 item 8 / §3.1 hole 3: the burden metric is judged by the judgment LLM and the
     # user is asked to check the judgement periodically. The loop owns the cadence; the

@@ -24,7 +24,12 @@ def main() -> None:
     config = get_config()
     logger.info("Starting AEGIS Core...")
     logger.info("gRPC: %s:%d", config.grpc_host, config.grpc_port)
-    logger.info("Trigger Engine: %s", "enabled" if config.trigger_enabled else "disabled")
+    logger.info(
+        "Trigger Engine: %s",
+        "enabled (rules subscribed when the runtime is built)"
+        if config.trigger_enabled
+        else "disabled",
+    )
     logger.info("Autonomous Loop: %s", "enabled" if config.autonomous_loop_enabled else "disabled")
 
     try:

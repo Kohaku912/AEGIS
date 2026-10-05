@@ -444,7 +444,17 @@ def test_the_detector_reports_a_dead_flag(tmp_path: Path):
 # config.trigger_enabled else "disabled")`` cannot change any decision, so layer 4 counts
 # only references that are not inside a logging call. It parses with ``ast`` rather than
 # text, which also means a docstring example is not a call site — the reason
-# ``TriggerEngine``'s "Usage: engine = TriggerEngine()" block stayed invisible.
+# ``TriggerEngine``'s ``Usage:`` example (the line is ``engine = TriggerEngine()``) stayed
+# invisible to a call-site scan.
+#
+# ⚠️ **2026-10-06: the log-only entry left this census.** ``config.trigger_enabled`` was the
+# "1 only by a startup log line" counted above. Branch ① of ``DELEGATION.md`` §4 item 24 made
+# it the *construction condition* of the event-driven core in ``runtime.py::_build_runtime``,
+# so ``_real_readers`` now finds a reader and the equality assertion below would fail while
+# the entry stayed. The census is therefore **5**, all "referenced nowhere outside their own
+# declaration", and **no** entry is log-only any more. The ``main.py:27`` log line quoted
+# above is unchanged and still cannot change a decision — it is now an illustration of the
+# rule rather than an instance of it.
 
 _CONFIG_MODULE = _SRC / "aegis_ai" / "config.py"
 
@@ -456,13 +466,6 @@ _LOG_METHODS = frozenset(
 #: ``Config`` fields with no reader that can change anything. Every entry carries its
 #: reason, and the equality assertion below fails the moment one gains a real reader.
 _INEFFECTIVE_CONFIG_FIELDS: dict[str, str] = {
-    "trigger_enabled": (
-        "Read only by the startup log line (``main.py:27``), which therefore prints "
-        "'Trigger Engine: enabled' in a process that never constructs a TriggerEngine — "
-        "the survey's G-2. The flag reaches no execution path. Wiring it means building the "
-        "event-driven core (an owner decision), so it is recorded rather than deleted or "
-        "wired."
-    ),
     "policy_default_deny": (
         "Read nowhere. The live default-deny posture belongs to the policy engine, not to "
         "this environment variable, so setting it changes nothing."
