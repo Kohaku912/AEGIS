@@ -313,7 +313,10 @@ class PresentationManager:
                 ).Importance
                 spec.importance = importance_cls(patch["importance"])
             except (ValueError, KeyError):
-                pass
+                # An importance value that is not in the enum leaves the field at its
+                # previous value, yet the response below still says ok — a partial patch
+                # is reported as a success.
+                logger.debug("Ignored importance %r: not a valid Importance", patch["importance"], exc_info=True)
         spec.revision += 1
         spec.updated_at_ms = int(time.time() * 1000)
         self._store.put(spec)

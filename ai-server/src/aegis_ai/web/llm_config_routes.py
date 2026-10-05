@@ -59,7 +59,9 @@ def get_profiles():
                     "max_tool_rounds": s.max_tool_rounds,
                 }
             except KeyError:
-                pass
+                # A profile in the enumeration list that is not configured is simply
+                # omitted from the response — name it so "not configured" is readable.
+                logger.debug("Profile %r is not configured; omitted from the list", name, exc_info=True)
         return jsonify({"profiles": profiles})
     except Exception as e:
         return jsonify({"error": str(e)}), 500

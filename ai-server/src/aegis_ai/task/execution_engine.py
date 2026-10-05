@@ -822,7 +822,9 @@ class TaskExecutionEngine:
             try:
                 return self._prompt_registry.render(prompt_id)
             except KeyError:
-                pass
+                # An unknown prompt id falls through to `default`, so a typo'd id is
+                # indistinguishable from an intentionally absent one.
+                logger.debug("No prompt named %r; using the default", prompt_id, exc_info=True)
         return default
 
     def _resolve_settings(self, profile: str) -> Any:
@@ -830,7 +832,9 @@ class TaskExecutionEngine:
             try:
                 return self._settings_resolver.resolve(profile_id=profile)
             except KeyError:
-                pass
+                # An unknown profile falls through to `_Defaults`, which differs from the
+                # shipped config — a typo'd profile silently runs on built-in defaults.
+                logger.debug("No settings profile %r; using built-in defaults", profile, exc_info=True)
 
         class _Defaults:
             max_tokens = 2048

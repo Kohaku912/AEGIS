@@ -18,13 +18,20 @@ Two units, because they are two different claims
    ``test_mind_persistence_failures_are_named`` / cycle 16's
    ``test_spontaneous_observation_failures_are_named``), **every** ``except``
    handler must either call the logger or be a documented deliberate
-   non-logger. Measured 2026-10-06: 18 handlers. Six legitimately do not log
+   non-logger. Measured 2026-10-06: 18 handlers. Four legitimately do not log
    (they surface the failure in a value, are control flow, or guard an optional
    import) and are named in ``_ALLOWED_NON_LOGGING`` with their reason; the rest
    log. One handler, ``_attach_manifest_completion``'s, was a seventh silent
    swallow -- ``catalog.resolve`` returns ``None`` for an unknown id, so its
    ``except Exception`` could only be hiding an *unexpected* error -- and was
    fixed in this cycle.
+
+   Cycle 55 update: ``_get_system_prompt``'s and ``_resolve_settings``'s
+   ``except KeyError`` handlers were allow-listed here as "expected absence" and
+   are now **named**. Their two entries were removed rather than kept: a DEBUG
+   record makes a *substituted default* readable at no cost, and "expected
+   absence" is the reason the family rejects, not accepts. The allow-list went
+   from six entries to four.
 
 Scope note: this pin walks the **parse tree**, not the text. A docstring or comment
 that merely *names* ``pause_task`` is not a call site, and a name inside a string is
@@ -68,12 +75,6 @@ _ALLOWED_NON_LOGGING: dict[tuple[str, str], str] = {
     ),
     ("_present_task_completion", "Exception"): (
         "optional import guard; an absent presentation stack is not a failure"
-    ),
-    ("_get_system_prompt", "KeyError"): (
-        "expected absence: unknown prompt id -> the caller's default"
-    ),
-    ("_resolve_settings", "KeyError"): (
-        "expected absence: unknown profile -> built-in defaults"
     ),
 }
 
