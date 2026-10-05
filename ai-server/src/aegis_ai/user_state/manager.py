@@ -7,6 +7,7 @@ import gzip
 import hashlib
 import hmac
 import json
+import logging
 import os
 import re
 import secrets
@@ -18,6 +19,8 @@ from typing import Any
 from urllib.parse import urlparse
 
 from aegis_schema.models import Event
+
+logger = logging.getLogger("aegis_ai.user_state.manager")
 
 _JST = timezone(timedelta(hours=9))
 
@@ -441,7 +444,9 @@ class UserStateManager:
             try:
                 event_manager.subscribe(self.on_event)
             except Exception:
-                pass
+                # A manager that could not subscribe looks constructed but is deaf:
+                # it will never receive an event. Name it rather than stay silent.
+                logger.debug("Failed to subscribe to the event bus", exc_info=True)
 
     def ingest_event(self, source: str, payload: dict[str, Any]) -> dict[str, Any]:
         event = self._ingest.normalize(source, payload)
@@ -522,7 +527,9 @@ class UserStateManager:
                 payload_json=json.dumps(payload, ensure_ascii=False),
             ))
         except Exception:
-            pass
+            logger.debug(
+                "Failed to offer %s to the personal-data core", event_type, exc_info=True
+            )
 
     def start_pc_poller(self, server_executor: Any, *, status_manager: Any = None, interval_seconds: int = 2) -> None:
         if self._pc_poller_thread and self._pc_poller_thread.is_alive():
@@ -536,7 +543,9 @@ class UserStateManager:
                 try:
                     self.poll_pc_once(server_executor, force=False)
                 except Exception:
-                    pass
+                    # The poller thread keeps spinning, so a per-iteration failure
+                    # would otherwise look like a healthy, quiet poller.
+                    logger.debug("PC poll iteration failed", exc_info=True)
 
         self._pc_poller_thread = threading.Thread(target=_loop, name="aegis-user-state-pc-poller", daemon=True)
         self._pc_poller_thread.start()
@@ -638,7 +647,8 @@ class UserStateManager:
                 user_state = settings.get("user_state", {}) if isinstance(settings, dict) else {}
                 items.update(str(item) for item in user_state.get("home_wifi_bssids", []) if item)
             except Exception:
-                pass
+                # A partial set silently changes presence detection ("is the user home?").
+                logger.debug("Failed to read home_wifi_bssids from settings", exc_info=True)
         return items
 
     @staticmethod
