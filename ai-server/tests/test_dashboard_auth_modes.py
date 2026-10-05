@@ -7,7 +7,7 @@ unpinned is the **default**, and the default is the surprising one.
 
 Measured 2026-10-02: with `AEGIS_RUNTIME_MODE` unset, `AEGIS_AUTH_MODE` unset and no
 `AEGIS_DASHBOARD_ACCESS_TOKEN`, `install_dashboard_token_auth` resolves to **`disabled`** and
-installs **nothing** — while `dashboard.py:24` and `docker_entrypoint.py:53` both bind `0.0.0.0`
+installs **nothing** — while `dashboard.py:24` and `docker_entrypoint.py:54` both bind `0.0.0.0`
 by default, and `docs/operations.md` tells the reader to open `http://0.0.0.0:8090`.
 
 That combination is deliberate: `BUG_REPORT.md` item 7 moved the development escape hatch into

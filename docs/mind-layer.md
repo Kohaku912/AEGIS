@@ -26,7 +26,7 @@ It uses a **three-layer affect model** (inspired by FAtiMA + LLMA):
 **Critical constraint**: Mind state does NOT override PolicyEngine safety decisions.
 
 > ⚠️ **Measured 2026-10-04** — read this before the component list: of the components below, only
-> **`Identity`** is actually constructed outside this package (`runtime.py:977`). `Mood`,
+> **`Identity`** is actually constructed outside this package (`runtime.py:995`). `Mood`,
 > `Personality` and `LayeredEmotion` are live through `AffectSystem`; `Desire`, `Emotion`,
 > `GoalManager`, `Priorities` and `SocialIntelligence` are constructed **nowhere** in `src/`.
 > See *ContextBuilder Integration* below and `DELEGATION.md` §4 item 39.
@@ -249,7 +249,7 @@ ContextBuilder(affect_system=None)
 # TypeError: ContextBuilder.__init__() got an unexpected keyword argument 'affect_system'
 ```
 
-`AffectSystem` reaches the model by a different route — `runtime.py:1651` (the autonomous
+`AffectSystem` reaches the model by a different route — `runtime.py:1669` (the autonomous
 loop) and `llm/memory_context.py:323` (the `decision` profile) construct it — but never
 through `ContextBuilder`. `SocialIntelligence` is constructed **nowhere** in `src/`.
 

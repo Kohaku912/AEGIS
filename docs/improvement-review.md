@@ -299,7 +299,7 @@ instructions below」と明記されている）。
    この不変条件を固定するテストは無く（`url_map.iter_rules()` を使うテスト 2 本は、特定 route の
    存在と GET 限定性しか見ない）、route 単位の認証デコレータも **0 件**。
 2. **文書が `http://0.0.0.0:8090` を案内しながら、認証の状態を書いていない。** `dashboard.py:24` と
-   `docker_entrypoint.py:53` の bind 既定は **`0.0.0.0`** で、`docs/operations.md`・
+   `docker_entrypoint.py:54` の bind 既定は **`0.0.0.0`** で、`docs/operations.md`・
    `docs/daily-use.md`・`docs/beta-runbook.md` がその URL を案内する。素の構成では
    **全インターフェースに無認証で開く**ことになるが、どの文書もそれを書いていない
    （`docs/v1-completion-checklist.md:117` は本番についてのみ「unauthenticated を拒否」と書く）。

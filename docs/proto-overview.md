@@ -70,7 +70,7 @@ nothing in the execution path reads a tier to decide anything.
 
 **Unregistered capabilities never reach `PolicyEngine`.** `ToolBroker` resolves the id against the
 capability catalog first and returns `InvokeStatus.NOT_FOUND` when it fails
-(`tool_broker.py:549`). So "unknown → `LEVEL_3_RESTRICTED` → DENY" is not the path that runs;
+(`tool_broker.py:544`). So "unknown → `LEVEL_3_RESTRICTED` → DENY" is not the path that runs;
 unknown → *not registered* is.
 
 ---
