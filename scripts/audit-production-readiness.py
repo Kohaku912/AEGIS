@@ -321,7 +321,16 @@ def _secrets_check() -> dict[str, object]:
     )
 
 
-def _report_pass(path: Path, check_id: str, name: str, required_fields: list[str] | None = None) -> dict[str, object]:
+def _report_pass(path: Path, check_id: str, name: str, required_fields: list[str]) -> dict[str, object]:
+    """Read a sub-audit's report and pass only if it measured a population.
+
+    `required_fields` names the report's own measured-population field(s). It is **required**,
+    not optional: a report whose status is `pass` but which measured nothing must not read as
+    clean -- the empty-population family cycle 80 closed in the *generators*, one layer up here.
+    Measured 2026-10-07, before this: four of the six call sites passed no fields, so a
+    `{"status": "pass"}` report with no population read as a pass, while the two that named a
+    field correctly failed it.
+    """
     data = _load_json(path)
     if not data:
         return _check(check_id, name, "fail", [str(path)], f"Missing or unreadable {path}")
@@ -528,12 +537,30 @@ def main() -> int:
             _capability_override_persistence_check(),
             _mock_provider_reject_check(),
             _secrets_check(),
-            _report_pass(report_dir / "mock_inventory.json", "mock_inventory_report", "Mock inventory report"),
             _report_pass(
-                report_dir / "capability_coverage.json", "capability_coverage_report", "Capability coverage report"
+                report_dir / "mock_inventory.json",
+                "mock_inventory_report",
+                "Mock inventory report",
+                ["files_scanned"],
             ),
-            _report_pass(report_dir / "ui_completeness.json", "ui_completeness_report", "UI completeness report"),
-            _report_pass(report_dir / "v1_completion.json", "v1_completion_report", "v1 completion report"),
+            _report_pass(
+                report_dir / "capability_coverage.json",
+                "capability_coverage_report",
+                "Capability coverage report",
+                ["capabilities"],
+            ),
+            _report_pass(
+                report_dir / "ui_completeness.json",
+                "ui_completeness_report",
+                "UI completeness report",
+                ["checks"],
+            ),
+            _report_pass(
+                report_dir / "v1_completion.json",
+                "v1_completion_report",
+                "v1 completion report",
+                ["checks"],
+            ),
             _report_pass(
                 report_dir / "dead_code_report.json", "dead_code_report", "Dead code report", ["files_walked"]
             ),
