@@ -48,8 +48,9 @@ _ASK_MANIFEST = (
 #: resolved by fallback, and the "judgment LLM" would silently be some other model.
 #:
 #: ``jev_decision``, not ``decision``: the first cut used ``decision``, which resolves to
-#: ``api.deepseek.com`` — a host the shipped allowlist denies, so the judgement degraded to
-#: Mock and a correctly-wired caller could never ask. See
+#: ``api.deepseek.com`` — a host the shipped allowlist denied *at the time* (measured
+#: 2026-10-03; DeepSeek was added to the allowlist on 2026-10-06 so L2 could run), so the
+#: judgement degraded to Mock and a correctly-wired caller could never ask. See
 #: :func:`test_the_judgment_profile_resolves_to_a_permitted_destination`, which is the
 #: half that catches it. *Declared* and *resolves* are two different claims.
 _RECORDED_JUDGMENT_PROFILE = "jev_decision"
@@ -183,12 +184,14 @@ def test_the_judgment_profile_resolves_to_a_permitted_destination(tmp_path: Path
 
     The defect this closes, measured: the profile was ``decision``, ``llm.yaml`` declared
     it, and the test above passed — while ``decision`` resolved to ``api.deepseek.com``,
-    which the shipped allowlist denies. The judgement then degraded to Mock,
+    which the shipped allowlist denied at the time. The judgement then degraded to Mock,
     ``is_trustworthy`` was False, and a correctly-wired asker would **never ask**. Two
     halves each green while composing into "the metric can never ask".
 
-    The negative control matters as much as the assertion: ``decision`` is still denied, so
-    this is measuring the allowlist rather than a gate that happens to allow everything.
+    The negative control matters as much as the assertion: ``vision_observation`` resolves
+    to an external destination the allowlist does **not** name, so this is measuring the
+    allowlist rather than a gate that happens to allow everything. (``decision`` no longer
+    serves as the control — DeepSeek was permitted on 2026-10-06 so that L2 could run.)
     """
     from aegis_ai.burden.metric import JUDGMENT_PROFILE
     from aegis_ai.egress import EgressDecision, EgressGate, EgressRequest
@@ -227,11 +230,14 @@ def test_the_judgment_profile_resolves_to_a_permitted_destination(tmp_path: Path
         f"(observed {settings.provider!r})"
     )
 
-    # Negative control: the allowlist really is a filter, not a rubber stamp.
-    denied_settings, denied = _decide("decision")
+    # Negative control: the allowlist really is a filter, not a rubber stamp. `decision`
+    # used to serve here, but DeepSeek was added to the allowlist on 2026-10-06 so that L2
+    # could run, which made it permitted; `vision_observation` names an external host the
+    # allowlist still does not.
+    denied_settings, denied = _decide("vision_observation")
     assert denied is EgressDecision.DENY, (
-        f"the control profile `decision` ({denied_settings.base_url!r}) is now permitted, so "
-        "the assertion above proves nothing about the allowlist"
+        f"the control profile `vision_observation` ({denied_settings.base_url!r}) is now "
+        "permitted, so the assertion above proves nothing about the allowlist"
     )
 
 
@@ -305,10 +311,10 @@ def test_the_ask_is_recorded_by_the_real_capability(tmp_path: Path) -> None:
 def test_the_assessment_records_the_resolved_provider_not_just_the_request() -> None:
     """A label names the request; the resolved provider is what actually judged.
 
-    This is the trap the shipped allowlist sets: `decision` names DeepSeek, the allowlist
-    permits only `api.typesafe.ai`, so the call is denied and degrades to Mock — and a
-    Mock judgement says nothing about the user's life. Recording the *resolved* pair is
-    how that stops being invisible.
+    This is the trap the shipped allowlist sets: a profile can name one provider while the
+    allowlist permits only the hosts AEGIS is meant to use, so the call is denied and
+    degrades to Mock — and a Mock judgement says nothing about the user's life. Recording
+    the *resolved* pair is how that stops being invisible.
     """
     fields = {
         node.target.id

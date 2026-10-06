@@ -355,8 +355,9 @@ def _require_l1_api_key_in_production(settings_resolver: Any) -> None:
     Scope is the profile L1 actually uses, discovered from
     ``llm.layer_profiles.layer_to_profile(LAYER_L1)`` rather than hardcoded, and **only**
     that profile: the other cloud profiles in ``config/llm.yaml`` are legitimately
-    unconfigured, because the shipped allowlist names ``api.typesafe.ai`` and nothing else,
-    so the gate denies them and they degrade to Mock by design.
+    unconfigured, because the shipped allowlist names only the destinations AEGIS is meant
+    to use (``api.typesafe.ai`` for L1, ``api.deepseek.com`` for L2), so the gate denies
+    every other external host and those profiles degrade to Mock by design.
 
     The gate is a *mode*, not a new flag, and that is what keeps CI safe -- measured
     2026-10-06: ``AEGIS_RUNTIME_MODE``'s only occurrence outside this package is

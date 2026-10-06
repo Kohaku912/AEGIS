@@ -42,7 +42,8 @@
     "camera_snapshot_enabled": false,
     "external_egress_allowed": true,
     "egress_allowed_hosts": [
-      "api.typesafe.ai"
+      "api.typesafe.ai",
+      "api.deepseek.com"
     ],
     "external_llm_allowed": true,
     "web_search_allowed": false

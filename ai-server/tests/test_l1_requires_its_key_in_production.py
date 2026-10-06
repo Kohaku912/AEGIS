@@ -18,10 +18,11 @@ Two things this file measures rather than asserts by description:
    (default ``development``). No CI job and no test sets it; its only occurrence outside the
    package is ``.env.production.example``. The premise is pinned (first test) instead of trusted.
 2. **Why the scope is one profile.** The other cloud profiles in ``config/llm.yaml`` are
-   legitimately unconfigured -- the shipped allowlist names ``api.typesafe.ai`` and nothing
-   else, so the gate denies them and they degrade to Mock on purpose. A fail-fast over *every*
-   profile would therefore refuse to start a correct production deployment, so the gate resolves
-   exactly the profile L1 uses, discovered from ``layer_profiles`` rather than hardcoded.
+   legitimately unconfigured -- the shipped allowlist names only the destinations AEGIS is
+   meant to use (``api.typesafe.ai`` for L1, ``api.deepseek.com`` for L2), so the gate denies
+   every other external host and those profiles degrade to Mock on purpose. A fail-fast over
+   *every* profile would therefore refuse to start a correct production deployment, so the gate
+   resolves exactly the profile L1 uses, discovered from ``layer_profiles`` rather than hardcoded.
 """
 
 from __future__ import annotations

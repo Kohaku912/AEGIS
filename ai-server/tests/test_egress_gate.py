@@ -538,14 +538,15 @@ def _llm_yaml_path():
 
 
 def test_shipped_llm_config_runs_l1_on_jev():
-    """The shipped llm.yaml must actually reach JEV, and JEV must be the only reachable model.
+    """The shipped llm.yaml must actually reach JEV, and the allowlist must name the intended hosts.
 
     ``mode: cloud`` is what makes ``l1_default`` reach its declared provider:
     ``settings_resolver._LOCAL_PROFILE_MAP`` would otherwise remap it to Ollama, so the
     JEV declaration would be dead (measured 2026-10-02 — the config said typesafe while
     every call ran on ``qwen2.5:3b``). The safety net is the **allowlist**, not the mode:
-    every other declared cloud destination is unpermitted, so the gate denies it and the
-    profile degrades to Mock.
+    every *other* declared cloud destination is unpermitted, so the gate denies it and the
+    profile degrades to Mock. The allowlist names exactly the destinations AEGIS is meant
+    to use: JEV for L1 and DeepSeek for L2.
     """
     import json
 
@@ -565,9 +566,10 @@ def test_shipped_llm_config_runs_l1_on_jev():
     privacy = json.loads(
         (_llm_yaml_path().parent / "settings.json").read_text(encoding="utf-8")
     )["privacy"]
-    assert privacy["egress_allowed_hosts"] == ["api.typesafe.ai"], (
-        "the allowlist is the safety net: any other host here makes another cloud "
-        "provider reachable"
+    assert privacy["egress_allowed_hosts"] == ["api.typesafe.ai", "api.deepseek.com"], (
+        "the allowlist is the safety net: it must name exactly the destinations AEGIS is "
+        "meant to use (JEV for L1, DeepSeek for L2). Any other host here makes another "
+        "cloud provider reachable"
     )
 
 
@@ -590,8 +592,8 @@ def test_startup_assertion_passes_with_shipped_config():
 
     reachable = status.summary["reachable_destinations"]
     assert reachable.get("api.typesafe.ai") is True, "JEV must be reachable"
-    assert sorted(h for h, ok in reachable.items() if ok) == ["api.typesafe.ai"], (
-        f"more than TypeSafe is reachable: {reachable}"
+    assert sorted(h for h, ok in reachable.items() if ok) == ["api.deepseek.com", "api.typesafe.ai"], (
+        f"more than the intended destinations are reachable: {reachable}"
     )
 
 
@@ -617,12 +619,14 @@ def test_vision_profile_resolves_to_local_when_mode_is_local(tmp_path):
     assert "localhost" in resolved.base_url or "127.0.0.1" in resolved.base_url
 
 
-def test_shipped_settings_json_permits_only_typesafe():
+def test_shipped_settings_json_permits_exactly_the_intended_hosts():
     """config/settings.json must ship with a **scoped** permission.
 
     Re-scoped 2026-09-30: the goal permits external disclosure *with the user's
     permission*, so "every egress flag closed" is no longer the shipped state — but the
-    opening must name exactly the destination AEGIS is meant to use.
+    opening must name exactly the destinations AEGIS is meant to use and nothing else:
+    ``api.typesafe.ai`` (JEV, the L1 model) and ``api.deepseek.com`` (deepseek-v4-flash,
+    the L2 model).
     """
     import json
     from pathlib import Path
@@ -632,7 +636,56 @@ def test_shipped_settings_json_permits_only_typesafe():
 
     assert privacy["external_egress_allowed"] is True
     assert privacy["external_llm_allowed"] is True
-    assert privacy["egress_allowed_hosts"] == ["api.typesafe.ai"]
+    assert privacy["egress_allowed_hosts"] == ["api.typesafe.ai", "api.deepseek.com"]
     assert privacy["web_search_allowed"] is False, (
         "web search is a separate purpose and was not permitted"
+    )
+
+
+def test_every_layer_profile_is_reachable_under_the_shipped_allowlist(tmp_path):
+    """Every L1/L2/L3 layer must resolve to a destination the shipped allowlist permits.
+
+    The "declared but ineffective" class at layer scope: a layer profile whose ``base_url``
+    is not in ``privacy.egress_allowed_hosts`` is denied by the gate and **silently degrades
+    to Mock** (``gateway._get_provider_for_profile`` consults the gate before constructing a
+    cloud provider). Measured 2026-10-06: ``l2_default`` resolved to ``api.deepseek.com``,
+    which the shipped allowlist did not name, so "L2 runs on ``deepseek-v4-flash``" was a
+    declaration the gate refused to honour — the L2 path was wired and inert.
+
+    The negative control keeps this honest: ``vision_observation`` names a host the allowlist
+    still does not, so this measures the allowlist rather than a gate that permits everything.
+    """
+    from aegis_ai.egress import EgressDecision, EgressGate, EgressRequest
+    from aegis_ai.llm.layer_profiles import LAYER_L1, LAYER_L2, LAYER_L3, layer_to_profile
+    from aegis_ai.llm.settings_resolver import LLMSettingsResolver
+    from aegis_ai.settings.store import SettingsStore
+
+    store = SettingsStore(
+        path=str(_llm_yaml_path().parent / "settings.json"),
+        audit_path=str(tmp_path / "settings_audit.jsonl"),
+    )
+    gate = EgressGate(settings_store=store)
+    resolver = LLMSettingsResolver(str(_llm_yaml_path()))
+
+    def _decide(profile: str):
+        settings = resolver.resolve(profile_id=profile)
+        decision = gate.check(
+            EgressRequest(destination=settings.base_url, purpose="llm.chat", component="test")
+        )
+        return settings, decision
+
+    for layer in (LAYER_L1, LAYER_L2, LAYER_L3):
+        profile = layer_to_profile(layer)
+        settings, decision = _decide(profile)
+        assert decision is EgressDecision.ALLOW, (
+            f"{layer} resolves to {settings.base_url!r} (profile {profile!r}, model "
+            f"{settings.model!r}), which the shipped allowlist {sorted(gate.allowed_hosts)} "
+            "denies — the layer would silently degrade to Mock"
+        )
+
+    # Negative control: the allowlist really is a filter, not a rubber stamp.
+    control_settings, control = _decide("vision_observation")
+    assert control is EgressDecision.DENY, (
+        f"the control profile `vision_observation` ({control_settings.base_url!r}) is now "
+        "permitted, so the assertion above proves nothing about the allowlist"
     )

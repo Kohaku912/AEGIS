@@ -62,8 +62,9 @@ nobody can aggregate.**
 
 ### The label names the request; the fields name the resolution
 
-Under the shipped allowlist (`privacy.egress_allowed_hosts: ["api.typesafe.ai"]`), a `decision`-profile
-call to any other declared destination is **denied by the gate and degrades to Mock**. A judgement
+Under the shipped allowlist (`privacy.egress_allowed_hosts` names only the hosts AEGIS is meant to
+use), a profile whose `base_url` is any *other* external host is **denied by the gate and degrades
+to Mock**. A judgement
 from Mock is canned text and says **nothing** about the user's life. So the assessment carries the
 **resolved** `judged_by_provider` / `judged_by_model` (read from `provider_used` / `model_used`),
 and:

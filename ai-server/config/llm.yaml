@@ -15,10 +15,10 @@ version: "1.0.0"
 # and it is what makes "local" the wrong value here — under "local" the JEV declaration is
 # dead and every layer resolves to qwen2.5:3b on localhost.
 #
-# Only `api.typesafe.ai` is allowlisted (config/settings.json -> privacy.egress_allowed_hosts),
-# so the other cloud profiles below CANNOT transmit even though they resolve to a cloud
-# provider: the gate denies them and the provider degrades to Mock. JEV is the only
-# reachable external model.
+# Two hosts are allowlisted (config/settings.json -> privacy.egress_allowed_hosts):
+# `api.typesafe.ai` for L1 (JEV) and `api.deepseek.com` for L2 (`deepseek-v4-flash`). The
+# other cloud profiles below CANNOT transmit even though they resolve to a cloud provider:
+# the gate denies them and the provider degrades to Mock.
 mode: "cloud"
 profiles:
   chat_balanced:

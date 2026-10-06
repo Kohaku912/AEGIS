@@ -173,11 +173,11 @@ class SettingsStore:
         except Exception as exc:
             # Named rather than swallowed. The fallback is fail-closed: the built-in
             # defaults differ from the shipped config in exactly three keys, all of
-            # them egress permissions (measured 2026-10-04 — `egress_allowed_hosts`
-            # [] vs ['api.typesafe.ai'], `external_egress_allowed` and
-            # `external_llm_allowed` False vs True), so nothing is opened up. But the
-            # gate then denies every external destination, and without this line the
-            # only evidence is the degradation itself.
+            # them egress permissions (`egress_allowed_hosts` empty vs the shipped
+            # allowlist, `external_egress_allowed` and `external_llm_allowed` False vs
+            # True), so nothing is opened up. But the gate then denies every external
+            # destination, and without this line the only evidence is the degradation
+            # itself.
             logger.warning(
                 "Could not read settings from %s (%s: %s); falling back to the built-in "
                 "defaults, so the shipped configuration is not in effect. The defaults "

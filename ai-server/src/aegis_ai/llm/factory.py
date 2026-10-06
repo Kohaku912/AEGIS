@@ -271,8 +271,8 @@ def create_llm_provider_from_settings(settings_store: Any = None, audit_log: Any
     When the gate does not permit the configured destination, the local provider is
     returned so AEGIS degrades rather than transmitting; if no local endpoint is
     listening that degrades once more to Mock (see `_local_or_mock`). The shipped
-    `settings.json` permits exactly one destination (`api.typesafe.ai`), so every other
-    configured profile falls back here.
+    `settings.json` permits only the destinations AEGIS is meant to use (`api.typesafe.ai`
+    for L1, `api.deepseek.com` for L2), so every other configured profile falls back here.
 
     Args:
         settings_store: SettingsStore instance
