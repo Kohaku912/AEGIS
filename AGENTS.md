@@ -1278,6 +1278,19 @@ Measured 2026-10-01 — `ai-server`, full suite:
 > ⚠️ **The four copies were moved in the same commit this time.** The block above records the *opposite* outcome — three
 > different values across four copies. The rule it recorded (a change that moves the count moves all four copies together)
 > was applied from the start here.
+> **Production now refuses to start an L1 it cannot authenticate (2026-10-06): `2554 passed / 8 skipped`** — measured
+> 2554 / 8 / 0 (2562 collected, 524.86 s); marker-selected: egress **314 / 1 / 2247 deselected**, non-egress **2240 / 7 / 315 deselected**,
+> reconciling exactly (`2240 + 314 = 2554`, `7 + 1 = 8`, `315 + 2247 = 2562`).
+> **The +10 is the new pin exactly**, and no existing case moved. `DELEGATION.md` §4 item 46 branch ①:
+> `_require_l1_api_key_in_production` stops a production start whose L1 profile has no key, because an
+> unauthenticated L1 still starts and then escalates **every** event. No new flag was added — the gate is
+> the `AEGIS_RUNTIME_MODE=production` signal `_build_runtime` already fails fast on (MockLLMProvider) and
+> `docker_entrypoint.main` uses (auth mode / session secret). Scope is the one profile L1 uses,
+> discovered from `llm/layer_profiles.py`; the other cloud profiles are legitimately unconfigured, so a
+> fail-fast over all of them would refuse a correct production start. Pin
+> `tests/test_l1_requires_its_key_in_production.py` (**10 cases, mutation 8/8**, control green).
+> CI is unaffected: `AEGIS_RUNTIME_MODE` defaults to `development` and appears nowhere else in the repo
+> except `.env.production.example` — the pin measures that premise instead of trusting it.
 
 - **Total tests (2026-10-01 record)**: **1926 passed / 8 skipped**
   — the **+20** over the 2026-09-30 figure are **all new pins**: four for B-5① (the confirmation↔desire

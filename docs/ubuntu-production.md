@@ -39,6 +39,9 @@ LLM_API_KEY=...
 # L1 (config/llm.yaml -> profiles.l1_default) resolves to TypeSafe JEV and
 # requires its own key. Without it L1 builds a TypeSafe provider with an empty
 # key, every call fails, and every routed event escalates -- L1 cannot classify.
+# Because AEGIS_RUNTIME_MODE is production here, the start is REFUSED instead of
+# degraded (runtime.py::_require_l1_api_key_in_production; DELEGATION.md section 4
+# item 46). Set AEGIS_RUNTIME_MODE=development to keep the loud degradation.
 TYPESAFE_API_KEY=...
 ```
 

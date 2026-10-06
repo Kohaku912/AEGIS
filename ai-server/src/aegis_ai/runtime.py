@@ -337,6 +337,57 @@ def _audit_llm_profile_health(audit_log: Any, settings_resolver: Any) -> list[di
     return issues
 
 
+def _require_l1_api_key_in_production(settings_resolver: Any) -> None:
+    """Stop a production start that cannot authenticate L1 (DELEGATION.md item 46).
+
+    ``_audit_llm_profile_health`` already records ``issue=missing_api_key`` at ERROR for
+    every profile whose key is absent, so the degradation is not *silent*. It is not fatal
+    either: with an empty key ``llm/gateway.py`` constructs ``TypeSafeProvider`` anyway,
+    every call fails, and ``intake/l1_router._l1_unavailable_observation`` returns
+    ``required_intelligence=HIGH`` so **every** event escalates. The process runs and looks
+    alive while L1 classifies nothing.
+
+    This is not new machinery -- it is the production-mode fail-fast that already exists a
+    few lines above (``AEGIS_RUNTIME_MODE=production cannot start with MockLLMProvider``)
+    and in ``docker_entrypoint.main`` (auth mode / session secret), extended to the one
+    misconfiguration it did not cover.
+
+    Scope is the profile L1 actually uses, discovered from
+    ``llm.layer_profiles.layer_to_profile(LAYER_L1)`` rather than hardcoded, and **only**
+    that profile: the other cloud profiles in ``config/llm.yaml`` are legitimately
+    unconfigured, because the shipped allowlist names ``api.typesafe.ai`` and nothing else,
+    so the gate denies them and they degrade to Mock by design.
+
+    The gate is a *mode*, not a new flag, and that is what keeps CI safe -- measured
+    2026-10-06: ``AEGIS_RUNTIME_MODE``'s only occurrence outside this package is
+    ``.env.production.example``, and ``runtime_mode()`` defaults to ``development``.
+    """
+    if not is_production_mode():
+        return
+    from aegis_ai.llm.layer_profiles import LAYER_L1, layer_to_profile
+
+    profile_id = layer_to_profile(LAYER_L1)
+    try:
+        settings = settings_resolver.resolve(profile_id=profile_id)
+    except Exception as exc:
+        raise RuntimeError(
+            f"AEGIS_RUNTIME_MODE=production but the L1 profile {profile_id!r} does not "
+            f"resolve: {exc!r}"
+        ) from exc
+    api_key_env = str(getattr(settings, "api_key_env", "") or "")
+    if not api_key_env or _llm_profile_allows_missing_api_key(settings):
+        return
+    if os.getenv(api_key_env, ""):
+        return
+    raise RuntimeError(
+        f"AEGIS_RUNTIME_MODE=production but {api_key_env} is unset, so the L1 profile "
+        f"{profile_id!r} (provider={str(getattr(settings, 'provider', '') or '')!r}) cannot "
+        "authenticate: every event would escalate and L1 would classify nothing. Set the "
+        "key, or run with AEGIS_RUNTIME_MODE=development to keep the degraded (but loud) "
+        "behaviour."
+    )
+
+
 def _parse_event_payload_for_l1(event: Any) -> dict[str, Any]:
     payload_json = str(getattr(event, "payload_json", "") or "{}")
     try:
@@ -1089,6 +1140,11 @@ def _build_runtime(config: Config) -> AegisRuntime:
     prompt_registry = PromptRegistry(str(base_dir / "config" / "prompts.yaml"))
     settings_resolver = LLMSettingsResolver(str(base_dir / "config" / "llm.yaml"))
     _audit_llm_profile_health(audit_log, settings_resolver)
+    # Item 46: in production the audit above is not enough -- an unauthenticated L1 still
+    # starts and then escalates every event. The audit stays (it covers every profile and is
+    # what makes the degradation visible outside production); this adds the fatal half for the
+    # one profile L1 actually needs.
+    _require_l1_api_key_in_production(settings_resolver)
     llm_gateway = LLMGateway(
         router=llm_router,
         settings_resolver=settings_resolver,
