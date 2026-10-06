@@ -616,7 +616,7 @@ Measured 2026-10-01 — `ai-server`, full suite:
 > The chain is dead end to end: `ChromaSemanticMemory` is constructed **only** at `memory/factory.py:38`, and
 > that `create_semantic_memory` has **no caller** either (its sole mention is the module docstring's
 > `Usage:` example — a string literal), while the live path builds plain `SemanticMemory` directly at
-> `runtime.py:1038`. So `chroma_available` is not merely unread, it is **not even produced** on the
+> `runtime.py:1206`. So `chroma_available` is not merely unread, it is **not even produced** on the
 > live path. ⚠️ **Wiring it is not free**: the class embeds through `OpenAIEmbeddingFunction`
 > (`OPENAI_API_KEY`, default `text-embedding-3-small`), so it would put **memory content** on the wire
 > — the single constraint's subject matter, which the *voluntary ask* must carry, not a settings flag.
@@ -633,7 +633,7 @@ Measured 2026-10-01 — `ai-server`, full suite:
 > same shape as the event-driven core's demo), `ChromaSemanticMemory` is constructed **only** inside
 > that function, `sync_from_advanced_memory` therefore has **no caller**, and `chroma_available` has
 > **no reader** — and is not even *produced*, because the live path builds plain `SemanticMemory`
-> directly (`runtime.py:1038`). The live `POST /api/memory/reload` answers `"chroma_synced": 0` as a
+> directly (`runtime.py:1206`). The live `POST /api/memory/reload` answers `"chroma_synced": 0` as a
 > **literal** (pinned as an `ast.Constant`, not a call). ⚠️ **Wiring it is not a free cleanup**: the
 > class embeds through `OpenAIEmbeddingFunction` (`OPENAI_API_KEY`, default `text-embedding-3-small`),
 > so it would put **memory content** on the wire — the single constraint's subject matter, which the
@@ -868,7 +868,7 @@ Measured 2026-10-01 — `ai-server`, full suite:
 > six channel classes and `OsNotificationProvider` as 宣言のみ; §7 says `send()` does not fan out), so the
 > new finding is the **settings-level consequence plus the detector's silence**. An `ast` sweep of every
 > `src/` module shows **`NotificationManager` is the only notification class constructed anywhere**
-> (`runtime.py:1071`, with `event_manager=` only). So the seven `NotificationSettings` fields have exactly
+> (`runtime.py:1239`, with `event_manager=` only). So the seven `NotificationSettings` fields have exactly
 > two readers — `NotificationPreferences._load_from_settings` and `QuietHoursManager._load_from_settings`
 > — inside two classes **nothing constructs**; the router that owns them is itself unconstructed, and it
 > builds `QuietHoursManager()` **with no `settings_store`**, so the loaders are dead **twice over**
@@ -922,7 +922,7 @@ Measured 2026-10-01 — `ai-server`, full suite:
 > **A corrupt `settings.json` silently reverted every egress permission to the narrow default (2026-10-04): `2168 passed / 8 skipped`**
 >
 > `SettingsStore._load` runs once from `__init__` and, on any failure, substituted the built-in
-> defaults with no signal — and `runtime.py:898` points it at the **shipped** `config/settings.json`,
+> defaults with no signal — and `runtime.py:1062` points it at the **shipped** `config/settings.json`,
 > so a mistyped or corrupt file silently stopped the shipped configuration from being in effect.
 > Measured before writing the message: the built-in defaults differ from the shipped config in
 > **exactly three keys, all egress permissions** — `privacy.egress_allowed_hosts` `[]` vs
@@ -956,11 +956,11 @@ Measured 2026-10-01 — `ai-server`, full suite:
 > raises `AttributeError` out of `__init__` in all eight, because `json.loads` accepts it and the
 > next `last.get(...)` fails. `123` is exactly as unusable as `{"a": 1`, yet one is defaulted and
 > the other stops construction. And the exposure depends on the site: both live construction
-> points are **unguarded** (`runtime.py:995`, `runtime.py:1669`) while a third swallows the same
+> points are **unguarded** (`runtime.py:1163`, `runtime.py:1837`) while a third swallows the same
 > call at DEBUG (`llm/memory_context.py:323`). Widening the caught set changes behaviour, so it is
 > `DELEGATION.md` §4 item 38 and the pin fixes the current divergence.
 > ⚠️ **The family's scope was measured too** — by *construction*, not by import: of the eleven
-> modules, the only one built outside `mind/` is **`Identity`** (`runtime.py:995`); `Mood`,
+> modules, the only one built outside `mind/` is **`Identity`** (`runtime.py:1163`); `Mood`,
 > `Personality` and `LayeredEmotion` are live only through `AffectSystem`, and `Desire`, `Emotion`,
 > `GoalManager`, `SocialIntelligence` are built **nowhere** — `Emotion`/`GoalManager` are imported
 > only by `reflection_loop.py`, which is itself never constructed (a second-order dead surface).
@@ -973,7 +973,7 @@ Measured 2026-10-01 — `ai-server`, full suite:
 > **`docs/mind-layer.md`'s "ContextBuilder Integration" was corrected** after it failed to run:
 > its example passed `affect_system=` / `social_intelligence=`, which `ContextBuilder.__init__`
 > does not accept (`TypeError` measured), and read `ctx.affect` / `ctx.social`, which do not exist.
-> The only `ContextBuilder(` call site in `src/` is `runtime.py:997`, and the only mind component
+> The only `ContextBuilder(` call site in `src/` is `runtime.py:1165`, and the only mind component
 > it receives is `identity`.
 > Pin `tests/test_mind_persistence_failures_are_named.py` (**34 cases**, mutation **8/8**, three of
 > them degrading a control, 2 files restored byte-exactly). The **+34** is that pin and nothing
@@ -1043,7 +1043,7 @@ Measured 2026-10-01 — `ai-server`, full suite:
 > A source that could not be read contributed exactly as many observations as a healthy,
 > quiet source: **zero**. The stakes are higher here than a missing log line:
 > `autonomous_loop._refresh_observations_for_cycle` filters these into
-> `_pending_actionable_observations`, and at `autonomous_loop.py:1074`
+> `_pending_actionable_observations`, and at `autonomous_loop.py:1121`
 > `should_run_l2 = bool(self._pending_actionable_observations)` — so a real signal (a full
 > disk, a stuck task, a degraded server) that could not be read is never surfaced, and the
 > loop proceeds as if the system were calm. (A failed source does not *clear* the pending
@@ -1072,7 +1072,7 @@ Measured 2026-10-01 — `ai-server`, full suite:
 >
 > `context_builder.py` has **fourteen** `except` handlers and, before this cycle, **no logger at
 > all**. Measuring *reachability before writing* changed the claim: the composition root
-> (`runtime.py:997`) constructs the builder with **7 of the ~20** backends it accepts, so ten
+> (`runtime.py:1165`) constructs the builder with **7 of the ~20** backends it accepts, so ten
 > handlers sit on paths that either never run or are deliberate fallbacks — **8** on unwired
 > backends, and **2** that still produce a value (`_user_model_store` falls back to
 > `to_context_string()`, `_media_fingerprint` to `str(metadata)`). Naming the first group would
@@ -1136,9 +1136,9 @@ Measured 2026-10-01 — `ai-server`, full suite:
 > The question "what is missing for full-scale L1-only operation?" was answered by measurement, not reading.
 > **(1) The LLM key.** `config/llm.yaml:125` `l1_default` is `provider=typesafe, model=jev-latest,
 > api_key_env=TYPESAFE_API_KEY`. With the key absent the gateway builds a **`TypeSafeProvider` with an empty
-> key** (`llm/gateway.py:162-169`), the call fails, `_l1_unavailable_observation` (`intake/l1_router.py:160`)
+> key** (`llm/gateway.py:168-174`), the call fails, `_l1_unavailable_observation` (`intake/l1_router.py:160`)
 > returns `value=1.0 / priority=1.0 / required_intelligence=HIGH`, and **every event escalates** — L1 classifies
-> nothing. This is **loud, not silent**: `_audit_llm_profile_health` (`runtime.py:276`, called `:983`) already
+> nothing. This is **loud, not silent**: `_audit_llm_profile_health` (`runtime.py:285`, called `:1146`) already
 > logs `profile=l1_default … issue=missing_api_key` at ERROR. Verified live with the local `.env`: `l1_default`
 > resolved to typesafe/jev-latest, the gateway built **`TypeSafeProvider`** (not Mock), and a real call returned
 > `value 0.2075 / priority 0.135 / confidence 0.722`. The requirement is now documented in `.env.example`,
@@ -1169,11 +1169,11 @@ Measured 2026-10-01 — `ai-server`, full suite:
 > **dead** declaration left them all green — mutation M1 of cycle 66 fails the new test **alone**
 > (**5 cases, mutation 4/4**, control green).
 > **(3) L1 runs inline on the publisher's thread.** `EventBus._notify_subscribers` (`src/event_bus.py:234`)
-> calls `sub.handler(event)` synchronously; `_evaluate_immediate_event` (`runtime.py:1557`) →
+> calls `sub.handler(event)` synchronously; `_evaluate_immediate_event` (`runtime.py:1725`) →
 > `_run_l1_pipeline_for_event` (`:764`) → `router.observe(...)` (`:771`, the LLM round-trip). The gRPC
 > `PushEvent` handler (`grpc_server.py:169` → `publish` at `:185`) is one publisher, so a remote push blocks
 > for the whole L1 call. **L2 was already moved off the request thread** (`_submit_background_l2`,
-> `runtime.py:732`); there is **no `_submit_background_l1`**. Recorded as §4 items 47–49, together with the
+> `runtime.py:792`); there is **no `_submit_background_l1`**. Recorded as §4 items 47–49, together with the
 > intake-side dead classes (item 47).
 > ✅ **Fixed 2026-10-06 (cycle 64, §4 item 48 branch ①)**: the asymmetry is gone. `_submit_background_l1`
 > hands the **whole immediate route** (L1 decision → `detail["l1"]` → capability short-circuit → L2 hand-off
@@ -1211,7 +1211,7 @@ Measured 2026-10-01 — `ai-server`, full suite:
 > New pin `tests/test_intake_classes_are_constructed_nowhere.py` (**3 cases, mutation 3/3**) measures
 > *construction* (`ast.Call` with a bare `Name` callee), not mentions: `IntakeRouter` / `IntakeClassifier` /
 > `IntakeDeduplicator` are re-exported by `aegis_ai.intake` and built **nowhere** in `src/`, while `L1Router`
-> (`runtime.py:1104`) is the live control. Both pins also assert the *other* half -- the classes still exist
+> (`runtime.py:1272`) is the live control. Both pins also assert the *other* half -- the classes still exist
 > and are still exported, and the keys the config requires are still declared -- so a rename or deletion comes
 > back here instead of making the absence assertion vacuously true. Recorded as §4 items 46-47.
 
@@ -1228,11 +1228,11 @@ Measured 2026-10-01 — `ai-server`, full suite:
 > it asserts the raise for both functions, a control (with a `status_manager` present `_server_list` returns a
 > list, so the raise is caused by the missing attribute), and the asymmetry (`_errors` survives).
 > **Item 48.** L1 runs **inline on the publisher's thread**: `EventBus._notify_subscribers`
-> (`src/event_bus.py:234`) calls handlers synchronously, `_evaluate_immediate_event` (`runtime.py:1557`) calls
+> (`src/event_bus.py:234`) calls handlers synchronously, `_evaluate_immediate_event` (`runtime.py:1725`) calls
 > `_run_l1_pipeline_for_event` directly (`:1562`), and that awaits `router.observe(...)` -- the L1 LLM
 > round-trip. The gRPC `PushEvent` handler (`grpc_server.py:169` -> `publish` at `:185`) is one publisher, so
 > a remote push blocks for the whole call. **L2 was already moved off** (`_submit_background_l2`,
-> `runtime.py:732`, whose docstring records exactly this); there is no `_submit_background_l1`. The new pin
+> `runtime.py:792`, whose docstring records exactly this); there is no `_submit_background_l1`. The new pin
 > `tests/test_l1_runs_inline_on_the_publisher_thread.py` (**3 cases, mutation 3/3**) measures the *asymmetry*
 > by AST: the L2 submitter exists, the L1 one does not, and the immediate handler calls the pipeline directly
 > (no `submit`). Both pins fail if the recorded fix is applied, so the record moves with the code.
@@ -1262,7 +1262,7 @@ Measured 2026-10-01 — `ai-server`, full suite:
 > **A duplicate audit `entry_id` vanishes with no row, no exception and no record (2026-10-05): `2287 passed / 8 skipped`**
 >
 > `AuditLog._insert_record` (`audit/audit_log.py:245`) issues `INSERT OR IGNORE INTO audit`. `OR IGNORE` already absorbs the very constraint violation that the `except sqlite3.IntegrityError: pass` beneath it names, so a second record with an existing `entry_id` produces **no row, no exception and no log line** (measured: `count() == 1` after two appends of the same id). `append` (`:291`) writes to `self._entries` unconditionally (`:321`), so the in-memory reader `list_recent()` keeps reporting the dropped record while `count()` / `read_all()` deny it -- **two readers of the same audit log disagree**.
-> ⚠️ **Reachable from outside the process.** The gRPC `WriteAuditLog` (`grpc_server.py:402`) passes the **client-supplied** `record_id` straight into `entry_id` (`:411`) and returns `code=0 "ok"` either way (measured: two calls with the same `record_id` both return ok, and the table gains exactly one row). Recorded as §4 item 52; behaviour unchanged -- reject / merge / announce is an owner call.
+> ⚠️ **Reachable from outside the process.** The gRPC `WriteAuditLog` (`grpc_server.py:405`) passes the **client-supplied** `record_id` straight into `entry_id` (`:414`) and returns `code=0 "ok"` either way (measured: two calls with the same `record_id` both return ok, and the table gains exactly one row). Recorded as §4 item 52; behaviour unchanged -- reject / merge / announce is an owner call.
 > New pin `tests/test_audit_duplicate_entry_ids_are_announced.py` (**7 cases, mutation 4/5**).
 > ✅ **Branch ② executed (2026-10-06, cycle 61): the drop is now announced.** `_insert_record` captures the cursor and, when `cursor.rowcount == 0`, emits a `logger.warning` naming the dropped `entry_id`. `OR IGNORE` is kept, so the row is still dropped and the two readers still disagree — branch ③ was **not** taken. The pin was renamed `…_are_announced.py` and its central case now asserts the warning; mutations **4/5** (M5 is a no-op control that survives on purpose). §4 item 52 closed.
 > ⚠️ **The first version of that pin was too weak, and the harness caught it.** It asserted only that `append` did not raise -- which a plain `INSERT` plus the swallowing handler satisfies just as well, so the mutation turning `OR IGNORE` into `INSERT` **survived every case in the file**. The handler's *execution* is now measured with a line tracer (both line numbers read from the module's own AST), with `execute_line in executed` as the non-vacuity control. The 5th mutation (`pass` -> `raise` inside the handler) **survives on purpose**: its survival *is* the evidence that the handler is dead while `OR IGNORE` stands.
@@ -1271,6 +1271,53 @@ Measured 2026-10-01 — `ai-server`, full suite:
 > ⚠️ **The scanner's other 20 flags are false positives, in two shapes worth knowing**: (a) the row names a **callee** while citing the **call site** (`scheduler.py:75`, `personal_ai/hooks.py:367`, `intake/l1_router.py:160`, `llm/gateway.py:162-169`, `tests/*:NNN`) -- a citation is not a claim about one identifier; (b) a **basename that exists more than once** resolves to the wrong file (`main.py:27` and `dashboard.py:13` are correct under `aegis_ai/`, but the scan picked `aegis_agent_server/main.py` and `notification/channels/dashboard.py`) -- a basename-only citation is ambiguous *by construction*. Verification: every corrected citation was checked to land on a line that names the cited thing, and the register re-measured as pure CRLF + one contiguous run of 52 + 4 cells in every row. Deferred, with its size measured: **31 bare `:NNN` refs** (a line number with no filename) are a distinct surface that no scanner can resolve. **Swept the same day**: of the 31, **one is not a line ref at all** (`:99` is `DISPLAY=:99`), **25 measured correct**, **3 rotten** (`runtime.py:1764`->`:1792`, `runtime.py:1020`->`:1038`, `grpc_server.py:191`->`:185`). The 2 left (item 26's `:917`/`:909`) are line numbers inside a **done** row's "as found" text -- historical, and now labelled so in the note.
 > **AGENTS.md carried a *second copy* of the register's citations, and the +18 fix missed it (2026-10-05): `2287 passed / 8 skipped`** -- unchanged again, doc-only. Sweeping this file's 53 file-qualified citations found **13 corrections, and 9 of them were exactly +18** (`runtime.py:880`->`:898`, `:977`->`:995`, `:979`->`:997`, `:1020`->`:1038`, `:1053`->`:1071`, `:1651`->`:1669`). That is the same rot cycle 24 repaired **in the register only** -- the citations live in two documents, and fixing one copy left the other stale: **"I fixed the one place" is not a sweep.** The other 3: `manager_routes.py:361`->`:371` (361 is the `/api/memory/search` route), `dashboard_legacy.py:1372`->`:1374` (the tombstone), `dashboard_legacy.py:226`->`:227` (226 is **blank**). Plus one disambiguation: `factory.py:38` -> `memory/factory.py:38` (`factory.py` exists under both `llm/` and `memory/`; only the latter constructs `ChromaSemanticMemory`).
 > ⚠️ **The corrections had to be line-targeted, not global.** This file's own cycle-25 note contains the *old* numbers as an old->new mapping, so a global replace would rewrite `:1020`->`:1038` into `:1038`->`:1038` -- **a note that records a fix must not be rewritten by the next fix.** Every correction was then checked to land on a line that names the cited thing. Residue: 7 flags remain, all expected -- 5 are that note's own mapping, 1 is a set *declaration* cited for a member (`runtime.py:826` for `browser.discovery`), 1 cites a function name where the line carries the route path (`dashboard_legacy.py:1374`).
+> ✅ **Fixed 2026-10-06 (cycle 67, §4 item 70)**: the drifted `runtime.py` citations in the notes
+> above were renumbered to their measured lines. Every one was **right when written** -- the drift is
+> the lines cycles 19-66 inserted above them, and it is consistent per note: `:995`->**1163**,
+> `:997`->**1165**, `:1038`->**1206**, `:1071`->**1239**, `:1104`->**1272**, `:1557`->**1725** and
+> `:1669`->**1837** all moved by exactly **+168**; `:898`->**1062** by **+164**; `:983`->**1146** by
+> **+163**; `:732`->**792** by **+60**; `:276`->**285** by **+9**. Each new number was checked to land
+> on a line that **names the cited thing** (`Identity(`, `ContextBuilder(`, `SemanticMemory(`,
+> `NotificationManager(`, `L1Router(`, `DesireSystem(`, `settings.json`,
+> `def _audit_llm_profile_health`, `def _evaluate_immediate_event`, `def _submit_background_l2`).
+> ⚠️ **Five citations were deliberately NOT touched**: the ones that *record* an earlier fix and carry
+> old->new mappings or a false-positive census (the `runtime.py:826` mapping and residue notes, and the
+> `:1764` / `:1020` / `:880` census). Rewriting those would destroy the record -- the trap this file
+> already warns about in the note above.
+> ⚠️ **This will rot again** -- a bare `:NNN` is not durable. The durable form is `runtime.py::_build_runtime`
+> (already used 7 times in this file), and it is now pinned by `tests/test_doc_citations_resolve.py`.
+> Call-site citations cannot adopt it without losing precision (four of the eleven point into
+> `_build_runtime`), so they stay as lines; that trade-off is recorded in `DELEGATION.md` §4 item 70.
+> ✅ **The sweep had a *second* copy, and the placeholder was one of them (2026-10-06, cycle 67 continued)**:
+> the first pass renumbered this file and left `DELEGATION.md` alone -- **the same "I fixed the one place is not
+> a sweep" trap this file warns about two notes above** -- and the same citations were rotten there. Re-swept
+> **both** docs, resolving every `path.py:NNN` against the whole repo (basename-ambiguous names resolved by
+> `rglob`, ambiguity reported rather than guessed). **8 live landings were rotten and are renumbered**:
+> `autonomous_loop.py:1074`->**1121** (`should_run_l2 = bool(...)`, **+47**, in both docs);
+> `llm/gateway.py:162-169`->**168-174** (re-targeted to the `TypeSafeProvider(` construction, so the range no
+> longer *starts* on a blank line; in both docs); `grpc_server.py:402`->**405** (`def WriteAuditLog`) and
+> `:411`->**414** (`entry_id=request.record_id`), a consistent **+3**, in both docs; `runtime.py:1067`->**1122**
+> (the `MockLLMProvider` startup refusal, +55); `runtime.py:1104`->**1272** (`L1Router(llm_gateway=...)`, the
+> same **+168** as the first pass).
+> ⚠️ **6 landings are *records* and were left alone**: `dashboard_legacy.py:226` and `llm/gateway.py:162-169`
+> in this file's two censuses and `DELEGATION.md`'s copy of them -- their own text *is about* the staleness
+> ("226 is **blank**"). A **§5 closed row**'s number was **labelled, not renumbered** (item 26's `:917`/`:909`
+> precedent): it now reads "**当時** `:1053`、**現在** `:1239`".
+> ⚠️ **The durable form was itself written as a placeholder, and the new pin read it as a citation.** The
+> pin failed on the placeholder I had written for the durable form -- my own prose, parsed as a citation. That
+> is the guard working (a guard that reacts to the document's own text is alive), and the fix is to write a
+> **real** example, never to weaken the guard: the sentence now cites `runtime.py::_build_runtime`. It stood in
+> **four** places -- three in `DELEGATION.md`, one here -- and the first pass fixed only this file's.
+> ⚠️ **A set-typed pin collapses duplicates into one failure, so its count is not a census**: one
+> unresolvable `(path, symbol)` pair is reported **once** however many times it appears. Fix by *string*, count
+> by *set* -- and sweep by *claim*, which is how the other two copies were found.
+> ⚠️ **The surface is wider than these two files, and is now measured**: sweeping *every* maintained `*.md`
+> (**113** files) finds **53** blank/out-of-range landings -- `PROJECT_STATUS_REVIEW.md` 15, `BUG_REPORT.md` 13,
+> `AGENT_PROGRESS.md` 8, `docs/improvement-review.md` 5, `docs/jev-l1-verification-2026-10-02.md` 4,
+> `IMPROVEMENT_PROPOSAL.md` 2, and the 6 records here. Most sit in **dated snapshots** and in
+> `AGENT_PROGRESS.md`'s explicit old->new mapping table, i.e. they are records -- but that adjudication is
+> **not** done, so it is recorded as **§4 item 72**, not swept. (Including the frozen plan archives `.omo/`
+> and `.mimocode/` the count is **164**; those are archival by construction and are excluded.)
 > **AGENTS.md's *bare* `:NNN` refs rotted too, and the same claim has a *third* copy (2026-10-05): `2287 passed / 8 skipped`** -- unchanged, doc-only. Cycle 27 swept this file's *file-qualified* citations; a **bare** `:NNN` (a line number with no filename) is a separate surface, because no scanner can resolve it -- the owning file has to be inferred from the sentence. Of **30** substantive bare refs, **25 measured correct** and **5 were rotten**: `grpc_server.py:191`->`:185` (**3 occurrences in this file alone** -- `publish` is a single line at 185, and 191 is the closing paren of `PushEventResponse(`) and `context_builder.py:722`/`:759` -> `:750`/`:787` (**+28**; both land on the two `available_capability_ids` *token-accounting* reads, one in `_recalc_chars` and one in `_annotate_usage`). The 31 bare refs inside this file's own dated notes are **records** -- old->new mappings -- and were left alone.
 > ⚠️ **A bare ref's owning file is the note's *subject*, not the file named last.** The `:722`/`:759` pair follows an explicit `llm_task_interpreter.py:367-370` in the *same sentence*, but `llm_task_interpreter.py` is **450 lines** -- the refs belong to `context_builder.py`, the paragraph's subject. That is how a bare ref rots *unresolvably*: the reader must reconstruct an inference the author never wrote down.
 > ⚠️ **The `:722`/`:759` claim had a *third* copy.** `PROJECT_STATUS_REVIEW.md:14` stated the same fact (`ctx.available_capability_ids` is read only for token accounting `:722`/`:759`); it is corrected there too. So one claim lived in **three** documents, and the "second copy" cycle 27 found was not the last: **after repairing a citation, grep every `*.md` for the *claim*, not just for the string.**
@@ -1307,6 +1354,19 @@ Measured 2026-10-01 — `ai-server`, full suite:
 > `tests/test_l1_requires_its_key_in_production.py` (**10 cases, mutation 8/8**, control green).
 > CI is unaffected: `AEGIS_RUNTIME_MODE` defaults to `development` and appears nowhere else in the repo
 > except `.env.production.example` — the pin measures that premise instead of trusting it.
+> **The register's drifted citations were renumbered in *both* copies, and the record's own placeholder was a citation (2026-10-06): `2558 passed / 8 skipped`** — measured
+> 2558 / 8 / 0 (2566 collected, 560.15 s); marker-selected: egress **314 / 1 / 2251 deselected**, non-egress **2244 / 7 / 315 deselected**,
+> reconciling exactly (`2244 + 314 = 2558`, `7 + 1 = 8`, `315 + 2251 = 2566`). **The +3 is the new pin exactly**:
+> `tests/test_doc_citations_resolve.py` (**3 cases, mutation 5/5**, control green) resolves every **symbol-anchored citation** in
+> `AGENTS.md` and `DELEGATION.md` — **28 distinct** (the union; the per-document sum is 33 because the docs share five). It also caught two
+> citations with an *incomplete path* (`autonomous_loop.py` -> `autonomous/autonomous_loop.py`, and a bare
+> `test_mind_persistence_failures_are_named.py` -> `tests/...`); the symbols themselves were already right. No source file was touched, so
+> egress is unchanged at 314 / 1.
+> ⚠️ **The pin failed on its own record first.** The durable form was written as a placeholder and the pin parsed it as a citation; it
+> stood in **4** places (3 in `DELEGATION.md`, 1 here) and the pin reported it **once** — **a set-typed pin's failure count is not a
+> census**. The fix was to write a real example (`runtime.py::_build_runtime`), never to weaken the guard.
+> ⚠️ **The four copies moved together again**: `PROJECT_STATUS_REVIEW.md` §0 and §1.1, this list, and the verification skill §1 all carry
+> **2558**. The cycle-67 body is the dated block above (item 70's second pass, the 8 renumbered landings, and §4 item 72).
 
 - **Total tests (2026-10-01 record)**: **1926 passed / 8 skipped**
   — the **+20** over the 2026-09-30 figure are **all new pins**: four for B-5① (the confirmation↔desire
