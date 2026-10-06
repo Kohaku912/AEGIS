@@ -25,7 +25,7 @@ engine waking the loop. The gap was the *triggering* half, not the bus.
 | class | construction site | note |
 |---|---|---|
 | ``TriggerEngine`` | ``runtime.py::_build_runtime`` | all **13** ``create_default_rules()`` rules added |
-| ``Scheduler`` | ``runtime.py::_build_runtime`` | constructed; **no consumer** — asserted below, not just described |
+| ``Scheduler`` | ``runtime.py::_build_runtime`` | constructed **empty**; its designed consumer is never given one — asserted below |
 | ``EventView`` | ``runtime.py::_build_runtime`` | **both** halves — a bare ``EventView()`` is a silent no-op; **no consumer** either |
 | ``AutonomousLoop`` | ``runtime.py::_create_autonomous_loop`` | the pre-existing contrast |
 
@@ -64,6 +64,16 @@ file measure *reads* of the runtime attributes each core class is assigned to, a
 unconsumed set by **equality**, and use the ``TriggerEngine`` — consumed only through
 ``getattr(runtime, "trigger_engine", None)`` — as the control proving the scan can see the
 string form.
+
+**Starved, not unconsumed** (added 2026-10-06, cycle 70). "No consumer" is the wrong phrase for
+``Scheduler``. A consumer *was* written — ``ContextBuilder.__init__(scheduler=...)`` stores
+``self._scheduler``, and the build reads ``self._scheduler.get_due_tasks()`` — but the composition
+root constructs ``ContextBuilder`` without it, so the guard ``if self._scheduler:`` is always false
+and ``scheduler=`` appears **zero** times in ``src/``. The path is dead **twice**: the runtime also
+builds ``Scheduler()`` with an empty task map, because ``create_default_tasks()`` is called nowhere.
+That is the ``QuietHoursManager()`` shape (§4 item 35) — supplying the object is not supplying its
+state — and it is why the fix is a behaviour change rather than a one-line wire: it would add
+``pending_tasks`` lines to every prompt.
 """
 
 from __future__ import annotations
@@ -611,4 +621,124 @@ def test_the_unconsulted_core_members_are_the_recorded_set() -> None:
         f"{_RECORDED_UNCONSULTED} — see DELEGATION.md §4 item 24. Constructing an object is "
         "not consuming it, and this file's own header said 'no consumer wired yet' for two "
         "cycles while nothing checked it."
+    )
+
+# ── Starved, not unconsumed: the Scheduler's consumer exists and is never given one ──
+
+#: The keyword set the composition root passes to ``ContextBuilder``, measured 2026-10-06. An
+#: **equality**, so wiring the scheduler in (adding ``scheduler=``) fails this pin and forces the
+#: record to move — the same shape as ``_RECORDED_UNCONSULTED`` above.
+_CONTEXT_BUILDER_KWARGS = frozenset(
+    {
+        "capability_retriever",
+        "event_bus",
+        "identity",
+        "multimodal_llm",
+        "settings_resolver",
+        "tool_broker",
+        "user_model_store",
+    }
+)
+
+
+def _class_init(tree: ast.Module, class_name: str) -> ast.FunctionDef:
+    """The ``__init__`` of ``class_name`` specifically — not the first ``__init__`` in the file."""
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ClassDef) and node.name == class_name:
+            for item in node.body:
+                if isinstance(item, ast.FunctionDef) and item.name == "__init__":
+                    return item
+    raise AssertionError(f"{class_name}.__init__ is gone")
+
+
+def _keyword_call_sites(keyword: str) -> list[str]:
+    """Every ``f(..., keyword=...)`` call site in ``src/``, as ``module::function``."""
+    sites: list[str] = []
+    for path in _src_files():
+        tree = _parsed(path)
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call) and any(k.arg == keyword for k in node.keywords):
+                rel = path.relative_to(_SRC).as_posix()
+                sites.append(f"{rel}::{_enclosing(tree, node.lineno)}")
+    return sorted(set(sites))
+
+
+def _context_builder_kwargs() -> set[str]:
+    """The keyword names the composition root passes to ``ContextBuilder``."""
+    tree = _parsed(_SRC / "aegis_ai" / "runtime.py")
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call) and _called_name(node) == "ContextBuilder":
+            return {k.arg for k in node.keywords}
+    raise AssertionError("the composition root no longer constructs ContextBuilder")
+
+
+def test_the_scheduler_has_a_designed_consumer_that_is_never_given_one() -> None:
+    """The *reverse* of "no consumer": ``ContextBuilder`` is one, and nothing supplies it.
+
+    This sharpens the equality above rather than repeating it. ``runtime.scheduler`` has zero
+    reads — but not because no consumer was ever written. ``ContextBuilder.__init__(scheduler=...)``
+    stores ``self._scheduler``, and the build reads ``self._scheduler.get_due_tasks()``, behind
+    ``if self._scheduler:``. The composition root builds ``ContextBuilder`` **without**
+    ``scheduler=``, so the attribute is ``None`` and the branch cannot fire. ``scheduler=`` appears
+    **zero** times in ``src/``, so this is not one forgotten call among many: the link was never
+    drawn.
+
+    Both directions are load-bearing: wiring it must fail this pin (so the register moves), and
+    deleting the parameter or the read must fail it too (so the record cannot pass by describing a
+    consumer that no longer exists).
+    """
+    tree = _parsed(_SRC / "aegis_ai" / "context_builder.py")
+    init = _class_init(tree, "ContextBuilder")
+    params = {a.arg for a in (*init.args.args, *init.args.kwonlyargs)}
+    assert "scheduler" in params, (
+        "ContextBuilder no longer accepts a `scheduler` — the consumer this pin records is gone, "
+        "so 'starved' is no longer the right word for the Scheduler"
+    )
+    reads = [
+        n
+        for n in ast.walk(tree)
+        if isinstance(n, ast.Attribute) and n.attr == "_scheduler" and isinstance(n.ctx, ast.Load)
+    ]
+    assert reads, (
+        "ContextBuilder no longer reads self._scheduler — the guarded branch this pin describes "
+        "has been deleted"
+    )
+    assert _keyword_call_sites("event_bus"), (
+        "no `event_bus=` call site found in src/ — the keyword scanner is not reading the tree, so "
+        "the `scheduler=` check below would pass for the wrong reason"
+    )
+    starved = _keyword_call_sites("scheduler")
+    assert starved == [], (
+        f"`scheduler=` is now passed somewhere in src/ ({starved}) — the Scheduler is no longer "
+        "starved, so DELEGATION.md §4 item 24's record has to move"
+    )
+    measured = _context_builder_kwargs()
+    assert measured == _CONTEXT_BUILDER_KWARGS, (
+        f"the composition root's ContextBuilder kwargs moved: {sorted(measured)} != "
+        f"{sorted(_CONTEXT_BUILDER_KWARGS)} — if `scheduler` is now among them, the record moved "
+        "and this pin is telling you to say so"
+    )
+
+
+def test_the_scheduler_would_be_empty_even_if_it_were_wired() -> None:
+    """The second half of the double death: ``create_default_tasks()`` is never called.
+
+    Supplying ``ContextBuilder(scheduler=runtime.scheduler)`` would not be enough — the runtime
+    builds ``Scheduler()`` with an empty task map, and nothing calls ``create_default_tasks()``, so
+    ``get_due_tasks()`` would return ``[]`` regardless. Measured 2026-10-06: **0** call sites in
+    ``src/``. This is the ``QuietHoursManager()`` shape (§4 item 35): supplying the object is not
+    the same as supplying its state.
+    """
+    module = _parsed(_SRC / "aegis_ai" / "scheduler.py")
+    assert any(
+        isinstance(n, ast.FunctionDef) and n.name == "create_default_tasks" for n in ast.walk(module)
+    ), "Scheduler.create_default_tasks is gone — this pin's premise changed"
+    assert _construction_sites("create_default_rules"), (
+        "no `create_default_rules()` call found in src/ — the scanner is not reading the tree, so "
+        "the emptiness check below would pass for the wrong reason"
+    )
+    empty = _construction_sites("create_default_tasks")
+    assert empty == [], (
+        f"create_default_tasks is now called ({empty}) — the Scheduler is no longer built empty, "
+        "so DELEGATION.md §4 item 24's record has to move"
     )
