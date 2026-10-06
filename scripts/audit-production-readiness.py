@@ -418,7 +418,18 @@ def main() -> int:
             "report_path": str(report_dir / "capability_coverage.json"),
         }
     )
-    run_command([python, "scripts/audit-dead-code.py", "--report-dir", str(report_dir), "--json-only"])
+    dead = run_command([python, "scripts/audit-dead-code.py", "--report-dir", str(report_dir), "--json-only"])
+    checks.append(
+        {
+            "id": "dead_code",
+            "name": "Dead/obsolete code inventory",
+            "status": dead["status"],
+            "duration_ms": dead["duration_ms"],
+            "evidence": [str(report_dir / "dead_code_report.json")],
+            "error": dead["stderr"] if dead["status"] != "pass" else "",
+            "report_path": str(report_dir / "dead_code_report.json"),
+        }
+    )
     secret = run_command([python, "scripts/audit-secrets.py", "--report-dir", str(report_dir), "--json-only"])
     checks.append(
         {
@@ -471,6 +482,9 @@ def main() -> int:
             ),
             _report_pass(report_dir / "ui_completeness.json", "ui_completeness_report", "UI completeness report"),
             _report_pass(report_dir / "v1_completion.json", "v1_completion_report", "v1 completion report"),
+            _report_pass(
+                report_dir / "dead_code_report.json", "dead_code_report", "Dead code report", ["files_walked"]
+            ),
             _e2e_check(report_dir, "docker_core", "Docker core E2E"),
             _e2e_check(report_dir, "docker_persistence", "Docker restart/recreate persistence E2E"),
             _e2e_check(report_dir, "backup_restore", "Docker volume backup/isolated restore E2E"),
