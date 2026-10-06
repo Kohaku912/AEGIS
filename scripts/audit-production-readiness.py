@@ -74,6 +74,30 @@ def _source_text(rel: str) -> str | None:
     return path.read_text(encoding="utf-8", errors="ignore")
 
 
+def _as_int(value: object) -> int | None:
+    """Coerce a report number the way ``int(value or 0)`` did -- but never raise.
+
+    ``None`` means "the value is truthy and is not a number" -- the only input for which the
+    old expression raised. An exception here would abort ``main`` before it writes
+    ``readiness_summary.json``, leaving the **previous** report on disk for every downstream
+    reader (the cycle-85 shape, reached through a value rather than a missing file). Callers
+    that only carry metadata collapse ``None`` to ``0``; callers that take a verdict from the
+    value treat it as a malformed measurement.
+    """
+    if not value:  # falsy -> 0, exactly as ``value or 0`` did
+        return 0
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, (int, float)):
+        return int(value)
+    if isinstance(value, str):
+        try:
+            return int(value.strip())
+        except ValueError:
+            return None
+    return None
+
+
 def _e2e_check(report_dir: Path, check_id: str, name: str, required: bool = True) -> dict[str, object]:
     # The caller passes the audit's ``--report-dir`` (default ``data/reports``), so the
     # E2E tree is ``<report_dir>/e2e/latest``. This used to be hard-coded to
@@ -107,7 +131,7 @@ def _e2e_check(report_dir: Path, check_id: str, name: str, required: bool = True
         [str(match.get("report_path") or latest / "summary.json")],
         str(match.get("error") or "") if status != "pass" else "",
         str(match.get("report_path") or ""),
-        int(match.get("duration_ms") or 0),
+        _as_int(match.get("duration_ms")) or 0,
     )
 
 
@@ -388,9 +412,30 @@ def _real_device_report_check(
 def _display_soak_check() -> dict[str, object]:
     path = ROOT / "data/reports/e2e/latest/display_soak_summary.json"
     data = _load_json(path)
-    duration = int(data.get("duration_seconds") or 0) if data else 0
-    equivalent_duration = int(data.get("equivalent_duration_seconds") or 0) if data else 0
-    failures = int(data.get("failure_count") or 0) if data else 0
+    raw_duration = _as_int(data.get("duration_seconds"))
+    raw_equivalent = _as_int(data.get("equivalent_duration_seconds"))
+    raw_failures = _as_int(data.get("failure_count"))
+    malformed = [
+        field
+        for field, value in (
+            ("duration_seconds", raw_duration),
+            ("equivalent_duration_seconds", raw_equivalent),
+            ("failure_count", raw_failures),
+        )
+        if value is None
+    ]
+    if malformed:
+        return _check(
+            "display_soak",
+            "Dedicated Display 72-hour soak",
+            "fail",
+            [str(path)],
+            f"Soak report has a non-numeric field: {', '.join(malformed)}",
+            str(path),
+        )
+    duration = raw_duration or 0
+    equivalent_duration = raw_equivalent or 0
+    failures = raw_failures or 0
     passed = (
         str(data.get("status") or "").lower() == "pass"
         and max(duration, equivalent_duration) >= 72 * 60 * 60
