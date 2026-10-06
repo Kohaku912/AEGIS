@@ -134,10 +134,21 @@ def main() -> int:
             continue
         findings.extend(_scan_file(path, patterns))
 
-    status = "pass" if not findings else "fail"
+    # The population here is discovered (tracked files plus static assets), so it can be
+    # empty -- a non-git checkout, a missing git binary, a tree whose files are all
+    # excluded. "No secrets found" over zero files is not a clean audit, and this is the
+    # audit where a false clean costs the most.
+    if not files:
+        error = "no files were scanned -- an empty scan is not a clean secret audit"
+    elif findings:
+        error = f"production_blockers={len(findings)}"
+    else:
+        error = ""
+    status = "pass" if files and not findings else "fail"
     payload = {
         "schema_version": "aegis-secret-audit.v1",
         "status": status,
+        "error": error,
         "generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "duration_ms": int((time.time() - start) * 1000),
         "files_scanned": len(files),
@@ -162,7 +173,10 @@ def main() -> int:
         preview = str(finding["preview"]).replace("|", "\\|")
         lines.append(f"| {finding['classification']} | {finding['pattern']} | `{location}` | `{preview}` |")
     (report_dir / "secret_inventory.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
-    print(f"status={status} production_blockers={len(findings)}")
+    print(
+        f"status={status} production_blockers={len(findings)} files_scanned={len(files)}"
+        + (f" error={error}" if error else "")
+    )
     return 0 if status == "pass" else 1
 
 

@@ -184,10 +184,18 @@ def classify(path: str, term: str, text: str) -> tuple[str, str]:
     return "dev_only", "non-production marker"
 
 
-def scan_mock_findings(report_dir: Path = REPORT_DIR) -> list[Finding]:
+def scan_mock_findings(report_dir: Path = REPORT_DIR) -> tuple[list[Finding], int]:
+    """Return the findings **and** the number of files walked.
+
+    The population is part of the result on purpose: a scan that walked no files
+    produces no findings, and "no findings" must never be reported as a clean
+    inventory. Whoever reads the verdict needs the denominator to tell the two apart.
+    """
     overrides = read_overrides(report_dir)
     findings: list[Finding] = []
+    files_scanned = 0
     for path in iter_text_files():
+        files_scanned += 1
         rel_path = rel(path)
         try:
             lines = path.read_text(encoding="utf-8", errors="ignore").splitlines()
@@ -212,7 +220,7 @@ def scan_mock_findings(report_dir: Path = REPORT_DIR) -> list[Finding]:
                     finding.classification = override
                     finding.reason = "manual override"
                 findings.append(finding)
-    return findings
+    return findings, files_scanned
 
 
 def write_json(path: Path, data: object) -> None:

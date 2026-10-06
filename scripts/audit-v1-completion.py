@@ -119,12 +119,27 @@ def main() -> int:
 
     mock = _load_json(MOCK_REPORT)
     blockers = mock.get("blockers") if isinstance(mock.get("blockers"), list) else []
+    # A population-free report cannot be called clean: `blockers == []` is also what a
+    # report says when it read nothing. Require the denominator to be present and non-zero.
+    mock_scanned = mock.get("files_scanned")
+    mock_ok = not blockers and isinstance(mock_scanned, int) and mock_scanned > 0
+    if mock_ok:
+        mock_error = ""
+    elif not isinstance(mock_scanned, int):
+        mock_error = (
+            f"{MOCK_REPORT.relative_to(ROOT).as_posix()} does not report files_scanned -- "
+            "regenerate it; an inventory that does not say what it read cannot be called clean"
+        )
+    elif not mock_scanned:
+        mock_error = "the mock inventory walked no files -- an empty scan is not a clean inventory"
+    else:
+        mock_error = f"production_blockers={len(blockers)}"
     checks.append(_check(
         "production_blocker_mock_zero",
         "Production blocker mock/stub count is zero",
-        "pass" if not blockers else "fail",
+        "pass" if mock_ok else "fail",
         [MOCK_REPORT.relative_to(ROOT).as_posix()],
-        "" if not blockers else f"production_blockers={len(blockers)}",
+        mock_error,
     ))
 
     e2e = _required_e2e()

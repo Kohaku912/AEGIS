@@ -155,9 +155,19 @@ def main() -> int:
         }
         rows.append(row)
     failing = [row for row in rows if row.get("status") != "pass"]
-    overall_status = "pass" if not failing else "fail"
+    # A discovered population can legitimately be empty (the manifest tree moved, was
+    # renamed, or was never checked out), and an empty one audits nothing. It must not
+    # share the verdict of a manifest tree that was read and found clean.
+    if not rows:
+        error = f"no capability manifests found under {capability_root.relative_to(ROOT).as_posix()}"
+    elif failing:
+        error = f"failing={len(failing)}"
+    else:
+        error = ""
+    overall_status = "pass" if rows and not failing else "fail"
     payload = {
         "overall_status": overall_status,
+        "error": error,
         "summary": {
             "total": len(rows),
             "failing": len(failing),
@@ -196,10 +206,11 @@ def main() -> int:
         )
     (report_dir / "capability_coverage.md").write_text("\n".join(md) + "\n", encoding="utf-8")
     print(
-        f"capabilities={len(rows)} failing={len(failing)} "
+        f"overall_status={overall_status} capabilities={len(rows)} failing={len(failing)} "
         f"blocker_issues={payload['summary']['blocker_issues']}"
+        + (f" error={error}" if error else "")
     )
-    return 1 if failing else 0
+    return 0 if overall_status == "pass" else 1
 
 
 if __name__ == "__main__":
