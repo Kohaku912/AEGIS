@@ -24,7 +24,12 @@ assertions actually made:
     absence assertions would be vacuously true);
   - the three recorded names must still have **zero** literal publishers;
   - the three must still be **declared** — so deleting them from the set comes
-    back here, and adding a producer for one of them does too.
+    back here, and adding a producer for one of them does too;
+  - the set's **size and partition** are pinned by number (16 declared, 1 with a
+    literal publisher, 15 without). This is the **only** assertion here that a
+    newly added *dead* declaration trips: the third assertion below intersects
+    with the published set, so an added-but-unproduced member leaves it green
+    (measured, cycle 66 mutation M1).
 """
 
 from __future__ import annotations
@@ -111,4 +116,33 @@ def test_the_scanner_sees_only_one_declared_trigger() -> None:
         "['social.inbox.received']) — if a real publisher was added, say so here "
         "and in DELEGATION.md section 4 item 45; if the scanner was widened, the "
         "scope note in this module's docstring is now stale"
+    )
+
+
+def test_the_partition_is_pinned_by_number() -> None:
+    """Pin the set's size and partition, so the prose copies rest on a checked number.
+
+    `runtime.py`'s comment and this module's docstring both cite "sixteen" and the
+    1-of-16 / 15-of-16 split. Measured 2026-10-06 (cycle 66): 16 declared, exactly
+    one with a literal publisher, fifteen without.
+
+    ⚠️ A newly added *dead* declaration is caught here and nowhere else. The
+    assertions above are blind to it by construction: they intersect with what the
+    scanner *found*, so a member nobody publishes never enters the intersection.
+    Mutation M1 of cycle 66 confirms it — adding one unproduced member fails this
+    test alone.
+    """
+    from aegis_ai.runtime import _L1_IMMEDIATE_EVENT_TYPES
+
+    declared = set(_L1_IMMEDIATE_EVENT_TYPES)
+    published = _literal_published_event_types()
+    unproduced = declared - published
+    assert len(declared) == 16, (
+        f"_L1_IMMEDIATE_EVENT_TYPES now has {len(declared)} members (was 16) — re-measure "
+        "the figures in runtime.py's comment, this module's docstring, and DELEGATION.md "
+        "section 4 item 45"
+    )
+    assert len(unproduced) == 15, (
+        f"{len(unproduced)} declared triggers have no literal publisher (was 15); "
+        f"with one: {sorted(declared & published)}"
     )

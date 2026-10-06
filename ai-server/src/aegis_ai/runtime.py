@@ -979,9 +979,13 @@ def _submit_background_l1(runtime: Any, *, event: Any) -> None:
 #   - `browser.discovery` -- no producer anywhere in the repo, and browser-server
 #                          has no such concept.
 # They are kept (not deleted) so the intent is visible and a future producer
-# routes immediately; `tests/test_l1_immediate_triggers_have_producers.py` pins
-# that these three still have no literal publisher, and that every other member
-# still does.
+# routes immediately. The partition is **measured, not assumed**: of the sixteen
+# members exactly one (`social.inbox.received`) has a literal publisher in
+# `src/`, so fifteen do not -- these three are *among* the fifteen, not an
+# exception to a rule that the others satisfy. (The older wording here said the
+# pin asserts "every other member still does"; it never asserted that, and it is
+# false.) `tests/test_l1_immediate_triggers_have_producers.py` pins the count and
+# the partition by number, so the figures above cannot drift silently.
 _L1_IMMEDIATE_EVENT_TYPES = {
     "social.inbox.received",
     "task.completed",

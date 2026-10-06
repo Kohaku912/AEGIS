@@ -1145,8 +1145,8 @@ Measured 2026-10-01 — `ai-server`, full suite:
 > `docs/ubuntu-production.md`, and `docs/jev-l1-verification-2026-10-02.md` (placeholder only — the real key
 > stays in the gitignored `.env`).
 > **(2) Three of the 16 immediate triggers have no producer.** `hook.matched` / `commitment.due` /
-> `browser.discovery` (`runtime.py:826`) never appear as a `publish` literal. `hook.matched` and
-> `commitment.due` are superseded by `self_call` (`personal_ai/hooks.py:367`, `commitments.py:117`);
+> `browser.discovery` (`runtime.py:989`) never appear as a `publish` literal. `hook.matched` and
+> `commitment.due` are superseded by `self_call` (`personal_ai/hooks.py:371`, `commitments.py:117`);
 > `browser.discovery` has no concept anywhere. Nothing is lost today, so they are **recorded, not deleted**
 > (deleting would break `tests/test_runtime_singleton.py:617`). New pin
 > `tests/test_l1_immediate_triggers_have_producers.py` (**4 cases, mutation 2/2**, control green) pins the
@@ -1158,6 +1158,16 @@ Measured 2026-10-01 — `ai-server`, full suite:
 > real producers live in other languages (Kotlin `eventType=`, Rust `event_type:`) or in
 > `build_event`/`Event(event_type=)` shapes this scanner cannot see. Without the control the absence
 > assertions would be vacuously true.
+> ✅ **Fixed 2026-10-06 (cycle 66, §4 item 45)**: this block's line numbers were renumbered
+> (`runtime.py:826` → **989**, `personal_ai/hooks.py:367` → **371**; `commitments.py:117` was still
+> right) — cycles 63–65 inserted lines above them, and a *pointer* is not a historical datum. The
+> substantive fix is in `runtime.py`: its comment still claimed this pin asserts "every other member
+> still does [have a literal publisher]" — the **inverse** of what the pin asserts, and false
+> (measured: **1 of 16**, not 13 of 13). The partition is now stated as measured **and pinned by
+> number** (`test_the_partition_is_pinned_by_number`: 16 declared / 1 published / 15 not). That closes
+> a real hole: the pin's other three assertions intersect with the *published* set, so a newly added
+> **dead** declaration left them all green — mutation M1 of cycle 66 fails the new test **alone**
+> (**5 cases, mutation 4/4**, control green).
 > **(3) L1 runs inline on the publisher's thread.** `EventBus._notify_subscribers` (`src/event_bus.py:234`)
 > calls `sub.handler(event)` synchronously; `_evaluate_immediate_event` (`runtime.py:1557`) →
 > `_run_l1_pipeline_for_event` (`:764`) → `router.observe(...)` (`:771`, the LLM round-trip). The gRPC
@@ -1281,6 +1291,12 @@ Measured 2026-10-01 — `ai-server`, full suite:
 > **Production now refuses to start an L1 it cannot authenticate (2026-10-06): `2554 passed / 8 skipped`** — measured
 > 2554 / 8 / 0 (2562 collected, 524.86 s); marker-selected: egress **314 / 1 / 2247 deselected**, non-egress **2240 / 7 / 315 deselected**,
 > reconciling exactly (`2240 + 314 = 2554`, `7 + 1 = 8`, `315 + 2247 = 2562`).
+> **The item-45 partition is pinned by number, and one false copy was corrected (2026-10-06): `2555 passed / 8 skipped`** — measured
+> 2555 / 8 / 0 (2563 collected, 569.3 s); marker-selected: egress **314 / 1 / 2248 deselected**, non-egress **2241 / 7 / 315 deselected**,
+> reconciling exactly (`2241 + 314 = 2555`, `7 + 1 = 8`, `315 + 2248 = 2563`). ⚠️ **The first run of this cycle was not usable**: it reported
+> 2551 / 10 / 0 with 2 ERRORS in `tests/agents/test_tool_bridges.py`, because that harness passed a minimal env instead of inheriting
+> `os.environ`; it also created an untracked `%SystemDrive%` junk tree. Re-run with an inherited env: 0 errors, no junk. A harness is part
+> of the measurement.
 > **The +10 is the new pin exactly**, and no existing case moved. `DELEGATION.md` §4 item 46 branch ①:
 > `_require_l1_api_key_in_production` stops a production start whose L1 profile has no key, because an
 > unauthenticated L1 still starts and then escalates **every** event. No new flag was added — the gate is
