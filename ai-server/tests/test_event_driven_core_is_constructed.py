@@ -25,8 +25,8 @@ engine waking the loop. The gap was the *triggering* half, not the bus.
 | class | construction site | note |
 |---|---|---|
 | ``TriggerEngine`` | ``runtime.py::_build_runtime`` | all **13** ``create_default_rules()`` rules added |
-| ``Scheduler`` | ``runtime.py::_build_runtime`` | constructed; it has no consumer wired yet |
-| ``EventView`` | ``runtime.py::_build_runtime`` | **both** halves — a bare ``EventView()`` is a silent no-op |
+| ``Scheduler`` | ``runtime.py::_build_runtime`` | constructed; **no consumer** — asserted below, not just described |
+| ``EventView`` | ``runtime.py::_build_runtime`` | **both** halves — a bare ``EventView()`` is a silent no-op; **no consumer** either |
 | ``AutonomousLoop`` | ``runtime.py::_create_autonomous_loop`` | the pre-existing contrast |
 
 The consumption half is ``AutonomousLoop._drain_trigger_tasks`` (``autonomous_loop.py``),
@@ -56,6 +56,14 @@ construction site, so a reader can tell the mention from the call by *location*.
 
 The pin fails in **both** directions — deleting a construction site (un-wiring the core) and
 deleting the docstring mention both trip it — so neither can happen as a side effect.
+
+**Constructed is not consulted** (added 2026-10-06, cycle 69). The table above has described
+``Scheduler``'s missing consumer in *prose* since branch ① ran; prose is not an assertion, and
+``EventView``'s missing consumer was recorded nowhere at all. The two tests at the end of this
+file measure *reads* of the runtime attributes each core class is assigned to, assert the
+unconsumed set by **equality**, and use the ``TriggerEngine`` — consumed only through
+``getattr(runtime, "trigger_engine", None)`` — as the control proving the scan can see the
+string form.
 """
 
 from __future__ import annotations
@@ -470,4 +478,137 @@ def test_the_runtime_event_view_is_built_with_both_halves() -> None:
     assert "trigger_engine" in keywords, (
         f"the runtime builds EventView without a trigger_engine (keywords: {sorted(keywords)}) — "
         "get_trigger_stats() would return {} and the section would look empty, not broken"
+    )
+
+
+# ── Constructed is not consulted: two of the three core members have no reader ──
+
+#: Inventory of **debt**, not a set of approvals: core members that are constructed and then
+#: never read. ``Scheduler`` lands on ``runtime.scheduler`` and ``EventView`` on
+#: ``runtime.event_view``; nothing under ``src/`` loads either attribute. The ``TriggerEngine``
+#: is the contrast — it *is* consumed, through ``getattr(runtime, "trigger_engine", None)`` in
+#: ``_create_autonomous_loop``, which is why the scanner has to see the string form too.
+#:
+#: This map used to be prose. The module header above has said "``Scheduler`` … constructed; it
+#: has no consumer wired yet" since branch ① ran, and **nothing failed if that stopped being
+#: true**; ``EventView``'s lack of a consumer was recorded nowhere at all. Describing a hazard
+#: is not detecting it — so each entry here is asserted by equality.
+_RECORDED_UNCONSULTED: dict[str, str] = {
+    "Scheduler": "scheduler",
+    "EventView": "event_view",
+}
+
+#: A plainly live runtime attribute, used as the scanner's positive control. If the extractor
+#: goes blind, this is what fails — rather than the equality above passing on an empty map.
+_LIVE_ATTRIBUTE_CONTRAST = "event_manager"
+
+
+def _runtime_attribute(class_name: str) -> set[str]:
+    """The ``runtime.<attr>`` attributes this class's objects are assigned to.
+
+    Resolved from the AST in two hops rather than hand-listed, because a hand-maintained list
+    *is* the defect this file exists to record:
+
+    * direct — ``runtime.<attr> = ClassName(...)`` (``Scheduler``, ``EventView``);
+    * indirect — ``local = ClassName(...)`` then ``runtime.<attr> = local`` (``TriggerEngine``).
+    """
+    tree = _parsed(_SRC / "aegis_ai" / "runtime.py")
+    attrs: set[str] = set()
+    produced: set[str] = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Assign) or not isinstance(node.value, ast.Call):
+            continue
+        if _called_name(node.value) != class_name:
+            continue
+        for target in node.targets:
+            if isinstance(target, ast.Name):
+                produced.add(target.id)
+            elif (
+                isinstance(target, ast.Attribute)
+                and isinstance(target.value, ast.Name)
+                and target.value.id == "runtime"
+            ):
+                attrs.add(target.attr)
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Assign) or not isinstance(node.value, ast.Name):
+            continue
+        if node.value.id not in produced:
+            continue
+        for target in node.targets:
+            if (
+                isinstance(target, ast.Attribute)
+                and isinstance(target.value, ast.Name)
+                and target.value.id == "runtime"
+            ):
+                attrs.add(target.attr)
+    return attrs
+
+
+def _attribute_reads(attr: str) -> list[str]:
+    """Every ``Load`` of ``.<attr>`` under ``src/``, plus the ``getattr(obj, "<attr>", ...)`` form.
+
+    The string form is not optional. The ``TriggerEngine``'s only consumer is written
+    ``getattr(runtime, "trigger_engine", None)``, so an ``ast.Attribute``-only scan reports a
+    **consumed** member as unconsumed — the "``getattr`` passes the name as a string" trap.
+    The ``getattr`` form is accepted for any object, which can only *over*-count reads; the
+    failure it would hide is a false "unconsumed", not a false "consumed".
+    """
+    hits: list[str] = []
+    for path in _src_files():
+        rel = path.relative_to(_SRC).as_posix()
+        tree = _parsed(path)
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.Attribute)
+                and node.attr == attr
+                and isinstance(node.ctx, ast.Load)
+            ):
+                hits.append(f"{rel}::{_enclosing(tree, node.lineno)}")
+            elif (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id == "getattr"
+                and len(node.args) >= 2
+                and isinstance(node.args[1], ast.Constant)
+                and node.args[1].value == attr
+            ):
+                hits.append(f"{rel}::{_enclosing(tree, node.lineno)}")
+    return sorted(set(hits))
+
+
+def test_the_scan_can_tell_a_read_attribute_from_an_unread_one() -> None:
+    """Non-vacuity, and the reason the ``getattr`` form is mandatory.
+
+    Two positives: a plainly live runtime attribute has readers, *and* the ``TriggerEngine`` —
+    whose only consumer is the string form — is seen as read. Without the second, an extractor
+    blind to ``getattr`` would satisfy the equality below while calling a consumed member dead.
+    """
+    assert _attribute_reads(_LIVE_ATTRIBUTE_CONTRAST), (
+        f"no reads of `.{_LIVE_ATTRIBUTE_CONTRAST}` anywhere in src/ — the extractor is not "
+        "reading the tree, so the equality below would pass for the wrong reason"
+    )
+    assert _attribute_reads("trigger_engine"), (
+        "the TriggerEngine is consumed through getattr(runtime, 'trigger_engine', None); a scan "
+        "that cannot see the string form reports a consumed member as unconsumed"
+    )
+
+
+def test_the_unconsulted_core_members_are_the_recorded_set() -> None:
+    """Constructing an object is not consuming it: the measured debt equals the record.
+
+    Both directions are load-bearing — wiring ``runtime.scheduler`` or ``runtime.event_view``
+    to a real consumer must fail this (so the record has to move in the same change), and so
+    must a *new* core member that nothing reads.
+    """
+    measured = {
+        name: attr
+        for name in _CORE
+        for attr in sorted(_runtime_attribute(name))
+        if not _attribute_reads(attr)
+    }
+    assert measured == _RECORDED_UNCONSULTED, (
+        f"the unconsumed core set moved. measured: {measured}; recorded: "
+        f"{_RECORDED_UNCONSULTED} — see DELEGATION.md §4 item 24. Constructing an object is "
+        "not consuming it, and this file's own header said 'no consumer wired yet' for two "
+        "cycles while nothing checked it."
     )

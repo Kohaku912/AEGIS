@@ -1367,6 +1367,9 @@ Measured 2026-10-01 — `ai-server`, full suite:
 > census**. The fix was to write a real example (`runtime.py::_build_runtime`), never to weaken the guard.
 > ⚠️ **The four copies moved together again**: `PROJECT_STATUS_REVIEW.md` §0 and §1.1, this list, and the verification skill §1 all carry
 > **2558**. The cycle-67 body is the dated block above (item 70's second pass, the 8 renumbered landings, and §4 item 72).
+> **Two of the three event-driven core members are constructed but never read (2026-10-06): `2560 passed / 8 skipped`** — measured 2560 / 8 / 0 (2568 collected, 578.65 s); marker-selected: egress **314 / 1 / 2253 deselected**, non-egress **2246 / 7 / 315 deselected**, reconciling exactly (`2246 + 314 = 2560`, `7 + 1 = 8`, `315 + 2253 = 2568 = 2560 + 8`). **The +2 is the event-driven-core pin growing 10 -> 12 cases**: `runtime.py::_build_runtime` constructs `TriggerEngine` (`:1799`), `Scheduler` (`:1803`) and `EventView` (`:1804`), but `src/` reads `.trigger_engine` **once** (`getattr(runtime, "trigger_engine", None)`, `runtime.py:1916`) and `.scheduler` / `.event_view` **zero** times (control `.event_manager` **24**). Constructing an object is not consuming it.
+> ⚠️ **The claim lived in the pin's own header as *prose* for two cycles and nothing checked it** — the `EventView` half was recorded nowhere. The new tests assert the unconsumed set by **equality**, with the `getattr`-only `TriggerEngine` as the positive control proving the scanner sees the string form. Recorded in `DELEGATION.md` §4 item 24 col 3 and §5.
+> ⚠️ **The four copies moved together again**: `PROJECT_STATUS_REVIEW.md` §0 and §1.1, this list, and the verification skill §1 all carry **2560**.
 
 - **Total tests (2026-10-01 record)**: **1926 passed / 8 skipped**
   — the **+20** over the 2026-09-30 figure are **all new pins**: four for B-5① (the confirmation↔desire
