@@ -75,12 +75,17 @@ def _source_text(rel: str) -> str | None:
 
 
 def _e2e_check(report_dir: Path, check_id: str, name: str, required: bool = True) -> dict[str, object]:
-    summary = _load_json(ROOT / "data" / "reports" / "e2e" / "latest" / "summary.json")
+    # The caller passes the audit's ``--report-dir`` (default ``data/reports``), so the
+    # E2E tree is ``<report_dir>/e2e/latest``. This used to be hard-coded to
+    # ``ROOT/data/reports/e2e/latest`` -- identical for the default, but it silently
+    # ignored ``--report-dir`` and disagreed with ``_report_pass`` (which honours it).
+    latest = report_dir / "e2e" / "latest"
+    summary = _load_json(latest / "summary.json")
     checks = summary.get("checks") if isinstance(summary.get("checks"), list) else []
     match = next((c for c in checks if isinstance(c, dict) and c.get("id") == check_id), None)
     for candidate in (
-        ROOT / "data" / "reports" / "e2e" / "latest" / f"{check_id.replace('_', '-')}.json",
-        ROOT / "data" / "reports" / "e2e" / "latest" / f"{check_id}.json",
+        latest / f"{check_id.replace('_', '-')}.json",
+        latest / f"{check_id}.json",
     ):
         loaded = _load_json(candidate)
         if loaded.get("id") == check_id:
@@ -91,7 +96,7 @@ def _e2e_check(report_dir: Path, check_id: str, name: str, required: bool = True
             check_id,
             name,
             "fail" if required else "warn",
-            [str(ROOT / "data/reports/e2e/latest/summary.json")],
+            [str(latest / "summary.json")],
             f"Missing E2E result for {check_id}",
         )
     status = str(match.get("status") or "fail")
@@ -99,7 +104,7 @@ def _e2e_check(report_dir: Path, check_id: str, name: str, required: bool = True
         check_id,
         name,
         "pass" if status == "pass" else "fail",
-        [str(match.get("report_path") or ROOT / "data/reports/e2e/latest/summary.json")],
+        [str(match.get("report_path") or latest / "summary.json")],
         str(match.get("error") or "") if status != "pass" else "",
         str(match.get("report_path") or ""),
         int(match.get("duration_ms") or 0),
