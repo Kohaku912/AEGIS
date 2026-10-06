@@ -33,9 +33,33 @@ foreach ($file in Get-ChildItem -Path $ReportDir -Filter "*.json" -File -ErrorAc
 $audit = & $python scripts/audit-production-readiness.py --report-dir data/reports 2>&1
 $auditExit = $LASTEXITCODE
 $blockerPath = "data/reports/production_blockers.json"
-$blockers = @()
-if (Test-Path $blockerPath) {
-    try { $blockers = @((Get-Content $blockerPath -Raw | ConvertFrom-Json).blockers) } catch { $blockers = @(@{ classification = "production_blocker"; reason = $_.Exception.Message }) }
+# A missing report is not a clean report. `$blockers` stays empty either way, and
+# `$overall` below reads an empty list as "no production blockers" -- so a report that
+# was never generated would silently drop the whole blocker axis from the verdict.
+# The `catch` already turns an unreadable report into a blocker; the absent case and a
+# renamed `blockers` key must do the same, or "not found" and "clean" share a verdict.
+if (-not (Test-Path $blockerPath)) {
+    $blockers = @(@{
+        classification = "production_blocker"
+        reason = "Production readiness report was not found: $blockerPath"
+    })
+} else {
+    try {
+        $parsed = Get-Content $blockerPath -Raw | ConvertFrom-Json
+        if ($null -eq $parsed.blockers) {
+            $blockers = @(@{
+                classification = "production_blocker"
+                reason = "Production readiness report has no blockers list: $blockerPath"
+            })
+        } else {
+            $blockers = @($parsed.blockers)
+        }
+    } catch {
+        $blockers = @(@{
+            classification = "production_blocker"
+            reason = "Could not read production readiness report: $blockerPath ($($_.Exception.Message))"
+        })
+    }
 }
 $checks += @{
     id = "production_readiness_audit"

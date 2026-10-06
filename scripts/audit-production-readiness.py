@@ -343,6 +343,48 @@ def _display_soak_check() -> dict[str, object]:
     )
 
 
+def _load_blockers(blocker_path: Path) -> list[dict[str, object]]:
+    """Read the blocker list, or one blocker that says why it could not be read.
+
+    An absent report and a clean report both yield an empty list, and `main` turns an
+    empty list into "no production blockers". The two must not share a verdict, so a
+    report that is missing, unreadable, not an object, or missing its `blockers` key
+    becomes a blocker itself -- the same shape the parse failure already produced.
+    """
+    if not blocker_path.exists():
+        return [
+            {
+                "classification": "production_blocker",
+                "reason": f"Production readiness report was not found: {blocker_path}",
+            }
+        ]
+    try:
+        data = json.loads(blocker_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        return [
+            {
+                "classification": "production_blocker",
+                "reason": f"Could not read production readiness report: {blocker_path} ({exc})",
+            }
+        ]
+    if not isinstance(data, dict):
+        return [
+            {
+                "classification": "production_blocker",
+                "reason": f"Production readiness report is not a JSON object: {blocker_path}",
+            }
+        ]
+    blockers = data.get("blockers")
+    if not isinstance(blockers, list):
+        return [
+            {
+                "classification": "production_blocker",
+                "reason": f"Production readiness report has no blockers list: {blocker_path}",
+            }
+        ]
+    return blockers
+
+
 def main() -> int:
     args = parse_args("Audit AEGIS production readiness")
     report_dir = Path(args.report_dir)
@@ -487,13 +529,8 @@ def main() -> int:
         ]
     )
 
-    blockers: list[dict[str, object]] = []
     blocker_path = report_dir / "production_blockers.json"
-    if blocker_path.exists():
-        try:
-            blockers = json.loads(blocker_path.read_text(encoding="utf-8")).get("blockers", [])
-        except Exception as exc:
-            blockers = [{"classification": "production_blocker", "reason": str(exc)}]
+    blockers = _load_blockers(blocker_path)
 
     status = "pass" if all(c["status"] == "pass" for c in checks) and not blockers else "fail"
     payload = {

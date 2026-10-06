@@ -54,27 +54,47 @@ def is_mock_like_output(value: Any) -> bool:
     return False
 
 
+def _unreadable_report(report_path: Path, cause: str) -> dict[str, Any]:
+    """A report we could not obtain is not a report that found nothing.
+
+    `{"blockers": []}` from a file that was never read is indistinguishable from a
+    clean inventory, and every caller here (the dashboard route, the readiness audit)
+    turns "no blockers" into a pass. So return one explicit blocker -- the same shape
+    the parse-failure branch already used -- and let the count be the machine signal.
+    `cause` names *why*, because "was not found" and "is not a JSON object" are
+    different failures and must not share a wording.
+    """
+    return {
+        "blockers": [
+            {
+                "classification": "production_blocker",
+                "reason": f"Production readiness report {cause}: {report_path}",
+            }
+        ],
+        "summary": {"production_blocker": 1},
+        "unreadable": True,
+        "cause": cause,
+    }
+
+
 def load_production_blocker_report(path: str | Path | None = None) -> dict[str, Any]:
+    """Load the blocker report, or a blocker that says why it could not be loaded.
+
+    A missing report is not a clean report: see `_unreadable_report`. The previous
+    `corrupted` key was folded into `unreadable` + `cause`, which covers the parse
+    failure it used to flag and the two silent cases it did not.
+    """
     report_path = Path(path) if path else readiness_report_path()
     try:
         if not report_path.exists():
-            return {"blockers": [], "summary": {"production_blocker": 0}}
+            return _unreadable_report(report_path, "was not found")
         with report_path.open("r", encoding="utf-8") as fh:
             data = json.load(fh)
         if isinstance(data, dict):
             return data
+        return _unreadable_report(report_path, "is not a JSON object")
     except Exception:
-        return {
-            "blockers": [
-                {
-                    "classification": "production_blocker",
-                    "reason": f"Could not read production readiness report: {report_path}",
-                }
-            ],
-            "summary": {"production_blocker": 1},
-            "corrupted": True,
-        }
-    return {"blockers": [], "summary": {"production_blocker": 0}}
+        return _unreadable_report(report_path, "could not be read")
 
 
 def blocker_capability_ids(report: dict[str, Any] | None = None) -> set[str]:
