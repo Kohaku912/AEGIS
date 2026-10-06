@@ -22,12 +22,12 @@ Only **two** markers are both *registered* (`ai-server/pyproject.toml`) and *use
 | `egress` | Guards the single constraint — user information is not sent outside without the user's permission | **320 tests**; `scripts/test-ai-server.ps1` enforces a floor |
 
 **Registered but used by no test:** `pc_local`, `room_local`, `e2e`. `pytest -m <one of these>`
-collects nothing and exits **5** with `no tests collected (2616 deselected)`.
+collects nothing and exits **5** with `no tests collected (2620 deselected)`.
 
 **Not registered at all:** `mock`, `real_browser`, `real_pc_host`. This table used to list those
 three and the sections below used to give commands for them. pytest does not know those names, so
 the commands did not do what they said. The worst case is the "CI mock" command:
-`pytest -m "not real_browser and not real_pc_host"` selects **all 2616 tests** — it filters
+`pytest -m "not real_browser and not real_pc_host"` selects **all 2620 tests** — it filters
 nothing, because no test carries either marker.
 
 ## Running Tests

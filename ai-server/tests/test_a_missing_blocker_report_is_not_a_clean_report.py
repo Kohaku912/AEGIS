@@ -100,20 +100,42 @@ def test_an_unparseable_report_is_not_a_clean_report(tmp_path: Path) -> None:
     assert production_blocker_count(report) == 1
 
 
-def test_the_three_unreadable_causes_are_named_apart(tmp_path: Path) -> None:
-    """A missing file and a malformed one are different failures.
+def test_the_four_unreadable_causes_are_named_apart(tmp_path: Path) -> None:
+    """A missing file, a malformed one, a renamed key and an unreadable one are different.
 
     They must not share a wording: an operator reading `reason` has to be able to tell
     "run the audit" from "the audit wrote garbage".
-    """
-    missing = load_production_blocker_report(tmp_path / "nope.json")
-    malformed_path = tmp_path / "malformed.json"
-    malformed_path.write_text("{not json", encoding="utf-8")
-    malformed = load_production_blocker_report(malformed_path)
 
-    causes = {missing["cause"], malformed["cause"]}
-    assert len(causes) == 2
-    assert missing["blockers"][0]["reason"] != malformed["blockers"][0]["reason"]
+    All four are enumerated, and all four are written to the **same path** -- the earlier
+    version of this test checked two of three and used two different paths, so its reasons
+    differed by path rather than by cause, and the fourth case (the loader's missing
+    `blockers` branch) went unnoticed.
+
+    Measured: a JSON *parse* failure and an encoding failure share `could not be read`
+    (both reach the `except`), while `is not a JSON object` needs JSON that **parsed** to
+    something that is not a dict -- which is why the third case below is `[1, 2, 3]` and
+    not `{not json`.
+    """
+    path = tmp_path / "production_blockers.json"
+    if path.exists():
+        path.unlink()
+    missing = load_production_blocker_report(path)
+
+    path.write_text("[1, 2, 3]", encoding="utf-8")
+    not_an_object = load_production_blocker_report(path)
+
+    path.write_text(json.dumps({"status": "pass", "files_scanned": 3902}), encoding="utf-8")
+    renamed = load_production_blocker_report(path)
+
+    path.write_bytes(b"\xff\xfe\x00\x00")
+    unreadable = load_production_blocker_report(path)
+
+    reports = (missing, not_an_object, renamed, unreadable)
+    causes = {report["cause"] for report in reports}
+    assert causes == {"was not found", "is not a JSON object", "has no blockers list", "could not be read"}, causes
+    reasons = {report["blockers"][0]["reason"] for report in reports}
+    assert len(reasons) == 4, f"one path, so only the cause can make these differ: {reasons}"
+    assert all(production_blocker_count(report) == 1 for report in reports)
 
 
 def test_a_report_that_was_read_is_passed_through_unchanged(tmp_path: Path) -> None:
@@ -244,3 +266,108 @@ def test_the_dashboard_readiness_route_does_not_report_an_unread_report_as_clean
     assert payload["blockers"], "a report that was never read must not read as clean"
     assert payload["unreadable"] is True
     assert "was not found" in payload["blockers"][0]["reason"]
+
+
+# -- the branch this loader was missing, and the drift it allowed -------------
+
+
+def test_a_report_without_a_blockers_list_is_not_clean(tmp_path: Path) -> None:
+    """A renamed or dropped key used to pass straight through as zero blockers.
+
+    Measured 2026-10-07, before the fix: `{}` and `{"blockers": "nope"}` returned the
+    parsed dict verbatim, so `production_blocker_count` read **0** -- while
+    `_load_blockers` (the readiness audit) and `run-readiness-report.ps1` both turned the
+    same report into a blocker. This loader is the one the dashboard route reads, so the
+    route answered "0 production blockers" for a report the audit called blocked.
+    """
+    path = tmp_path / "production_blockers.json"
+
+    for raw in ({"status": "pass", "files_scanned": 3902}, {"blockers": "nope"}, {"blockers": None}):
+        path.write_text(json.dumps(raw), encoding="utf-8")
+        report = load_production_blocker_report(path)
+        assert report["unreadable"] is True, raw
+        assert report["cause"] == "has no blockers list", raw
+        assert production_blocker_count(report) == 1, raw
+
+    # Control: a real list -- empty or not -- is still passed through untouched.
+    path.write_text(json.dumps({"status": "pass", "blockers": []}), encoding="utf-8")
+    report = load_production_blocker_report(path)
+    assert "unreadable" not in report
+    assert production_blocker_count(report) == 0
+
+
+def test_the_two_python_blocker_readers_agree(readiness_audit: ModuleType, tmp_path: Path) -> None:
+    """The verdict must not depend on which reader you ask.
+
+    A *table*, not one case: the two Python readers disagreed on exactly the rows where a
+    report was valid JSON but had no `blockers` list, and nothing compared them, so the
+    drift was invisible. Any future divergence in either reader reddens here.
+    """
+    path = tmp_path / "production_blockers.json"
+    cases: list[tuple[str, bytes]] = [
+        ("absent", b""),
+        ("no blockers key", json.dumps({"status": "pass", "files_scanned": 3902}).encode()),
+        ("blockers is a string", json.dumps({"blockers": "nope"}).encode()),
+        ("blockers is null", json.dumps({"blockers": None}).encode()),
+        ("blockers is empty", json.dumps({"blockers": []}).encode()),
+        ("one blocker", json.dumps({"blockers": [{"classification": "production_blocker"}]}).encode()),
+        ("not an object", b"[1, 2, 3]"),
+        ("not json", b"{not json"),
+    ]
+    for name, raw in cases:
+        if raw:
+            path.write_bytes(raw)
+        elif path.exists():
+            path.unlink()
+        route = production_blocker_count(load_production_blocker_report(path))
+        audit = len(readiness_audit._load_blockers(path))
+        assert (route >= 1) == (audit >= 1), (
+            f"{name}: the route's reader says {route} blocker(s), the audit's says {audit}"
+        )
+
+
+def test_the_dashboard_readiness_route_does_not_report_a_renamed_key_as_clean(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """End to end: the route inherits the loader, so it inherits this case too."""
+    from test_documented_routes_are_registered import _app
+
+    report = tmp_path / "data" / "reports" / "production_blockers.json"
+    report.parent.mkdir(parents=True)
+    report.write_text(json.dumps({"status": "pass", "files_scanned": 3902}), encoding="utf-8")
+
+    app = _app(tmp_path, monkeypatch)
+    view = app.view_functions["api_production_readiness"]
+
+    with app.test_request_context("/api/production/readiness"):
+        payload = view().get_json()
+
+    assert payload["blockers"], "a report with no `blockers` list must not read as clean"
+    assert payload["unreadable"] is True
+    assert "has no blockers list" in payload["blockers"][0]["reason"]
+
+
+# -- the third reader, which CI cannot drive ----------------------------------
+
+
+def test_the_powershell_reader_still_declares_the_same_three_cases() -> None:
+    """CI has no PowerShell, so this pin is **static** (the shape cycle 82 established).
+
+    `scripts/e2e/run-readiness-report.ps1` is the third reader of
+    `production_blockers.json`, and the only one pytest cannot drive: cycle 81 fixed its
+    three branches (absent / no `blockers` list / unreadable) but could not pin them, so
+    mutating any of them survived -- that survival *is* the recorded coverage gap, and
+    this is the closest CI-runnable approximation of a behavioural pin. It cannot prove
+    the branches work; it can prove they are still there and still use the family's words.
+
+    Measured 2026-10-07: deleting the no-`blockers`-list branch (or its wording) reddens
+    this, which is exactly the drift the Python readers' differential pin cannot see.
+    """
+    text = (REPO / "scripts" / "e2e" / "run-readiness-report.ps1").read_text(encoding="utf-8")
+
+    assert text.count('classification = "production_blocker"') >= 3, (
+        "the PowerShell reader no longer declares three blocker cases"
+    )
+    assert 'reason = "Production readiness report was not found: $blockerPath"' in text
+    assert 'reason = "Production readiness report has no blockers list: $blockerPath"' in text
+    assert "Could not read production readiness report" in text

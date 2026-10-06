@@ -83,6 +83,13 @@ def load_production_blocker_report(path: str | Path | None = None) -> dict[str, 
     A missing report is not a clean report: see `_unreadable_report`. The previous
     `corrupted` key was folded into `unreadable` + `cause`, which covers the parse
     failure it used to flag and the two silent cases it did not.
+
+    A report that is valid JSON but has **no `blockers` list** is the third silent case:
+    a renamed or dropped key used to pass straight through, and every caller reads "no
+    blockers" as a pass. `_load_blockers` (the readiness audit) and
+    `run-readiness-report.ps1` already close it; this loader, which is the one the
+    dashboard route reads, did not -- so the same report was a blocker to the audit and
+    "0 production blockers" to the route.
     """
     report_path = Path(path) if path else readiness_report_path()
     try:
@@ -90,9 +97,11 @@ def load_production_blocker_report(path: str | Path | None = None) -> dict[str, 
             return _unreadable_report(report_path, "was not found")
         with report_path.open("r", encoding="utf-8") as fh:
             data = json.load(fh)
-        if isinstance(data, dict):
-            return data
-        return _unreadable_report(report_path, "is not a JSON object")
+        if not isinstance(data, dict):
+            return _unreadable_report(report_path, "is not a JSON object")
+        if not isinstance(data.get("blockers"), list):
+            return _unreadable_report(report_path, "has no blockers list")
+        return data
     except Exception:
         return _unreadable_report(report_path, "could not be read")
 
