@@ -45,6 +45,14 @@ LLM_API_KEY=...
 TYPESAFE_API_KEY=...
 ```
 
+**The L2 model also needs an egress permission.** `profiles.l2_default` resolves to DeepSeek
+(`deepseek-v4-flash`) and reads `LLM_API_KEY`, but a cloud profile whose `base_url` is not named in
+`privacy.egress_allowed_hosts` (`ai-server/config/settings.json`) is **denied by the egress gate and
+degrades to Mock** — declared and inert. The shipped allowlist names `api.typesafe.ai` (L1 / JEV) and
+`api.deepseek.com` (L2); if you point a layer at any other host, add that host to the allowlist too.
+`verify_egress_configuration` reports unpermitted destinations at startup
+(`ai-server/src/aegis_ai/egress/startup.py`).
+
 `AEGIS_DASHBOARD_ACCESS_TOKEN` is no longer accepted for normal production
 login. During migration it may be used only as a bootstrap/recovery token when
 no passkey user exists. Remove `AEGIS_AUTH_BOOTSTRAP_TOKEN` after the first
