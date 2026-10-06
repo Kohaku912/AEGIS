@@ -18,6 +18,11 @@ Write-Host ""
 
 $passed = 0
 $failed = 0
+# Test 7 (browser) is deliberately best-effort: it does not fail the run. But it must
+# still be *counted* -- an uncounted check leaves `Results: 6 passed, 0 failed` describing
+# a run that attempted 7 checks, so the reader cannot tell "ran and passed" from
+# "never ran". Counting it as skipped keeps the exit code unchanged and the report honest.
+$skipped = 0
 
 function Test-TcpConnection($HostName, $Port, $Name) {
     try {
@@ -104,20 +109,29 @@ if (-not $SkipBrowser) {
         $passed++
     } else {
         Write-Host "  [INFO] Browser Server not responding" -ForegroundColor Yellow
+        $skipped++
     }
 } else {
     Write-Host "[7/7] Browser Server skipped" -ForegroundColor Gray
+    $skipped++
 }
 
 # Summary
+$total = $passed + $failed + $skipped
 Write-Host ""
 Write-Host "===================================" -ForegroundColor Cyan
-Write-Host "  Results: $passed passed, $failed failed" -ForegroundColor $(if ($failed -eq 0) { "Green" } else { "Yellow" })
+Write-Host "  Results: $passed passed, $failed failed, $skipped skipped" -ForegroundColor $(if ($failed -eq 0) { "Green" } else { "Yellow" })
 Write-Host "===================================" -ForegroundColor Cyan
 Write-Host ""
 
+# The verdict carries its denominator, so a run that skipped the browser cannot print the
+# same line a full run prints.
 if ($failed -eq 0) {
-    Write-Host "All tests passed!" -ForegroundColor Green
+    if ($skipped -gt 0) {
+        Write-Host "  All $passed/$total checks passed ($skipped skipped)" -ForegroundColor Yellow
+    } else {
+        Write-Host "  All $passed/$total checks passed" -ForegroundColor Green
+    }
 } else {
     Write-Host "Some tests failed." -ForegroundColor Yellow
 }

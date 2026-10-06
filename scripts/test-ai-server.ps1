@@ -57,6 +57,17 @@ Push-Location $AiServer
 
 $failed = @()
 
+# ── The verdict carries its denominator ──────────────────────────────────────
+# `-SkipMutation` runs 3 of the 4 checks, and a bare "ALL CHECKS PASSED" is the *same
+# string* a full run prints -- so a reduced run cannot be told from a complete one by
+# reading the last line, which is the line CI and the run records actually quote. `$ran`
+# and `$skipped` are counted (each check appends its own name), never inferred, and the
+# census is reconciled before the verdict is printed: a future edit that adds a check
+# without touching `$checksTotal` says so instead of printing a denominator it made up.
+$checksTotal = 4
+$ran = @()
+$skipped = @()
+
 # ── 1. Ruff, scoped to F821 ──────────────────────────────────────────────────
 # Deliberately `--select F821`, not a wholesale `ruff check`. The declared rule set
 # in pyproject.toml (E, F, I, N, W, UP) has 994 outstanding findings across src/, so
@@ -87,6 +98,7 @@ if ($missingTargets.Count -gt 0 -or $lintableFiles.Count -eq 0) {
         Write-Host "  [PASS] ruff F821 ($($lintableFiles.Count) files)" -ForegroundColor Green
     }
 }
+$ran += "ruff F821"
 
 # ── 2. Full suite ────────────────────────────────────────────────────────────
 Write-Host ""
@@ -98,6 +110,7 @@ if ($LASTEXITCODE -ne 0) {
 } else {
     Write-Host "  [PASS] full suite" -ForegroundColor Green
 }
+$ran += "full suite"
 
 # ── 3. Egress suite with the --fail-on-empty floor ───────────────────────────
 Write-Host ""
@@ -109,11 +122,13 @@ if ($LASTEXITCODE -ne 0) {
 } else {
     Write-Host "  [PASS] egress suite" -ForegroundColor Green
 }
+$ran += "egress suite"
 
 # ── 4. Mutation check ────────────────────────────────────────────────────────
 if ($SkipMutation) {
     Write-Host ""
     Write-Host "[4/4] Mutation check ... SKIPPED (-SkipMutation)" -ForegroundColor Yellow
+    $skipped += "mutation check"
 } else {
     Write-Host ""
     Write-Host "[4/4] Mutation check (the egress suite must fail when the gate is broken) ..." -ForegroundColor Green
@@ -124,18 +139,36 @@ if ($SkipMutation) {
     } else {
         Write-Host "  [PASS] mutation check" -ForegroundColor Green
     }
+    $ran += "mutation check"
 }
 
 Pop-Location
 
 Write-Host ""
 Write-Host "============================================================" -ForegroundColor Cyan
+$checksAccounted = $ran.Count + $skipped.Count
+if ($checksAccounted -ne $checksTotal) {
+    Write-Host "  CENSUS MISMATCH: $checksAccounted of $checksTotal checks accounted for" -ForegroundColor Red
+    Write-Host "  ran: $($ran -join ', ')" -ForegroundColor Red
+    Write-Host "  skipped: $($skipped -join ', ')" -ForegroundColor Red
+    Write-Host '  A check was added or removed without updating $checksTotal.' -ForegroundColor Red
+    Write-Host "============================================================" -ForegroundColor Cyan
+    exit 1
+}
+# A reduced run must not print the same last line a complete run prints: the verdict is
+# the line CI and the run records quote, so the denominator goes into it. The numerator is
+# the checks that *ran*, not the checks accounted for -- "4/4 PASSED (1 skipped)" would be
+# a self-contradiction, and it is exactly the kind of line that gets quoted as a full pass.
 if ($failed.Count -eq 0) {
-    Write-Host "  ALL CHECKS PASSED" -ForegroundColor Green
+    if ($skipped.Count -gt 0) {
+        Write-Host "  ALL $($ran.Count)/$checksTotal CHECKS PASSED (skipped: $($skipped -join ', '))" -ForegroundColor Yellow
+    } else {
+        Write-Host "  ALL $($ran.Count)/$checksTotal CHECKS PASSED" -ForegroundColor Green
+    }
     Write-Host "============================================================" -ForegroundColor Cyan
     exit 0
 }
 
-Write-Host "  FAILED: $($failed -join ', ')" -ForegroundColor Red
+Write-Host "  FAILED: $($failed -join ', ') ($($ran.Count)/$checksTotal checks ran)" -ForegroundColor Red
 Write-Host "============================================================" -ForegroundColor Cyan
 exit 1
