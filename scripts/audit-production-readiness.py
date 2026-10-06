@@ -55,6 +55,25 @@ def _load_json(path: Path) -> dict[str, object]:
     return {}
 
 
+def _source_text(rel: str) -> str | None:
+    """Read a repo source file, or ``None`` when it is missing.
+
+    A source-reading check must not take the whole audit down: ``main`` evaluates every
+    check *before* it writes ``readiness_summary.json``, so an unguarded ``read_text`` on
+    a moved file raises out of ``main`` and leaves the **previous** report on disk -- a
+    stale report that every downstream reader (the dashboard route via
+    ``load_production_blocker_report``, and ``_load_blockers``) then reads as fresh.
+    ``_docker_bind_check``, ``_room_production_scope_check`` and
+    ``_volume_persistence_check`` already guard with ``.exists()``; three siblings did
+    not (measured 2026-10-07: they raised ``FileNotFoundError`` while the guarded three
+    returned a clean ``fail`` naming the file).
+    """
+    path = ROOT / rel
+    if not path.exists():
+        return None
+    return path.read_text(encoding="utf-8", errors="ignore")
+
+
 def _e2e_check(report_dir: Path, check_id: str, name: str, required: bool = True) -> dict[str, object]:
     summary = _load_json(ROOT / "data" / "reports" / "e2e" / "latest" / "summary.json")
     checks = summary.get("checks") if isinstance(summary.get("checks"), list) else []
@@ -152,14 +171,26 @@ def _room_production_scope_check() -> dict[str, object]:
 
 def _dashboard_auth_check() -> dict[str, object]:
     mode = os.environ.get("AEGIS_RUNTIME_MODE", "development").strip().lower()
-    code = (ROOT / "ai-server/src/aegis_ai/docker_entrypoint.py").read_text(encoding="utf-8", errors="ignore")
-    auth_code = (ROOT / "ai-server/src/aegis_ai/web/auth.py").read_text(encoding="utf-8", errors="ignore")
+    entrypoint = "ai-server/src/aegis_ai/docker_entrypoint.py"
+    auth = "ai-server/src/aegis_ai/web/auth.py"
+    code = _source_text(entrypoint)
+    auth_code = _source_text(auth)
+    if code is None or auth_code is None:
+        missing = entrypoint if code is None else auth
+        return _check(
+            "dashboard_auth_required",
+            "Passkey auth required in production",
+            "fail",
+            [missing],
+            f"Missing source file: {missing}",
+        )
+    evidence = [entrypoint, auth]
     if "AEGIS_AUTH_MODE=passkey is required" not in code or "install_passkey_auth" not in auth_code:
         return _check(
             "dashboard_auth_required",
             "Passkey auth required in production",
             "fail",
-            [],
+            evidence,
             "Passkey runtime guard missing",
         )
     if mode == "production" and not os.environ.get("AEGIS_SESSION_SECRET", "").strip():
@@ -167,7 +198,7 @@ def _dashboard_auth_check() -> dict[str, object]:
             "dashboard_auth_required",
             "Passkey auth required in production",
             "fail",
-            [],
+            evidence,
             "AEGIS_SESSION_SECRET is unset in production environment.",
         )
     if mode == "production" and os.environ.get("AEGIS_AUTH_MODE", "passkey").strip().lower() != "passkey":
@@ -175,10 +206,10 @@ def _dashboard_auth_check() -> dict[str, object]:
             "dashboard_auth_required",
             "Passkey auth required in production",
             "fail",
-            [],
+            evidence,
             "AEGIS_AUTH_MODE must be passkey in production.",
         )
-    return _check("dashboard_auth_required", "Passkey auth required in production", "pass")
+    return _check("dashboard_auth_required", "Passkey auth required in production", "pass", evidence)
 
 
 def _volume_persistence_check() -> dict[str, object]:
@@ -198,7 +229,16 @@ def _volume_persistence_check() -> dict[str, object]:
 
 
 def _capability_override_persistence_check() -> dict[str, object]:
-    code = (ROOT / "ai-server/src/aegis_ai/capability_catalog.py").read_text(encoding="utf-8", errors="ignore")
+    catalog = "ai-server/src/aegis_ai/capability_catalog.py"
+    code = _source_text(catalog)
+    if code is None:
+        return _check(
+            "capability_override_persistence",
+            "Capability risk override persistence",
+            "fail",
+            [catalog],
+            f"Missing source file: {catalog}",
+        )
     store = ROOT / "ai-server/src/aegis_ai/capability_overrides.py"
     if "capability_overrides.json" not in code or '"settings"' not in code or not store.exists():
         return _check(
@@ -208,39 +248,51 @@ def _capability_override_persistence_check() -> dict[str, object]:
             [str(store.relative_to(ROOT))],
             "CapabilityCatalog is not wired to the persistent override store.",
         )
-    e2e = _load_json(ROOT / "data/reports/e2e/latest/manager-risk-override.json")
+    e2e_path = "data/reports/e2e/latest/manager-risk-override.json"
+    e2e = _load_json(ROOT / e2e_path)
     if not e2e:
         return _check(
             "capability_override_persistence",
             "Capability risk override persistence",
             "fail",
-            ["data/reports/e2e/latest/manager-risk-override.json"],
+            [e2e_path],
             "No stateful E2E evidence for override persistence/effective policy.",
         )
     return _check(
         "capability_override_persistence",
         "Capability risk override persistence",
         "pass",
-        ["data/reports/e2e/latest/manager-risk-override.json"],
+        [e2e_path],
     )
 
 
 def _mock_provider_reject_check() -> dict[str, object]:
-    core = (ROOT / "ai-server/src/aegis_ai/production_readiness.py").read_text(encoding="utf-8", errors="ignore")
-    room = (ROOT / "room-server/src/aegis_room/providers.py").read_text(encoding="utf-8", errors="ignore")
+    core_rel = "ai-server/src/aegis_ai/production_readiness.py"
+    room_rel = "room-server/src/aegis_room/providers.py"
+    core = _source_text(core_rel)
+    room = _source_text(room_rel)
+    if core is None or room is None:
+        missing = core_rel if core is None else room_rel
+        return _check(
+            "mock_provider_rejected",
+            "Mock providers rejected in production",
+            "fail",
+            [missing],
+            f"Missing source file: {missing}",
+        )
     if "is_mock_like_output" not in core or "not allowed when AEGIS_RUNTIME_MODE=production" not in room:
         return _check(
             "mock_provider_rejected",
             "Mock providers rejected in production",
             "fail",
-            ["ai-server/src/aegis_ai/production_readiness.py", "room-server/src/aegis_room/providers.py"],
+            [core_rel, room_rel],
             "Production mock rejection guard is missing.",
         )
     return _check(
         "mock_provider_rejected",
         "Mock providers rejected in production",
         "pass",
-        ["ai-server/src/aegis_ai/production_readiness.py", "room-server/src/aegis_room/providers.py"],
+        [core_rel, room_rel],
     )
 
 
