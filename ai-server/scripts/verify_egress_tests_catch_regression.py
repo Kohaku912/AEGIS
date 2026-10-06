@@ -69,6 +69,7 @@ EGRESS_TESTS = (
     "tests/test_local_llm_path.py",
     "tests/test_voice_io.py",
     "tests/test_external_messaging.py",
+    "tests/test_composition_root_resolves_llm_layers.py",
 )
 
 
