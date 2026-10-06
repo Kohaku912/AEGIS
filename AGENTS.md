@@ -1165,6 +1165,13 @@ Measured 2026-10-01 — `ai-server`, full suite:
 > for the whole L1 call. **L2 was already moved off the request thread** (`_submit_background_l2`,
 > `runtime.py:732`); there is **no `_submit_background_l1`**. Recorded as §4 items 47–49, together with the
 > intake-side dead classes (item 47).
+> ✅ **Fixed 2026-10-06 (cycle 64, §4 item 48 branch ①)**: the asymmetry is gone. `_submit_background_l1`
+> hands the **whole immediate route** (L1 decision → `detail["l1"]` → capability short-circuit → L2 hand-off
+> → `initiative_engine` / `AutonomousLoop`) to a single worker (`aegis-background-l1`), mirroring
+> `_submit_background_l2`, and `_evaluate_immediate_event` is now a route check plus one submit. The pin was
+> **inverted, not deleted**: `tests/test_l1_runs_off_the_publisher_thread.py` (**7 cases, mutation 7/7**,
+> control green). The *background* route is still inline — item 48 scoped the offload to the immediate
+> route, and the pin's last case fixes that boundary.
 > ⚠️ **Two instruments were wrong before the code was.** My `DELEGATION.md` insert asserted the file was CRLF
 > and failed — but the file **is** 100% CRLF (211 CRLF, 0 bare LF); I had read it in *text mode*, where
 > universal-newline translation makes `count("\r\n")` necessarily 0. **Measure newlines in bytes.** And a
@@ -1219,6 +1226,10 @@ Measured 2026-10-01 — `ai-server`, full suite:
 > `tests/test_l1_runs_inline_on_the_publisher_thread.py` (**3 cases, mutation 3/3**) measures the *asymmetry*
 > by AST: the L2 submitter exists, the L1 one does not, and the immediate handler calls the pipeline directly
 > (no `submit`). Both pins fail if the recorded fix is applied, so the record moves with the code.
+> ✅ **Fixed 2026-10-06 (cycle 64, §4 item 48 branch ①)**: L1 no longer runs inline on the publisher's thread — see
+> the correction under "(3)" above. The pin named here was **renamed and inverted** to
+> `tests/test_l1_runs_off_the_publisher_thread.py` (**7 cases, mutation 7/7**, control green), and the
+> immediate route's L1 work now runs on `aegis-background-l1`.
 
 > **The `_server_list` exposure is 4 of 5 call sites, not 1 (2026-10-05): `2280 passed / 8 skipped`**
 >
@@ -1257,6 +1268,16 @@ Measured 2026-10-01 — `ai-server`, full suite:
 > **The event-driven core is built — and the test-count copies had diverged (2026-10-06): `2540 passed / 8 skipped`** — measured 2540 / 8 / 0 (2548 collected, 529.03 s); marker-selected: egress **314 / 1 / 315 marked**, non-egress **2226 / 7 / 315 deselected**, and the three selections reconcile exactly (`2226 + 314 = 2540`, `7 + 1 = 8`, `315 + 2233 = 2548 = 2540 + 8`).
 > The **+4** is the event-driven-core pin growing **6 → 10** cases when branch ① of `DELEGATION.md` §4 item 24 was executed (the core is now constructed, subscribed **and consumed**); nothing else moved and egress is unchanged.
 > ⚠️ **This block repairs a divergence, not just a number.** The copies that must move together held **three different values**: `PROJECT_STATUS_REVIEW.md` §0 and §1.1 said **2259** (2026-10-04), this list said **2287** (2026-10-05), and the verification skill §1 said **2259** (cycle 18) — against a measured **2540**. The drift is not "nobody updated them" but "**each copy stopped on a different day**". Recorded as `DELEGATION.md` §4 item 69.
+> **L1 now runs off the publisher's thread, mirroring L2 (2026-10-06): `2544 passed / 8 skipped`** — measured 2544 / 8 / 0
+> (2552 collected, 546.04 s); marker-selected: egress **314 / 1 / 2237 deselected**, non-egress **2230 / 7 / 315 deselected**,
+> and the three selections reconcile exactly (`2230 + 314 = 2544`, `7 + 1 = 8`, `315 + 2237 = 2552 = 2544 + 8`).
+> **The +4 is the pin itself**, and nothing else moved: `DELEGATION.md` §4 item 48 branch ① was executed, so the pin was
+> **inverted** — `tests/test_l1_runs_inline_on_the_publisher_thread.py` (3 cases) became
+> `tests/test_l1_runs_off_the_publisher_thread.py` (**7 cases, mutation 7/7**, control green). The 4 new cases carry no
+> marker, which is why egress is unchanged at 314 / 1.
+> ⚠️ **The four copies were moved in the same commit this time.** The block above records the *opposite* outcome — three
+> different values across four copies. The rule it recorded (a change that moves the count moves all four copies together)
+> was applied from the start here.
 
 - **Total tests (2026-10-01 record)**: **1926 passed / 8 skipped**
   — the **+20** over the 2026-09-30 figure are **all new pins**: four for B-5① (the confirmation↔desire

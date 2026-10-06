@@ -170,6 +170,15 @@ class AegisRuntime:
                 l2_executor.shutdown(wait=False)
             except Exception:
                 logger.debug("Failed to stop background L2 executor", exc_info=True)
+        l1_executor = getattr(self, "_background_l1_executor", None)
+        if l1_executor is not None:
+            # Same lazy creation as the L2 pool (``_submit_background_l1``), and
+            # the same reason to stop it: its worker threads are not daemons, so
+            # a leaked pool keeps the interpreter alive at exit.
+            try:
+                l1_executor.shutdown(wait=False)
+            except Exception:
+                logger.debug("Failed to stop background L1 executor", exc_info=True)
         loop = self.autonomous_loop
         if loop is not None:
             try:
@@ -805,9 +814,108 @@ def _run_l1_pipeline_for_event(runtime: Any, event: Any) -> Any | None:
     return decision
 
 
-# Events L1 handles on the publisher's thread (the immediate route). The
-# background route (`_should_route_to_l1_background`) takes everything else that
-# is not excluded below.
+def _run_l1_immediate_pipeline(runtime: Any, event: Any) -> None:
+    """The immediate route's work after the routing check (item 48).
+
+    This is everything ``_evaluate_immediate_event`` used to do once an event
+    matched: the L1 pipeline itself, the ``detail["l1"]`` projection, the
+    capability short-circuit, the L2 hand-off, and the ``initiative_engine`` /
+    ``AutonomousLoop`` notifications.
+
+    It stays in one function on purpose. The decision has to be **waited for** --
+    the old code read ``l1_decision.action`` before it could build ``detail`` --
+    so detaching only the ``observe()`` call would have left the continuation on
+    the publisher's thread (no gain) or, worse, run it with ``l1_decision is
+    None`` and silently dropped ``detail["l1"]`` and the capability branch.
+
+    The ``try`` is here for the same reason ``_run_l2_pipeline`` has one: on a
+    worker thread nothing above this frame can report the failure, so the
+    loudness has to live inside the callable. On the publisher's thread the bus
+    would have routed it to ``EventBus._dead_letter_handler`` instead.
+    """
+    event_type = str(getattr(event, "event_type", "") or "")
+    try:
+        rt = runtime
+        initiative_engine = getattr(rt, "initiative_engine", None)
+        l1_decision = _run_l1_pipeline_for_event(rt, event) if rt is not None else None
+        l1_action = getattr(getattr(l1_decision, "action", None), "type", "")
+        l1_action_value = str(getattr(l1_action, "value", l1_action))
+        if l1_action_value == "ignore":
+            return
+        detail = _parse_event_payload_for_l1(event)
+        if l1_decision is not None:
+            observation = getattr(l1_decision, "observation", None)
+            detail["l1"] = {
+                "meaning": str(getattr(observation, "meaning", "") or ""),
+                "value": float(getattr(observation, "value", 0.0) or 0.0),
+                "priority": float(getattr(observation, "priority", 0.0) or 0.0),
+                "required_intelligence": str(
+                    getattr(
+                        getattr(observation, "required_intelligence", ""),
+                        "value",
+                        getattr(observation, "required_intelligence", "low"),
+                    )
+                ),
+                "confidence": float(getattr(observation, "confidence", 0.0) or 0.0),
+                "action_type": l1_action_value or "noop",
+                "summary_bucket": str(getattr(observation, "raw", {}).get("summary_bucket", "background") or "background"),
+                "observed_action": str(getattr(observation, "raw", {}).get("observed_action", "") or ""),
+                "possible_intent": str(getattr(observation, "raw", {}).get("possible_intent", "") or ""),
+            }
+        if l1_action_value == "capability":
+            initiative_engine.record_trigger(event_type, detail)
+            return
+        if rt is not None and getattr(rt, "l2_mind", None) is not None:
+            l2_result = _run_l2_pipeline(rt, trigger=event_type, detail=detail)
+            detail["l2"] = dict(l2_result)
+            if l2_result.get("handled") and str(l2_result.get("action_type") or "") not in {"noop", "observe"}:
+                initiative_engine.record_trigger(event_type, detail)
+                return
+        initiative_engine.record_trigger(event_type, detail)
+        loop = getattr(rt, "autonomous_loop", None)
+        if loop is not None and hasattr(loop, "evaluate_event"):
+            loop.evaluate_event(event_type, detail)
+    except Exception:
+        logger.exception("L1 immediate pipeline failed for event_type=%s", event_type)
+
+
+def _submit_background_l1(runtime: Any, *, event: Any) -> None:
+    """Run the immediate L1 route off the publisher's thread (item 48).
+
+    The mirror of ``_submit_background_l2``. ``EventBus`` notifies subscribers
+    **inline on the publisher's thread** (``event_bus.EventBus._notify_subscribers``),
+    and one publisher is the gRPC ``PushEvent`` handler, which runs on one of the
+    ``config.max_workers`` request threads. ``_run_l1_pipeline_for_event`` awaits
+    ``router.observe(...)`` -- an LLM round-trip -- so running it inline occupies a
+    request thread for the whole call. L2 was moved off that thread by E-2 and L1
+    was left behind; that asymmetry is what item 48 recorded.
+
+    A single worker, like L2, so the event rate cannot multiply concurrent L1
+    runs, and FIFO order keeps consecutive immediate events in arrival order.
+
+    Pinned by ``tests/test_l1_runs_off_the_publisher_thread.py``.
+    """
+    import concurrent.futures
+
+    executor = getattr(runtime, "_background_l1_executor", None)
+    if executor is None:
+        executor = concurrent.futures.ThreadPoolExecutor(
+            max_workers=1, thread_name_prefix="aegis-background-l1"
+        )
+        runtime._background_l1_executor = executor  # type: ignore[attr-defined]
+    try:
+        executor.submit(_run_l1_immediate_pipeline, runtime, event)
+    except RuntimeError:
+        # Executor already shut down (runtime stopping) -- stay correct inline.
+        logger.debug("Background L1 executor unavailable; running inline", exc_info=True)
+        _run_l1_immediate_pipeline(runtime, event)
+
+
+# Events L1 handles on the immediate route. Since item 48 that route is handed to
+# a single background worker (`_submit_background_l1`) rather than running inline
+# on the publisher's thread. The background route
+# (`_should_route_to_l1_background`) takes everything else that is not excluded
+# below -- and that one is still inline, which item 48 did not change.
 #
 # ⚠️ Three of these are **declared but never produced** (measured 2026-10-05,
 # recorded as DELEGATION.md section 4 item 45). The concepts they name are all
@@ -1559,44 +1667,13 @@ def _build_runtime(config: Config) -> AegisRuntime:
         if not _should_route_to_l1_immediate(event_type):
             return
         rt = runtime_ref.get("runtime")
-        l1_decision = _run_l1_pipeline_for_event(rt, event) if rt is not None else None
-        l1_action = getattr(getattr(l1_decision, "action", None), "type", "")
-        l1_action_value = str(getattr(l1_action, "value", l1_action))
-        if l1_action_value == "ignore":
+        if rt is None:
+            # ``runtime_ref`` is populated before this subscription is created,
+            # so this is unreachable in practice. Spelled out rather than left
+            # implicit: the old inline body would have recorded a trigger with a
+            # bare ``detail`` here, which is not worth reproducing.
             return
-        detail = _parse_event_payload_for_l1(event)
-        if l1_decision is not None:
-            observation = getattr(l1_decision, "observation", None)
-            detail["l1"] = {
-                "meaning": str(getattr(observation, "meaning", "") or ""),
-                "value": float(getattr(observation, "value", 0.0) or 0.0),
-                "priority": float(getattr(observation, "priority", 0.0) or 0.0),
-                "required_intelligence": str(
-                    getattr(
-                        getattr(observation, "required_intelligence", ""),
-                        "value",
-                        getattr(observation, "required_intelligence", "low"),
-                    )
-                ),
-                "confidence": float(getattr(observation, "confidence", 0.0) or 0.0),
-                "action_type": l1_action_value or "noop",
-                "summary_bucket": str(getattr(observation, "raw", {}).get("summary_bucket", "background") or "background"),
-                "observed_action": str(getattr(observation, "raw", {}).get("observed_action", "") or ""),
-                "possible_intent": str(getattr(observation, "raw", {}).get("possible_intent", "") or ""),
-            }
-        if l1_action_value == "capability":
-            initiative_engine.record_trigger(event_type, detail)
-            return
-        if rt is not None and getattr(rt, "l2_mind", None) is not None:
-            l2_result = _run_l2_pipeline(rt, trigger=event_type, detail=detail)
-            detail["l2"] = dict(l2_result)
-            if l2_result.get("handled") and str(l2_result.get("action_type") or "") not in {"noop", "observe"}:
-                initiative_engine.record_trigger(event_type, detail)
-                return
-        initiative_engine.record_trigger(event_type, detail)
-        loop = getattr(rt, "autonomous_loop", None)
-        if loop is not None and hasattr(loop, "evaluate_event"):
-            loop.evaluate_event(event_type, detail)
+        _submit_background_l1(rt, event=event)
 
     def _handle_background_l1_event(event):
         rt = runtime_ref.get("runtime")

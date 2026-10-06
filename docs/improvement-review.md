@@ -247,6 +247,15 @@ instructions below」と明記されている）。
 
 **帰属**: **推奨で閉じられる**（①は既存の運用ノブ、②を実装してピンした）。容量の調整は**負荷試験の後**。
 
+> **2026-10-06 更新（実行・サイクル 64）**: 上の「**L1 の判定と能力実行はインラインのまま**」は**即時経路については偽**になった。
+> `DELEGATION.md` §4 項目 48 の枝 ① を実行し、`_submit_background_l1`（専用単一ワーカー `aegis-background-l1`）が
+> **即時経路の全体**（L1 判定 → `detail["l1"]` 投影 → 能力の短絡 → L2 委譲 → `initiative_engine` / `AutonomousLoop` への通知）を発行元スレッドから引き受け、
+> `_evaluate_immediate_event` は経路判定と 1 回の submit だけになった。**残るインラインの担い手は背景経路**
+> （`_handle_background_l1_event`）で、項目 48 はそこを対象にしていない — ピンの最後の 1 本がその境界を固定する。
+> ⚠️ 切り離しは**無言化**と紙一重だった: 発行元スレッドでは購読者の例外は `EventBus._dead_letter_handler` に届くが、
+> ワーカー上では future が抱え込むので、`_run_l1_immediate_pipeline` 自身が `logger.exception` する（ピンがその欠落を赤にする）。
+> 不変条件: `tests/test_l1_runs_off_the_publisher_thread.py`（**7 本、変異 7/7**、対照緑）。
+
 ---
 
 ### E-3 【新規・前提を反証】エージェント 1 ステップごとにスレッドプールを生成・破棄している　`P2` — **測定で反証・記録済み**
