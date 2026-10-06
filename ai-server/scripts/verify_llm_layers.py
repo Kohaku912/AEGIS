@@ -17,7 +17,11 @@ Usage (from ``ai-server/``)::
     PYTHONPATH=src python scripts/verify_llm_layers.py --live     # + one real call per layer
 
 Exit code is 0 only when every layer resolves to a permitted, non-Mock provider (and, with
-``--live``, when every live call succeeds).
+``--live``, when every live call succeeds). A call can come back ``success=True`` with
+``content=''`` -- measured 2026-10-06, intermittently and *not* a ``max_tokens`` effect (0/20
+empty at 32/64/128/256) -- so an empty body is reported as a **warning, not a failure**: the
+provider answered, which is what proves the wiring, and failing on a model-side hiccup would
+produce false "not operational" readings.
 """
 
 from __future__ import annotations
@@ -81,6 +85,7 @@ def main() -> int:
     gateway = LLMGateway(router=router, settings_resolver=resolver, prompt_registry=None, audit_log=None)
 
     failures: list[str] = []
+    warnings: list[str] = []
     for layer in (LAYER_L1, LAYER_L2, LAYER_L3):
         profile_id = layer_to_profile(layer)
         settings = resolver.resolve(profile_id=profile_id)
@@ -105,19 +110,32 @@ def main() -> int:
 
         if args.live:
             response = gateway.request(layer, "Reply with exactly: OK", max_tokens=32)
+            if response.success and not (response.content or "").strip() and response.provider_used != "mock":
+                # An empty body with success=True is a model-side hiccup, not a wiring fault:
+                # re-issue once so one truncated completion cannot fail the whole check.
+                response = gateway.request(layer, "Reply with exactly: OK", max_tokens=32)
             print(
                 f"    live: success={response.success} content={response.content!r} "
                 f"used={response.provider_used}/{response.model_used}"
             )
             if not response.success or response.provider_used == "mock":
                 failures.append(f"{layer}: live call did not come from a real provider ({response.error!r})")
+            elif not (response.content or "").strip():
+                warnings.append(
+                    f"{layer}: the live call answered but returned an empty body twice -- a provider "
+                    "hiccup, not a wiring fault (the destination is permitted and the provider is not Mock)"
+                )
 
     print()
+    for warning in warnings:
+        print(f"WARN {warning}")
     if failures:
         for failure in failures:
             print(f"FAIL {failure}")
         return 1
-    print(f"OK: every layer resolves to a permitted, non-Mock provider{' and answered live' if args.live else ''}.")
+    suffix = " and answered live" if args.live else ""
+    extra = f" ({len(warnings)} warning(s) above)" if warnings else ""
+    print(f"OK: every layer resolves to a permitted, non-Mock provider{suffix}.{extra}")
     return 0
 
 

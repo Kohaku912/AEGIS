@@ -70,6 +70,7 @@ EGRESS_TESTS = (
     "tests/test_voice_io.py",
     "tests/test_external_messaging.py",
     "tests/test_composition_root_resolves_llm_layers.py",
+    "tests/test_verify_llm_layers_contract.py",
 )
 
 
