@@ -109,3 +109,27 @@ git status -sb            ## cf-grpc-and-goal-hygiene...origin/cf-grpc-and-goal-
 4. **壊れたローカル専用 ref は `git fetch` を止める。** ストアを修復する前に外す。
 5. **`git stash` はこのリポジトリでは危険** — 第 1 回・第 2 回とも相関がある。4 ファイル程度なら
    `git diff > patch` のほうが安全（今回の復旧は Temp のバックアップで足りた）。
+
+## 7. 追記（2026-10-06、サイクル 67 の push で再測定）
+
+**B-6 は再発し、機序が一段はっきりした。** push（`4e973965..07802a08`）は成功したが、
+`refs/remotes/` は **3 → 0** になった。そのあと `git fetch origin` は
+`* [new branch] cf-grpc-and-goal-hygiene -> origin/cf-grpc-and-goal-hygiene` と
+**成功を報告した**のに、`git for-each-ref refs/remotes/` は **0 のまま**、
+`.git/refs/remotes/origin/` は**作られていなかった**（`FETCH_HEAD` だけが更新された）。
+`remote.origin.fetch` は `+refs/heads/*:refs/remotes/origin/*` と**正しい**。
+
+**bash からは作れる。** `mkdir -p .git/refs/remotes/origin` は成功し、`printf <sha> > …` で
+書いた ref は `for-each-ref` に**見えた**。したがって規則 3 は `git update-ref` だけでなく
+**`git fetch` にも及ぶ** — 「git 自身の ref 書き込みは入れ子ディレクトリを作れない」。
+（git のプロセスと bash でサンドボックスが違う可能性があるが、**未確定**。）
+
+**復旧手順（実測）**: `mkdir -p .git/refs/remotes/origin` → `origin/<branch>` に
+`git ls-remote` の sha を、`origin/main` に main の sha を、`origin/HEAD` に
+`ref: refs/remotes/origin/main` を書く。検証は `git for-each-ref refs/remotes/` が 3 件、
+`git branch -r` が 3 行、`git status -sb` が `## <branch>...origin/<branch>`（ahead/behind 無し）。
+
+⚠️ **push の検証は raw で行う — ただし Git Bash の `/tmp` は計器として使えない。**
+`curl -o /tmp/x` の直後に、**別の呼び出し**で `wc -c < /tmp/x` を測ると **97945 B**（別の内容）を
+返した。**Windows のパスに落とし、同じ呼び出しの中で測る**（正: 137437 B、blob と一致、cycle-67 の
+文字列が 2 件）。sha 固定 URL とブランチ URL の両方で一致したので、CDN の遅延ではなく計器の誤り。
