@@ -98,6 +98,20 @@ def _as_int(value: object) -> int | None:
     return None
 
 
+def _display_path(path: Path) -> str:
+    """A report's path as the audit has always reported it.
+
+    Relative to ``ROOT`` when the path is inside it -- so the default ``--report-dir``
+    (``ROOT/data/reports``) reports exactly what it always did -- and absolute otherwise.
+    A custom report dir outside ``ROOT`` must not raise ``ValueError`` from ``relative_to``,
+    which would abort ``main`` before it writes ``readiness_summary.json``.
+    """
+    try:
+        return str(path.relative_to(ROOT))
+    except ValueError:
+        return str(path)
+
+
 def _e2e_check(report_dir: Path, check_id: str, name: str, required: bool = True) -> dict[str, object]:
     # The caller passes the audit's ``--report-dir`` (default ``data/reports``), so the
     # E2E tree is ``<report_dir>/e2e/latest``. This used to be hard-coded to
@@ -257,7 +271,7 @@ def _volume_persistence_check() -> dict[str, object]:
     return _check("docker_volume_persistence", "Docker data/report volumes", "pass", [str(compose)])
 
 
-def _capability_override_persistence_check() -> dict[str, object]:
+def _capability_override_persistence_check(report_dir: Path) -> dict[str, object]:
     catalog = "ai-server/src/aegis_ai/capability_catalog.py"
     code = _source_text(catalog)
     if code is None:
@@ -277,21 +291,21 @@ def _capability_override_persistence_check() -> dict[str, object]:
             [str(store.relative_to(ROOT))],
             "CapabilityCatalog is not wired to the persistent override store.",
         )
-    e2e_path = "data/reports/e2e/latest/manager-risk-override.json"
-    e2e = _load_json(ROOT / e2e_path)
+    e2e_path = report_dir / "e2e" / "latest" / "manager-risk-override.json"
+    e2e = _load_json(e2e_path)
     if not e2e:
         return _check(
             "capability_override_persistence",
             "Capability risk override persistence",
             "fail",
-            [e2e_path],
+            [_display_path(e2e_path)],
             "No stateful E2E evidence for override persistence/effective policy.",
         )
     return _check(
         "capability_override_persistence",
         "Capability risk override persistence",
         "pass",
-        [e2e_path],
+        [_display_path(e2e_path)],
     )
 
 
@@ -325,15 +339,15 @@ def _mock_provider_reject_check() -> dict[str, object]:
     )
 
 
-def _secrets_check() -> dict[str, object]:
-    report = ROOT / "data" / "reports" / "secret_inventory.json"
+def _secrets_check(report_dir: Path) -> dict[str, object]:
+    report = report_dir / "secret_inventory.json"
     data = _load_json(report)
     if not data:
         return _check(
             "secrets_not_baked",
             "Secrets not baked into Git/static assets",
             "fail",
-            [str(report.relative_to(ROOT))],
+            [_display_path(report)],
             "Secret audit report is missing.",
         )
     if str(data.get("status") or "").lower() != "pass":
@@ -342,12 +356,10 @@ def _secrets_check() -> dict[str, object]:
             "secrets_not_baked",
             "Secrets not baked into Git/static assets",
             "fail",
-            [str(report.relative_to(ROOT))],
+            [_display_path(report)],
             f"Secret audit findings: {len(findings)}",
         )
-    return _check(
-        "secrets_not_baked", "Secrets not baked into Git/static assets", "pass", [str(report.relative_to(ROOT))]
-    )
+    return _check("secrets_not_baked", "Secrets not baked into Git/static assets", "pass", [_display_path(report)])
 
 
 def _report_pass(
@@ -431,8 +443,8 @@ def _real_device_report_check(
     )
 
 
-def _display_soak_check() -> dict[str, object]:
-    path = ROOT / "data/reports/e2e/latest/display_soak_summary.json"
+def _display_soak_check(report_dir: Path) -> dict[str, object]:
+    path = report_dir / "e2e" / "latest" / "display_soak_summary.json"
     data = _load_json(path)
     raw_duration = _as_int(data.get("duration_seconds"))
     raw_equivalent = _as_int(data.get("equivalent_duration_seconds"))
@@ -606,9 +618,9 @@ def main() -> int:
             _room_production_scope_check(),
             _dashboard_auth_check(),
             _volume_persistence_check(),
-            _capability_override_persistence_check(),
+            _capability_override_persistence_check(report_dir),
             _mock_provider_reject_check(),
-            _secrets_check(),
+            _secrets_check(report_dir),
             _report_pass(
                 report_dir / "mock_inventory.json",
                 "mock_inventory_report",
@@ -641,7 +653,7 @@ def main() -> int:
             _e2e_check(report_dir, "backup_restore", "Docker volume backup/isolated restore E2E"),
             _e2e_check(report_dir, "manager_e2e", "Stateful Manager E2E"),
             _real_device_report_check(
-                ROOT / "data/reports/e2e/latest/pc-real.json",
+                report_dir / "e2e" / "latest" / "pc-real.json",
                 "pc_real",
                 "PC service observe/action E2E",
                 required_true=["service_install_tested", "real_actions_tested"],
@@ -658,7 +670,7 @@ def main() -> int:
                 ],
             ),
             _real_device_report_check(
-                ROOT / "data/reports/e2e/latest/android-real.json",
+                report_dir / "e2e" / "latest" / "android-real.json",
                 "android_real",
                 "Android LAN-outside E2E",
                 required_true=[
@@ -681,13 +693,13 @@ def main() -> int:
             _e2e_check(report_dir, "browser_real", "Browser real E2E"),
             _e2e_check(report_dir, "dev_real", "Dev server real E2E"),
             _report_pass(
-                ROOT / "data/reports/e2e/latest/android-real.json",
+                report_dir / "e2e" / "latest" / "android-real.json",
                 "android_reconnect_metrics",
                 "Android reconnect metrics",
                 ["checks"],
                 present_fields=["reconnect_count", "heartbeat_failure_count"],
             ),
-            _display_soak_check(),
+            _display_soak_check(report_dir),
             check_file("docs/ubuntu-production.md", "Ubuntu production runbook"),
             check_file("scripts/e2e/run-all-real.ps1", "Real E2E runner"),
             check_file("scripts/test-android-real.ps1", "Android real-device test runner"),
@@ -716,7 +728,11 @@ def main() -> int:
         },
     }
     write_json(report_dir / "readiness_summary.json", payload)
-    latest = ROOT / "data" / "reports" / "e2e" / "latest"
+    # The E2E tree is ``<report_dir>/e2e/latest`` -- the very tree ``_e2e_check`` reads.
+    # Hard-coding ``ROOT/data/reports/e2e/latest`` made a custom ``--report-dir`` read its
+    # E2E results from the *default* tree and, worse, write its summary there -- clobbering
+    # the operator's real E2E summary while the custom tree got none (measured 2026-10-07).
+    latest = report_dir / "e2e" / "latest"
     write_json(latest / "summary.json", payload)
     md = [
         "# AEGIS Production Readiness",

@@ -15,15 +15,18 @@ Measured 2026-10-07, before the fix:
 * ``_dashboard_auth_check`` also returned ``evidence=[]`` on **every** branch: the live
   readiness summary had it as the only check naming nothing it measured.
 
-The population is **discovered** from the module's AST (zero-argument functions whose body
-reads a file), not hand-listed, so a new source-reading check cannot be added unguarded
-without these pins noticing; a declared set documents the intent and reddens on drift.
+The population is **discovered** from the module's AST (functions whose body reads a file
+and whose only parameter is ``report_dir``), not hand-listed, so a new source-reading check
+cannot be added unguarded without these pins noticing; a declared set documents the intent
+and reddens on drift. Cycle 90 gave ``_capability_override_persistence_check`` a
+``report_dir`` parameter, so the discovery admits that shape too.
 """
 
 from __future__ import annotations
 
 import ast
 import importlib.util
+import inspect
 import sys
 from pathlib import Path
 from typing import Any
@@ -84,11 +87,20 @@ def _source_reading_checks() -> set[str]:
         if not isinstance(node, ast.FunctionDef):
             continue
         args = node.args
-        if args.args or args.posonlyargs or args.vararg or args.kwarg:
+        params = [a.arg for a in (*args.posonlyargs, *args.args)]
+        if args.vararg or args.kwarg or args.kwonlyargs:
+            continue
+        if [p for p in params if p != "report_dir"]:
             continue
         if any(_reads(inner) for inner in ast.walk(node)):
             names.add(node.name)
     return names
+
+
+def _drive(module: Any, name: str, report_dir: Path) -> dict[str, object]:
+    """Call a member, passing ``report_dir`` only when it declares one."""
+    fn = getattr(module, name)
+    return fn(report_dir) if "report_dir" in inspect.signature(fn).parameters else fn()
 
 
 def test_the_source_reading_family_is_enumerated() -> None:
@@ -107,7 +119,7 @@ def test_no_source_reading_check_aborts_the_audit_when_its_file_is_missing(
     module = _load_readiness_audit()
     monkeypatch.setattr(module, "ROOT", tmp_path)  # empty dir: every source file is absent
     for name in sorted(_source_reading_checks()):
-        result = getattr(module, name)()  # must not raise
+        result = _drive(module, name, tmp_path)  # must not raise
         assert result["status"] in {"pass", "fail", "warn"}, name
         assert result["evidence"], f"{name} returned a verdict naming nothing it read"
 
@@ -122,7 +134,7 @@ def test_the_missing_file_is_named_in_the_verdict(tmp_path: Path, monkeypatch: p
         "_mock_provider_reject_check": "ai-server/src/aegis_ai/production_readiness.py",
     }
     for name, rel in expected.items():
-        result = getattr(module, name)()
+        result = _drive(module, name, tmp_path)
         assert result["status"] == "fail", name
         assert rel in result["evidence"], (name, result["evidence"])
         assert rel in result["error"], (name, result["error"])
@@ -146,7 +158,7 @@ def test_every_source_reading_check_names_what_it_read() -> None:
     """
     module = _load_readiness_audit()  # real ROOT
     for name in sorted(_source_reading_checks()):
-        result = getattr(module, name)()
+        result = _drive(module, name, _REPO_ROOT / "data" / "reports")
         assert result["evidence"], f"{name} returned a verdict naming nothing it read"
 
 

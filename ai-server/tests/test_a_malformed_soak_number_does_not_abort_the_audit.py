@@ -74,7 +74,8 @@ def _soak(root: Path, payload: dict[str, object]) -> dict[str, object]:
     module = _audit()
     _write_soak(root, payload)
     module.ROOT = root
-    return module._display_soak_check()
+    # cycle 90 gave the check a ``report_dir`` parameter (it used to hard-code ROOT).
+    return module._display_soak_check(root / "data" / "reports")
 
 
 # --- the malformed field is a clean fail, not an exception -----------------------------
