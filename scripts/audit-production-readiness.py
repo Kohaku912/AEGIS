@@ -112,6 +112,36 @@ def _display_path(path: Path) -> str:
         return str(path)
 
 
+def _result_cause(match: dict[str, object], status: str) -> str:
+    """Why an E2E result is not a pass -- its message, or its failing sub-checks.
+
+    The E2E runner records the top-level ``error`` only sometimes. The live
+    ``manager-e2e.json`` is ``status: fail`` with ``error: ""`` while its ten nested
+    ``checks`` name the reason (seven "リモート サーバーに接続できません。" and three
+    "ai-server container is not running"), so recording the top-level field alone left the
+    readiness summary with a ``fail`` and **no cause**. Fall back to the nested checks,
+    then to the status itself -- a non-pass result never returns ``""``. The list is
+    bounded so a pathological report cannot flood the summary.
+    """
+    if status == "pass":
+        return ""
+    message = str(match.get("error") or "").strip()
+    if message:
+        return message
+    nested = match.get("checks")
+    if isinstance(nested, list):
+        reasons = [
+            f"{c.get('id') or c.get('name') or '?'}: {c.get('error') or c.get('status') or 'fail'}"
+            for c in nested
+            if isinstance(c, dict) and str(c.get("status") or "fail") != "pass"
+        ]
+        if reasons:
+            head = reasons[:5]
+            extra = len(reasons) - len(head)
+            return "; ".join(head) + (f" (+{extra} more)" if extra else "")
+    return f"E2E result status is {status} and carries no error message"
+
+
 def _e2e_check(report_dir: Path, check_id: str, name: str, required: bool = True) -> dict[str, object]:
     # The caller passes the audit's ``--report-dir`` (default ``data/reports``), so the
     # E2E tree is ``<report_dir>/e2e/latest``. This used to be hard-coded to
@@ -143,7 +173,7 @@ def _e2e_check(report_dir: Path, check_id: str, name: str, required: bool = True
         name,
         "pass" if status == "pass" else "fail",
         [str(match.get("report_path") or latest / "summary.json")],
-        str(match.get("error") or "") if status != "pass" else "",
+        _result_cause(match, status),
         str(match.get("report_path") or ""),
         _as_int(match.get("duration_ms")) or 0,
     )
