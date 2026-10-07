@@ -350,15 +350,34 @@ def _secrets_check() -> dict[str, object]:
     )
 
 
-def _report_pass(path: Path, check_id: str, name: str, required_fields: list[str]) -> dict[str, object]:
+def _report_pass(
+    path: Path,
+    check_id: str,
+    name: str,
+    required_fields: list[str],
+    *,
+    present_fields: list[str] = (),
+) -> dict[str, object]:
     """Read a sub-audit's report and pass only if it measured a population.
 
-    `required_fields` names the report's own measured-population field(s). It is **required**,
-    not optional: a report whose status is `pass` but which measured nothing must not read as
-    clean -- the empty-population family cycle 80 closed in the *generators*, one layer up here.
+    `required_fields` names the report's own measured-**population** field(s): each must be
+    present and non-empty, where a **zero count is empty**. It is **required**, not optional:
+    a report whose status is `pass` but which measured nothing must not read as clean -- the
+    empty-population family cycle 80 closed in the *generators*, one layer up here.
     Measured 2026-10-07, before this: four of the six call sites passed no fields, so a
     `{"status": "pass"}` report with no population read as a pass, while the two that named a
     field correctly failed it.
+
+    Measured again 2026-10-07 (cycle 89): the emptiness test was `in (None, "", [])`, which
+    lets a **zero count** through -- `{"status": "pass", "files_scanned": 0}` read as clean,
+    and so did `capabilities: 0`, `checks: 0` and `files_walked: 0`. It is now `not value`, so
+    `0`, `False` and `{}` are empty too.
+
+    `present_fields` names fields that must merely be **carried**: there a count of zero is a
+    legitimate measurement (`heartbeat_failure_count: 0` is the *good* outcome -- the live
+    `android-real.json` has exactly that, so folding it into `required_fields` would flip a
+    correct `pass` to `fail`). Kept as its own keyword-only list so the two kinds cannot be
+    confused.
     """
     data = _load_json(path)
     if not data:
@@ -367,8 +386,11 @@ def _report_pass(path: Path, check_id: str, name: str, required_fields: list[str
     if status and status != "pass":
         return _check(check_id, name, "fail", [str(path)], f"Report status is {status}", str(path))
     for field in required_fields or []:
-        if data.get(field) in (None, "", []):
+        if not data.get(field):
             return _check(check_id, name, "fail", [str(path)], f"Report missing measured field: {field}", str(path))
+    for field in present_fields or []:
+        if data.get(field) in (None, "", []):
+            return _check(check_id, name, "fail", [str(path)], f"Report missing field: {field}", str(path))
     return _check(check_id, name, "pass", [str(path)], report_path=str(path))
 
 
@@ -662,7 +684,8 @@ def main() -> int:
                 ROOT / "data/reports/e2e/latest/android-real.json",
                 "android_reconnect_metrics",
                 "Android reconnect metrics",
-                ["reconnect_count", "heartbeat_failure_count"],
+                ["checks"],
+                present_fields=["reconnect_count", "heartbeat_failure_count"],
             ),
             _display_soak_check(),
             check_file("docs/ubuntu-production.md", "Ubuntu production runbook"),
