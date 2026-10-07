@@ -161,8 +161,10 @@ def test_the_v1_completion_mock_check_requires_a_population(
     what a report says when it read nothing, so the check requires the denominator, with
     an in-test control: the same empty blocker list *with* a population still passes.
 
-    The script reads its inputs from fixed paths under ``ROOT``, so the whole tree is
-    redirected into ``tmp_path`` -- nothing in the repository is read or written.
+    The script reads its reports from ``--report-dir`` (cycle 91 routed every read there),
+    so the whole tree is redirected into ``tmp_path`` by pointing ``--report-dir`` at it --
+    nothing in the repository is read or written. ``ROOT`` and ``CHECKLIST`` stay patched
+    because the checklist is repository source, not a report.
     """
     tool = _load("c80_v1_completion", "audit-v1-completion.py")
     root = tmp_path / "repo"
@@ -170,30 +172,27 @@ def test_the_v1_completion_mock_check_requires_a_population(
     reports.mkdir(parents=True)
     monkeypatch.setattr(tool, "ROOT", root)
     monkeypatch.setattr(tool, "CHECKLIST", root / "docs" / "v1-completion-checklist.md")
-    monkeypatch.setattr(tool, "MOCK_REPORT", reports / "production_blockers.json")
-    monkeypatch.setattr(tool, "UI_REPORT", reports / "ui_completeness.json")
-    monkeypatch.setattr(tool, "CAPABILITY_REPORT", reports / "capability_coverage.json")
-    monkeypatch.setattr(tool, "E2E_SUMMARY", reports / "e2e" / "latest" / "summary.json")
-    out_dir = tmp_path / "out"
+    out_dir = reports
+    mock_report = reports / "production_blockers.json"
 
     def mock_check_status() -> dict[str, Any]:
         _drive(tool, ["audit-v1-completion.py", "--report-dir", str(out_dir)], capsys)
         payload = json.loads((out_dir / "v1_completion.json").read_text(encoding="utf-8"))
         return next(check for check in payload["checks"] if check["id"] == "production_blocker_mock_zero")
 
-    tool.MOCK_REPORT.write_text(json.dumps({"blockers": [], "files_scanned": 0}), encoding="utf-8")
+    mock_report.write_text(json.dumps({"blockers": [], "files_scanned": 0}), encoding="utf-8")
     check = mock_check_status()
     assert check["status"] == "fail", check
     assert "walked no files" in check["error"], check
 
     # A report from before the denominator existed cannot be called clean either: it does
     # not say what it read, so the only honest verdict is "regenerate it".
-    tool.MOCK_REPORT.write_text(json.dumps({"blockers": []}), encoding="utf-8")
+    mock_report.write_text(json.dumps({"blockers": []}), encoding="utf-8")
     check = mock_check_status()
     assert check["status"] == "fail", check
     assert "does not report files_scanned" in check["error"], check
 
-    tool.MOCK_REPORT.write_text(json.dumps({"blockers": [], "files_scanned": 200}), encoding="utf-8")
+    mock_report.write_text(json.dumps({"blockers": [], "files_scanned": 200}), encoding="utf-8")
     check = mock_check_status()
     assert check["status"] == "pass", check
     assert check["error"] == ""

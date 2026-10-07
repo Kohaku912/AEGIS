@@ -13,8 +13,7 @@ import re
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
-REPORT_DIR = ROOT / "data" / "reports"
+from audit_common import ROOT, parse_args
 
 
 @dataclass
@@ -29,6 +28,11 @@ class Check:
 
 
 def main() -> int:
+    # The report tree is the audit's ``--report-dir`` (default ``data/reports``), the same
+    # tree its siblings write to, so a sandbox run writes where it was told instead of into
+    # the operator's real reports.
+    args = parse_args("Audit AEGIS UI completeness")
+    report_dir = Path(args.report_dir)
     checks = [
         check_files(
             "web-dashboard",
@@ -115,12 +119,12 @@ def main() -> int:
         },
         "checks": [asdict(check) for check in checks],
     }
-    REPORT_DIR.mkdir(parents=True, exist_ok=True)
-    (REPORT_DIR / "ui_completeness.json").write_text(
+    report_dir.mkdir(parents=True, exist_ok=True)
+    (report_dir / "ui_completeness.json").write_text(
         json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
     )
-    (REPORT_DIR / "ui_completeness.md").write_text(render_markdown(payload), encoding="utf-8")
-    print(f"wrote {REPORT_DIR / 'ui_completeness.md'}")
+    (report_dir / "ui_completeness.md").write_text(render_markdown(payload), encoding="utf-8")
+    print(f"wrote {report_dir / 'ui_completeness.md'}")
     return 0 if payload["overall_status"] == "pass" else 1
 
 

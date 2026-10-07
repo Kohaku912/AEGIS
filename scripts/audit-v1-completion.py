@@ -11,10 +11,20 @@ from pathlib import Path
 from audit_common import ROOT, parse_args, write_json
 
 CHECKLIST = ROOT / "docs" / "v1-completion-checklist.md"
-E2E_SUMMARY = ROOT / "data" / "reports" / "e2e" / "latest" / "summary.json"
-UI_REPORT = ROOT / "data" / "reports" / "ui_completeness.json"
-MOCK_REPORT = ROOT / "data" / "reports" / "production_blockers.json"
-CAPABILITY_REPORT = ROOT / "data" / "reports" / "capability_coverage.json"
+
+
+def _display_path(path: Path) -> str:
+    """A report's path as this audit has always reported it.
+
+    Relative to ``ROOT`` when the path is inside it -- so the default ``--report-dir``
+    reports exactly what it always did -- and absolute otherwise. A custom report dir
+    outside ``ROOT`` must not raise ``ValueError`` from ``relative_to``, which would abort
+    ``main`` before it writes ``v1_completion.json``.
+    """
+    try:
+        return path.relative_to(ROOT).as_posix()
+    except ValueError:
+        return str(path)
 
 
 def _load_json(path: Path) -> dict[str, object]:
@@ -44,11 +54,11 @@ def _report_status(path: Path, ok_values: set[str] | None = None) -> tuple[str, 
     ok_values = ok_values or {"pass"}
     data = _load_json(path)
     if not data:
-        return "fail", f"Missing or unreadable {path.relative_to(ROOT).as_posix()}"
+        return "fail", f"Missing or unreadable {_display_path(path)}"
     status = str(data.get("overall_status") or data.get("status") or "").lower()
     if status in ok_values:
         return "pass", ""
-    return "fail", f"{path.relative_to(ROOT).as_posix()} status is {status or 'unknown'}"
+    return "fail", f"{_display_path(path)} status is {status or 'unknown'}"
 
 
 def _checklist_counts() -> tuple[dict[str, int], list[str]]:
@@ -63,8 +73,8 @@ def _checklist_counts() -> tuple[dict[str, int], list[str]]:
     return counts, re.findall(r"^##\s+(.+)$", v1_text, flags=re.MULTILINE)
 
 
-def _required_e2e() -> dict[str, object]:
-    summary = _load_json(E2E_SUMMARY)
+def _required_e2e(summary_path: Path) -> dict[str, object]:
+    summary = _load_json(summary_path)
     checks = summary.get("checks") if isinstance(summary.get("checks"), list) else []
     required = {
         "docker_core",
@@ -87,6 +97,13 @@ def _required_e2e() -> dict[str, object]:
 def main() -> int:
     args = parse_args("Audit AEGIS v1 completion")
     report_dir = Path(args.report_dir)
+    # Every report this audit reads lives under ``--report-dir`` (default ``data/reports``),
+    # the same tree its siblings write to. Reading them from ``ROOT`` would let a sandbox
+    # pointed at an empty dir report on the operator's real reports.
+    e2e_summary = report_dir / "e2e" / "latest" / "summary.json"
+    ui_report = report_dir / "ui_completeness.json"
+    mock_report = report_dir / "production_blockers.json"
+    capability_report = report_dir / "capability_coverage.json"
     start = time.time()
     checks: list[dict[str, object]] = []
 
@@ -96,28 +113,28 @@ def main() -> int:
         "v1_checklist_closed",
         "v1 completion checklist is fully closed",
         "pass" if checklist_ok else "fail",
-        [CHECKLIST.relative_to(ROOT).as_posix()],
+        [_display_path(CHECKLIST)],
         "" if checklist_ok else f"open={counts['open']} partial={counts['partial']} blocker={counts['blocker']}",
     ))
 
-    ui_status, ui_error = _report_status(UI_REPORT)
+    ui_status, ui_error = _report_status(ui_report)
     checks.append(_check(
         "ui_completeness",
         "UI completeness audit",
         ui_status,
-        [UI_REPORT.relative_to(ROOT).as_posix()],
+        [_display_path(ui_report)],
         ui_error,
     ))
-    cap_status, cap_error = _report_status(CAPABILITY_REPORT)
+    cap_status, cap_error = _report_status(capability_report)
     checks.append(_check(
         "capability_coverage",
         "Capability coverage audit",
         cap_status,
-        [CAPABILITY_REPORT.relative_to(ROOT).as_posix()],
+        [_display_path(capability_report)],
         cap_error,
     ))
 
-    mock = _load_json(MOCK_REPORT)
+    mock = _load_json(mock_report)
     blockers = mock.get("blockers") if isinstance(mock.get("blockers"), list) else []
     # A population-free report cannot be called clean: `blockers == []` is also what a
     # report says when it read nothing. Require the denominator to be present and non-zero.
@@ -127,7 +144,7 @@ def main() -> int:
         mock_error = ""
     elif not isinstance(mock_scanned, int):
         mock_error = (
-            f"{MOCK_REPORT.relative_to(ROOT).as_posix()} does not report files_scanned -- "
+            f"{_display_path(mock_report)} does not report files_scanned -- "
             "regenerate it; an inventory that does not say what it read cannot be called clean"
         )
     elif not mock_scanned:
@@ -138,16 +155,16 @@ def main() -> int:
         "production_blocker_mock_zero",
         "Production blocker mock/stub count is zero",
         "pass" if mock_ok else "fail",
-        [MOCK_REPORT.relative_to(ROOT).as_posix()],
+        [_display_path(mock_report)],
         mock_error,
     ))
 
-    e2e = _required_e2e()
+    e2e = _required_e2e(e2e_summary)
     checks.append(_check(
         "required_real_e2e",
         "Required real E2E checks are present and passing",
         "pass" if e2e["ok"] else "fail",
-        [E2E_SUMMARY.relative_to(ROOT).as_posix()],
+        [_display_path(e2e_summary)],
         "" if e2e["ok"] else f"missing={e2e['missing']} failed={e2e['failed']}",
     ))
 
@@ -158,7 +175,7 @@ def main() -> int:
         "generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "duration_ms": int((time.time() - start) * 1000),
         "checklist": {
-            "path": CHECKLIST.relative_to(ROOT).as_posix(),
+            "path": _display_path(CHECKLIST),
             "counts": counts,
             "sections": sections,
         },
