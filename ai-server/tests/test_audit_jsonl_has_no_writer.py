@@ -32,7 +32,7 @@ Measured 2026-10-03:
   ``_read_by_id_reverse``, which are SQLite-failure fallbacks.
 
 So ``GET /api/audit/stream`` is dead by a **third** mechanism — not a missing producer
-(the chat-SSE shape) and not merely "no client", but a **stale source**: it streams a
+(the chat-SSE shape, deleted 2026-10-08) and not merely "no client", but a **stale source**: it streams a
 file that only ever existed as a migration input, so it can emit heartbeats and
 nothing else. Rewiring the readers to SQLite, or deleting them, is an **owner
 decision** (recorded in ``DELEGATION.md`` §4), so this pins the fact instead.

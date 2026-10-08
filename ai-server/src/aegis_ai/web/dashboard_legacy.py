@@ -19,9 +19,7 @@ import logging
 import os
 import inspect
 import ipaddress
-import queue
 import re
-import threading
 import time
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
@@ -989,8 +987,6 @@ class DashboardApp:
         install_dashboard_token_auth(self._app, exempt_paths={"/health"})
         self._start_time = time.time()
         self._autonomous_loop = runtime.autonomous_loop
-        self._chat_event_clients: dict[str, queue.Queue] = {}
-        self._chat_event_lock = threading.Lock()
         self._chat_history_path = Path("data/chat_history.jsonl")
         from aegis_ai.web.settings_ui_routes import init_settings_ui, settings_ui_bp
 
@@ -1131,16 +1127,6 @@ class DashboardApp:
             manager.broadcast_chat_update(entry_to_mobile_messages(entry))
         except Exception:
             logger.debug("Failed to broadcast chat history to Android", exc_info=True)
-
-    def _register_chat_client(self, client_id: str) -> queue.Queue:
-        q: queue.Queue = queue.Queue()
-        with self._chat_event_lock:
-            self._chat_event_clients[client_id] = q
-        return q
-
-    def _unregister_chat_client(self, client_id: str) -> None:
-        with self._chat_event_lock:
-            self._chat_event_clients.pop(client_id, None)
 
     @property
     def app(self) -> Flask:

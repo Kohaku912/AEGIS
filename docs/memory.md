@@ -301,7 +301,7 @@ After each autonomous action:
 
 | Endpoint | Method | Purpose |
 |----------|--------|---------|
-| `/api/chat/send` | POST | Chat with memory context (plain JSON; the SSE channel is `GET /api/chat/events`) |
+| `/api/chat/send` | POST | Chat with memory context (plain JSON; the `GET /api/chat/events` SSE channel was deleted 2026-10-08) |
 | `/dashboard/memory` | GET | View memory data |
 | `/api/memory/<backend>` | GET | Get memory backend data (via MemoryManager) |
 | `/api/memory/<backend>/search` | POST | Search memory backend |

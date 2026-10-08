@@ -40,7 +40,8 @@ quoted without its method cannot be re-derived**, which is how it survived: nobo
 whether a later measurement disagreed with it.
 The **conclusion is unchanged** — most are public APIs for operators, Android or the display
 surface, so "no client" is a **candidate, not a verdict**. Each would need its own two-ended check
-(the chat SSE route was dead only because its own registry was inert as well).
+(the chat SSE route was dead only because its own registry was inert as well; it has since been
+deleted — `DELEGATION.md` § 4 item 23).
 """
 
 from __future__ import annotations
@@ -69,7 +70,7 @@ _ROW_FORMS = (
 )
 
 #: The exact documented set, measured 2026-10-03. **Equality, not a floor**: this table has
-#: only 13 rows, so a floor of 12 would let a reformatted row vanish silently — which is
+#: only 12 rows, so a floor of 11 would let a reformatted row vanish silently — which is
 #: exactly what a first attempt did (mutation M3 survived a floor; it cannot survive this).
 _RECORDED_DOCUMENTED = frozenset({
     ("GET", "/api/approvals"),
@@ -84,7 +85,6 @@ _RECORDED_DOCUMENTED = frozenset({
     ("POST", "/api/chat/send"),
     ("POST", "/api/chat/respond"),
     ("POST", "/api/chat/clear"),
-    ("GET", "/api/chat/events"),
 })
 
 #: Dummy values for Flask converters, so a documented template can be matched.

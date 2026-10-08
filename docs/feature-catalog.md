@@ -570,7 +570,6 @@ IR ピンには**禁止リスト**がある（`PH4` / `PH5` を拒否）。照�
 | `POST /api/chat/send` | 送信。`{text, request_id, conversation_id}` |
 | `POST /api/chat/respond` | **`ask_user` への回答**。中断したタスクを再開する |
 | `POST /api/chat/clear` | 履歴の消去 |
-| `GET /api/chat/events` | SSE（**ハートビートのみ。実際のメッセージは流れない**。**両端とも死んでいる** — publish する側も subscribe する側も無い。ピン `ai-server/tests/test_chat_sse_route_stays_dead.py`） |
 
 **ツール呼び出しループ**: `call_llm_with_tools(..., max_tool_rounds=15)`。同じ呼び出しの重複は
 シグネチャ集合で止める。**`ask_user` が選ばれるとループは即座に返り**、`needs_user_input` と
@@ -582,10 +581,9 @@ Android は gRPC の `SendChat` から同じ関数を呼び、`source="android"`
 
 > ⚠️ `docs/dashboard.md` の「`POST /api/chat/stream` で SSE 配信」「ツールループは最大 5 ラウンド」は
 > **どちらも誤り**だった（**2026-10-02 に原典を修正済み**）。ストリーム用ルートは存在せず（`/api/chat/send`
-> は普通の JSON）、ループは 15 回である。SSE の `GET /api/chat/events` は登録されているが**誰も publish
-> しない**（届くのは heartbeat だけ）— **subscribe する側も存在しない**（パス文字列は定義ファイル
-> 1 つにしか現れず、`EventSource` は**別チャネル**（`/api/ui/stream`、`web-ui/src/api/useOverviewStream.ts:24`）にしか無い）。**両端が死んでいる**ので、配線も
-> 削除もオーナー判断（`DELEGATION.md` §4 項目 23）。ピン `ai-server/tests/test_chat_sse_route_stays_dead.py`。
+> は普通の JSON）、ループは 15 回である。SSE の `GET /api/chat/events` は登録されていたが**誰も publish
+> しなかった**（届くのは heartbeat だけ）— **subscribe する側も存在しなかった**（パス文字列は定義ファイル
+> 1 つにしか現れず、`EventSource` は**別チャネル**（`/api/ui/stream`、`web-ui/src/api/useOverviewStream.ts:24`）にしか無い）。**両端が死んでいた**ので、**2026-10-08 に削除した**（`DELEGATION.md` §4 項目 23）。ピン `ai-server/tests/test_chat_sse_surface_is_gone.py`。
 
 ### 6.3 承認 / 確認 UI 【稼働】
 

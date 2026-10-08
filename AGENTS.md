@@ -353,7 +353,7 @@ manifest's own `aliases` key is **not** consulted for ID resolution; it only fee
 
 ### Features
 
-- **Chat with tool calling**: `POST /api/chat/send` (plain JSON). The `GET /api/chat/events` SSE route is registered but **dead on both ends** (measured 2026-10-03) — **no producer publishes to it** (nothing calls `put` anywhere in `dashboard_legacy.py`) and **no client subscribes** (the path occurs in exactly one file, its own definition). Pinned by `ai-server/tests/test_chat_sse_route_stays_dead.py`; wiring or deleting it is `DELEGATION.md` §4 item 23
+- **Chat with tool calling**: `POST /api/chat/send` (plain JSON). The `GET /api/chat/events` SSE route **was deleted 2026-10-08** (`DELEGATION.md` §4 item 23): it was registered and returned `text/event-stream`, but it was **dead on both ends** (measured 2026-10-03) — **no producer published to it** (nothing called `put` anywhere in `dashboard_legacy.py`) and **no client subscribed** (the path occurred in exactly one file, its own definition). Pinned by `ai-server/tests/test_chat_sse_surface_is_gone.py`
 - **Memory integration**: AdvancedMemory context in LLM prompts
 - **Desire context**: Current desire states in LLM prompts
 - **Tool calling**: Chat uses CapabilityCatalog for capability execution
@@ -474,8 +474,9 @@ Measured 2026-10-01 — `ai-server`, full suite:
 > in the running system** (`DELEGATION.md` §4 item 22, `PROJECT_STATUS_REVIEW.md` §3.2). **Wired
 > 2026-10-08** — the owner took item 22 — and the pin is now
 > `tests/test_egress_grant_source_is_wired.py`. A further
-> **+5** is `tests/test_chat_sse_route_stays_dead.py` — `GET /api/chat/events` is dead on **both**
-> ends, which is two independent facts (`DELEGATION.md` §4 item 23). And **+2** is
+> **+5** was `tests/test_chat_sse_route_stays_dead.py` — `GET /api/chat/events` was dead on **both**
+> ends, which is two independent facts (`DELEGATION.md` §4 item 23); the surface was **deleted
+> 2026-10-08** and the pin is now `tests/test_chat_sse_surface_is_gone.py`. And **+2** is
 > `tests/test_documented_routes_are_registered.py` — the route tables in `docs/approval-ui.md`
 > and `docs/feature-catalog.md` must name routes the app actually registers. And **+5** then **+1** is
 > `tests/test_e2e_compose_services_exist.py` — every service and profile a script names to

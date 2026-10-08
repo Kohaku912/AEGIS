@@ -75,11 +75,7 @@ and Manager API routes.
 ```
 The reply is JSON: `{"response": "...", "request_id": ..., "conversation_id": ...}` (plus `tool_results` when tools ran). When a tool pauses for input the body is `{"needs_user_input": true, "question": "...", "options": [...], "pending_context": {...}}` — answer it with `POST /api/chat/respond`. Errors: `400 invalid_request`; `409 request_in_progress` (the same `request_id` is de-duplicated for 15 minutes).
 
-**Receive**: `GET /api/chat/events` — the Server-Sent Events channel (`text/event-stream`).
-```
-data: {"type":"heartbeat"}
-```
-⚠️ The route is **dead on both ends** (measured 2026-10-03). **No producer publishes to it** — the client queue is only ever created and removed (`dashboard_legacy.py:1135-1143`), and nothing calls `put` anywhere in that file, so a connected client receives **only** the 15-second `heartbeat` frames. **And no client subscribes** — the path string occurs in exactly one file (its own definition) The repo's only `EventSource` targets a **different** channel (`/api/ui/stream`, `web-ui/src/api/useOverviewStream.ts:24`), so "the UI streams" is satisfied by an unrelated route. Pinned by `ai-server/tests/test_chat_sse_route_stays_dead.py`; wiring it or deleting it is an owner decision (`DELEGATION.md` §4 item 23).
+**Receive**: there is **no** SSE channel — `GET /api/chat/events` was **deleted 2026-10-08** (`DELEGATION.md` §4 item 23). It was registered and returned `text/event-stream`, but it was **dead on both ends** (measured 2026-10-03). **No producer published to it** — the client queue was only ever created and removed (`dashboard_legacy.py`), and nothing called `put` anywhere in that file, so a connected client received **only** the 15-second `heartbeat` frames. **And no client subscribed** — the path string occurred in exactly one file (its own definition). The repo's only `EventSource` targets a **different** channel (`/api/ui/stream`, `web-ui/src/api/useOverviewStream.ts:24`), so "the UI streams" is satisfied by an unrelated route. Pinned by `ai-server/tests/test_chat_sse_surface_is_gone.py`.
 
 The chat system supports **recursive multi-step tool calling** (up to **15** rounds — the `call_llm_with_tools` default; `LLMSettings.max_tool_rounds = 5` is *displayed* in the settings UI but never passed by any caller):
 1. LLM receives user message and available tools (from CapabilityCatalog)

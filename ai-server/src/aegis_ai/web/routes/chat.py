@@ -3,13 +3,12 @@
 from __future__ import annotations
 
 import logging
-import queue
 import threading
 import time
 import uuid
 from typing import Any
 
-from flask import Blueprint, Response, g, jsonify, request
+from flask import Blueprint, g, jsonify, request
 
 from aegis_ai.web.chat_history import ChatHistoryStore
 from aegis_ai.web.dashboard_routes import _build_chat_system_prompt, _call_llm_with_runtime
@@ -157,24 +156,6 @@ def init_chat_routes(owner: Any) -> None:
     def chat_clear():
         ChatHistoryStore(owner._chat_history_path).clear()
         return jsonify({"status": "cleared"})
-
-    @bp.route("/api/chat/events")
-    def chat_events():
-        client_id = f"chat_{uuid.uuid4().hex[:8]}"
-
-        def generate():
-            q = owner._register_chat_client(client_id)
-            try:
-                while True:
-                    try:
-                        data = q.get(timeout=15)
-                        yield f"data: {data}\n\n"
-                    except queue.Empty:
-                        yield 'data: {"type":"heartbeat"}\n\n'
-            finally:
-                owner._unregister_chat_client(client_id)
-
-        return Response(generate(), mimetype="text/event-stream")
 
     @bp.route("/api/chat/send", methods=["POST"])
     def chat_send():
