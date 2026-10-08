@@ -468,10 +468,12 @@ Measured 2026-10-01 — `ai-server`, full suite:
 > the total was 1972: the later edits moved the passed/deselected numbers and left this derived one
 > behind, the same "only one of the copies moved" shape).
 >
-> The **+5** on top of 1960 is `tests/test_egress_grant_source_is_unwired.py` — the recorded-grant
-> path (`ConfirmationGrantSource`) is implemented and consulted on every `check()`, but no `src/`
-> module constructs one and the composition root passes no `permission_source`, so it is **inert in
-> the running system** (`DELEGATION.md` §4 item 22, `PROJECT_STATUS_REVIEW.md` §3.2). A further
+> The **+5** on top of 1960 was `tests/test_egress_grant_source_is_unwired.py` — the recorded-grant
+> path (`ConfirmationGrantSource`) was implemented and consulted on every `check()`, but no `src/`
+> module constructed one and the composition root passed no `permission_source`, so it was **inert
+> in the running system** (`DELEGATION.md` §4 item 22, `PROJECT_STATUS_REVIEW.md` §3.2). **Wired
+> 2026-10-08** — the owner took item 22 — and the pin is now
+> `tests/test_egress_grant_source_is_wired.py`. A further
 > **+5** is `tests/test_chat_sse_route_stays_dead.py` — `GET /api/chat/events` is dead on **both**
 > ends, which is two independent facts (`DELEGATION.md` §4 item 23). And **+2** is
 > `tests/test_documented_routes_are_registered.py` — the route tables in `docs/approval-ui.md`

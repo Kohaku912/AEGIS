@@ -63,6 +63,7 @@ def _harden_stdout() -> None:
 EGRESS_TESTS = (
     "tests/test_egress_gate.py",
     "tests/test_egress_permission.py",
+    "tests/test_egress_grant_source_is_wired.py",
     "tests/test_egress_closure.py",
     "tests/test_egress_reliability.py",
     "tests/test_ineffective_flags.py",

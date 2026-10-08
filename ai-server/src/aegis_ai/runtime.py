@@ -1374,12 +1374,25 @@ def _build_runtime(config: Config) -> AegisRuntime:
     from aegis_ai.operations import OperationStore
 
     operation_store = OperationStore(data_dir=data_dir)
-    # Phase 5a: the confirmation store is process-wide because three readers share it —
-    # the `/api/approvals/*` endpoints, the resource/overview projections, and the
-    # LLM-callable capability AEGIS uses to raise a question on its own initiative.
+    # Phase 5a: the confirmation store is process-wide because the readers that need it
+    # are built at different points — the `/api/approvals/*` endpoints, the
+    # resource/overview projections, the LLM-callable capability AEGIS uses to raise a
+    # question on its own initiative, the autonomous loop (which reads rejections back),
+    # and the egress gate's recorded-grant path attached just below.
     from aegis_ai.confirmation import ConfirmationStore
 
     confirmation_store = ConfirmationStore(data_dir)
+
+    # The re-scoped constraint's second permission path (2026-09-30 owner decision,
+    # wired 2026-10-08): a permission the user gave about one specific (host, purpose),
+    # recorded as an ordinary confirmation. The gate is configured *above*, before
+    # anything that could reach the network; the store it has to read is built here — so
+    # the source is attached once both exist. Read-only by construction
+    # (`ConfirmationGrantSource` calls only `store.all`): this cannot make the gate ask,
+    # it can only let through a destination the user has already permitted.
+    from aegis_ai.egress import ConfirmationGrantSource
+
+    egress_gate.set_permission_source(ConfirmationGrantSource(confirmation_store))
     tool_broker.set_continuation_manager(continuation_manager)
 
     context_builder._situation_model = situation_model

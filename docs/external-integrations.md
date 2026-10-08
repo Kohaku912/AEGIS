@@ -50,7 +50,7 @@ Two paths, both evaluated by the gate. Neither is checked inside the channel.
    flag and the allowlist entry), **not** for the master switch: the master switch bounds every
    external request, so a grant with the switch off is still refused.
 
-   ⚠️ **Measured 2026-10-03: path 2 is not wired in the running system.** `ConfirmationGrantSource` is implemented and the gate does consult it on every `check()`, but no `src/` module ever constructs one and the composition root supplies no `permission_source`, so path 2 never fires today — **path 1 is the only path that can permit a send**. See [`permissions.md`](permissions.md).
+   ✅ **Wired 2026-10-08.** `ConfirmationGrantSource` is implemented, the gate consults it on every `check()`, and `runtime._build_runtime` attaches one over its own confirmation store — so **both paths can permit a send**. Before that wiring (measured 2026-10-03) no `src/` module constructed one and the composition root supplied no `permission_source`, so path 2 was inert and a recorded grant changed nothing. See [`permissions.md`](permissions.md).
 
 A destination that is *local* by the gate's own definition — loopback, RFC1918, a single-label
 hostname, `.local`, a `unix:` path — needs no permission. This is the constraint working as
