@@ -78,8 +78,12 @@ Forbidden operations remain denied regardless of settings.
 | Setting | Default | Description |
 |---------|---------|-------------|
 | `enabled` | true | Master switch for the intake filter |
-| `requires_agent_threshold` | 0.5 | `requires_agent_score` at or above this value takes the Agent-delegate path |
-| `fallback_requires_agent` | false | Value used when the LLM call fails; `false` is the safe side (no agent) |
+
+`requires_agent_threshold` and `fallback_requires_agent` were **retired 2026-10-08**:
+deleting the v1 intake path (`DELEGATION.md` §4 item 47) left them with no reader at all,
+and a settings control for a field nothing reads is itself a defect
+(`tests/test_settings_ui_matches_the_schema.py`). Their names are pinned by
+`tests/test_settings_debt_stays_retired.py`.
 
 ### 6. Memory Settings
 

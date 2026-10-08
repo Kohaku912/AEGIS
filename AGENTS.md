@@ -1219,7 +1219,15 @@ Measured 2026-10-01 — `ai-server`, full suite:
 > `IntakeDeduplicator` are re-exported by `aegis_ai.intake` and built **nowhere** in `src/`, while `L1Router`
 > (`runtime.py:1272`) is the live control. Both pins also assert the *other* half -- the classes still exist
 > and are still exported, and the keys the config requires are still declared -- so a rename or deletion comes
-> back here instead of making the absence assertion vacuously true. Recorded as §4 items 46-47.
+
+>
+> **Update (2026-10-08, cycle 102):** the owner took §4 item 47's branch ①, so the v1 intake
+> path -- `IntakeRouter` / `IntakeClassifier` / `IntakeDeduplicator` and `intake/models.py` -- was
+> **deleted**, and the pin above was **inverted** into `tests/test_intake_v1_surface_is_gone.py`
+> (**5 cases, mutation 5/5 + a negative control**) rather than kept: its "the classes still exist
+> and are still exported" half is false by construction once the classes are gone. The live control
+> is now `runtime.py:1273` -- the `1272` written above was correct when cycle 67 renumbered it and
+> drifted by +1 in cycle 77, which is exactly the rot this block is dated against.
 
 > **Two recorded asymmetries are now pinned: an unguarded `status_manager` read, and L1 running inline where L2 does not (2026-10-05): `2277 passed / 8 skipped`**
 >

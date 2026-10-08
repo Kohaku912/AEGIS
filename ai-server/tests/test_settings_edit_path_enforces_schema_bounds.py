@@ -92,7 +92,6 @@ _RECORDED_ENFORCED: frozenset[str] = frozenset(
         "autonomous.max_tasks_per_cycle",
         "autonomous.min_llm_interval_seconds",
         "agents.timeout_seconds",
-        "intake.requires_agent_threshold",
         "memory.episodic_retention_days",
         "privacy.screenshot_retention_hours",
         "privacy.notification_text_retention_hours",
@@ -102,10 +101,14 @@ _RECORDED_ENFORCED: frozenset[str] = frozenset(
         "voice.voice_data_retention_hours",
     }
 )
-#: **27 → 15 on 2026-09-30.** B-6 deleted the 22 unread settings fields; 12 of them
-#: carried bounds and are gone from this set. The 12 are pinned as *retired* by
-#: ``tests/test_settings_debt_stays_retired.py``, so this set shrinking cannot be
-#: mistaken for a field that stopped being bounded.
+#: **27 → 15 on 2026-09-30, then 15 → 14 on 2026-10-08.** B-6 deleted the 22 unread
+#: settings fields; 12 of them carried bounds and are gone from this set. The 12 are
+#: pinned as *retired* by ``tests/test_settings_debt_stays_retired.py``, so this set
+#: shrinking cannot be mistaken for a field that stopped being bounded. The fourteenth
+#: left the same way: deleting the v1 intake path (§4 item 47) removed
+#: `intake.requires_agent_threshold`'s only reader, and an unread field cannot be merely
+#: *recorded* instead — ``test_settings_ui_matches_the_schema.py`` forbids a settings
+#: control for a field nothing reads — so it was retired alongside its sibling.
 
 #: The bounds `validate_settings_change` re-checks by hand. Recorded so that *extending* the
 #: validator (a plausible but rejected repair) turns this file red instead of making it stale.
@@ -230,8 +233,9 @@ def _observe(tmp_path: Path) -> dict[str, str]:
 
 def test_the_probe_values_are_actually_rejected_by_the_schema() -> None:
     """A probe the schema *accepts* would prove nothing about the edit path."""
-    # 15 measured after B-6 deleted 12 of the 27 bounded fields (2026-09-30).
-    assert len(PROBES) >= 15, f"only {len(PROBES)} constrained fields were discovered"
+    # 14 measured: B-6 deleted 12 of the 27 bounded fields (2026-09-30), and retiring
+    # the bounded intake field on 2026-10-08 took the thirteenth.
+    assert len(PROBES) >= 14, f"only {len(PROBES)} constrained fields were discovered"
     not_rejected: list[str] = []
     for key, (section, name, value) in PROBES.items():
         try:

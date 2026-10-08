@@ -153,10 +153,14 @@ def test_no_handler_skips_a_keyerror_in_silence() -> None:
 
 
 def test_the_census_is_not_vacuous() -> None:
-    """Floors are measurements, not round numbers (measured 2026-10-06: 406 files / 1121 handlers)."""
+    """Floors are measurements, not round numbers.
+
+    Re-measured 2026-10-08: 399 files / 1117 handlers (was 406 / 1121 on
+    2026-10-06 -- the fall is the dead surfaces deleted by cycles 101-102).
+    """
     files = _modules()
     total = sum(len(_handlers(ast.parse(p.read_text(encoding="utf-8")))) for p in files)
-    assert len(files) >= 400, f"only {len(files)} modules scanned; the walk is not reaching src/"
+    assert len(files) >= 390, f"only {len(files)} modules scanned; the walk is not reaching src/"
     assert total >= 1100, f"only {total} handlers scanned; the walk is not reaching the handlers"
 
 

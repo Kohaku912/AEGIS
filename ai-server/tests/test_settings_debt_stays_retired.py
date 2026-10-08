@@ -1,8 +1,13 @@
-"""The B-6 settings debt stays deleted: 22 unread fields must not come back.
+"""The settings debt stays deleted: 24 unread fields must not come back.
 
 B-6 was the register row for the settings surface's **unread fields** — fields that are
 declared, rendered by the dashboard, and read by nothing. On 2026-09-30 the owner resolved
 the row by **deleting** them rather than wiring them, so this file records the removal.
+
+Two more joined the set on 2026-10-08: deleting the v1 intake path (§4 item 47) left
+`IntakeSettings.requires_agent_threshold` and `IntakeSettings.fallback_requires_agent` with
+no reader, and an unread field cannot be merely *recorded* — the settings page must not
+render a control for one (`test_settings_ui_matches_the_schema.py`) — so they were retired.
 
 Why a deletion needs a pin at all: the detector (``test_ineffective_flags.py``) catches a
 *newly added* dead field, and it would catch one of these names if it came back **without**
@@ -23,7 +28,7 @@ Four directions, and a positive control that keeps the first from passing vacuou
   either one is visible);
 * the shipped ``config/settings.json`` carries none of their keys;
 * and — the **general** form, added 2026-10-01 — no key in the shipped config is undeclared
-  by a settings model. The first three cover only the 22 *named* fields, which is exactly why
+  by a settings model. The first three cover only the 24 *named* fields, which is exactly why
   the dead ``autonomy`` block (the ``AutonomyProfile`` residue P1-3 left behind, eleven keys
   nothing read) survived them;
 * ``test_the_scan_can_see_a_live_field`` proves the scan works by finding a field that is
@@ -41,8 +46,9 @@ _SERVER = Path(__file__).resolve().parents[1]
 _SRC = _SERVER / "src"
 _SHIPPED_CONFIG = _SERVER / "config" / "settings.json"
 
-#: The 22 fields B-6 deleted, as ``Model.field``. Recorded by class name because that is
-#: how the detector's map named them, and so the model check below can compare directly.
+#: The 24 recorded fields (22 from B-6, 2 retired 2026-10-08), as ``Model.field``.
+#: Recorded by class name because that is how the detector's map named them, and so the
+#: model check below can compare directly.
 _RETIRED_FIELDS: frozenset[str] = frozenset(
     {
         # 10 x AutonomousSettings — the autonomous loop runs on hardcoded budgets.
@@ -64,6 +70,13 @@ _RETIRED_FIELDS: frozenset[str] = frozenset(
         "IntakeSettings.dedup_novelty_threshold",
         "IntakeSettings.dedup_window_size",
         "IntakeSettings.max_importance",
+        # 2 more x IntakeSettings — retired 2026-10-08, when §4 item 47 deleted the v1
+        # intake path and left these two with no reader at all. Unlike the four above
+        # they were still declared until then; the settings pins forced the retirement
+        # (an unread field cannot be merely recorded, because the settings page must not
+        # render a control for one).
+        "IntakeSettings.fallback_requires_agent",
+        "IntakeSettings.requires_agent_threshold",
         # 4 x MemorySettings — the memory subsystem does not consult settings for these.
         "MemorySettings.procedural_learning_enabled",
         "MemorySettings.reflection_enabled",
@@ -137,7 +150,7 @@ def _shipped_keys() -> set[str]:
 
 
 def test_no_retired_field_name_survives_under_src() -> None:
-    """None of the 22 names appears anywhere under ``src/`` — code or prose.
+    """None of the 24 names appears anywhere under ``src/`` — code or prose.
 
     Equality against the empty set, in the shape the other ``*_stays_retired`` pins use.
     The expected side is empty, so ``test_the_scan_can_see_a_live_field`` below is what
@@ -250,7 +263,7 @@ def test_every_shipped_key_is_a_live_settings_field() -> None:
 
     This is the general form of the B-6 defect, and the assertion the docstring at the top
     of this file has claimed all along ("every key it carries must be live"). Until
-    2026-10-01 only the 22 *named* retired keys were checked, so a dead block that was never
+    2026-10-01 only the 24 *named* retired keys were checked, so a dead block that was never
     one of those names survived: ``autonomy``, the residue of the ``AutonomyProfile`` that
     P1-3 deleted. Eleven keys nothing reads — and several spelled out approval
     requirements (``external_send_requires_approval``, ``payment_requires_approval``,

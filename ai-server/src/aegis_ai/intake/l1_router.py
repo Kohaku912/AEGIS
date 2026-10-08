@@ -2,7 +2,8 @@
 
 instruction.md v3 で定義された L1 (常時稼働 / 知覚 / ルーティング) 層。
 
-`IntakeRouter` の上に位置し、L1 LLM に対して event を JSON 構造化出力で
+旧 `IntakeRouter` を置き換える (その v1 intake 経路は 2026-10-08 に削除 —
+DELEGATION.md §4 item 47)。L1 LLM に対して event を JSON 構造化出力で
 解釈させる。`required_intelligence == HIGH` の場合は L2 への escalation を
 生成する。
 

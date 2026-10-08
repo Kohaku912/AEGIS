@@ -99,23 +99,19 @@ class IntakeSettings(BaseModel):
 
     注: この節の値は live な経路からは読まれない — 実行時に構築されるのは
     `L1Router`/`L1Executor` で、どちらも設定を取らない。
+
+    2026-10-08 に、v1 intake 経路の**有界な 2 フィールドを退役**させた: DELEGATION.md §4
+    item 47 で `intake/` の v1 経路を削除した結果、両者の唯一の読み手が消えたため。退役した
+    名前は `tests/test_settings_debt_stays_retired.py` が固定する（`src/` の散文に名前を
+    残すこと自体をそのピンが禁じるので、ここには書かない）。「読まれない」と記録するだけの
+    道は、設定ページが読まれない項目に操作子を出すことを禁じる
+    `test_settings_ui_matches_the_schema.py` が塞いでいる。
     """
 
     enabled: bool = Field(
         default=True,
         description="Master switch for the intake filter. When False, intake is skipped and "
         "all observations flow through the existing autonomous loop.",
-    )
-    requires_agent_threshold: float = Field(
-        default=0.5,
-        ge=0.0,
-        le=1.0,
-        description="intake.classifier() が返した `requires_agent_score` がこの値以上のときだけ "
-        "Agent delegate 経路に進む。それ以下は LLMTaskInterpreter 既存経路。",
-    )
-    fallback_requires_agent: bool = Field(
-        default=False,
-        description="LLM 呼び出しに失敗したときのフォールバック値。False にすると安全側 (Agent 起動しない)。",
     )
 
 
