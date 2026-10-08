@@ -1105,6 +1105,25 @@ Measured 2026-10-01 — `ai-server`, full suite:
 > unreadable source looks like an empty source" family, one level below the naming already pinned by
 > `test_audit_failures_are_named.py`. **Recorded, not fixed** (removing the fallback, carrying its cause, or wiring
 > rotation are all behaviour changes) -> DELEGATION.md section 4 item 77. Pin: 9 cases, mutation **6/6** + control.
+> **⚠️ 2026-10-09 (cycle 111): the Testing Guide's own commands did not run -- the interpreter path was wrong in three places.**
+> `docs/testing.md` and `README.md` both said `cd ai-server` then `.\.venv\Scripts\python.exe`, but `ai-server/.venv`
+> **does not exist**: the venv is at the **repository root** (`AEGIS/.venv`), one editable env for every server
+> (`__editable__.aegis_ai_server-0.1.0.pth` and `__editable__.aegis_browser_server-0.1.0.pth` in its `site-packages`).
+> The gate (`scripts/test-ai-server.ps1:38`) and `docs/egress-gate.md` (`../.venv`) already used the root; the two
+> guides were the outliers. Both now say `..\.venv`.
+> ⚠️ **The line under a warning against hand-maintained numbers was a hand-maintained number**: the section that says
+> "enumerate the directory rather than trusting a hand-maintained list" carried `# 126 files, measured 2026-10-02`;
+> measured today it is **213** (+87 in seven days). The count is removed, not refreshed.
+> ⚠️ **The "CI pipeline (planned)" section named no gate**: it listed `pytest` / `ruff check .` / `ruff format --check .`
+> / `./gradlew test`, omitting the egress floor and the mutation check -- the two steps that guard the single
+> constraint. There is no hosted CI (no `.github/workflows/`); the gate is `scripts/test-ai-server.ps1`, delegated to by
+> `test-all-suites.ps1`, and it scopes ruff to `--select F821`. The section now names the runner. -> section 4 item 78.
+> ⚠️ **Running the suite with the root `.venv` reddens one test, and it is not the edit**: that venv's two broken
+> `.pth` files (`distutils-precedence.pth` -> `_distutils_hack`, `pywin32.pth` -> `pywin32_bootstrap`) print two
+> tracebacks to **every** python start, subprocesses included, so `tests/test_a_failing_sub_audit_check_carries_its_cause.py`
+> -- whose premise is "a failing sub-audit leaves stderr empty" -- fails there (**1 failed, 12 passed**) and passes
+> under the AEGIS venv (**13 passed**). The gate uses the root `.venv`, so it is **red on this machine**. -> section 4 item 79.
+> Test delta **0** (documents only), so every live count copy is unchanged.
 
 > **`AutonomousLoop`'s four swallowed failures now name themselves — one of them was feeding the planner a false statement (2026-10-04): `2209 passed / 8 skipped`**
 >

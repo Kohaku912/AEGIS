@@ -29,9 +29,9 @@ docker compose up -d ai-server browser-server room-server
 # 4. Start host-native PC server separately when PC control is needed
 # PC Server listens on 50052; containers reach it via host.docker.internal.
 
-# 5. Run targeted tests with a local basetemp
+# 5. Run targeted tests with a local basetemp (the venv is at the repo root)
 cd ai-server
-.\.venv\Scripts\python.exe -m pytest --basetemp .tmp-pytest -p no:cacheprovider
+..\.venv\Scripts\python.exe -m pytest --basetemp .tmp-pytest -p no:cacheprovider
 ```
 
 ## Status

@@ -34,7 +34,7 @@ The authoritative inventory is the test directory itself. Enumerate it rather th
 hand-maintained list:
 
 ```bash
-cd ai-server && ls tests/*.py | wc -l     # 126 files, measured 2026-10-02
+cd ai-server && ls tests/*.py | wc -l     # the count is whatever this prints -- never record it here
 ```
 
 > **Corrected 2026-10-02.** This section previously listed **16 test filenames that exist nowhere in
@@ -43,6 +43,11 @@ cd ai-server && ls tests/*.py | wc -l     # 126 files, measured 2026-10-02
 > because no `TriggerEngine` is constructed. Both were measured, not inferred; see
 > [`improvement-review.md`](improvement-review.md) §G-3 and §M-1. Naming a fresh list here would
 > re-introduce the same rot, so the directory is the source of truth.
+>
+> **Corrected again 2026-10-09.** The *count* under that warning had rotted too: it read
+> `126 files, measured 2026-10-02` while the directory held **213**. A hand-maintained number
+> sat in a section that warns against hand-maintained numbers. It is now a command with no
+> count beside it.
 
 ### E2E Lifecycle Tests (Runtime Stabilization)
 
@@ -81,16 +86,29 @@ markers = [
 
 The `egress` marker is counted by `--require-egress-tests` (see `tests/conftest.py`): if the egress
 suite ever shrinks below its floor the run fails, rather than silently passing with no coverage.
-Measured 2026-10-02, only `egress` and `android_local` (one module) are carried by tests —
+Re-measured 2026-10-09 — still true: only `egress` and `android_local` (one module) are carried by tests —
 `pc_local`, `room_local` and `e2e` are registered but nothing uses them, so `-m e2e` selects
 nothing.
 
-### CI pipeline (planned)
+### CI pipeline
 
-1. `pytest` — all tests except `*_local` markers
-2. `ruff check .` — lint
-3. `ruff format --check .` — format check
-4. Kotlin: `./gradlew test` — Android Server unit tests
+The gate is `scripts/test-ai-server.ps1`, delegated to by `scripts/test-all-suites.ps1` — there is
+no hosted CI service (the repository has no `.github/workflows/`). It runs four mandatory checks,
+in this order:
+
+1. `ruff check src tests --select F821` — undefined names, scoped deliberately: the full rule set
+   is not clean (see `DELEGATION.md` §4 item 7).
+2. the full ai-server suite.
+3. the egress suite with `--require-egress-tests=<floor>` — the constraint's own gate, so a marker
+   rename cannot leave the selection silently empty.
+4. the mutation check (`scripts/verify_egress_tests_catch_regression.py`) — the egress suite must
+   *fail* when the gate is deliberately disabled.
+
+> **Corrected 2026-10-09.** This section previously listed a *planned* pipeline — `pytest` /
+> `ruff check .` / `ruff format --check .` / `./gradlew test` — that named neither the egress floor
+> nor the mutation check, the two steps that guard the single constraint, and listed checks that
+> would fail today (the full `ruff` rule set is not clean, and formatting is declared but never
+> enforced — `DELEGATION.md` §4 item 76). The gate that actually runs is the runner above.
 
 ## Test Coverage Targets
 
@@ -137,19 +155,23 @@ def _setup_full_stack():
 
 ## Current Test Commands
 
+The venv is at the **repository root** (`.venv` — one editable env for every server; see
+`scripts/test-ai-server.ps1`), so from `ai-server/` the interpreter path is `..\.venv`, not
+`.\.venv`.
+
 Use a workspace basetemp on Windows to avoid temp permission problems:
 
 ```powershell
 cd ai-server
-.\.venv\Scripts\python.exe -m pytest --basetemp .tmp-pytest -p no:cacheprovider
+..\.venv\Scripts\python.exe -m pytest --basetemp .tmp-pytest -p no:cacheprovider
 ```
 
 Focused checks for audit/chat/autonomous changes:
 
 ```powershell
 cd ai-server
-.\.venv\Scripts\python.exe -m pytest --basetemp .tmp-pytest-audit -p no:cacheprovider tests\test_dashboard_routes.py tests\test_chat_tools.py tests\test_forced_gate_stays_retired.py tests\test_confirmation_endpoints.py tests\test_autonomous_loop_behavior.py
-.\.venv\Scripts\python.exe -m pytest --basetemp .tmp-pytest-audit -p no:cacheprovider tests\test_runtime_singleton.py tests\test_e2e_lifecycle.py
+..\.venv\Scripts\python.exe -m pytest --basetemp .tmp-pytest-audit -p no:cacheprovider tests\test_dashboard_routes.py tests\test_chat_tools.py tests\test_forced_gate_stays_retired.py tests\test_confirmation_endpoints.py tests\test_autonomous_loop_behavior.py
+..\.venv\Scripts\python.exe -m pytest --basetemp .tmp-pytest-audit -p no:cacheprovider tests\test_runtime_singleton.py tests\test_e2e_lifecycle.py
 ```
 
 Generated pytest directories such as `.pytest-tmp/` and `.tmp-pytest-*` are not source files and should not be committed.
