@@ -1093,6 +1093,18 @@ Measured 2026-10-01 — `ai-server`, full suite:
 > formatting; same shape as cycle 107's `per-file-ignores` (a declared property with no validator). A single-file
 > `format --check` says nothing about the repository: extracting `git show HEAD:...` **outside** the repo makes ruff
 > use its default config (line-length 88) and answer "already formatted" -- pass `--stdin-filename` instead. -> item 76.
+> **⚠️ 2026-10-09 (cycle 110): the audit JSONL is a read-only legacy source, and two live reads fall back to it.**
+> `AuditLog` carries `_path` (JSONL, default `data/audit.jsonl`) and `_db_path` (SQLite). Writes go to **SQLite**; the
+> JSONL is read **once** by `_migrate_jsonl_if_needed` and is **never written** by anything under `src/` (`ast`).
+> `AuditManager._audit_path` (`audit_manager.py:69`) points at it and uses it in three places: (1) `rotate()`'s **only**
+> source, so `_read_tail(10000)` always returns fewer than 10000 entries and `rotate()` **always returns 0** -- and
+> `rotate` has **0 call sites** under `src/`, so it is unreachable (a future wiring would add a silent no-op);
+> (2) a **fallback** in `_read_recent_entries`; (3) a **fallback** in `_read_recent_entries_filtered`.
+> On the shipped deployment `data/audit.jsonl` does not exist, so those fallbacks return `[]`: a SQLite failure makes
+> a dashboard read an **empty** audit history, indistinguishable from "there are no entries". That is the "an
+> unreadable source looks like an empty source" family, one level below the naming already pinned by
+> `test_audit_failures_are_named.py`. **Recorded, not fixed** (removing the fallback, carrying its cause, or wiring
+> rotation are all behaviour changes) -> DELEGATION.md section 4 item 77. Pin: 9 cases, mutation **6/6** + control.
 
 > **`AutonomousLoop`'s four swallowed failures now name themselves — one of them was feeding the planner a false statement (2026-10-04): `2209 passed / 8 skipped`**
 >
@@ -1617,7 +1629,7 @@ Measured 2026-10-01 — `ai-server`, full suite:
   `$LASTEXITCODE` = **0**), and both `.ps1` gates ran end-to-end — so treat this as a *fallback*
   diagnosis, not the expected state.
 - **Egress regression suite**: **319 passed / 1 skipped** (320 tests carry the `egress` marker,
-  2473 deselected). CI enforces a floor of 160 (`--require-egress-tests=160`) **and** mutation-proves
+  2482 deselected). CI enforces a floor of 160 (`--require-egress-tests=160`) **and** mutation-proves
   the gate: breaking it yields failures, restoring it yields 319 passes. The mutation figure is
   **78 failures** (measured 2026-10-06 on the 320-marker baseline; it was 76 at the 318-marker baseline, 74 at the 2026-10-01
   baseline of 305 and 62 at the 268-marker baseline — **re-run it before quoting**, the number is a
