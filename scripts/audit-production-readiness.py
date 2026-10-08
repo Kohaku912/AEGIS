@@ -142,6 +142,34 @@ def _result_cause(match: dict[str, object], status: str) -> str:
     return f"E2E result status is {status} and carries no error message"
 
 
+def _process_cause(result: dict[str, object]) -> str:
+    """Why a spawned audit is not a pass -- its stderr, else its stdout.
+
+    ``run_command`` captures both streams separately, each bounded to its last 4000
+    chars. A failing audit writes its one-line reason to *stdout* and exits nonzero
+    (measured 2026-10-07: ``audit-mocks.py`` -> ``status=fail mock findings=1611
+    production_blockers=2 files_scanned=3915 error=production_blockers=2``), leaving
+    ``stderr`` empty -- so recording ``stderr`` alone gave the readiness summary four
+    ``fail`` checks with **no cause**. ``stderr`` still wins when it is populated,
+    because that is where an unexpected traceback lands.
+
+    ``_result_cause`` reads an E2E *record* (``error`` / nested ``checks``); this reads
+    a *process* result. Two helpers so that neither shape's caller has to know the
+    other's fallbacks -- and so a passing check is silent either way.
+
+    ``audit-ui-completeness.py`` is the one audit that prints only its output path on
+    stdout, so for it the recorded cause is that path -- a pointer at the report rather
+    than a reason, but no longer silence.
+    """
+    if str(result.get("status") or "fail") == "pass":
+        return ""
+    for key in ("stderr", "stdout"):
+        value = str(result.get(key) or "").strip()
+        if value:
+            return value
+    return "audit exited nonzero with no output on stdout or stderr"
+
+
 def _e2e_check(report_dir: Path, check_id: str, name: str, required: bool = True) -> dict[str, object]:
     # The caller passes the audit's ``--report-dir`` (default ``data/reports``), so the
     # E2E tree is ``<report_dir>/e2e/latest``. This used to be hard-coded to
@@ -575,7 +603,7 @@ def main() -> int:
             "status": mock["status"],
             "duration_ms": mock["duration_ms"],
             "evidence": [str(report_dir / "production_blockers.json")],
-            "error": mock["stderr"] if mock["status"] != "pass" else "",
+            "error": _process_cause(mock),
             "report_path": str(report_dir / "production_blockers.json"),
         }
     )
@@ -589,7 +617,7 @@ def main() -> int:
             "status": coverage["status"],
             "duration_ms": coverage["duration_ms"],
             "evidence": [str(report_dir / "capability_coverage.json")],
-            "error": coverage["stderr"] if coverage["status"] != "pass" else "",
+            "error": _process_cause(coverage),
             "report_path": str(report_dir / "capability_coverage.json"),
         }
     )
@@ -601,7 +629,7 @@ def main() -> int:
             "status": dead["status"],
             "duration_ms": dead["duration_ms"],
             "evidence": [str(report_dir / "dead_code_report.json")],
-            "error": dead["stderr"] if dead["status"] != "pass" else "",
+            "error": _process_cause(dead),
             "report_path": str(report_dir / "dead_code_report.json"),
         }
     )
@@ -613,7 +641,7 @@ def main() -> int:
             "status": secret["status"],
             "duration_ms": secret["duration_ms"],
             "evidence": [str(report_dir / "secret_inventory.json")],
-            "error": secret["stderr"] if secret["status"] != "pass" else "",
+            "error": _process_cause(secret),
             "report_path": str(report_dir / "secret_inventory.json"),
         }
     )
@@ -625,7 +653,7 @@ def main() -> int:
             "status": ui["status"],
             "duration_ms": ui["duration_ms"],
             "evidence": [str(report_dir / "ui_completeness.json")],
-            "error": ui["stderr"] if ui["status"] != "pass" else "",
+            "error": _process_cause(ui),
             "report_path": str(report_dir / "ui_completeness.json"),
         }
     )
@@ -637,7 +665,7 @@ def main() -> int:
             "status": v1["status"],
             "duration_ms": v1["duration_ms"],
             "evidence": [str(report_dir / "v1_completion.json")],
-            "error": v1["stderr"] if v1["status"] != "pass" else "",
+            "error": _process_cause(v1),
             "report_path": str(report_dir / "v1_completion.json"),
         }
     )

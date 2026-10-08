@@ -15,10 +15,14 @@ The fix adds ``_result_cause(match, status)``: the top-level message when presen
 failing nested checks (bounded), else the status itself -- a non-pass result never returns
 ``""``. Passing results still return ``""``, so every passing check's record is unchanged.
 
-The E2E checks are the ones with no report-reading sibling to carry the cause: the six
-sub-audits each have a ``*_report`` check beside them (``ui_completeness`` /
-``ui_completeness_report``), so their exit-code check can stay silent without losing
-information. ``manager_e2e`` has no such sibling.
+The E2E checks are the ones with no report-reading sibling beside them. The six sub-audits
+each *do* have a ``*_report`` sibling, and this pin originally justified their silence with
+it -- but that sibling does **not** carry the *cause*: ``_report_pass`` returns
+``f"Report status is {status}"``, which only repeats the status the exit-code check already
+gave. Measured 2026-10-08 (cycle 93): the four failing sub-audits reached the summary as
+``fail`` with ``error: ""`` for exactly that reason, so cycle 93 closed it with
+``_process_cause`` (see ``test_a_failing_sub_audit_check_carries_its_cause.py``).
+``manager_e2e`` has no sibling at all.
 """
 
 from __future__ import annotations
