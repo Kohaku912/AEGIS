@@ -420,6 +420,59 @@ def _secrets_check(report_dir: Path) -> dict[str, object]:
     return _check("secrets_not_baked", "Secrets not baked into Git/static assets", "pass", [_display_path(report)])
 
 
+def _summarise(value: object) -> str:
+    """A compact one-line rendering of a report value.
+
+    A failing check in ``ui_completeness.json`` names its cause as ``missing`` -- a list of
+    every file it could not find (17 of them on the live report). Dumping that whole list into
+    a summary cell is noise, so a list becomes its first three items plus a count. Anything
+    else renders as ``str``.
+    """
+    if isinstance(value, list):
+        head = ", ".join(str(item) for item in value[:3])
+        extra = len(value) - 3
+        return f"[{head}{f', (+{extra} more)' if extra > 0 else ''}]"
+    return str(value)
+
+
+def _report_cause(data: dict[str, object], status: str) -> str:
+    """Why a sub-audit's report is not a pass -- its own message, or its failing checks.
+
+    ``_report_pass`` recorded only ``f"Report status is {status}"``, which repeats the status
+    the reader already had and names no cause. Measured 2026-10-08 (cycle 94): of the four
+    reports that fail, two carry a top-level reason (``mock_inventory.json`` ->
+    ``error: production_blockers=2``, ``capability_coverage.json`` -> ``error: failing=1``)
+    and two carry it one level down in their ``checks`` (``v1_completion.json`` ->
+    ``v1_checklist_closed: open=5 partial=5 blocker=0``; ``ui_completeness.json`` ->
+    ``web-dashboard: missing [...]``). The second shape is the defect cycles 92 and 93 closed
+    for the E2E record and for a process result -- here it is the report.
+
+    A failing check names its cause in ``error`` (``v1_completion``) or ``missing``
+    (``ui_completeness``); the list of reasons is bounded to five with ``(+N more)`` so a
+    pathological report cannot flood the summary. A ``pass`` never reaches here.
+
+    Deliberately not merged with ``_result_cause``: the two read **different record schemas**
+    -- an E2E runner result (``error`` on each nested check) versus a sub-audit report
+    (``missing`` as well) -- and each names its own noun in the fallback sentence.
+    """
+    base = f"Report status is {status}"
+    detail = str(data.get("error") or data.get("reason") or "").strip()
+    if not detail:
+        nested = data.get("checks")
+        if isinstance(nested, list):
+            reasons = [
+                f"{c.get('id') or c.get('name') or '?'}: "
+                f"{_summarise(c.get('error') or c.get('missing') or c.get('status') or 'fail')}"
+                for c in nested
+                if isinstance(c, dict) and str(c.get("status") or "fail") != "pass"
+            ]
+            if reasons:
+                head = reasons[:5]
+                extra = len(reasons) - len(head)
+                detail = "; ".join(head) + (f" (+{extra} more)" if extra else "")
+    return f"{base}: {detail}" if detail else base
+
+
 def _report_pass(
     path: Path,
     check_id: str,
@@ -454,7 +507,7 @@ def _report_pass(
         return _check(check_id, name, "fail", [str(path)], f"Missing or unreadable {path}")
     status = str(data.get("status") or data.get("overall_status") or "").lower()
     if status and status != "pass":
-        return _check(check_id, name, "fail", [str(path)], f"Report status is {status}", str(path))
+        return _check(check_id, name, "fail", [str(path)], _report_cause(data, status), str(path))
     for field in required_fields or []:
         if not data.get(field):
             return _check(check_id, name, "fail", [str(path)], f"Report missing measured field: {field}", str(path))
