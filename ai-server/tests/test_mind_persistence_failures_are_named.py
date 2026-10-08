@@ -1,6 +1,6 @@
 """The `mind/` persistence family names its read failures.
 
-Eight modules in `aegis_ai/mind/` persist to JSONL, and each had an identical
+Six modules in `aegis_ai/mind/` persist to JSONL, and each had an identical
 `_load` whose `except (json.JSONDecodeError, OSError): pass` made a corrupt file
 indistinguishable from "no data yet". Cycle 13 (2026-10-04) named them. This pin
 fixes that naming — and, just as important, fixes the *boundary* of the claim,
@@ -25,11 +25,18 @@ item 38; widening the caught set changes behaviour, so this pin fixes the
 current behaviour instead.
 
 The liveness split is fixed here too, so the family's scope is not overstated.
-Of the eight, only `Identity` is constructed outside `mind/`; `Mood`,
+Of the six, only `Identity` is constructed outside `mind/`; `Mood`,
 `Personality` and `LayeredEmotion` are live only through `AffectSystem`, and
-`Desire`, `Emotion`, `GoalManager`, `SocialIntelligence` are constructed nowhere
-(`Emotion`/`GoalManager` are imported only by `reflection_loop.py`, which is
-itself never constructed). Recorded as `DELEGATION.md` §4 item 39.
+`Emotion` and `GoalManager` are constructed nowhere (`Emotion`/`GoalManager` are
+imported only by `reflection_loop.py`, which is itself never constructed).
+Recorded as `DELEGATION.md` §4 item 39.
+
+`Desire` and `SocialIntelligence` left the family on 2026-10-08: nothing
+constructed them and nothing outside this family imported them, so the three
+modules were deleted (`mind/desire.py`, `mind/priorities.py`,
+`mind/social_intelligence.py` — pinned by `test_mind_unwired_modules_are_gone.py`).
+The other two unwired members stay until `reflection_loop.py`'s fate is decided:
+it is their only importer, and it is itself unreachable.
 """
 
 from __future__ import annotations
@@ -40,29 +47,25 @@ from pathlib import Path
 
 import pytest
 
-from aegis_ai.mind.desire import Desire
 from aegis_ai.mind.emotion import Emotion
 from aegis_ai.mind.goals import GoalManager
 from aegis_ai.mind.identity import Identity
 from aegis_ai.mind.layered_emotion import LayeredEmotion
 from aegis_ai.mind.mood import Mood
 from aegis_ai.mind.personality import Personality
-from aegis_ai.mind.social_intelligence import SocialIntelligence
 
 _AI_SERVER = Path(__file__).resolve().parents[1]
 _SRC = _AI_SERVER / "src"
 _MIND = _SRC / "aegis_ai" / "mind"
 
-# (logger name, store class, class name) — the eight members of the family.
+# (logger name, store class, class name) — the six members of the family.
 _FAMILY = [
-    ("aegis_ai.mind.desire", Desire, "Desire"),
     ("aegis_ai.mind.emotion", Emotion, "Emotion"),
     ("aegis_ai.mind.goals", GoalManager, "GoalManager"),
     ("aegis_ai.mind.identity", Identity, "Identity"),
     ("aegis_ai.mind.layered_emotion", LayeredEmotion, "LayeredEmotion"),
     ("aegis_ai.mind.mood", Mood, "Mood"),
     ("aegis_ai.mind.personality", Personality, "Personality"),
-    ("aegis_ai.mind.social_intelligence", SocialIntelligence, "SocialIntelligence"),
 ]
 _FAMILY_IDS = [entry[2] for entry in _FAMILY]
 _FAMILY_NAMES = {entry[2] for entry in _FAMILY}

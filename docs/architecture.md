@@ -8,7 +8,7 @@
 > requirements. See [`GOAL-CHANGE.md`](GOAL-CHANGE.md) and [`IMPROVEMENT_PROPOSAL.md`](../IMPROVEMENT_PROPOSAL.md) §9.
 
 > **Status**: Implemented. Counts are date-stamped measurements; re-measure before trusting them.  
-> **Tests**: **2820 passed / 8 skipped** (ai-server suite, measured 2026-10-08)  
+> **Tests**: **2768 passed / 8 skipped** (ai-server suite, measured 2026-10-08)  
 > **Capabilities**: **128 registered** (pc 58 / ai 32 / android 17 / browser 16 / room 5)  
 > **Target audience**: AI coding agents, contributors, and future AEGIS itself  
 > **Related**: [`AGENTS.md`](../AGENTS.md) — rules and conventions for agents working on this repo
@@ -405,7 +405,7 @@ ai-server/src/
 ├── config/
 │   ├── prompts.yaml                  # Prompt source of truth
 │   └── llm.yaml                      # LLM profile source of truth
-└── tests/                            # 2820 passed / 8 skipped (2026-10-08)
+└── tests/                            # 2768 passed / 8 skipped (2026-10-08)
 ```
 
 ### 5.2 Context Builder
@@ -529,12 +529,12 @@ All backends accessed through `MemoryManager.get_backend("name")`. Available: `a
 | Component | Purpose |
 |-----------|---------|
 | **Identity** | What AEGIS is: assistant, researcher, developer, companion |
-| **Desire** | 10 intrinsic motivations (0-10 scale), frustration tracking |
 | **Emotion** | Urgency level, confidence, fatigue proxy |
 | **Goals** | Active short-term and long-term goals with progress tracking |
-| **SocialIntelligence** | Relationship awareness, interaction style adaptation |
 
-The Mind Layer biases the LLM but all actions still go through PolicyEngine.
+The Mind Layer biases the LLM but all actions still go through PolicyEngine. Desire is
+**not** part of it: the live desire system is the separate `aegis_ai/desire/` package
+(`mind/desire.py` was deleted 2026-10-08 — `DELEGATION.md` §4 item 39).
 
 ### 5.11 Curiosity Exploration
 

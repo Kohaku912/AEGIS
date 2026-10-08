@@ -93,7 +93,7 @@ cd ai-server
 | [Android Server](docs/android-server.md) | Android integration |
 | [Room Server](docs/room-server.md) | Room/physical control |
 | [Self-Development](docs/self-development.md) | SelfDev Agent |
-| [Mind Layer](docs/mind-layer.md) | Identity/Desire/Emotion/Goals |
+| [Mind Layer](docs/mind-layer.md) | Identity/Emotion/Goals/AffectSystem |
 | [Memory](docs/memory.md) | Episodic/Semantic/Procedural |
 | [Scheduler](docs/scheduler.md) | Task scheduling |
 | [LLM Router](docs/llm-router.md) | LLM provider routing |

@@ -10,7 +10,9 @@
 
 > **Status**: Re-verified against the code **2026-10-04** — the *ContextBuilder Integration* section
 > was corrected (its example passed kwargs the constructor does not accept and read fields that do
-> not exist; it could not run). Layered affect model.
+> not exist; it could not run). **Updated 2026-10-08**: `desire.py`, `priorities.py` and
+> `social_intelligence.py` were deleted (`DELEGATION.md` §4 item 39) — their sections are gone
+> from this document too. Layered affect model.
 > **Related**: `docs/architecture.md` §5.11
 
 ## Overview
@@ -25,11 +27,13 @@ It uses a **three-layer affect model** (inspired by FAtiMA + LLMA):
 
 **Critical constraint**: Mind state does NOT override PolicyEngine safety decisions.
 
-> ⚠️ **Measured 2026-10-04** — read this before the component list: of the components below, only
-> **`Identity`** is actually constructed outside this package (`runtime.py:995`). `Mood`,
-> `Personality` and `LayeredEmotion` are live through `AffectSystem`; `Desire`, `Emotion`,
-> `GoalManager`, `Priorities` and `SocialIntelligence` are constructed **nowhere** in `src/`.
-> See *ContextBuilder Integration* below and `DELEGATION.md` §4 item 39.
+> ⚠️ **Measured 2026-10-04, updated 2026-10-08** — read this before the component list: of the
+> components below, only **`Identity`** is actually constructed outside this package
+> (`runtime.py:1164`). `Mood`, `Personality` and `LayeredEmotion` are live through `AffectSystem`;
+> `Emotion` and `GoalManager` are constructed **nowhere** in `src/`. `Desire`, `Priorities` and
+> `SocialIntelligence` were **deleted** on 2026-10-08 — nothing constructed them and nothing
+> outside `mind/__init__.py` imported them. See *ContextBuilder Integration* below and
+> `DELEGATION.md` §4 item 39.
 
 ## Components
 
@@ -47,22 +51,6 @@ Defines who AEGIS is, its values, and policies.
 | `user_support_policy` | Proactive help, no consent for Level 2+ | User support constraint |
 
 Persists to `data/mind_identity.jsonl`.
-
-### Desire (`desire.py`)
-
-Priorities that bias decision-making. Higher weight = higher priority.
-
-| Desire | Default Weight | Purpose |
-|--------|---------------|---------|
-| `help_user` | 1.0 | Effectively assist the user |
-| `stay_safe` | 0.95 | Never bypass safety gates |
-| `learn` | 0.8 | Learn from interactions |
-| `be_useful` | 0.75 | Proactively suggest helpful actions |
-| `avoid_annoying_user` | 0.7 | Don't spam or interrupt |
-| `reduce_repeated_failures` | 0.65 | Learn from failures |
-| `be_curious` | 0.6 | Explore when appropriate |
-
-Persists to `data/mind_desire.jsonl`.
 
 ### Emotion (`emotion.py`)
 
@@ -193,33 +181,6 @@ Each goal has: `description`, `priority` (1=highest, 10=lowest), `status`, `prog
 
 Persists to `data/mind_goals.jsonl`.
 
-### Priorities (`priorities.py`)
-
-Calculates priority scores based on Mind state. Used by ContextBuilder.
-
-- Combines desire weights, emotion state, and goal relevance
-- `score_action(action_type, context)` — Returns `PriorityScore` (0.0–1.0) with reason
-- `should_defer(action_type)` — Returns True if fatigued or desire weight < 0.3
-- Never overrides PolicyEngine
-
-### SocialIntelligence (`social_intelligence.py`)
-
-Tracks social context and interaction patterns to adapt response behavior.
-
-| Indicator | Range | Default | Purpose |
-|-----------|-------|---------|---------|
-| `formality` | 0.0–1.0 | 0.5 | 0=casual, 1=formal |
-| `verbosity` | 0.0–1.0 | 0.5 | 0=concise, 1=detailed |
-| `user_patience` | 0.0–1.0 | 0.7 | 0=impatient, 1=patient |
-| `interaction_count` | int | 0 | Total interactions tracked |
-
-**Key methods:**
-
-- `update_from_interaction(action, response, feedback)` — Adjusts formality/verbosity based on user feedback (e.g., "too long" → less verbose, "too formal" → less formal)
-- `to_context_string()` — Social state for ContextBuilder
-
-Persists to `data/mind_social.jsonl`.
-
 ## ContextBuilder Integration
 
 **Only `Identity` is injected in production.** Measured 2026-10-04: `src/` contains exactly
@@ -249,13 +210,14 @@ ContextBuilder(affect_system=None)
 # TypeError: ContextBuilder.__init__() got an unexpected keyword argument 'affect_system'
 ```
 
-`AffectSystem` reaches the model by a different route — `runtime.py:1669` (the autonomous
+`AffectSystem` reaches the model by a different route — `runtime.py:1852` (the autonomous
 loop) and `llm/memory_context.py:323` (the `decision` profile) construct it — but never
-through `ContextBuilder`. `SocialIntelligence` is constructed **nowhere** in `src/`.
+through `ContextBuilder`.
 
 An earlier version of this section showed an example that passed `affect_system=` /
 `social_intelligence=` and read `ctx.affect` / `ctx.social`; it could not run. See
-`DELEGATION.md` §4 item 39 for the four components that are unwired, and item 38 for the
+`DELEGATION.md` §4 item 39 for the unwired components (two remain — `Emotion` and `GoalManager`;
+three were deleted 2026-10-08), and item 38 for the
 `_load` failures that used to be silent.
 
 ## Architecture Diagram
@@ -270,32 +232,31 @@ An earlier version of this section showed an example that passed `affect_system=
 │       ↑              ↑↓              ↑↓          │
 │       └──────────────┴───────────────┘           │
 └─────────────────────────────────────────────────┘
-         ↓                    ↓
-┌────────────────┐  ┌─────────────────┐
-│    Emotion     │  │   SocialIntel   │
-│  (state proxy) │  │ (interaction)   │
-└────────────────┘  └─────────────────┘
-         ↓                    ↓
+         ↓
+┌────────────────┐
+│    Emotion     │
+│  (state proxy) │
+└────────────────┘
+         ↓
 ┌─────────────────────────────────────────────────┐
 │              ContextBuilder                      │
-│  Identity + Desire + Goals + Priorities          │
-│  + AffectSystem + Emotion + SocialIntelligence   │
+│              Identity only                       │
 └─────────────────────────────────────────────────┘
 ```
 
-> ⚠️ **Measured 2026-10-04**: the bottom box overstates production. The only `ContextBuilder(`
-> call site in `src/` is `runtime.py:979`, and it passes **only `Identity`** — `Desire`, `Emotion`,
-> `GoalManager`, `Priorities`, `SocialIntelligence` and `AffectSystem` are never handed to it
-> (`Desire` and `GoalManager` *would* be accepted; `AffectSystem` and `SocialIntelligence` would
-> raise `TypeError`). `Desire`, `Emotion`, `GoalManager`, `Priorities` and `SocialIntelligence` are
-> constructed nowhere in `src/` at all. See `DELEGATION.md` §4 item 39.
+> ⚠️ **Measured 2026-10-04, updated 2026-10-08**: the bottom box overstates production. The only
+> `ContextBuilder(` call site in `src/` is `runtime.py:979`, and it passes **only `Identity`** —
+> `Emotion`, `GoalManager` and `AffectSystem` are never handed to it (`GoalManager` *would* be
+> accepted; `AffectSystem` would raise `TypeError`). `Emotion` and `GoalManager` are constructed
+> nowhere in `src/` at all; `Desire`, `Priorities` and `SocialIntelligence` no longer exist
+> (deleted 2026-10-08). See `DELEGATION.md` §4 item 39.
 
 ## Safety
 
 - Mind state NEVER overrides PolicyEngine decisions
 - Desire weights are context biases, not permission grants
 - Emotion state is informational, not authoritative
-- "stay_safe" desire (0.95) is high but doesn't grant extra permissions
+- Desire weights are context biases only — no desire value grants a permission
 - Personality changes are tiny deltas (0.01–0.05) — large shifts require many experiences
 - Mood decays toward personality baseline (6-hour half-life)
 - AffectSystem biases decisions but never overrides safety gates

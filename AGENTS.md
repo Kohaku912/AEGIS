@@ -1003,12 +1003,24 @@ Measured 2026-10-01 — `ai-server`, full suite:
 > `Personality` and `LayeredEmotion` are live only through `AffectSystem`, and `Desire`, `Emotion`,
 > `GoalManager`, `SocialIntelligence` are built **nowhere** — `Emotion`/`GoalManager` are imported
 > only by `reflection_loop.py`, which is itself never constructed (a second-order dead surface).
-> Two of the unwired ones share a name with a **live** class (`mind/desire.py::Desire` vs
-> `desire/desire_system.py::DesireSystem`; `mind/social_intelligence.py::SocialIntelligence` vs
+> Two of the unwired ones share a name with a **live** class (`mind/desire.py`'s `Desire` vs
+> `desire/desire_system.py::DesireSystem`; `mind/social_intelligence.py`'s `SocialIntelligence` vs
 > `social/intelligence.py::SocialIntelligenceSystem`), so the convenient import gets the dead one.
 > `mind/social_intelligence.py` also implements **keyword matching** (`"too long" in feedback`),
 > against AGENTS.md's core rule — inert today only because the class is never built. All of it is
 > `DELEGATION.md` §4 item 39.
+> **⚠️ 2026-10-08 (cycle 105): three of them are now gone.** `mind/desire.py` (105 lines),
+> `mind/priorities.py` (77) and `mind/social_intelligence.py` (120) were **deleted**, together with
+> their re-exports in `mind/__init__.py` — measured first: no importer in `src/` or `tests/` outside
+> `mind/__init__.py`, `priorities.py` imported by **nothing** (not even a test), and `mind/desire.py`
+> had **no importer at all**. `Emotion`/`GoalManager` were **kept**: their only importer is
+> `aegis_ai/reflection_loop.py` (146 lines, itself never constructed), whose fate the row defers as a
+> separate decision — so branch ② of the row is **internally ordered**. New pin
+> `tests/test_mind_unwired_modules_are_gone.py` (6 tests, mutation **8/8**); the family pin
+> `test_mind_persistence_failures_are_named.py` was trimmed from eight modules to **six** (26 passed).
+> ⚠️ `Desire` is **not** a removed name — `desire/desire_system.py:720` defines the live legacy alias
+> `Desire = DesireDimension`, so a bare-name absence scan over `Desire` fails on a correct tree; the
+> new pin pins that alias's **presence** as its control.
 > **`docs/mind-layer.md`'s "ContextBuilder Integration" was corrected** after it failed to run:
 > its example passed `affect_system=` / `social_intelligence=`, which `ContextBuilder.__init__`
 > does not accept (`TypeError` measured), and read `ctx.affect` / `ctx.social`, which do not exist.
