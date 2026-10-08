@@ -1054,6 +1054,22 @@ Measured 2026-10-01 — `ai-server`, full suite:
 > force**. All eight were inert: removing them left `ruff check src tests` at **1194 findings**,
 > unchanged, with the CI gate (`--select F821`) green. The table is now pinned by
 > `tests/test_ruff_per_file_ignores_resolve.py` (3 cases, mutation **3/3**).
+> **⚠️ 2026-10-09 (cycle 108): L1 was pinned on both sides of the L2 boundary but never *at* it.**
+> `tests/test_runtime_singleton.py` drives `_run_l1_pipeline_for_event` (the L1 event sequence) and
+> `tests/test_l1_runs_off_the_publisher_thread.py` pins *where* the immediate route runs (a dedicated worker) and
+> that its failure is loud. **Nothing drove `_run_l1_immediate_pipeline`** -- the dispatch that decides whether the
+> event is handed to L2, notified to `initiative_engine` / the `AutonomousLoop`, or dropped. That is the "just
+> before L2" boundary the owner asked to confirm.
+> `tests/test_l1_reaches_the_l2_boundary.py` (**9 cases, mutation 8/8 + control**) now drives it: `ignore` returns
+> before any notification (while L1's own record is already published); `capability` returns after
+> `record_trigger`; anything else calls `_run_l2_pipeline` **once** with `trigger=event_type` and the `detail["l1"]`
+> projection, records `detail["l2"]`, and returns after `record_trigger` **only if** L2 reported `handled` with an
+> action type outside `{"noop", "observe"}` -- otherwise it falls through to `record_trigger` + `evaluate_event`;
+> with no `l2_mind` the L2 call is skipped and the two notifications still happen. Behaviour unchanged (test-only).
+> ⚠️ **`ruff format` and `ruff check` disagreed on one line**: `format --check` *joined* an implicitly concatenated
+> f-string onto one line, which came out **134 columns** and tripped `E501` (limit 120). `ruff format` does not split
+> string literals, so the only exit was to shorten the message and move the prose into a comment. Keep applying such
+> joins by hand -- `ruff format` rewrites the file as CRLF on Windows -- and measure against **both** checks.
 
 > **`AutonomousLoop`'s four swallowed failures now name themselves — one of them was feeding the planner a false statement (2026-10-04): `2209 passed / 8 skipped`**
 >
@@ -1578,7 +1594,7 @@ Measured 2026-10-01 — `ai-server`, full suite:
   `$LASTEXITCODE` = **0**), and both `.ps1` gates ran end-to-end — so treat this as a *fallback*
   diagnosis, not the expected state.
 - **Egress regression suite**: **319 passed / 1 skipped** (320 tests carry the `egress` marker,
-  2458 deselected). CI enforces a floor of 160 (`--require-egress-tests=160`) **and** mutation-proves
+  2467 deselected). CI enforces a floor of 160 (`--require-egress-tests=160`) **and** mutation-proves
   the gate: breaking it yields failures, restoring it yields 319 passes. The mutation figure is
   **78 failures** (measured 2026-10-06 on the 320-marker baseline; it was 76 at the 318-marker baseline, 74 at the 2026-10-01
   baseline of 305 and 62 at the 268-marker baseline — **re-run it before quoting**, the number is a
