@@ -44,6 +44,11 @@ Why this file stubs ``_persist`` and uses a per-run host
 **`AEGIS_DATA_DIR` is not honoured by the composition root.** Measured 2026-10-08:
 ``runtime._build_runtime`` computes ``base_dir = Path(__file__).resolve().parents[2]`` and
 ``data_dir = str(base_dir / "data")``; nothing under ``src/`` reads ``AEGIS_DATA_DIR``.
+⚠️ **That scope is narrower than it reads** (added 2026-10-09): the three shipped capability
+executors under ``apps/builtin/ai-server/memory/{save,search,sleep}/executor.py`` **do** read it,
+so "ignored by the composition root" is not "inert". Setting the variable relocates what those
+capabilities read and write and nothing else — a split brain, pinned in
+``tests/test_data_dir_is_honoured_by_the_leaf_not_the_root.py``.
 Four test modules set it (``test_composition_root_resolves_llm_layers.py``,
 ``test_runtime_singleton.py``, ``agents/test_openhands_backend.py`` and this one) believing
 it isolates them — it does not. So a test that boots the runtime and **writes** writes into

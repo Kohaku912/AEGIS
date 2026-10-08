@@ -1070,6 +1070,29 @@ Measured 2026-10-01 — `ai-server`, full suite:
 > f-string onto one line, which came out **134 columns** and tripped `E501` (limit 120). `ruff format` does not split
 > string literals, so the only exit was to shorten the message and move the prose into a comment. Keep applying such
 > joins by hand -- `ruff format` rewrites the file as CRLF on Windows -- and measure against **both** checks.
+> **⚠️ 2026-10-09 (cycle 109): `AEGIS_DATA_DIR` is honoured by the leaf and ignored by the root -- and the record's *scope* hid that.**
+> Three **shipped** capability executors (`apps/builtin/ai-server/memory/{save,search,sleep}/executor.py`) resolve
+> their root as `os.environ.get("AEGIS_DATA_DIR") or os.path.join(ROOT, "data")`, while `runtime.py:1061` computes
+> `data_dir = str(base_dir / "data")` and reads no environment at all. Setting the variable therefore moves what
+> `memory.save` / `memory.search` / `memory.sleep` read and write, and nothing else -- the audit DB, settings,
+> confirmations, user model, journals and logs stay in the repository's `data/`. That is worse than an inert variable:
+> it *appears* to work.
+> The fact was already recorded -- in the module docstring of `tests/test_egress_grant_source_is_wired.py`: "nothing
+> under `src/` reads `AEGIS_DATA_DIR`". True, and misleading on its own: the reader concludes the variable is dead,
+> when three shipped capabilities depend on it. The docstring is corrected and the reader set is now an **equality**
+> in `tests/test_data_dir_is_honoured_by_the_leaf_not_the_root.py` (6 cases, mutation **8/8** + control).
+> ⚠️ **The name has a sibling**: `AEGIS_DATA_DIR_WARNING_MB` is a *different* variable read by `alert_manager.py`, so
+> a substring scan reports a `src/` reader that does not exist. The pin reads `ast` string arguments and asserts the
+> sibling as a control.
+> **Both halves driven**: the leaf (`memory.save` with `type="person"`, which avoids the LLM path, writes
+> `<temp>/memory/persons.jsonl` and leaves the repository's `data/` untouched -- `audit.db` byte-identical); the root
+> (the `data_dir` expression is extracted with `ast` and asserted to read no environment).
+> **Recorded, not fixed** (both fixes are behaviour changes) -> DELEGATION.md section 4 item 75.
+> ⚠️ **By-product: `ruff format` is declared and never enforced** -- `ruff format --check src tests` reports
+> **403 files would be reformatted / 222 already formatted**. CI runs `--select F821` only, so nothing looks at
+> formatting; same shape as cycle 107's `per-file-ignores` (a declared property with no validator). A single-file
+> `format --check` says nothing about the repository: extracting `git show HEAD:...` **outside** the repo makes ruff
+> use its default config (line-length 88) and answer "already formatted" -- pass `--stdin-filename` instead. -> item 76.
 
 > **`AutonomousLoop`'s four swallowed failures now name themselves — one of them was feeding the planner a false statement (2026-10-04): `2209 passed / 8 skipped`**
 >
@@ -1594,7 +1617,7 @@ Measured 2026-10-01 — `ai-server`, full suite:
   `$LASTEXITCODE` = **0**), and both `.ps1` gates ran end-to-end — so treat this as a *fallback*
   diagnosis, not the expected state.
 - **Egress regression suite**: **319 passed / 1 skipped** (320 tests carry the `egress` marker,
-  2467 deselected). CI enforces a floor of 160 (`--require-egress-tests=160`) **and** mutation-proves
+  2473 deselected). CI enforces a floor of 160 (`--require-egress-tests=160`) **and** mutation-proves
   the gate: breaking it yields failures, restoring it yields 319 passes. The mutation figure is
   **78 failures** (measured 2026-10-06 on the 320-marker baseline; it was 76 at the 318-marker baseline, 74 at the 2026-10-01
   baseline of 305 and 62 at the 268-marker baseline — **re-run it before quoting**, the number is a
