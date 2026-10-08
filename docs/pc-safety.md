@@ -75,7 +75,7 @@ tier 0 (`low`).
 
 ## Explicitly denied (never buildable)
 
-These ids used to be listed in `settings/validation.py::FORBIDDEN_CAPABILITIES`, which was
+These ids used to be listed in `settings/validation.py`'s `FORBIDDEN_CAPABILITIES`, which was
 **deleted on 2026-09-29** (B-12 / A-1) — it named no live capability and its guard read a key space
 nobody writes. **They cannot be constructed because no manifest declares them**: the broker rejects
 an unregistered id before any risk check runs. Note that `tool_broker._capability_from_manifest`'s

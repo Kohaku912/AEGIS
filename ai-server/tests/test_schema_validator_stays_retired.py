@@ -7,7 +7,7 @@ Deleted 2026-09-29. The evidence, measured rather than assumed:
   there. A repo-wide search found no test touching them; the SDK imports
   ``aegis_schema.models`` (``Capability``, ``RiskLevel``, ``ServerType``, …) but
   never ``aegis_schema.validation``, and carries its own validator
-  (``aegis_sdk/safety.py::validate_capability_definition``) instead.
+  (``packages/aegis-sdk-python/aegis_sdk/safety.py::validate_capability_definition``) instead.
 * **It had no work to do.** Built from all **128** live manifests via
   ``tool_broker._capability_from_manifest`` and run through
   ``validate_capabilities_batch``: **0 errors**, 133 warnings.

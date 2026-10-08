@@ -1190,7 +1190,7 @@ P1-5 後半（「拾ってから残骸 7 面を削除」）の**境界集合の�
 P1-5 後半の実測で「孤島」として記録していた `aegis_schema/validation.py`（**202 行**）を削除した。
 呼び出し元 0・テスト 0・外部利用者 0 で、`__init__.py` からの再輸出だけが唯一の参照だった
 （SDK は `aegis_schema.models` を使うが `validation` は使わず、**自前の検証器**
-`aegis_sdk/safety.py::validate_capability_definition` を持つ）。
+`packages/aegis-sdk-python/aegis_sdk/safety.py::validate_capability_definition` を持つ）。
 
 ### 決め手は実測 — 「孤島」より強く「仕事が無い」
 

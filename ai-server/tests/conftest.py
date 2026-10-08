@@ -48,7 +48,7 @@ def _isolate_provider_circuit():
 #
 # A test that boots the real runtime used to leave that thread running for the rest of
 # the session. It then overwrote the resolver cache underneath
-# ``test_endpoint_resolver.py::test_resolve_tcp_endpoint_tries_candidates_and_caches``,
+# ``tests/test_endpoint_resolver.py::test_resolve_tcp_endpoint_tries_candidates_and_caches``,
 # which asserts the *first* probed candidate is the host it just cached — a rare,
 # order-dependent failure roughly ninety files away from the actual leak. The chain was:
 # ``AegisRuntime.stop()`` never stopped the status manager at all; then

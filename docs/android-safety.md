@@ -83,7 +83,7 @@ Only three capabilities sit at this tier:
 
 ## Explicitly denied
 
-These ids used to be listed in `settings/validation.py::FORBIDDEN_CAPABILITIES`, which was
+These ids used to be listed in `settings/validation.py`'s `FORBIDDEN_CAPABILITIES`, which was
 **deleted on 2026-09-29** (B-12 / A-1). They were **deny-list strings, not manifests** — no such
 capability is declared, so they followed that set's `android.<action>` spelling rather than the
 canonical `server.app.action` form. **The list itself never denied them** — it was written in a

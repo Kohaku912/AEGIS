@@ -897,7 +897,7 @@ P2-1 MCP ファサード（マニフェスト ↔ MCP 記述子）→ P2-4 brows
 > - `integrations/agora/agora_types.py`（`requires_approval: bool = True`）、
 >   `settings/models.py` の `*_requires_approval`、`agents/profiles/models.py` の `requires_approval_for`、
 >   `llm_task_interpreter.py` の `step.requires_approval` 代入、`autonomous/motivation_arbiter.py`、
->   `autonomous/l2_mind.py::_requires_approval`、`personal_ai/social_proxy.py::send_approved(approved=…)`。
+>   `autonomous/l2_mind.py` の `_requires_approval`、`personal_ai/social_proxy.py::send_approved(approved=…)`。
 > - `IntrinsicTask.requires_user_approval`（`desire/intrinsic_task_generator.py`）と
 >   `autonomous_controller._infer_action_type()` の分岐、`MotivationDecision.requires_approval`。
 >   これは**承認キューではなく「人間の助けが要る」分類ヒント**（`recovery` の `requires_user_help` と同義）。
@@ -1092,7 +1092,7 @@ P2-1 MCP ファサード（マニフェスト ↔ MCP 記述子）→ P2-4 brows
 >
 > **Phase 4 の締めくくりで見つかった、より深い欠陥（2026-09-27 追記）**
 >
-> CI ハーネスを緑にしようとしたところ `test_endpoint_resolver.py::test_resolve_tcp_endpoint_tries_candidates_and_caches`
+> CI ハーネスを緑にしようとしたところ `tests/test_endpoint_resolver.py::test_resolve_tcp_endpoint_tries_candidates_and_caches`
 > が断続的に失敗した（`assert '192.168.50.106' == '192.168.50.195'`）。`192.168.50.106` は
 > **リポジトリのどこにも存在しない** — これが手がかりで、値がソースにも設定にも無いなら
 > **実行時の状態**であり、実行中に何かが書き換えている。追跡の結果、1 つの症状の裏に

@@ -24,7 +24,7 @@
 ### The deny list was deleted; the ids remain unbuildable
 
 The `dev.*` ids below used to be listed in
-`ai-server/src/aegis_ai/settings/validation.py::FORBIDDEN_CAPABILITIES`, which was **deleted on
+`ai-server/src/aegis_ai/settings/validation.py`'s `FORBIDDEN_CAPABILITIES`, which was **deleted on
 2026-09-29** (B-12 / A-1). They were **deny-list strings, not manifests** — no `dev-server`
 capability manifest exists (the catalog holds only `ai-server`, `android-server`, `browser-server`,
 `pc-server` and `room-server`), and `_PREFIX_MAP` still carries a `dev-server → dev` entry that can

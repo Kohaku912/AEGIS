@@ -1,4 +1,4 @@
-"""Every `path.py::symbol` citation in the project docs must resolve.
+"""Every `path.py::symbol` citation in `DOCS` must resolve.
 
 DELEGATION.md §4 item 70. A bare `runtime.py:NNN` is not durable: the number rots
 as soon as anyone inserts a line above it (cycle 67 renumbered eleven citations
@@ -43,8 +43,13 @@ ROOT = Path(__file__).resolve().parents[2]
 # These three are the ones the register's own claims live in, and the third was
 # added because it carried **three** unresolvable citations that nothing read
 # (two to modules deleted in cycle 105, one with an incomplete path). The other
-# eleven carry **11** unresolvable citations between them -- enumerated, not
-# sampled, in `DELEGATION.md` §4 item 82.
+# eleven carried **11** unresolvable citations between them (enumerated, not
+# sampled, in `DELEGATION.md` §4 item 82); cycle 114 corrected all 11 -- seven
+# incomplete paths whose target still exists, and four citations to targets that
+# are genuinely gone (one deleted `l2_mind` symbol, the `FORBIDDEN_CAPABILITIES`
+# constant in three safety docs). Widening `DOCS` to cover those eleven is a
+# scope decision that stays open; this pin reads the three documents the
+# register's own claims live in.
 DOCS = ("AGENTS.md", "DELEGATION.md", "PROJECT_STATUS_REVIEW.md")
 
 # '-' MUST be in the class: the repo has `ai-server/tests/...` citations.
@@ -57,6 +62,39 @@ BASES = (ROOT, ROOT / "ai-server", ROOT / "ai-server" / "src", ROOT / "ai-server
 # A citation that must resolve -- the control. If this stops resolving, the
 # resolver is broken and every other assertion is vacuous.
 CONTROL = ("runtime.py", "_build_runtime")
+
+# --- The enumerated coverage hole (cycle 114, DELEGATION.md §4 item 82) ---
+#
+# Documents that carry durable `path.py::symbol` citations but are NOT in `DOCS` --
+# they are not where the register's own claims live. Item 82 enumerated the
+# population by measurement; cycle 114 corrected every unresolvable citation in it
+# (seven incomplete paths whose target still exists, four citations to targets that
+# are genuinely gone). This tuple pins the *correction* over the enumerated
+# population. It does NOT widen the resolution pin above: `DOCS` stays the three
+# documents the register's own claims live in, and widening it remains an owner
+# decision (item 82).
+ENUMERATED = (
+    "BUG_REPORT.md",
+    "IMPROVEMENT_PROPOSAL.md",
+    "AGENT_PROGRESS.md",
+    "docs/android-safety.md",
+    "docs/dev-safety.md",
+    "docs/pc-safety.md",
+    "ai-server/tests/conftest.py",
+    "ai-server/tests/test_schema_validator_stays_retired.py",
+)
+
+# Measured 2026-10-09 (cycle 114): the eight documents above carry **15** durable
+# citations between them. A floor, not an equality.
+MIN_ENUMERATED = 10
+
+# Symbols that were deleted and must never reappear as a live `path.py::SYMBOL`
+# citation. `FORBIDDEN_CAPABILITIES` was removed on 2026-09-29 (B-12 / A-1); three
+# safety docs describe that removal, and each used to cite it as
+# `settings/validation.py::FORBIDDEN_CAPABILITIES` -- which made a deleted constant
+# read as live. Cycle 114 de-cited them (cycle 105's rule: a citation to a deleted
+# target stops being a citation).
+RETIRED_SYMBOLS = ("FORBIDDEN_CAPABILITIES",)
 
 # Measured 2026-10-06 (cycle 67): the **union** over DOCS was 28 distinct
 # (path, symbol) pairs; the per-document sum was 33, so summing the two lists
@@ -250,3 +288,53 @@ def test_the_anchor_predicate_rejects_the_two_observed_failures() -> None:
     closer = "def f():\n    x = (\n        1\n    )\n    return x\n"
     assert _anchor_faults("m.py", "f", 4, closer)         # inside, but a lone `)`
     assert _anchor_faults("m.py", "f", 5, closer) == []   # inside, on real text
+
+
+def test_the_enumerated_documents_carry_no_dead_citations() -> None:
+    """Item 82's population: every durable citation in it must resolve.
+
+    This is the positive half of cycle 114's fix. Without it, a citation corrected
+    in `BUG_REPORT.md` or a safety doc could silently rot again -- those documents
+    are deliberately *not* in `DOCS`, so `test_every_citation_resolves` does not
+    read them.
+    """
+    failures: list[str] = []
+    seen = 0
+    for name in ENUMERATED:
+        text = (ROOT / name).read_text(encoding="utf-8")
+        for rel, symbol in sorted(set(CITATION.findall(text))):
+            seen += 1
+            path = _resolve(rel)
+            if path is None:
+                failures.append(f"{name}: {rel}::{symbol} -- no such file under any of {[str(b) for b in BASES]}")
+            elif not _defines(path, symbol):
+                failures.append(f"{name}: {rel}::{symbol} -- {path} does not define {symbol!r}")
+    assert seen >= MIN_ENUMERATED, (
+        f"only {seen} citations extracted from ENUMERATED (expected >= {MIN_ENUMERATED}) -- "
+        f"either the pattern stopped matching or the population shrank"
+    )
+    assert not failures, (
+        "dead citations in the enumerated documents (complete the path, or drop the "
+        "citation if the target is gone):\n  " + "\n  ".join(failures)
+    )
+
+
+def test_the_retired_symbols_are_not_cited_as_live() -> None:
+    """A deleted symbol must not reappear as `path.py::SYMBOL` in ENUMERATED.
+
+    `test_the_enumerated_documents_carry_no_dead_citations` would already catch this
+    (the symbol is gone, so `_defines` is False) -- but only while the target file
+    still exists. This states the rule directly, so re-adding the citation form is
+    reported as "you are citing a retired symbol", not as a generic resolution
+    failure.
+    """
+    hits: list[str] = []
+    for name in ENUMERATED:
+        text = (ROOT / name).read_text(encoding="utf-8")
+        for rel, symbol in CITATION.findall(text):
+            if symbol in RETIRED_SYMBOLS:
+                hits.append(f"{name}: {rel}::{symbol}")
+    assert not hits, (
+        "a retired symbol is cited as if it were live (drop the `::` citation form; "
+        "the symbol no longer exists):\n  " + "\n  ".join(hits)
+    )

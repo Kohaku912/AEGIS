@@ -520,11 +520,11 @@ for server_id, old_status, new_status in pending_changes:   # ロック解放後
 
 - サーキットブレーカは**プロセスグローバル**な `ProviderCircuitRegistry` に保持される。
 - あるテストが 402（残高不足）で回路を開くと、その状態が**同一プロセス内の後続テストへリーク**し、以下の連鎖失敗を引き起こしていた:
-  - `test_audit_prompt_bounds.py::test_openai_provider_clamps_prompt_and_previews_for_audit`
-  - `test_autonomous_loop_behavior.py::test_same_pressure_signature_does_not_block_high_pressure_llm`
-  - `test_incident_sweep_and_backoff.py::test_desire_trigger_respects_unmet_llm_cooldown`
-  - `test_memory_context_integration.py::test_openai_provider_returns_error_when_vision_is_unsupported`
-  - `test_memory_context_integration.py::test_openai_provider_returns_error_for_deepseek_v4_pro`
+  - `tests/test_audit_prompt_bounds.py::test_openai_provider_clamps_prompt_and_previews_for_audit`
+  - `tests/test_autonomous_loop_behavior.py::test_same_pressure_signature_does_not_block_high_pressure_llm`
+  - `tests/test_incident_sweep_and_backoff.py::test_desire_trigger_respects_unmet_llm_cooldown`
+  - `tests/test_memory_context_integration.py::test_openai_provider_returns_error_when_vision_is_unsupported`
+  - `tests/test_memory_context_integration.py::test_openai_provider_returns_error_for_deepseek_v4_pro`
 - これらは**単体では全て pass**（分離実行で確認済み）。フルスイート実行時のみ、回路が開いた状態で `_circuit_blocked_response()` が vision 非対応エラーより先に返るため赤くなる。
 
 **修正**: `tests/conftest.py` を新設し、autouse fixture で毎テスト前後に `PROVIDER_CIRCUITS.reset()` を実行。
