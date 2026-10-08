@@ -4,9 +4,11 @@ Measured 2026-10-06
 -------------------
 Six modules of ``personal_ai/`` had **no logger at all** and **fourteen** handlers whose
 whole body was ``pass`` -- every one on a live path (the composition root constructs
-``DelegationPolicyStore`` at ``runtime.py:1110``, ``HookEngine`` at ``:1116``,
-``InterruptionController`` at ``:1126``, ``SocialProxy`` at ``:1134``,
-``RepairManager`` at ``:1299`` and ``SituationModel`` at ``:1109``).
+``DelegationPolicyStore`` at ``runtime.py::_build_runtime@1279``, ``HookEngine`` at
+``runtime.py::_build_runtime@1285``, ``InterruptionController`` at
+``runtime.py::_build_runtime@1295``, ``SocialProxy`` at ``runtime.py::_build_runtime@1303``,
+``RepairManager`` at ``runtime.py::_build_runtime@1481`` and ``SituationModel`` at
+``runtime.py::_build_runtime@1278``).
 
 Two of the fourteen were a *duplicated* defect: five modules each carried an identical
 ``_audit`` method -- ``except Exception: pass`` wrapped around

@@ -17,7 +17,7 @@ missing manager, so an unarmed broker is a supported configuration. What is *not
 unreadable source looking like an empty one).
 
 **The reason is ordering, not intent.** ``_build_runtime`` constructs the broker at
-``runtime.py:1110`` and creates the ``EventManager`` at ``:1221``, so there is nothing to pass yet.
+``runtime.py::_build_runtime@1111`` and creates the ``EventManager`` at ``runtime.py::_build_runtime@1222``, so there is nothing to pass yet.
 Wiring it is a behaviour change — events would start flowing and ``personal_data`` would start
 recording facts — so it is **recorded, not executed**.
 
@@ -25,10 +25,10 @@ recording facts — so it is **recorded, not executed**.
 72): ``__init__`` takes 11 parameters, the root supplies 7, and the 4 omitted are
 ``delegation_policy``, ``repair_manager``, ``event_manager`` and ``capability_health``. Three of the
 four *are* wired — after construction, precisely because of the ordering above:
-``tool_broker.set_delegation_policy(delegation_policy)`` (``runtime.py:1283``) writes
-``self._delegation_policy``; ``tool_broker.set_repair_manager(repair_manager)`` (``:1516``) writes
-``self._repair_manager``; ``tool_broker._capability_health = capability_health`` (``:1229``) sets
-the health view. ``event_manager`` alone has **no assignment and no setter** anywhere — ``:1227``'s
+``tool_broker.set_delegation_policy(delegation_policy)`` (``runtime.py::_build_runtime@1284``) writes
+``self._delegation_policy``; ``tool_broker.set_repair_manager(repair_manager)`` (``runtime.py::_build_runtime@1530``) writes
+``self._repair_manager``; ``tool_broker._capability_health = capability_health`` (``runtime.py::_build_runtime@1230``) sets
+the health view. ``event_manager`` alone has **no assignment and no setter** anywhere — ``runtime.py::_build_runtime@1228``'s
 ``journal_projector._event_manager = event_manager`` sets the *journal projector's* attribute, a
 different class. So the defect is not "the ordering leaves four hooks dangling"; it is that this one
 hook was never given the post-hoc path its three siblings got. Item 74 first read as if the root
