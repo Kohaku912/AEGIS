@@ -64,8 +64,9 @@ They are retained only so the old text is not mistaken for current behaviour.
   `ASK_APPROVAL`, `ApprovalStore` and the approval method were deleted on 2026-09-28
   (`invoke_tool_approved` survives only as an `evaluation/` scenario step name).
 - **`SelfDevAgent`.** No such class exists. The only trace is an untyped optional
-  `self_dev_agent: Any = None` parameter in `aegis_ai/interaction/router.py` and a docstring mention in
-  `reflection_loop.py`, so the workflow diagram described an agent that was never written.
+  `self_dev_agent: Any = None` parameter in `aegis_ai/interaction/router.py` (and, until it was
+  deleted on 2026-10-08, a docstring mention in `reflection_loop.py`), so the workflow diagram
+  described an agent that was never written.
 - **"PR creation requires approval — Level 2."** No approval step exists anywhere in the pipeline.
 - **The file deny list** (`dev.read_file` denied for `.env`, `.pem`, `id_rsa`, …). That check belonged
   to the deleted server; nothing enforces it now.

@@ -1034,6 +1034,26 @@ Measured 2026-10-01 — `ai-server`, full suite:
 > handler body only `pass`?" — and a bare `logger.warning(...)` statement **is** an `ast.Expr`, so
 > all eight named handlers were reported as silent (eight false positives, measured). Dropping the
 > filter gave 34 passed.
+> **⚠️ 2026-10-08 (cycle 107): the last two are gone, and with them the module that kept them alive.**
+> `mind/emotion.py` (153 lines) and `mind/goals.py` (171 lines) were deleted together with
+> `aegis_ai/reflection_loop.py` (146 lines) -- their **only** importer. The loop was measured before it
+> was deleted: 0 importers under `src/` or `tests/`, its class constructed nowhere, and its role already
+> filled by `reflection/reflection_engine.py::ReflectionEngine` (built in `runtime.py`, called from
+> `autonomous/autonomous_loop.py`) -- so "wire it up" would have created a *second* reflection
+> implementation. `mind/__init__.py` now re-exports `Identity` **only**.
+> The cycle-106 pin was **inverted**, not resized: `tests/test_reflection_loop_is_gone.py` (7 cases,
+> mutation **7/7**) keeps the cycle-106 **positive half** -- the successor defined, imported, consumed and
+> wired from the composition root -- because a pin asserting only absences cannot be told apart from "the
+> feature was never written". The sibling pin now covers five modules, and its re-export check became an
+> **equality** (`imported == {"Identity"}`): the hand-maintained kept-list had gone *empty*, so a loop
+> over it would have passed vacuously. The family pin went **6 -> 4 modules (26 -> 18 cases)**.
+> ⚠️ **The deletion's own litter turned into a census.** `ai-server/pyproject.toml`'s
+> `per-file-ignores` still exempted the deleted files -- and enumerating that table (not sampling it)
+> found **8 of 25 keys naming a file that does not exist** (6 deleted, 2 relocated into `autonomous/`).
+> Ruff does not warn about such a key, so each one silently asserted an exemption that was **not in
+> force**. All eight were inert: removing them left `ruff check src tests` at **1194 findings**,
+> unchanged, with the CI gate (`--select F821`) green. The table is now pinned by
+> `tests/test_ruff_per_file_ignores_resolve.py` (3 cases, mutation **3/3**).
 
 > **`AutonomousLoop`'s four swallowed failures now name themselves — one of them was feeding the planner a false statement (2026-10-04): `2209 passed / 8 skipped`**
 >
@@ -1558,7 +1578,7 @@ Measured 2026-10-01 — `ai-server`, full suite:
   `$LASTEXITCODE` = **0**), and both `.ps1` gates ran end-to-end — so treat this as a *fallback*
   diagnosis, not the expected state.
 - **Egress regression suite**: **319 passed / 1 skipped** (320 tests carry the `egress` marker,
-  2462 deselected). CI enforces a floor of 160 (`--require-egress-tests=160`) **and** mutation-proves
+  2458 deselected). CI enforces a floor of 160 (`--require-egress-tests=160`) **and** mutation-proves
   the gate: breaking it yields failures, restoring it yields 319 passes. The mutation figure is
   **78 failures** (measured 2026-10-06 on the 320-marker baseline; it was 76 at the 318-marker baseline, 74 at the 2026-10-01
   baseline of 305 and 62 at the 268-marker baseline — **re-run it before quoting**, the number is a

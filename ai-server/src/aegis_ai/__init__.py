@@ -15,7 +15,7 @@ Package structure:
 - aegis_ai.scheduler: Cron-like scheduled tasks
 - aegis_ai.agents: Research, Support, SelfDev agents
 - aegis_ai.memory: Episodic, Semantic, Procedural, Reflection memory
-- aegis_ai.mind: Identity, Emotion, Goals
+- aegis_ai.mind: Identity (+ the affect chain: Mood, Personality, LayeredEmotion, AffectSystem)
 """
 
 from importlib import import_module

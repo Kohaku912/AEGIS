@@ -1,6 +1,6 @@
 """The `mind/` persistence family names its read failures.
 
-Six modules in `aegis_ai/mind/` persist to JSONL, and each had an identical
+Four modules in `aegis_ai/mind/` persist to JSONL, and each had an identical
 `_load` whose `except (json.JSONDecodeError, OSError): pass` made a corrupt file
 indistinguishable from "no data yet". Cycle 13 (2026-10-04) named them. This pin
 fixes that naming — and, just as important, fixes the *boundary* of the claim,
@@ -25,18 +25,19 @@ item 38; widening the caught set changes behaviour, so this pin fixes the
 current behaviour instead.
 
 The liveness split is fixed here too, so the family's scope is not overstated.
-Of the six, only `Identity` is constructed outside `mind/`; `Mood`,
-`Personality` and `LayeredEmotion` are live only through `AffectSystem`, and
-`Emotion` and `GoalManager` are constructed nowhere (`Emotion`/`GoalManager` are
-imported only by `reflection_loop.py`, which is itself never constructed).
+Of the four, only `Identity` is constructed outside `mind/`; `Mood`,
+`Personality` and `LayeredEmotion` are live only through `AffectSystem`.
 Recorded as `DELEGATION.md` §4 item 39.
 
-`Desire` and `SocialIntelligence` left the family on 2026-10-08: nothing
-constructed them and nothing outside this family imported them, so the three
-modules were deleted (`mind/desire.py`, `mind/priorities.py`,
-`mind/social_intelligence.py` — pinned by `test_mind_unwired_modules_are_gone.py`).
-The other two unwired members stay until `reflection_loop.py`'s fate is decided:
-it is their only importer, and it is itself unreachable.
+Four members have left the family on 2026-10-08. `Desire` and `SocialIntelligence`
+went first (cycle 105: nothing constructed them and nothing outside this family
+imported them, so `mind/desire.py`, `mind/priorities.py` and
+`mind/social_intelligence.py` were deleted). `Emotion` and `GoalManager` went next
+(cycle 107): their only importer was `reflection_loop.py`, and once that module's
+fate was measured — 146 lines, imported by nothing, superseded by
+`reflection/reflection_engine.py::ReflectionEngine` — it went with them. All five
+deletions are pinned by `test_mind_unwired_modules_are_gone.py` and
+`test_reflection_loop_is_gone.py`.
 """
 
 from __future__ import annotations
@@ -47,8 +48,6 @@ from pathlib import Path
 
 import pytest
 
-from aegis_ai.mind.emotion import Emotion
-from aegis_ai.mind.goals import GoalManager
 from aegis_ai.mind.identity import Identity
 from aegis_ai.mind.layered_emotion import LayeredEmotion
 from aegis_ai.mind.mood import Mood
@@ -58,10 +57,8 @@ _AI_SERVER = Path(__file__).resolve().parents[1]
 _SRC = _AI_SERVER / "src"
 _MIND = _SRC / "aegis_ai" / "mind"
 
-# (logger name, store class, class name) — the six members of the family.
+# (logger name, store class, class name) — the four members of the family.
 _FAMILY = [
-    ("aegis_ai.mind.emotion", Emotion, "Emotion"),
-    ("aegis_ai.mind.goals", GoalManager, "GoalManager"),
     ("aegis_ai.mind.identity", Identity, "Identity"),
     ("aegis_ai.mind.layered_emotion", LayeredEmotion, "LayeredEmotion"),
     ("aegis_ai.mind.mood", Mood, "Mood"),
@@ -199,10 +196,12 @@ def test_every_load_in_mind_names_its_failure():
 def test_only_identity_is_constructed_outside_mind():
     """The family's scope: measured by *calling*, not by importing.
 
-    A pin on the split rather than on a hand-written list, so wiring one of the
-    six unwired members shows up here instead of silently changing what "live"
-    means. `AffectSystem` is asserted present as the positive control — it is
-    what keeps `Mood`, `Personality` and `LayeredEmotion` reachable.
+    A pin on the split rather than on a hand-written list, so wiring a currently
+    unwired module shows up here instead of silently changing what "live" means.
+    There are none left to wire: all four unwired members were deleted
+    (cycles 105 and 107). `AffectSystem` is asserted present as the positive
+    control — it is what keeps `Mood`, `Personality` and `LayeredEmotion`
+    reachable.
     """
     outside: set[str] = set()
     for module in _SRC.rglob("*.py"):

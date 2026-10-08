@@ -27,12 +27,13 @@ It uses a **three-layer affect model** (inspired by FAtiMA + LLMA):
 
 **Critical constraint**: Mind state does NOT override PolicyEngine safety decisions.
 
-> ⚠️ **Measured 2026-10-04, updated 2026-10-08** — read this before the component list: of the
-> components below, only **`Identity`** is actually constructed outside this package
-> (`runtime.py:1164`). `Mood`, `Personality` and `LayeredEmotion` are live through `AffectSystem`;
-> `Emotion` and `GoalManager` are constructed **nowhere** in `src/`. `Desire`, `Priorities` and
-> `SocialIntelligence` were **deleted** on 2026-10-08 — nothing constructed them and nothing
-> outside `mind/__init__.py` imported them. See *ContextBuilder Integration* below and
+> ⚠️ **Measured 2026-10-04, updated 2026-10-08 (cycle 107)** — read this before the component
+> list: of the components below, only **`Identity`** is actually constructed outside this
+> package (`runtime.py:1164`). `Mood`, `Personality` and `LayeredEmotion` are live through
+> `AffectSystem`. `Desire`, `Priorities`, `SocialIntelligence`, `Emotion` and `Goals` were
+> **deleted** on 2026-10-08 — nothing constructed them and nothing outside `mind/__init__.py`
+> imported them (`Emotion`/`GoalManager` were blocked only on `reflection_loop.py`, itself
+> superseded and deleted in the same cycle). See *ContextBuilder Integration* below and
 > `DELEGATION.md` §4 item 39.
 
 ## Components
@@ -216,8 +217,8 @@ through `ContextBuilder`.
 
 An earlier version of this section showed an example that passed `affect_system=` /
 `social_intelligence=` and read `ctx.affect` / `ctx.social`; it could not run. See
-`DELEGATION.md` §4 item 39 for the unwired components (two remain — `Emotion` and `GoalManager`;
-three were deleted 2026-10-08), and item 38 for the
+`DELEGATION.md` §4 item 39 for the unwired components (none remain — all five were deleted
+2026-10-08), and item 38 for the
 `_load` failures that used to be silent.
 
 ## Architecture Diagram
@@ -244,12 +245,11 @@ three were deleted 2026-10-08), and item 38 for the
 └─────────────────────────────────────────────────┘
 ```
 
-> ⚠️ **Measured 2026-10-04, updated 2026-10-08**: the bottom box overstates production. The only
-> `ContextBuilder(` call site in `src/` is `runtime.py:979`, and it passes **only `Identity`** —
-> `Emotion`, `GoalManager` and `AffectSystem` are never handed to it (`GoalManager` *would* be
-> accepted; `AffectSystem` would raise `TypeError`). `Emotion` and `GoalManager` are constructed
-> nowhere in `src/` at all; `Desire`, `Priorities` and `SocialIntelligence` no longer exist
-> (deleted 2026-10-08). See `DELEGATION.md` §4 item 39.
+> ⚠️ **Measured 2026-10-04, updated 2026-10-08 (cycle 107)**: the bottom box overstates
+> production. The only `ContextBuilder(` call site in `src/` is `runtime.py:979`, and it passes
+> **only `Identity`** — `AffectSystem` is never handed to it (it would raise `TypeError`).
+> `Desire`, `Priorities`, `SocialIntelligence`, `Emotion` and `Goals` no longer exist (deleted
+> 2026-10-08). See `DELEGATION.md` §4 item 39.
 
 ## Safety
 

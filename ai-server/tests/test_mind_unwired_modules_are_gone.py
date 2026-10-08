@@ -1,19 +1,21 @@
-"""Cycle 105 pin: the three unwired `mind/` modules are gone — and the *live* names they
-shadowed are not.
+"""Cycle 105/107 pin: the five unwired `mind/` modules are gone — and the *live* names
+they shadowed are not.
 
 `DELEGATION.md` §4 item 39 recorded four `mind/` classes that nothing constructs
 (`Desire`, `Emotion`, `GoalManager`, `SocialIntelligence`, plus `priorities.py`'s
-`PriorityEngine`). Measurement for this cycle narrowed the *executable* half: three of
-those modules had no importer at all outside `mind/__init__.py`, so deleting them needs
-no other decision.
+`PriorityEngine`). Measurement narrowed the *executable* half in two steps:
 
-  * `mind/desire.py`             -- no importer anywhere in `src/` or `tests/`
-  * `mind/priorities.py`         -- imported by nothing, not even a test
-  * `mind/social_intelligence.py` -- imported only by the persistence family's own pin
+  * cycle 105 — three modules had no importer at all outside `mind/__init__.py`, so
+    deleting them needed no other decision:
 
-`mind/emotion.py` and `mind/goals.py` are deliberately **not** here: their only importer
-is `reflection_loop.py`, which the row defers as a separate decision (measured 2026-10-08:
-146 lines, itself imported by nothing). They stay until that call is made.
+      * `mind/desire.py`              -- no importer anywhere in `src/` or `tests/`
+      * `mind/priorities.py`          -- imported by nothing, not even a test
+      * `mind/social_intelligence.py` -- imported only by the persistence family's own pin
+
+  * cycle 107 — `mind/emotion.py` and `mind/goals.py` were blocked on one decision:
+    their only importer was `reflection_loop.py`. That module was measured (146 lines,
+    imported by nothing, superseded by `reflection/reflection_engine.py::ReflectionEngine`
+    -- pinned by `test_reflection_loop_is_gone.py`) and deleted along with them.
 
 Two name traps were measured, and the pin keys on them rather than around them:
 
@@ -25,6 +27,13 @@ Two name traps were measured, and the pin keys on them rather than around them:
   * `SocialIntelligence` is unique to the deleted module, and the live sibling is spelled
     differently (`social/intelligence.py`'s `SocialIntelligenceSystem`). That sibling is
     asserted present as the control that the deletion took the *dead* one.
+
+`Emotion`, `Goal`, `GoalManager`, `GoalStatus` and `GoalType` are unique to the deleted
+modules (measured: no other `src/` file *binds* them -- the words appear elsewhere only in
+prose, which the AST scan parses past), so they can sit in the absence scan.
+`ReflectionResult` is the opposite case and is deliberately **not** here: it is shared with
+the live `memory/memory_types.py`. That is the third occurrence of the shared-name trap
+(cycles 102, 103, 105) and is handled in `test_reflection_loop_is_gone.py`.
 
 The scan for the removed dotted paths skips **this file**, which has to name them in order
 to test for them -- the same "a comment that names the removed artefact re-adds it to a
@@ -47,17 +56,39 @@ _SRC = _AI_SERVER / "src"
 _MIND = _SRC / "aegis_ai" / "mind"
 _SELF = Path(__file__).resolve()
 
-# The declared population: every module this cycle removed.
-_REMOVED_MODULES = ("desire.py", "priorities.py", "social_intelligence.py")
+# The declared population: every module these two cycles removed.
+_REMOVED_MODULES = (
+    "desire.py",
+    "priorities.py",
+    "social_intelligence.py",
+    "emotion.py",
+    "goals.py",
+)
 # The dotted names, for the import checks and the tree-wide scan.
 _REMOVED_DOTTED = (
     "aegis_ai.mind.desire",
     "aegis_ai.mind.priorities",
     "aegis_ai.mind.social_intelligence",
+    "aegis_ai.mind.emotion",
+    "aegis_ai.mind.goals",
 )
 # Names unique to the removed modules -- safe to assert *absent* from `src/`.
-_REMOVED_UNIQUE_NAMES = ("DesireEntry", "PriorityEngine", "PriorityScore", "SocialIntelligence", "SocialState")
-# A *shared* spelling: the removed `mind/desire.py::Desire` and the live legacy alias in
+# `Emotion`, `Goal`, `GoalManager`, `GoalStatus` and `GoalType` were measured unique to
+# `mind/emotion.py` / `mind/goals.py`: no other `src/` file *binds* them (the words appear
+# elsewhere only in prose, which `_defined_names` parses past).
+_REMOVED_UNIQUE_NAMES = (
+    "DesireEntry",
+    "PriorityEngine",
+    "PriorityScore",
+    "SocialIntelligence",
+    "SocialState",
+    "Emotion",
+    "Goal",
+    "GoalManager",
+    "GoalStatus",
+    "GoalType",
+)
+# A *shared* spelling: the removed `mind/desire.py`'s `Desire` and the live legacy alias in
 # `desire/desire_system.py` are the same name, so only the live side can be asserted.
 _SHARED_NAME = "Desire"
 _LIVE_SHARED_DEFINITION = "aegis_ai/desire/desire_system.py"
@@ -65,11 +96,12 @@ _LIVE_SHARED_DEFINITION = "aegis_ai/desire/desire_system.py"
 # absence scan for the dead name does not touch it).
 _LIVE_SIBLING_DEFINITION = "aegis_ai/social/intelligence.py"
 _CONTROL_LIVE_SIBLING = "SocialIntelligenceSystem"
-# Controls: a surviving class, and the re-exports `mind/__init__.py` kept.
+# Control: the one class `mind/__init__.py` still re-exports. The re-export test asserts
+# *equality* against this name, so a re-added re-export cannot pass by being absent from a
+# hand-maintained kept-list (a list would also have become empty here, i.e. vacuous).
 _CONTROL_NAME = "Identity"
-_KEPT_REEXPORTS = ("Emotion", "Goal", "GoalManager", "GoalStatus", "GoalType")
-# The surviving modules (11 - 3). Enumerated, not sampled.
-_EXPECTED_MODULE_COUNT = 8
+# The surviving modules (11 - 5). Enumerated, not sampled.
+_EXPECTED_MODULE_COUNT = 6
 _SURVIVING_MODULE = "identity.py"
 
 
@@ -105,8 +137,8 @@ def _definitions_of(name: str) -> list[str]:
     return found
 
 
-def test_the_three_modules_are_gone() -> None:
-    """The declared population, enumerated: these three files, and no others."""
+def test_the_five_modules_are_gone() -> None:
+    """The declared population, enumerated: these five files, and no others."""
     for name in _REMOVED_MODULES:
         assert not (_MIND / name).exists(), f"{name} is back -- it was deleted in cycle 105"
     # Control: the walk reaches the directory at all.
@@ -147,14 +179,21 @@ def test_the_shared_name_keeps_its_live_definition() -> None:
     assert _LIVE_SIBLING_DEFINITION in _definitions_of(_CONTROL_LIVE_SIBLING)
 
 
-def test_the_package_no_longer_reexports_them() -> None:
-    """`mind/__init__.py` re-exported all three; the names must be gone from the package."""
+def test_the_package_reexports_exactly_identity() -> None:
+    """`mind/__init__.py` re-exported all five; the names must be gone from the package.
+
+    The second half is an *equality* on the re-export statement, not a loop over a
+    hand-maintained kept-list: that list became empty with this deletion, so a loop over
+    it would have passed vacuously.
+    """
     for name in (*_REMOVED_UNIQUE_NAMES, _SHARED_NAME):
         assert not hasattr(mind_pkg, name), f"aegis_ai.mind still re-exports {name}"
-    # Controls: what was kept still resolves.
     assert hasattr(mind_pkg, _CONTROL_NAME), "control: Identity is no longer re-exported"
-    for name in _KEPT_REEXPORTS:
-        assert hasattr(mind_pkg, name), f"aegis_ai.mind lost the surviving re-export {name}"
+    imported: set[str] = set()
+    for node in ast.walk(ast.parse((_MIND / "__init__.py").read_text(encoding="utf-8"))):
+        if isinstance(node, ast.ImportFrom):
+            imported |= {alias.asname or alias.name for alias in node.names}
+    assert imported == {_CONTROL_NAME}, f"mind/__init__ now re-exports {sorted(imported)}"
 
 
 def test_no_source_or_test_imports_a_removed_module() -> None:

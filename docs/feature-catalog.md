@@ -670,7 +670,7 @@ AEGIS は **MCP サーバ**として振る舞う（クライアントではな�
 | **CostTracker** | `runtime.py` は `LLMRouter(cost_tracker=None)` とするので予算は効かない |
 | **world/ / recovery/ / briefing/ / browser_use/ / room/** | 外部 import ゼロ |
 | ~~**`permissions/`**~~ | **2026-10-03 に削除**（オーナー決定 — 配線しないと決めた承認ゲート。`DELEGATION.md` §4 項目 3） |
-| **`reflection_loop.py`** | 外部 import ゼロ |
+| ~~**`reflection_loop.py`**~~ | **2026-10-08 に削除**（外部 import ゼロ。後継は `reflection/reflection_engine.py` — `runtime.py` が `reflection_engine=` として注入し `autonomous/autonomous_loop.py` が消費する。`DELEGATION.md` §4 項目 39） |
 | **Dev Server（:50056）** | ディレクトリごと削除済み |
 
 **設計上の含意**: これらは「壊れている」のではなく「**置いてあるが配線していない**」状態である。

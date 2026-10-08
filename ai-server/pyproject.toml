@@ -62,6 +62,12 @@ markers = [
 select = ["E", "F", "I", "N", "W", "UP"]
 ignore = ["N802"]  # gRPC method names must be PascalCase (e.g. HealthCheck)
 
+# Every path below must name a file that exists: ruff does not warn about a
+# key whose file is gone, so a stale key silently asserts an exemption that is
+# not in force. `tests/test_ruff_per_file_ignores_resolve.py` pins it.
+# Measured 2026-10-08 (cycle 107): 8 of 25 keys named a missing file --
+# 6 deleted, 2 relocated into `autonomous/` (their exemption was NOT re-granted;
+# see DELEGATION.md section 5, cycle 107).
 [tool.ruff.lint.per-file-ignores]
 # Re-export modules: unused imports are intentional
 "src/aegis_ai/__init__.py" = ["F401"]
@@ -75,18 +81,10 @@ ignore = ["N802"]  # gRPC method names must be PascalCase (e.g. HealthCheck)
 "src/aegis_ai/mind/__init__.py" = ["F401"]
 # Skeleton modules: unused variables and length are expected
 "src/aegis_ai/grpc_server.py" = ["F401", "F841"]
-"src/aegis_ai/autonomous_loop.py" = ["F841"]
-"src/aegis_ai/planner.py" = ["F841"]
 "src/aegis_ai/scheduler.py" = ["F841"]
 "src/aegis_ai/context_builder.py" = ["F841"]
-"src/aegis_ai/agents/research.py" = ["F841"]
-"src/aegis_ai/agents/support.py" = ["F841"]
-"src/aegis_ai/agents/self_dev.py" = ["F841"]
 "src/aegis_ai/memory/episodic.py" = ["F841"]
 "src/aegis_ai/memory/semantic.py" = ["F841"]
 "src/aegis_ai/memory/procedural.py" = ["F841"]
 "src/aegis_ai/memory/reflection.py" = ["F841"]
 "src/aegis_ai/mind/identity.py" = ["F841"]
-"src/aegis_ai/mind/desire.py" = ["F841"]
-"src/aegis_ai/mind/emotion.py" = ["F841"]
-"src/aegis_ai/mind/goals.py" = ["F841"]

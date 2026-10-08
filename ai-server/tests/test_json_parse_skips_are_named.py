@@ -169,13 +169,16 @@ def test_no_handler_skips_a_json_parse_failure_in_silence() -> None:
 def test_the_census_is_not_vacuous() -> None:
     """Floors are measurements, not round numbers.
 
-    Re-measured 2026-10-08: 399 files / 1117 handlers (was 406 / 1121 on
-    2026-10-06 -- the fall is the dead surfaces deleted by cycles 101-102).
+    Re-measured 2026-10-08 (cycle 107): **391 files / 1098 handlers** -- the count had
+    drifted *below* the previous record (399 / 1117, set by cycle 102) because cycles
+    103-107 deleted more modules and nothing forced a re-measure; the handler floor
+    (1100) is what finally caught it, since 1098 < 1100. The file floor had one unit
+    of margin left. The floors now carry a real margin again.
     """
     files = _modules()
     total = sum(len(_handlers(ast.parse(p.read_text(encoding="utf-8")))) for p in files)
-    assert len(files) >= 390, f"only {len(files)} modules scanned; the walk is not reaching src/"
-    assert total >= 1100, f"only {total} handlers scanned; the walk is not reaching the handlers"
+    assert len(files) >= 380, f"only {len(files)} modules scanned; the walk is not reaching src/"
+    assert total >= 1080, f"only {total} handlers scanned; the walk is not reaching the handlers"
 
 
 def test_the_detector_sees_the_family_and_not_its_siblings() -> None:
