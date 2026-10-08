@@ -70,9 +70,14 @@ _HANDLER_FUNCTION = "_on_event"
 #: Recorded 2026-10-03: web-package files that construct an **unbounded** queue.
 #: ``manager_routes.py`` was removed from this set on 2026-10-03 — its SSE queue is now
 #: bounded (``_PRESENTATION_QUEUE_SIZE``), which is half of this fix.
+#: **``dashboard_legacy.py`` was removed on 2026-10-08**: its only unbounded queue was the
+#: chat-event registry (``_register_chat_client``), which was deleted together with the
+#: inert SSE route (``DELEGATION.md`` §4 item 23). The web package now builds **no**
+#: unbounded queue at all.
 #: **Equality** — a new entry is a new unbounded buffer; a missing one means a queue was
-#: bounded (good). Either way, re-measure and re-record.
-_RECORDED_UNBOUNDED_QUEUES = frozenset({"dashboard_legacy.py"})
+#: bounded (good). Either way, re-measure and re-record. Because the set is now **empty**,
+#: the test below carries a control, so an empty result cannot pass vacuously.
+_RECORDED_UNBOUNDED_QUEUES = frozenset()
 
 _MIN_SRC_FILES = 300
 
@@ -158,6 +163,21 @@ def _unbounded_queue_files() -> set[str]:
             has_maxsize = any(kw.arg == "maxsize" for kw in node.keywords) or len(node.args) >= 1
             if not has_maxsize:
                 found.add(path.name)
+    return found
+
+
+def _queue_building_files() -> set[str]:
+    """Web-package files that build a ``queue.Queue`` **at all** — the control for the record.
+
+    ``_RECORDED_UNBOUNDED_QUEUES`` is empty, so without this an empty result could mean
+    "every queue in the package is bounded" *or* "the walk stopped reading the tree".
+    """
+    found: set[str] = set()
+    for path in _src_files():
+        if _WEB not in path.parents and path != _WEB:
+            continue
+        if _calls(_parsed(path), "Queue"):
+            found.add(path.name)
     return found
 
 
@@ -338,6 +358,13 @@ def test_the_presentations_queue_is_bounded() -> None:
             f"line {node.lineno}: manager_routes.py builds an UNBOUNDED queue. A client that "
             "disconnected cannot drain it, so it grows without limit."
         )
+
+    builders = _queue_building_files()
+    assert "manager_routes.py" in builders, (
+        f"the web-package queue walk no longer finds {_PRESENTATIONS.name}'s (bounded) queue: "
+        f"{sorted(builders)}. The unbounded record is now **empty**, so with the walk broken "
+        "an empty result would prove nothing."
+    )
 
     assert _unbounded_queue_files() == _RECORDED_UNBOUNDED_QUEUES, (
         "the set of web-package files building an unbounded queue changed: "
