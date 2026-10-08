@@ -1123,7 +1123,8 @@ Measured 2026-10-01 — `ai-server`, full suite:
 > tracebacks to **every** python start, subprocesses included, so `tests/test_a_failing_sub_audit_check_carries_its_cause.py`
 > -- whose premise is "a failing sub-audit leaves stderr empty" -- fails there (**1 failed, 12 passed**) and passes
 > under the AEGIS venv (**13 passed**). The gate uses the root `.venv`, so it is **red on this machine**. -> section 4 item 79.
-> Test delta **0** (documents only), so every live count copy is unchanged.> **⚠️ 2026-10-09 (cycle 112): two of the Testing Guide's claims were true when written and false now -- a falsified premise, and a snippet naming two classes that no longer exist.**
+> Test delta **0** (documents only), so every live count copy is unchanged.
+> **⚠️ 2026-10-09 (cycle 112): two of the Testing Guide's claims were true when written and false now -- a falsified premise, and a snippet naming two classes that no longer exist.**
 > `docs/testing.md:42` -- a *dated correction* (2026-10-02) -- explained that the removed E2E entries described an
 > `EventBus -> TriggerEngine -> ContextBuilder` flow "that cannot run, **because no `TriggerEngine` is constructed**".
 > That reason was **falsified on 2026-10-06**: branch (1) of section 4 item 24 built the event-driven core, so a
