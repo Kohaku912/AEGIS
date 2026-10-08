@@ -167,7 +167,13 @@ class SettingsStore:
         if not self._path.exists():
             return
         try:
-            with open(self._path, encoding="utf-8") as f:
+            # ``utf-8-sig`` strips a leading BOM if present and is otherwise identical
+            # to ``utf-8``, so a settings.json saved by a Windows editor (Notepad, or
+            # PowerShell ``Set-Content -Encoding utf8``, which in Windows PowerShell 5.1
+            # writes a BOM) is read rather than silently falling back to the built-in
+            # defaults -- which differ from the shipped config in exactly three egress
+            # keys. A BOM-free file is unaffected.
+            with open(self._path, encoding="utf-8-sig") as f:
                 data = json.load(f)
             self._settings = AEGISSettings.model_validate(data)
         except Exception as exc:
