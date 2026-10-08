@@ -59,6 +59,12 @@
 > ありません**（`git log --all -- <path>` が空）。`docker-compose.yml.archive`（手順 3 の退避物）は
 > **在ります**（7842 B）。`git tag -l` は**0 件**なので、下のタグ復元の手順も**空振りします**。
 > 復元するか廃止するかはオーナー判断（`DELEGATION.md` §4 項目 55）。
+>
+> **追記（2026-10-08、サイクル 101）**: 手順 2 が名指す `ai-server/src/aegis_ai/tools/bridges/git.py` /
+> `github.py` は、その**親パッケージごと削除された**（`DELEGATION.md` §4 項目 53 — production で
+> 登録簿が空で、到達不能だったため）。したがって手順 4 の最初の 3 つ
+> （`ai-server.workspace.{repo_status,diff,test_results}`）は、**戻す先の bridge 実装がもう存在しない**。
+> 3 つの ID も `ai-server/src` から消えた（能力 ID の全数調査は 44 → 41、未解決 8 → 5 に再実測）。
 
 ### Dev Server を復活させる手順
 
@@ -136,7 +142,7 @@ git show <tag>:infra/systemd/aegis.service > infra/systemd/aegis.service.archive
 |------|------|---------|
 | Agent 関連の特定 task が fail | `agents.enabled=false` で task 単位 skip | 5 分 |
 | `aegis-openhands-agent.service` 連続 crash | systemd unit 停止 + `agents.enabled=false` | 15 分 |
-| Phase 6-8 で導入した ToolBridge 層が壊れる | git revert 該当 commit | 30 分 |
+| Phase 6-8 で導入した ToolBridge 層が壊れる（**この層は 2026-10-08 に削除済み** — 上の追記を参照） | git revert 該当 commit | 30 分 |
 | Phase 9 で破壊的変更があった | Dev Server 復活 + `git checkout 7c0ffe5` | 1-2 時間 |
 
 > ロールバック判断は **まず `agents.enabled=false` で** Agent 機能のみを止め、

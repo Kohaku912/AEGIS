@@ -11,10 +11,13 @@ servers actually import. So the chain is `.proto` -> generated stubs -> runtime,
   the pydantic models. Nothing compared the `.proto` to the generated stubs — the artefacts the
   servers import.
 * **One orphan exists.** `ai-server/src/generated/aegis/dev_server_pb2.pyi` is a generated stub whose
-  source `protos/aegis/dev_server.proto` was deleted with the Dev Server. Nothing references it: the
-  only occurrences of the name are in `tests/agents/test_tool_bridges.py`, which asserts the bridges
-  must **not** import it. It is recorded below rather than deleted — removal is an owner call
-  (`DELEGATION.md` §4 item 19).
+  source `protos/aegis/dev_server.proto` was deleted with the Dev Server. Nothing under
+  `ai-server/src/` references it: the only assertion about it lived in
+  `tests/agents/test_tool_bridges.py`, which pinned that the bridges must **not** reference it.
+  That module and the `tools/bridges/` package it tested were deleted 2026-10-08 (`DELEGATION.md`
+  §4 item 53), so the stub is now referenced by no module under `src/` at all — only by prose and by
+  `scripts/e2e/dev-real-probe.py`. It is recorded below rather than deleted — removal is an owner
+  call (`DELEGATION.md` §4 item 19).
 * **The generator's own `[3/3] Verification` step cannot detect any of this.** It counts `*_pb2*.py`
   files and passes when the count is non-zero (`scripts/generate_protos.sh`), which is equally true
   of stale, orphaned and correct stubs. Both defects above existed while it printed a checkmark.

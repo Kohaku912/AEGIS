@@ -1347,7 +1347,7 @@ Measured 2026-10-01 — `ai-server`, full suite:
 > **The item-45 partition is pinned by number, and one false copy was corrected (2026-10-06): `2555 passed / 8 skipped`** — measured
 > 2555 / 8 / 0 (2563 collected, 569.3 s); marker-selected: egress **314 / 1 / 2248 deselected**, non-egress **2241 / 7 / 315 deselected**,
 > reconciling exactly (`2241 + 314 = 2555`, `7 + 1 = 8`, `315 + 2248 = 2563`). ⚠️ **The first run of this cycle was not usable**: it reported
-> 2551 / 10 / 0 with 2 ERRORS in `tests/agents/test_tool_bridges.py`, because that harness passed a minimal env instead of inheriting
+> 2551 / 10 / 0 with 2 ERRORS in `tests/agents/test_tool_bridges.py` (that module was deleted 2026-10-08 with the `tools/bridges/` package — `DELEGATION.md` §4 item 53), because that harness passed a minimal env instead of inheriting
 > `os.environ`; it also created an untracked `%SystemDrive%` junk tree. Re-run with an inherited env: 0 errors, no junk. A harness is part
 > of the measurement.
 > **The +10 is the new pin exactly**, and no existing case moved. `DELEGATION.md` §4 item 46 branch ①:
