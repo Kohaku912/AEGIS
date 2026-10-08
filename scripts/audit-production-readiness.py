@@ -615,7 +615,7 @@ def _load_blockers(blocker_path: Path) -> list[dict[str, object]]:
             }
         ]
     try:
-        data = json.loads(blocker_path.read_text(encoding="utf-8"))
+        data = json.loads(blocker_path.read_text(encoding="utf-8-sig"))
     except Exception as exc:
         return [
             {

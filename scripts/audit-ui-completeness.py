@@ -406,8 +406,18 @@ def read_text(path: Path) -> str:
 
 
 def read_json(path: Path) -> dict:
+    """Read a generated JSON artifact, tolerating a BOM.
+
+    ``design-tokens/contrast-report.json`` is written by a *tool*, and tools in this
+    tree are not consistent about the BOM -- measured 2026-10-08: **48 of 68** JSON
+    reports under ``data/reports`` carry one. Reading ``utf-8`` turns a BOM'd file into
+    a ``JSONDecodeError``, which the broad handler below collapses to ``{}`` -- so the
+    caller cannot tell 'the file is empty' from 'the file is fine but starts with a
+    BOM'. ``utf-8-sig`` is a strict superset: it strips a leading BOM if present and is
+    identical to ``utf-8`` otherwise.
+    """
     try:
-        return json.loads(read_text(path))
+        return json.loads(path.read_text(encoding="utf-8-sig"))
     except Exception:
         return {}
 

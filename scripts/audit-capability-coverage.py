@@ -84,7 +84,7 @@ def main() -> int:
     rows: list[dict[str, object]] = []
     for manifest_path in sorted(capability_root.rglob("*.json")):
         try:
-            data = json.loads(manifest_path.read_text(encoding="utf-8"))
+            data = json.loads(manifest_path.read_text(encoding="utf-8-sig"))
         except Exception as exc:
             rows.append({
                 "file": manifest_path.relative_to(ROOT).as_posix(),

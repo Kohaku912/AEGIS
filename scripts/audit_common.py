@@ -110,7 +110,7 @@ def read_overrides(report_dir: Path = REPORT_DIR) -> dict[str, str]:
     try:
         if not path.exists():
             return {}
-        data = json.loads(path.read_text(encoding="utf-8"))
+        data = json.loads(path.read_text(encoding="utf-8-sig"))
         if isinstance(data, dict):
             overrides: dict[str, str] = {}
             for key, value in data.items():
@@ -130,7 +130,7 @@ def infer_capability_id(path: str, text: str) -> str:
         return match.group(1)
     if "/capabilities/" in path and path.endswith(".json"):
         try:
-            data = json.loads((ROOT / path).read_text(encoding="utf-8"))
+            data = json.loads((ROOT / path).read_text(encoding="utf-8-sig"))
             return str(data.get("capability_id") or data.get("id") or "")
         except Exception:
             return ""

@@ -30,7 +30,7 @@ def _display_path(path: Path) -> str:
 def _load_json(path: Path) -> dict[str, object]:
     try:
         if path.exists():
-            data = json.loads(path.read_text(encoding="utf-8"))
+            data = json.loads(path.read_text(encoding="utf-8-sig"))
             if isinstance(data, dict):
                 return data
     except Exception:
