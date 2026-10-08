@@ -65,7 +65,11 @@ class CapabilityOverrideStore:
         if not self.path.exists():
             return
         try:
-            data = json.loads(self.path.read_text(encoding="utf-8"))
+            # ``utf-8-sig`` strips a leading BOM if present and is otherwise identical to
+            # ``utf-8``, so a user-edited overrides file saved by a Windows editor is read
+            # rather than flagged ``corrupted`` -- which would drop every override and
+            # revert the capability to its manifest risk level.
+            data = json.loads(self.path.read_text(encoding="utf-8-sig"))
             items = data.get("overrides", data) if isinstance(data, dict) else {}
             if not isinstance(items, dict):
                 raise ValueError("override store root must be an object")

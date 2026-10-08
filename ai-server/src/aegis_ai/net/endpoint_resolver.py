@@ -157,7 +157,7 @@ def _parse_ip_neigh(text: str) -> dict[str, str]:
 def _parse_neighbors_json(path: Path) -> dict[str, str]:
     mapping: dict[str, str] = {}
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
+        data = json.loads(path.read_text(encoding="utf-8-sig"))
     except Exception:
         return mapping
     items = data.get("neighbors") if isinstance(data, dict) else data
@@ -262,7 +262,7 @@ def _load_disk_cache() -> dict[str, Any]:
     path = _cache_path()
     try:
         if path.is_file():
-            return json.loads(path.read_text(encoding="utf-8"))
+            return json.loads(path.read_text(encoding="utf-8-sig"))
     except Exception:
         logger.debug("Failed reading endpoint cache %s", path, exc_info=True)
     return {}
