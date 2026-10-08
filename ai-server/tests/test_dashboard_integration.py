@@ -86,7 +86,6 @@ def _app(monkeypatch, tmp_path):
     monkeypatch.setattr(dashboard_routes, "_get_mem_backend", lambda name, **kw: None)
     monkeypatch.setattr(dashboard_routes, "build_shared_memory_context", lambda **kw: SimpleNamespace(text="", audit_detail=lambda: {}))
     monkeypatch.setattr(dashboard_routes, "_load_chat_history_entries", lambda: [])
-    monkeypatch.setattr(dashboard_routes, "_load_audit_entries", lambda: [])
     monkeypatch.setattr(dashboard_routes, "_load_error_log_entries", lambda: [])
     monkeypatch.setattr(dashboard_routes, "_load_memory_snapshot", lambda: {
         "summary": {}, "entities": [], "facts": [], "persons": [],

@@ -14,7 +14,6 @@ from aegis_ai.web.dashboard_legacy import (  # noqa: F401
     _call_llm_with_runtime,
     _clean_llm_response,
     _get_mem_backend,
-    _load_audit_entries,
     _load_chat_history_entries,
     _load_error_log_entries,
     _load_settings_for_status,
@@ -49,7 +48,6 @@ class DashboardApp(_legacy.DashboardApp):
         _legacy._DATA_DIR = _DATA_DIR
         for name in (
             "_get_mem_backend",
-            "_load_audit_entries",
             "_load_chat_history_entries",
             "_load_error_log_entries",
             "_load_memory_snapshot",
@@ -67,7 +65,6 @@ __all__ = [
     "_clean_llm_response",
     "_DATA_DIR",
     "_get_mem_backend",
-    "_load_audit_entries",
     "_load_chat_history_entries",
     "_load_error_log_entries",
     "_load_memory_snapshot",

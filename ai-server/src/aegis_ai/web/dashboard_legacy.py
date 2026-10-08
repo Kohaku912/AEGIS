@@ -600,37 +600,6 @@ def _summarize_tool_output(output: Any) -> str:
     return _truncate_text(output, 180)
 
 
-def _load_audit_entries() -> list[dict[str, Any]]:
-    entries: list[dict[str, Any]] = []
-    audit_path = os.path.join(_DATA_DIR, "audit.jsonl")
-    if not os.path.exists(audit_path):
-        return entries
-    try:
-        with open(audit_path, encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    entry = json.loads(line)
-                except Exception:
-                    continue
-                entry["time_str"] = _format_timestamp_ms(entry.get("timestamp_ms", 0))
-                detail = entry.get("detail", {})
-                if isinstance(detail, dict):
-                    parts = []
-                    for key, value in list(detail.items())[:3]:
-                        parts.append(f"{key}={_truncate_text(value, 60)}")
-                    entry["detail_summary"] = ", ".join(parts)
-                else:
-                    entry["detail_summary"] = _truncate_text(detail, 100)
-                entry["detail_pretty"] = _pretty_json(detail)
-                entries.append(entry)
-    except Exception:
-        return []
-    return entries
-
-
 def _is_error_audit_entry(entry: dict[str, Any]) -> bool:
     action = entry.get("action", "")
     decision = str(entry.get("decision", "")).lower()
@@ -1361,49 +1330,6 @@ class DashboardApp:
         # `_load_memory_snapshot`). The legacy copy that used to be registered here was
         # **shadowed** by the blueprint and could never run; removed 2026-10-03
         # (DELEGATION.md §4 item 28, pinned by tests/test_no_route_is_shadowed.py).
-
-        @app.route("/api/audit/stream")
-        def audit_stream():
-            from flask import Response
-            import json as j
-
-            def generate():
-                audit_path = os.path.join(_DATA_DIR, "audit.jsonl")
-                last_size = 0
-                if os.path.exists(audit_path):
-                    last_size = os.path.getsize(audit_path)
-                heartbeat_counter = 0
-                while True:
-                    try:
-                        if os.path.exists(audit_path):
-                            size = os.path.getsize(audit_path)
-                            if size > last_size:
-                                with open(audit_path, encoding="utf-8") as f:
-                                    f.seek(last_size)
-                                    for line in f:
-                                        line = line.strip()
-                                        if line:
-                                            try:
-                                                entry = j.loads(line)
-                                                if entry.get("action", "").startswith("llm_") or entry.get("action", "").startswith("tool_"):
-                                                    ts = entry.get("timestamp_ms", 0)
-                                                    if ts > 0:
-                                                        dt = datetime.fromtimestamp(ts / 1000, tz=_JST)
-                                                        entry["time_str"] = dt.strftime("%H:%M:%S")
-                                                    yield f"data: {j.dumps(entry, ensure_ascii=False)}\n\n"
-                                            except Exception as parse_err:
-                                                yield f"data: {j.dumps({'type': 'error', 'message': f'Parse error: {parse_err}'})}\n\n"
-                                last_size = size
-                    except Exception as e:
-                        yield f"data: {j.dumps({'type': 'error', 'message': str(e)})}\n\n"
-                    heartbeat_counter += 1
-                    if heartbeat_counter >= 15:
-                        yield ": heartbeat\n\n"
-                        heartbeat_counter = 0
-                    import time as _time
-                    _time.sleep(2)
-
-            return Response(generate(), mimetype='text/event-stream')
 
         @app.route("/api/stream/desires")
         def stream_desires():

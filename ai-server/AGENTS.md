@@ -60,7 +60,7 @@ ai-server/
     ├── memory/
     ├── desires/
     ├── autonomous/
-    └── audit.jsonl
+    └── audit.db
 ```
 
 ## Key Components

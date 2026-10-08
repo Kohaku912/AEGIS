@@ -90,7 +90,12 @@ _EXCLUDED: dict[str, tuple[int, str]] = {
 }
 
 # Sites neither named nor excluded -- a *budget*, so it cannot rot into an allow-list.
-_BACKLOG = 22
+# Cycle 104 (item 25): deleting `dashboard_legacy._load_audit_entries` removed the
+# `except Exception: continue` inside its JSONL line loop -- the sibling `except Exception:
+# return []` was never counted, because a `Return` body is not a bare discard. The measured
+# total fell 31 -> 30, so this budget is lowered deliberately: 22 -> 21. Nothing was added to
+# the exclusion allow-list (the exclusions still total 9).
+_BACKLOG = 21
 
 # relpath of a named module -> bare handlers measured *after* cycle 59.
 # journal_store keeps one: `append`'s `JournalEvent.model_validate` fallback, which produces a

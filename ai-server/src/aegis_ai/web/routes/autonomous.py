@@ -116,20 +116,6 @@ def init_autonomous_routes(owner: Any, data_dir: str) -> None:
         except Exception as exc:
             return jsonify({"error": str(exc)})
 
-    @bp.route("/api/autonomous/skip-reasons")
-    def autonomous_skip_reasons():
-        try:
-            skip_reasons = []
-            audit_path = os.path.join(data_dir, "audit.jsonl")
-            if os.path.exists(audit_path):
-                with open(audit_path, encoding="utf-8") as f:
-                    for line in f:
-                        if "autonomous_preflight" in line or "autonomous_no_action" in line:
-                            skip_reasons.append(json.loads(line.strip()))
-            return jsonify({"skip_reasons": skip_reasons[-20:]})
-        except Exception as exc:
-            return jsonify({"error": str(exc)})
-
     @bp.route("/api/autonomous/logs")
     def autonomous_logs():
         """Return execution logs grouped by autonomous cycle."""
@@ -224,48 +210,22 @@ def init_autonomous_routes(owner: Any, data_dir: str) -> None:
                     }
                 )
 
-            # Compatibility fallback for runtimes that have not migrated audit
-            # storage from JSONL to AuditManager's SQLite backend.
-            audit_path = os.path.join(data_dir, "audit.jsonl")
-            if not os.path.exists(audit_path):
-                return jsonify({"groups": [], "count": 0})
-
-            entries = []
-            with open(audit_path, encoding="utf-8") as f:
-                for line in f:
-                    line = line.strip()
-                    if not line:
-                        continue
-                    entries.append(json.loads(line))
-
-            groups: dict[str, dict[str, Any]] = {}
-            for entry in entries:
-                group_id = entry.get("group_id", "")
-                if not group_id:
-                    group_id = f"ungrouped_{entry.get('timestamp_ms', 0)}"
-
-                if group_id not in groups:
-                    groups[group_id] = {
-                        "group_id": group_id,
-                        "group_type": entry.get("group_type", "unknown"),
-                        "group_title": entry.get("group_title", ""),
-                        "started_at": entry.get("timestamp_ms", 0),
-                        "entries": [],
-                    }
-
-                group = groups[group_id]
-                group["entries"].append({
-                    "action": entry.get("action", ""),
-                    "capability_id": entry.get("capability_id", ""),
-                    "decision": entry.get("decision", ""),
-                    "reason": entry.get("reason", ""),
-                    "timestamp_ms": entry.get("timestamp_ms", 0),
-                    "actor": entry.get("actor", ""),
-                })
-                group["started_at"] = min(group["started_at"], entry.get("timestamp_ms", 0))
-
-            sorted_groups = sorted(groups.values(), key=lambda g: g["started_at"], reverse=True)
-            return jsonify({"groups": sorted_groups[:30], "count": len(groups)})
+            # No AuditManager on the runtime means there is no audit store to read.
+            # The JSONL fallback that used to stand here read the legacy audit file,
+            # which nothing has written since the SQLite migration -- it returned
+            # empty whether or not it was reached, so it was removed 2026-10-08
+            # (DELEGATION.md item 25, pinned by tests/test_audit_jsonl_surface_is_gone.py).
+            return jsonify(
+                {
+                    "groups": [],
+                    "operations": [],
+                    "count": 0,
+                    "total": 0,
+                    "page": 1,
+                    "per_page": 30,
+                    "total_pages": 1,
+                }
+            )
         except Exception as exc:
             return jsonify({"error": str(exc)})
 

@@ -120,7 +120,7 @@ AEGIS は「**イベント駆動・複数デバイス・自己改善型の AI �
 
 | パス | 内容 |
 |---|---|
-| `data/audit.jsonl` | 監査ログ（追記のみ） |
+| `data/audit.db` | 監査ログ（SQLite。旧 JSONL 読み出し面は 2026-10-08 に削除 — §4 項目 25） |
 | `data/chat_history.jsonl` | **Dashboard・Web Chat・Android が共有する**チャット履歴 |
 | `data/confirmation/confirmations.jsonl` | AEGIS が自発的に出した確認質問 |
 | `data/memory/*.jsonl` | 記憶（後述の各バックエンド） |

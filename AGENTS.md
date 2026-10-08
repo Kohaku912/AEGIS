@@ -496,6 +496,19 @@ Measured 2026-10-01 — `ai-server`, full suite:
 > (`2000 − 1962` collected, or `1685 − 1647` deselected); it read **30** in the note above, which was
 > correct for that measurement — write the arithmetic beside a derived number or it rots silently.
 >
+> **Update (2026-10-08, cycle 104): the audit-JSONL surface was deleted.** `DELEGATION.md` §4
+> item 25 was executed under the owner's decision to **delete**: `aegis_ai/audit.py` (the shadowed
+> module), `GET /api/audit/stream`, `GET /api/autonomous/skip-reasons`, the never-called
+> `_load_audit_entries` helper, and the JSONL fallback inside `GET /api/audit/grouped`.
+> ⚠️ The row counted "**four readers**" and its delete branch named "**4 routes**"; measurement
+> found **two routes, one helper with no call site, and one dead branch inside a *live*
+> route** — so the count held and the *kind* did not. `/api/audit/grouped` has a client
+> (`web-ui/src/api/client.ts`) and its main path always runs, so only its fallback was removed. The pin was **inverted**, not
+> deleted: `tests/test_audit_jsonl_has_no_writer.py` → `tests/test_audit_jsonl_surface_is_gone.py`
+> (7 cases, **mutation 9/9 + control**). The app now registers **187 rules / 197 pairs** (was
+> 189 / 199), **6** `text/event-stream` routes (was 7), and the unreferenced-route count is
+> **93** (was 95).
+>
 > **Re-measured 2026-10-03 (the presentation-stream pin): `1997 passed / 8 skipped`** (2005 collected,
 > 499.73 s; the canonical marker-excluded form is 1997 / 4 skipped / 4 deselected). The **+5** is
 > `tests/test_presentation_stream_is_sound.py` (written as `..._leaks_a_subscriber.py`; **renamed
