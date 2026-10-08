@@ -668,11 +668,14 @@ Measured 2026-10-01 — `ai-server`, full suite:
 > which is why they are worth naming:
 >
 > * The judging profile was `decision`, which resolves to `api.deepseek.com` — a host the shipped
->   allowlist (`privacy.egress_allowed_hosts` = `api.typesafe.ai` only) **denies**. A denied profile
->   degrades to Mock, `is_trustworthy` is False, and a correctly-wired asker would therefore **never
->   ask**: the whole feature wired and silent. It is now `jev_decision` (TypeSafe JEV, the one
->   allowlisted destination). Measured by **driving the real resolver and the real gate**, not by
->   reading config: `decision` → `EgressDecision.DENY`, `jev_decision` → `ALLOW`. The existing pin had
+>   allowlist (`privacy.egress_allowed_hosts` = `api.typesafe.ai` only **at the time**) **denied**. A
+>   denied profile degrades to Mock, `is_trustworthy` is False, and a correctly-wired asker would
+>   therefore **never ask**: the whole feature wired and silent. It is now `jev_decision` (TypeSafe
+>   JEV). Measured by **driving the real resolver and the real gate**, not by reading config
+>   (2026-10-03): `decision` → `EgressDecision.DENY`, `jev_decision` → `ALLOW`. ⚠️ **That premise has
+>   since lapsed** — the allowlist gained `api.deepseek.com` on 2026-10-06 so L2 could run, and
+>   re-measured 2026-10-08 `decision` → **ALLOW** too; the rename stands for its other reason (the
+>   judgement belongs to the TypeSafe JEV profile). The existing pin had
 >   asserted only that the profile was **declared** in `llm.yaml` — `declared` and `resolves` are two
 >   different claims, and only the second is load-bearing.
 > * The ask travels as the **arguments of the capability** `ai-server.confirmation.request`, so it must

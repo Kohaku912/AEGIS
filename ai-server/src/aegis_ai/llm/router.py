@@ -375,7 +375,8 @@ class LLMRouter:
         local provider may be selected — even if a settings flag has been flipped. This
         prevents the retired "declared but ineffective" class of bug. Note the gate is
         closed only until the runtime configures it from ``settings.json``, which ships
-        an open-but-scoped allowlist (``api.typesafe.ai``) rather than a closed gate.
+        an open-but-scoped allowlist (``api.typesafe.ai``, ``api.deepseek.com``) rather than a
+        closed gate.
         """
         from aegis_ai.egress import EgressRequest, get_egress_gate
 

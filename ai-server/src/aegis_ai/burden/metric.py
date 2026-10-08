@@ -7,14 +7,16 @@ is the *machine's* view; the user's answer is the ground truth. The two are kept
 purpose and neither overwrites the other.
 
 **Why ``jev_decision`` and not ``decision``.** The first cut named ``decision``, which is
-the profile the autonomous loop uses for its own judgements — but ``decision`` resolves to
-``api.deepseek.com``, and the shipped allowlist (``privacy.egress_allowed_hosts``) permits
-``api.typesafe.ai`` only. Measured by driving the real resolver and the real egress gate:
-``decision`` → **DENY** → Mock → ``is_trustworthy`` False, so a correctly-wired caller
-would **never ask** — the whole feature would be inert while looking wired. ``jev_decision``
-resolves to ``api.typesafe.ai/v1/systemone`` → **ALLOW**. The lesson is the standing one:
-**a label names the request, not the resolution** — a profile being *declared* is not the
-same claim as it *resolving* to a permitted host, and only the second one is load-bearing.
+the profile the autonomous loop uses for its own judgements — and at the time it resolved to
+``api.deepseek.com``, which the shipped allowlist then refused, so the judgement degraded to
+Mock (``is_trustworthy`` False) and a correctly-wired caller would **never ask**: the whole
+feature inert while looking wired. Measured by driving the real resolver and the real egress
+gate **on 2026-10-03**: ``decision`` → **DENY**, ``jev_decision`` →
+``api.typesafe.ai/v1/systemone`` → **ALLOW**. ⚠️ **That premise has since lapsed** — the
+allowlist gained ``api.deepseek.com`` on 2026-10-06 so L2 could run (cycle 77), and
+re-measured 2026-10-08 ``decision`` → **ALLOW** too. The rename stands for its other reason:
+the judgement belongs to the TypeSafe JEV profile, not to the loop's own. The lesson is the
+standing one:
 
 **Why it is a judgement and not a formula.** §3.1 hole 3 was the last north-star hole, and
 ``DECISION_DRAFTS.md`` §B-5 answered it with *"derive it from the existing decision log; no
@@ -53,10 +55,11 @@ from typing import Any
 logger = logging.getLogger("aegis_ai.burden.metric")
 
 #: The judgment LLM. ``config/llm.yaml`` declares this profile as a **TypeSafe JEV** one
-#: (``provider: typesafe`` / ``base_url: https://api.typesafe.ai/v1/systemone``), which is
-#: the only external host the shipped allowlist permits — so this profile is the one that
-#: actually *resolves* to a permitted destination rather than being denied and degraded to
-#: Mock. See the module docstring for the measurement behind that choice.
+#: (``provider: typesafe`` / ``base_url: https://api.typesafe.ai/v1/systemone``), a host the
+#: shipped allowlist permits — so this profile *resolves* to a permitted destination rather
+#: than being denied and degraded to Mock. (The allowlist now also permits
+#: ``api.deepseek.com``, so it is no longer the *only* such host; re-measured 2026-10-08.)
+#: See the module docstring for the measurement behind that choice.
 JUDGMENT_PROFILE = "jev_decision"
 
 #: How often the user is asked. The north star is *not* asking too much (C-1: "the cadence
