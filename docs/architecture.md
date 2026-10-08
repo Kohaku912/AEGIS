@@ -358,8 +358,8 @@ ai-server/src/
 │   │   ├── sleep.py                  # SleepManager for consolidation
 │   │   ├── advanced.py               # Zep-inspired: entity/fact/temporal
 │   │   ├── episodic.py               # Conversation & event history
-│   │   ├── semantic.py               # Knowledge & facts
-│   │   ├── chroma_semantic.py        # ChromaDB vector search
+│   │   ├── semantic.py               # The Fact record type
+│   │   ├── semantic_memory.py        # Knowledge, preferences, policies (live)
 │   │   ├── persona.py                # Person tracking
 │   │   ├── action_trace.py           # Autonomous action recording
 │   │   ├── lesson_memory.py          # Extracted lessons
@@ -512,8 +512,7 @@ all actions denied.
 |-------------|------|---------|
 | **AdvancedMemory** | `memory/advanced.py` | Zep-inspired: entity tracking, fact extraction, temporal awareness |
 | **EpisodicMemory** | `memory/episodic.py` | Conversation & event history (JSONL) |
-| **SemanticMemory** | `memory/semantic.py` | Knowledge & user facts |
-| **ChromaSemanticMemory** | `memory/chroma_semantic.py` | ChromaDB vector search (fallback to keyword on failure) |
+| **SemanticMemory** | `memory/semantic_memory.py` | Knowledge, preferences & policies (JSONL) |
 | **PersonaMemory** | `memory/persona.py` | Person tracking with conversations |
 | **ActionTraceMemory** | `memory/action_trace.py` | Autonomous action recording (max 500 traces) |
 | **LessonMemory** | `memory/lesson_memory.py` | Extracted lessons from traces |

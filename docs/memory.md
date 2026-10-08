@@ -38,7 +38,7 @@ person = mm.get_backend("person")        # PersonaMemory
 
 Available backends: `advanced`, `episodic`, `semantic`, `skill`, `lesson`,
 `workflow`, `experiential`, `person`, `store`, `reflection`, `procedural`,
-`association`, `action_trace`, `memory_store`, `memory_ingest`, `chroma_semantic`.
+`association`, `action_trace`, `memory_store`, `memory_ingest`.
 
 Runtime wires all memory through `runtime.memory_manager.get_backend()` —
 external code MUST NOT create memory backends directly.
@@ -66,15 +66,6 @@ Person tracking system:
 - **Topic tracking**: What was discussed
 
 **Data storage**: `data/persona.jsonl`
-
-#### ChromaSemanticMemory (`memory/chroma_semantic.py`)
-
-Vector DB with Chroma:
-- **Semantic search**: Find similar content
-- **OpenAI embeddings**: text-embedding-3-small
-- **Fact storage**: Categorized facts
-
-**Data storage**: `data/chroma/`
 
 #### MemoryConsolidator (`memory/consolidation.py`)
 

@@ -1,10 +1,13 @@
 """Memory Factory — creates memory providers based on configuration.
 
-Automatically selects ChromaDB if available, falls back to JSONL.
+The ChromaDB-selecting semantic factory was deleted 2026-10-08
+(``DELEGATION.md`` §4 item 29): nothing called it, and the vector branch it
+selected was itself unreachable. The three helpers below build the JSONL stores.
 
 Usage:
-    semantic_mem = create_semantic_memory()
     episodic_mem = create_episodic_memory()
+    procedural_mem = create_procedural_memory()
+    reflection_log = create_reflection_log()
 """
 
 from __future__ import annotations
@@ -13,42 +16,6 @@ import logging
 from typing import Any
 
 logger = logging.getLogger("aegis_ai.memory.factory")
-
-
-def create_semantic_memory(
-    path: str = "data/semantic.jsonl",
-    use_chroma: bool = True,
-    chroma_path: str = "data/chroma",
-    embedding_api_key: str | None = None,
-) -> Any:
-    """Create semantic memory provider.
-
-    Args:
-        path: JSONL file path for fallback
-        use_chroma: Try ChromaDB first
-        chroma_path: ChromaDB storage path
-        embedding_api_key: OpenAI embedding API key
-
-    Returns:
-        SemanticMemory or ChromaSemanticMemory instance
-    """
-    if use_chroma:
-        try:
-            from aegis_ai.memory.chroma_semantic import ChromaSemanticMemory
-            mem = ChromaSemanticMemory(
-                path=path,
-                chroma_path=chroma_path,
-                embedding_api_key=embedding_api_key,
-            )
-            if mem._collection is not None:
-                logger.info("Using ChromaDB for semantic memory")
-                return mem
-        except Exception as e:
-            logger.warning("ChromaDB not available, falling back to JSONL: %s", e)
-
-    from aegis_ai.memory.semantic import SemanticMemory
-    logger.info("Using JSONL for semantic memory")
-    return SemanticMemory(path=path)
 
 
 def create_episodic_memory(path: str = "data/episodic.jsonl") -> Any:

@@ -714,7 +714,7 @@ def test_memory_reload_api_returns_summary(monkeypatch, tmp_path) -> None:
     assert response.status_code == 200
     assert payload["ok"] is True
     assert "summary" in payload
-    assert "chroma_synced" in payload
+    assert "chroma_synced" not in payload, "the retired Chroma key is back on the wire"
 
 
 def test_chat_respond_uses_shared_decision_memory_profile(monkeypatch, tmp_path) -> None:

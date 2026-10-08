@@ -54,7 +54,6 @@ and Manager API routes.
 - Episodic recent
 - Semantic facts
 - PersonaMemory (persons, conversations)
-- ChromaSemanticMemory (vector DB)
 
 ### Audit (`/dashboard/audit`)
 - Policy decisions

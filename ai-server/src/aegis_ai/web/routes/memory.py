@@ -18,7 +18,6 @@ def init_memory_routes(owner: Any) -> None:
         return jsonify({
             "ok": True,
             "summary": snapshot.get("summary", {}),
-            "chroma_synced": 0,
         })
 
     owner.app.register_blueprint(bp)

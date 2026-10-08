@@ -276,7 +276,6 @@ AEGIS は「**イベント駆動・複数デバイス・自己改善型の AI �
 | `AdvancedMemory` | 実体（entity）・事実（fact）・会話。永続的な事実は重要度 ≥ 0.55 | ホット会話 100 件 |
 | `EpisodicMemory` | 会話と出来事の履歴 | `MAX_EPISODES = 2000`、30 日で刈り取り |
 | `SemanticMemory` | 知識・好み・方針・プロジェクト・技能 | 重複判定は重なり > 0.7 |
-| `ChromaSemanticMemory` | 同上のベクトル検索版 | 失敗時はキーワード検索に落ちる |
 | `ActionTraceMemory` | 自律行動の全トレース | `MAX_TRACES = 500` |
 | `LessonMemory` | トレースから抽出した教訓 | — |
 | `WorkflowMemory` | 繰り返し成功した手順 | 一致判定はスコア > 0.35 |

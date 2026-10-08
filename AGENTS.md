@@ -264,7 +264,6 @@ manifest's own `aliases` key is **not** consulted for ID resolution; it only fee
 |-----------|------|---------|
 | **AdvancedMemory** | `memory/advanced.py` | Zep-inspired: entity tracking, fact extraction, temporal awareness |
 | **PersonaMemory** | `memory/persona.py` | Person tracking with conversations |
-| **ChromaSemanticMemory** | `memory/chroma_semantic.py` | Vector DB with Chroma |
 | **MemoryConsolidator** | `memory/consolidation.py` | Periodic cleanup and reflection |
 
 ### Data Storage
@@ -654,6 +653,27 @@ Measured 2026-10-01 — `ai-server`, full suite:
 > **1717 → 1728** with the 11 non-egress tests. The
 > **derived** "added since carry no marker" figure is now **81** (`2043 − 1962` collected, or
 > `1728 − 1647` deselected).
+>
+> **Update (2026-10-08, cycle 103): the chain above was deleted — `DELEGATION.md` §4 items 29 + 30.**
+> The owner took the delete branch. Removed: `memory/chroma_semantic.py` (the class,
+> `sync_from_advanced_memory`, `chroma_available`), `memory/factory.py`'s Chroma-selecting
+> `create_semantic_memory`, `web/routes/memory.py`'s `chroma_synced` key, and `memory/semantic.py`'s
+> orphaned `SemanticMemory` class. `memory/__init__.py` now re-exports the **live** class, so the
+> package root no longer hands out the 6-method one — the latent trap is closed, not recorded.
+> ⚠️ **Two premises in the note above were refuted by measurement.** (a) `Fact` is *not* used only
+> by `chroma_semantic.py` — `backup/import_restore.py` builds one too, so `memory/semantic.py`
+> **cannot** be dropped whole (only its class went). (b) The three *sibling* factory helpers
+> (`create_episodic_memory` / `create_procedural_memory` / `create_reflection_log`) are **also**
+> uncalled — the whole module is unreachable — but the row's scope named only the Chroma selector,
+> so they **stay**, and the pin asserts they must stay, so the scope cannot creep silently.
+> ⚠️ `SemanticMemory` is deliberately kept **out** of the removed-token set: it is a *shared, live*
+> name, and a bare-name absence scan over it fails on a correct tree — the same trap the deleted
+> `RoutingDecision` set for the intake pin in cycle 102. The pin is **inverted** into
+> `tests/test_chroma_memory_chain_is_gone.py` (**11 → 10 cases**, mutation **11/11** plus a
+> negative control, every mutated file restored byte-identically). ai-server **2771 passed /
+> 8 skipped** (588.07 s; the **−3** is the inversion 11 → 10 and the two Chroma cases dropped from
+> `test_memory_failures_are_named.py`). Egress is **unchanged at 319 passed / 1 skipped** (2459
+> deselected, was 2462); non-egress is **2452 / 7 / 320**.
 >
 > **Re-measured 2026-10-03 (wiring the burden metric — `DELEGATION.md` §4 item 8):
 > `2053 passed / 8 skipped`** (2061 collected, 470.71 s; the canonical marker-excluded form is

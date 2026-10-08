@@ -2,11 +2,11 @@
 
 Measured 2026-10-06 (cycle 47)
 -----------------------------
-Five handlers under ``memory/`` had a body that was exactly ``pass``, in three modules
+Four handlers under ``memory/`` had a body that was exactly ``pass``, in two modules
 that **already had a logger** -- so unlike ``personal_ai/`` (cycle 45) nothing had to be
 imported; the silence was a choice, not a missing facility.
 
-Three of the five are on *live* paths:
+All four are on *live* paths:
 
 - ``MemoryManager._publish_event`` (``memory_manager.py:592``) -- the memory manager's
   only outward event. A publish that failed left the rest of the system believing the
@@ -19,12 +19,10 @@ Three of the five are on *live* paths:
   classifier's failure fell through to the hard-coded default ``"episodic"``. That
   default is unchanged; the failure is now attributable.
 
-The fifth is the one that changed a **reported value**:
-
-- ``ChromaSemanticMemory.get_stats`` (``chroma_semantic.py:214``) -- ``count()`` failing
-  left ``chroma_count`` at ``0``, so *"the vector index could not be read"* and *"the
-  index is empty"* were the same answer. The value is still ``0`` (behaviour preserved);
-  the difference is that the reason is now in the log.
+A fifth site -- ``ChromaSemanticMemory.get_stats``, which changed a **reported value**
+(``chroma_count`` stayed ``0`` whether the index was empty or unreadable) -- was removed
+2026-10-08 (``DELEGATION.md`` §4 item 29): the whole Chroma vector branch was
+unreachable, so the class went with it. The four sites above are what remains.
 
 **The intended form already existed in this repo.** ``presentation/manager.py:456``
 ``_publish_event`` logs ``"Failed to publish event %s"`` at DEBUG, and
@@ -46,7 +44,6 @@ import logging
 from pathlib import Path
 
 from aegis_ai.memory.action_trace import ActionTraceMemory
-from aegis_ai.memory.chroma_semantic import ChromaSemanticMemory
 from aegis_ai.memory.experiential import ExperientialMemory
 from aegis_ai.memory.memory_manager import MemoryManager
 from aegis_ai.memory.sleep import SleepManager
@@ -55,15 +52,15 @@ _PKG = Path(__file__).resolve().parents[1] / "src" / "aegis_ai" / "memory"
 
 _SLEEP = "aegis_ai.memory.sleep"
 _MEMORY_MANAGER = "aegis_ai.memory.memory_manager"
-_CHROMA = "aegis_ai.memory.chroma_semantic"
 _ACTION_TRACE = "aegis_ai.memory.action_trace"
 _EXPERIENTIAL = "aegis_ai.memory.experiential"
 
 # (module stem, enclosing function) -> the logger that must name the failure.
-# The five cycle-47 sites, plus the two cycle-52 sites whose bodies were a bare
-# `continue` (invisible to the `pass`-keyed census the pin used until then).
+# The four cycle-47 sites, plus the two cycle-52 sites whose bodies were a bare
+# `continue` (invisible to the `pass`-keyed census the pin used until then). The fifth
+# cycle-47 site -- `chroma_semantic.get_stats` -- was deleted with its module in cycle 103
+# (DELEGATION.md §4 item 29).
 _NAMED_SITES = {
-    ("chroma_semantic", "get_stats"): _CHROMA,
     ("memory_manager", "classify_memory_type"): _MEMORY_MANAGER,
     ("memory_manager", "_publish_event"): _MEMORY_MANAGER,
     ("sleep", "_publish_event"): _SLEEP,
@@ -183,8 +180,10 @@ def test_the_census_is_not_vacuous():
     """
     files = _modules()
     total = sum(1 for path in files for _ in _handlers(path))
-    assert len(files) >= 25, f"only {len(files)} files under memory/ -- wrong root?"
-    assert total >= 55, f"only {total} handlers found -- the scanner is not seeing them"
+    # Re-measured 2026-10-08 (cycle 103): 25 files / 52 handlers. The floors moved with
+    # the deletion of chroma_semantic.py; they are measurements, not round numbers.
+    assert len(files) >= 22, f"only {len(files)} files under memory/ -- wrong root?"
+    assert total >= 45, f"only {total} handlers found -- the scanner is not seeing them"
 
 
 def test_each_named_site_calls_a_logger():
@@ -202,11 +201,10 @@ def test_each_named_site_calls_a_logger():
     assert unnamed == [], f"these sites no longer log their failure: {unnamed}"
 
 
-def test_the_five_modules_have_their_loggers():
+def test_the_four_modules_have_their_loggers():
     for name, path in (
         (_SLEEP, _PKG / "sleep.py"),
         (_MEMORY_MANAGER, _PKG / "memory_manager.py"),
-        (_CHROMA, _PKG / "chroma_semantic.py"),
         (_ACTION_TRACE, _PKG / "action_trace.py"),
         (_EXPERIENTIAL, _PKG / "experiential.py"),
     ):
@@ -321,53 +319,15 @@ def test_classify_without_llm_is_quiet(caplog):
     assert [r for r in caplog.records if r.name == _MEMORY_MANAGER] == []
 
 
-# ── behavioural: the reported value stays 0, but the reason is named ───────
-
-
-class _RaisingCollection:
-    def count(self):
-        raise RuntimeError("chroma index unreadable")
-
-
-def _chroma_without_touching_disk() -> ChromaSemanticMemory:
-    """``__init__`` builds a PersistentClient under ``data/chroma`` -- do not run it."""
-    obj = object.__new__(ChromaSemanticMemory)
-    obj._facts = {}
-    obj._collection = None
-    return obj
-
-
-def test_chroma_get_stats_names_a_failed_count(caplog):
-    memory = _chroma_without_touching_disk()
-    memory._collection = _RaisingCollection()
-    with caplog.at_level(logging.DEBUG, logger=_CHROMA):
-        stats = memory.get_stats()
-    assert stats["chroma_count"] == 0, "the reported value moved"
-    assert stats["chroma_available"] is True
-    assert any("count() failed" in r.getMessage() for r in caplog.records), (
-        "an unreadable index is still indistinguishable from an empty one"
-    )
-
-
-def test_chroma_get_stats_without_a_collection_is_quiet(caplog):
-    """Control: no collection configured is not a failure."""
-    memory = _chroma_without_touching_disk()
-    memory._collection = None
-    with caplog.at_level(logging.DEBUG, logger=_CHROMA):
-        stats = memory.get_stats()
-    assert stats == {"jsonl_facts": 0, "chroma_available": False, "chroma_count": 0}
-    assert [r for r in caplog.records if r.name == _CHROMA] == []
-
-
-def test_the_named_site_map_covers_exactly_seven_sites():
+def test_the_named_site_map_covers_exactly_six_sites():
     """The map's size is part of the pin: dropping a site must not pass silently.
 
     ``test_each_named_site_calls_a_logger`` compares the map against what the scanner
     finds, so a *renamed* function makes ``seen`` smaller and fails. This asserts the
     denominator itself, so a future edit that quietly shrinks the map is visible.
     """
-    assert len(_NAMED_SITES) == 7
-    assert len({mod for mod, _fn in _NAMED_SITES}) == 5
+    assert len(_NAMED_SITES) == 6
+    assert len({mod for mod, _fn in _NAMED_SITES}) == 4
 
 
 # ── cycle 52: the two `continue` discards, which the `pass` census could not see ──
