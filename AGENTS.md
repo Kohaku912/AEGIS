@@ -1123,7 +1123,46 @@ Measured 2026-10-01 — `ai-server`, full suite:
 > tracebacks to **every** python start, subprocesses included, so `tests/test_a_failing_sub_audit_check_carries_its_cause.py`
 > -- whose premise is "a failing sub-audit leaves stderr empty" -- fails there (**1 failed, 12 passed**) and passes
 > under the AEGIS venv (**13 passed**). The gate uses the root `.venv`, so it is **red on this machine**. -> section 4 item 79.
-> Test delta **0** (documents only), so every live count copy is unchanged.
+> Test delta **0** (documents only), so every live count copy is unchanged.> **⚠️ 2026-10-09 (cycle 112): two of the Testing Guide's claims were true when written and false now -- a falsified premise, and a snippet naming two classes that no longer exist.**
+> `docs/testing.md:42` -- a *dated correction* (2026-10-02) -- explained that the removed E2E entries described an
+> `EventBus -> TriggerEngine -> ContextBuilder` flow "that cannot run, **because no `TriggerEngine` is constructed**".
+> That reason was **falsified on 2026-10-06**: branch (1) of section 4 item 24 built the event-driven core, so a
+> `TriggerEngine` **is** constructed in `runtime.py::_build_runtime` and subscribed to the bus (pinned by
+> `ai-server/tests/test_event_driven_core_is_constructed.py`). The **16** absent filenames are still absent; only the
+> *explanation* was stale. **A dated correction is a claim about the code at a moment -- re-measure it before quoting it.**
+> ⚠️ **The "Android E2E pattern" snippet was a fabrication.** It named `AndroidServerClient` and `MockAndroidProvider`,
+> both of which existed **only** in `ai-server/src/android_server_client.py` (deleted 2026-09-29, P1-5), and it defined a
+> helper `_setup_full_stack` that exists **nowhere** in the repository. Copying it produced an `ImportError`, and nothing
+> noticed because no pin reads a fence for *class names* -- `test_docs_run_tests_that_exist.py` reads fences only for
+> `tests/...py` paths. It now shows the shape of the **live** integration (`aegis_ai.integrations.android`, covered by
+> `ai-server/tests/test_android_integration.py`) and notes that `AuditLog(path=...)` derives a `.db` sibling, so the old
+> `path="data/test_audit.jsonl"` would have created a *SQLite* file.
+> ⚠️ **The "16" in that correction and the "17" in the pin's header are both right -- they are different scopes.**
+> Measured at `5c8b34a^`: the "Unit Tests" list held **8** absent names and the "E2E Integration" list held **8** (16
+> together, the correction's stated scope); a **17th** (`test_approval_redesign.py`) sat in the *focused-checks command*,
+> a different section. **The predicate must match the claim's scope** -- "fixing" 16 to 17 would have introduced an error.
+> ⚠️ **The `path.py:NNN` citation family has rotted a second time.** Eight citations in `DELEGATION.md` rows 172/244/246
+> were **git-verified as exactly right at `827d6e1` (2026-10-06)** and have drifted since (row 244: `:1799`->**1813**,
+> `:1803`->**1817**, `:1804`->**1818**, `:1916`->**1930**; rows 172/246: `:1110`->**1111**, `:1221`->**1222**,
+> `:1283`->**1284**, `:1516`->**1530**, `:1229`->**1230**, `:1227`->**1228**). Cycle 67 renumbered eleven of these, and
+> the pin's own header (section 4 item 70) already records that a bare `:NNN` **is not durable** while `path.py::<symbol>`
+> is. The sweep must be by **claim**, not by file -- copies live in this file, `DELEGATION.md`,
+> `PROJECT_STATUS_REVIEW.md`, two test docstrings and the `aegis-verify-and-test` skill -- and the number `1110` names
+> **two different targets** (`tool_broker = ToolBroker(` and `DelegationPolicyStore`). **Recorded, not fixed** ->
+> section 4 item 80.
+> ⚠️ **And the documented *command* was not inert either.** `docs/testing.md` recommended a
+> `--basetemp .tmp-pytest` **inside the repository** as the standard full-suite invocation -- but that puts
+> `tmp_path` in `ai-server/.tmp-pytest/...`, which is *inside* `ROOT`, and
+> `scripts/audit-production-readiness.py::_display_path` renders a path **relative to `ROOT` when it is inside it**.
+> Four tests whose premise is "a custom report dir is reported *absolutely*" therefore fail
+> (`test_every_report_read_honours_the_report_dir.py` x2, `test_every_sibling_audit_honours_the_report_dir.py` x2).
+> Measured 2026-10-09 as a pair: those two files with `--basetemp .tmp-c112-control` -> **4 failed / 31 passed**;
+> with no `--basetemp` -> **35 passed**. The section now gives the canonical command and says to put a basetemp
+> **outside** the repository. ⚠️ **Cycle 111 fixed `..\.venv` in this very command and did not run it** -- a
+> documented command is a claim about the *environment*, and a false failure is as bad as a failure to start.
+> -> section 4 item 81.
+> Test delta **0** (documents only), so every live count copy is unchanged -- but a documented
+> *command* was not inert either, and a false failure is the same class.
 
 > **`AutonomousLoop`'s four swallowed failures now name themselves — one of them was feeding the planner a false statement (2026-10-04): `2209 passed / 8 skipped`**
 >

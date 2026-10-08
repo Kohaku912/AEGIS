@@ -48,6 +48,14 @@ cd ai-server && ls tests/*.py | wc -l     # the count is whatever this prints --
 > `126 files, measured 2026-10-02` while the directory held **213**. A hand-maintained number
 > sat in a section that warns against hand-maintained numbers. It is now a command with no
 > count beside it.
+>
+> **Corrected 2026-10-09 (the premise, not the count).** The 2026-10-02 note above also gave a
+> *reason* the E2E flow could not run -- "no `TriggerEngine` is constructed" -- and that reason
+> was **falsified on 2026-10-06**: branch (1) of `DELEGATION.md` §4 item 24 built the
+> event-driven core, so a `TriggerEngine` **is** constructed in `runtime.py::_build_runtime` and
+> subscribed to the bus. The **16** absent filenames are still absent; only the explanation was
+> stale. The construction is pinned by
+> `ai-server/tests/test_event_driven_core_is_constructed.py`.
 
 ### E2E Lifecycle Tests (Runtime Stabilization)
 
@@ -132,26 +140,33 @@ in this order:
 - Fixtures: prefer inline setup over `conftest.py` for simple cases
 - Assertions: `assert x == y` (not `self.assertEqual`)
 
-### Android E2E pattern
+### Android integration pattern
+
+> **Corrected 2026-10-09.** The snippet that stood here was a **fabrication**. It named
+> `AndroidServerClient` and `MockAndroidProvider`, both of which existed **only** in
+> `ai-server/src/android_server_client.py` -- deleted 2026-09-29 (P1-5) -- and it defined a
+> helper `_setup_full_stack` that exists **nowhere** in the repository. Copying it produced an
+> `ImportError`, and nothing noticed because no pin reads a fence for class names.
+>
+> It is replaced below by the shape of the **live** integration: the Android server is an
+> `aegis_ai.integrations.android` manager, covered by
+> `ai-server/tests/test_android_integration.py`. Note also that `AuditLog(path=...)` derives a
+> `.db` sibling (`audit_log.py`), so the old snippet's `data/test_audit.jsonl` would have
+> created a *SQLite* file, not a JSONL one.
 
 ```python
-def _setup_full_stack():
-    """Wire up the full AEGIS Core stack for E2E testing."""
-    bus = EventBus()
-    engine = TriggerEngine()
-    for rule in create_default_rules():
-        engine.add_rule(rule)
-    registry = ToolRegistry()
-    policy = create_default_policy_engine()
-    broker = ToolBroker(registry, policy)
-    audit = AuditLog(path="data/test_audit.jsonl")
-    builder = ContextBuilder(event_bus=bus, tool_broker=broker)
-    provider = MockAndroidProvider()
-    client = AndroidServerClient(bus, registry, provider)
-    bus.subscribe(engine.on_event)
-    return bus, engine, registry, policy, broker, builder, audit, client
+def test_android_manager_unavailable_returns_explicit_code(tmp_path):
+    from aegis_ai.integrations.android.manager import AndroidServerManager
 
+    manager = AndroidServerManager(data_dir=str(tmp_path), host="127.0.0.1", port=9)
+    result = manager.invoke_capability("android-server.device.get_status", {})
+
+    assert result["code"] == "ANDROID_SERVER_UNAVAILABLE"
 ```
+
+An Android integration test builds a **real** manager against a dead port and asserts the
+**explicit** error code, rather than hand-assembling the core. Android-side unit tests live in
+`android-server/app/src/test/`.
 
 ## Current Test Commands
 
@@ -159,14 +174,24 @@ The venv is at the **repository root** (`.venv` — one editable env for every s
 `scripts/test-ai-server.ps1`), so from `ai-server/` the interpreter path is `..\.venv`, not
 `.\.venv`.
 
-Use a workspace basetemp on Windows to avoid temp permission problems:
+A `--basetemp` **inside the repository** is a trap, not a fix. It moves `tmp_path` from the
+system temp directory to `ai-server/.tmp-pytest/...`, which is *inside* `ROOT` -- and
+`scripts/audit-production-readiness.py::_display_path` renders a path **relative to `ROOT` when it is
+inside it**, so four tests whose premise is "a custom report dir is reported *absolutely*" fail.
+Measured 2026-10-09: those two files with `--basetemp .tmp-c112-control` -> **4 failed, 31
+passed**; the same two files with no `--basetemp` -> **35 passed**. Use the canonical command:
 
 ```powershell
 cd ai-server
-..\.venv\Scripts\python.exe -m pytest --basetemp .tmp-pytest -p no:cacheprovider
+..\.venv\Scripts\python.exe -m pytest -q -p no:cacheprovider
 ```
 
-Focused checks for audit/chat/autonomous changes:
+If you need a workspace basetemp anyway (to dodge temp permission problems), put it **outside**
+the repository: `--basetemp "$env:TEMP\aegis-pytest"`.
+
+Focused checks for audit/chat/autonomous changes -- an in-repo basetemp is harmless here because
+none of these files reads the report tree (measured 2026-10-09: **168 passed** with
+`--basetemp .tmp-pytest-audit`):
 
 ```powershell
 cd ai-server
