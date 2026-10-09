@@ -85,6 +85,14 @@ _INTENTIONALLY_UNREAD: dict[str, str] = {
     ),
 }
 
+#: The test the ``push_to_talk_only`` reason cites as the guard for its default posture. The
+#: citation lives inside a *test file*, which ``test_doc_citations_resolve.py`` does not read
+#: (its ``DOCS`` are three markdown files), so nothing else would notice a rename or a flipped
+#: default. Measured 2026-10-09: the test exists (``test_voice_io.py:308``) and asserts
+#: ``push_to_talk_only is True``.
+_VOICE_REASON_TEST_MODULE = _SRC.parent / "tests" / "test_voice_io.py"
+_VOICE_REASON_TEST = "test_push_to_talk_is_the_default_and_wake_word_is_off"
+
 # ── Declared but unowned ──────────────────────────────────────────────────────
 #
 # This is an inventory of debt, **not** a set of approvals: fields that are unread
@@ -1044,6 +1052,67 @@ def test_the_approval_reasons_name_the_real_constant():
             f"the reason for Config.{field} no longer cites {citation} — it must, or the "
             "prose can drift back to naming a source that does not exist."
         )
+
+
+def test_the_push_to_talk_reason_cites_a_live_test_and_the_posture_it_pins():
+    """The layer-1 reason leans on a test that pins a default — measure the citation.
+
+    ``_INTENTIONALLY_UNREAD`` says ``VoiceSettings.push_to_talk_only`` is kept because it is
+    a default posture a test pins, citing
+    ``test_voice_io.py::test_push_to_talk_is_the_default_and_wake_word_is_off``. That
+    citation is inside a *test file*, which the doc-citation pin does not read, so nothing
+    else notices a rename or a flipped default. Three halves: the test exists, the posture it
+    pins is still the default, and the reason still cites it.
+    """
+    assert _VOICE_REASON_TEST_MODULE.exists(), (
+        f"{_VOICE_REASON_TEST_MODULE} is gone — the reason for VoiceSettings.push_to_talk_only "
+        "cites it; re-derive the reason."
+    )
+    defined = {
+        node.name
+        for node in ast.walk(ast.parse(_VOICE_REASON_TEST_MODULE.read_text(encoding="utf-8")))
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+    }
+    assert _VOICE_REASON_TEST in defined, (
+        f"the cited test {_VOICE_REASON_TEST!r} is gone from "
+        f"{_VOICE_REASON_TEST_MODULE.name} — the reason for VoiceSettings.push_to_talk_only "
+        "now cites nothing."
+    )
+
+    from aegis_ai.settings.models import VoiceSettings
+
+    assert VoiceSettings().push_to_talk_only is True, (
+        "VoiceSettings.push_to_talk_only no longer defaults to True, so the 'no "
+        "always-listening by default' posture the reason cites is no longer the default — "
+        "re-derive the reason."
+    )
+    reason = _INTENTIONALLY_UNREAD["VoiceSettings.push_to_talk_only"]
+    assert f"test_voice_io.py::{_VOICE_REASON_TEST}" in reason, (
+        "the reason no longer cites the test that pins the posture — it must, or the prose "
+        "can drift away from the guard it names."
+    )
+
+
+def test_no_settings_model_drops_unknown_keys():
+    """The withdrawn claim must stay withdrawn: every settings model still ignores extra keys.
+
+    The ``push_to_talk_only`` reason used to say the field was "kept in the schema so the
+    shipped settings file stays valid"; that was withdrawn on 2026-09-30 because no model
+    sets ``extra=``, so pydantic's default ``extra='ignore'`` drops an unknown key either
+    way. This measures the premise on the *effective* config of every discovered model: if
+    one ever forbids extra keys, the withdrawn claim becomes true again and the reason must
+    be re-derived.
+    """
+    offenders = sorted(
+        f"{model.__name__}: extra={model.model_config.get('extra')!r}"
+        for model in _settings_models()
+        if model.model_config.get("extra") not in (None, "ignore")
+    )
+    assert offenders == [], (
+        f"a settings model now constrains extra keys ({offenders}) — the withdrawn claim in "
+        "the push_to_talk_only reason ('kept so the shipped settings file stays valid') may "
+        "be true again; re-derive it."
+    )
 
 
 def test_no_settings_flag_is_read_only_by_a_log_line():
