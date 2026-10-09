@@ -610,6 +610,38 @@ _DUPLICATED_CONFIG_FIELDS: dict[str, str] = {
     ),
 }
 
+#: Roots the layer-4 census treats as "read off a ``Config`` object". The dataclass is
+#: obtained either through the module singleton (``config = get_config()``) or directly
+#: (``Config()``); both spellings are accepted. A read through a *renamed* local
+#: (``cfg = get_config(); cfg.audit_path``) is invisible to this scan — the same class of
+#: limitation as layer 1's bare-name scan, recorded rather than hidden.
+_CONFIG_READER_ROOTS: frozenset[str] = frozenset(
+    {"config", "self.config", "self._config", "_config", "get_config()", "Config()"}
+)
+
+#: ``Config`` fields with **no reader off a Config object**, hidden from the name-based
+#: scan because their name is reused as a parameter or keyword argument elsewhere. This is
+#: the layer-4 analogue of layer 1's bare-name blindness: ``_real_readers`` is textual on
+#: the bare field name, so a field whose name appears on an unrelated object reads as
+#: "read" even though no site touches ``config.<field>``. The census test below asserts the
+#: *full* blind spot equals ``_INEFFECTIVE_CONFIG_FIELDS | _DUPLICATED_CONFIG_FIELDS |
+#: _NAMESAKE_MASKED_CONFIG_FIELDS`` — one record per field, no second copy of the list.
+_NAMESAKE_MASKED_CONFIG_FIELDS: dict[str, str] = {
+    "audit_path": (
+        "``AEGIS_AUDIT_PATH`` is settable, but nothing reads ``config.audit_path``. Every "
+        "``audit_path`` reference in ``src/`` belongs to ``SettingsStore``'s own parameter "
+        "and attribute (``settings/store.py:40,43``) or is a keyword argument, so the "
+        "name-based scan reports ``settings/store.py`` as a reader and the field escapes "
+        "_INEFFECTIVE_CONFIG_FIELDS."
+    ),
+    "llm_provider": (
+        "``AEGIS_LLM_PROVIDER`` is settable, but ``.llm_provider`` appears **0** times in "
+        "``src/`` — every ``llm_provider`` mention is a parameter or keyword argument to a "
+        "constructor. The name-based scan reports 13 reader modules and the field escapes "
+        "_INEFFECTIVE_CONFIG_FIELDS."
+    ),
+}
+
 #: Settings-model fields whose only references are inside logging calls. Measured empty on
 #: 2026-10-02 — layer 1's textual scan cannot tell the difference, so this records the
 #: claim explicitly instead of leaving it untested.
@@ -648,6 +680,68 @@ def _chains(path: Path) -> set[str]:
             parts.append(cur.id)
             found.add(".".join(reversed(parts)))
     return found
+
+
+@functools.lru_cache(maxsize=4)
+def _config_chain_roots(src: Path) -> dict[str, frozenset[str]]:
+    """``field`` -> roots of non-logging chains ending in ``.<field>``, across ``src``.
+
+    A "root" is the object a field is read from: ``config`` for ``config.audit_path``,
+    ``self._config`` for ``self._config.grpc_port``. A base that is a call to a bare
+    ``Name`` is spelled ``name()`` so ``get_config().X`` and ``Config().X`` are visible; a
+    base that is neither (a subscript, a nested call) is skipped rather than mis-prefixed.
+    Lines inside a logging call are dropped — a mention in a log line is not a reader.
+    """
+    index: dict[str, set[str]] = {}
+    for path in sorted(src.rglob("*.py")):
+        if "__pycache__" in path.parts:
+            continue
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8", errors="replace"))
+        except SyntaxError:
+            continue
+        log_lines: set[int] = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call) and _is_logging_call(node):
+                log_lines.update(sub.lineno for sub in ast.walk(node) if hasattr(sub, "lineno"))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Attribute) or node.lineno in log_lines:
+                continue
+            parts: list[str] = []
+            cur: ast.expr = node
+            while isinstance(cur, ast.Attribute):
+                parts.append(cur.attr)
+                cur = cur.value
+            if isinstance(cur, ast.Name):
+                parts.append(cur.id)
+            elif isinstance(cur, ast.Call) and isinstance(cur.func, ast.Name):
+                parts.append(f"{cur.func.id}()")
+            else:
+                continue
+            root, _, field = ".".join(reversed(parts)).rpartition(".")
+            if field:
+                index.setdefault(field, set()).add(root)
+    return {field: frozenset(roots) for field, roots in index.items()}
+
+
+def _config_reader_roots(field: str) -> set[str]:
+    """Roots of non-logging chains ending in ``.<field>`` across ``src/``."""
+    return set(_config_chain_roots(_SRC).get(field, ()))
+
+
+def _config_fields_without_a_config_reader() -> set[str]:
+    """``Config`` fields nothing reads *off a Config object*.
+
+    Narrower than ``_real_readers``, which is name-based: a field whose name is reused as a
+    parameter or keyword argument elsewhere reads as "read" there even though no site
+    touches ``config.<field>``. That gap is the layer-4 analogue of layer 1's bare-name
+    blindness, and ``_NAMESAKE_MASKED_CONFIG_FIELDS`` records its live instances.
+    """
+    return {
+        field
+        for field in _config_fields()
+        if not (_config_reader_roots(field) & _CONFIG_READER_ROOTS)
+    }
 
 
 def _settings_field_names() -> set[str]:
@@ -834,6 +928,56 @@ def test_the_two_autonomous_loop_declarations_are_read_by_different_sites():
         "the name-based scan no longer reports a real reader for the Config copy, so the "
         "blindness this test documents is gone — delete the last two assertions."
     )
+
+
+def test_the_config_reader_blind_spot_equals_the_recorded_fields():
+    """The full set of fields with no ``config``-rooted reader, asserted not reported.
+
+    Every member is already accounted for by exactly one record — the five ineffective
+    fields, the one duplicated field, and the two namesake-masked fields. A *new* field with
+    no reader, or a *newly wired* one, moves this set and fails here, forcing the record to
+    be updated rather than leaving the blindness untested.
+    """
+    measured = _config_fields_without_a_config_reader()
+    recorded = (
+        set(_INEFFECTIVE_CONFIG_FIELDS)
+        | set(_DUPLICATED_CONFIG_FIELDS)
+        | set(_NAMESAKE_MASKED_CONFIG_FIELDS)
+    )
+    assert measured == recorded, (
+        f"unrecorded: {sorted(measured - recorded)}. "
+        f"recorded but now read off a Config object: {sorted(recorded - measured)}."
+    )
+
+
+def test_the_namesake_masked_config_fields_are_hidden_from_the_name_scan():
+    """The two fields the name-based scan cannot see: measured, and pinned as hidden.
+
+    ``audit_path`` and ``llm_provider`` are read off no ``Config`` object, yet
+    ``_real_readers`` reports a reader for each because their name is reused elsewhere. The
+    census membership is asserted per field; the last assertion measures the *masking*
+    (that the name-based scan is blind), so that fixing the scan — or wiring the field —
+    fails here and forces a revisit instead of silently leaving them unclassified.
+    """
+    assert set(_NAMESAKE_MASKED_CONFIG_FIELDS) == {"audit_path", "llm_provider"}, (
+        "the recorded namesake-masked fields changed — re-derive the census."
+    )
+    for field, reason in _NAMESAKE_MASKED_CONFIG_FIELDS.items():
+        assert field in _config_fields(), f"{field} is not a Config field — reason: {reason}"
+        assert field in _config_fields_without_a_config_reader(), (
+            f"Config.{field} now has a config-rooted reader — wire/delete/record it and "
+            "remove it from _NAMESAKE_MASKED_CONFIG_FIELDS."
+        )
+        assert field not in _INEFFECTIVE_CONFIG_FIELDS, (
+            f"Config.{field} is already recorded as ineffective — one record per field."
+        )
+        assert field not in _DUPLICATED_CONFIG_FIELDS, (
+            f"Config.{field} is already recorded as duplicated — one record per field."
+        )
+        assert _real_readers(field, definition_module=_CONFIG_MODULE), (
+            f"the name-based scan no longer reports a reader for Config.{field}, so it is no "
+            "longer masked — move it to _INEFFECTIVE_CONFIG_FIELDS."
+        )
 
 
 def test_no_settings_flag_is_read_only_by_a_log_line():
