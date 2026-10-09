@@ -8,6 +8,7 @@ Architecture reference: docs/architecture.md §6.3
 
 from __future__ import annotations
 
+import logging
 import time
 import threading
 from collections import deque
@@ -15,6 +16,8 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from aegis_schema.models import Event, EventPriority
+
+logger = logging.getLogger(__name__)
 
 # ── Type aliases ──────────────────────────────────────────────
 
@@ -240,10 +243,23 @@ class EventBus:
                 if sub.event_filter is None or sub.event_filter(event):
                     sub.handler(event)
             except Exception as exc:
+                # A subscriber that raises is the background L1 route's *only*
+                # failure signal: nothing above this frame reports it, so the
+                # type and the traceback have to be recorded here. `str(exc)`
+                # alone dropped the type -- `KeyError("payload")` and
+                # `ValueError("payload")` produced the identical record.
+                logger.error(
+                    "Subscriber %s raised on %s: %s: %s",
+                    sub.subscriber_id,
+                    event.event_type,
+                    type(exc).__name__,
+                    exc,
+                    exc_info=True,
+                )
                 handler = self._dead_letter_handler
                 if handler is not None:
                     try:
-                        handler(event, sub.subscriber_id, str(exc))
+                        handler(event, sub.subscriber_id, f"{type(exc).__name__}: {exc}")
                     except Exception:
                         pass
 
