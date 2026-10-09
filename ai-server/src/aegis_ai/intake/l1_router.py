@@ -262,8 +262,22 @@ class L1Router:
                 },
             )
         except Exception as exc:
-            logger.warning("L1Router.observe LLM call failed: %s", exc)
-            return _l1_unavailable_observation(event_id=eid, error=str(exc))
+            # The sentinel below is this path's failure record, and the caller sees
+            # nothing else about the cause: ``LLMGateway.request_json`` returns
+            # ``{"error": ...}`` instead of raising, so a *raise* reaching here is
+            # unexpected. ``str(exc)`` alone dropped the type -- ``KeyError("payload")``
+            # and ``ValueError("payload")`` left the identical ``raw["error"]``. Name
+            # the type, and say it at ERROR with the traceback (cycles 119/120's rule
+            # for a failure record).
+            logger.error(
+                "L1Router.observe LLM call failed: %s: %s",
+                type(exc).__name__,
+                exc,
+                exc_info=True,
+            )
+            return _l1_unavailable_observation(
+                event_id=eid, error=f"{type(exc).__name__}: {exc}"
+            )
 
         if "error" in result:
             logger.debug("L1Router.observe returned error: %s", result)
