@@ -1024,7 +1024,7 @@ Measured 2026-10-01 — `ai-server`, full suite:
 > **`docs/mind-layer.md`'s "ContextBuilder Integration" was corrected** after it failed to run:
 > its example passed `affect_system=` / `social_intelligence=`, which `ContextBuilder.__init__`
 > does not accept (`TypeError` measured), and read `ctx.affect` / `ctx.social`, which do not exist.
-> The only `ContextBuilder(` call site in `src/` is `runtime.py:1165`, and the only mind component
+> The only `ContextBuilder(` call site in `src/` is `runtime.py:1166`, and the only mind component
 > it receives is `identity`.
 > Pin `tests/test_mind_persistence_failures_are_named.py` (**34 cases**, mutation **8/8**, three of
 > them degrading a control, 2 files restored byte-exactly). The **+34** is that pin and nothing
@@ -1253,7 +1253,7 @@ Measured 2026-10-01 — `ai-server`, full suite:
 >
 > `context_builder.py` has **fourteen** `except` handlers and, before this cycle, **no logger at
 > all**. Measuring *reachability before writing* changed the claim: the composition root
-> (`runtime.py:1165`) constructs the builder with **7 of the ~20** backends it accepts, so ten
+> (`runtime.py:1166`) constructs the builder with **7 of the ~20** backends it accepts, so ten
 > handlers sit on paths that either never run or are deliberate fallbacks — **8** on unwired
 > backends, and **2** that still produce a value (`_user_model_store` falls back to
 > `to_context_string()`, `_media_fingerprint` to `str(metadata)`). Naming the first group would
@@ -1317,7 +1317,7 @@ Measured 2026-10-01 — `ai-server`, full suite:
 > The question "what is missing for full-scale L1-only operation?" was answered by measurement, not reading.
 > **(1) The LLM key.** `config/llm.yaml:125` `l1_default` is `provider=typesafe, model=jev-latest,
 > api_key_env=TYPESAFE_API_KEY`. With the key absent the gateway builds a **`TypeSafeProvider` with an empty
-> key** (`llm/gateway.py:168-174`), the call fails, `_l1_unavailable_observation` (`intake/l1_router.py:160`)
+> key** (`llm/gateway.py:168-174`), the call fails, `_l1_unavailable_observation` (`intake/l1_router.py:161`)
 > returns `value=1.0 / priority=1.0 / required_intelligence=HIGH`, and **every event escalates** — L1 classifies
 > nothing. This is **loud, not silent**: `_audit_llm_profile_health` (`runtime.py:285`, called `:1146`) already
 > logs `profile=l1_default … issue=missing_api_key` at ERROR. Verified live with the local `.env`: `l1_default`
@@ -1354,7 +1354,7 @@ Measured 2026-10-01 — `ai-server`, full suite:
 > `_run_l1_pipeline_for_event` (`:764`) → `router.observe(...)` (`:771`, the LLM round-trip). The gRPC
 > `PushEvent` handler (`grpc_server.py:169` → `publish` at `:185`) is one publisher, so a remote push blocks
 > for the whole L1 call. **L2 was already moved off the request thread** (`_submit_background_l2`,
-> `runtime.py:792`); there is **no `_submit_background_l1`**. Recorded as §4 items 47–49, together with the
+> `runtime.py:793`); there is **no `_submit_background_l1`**. Recorded as §4 items 47–49, together with the
 > intake-side dead classes (item 47).
 > ✅ **Fixed 2026-10-06 (cycle 64, §4 item 48 branch ①)**: the asymmetry is gone. `_submit_background_l1`
 > hands the **whole immediate route** (L1 decision → `detail["l1"]` → capability short-circuit → L2 hand-off
@@ -1421,7 +1421,7 @@ Measured 2026-10-01 — `ai-server`, full suite:
 > `_run_l1_pipeline_for_event` directly (`:1562`), and that awaits `router.observe(...)` -- the L1 LLM
 > round-trip. The gRPC `PushEvent` handler (`grpc_server.py:169` -> `publish` at `:185`) is one publisher, so
 > a remote push blocks for the whole call. **L2 was already moved off** (`_submit_background_l2`,
-> `runtime.py:792`, whose docstring records exactly this); there is no `_submit_background_l1`. The new pin
+> `runtime.py:793`, whose docstring records exactly this); there is no `_submit_background_l1`. The new pin
 > `tests/test_l1_runs_inline_on_the_publisher_thread.py` (**3 cases, mutation 3/3**) measures the *asymmetry*
 > by AST: the L2 submitter exists, the L1 one does not, and the immediate handler calls the pipeline directly
 > (no `submit`). Both pins fail if the recorded fix is applied, so the record moves with the code.
@@ -1688,7 +1688,7 @@ Measured 2026-10-01 — `ai-server`, full suite:
   `$LASTEXITCODE` = **0**), and both `.ps1` gates ran end-to-end — so treat this as a *fallback*
   diagnosis, not the expected state.
 - **Egress regression suite**: **329 passed / 1 skipped** (330 tests carry the `egress` marker,
-  2527 deselected). CI enforces a floor of 160 (`--require-egress-tests=160`) **and** mutation-proves
+  2531 deselected). CI enforces a floor of 160 (`--require-egress-tests=160`) **and** mutation-proves
   the gate: breaking it yields failures, restoring it yields 319 passes. The mutation figure is
   **78 failures** (measured 2026-10-06 on the 320-marker baseline; it was 76 at the 318-marker baseline, 74 at the 2026-10-01
   baseline of 305 and 62 at the 268-marker baseline — **re-run it before quoting**, the number is a

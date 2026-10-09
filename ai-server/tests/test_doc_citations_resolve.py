@@ -338,3 +338,155 @@ def test_the_retired_symbols_are_not_cited_as_live() -> None:
         "a retired symbol is cited as if it were live (drop the `::` citation form; "
         "the symbol no longer exists):\n  " + "\n  ".join(hits)
     )
+
+
+# --- Bare line citations: `path.py:NNN` must land on real text (cycle 131, item 70) ---
+#
+# A bare `path.py:NNN` cannot be *resolved* to a symbol (item 70): its owner is the
+# paragraph's subject, which is prose. But one property IS decidable, and it is the
+# one the rot class actually violates: **the number must land on a line of the cited
+# file**. A blank line, a lone closer, or a number past EOF is not a target, so a
+# citation that lands there is stale no matter what the prose meant.
+#
+# Measured 2026-10-09 (cycle 131): `DOCS` carry **414** bare citations (occurrences,
+# not a set); **290** resolve under `BASES`. Of those, **38** land on a blank /
+# close-only line or past EOF -- and every one is a *record*: a line that quotes a
+# number deliberately (an old->new mapping, a false-positive census, a "measurements
+# before the implementation" table, a pre-deletion snapshot, or a note explicitly set
+# aside). They are enumerated below with their reason; the other **376** land on real
+# text.
+#
+# Why a census and not a rule: the same citation is a *record* on one line and a
+# *live pointer* on another, and nothing textual separates them -- measured this cycle
+# by trying four partitions (per-line dates, block-level dates, region kind, symbol
+# co-location); each either misclassified the dated ledgers or produced false
+# positives. So the pin freezes the *exception set* instead, which is this codebase's
+# idiom (`_INTENTIONALLY_UNREAD`, `RETIRED_SYMBOLS`): a new blank landing must be
+# added here, deliberately, with a reason.
+#
+# The pin caught the rot class on its first run: `runtime.py:1165` (x5),
+# `runtime.py:792` (x2) and `intake/l1_router.py:160` (x2) were live pointers that a
+# one-line insertion had shifted by +1 (`0061427` at `runtime.py:355`, `8c9f0cf` in
+# `intake/l1_router.py`) -- after the last sweep. They were renumbered in the same
+# cycle (`DELEGATION.md` §4 item 92).
+BARE = re.compile(r"([A-Za-z_][\w/.-]*\.py):(\d+)")
+
+# (path, line) -> why a blank/close landing is a *record* rather than rot.
+_BARE_RECORDS: dict[tuple[str, int], str] = {
+    ("memory/factory.py", 38): (
+        "past EOF (the file is 36 lines): `create_semantic_memory` was deleted in "
+        "cycle 103; the notes are pre-deletion snapshots, and one is the "
+        "`factory.py:38` -> `memory/factory.py:38` disambiguation"
+    ),
+    ("memory/semantic.py", 28): (
+        "past EOF (the file is 25 lines): the orphan `SemanticMemory` class was "
+        "deleted in cycle 103; the notes are pre-deletion snapshots"
+    ),
+    ("runtime.py", 1020): (
+        "item 26's census (a flagged-and-dismissed entry) and the §5 row that "
+        "records the pre-cycle-103 state"
+    ),
+    ("runtime.py", 1065): (
+        "item 25's pre-deletion snapshot -- the JSONL `audit.py` writer it names was "
+        "deleted in cycle 104"
+    ),
+    ("runtime.py", 1110): "item 80's own record of the drifted number",
+    ("runtime.py", 1219): "item 67's producer measurement (a record of the measurement)",
+    ("runtime.py", 1254): "item 67's producer measurement (a record of the measurement)",
+    ("runtime.py", 1375): (
+        "item 29's pre-execution snapshot -- branch (2) would move this very line"
+    ),
+    ("web/routes/chat.py", 154): "item 67's producer measurement (a record of the measurement)",
+    ("grpc_server.py", 191): "the cycle-25 census entry and item 26's record of it",
+    ("grpc_server.py", 402): "item 70's old->new mapping (`:402` -> `:405`)",
+    ("llm/gateway.py", 162): "the census and old->new mapping (`:162-169` -> `:168-174`)",
+    ("intake/l1_router.py", 160): "the census and old->new mapping entries that quote it",
+    ("backup/retention.py", 49): "the record of the `:49` -> `:60` fix",
+    ("egress/startup.py", 59): (
+        "set aside explicitly: the range starts on a blank line but covers the claim"
+    ),
+    ("capability_catalog.py", 70): (
+        "inside the table introduced as 'measurements before the implementation'"
+    ),
+}
+
+# A floor on the extracted population, so the pin cannot pass vacuously. Measured
+# 2026-10-09 (cycle 131): 414 occurrences over `DOCS`, 290 resolvable.
+MIN_BARE = 300
+
+
+def _bare_citations() -> list[tuple[str, str, int]]:
+    """Every `path.py:NNN` in `DOCS`, as (document, path, line)."""
+    found: list[tuple[str, str, int]] = []
+    for name in DOCS:
+        text = (ROOT / name).read_text(encoding="utf-8")
+        for rel, n in BARE.findall(text):
+            found.append((name, rel, int(n)))
+    return found
+
+
+def _bare_faults(rel: str, line: int, source: str) -> list[str]:
+    """Empty when `rel:line` lands on a real line of `source`."""
+    lines = source.split("\n")
+    if not (1 <= line <= len(lines)):
+        return [f"{rel}:{line} -- {rel} has only {len(lines)} lines"]
+    if BARE_LINE.match(lines[line - 1]):
+        return [f"{rel}:{line} -- lands on a blank/close-only line: {lines[line - 1]!r}"]
+    return []
+
+
+def test_the_bare_citation_population_is_not_vacuous() -> None:
+    """Control: the pattern must still find bare citations."""
+    found = _bare_citations()
+    assert len(found) >= MIN_BARE, (
+        f"only {len(found)} bare `path.py:NNN` citations extracted (expected >= "
+        f"{MIN_BARE}) -- the pattern no longer matches the docs' bare form"
+    )
+
+
+def test_the_bare_landing_predicate_rejects_the_observed_failures() -> None:
+    """Positive and negative controls for `_bare_faults`, independent of the docs."""
+    src = "def f():\n    x = 1\n\n    return x\n"
+    assert _bare_faults("m.py", 2, src) == []  # real text
+    assert _bare_faults("m.py", 3, src)  # blank
+    assert _bare_faults("m.py", 99, src)  # past EOF
+    assert _bare_faults("m.py", 0, src)  # not a line
+    closer = "def f():\n    x = (\n        1\n    )\n"
+    assert _bare_faults("m.py", 4, closer)  # a lone `)`
+
+
+def test_no_bare_citation_lands_on_a_blank_line() -> None:
+    """A `path.py:NNN` that lands on nothing is stale -- unless it is a record."""
+    failures: list[str] = []
+    for name, rel, line in sorted(_bare_citations()):
+        path = _resolve(rel)
+        if path is None:
+            continue  # an unresolvable path is a different surface (item 82)
+        faults = _bare_faults(rel, line, path.read_text(encoding="utf-8"))
+        if faults and (rel, line) not in _BARE_RECORDS:
+            failures.append(f"{name}: " + "; ".join(faults))
+    assert not failures, (
+        "bare citations that land on nothing and are not recorded exceptions "
+        "(re-measure the line, or add the record with its reason):\n  "
+        + "\n  ".join(failures)
+    )
+
+
+def test_every_recorded_bare_exception_is_still_needed() -> None:
+    """A recorded exception nothing needs is a lie -- the list must not rot.
+
+    Same rule as `_INTENTIONALLY_UNREAD`: a declared property nothing validates
+    rots. If a record is renumbered to real text, its entry here must go.
+    """
+    stale: list[str] = []
+    for (rel, line), _reason in sorted(_BARE_RECORDS.items()):
+        path = _resolve(rel)
+        if path is None:
+            stale.append(f"{rel}:{line} -- no such file any more")
+            continue
+        if not _bare_faults(rel, line, path.read_text(encoding="utf-8")):
+            stale.append(f"{rel}:{line} -- now lands on real text; drop the entry")
+    assert not stale, (
+        "recorded bare-citation exceptions that are no longer needed:\n  "
+        + "\n  ".join(stale)
+    )
