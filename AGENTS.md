@@ -1688,7 +1688,7 @@ Measured 2026-10-01 — `ai-server`, full suite:
   `$LASTEXITCODE` = **0**), and both `.ps1` gates ran end-to-end — so treat this as a *fallback*
   diagnosis, not the expected state.
 - **Egress regression suite**: **319 passed / 1 skipped** (320 tests carry the `egress` marker,
-  2496 deselected). CI enforces a floor of 160 (`--require-egress-tests=160`) **and** mutation-proves
+  2500 deselected). CI enforces a floor of 160 (`--require-egress-tests=160`) **and** mutation-proves
   the gate: breaking it yields failures, restoring it yields 319 passes. The mutation figure is
   **78 failures** (measured 2026-10-06 on the 320-marker baseline; it was 76 at the 318-marker baseline, 74 at the 2026-10-01
   baseline of 305 and 62 at the 268-marker baseline — **re-run it before quoting**, the number is a

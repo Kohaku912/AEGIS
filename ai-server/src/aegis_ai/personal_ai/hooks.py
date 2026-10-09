@@ -225,7 +225,14 @@ class HookEngine:
             try:
                 self.run_due_once()
             except Exception as exc:
-                self._audit("hook_tick_failed", {"error": str(exc)})
+                # This backstop's record is the *only* signal: `run_due_once` is not
+                # expected to raise, `audit_decision` writes at DEBUG, and it returns
+                # silently when there is no audit manager. Record the *type*, and say
+                # it at ERROR with the traceback (cycle 119's convention).
+                logger.error(
+                    "Hook tick failed: %s: %s", type(exc).__name__, exc, exc_info=True
+                )
+                self._audit("hook_tick_failed", {"error": f"{type(exc).__name__}: {exc}"})
 
     def _run_hook(self, hook: Hook, trigger_payload: dict[str, Any] | None = None) -> dict[str, Any]:
         now = now_ms()
