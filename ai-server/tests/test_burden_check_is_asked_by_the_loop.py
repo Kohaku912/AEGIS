@@ -538,15 +538,16 @@ def test_the_composition_root_hands_the_metric_to_the_loop() -> None:
 
 
 def test_the_wiring_lines_actually_run(tmp_path: Path) -> None:
-    """Execute the composition root's two new lines — the function itself never runs.
+    """Execute the composition root's two new lines in isolation — the burden wiring, at the seam.
 
-    `_create_autonomous_loop` is called **only** by `start_autonomous_if_enabled`, which
-    returns early unless `autonomous_loop_enabled` is set, so the suite never executes this
-    function's body. The project has been bitten by exactly that: a wiring edit inside it
-    left the whole suite green and only ruff's `F821` caught it. The AST test above proves
-    the lines are *present*; this proves the three runtime facts about them — the import
-    resolves, the constructor accepts one positional argument, and the loop accepts and
-    stores the result — by running the same statements.
+    `_create_autonomous_loop` is called **only** by `start_autonomous_if_enabled`, so for a long
+    time the suite never executed its body: a wiring edit inside it left the whole suite green and
+    only ruff's `F821` caught it. That body is now executed end-to-end by
+    `test_the_autonomous_loop_is_actually_built.py`, which drives the real starter. This test
+    keeps its narrower value: the AST test above proves the lines are *present*; this proves the
+    three runtime facts about them — the import resolves, the constructor accepts one positional
+    argument, and the loop accepts and stores the result — by running the same statements in
+    isolation, with no runtime booted.
     """
     from aegis_ai.burden import BurdenMetric
     from aegis_ai.burden.metric import DEFAULT_ASK_INTERVAL_MS
