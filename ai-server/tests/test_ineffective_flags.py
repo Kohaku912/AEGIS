@@ -625,6 +625,31 @@ def _config_fields() -> list[str]:
     return sorted(f.name for f in dataclass_fields(Config))
 
 
+def _chains(path: Path) -> set[str]:
+    """Every ``Name``-rooted dotted attribute chain in ``path``, as ``a.b.c``.
+
+    Used to say *which object* a field is read from. A bare-name scan cannot: that is
+    exactly the blindness the ``autonomous_loop_enabled`` duplication below exploits, where
+    one name is declared on two objects and each has a different reader. Only chains rooted
+    in a bare ``Name`` are returned, so a chained call or a subscript is simply absent
+    rather than mis-prefixed.
+    """
+    tree = ast.parse(path.read_text(encoding="utf-8", errors="replace"))
+    found: set[str] = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Attribute):
+            continue
+        parts: list[str] = []
+        cur: ast.expr = node
+        while isinstance(cur, ast.Attribute):
+            parts.append(cur.attr)
+            cur = cur.value
+        if isinstance(cur, ast.Name):
+            parts.append(cur.id)
+            found.add(".".join(reversed(parts)))
+    return found
+
+
 def _settings_field_names() -> set[str]:
     return {name for model in _settings_models() for name in model.model_fields}
 
@@ -742,6 +767,72 @@ def test_the_duplicated_config_fields_are_recorded():
         f"unrecorded: {sorted(duplicated - set(_DUPLICATED_CONFIG_FIELDS))}. "
         f"recorded but no longer duplicated: "
         f"{sorted(set(_DUPLICATED_CONFIG_FIELDS) - duplicated)}."
+    )
+
+
+def test_the_duplicated_config_field_disagrees_with_its_settings_twin(monkeypatch):
+    """The reason recorded in ``_DUPLICATED_CONFIG_FIELDS``, measured rather than asserted.
+
+    That entry claims the two ``autonomous_loop_enabled`` declarations **disagree**, so the
+    startup log reports a different value than the runtime obeys. Until now the claim lived
+    only in a string: either default could move and the reason would keep reading as true.
+    This measures it, with the environment variable unset so the *declared* defaults are what
+    is compared (``Config`` reads ``AEGIS_AUTONOMOUS_LOOP_ENABLED`` at construction).
+    """
+    monkeypatch.delenv("AEGIS_AUTONOMOUS_LOOP_ENABLED", raising=False)
+
+    from aegis_ai.config import Config
+    from aegis_ai.settings.models import AutonomousSettings
+
+    config_default = Config().autonomous_loop_enabled
+    settings_default = AutonomousSettings().autonomous_loop_enabled
+
+    assert config_default is False, (
+        f"Config.autonomous_loop_enabled now defaults to {config_default!r} with "
+        "AEGIS_AUTONOMOUS_LOOP_ENABLED unset — the recorded reason says False."
+    )
+    assert settings_default is True, (
+        f"AutonomousSettings.autonomous_loop_enabled now defaults to {settings_default!r} — "
+        "the recorded reason says True."
+    )
+    assert config_default != settings_default, (
+        "the two `autonomous_loop_enabled` declarations now agree, so the startup log no "
+        "longer lies and _DUPLICATED_CONFIG_FIELDS' reason is stale — re-derive it, and "
+        "decide whether the duplication still needs recording at all."
+    )
+
+
+def test_the_two_autonomous_loop_declarations_are_read_by_different_sites():
+    """The other half: the log and the gate consult *different* declarations.
+
+    Measured with a chain scan (not a bare name), so the claim is about which object is
+    read: ``main.py`` logs ``config.autonomous_loop_enabled`` (the dataclass copy, default
+    **False**) and ``runtime.py`` gates on ``settings.autonomous.autonomous_loop_enabled``
+    (the settings copy, default **True**). Same field name, two objects — which is why the
+    name-based layer-4 scan cannot see that the ``Config`` copy has **no reader of its own**:
+    ``_real_readers("autonomous_loop_enabled")`` finds the *settings* twin at
+    ``runtime.py:122`` and reports a reader. The last two assertions pin that blindness, so
+    that fixing the scan (making it object-aware) fails here and forces a revisit rather than
+    silently leaving ``Config.autonomous_loop_enabled`` unclassified.
+    """
+    main_chains = _chains(_SRC / "aegis_ai" / "main.py")
+    runtime_chains = _chains(_SRC / "aegis_ai" / "runtime.py")
+
+    assert "config.autonomous_loop_enabled" in main_chains, (
+        "main.py no longer logs the Config copy — re-derive the reader split below."
+    )
+    assert "settings.autonomous.autonomous_loop_enabled" in runtime_chains, (
+        "runtime.py no longer gates on the settings copy — re-derive the reader split below."
+    )
+
+    assert _log_only_readers("autonomous_loop_enabled", definition_module=_CONFIG_MODULE) == [], (
+        "the Config copy is now reported as log-only. If the scan became object-aware, that "
+        "is an improvement — re-derive this test and move the field into "
+        "_INEFFECTIVE_CONFIG_FIELDS if it is genuinely unread."
+    )
+    assert _real_readers("autonomous_loop_enabled", definition_module=_CONFIG_MODULE), (
+        "the name-based scan no longer reports a real reader for the Config copy, so the "
+        "blindness this test documents is gone — delete the last two assertions."
     )
 
 

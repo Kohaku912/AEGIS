@@ -8,7 +8,7 @@
 > requirements. See [`GOAL-CHANGE.md`](GOAL-CHANGE.md) and [`IMPROVEMENT_PROPOSAL.md`](../IMPROVEMENT_PROPOSAL.md) §9.
 
 > **Status**: Implemented. Counts are date-stamped measurements; re-measure before trusting them.  
-> **Tests**: **2841 passed / 8 skipped** (ai-server suite, measured 2026-10-09)  
+> **Tests**: **2843 passed / 8 skipped** (ai-server suite, measured 2026-10-09)  
 > **Capabilities**: **128 registered** (pc 58 / ai 32 / android 17 / browser 16 / room 5)  
 > **Target audience**: AI coding agents, contributors, and future AEGIS itself  
 > **Related**: [`AGENTS.md`](../AGENTS.md) — rules and conventions for agents working on this repo
@@ -405,7 +405,7 @@ ai-server/src/
 ├── config/
 │   ├── prompts.yaml                  # Prompt source of truth
 │   └── llm.yaml                      # LLM profile source of truth
-└── tests/                            # 2841 passed / 8 skipped (2026-10-09)
+└── tests/                            # 2843 passed / 8 skipped (2026-10-09)
 ```
 
 ### 5.2 Context Builder
