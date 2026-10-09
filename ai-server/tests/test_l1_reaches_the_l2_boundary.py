@@ -32,6 +32,13 @@ rules the code implements, and that this file now pins:
 The probe replaces ``_run_l2_pipeline`` by name, so a rename or a moved hand-off turns
 ``test_the_probe_replaces_the_l2_pipeline`` red instead of silently making every L2
 assertion below vacuous.
+
+⚠️ The fake runtime here is **richer than the default real one**: it supplies an
+``autonomous_loop``, which a bare ``get_runtime()`` does not (the loop is created by the entry
+point, ``start_autonomous_if_enabled``, not by the composition root). So the ``evaluate_event``
+expectations below describe a configuration production has only once the entry point has run.
+That gap is closed by measuring the surface itself on the real composition root --
+``tests/test_l1_dispatch_surface_is_present_in_the_real_runtime.py`` (cycle 117).
 """
 
 from __future__ import annotations
