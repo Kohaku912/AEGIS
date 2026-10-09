@@ -109,6 +109,19 @@ _INTENTIONALLY_UNREAD: dict[str, str] = {
 
 _UNOWNED_DEBT: dict[str, str] = {}
 
+#: Field names declared on more than one settings model. Layer 1's reader scan is textual
+#: on the *bare* name, so for a colliding name it cannot attribute a reader to a model: a
+#: reader of ANY owner makes EVERY owner look read. The set is pinned by
+#: ``test_the_bare_name_scan_is_blind_only_to_the_recorded_collisions`` so that adding a
+#: field whose name already exists on another model fails here — that is the exact moment
+#: the detector goes blind for that name — instead of shipping a dead flag unseen.
+#:
+#: Measured 2026-10-09: the only collision is ``enabled``, declared on ``AgentSettings``
+#: (read at ``runtime.py:1724``), ``CapabilityPermission`` (read), and ``IntakeSettings``
+#: (**read by nothing** — see ``test_the_collision_hides_a_real_dead_flag``). So the one
+#: name the scan cannot check is also the one hiding a dead flag.
+_KNOWN_NAME_COLLISIONS: frozenset[str] = frozenset({"enabled"})
+
 #: The egress locks, as (settings path, purpose used to probe the gate).
 _EGRESS_LOCKS: tuple[tuple[str, str], ...] = (
     ("privacy.external_egress_allowed", "llm.chat"),
@@ -244,6 +257,51 @@ def _field_of(key: str) -> str:
     return key.split(".", 1)[1]
 
 
+def _colliding_field_names() -> set[str]:
+    """Field names declared on two or more settings models.
+
+    These are the names layer 1's bare-name scan cannot decide: a reference to the name
+    anywhere makes *every* model that declares it look read, so an unread owner is
+    invisible. The rest of the surface is unaffected — for a name on a single model the
+    textual scan and a model-aware one agree.
+    """
+    owners: dict[str, list[str]] = {}
+    for model in _settings_models():
+        for field in model.model_fields:
+            owners.setdefault(field, []).append(model.__name__)
+    return {name for name, models in owners.items() if len(models) >= 2}
+
+
+def _section_is_read(section: str) -> bool:
+    """True when some module reads an attribute of the ``section`` settings section.
+
+    Detects ``X.<section>.<field>`` (and a bare ``X.<section>``) anywhere under ``src/``,
+    excluding ``__pycache__``. This is deliberately *not* the layer-1 scan: it is used only
+    to pin that a section is read by **no** live path, where the bare-name textual scan
+    would count the section's own module name (``aegis_ai.intake``) as a reader.
+
+    Known inexactness, stated so it is not mistaken for a general detector: the
+    string-keyed resolvers the gate uses (``self._privacy_setting("privacy", ...)``) are
+    not attribute accesses and so are invisible here — which is exactly why this helper
+    must never replace ``_readers``. For ``intake`` the scan is exact: measured 2026-10-09,
+    ``.intake`` appears as an attribute access nowhere (the only ``intake`` references are
+    ``from aegis_ai.intake import ...``, an ``ImportFrom``, not an ``Attribute``).
+    """
+    for path in _SRC.rglob("*.py"):
+        if "__pycache__" in path.parts:
+            continue
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8", errors="replace"))
+        except SyntaxError:
+            continue
+        if any(
+            isinstance(node, ast.Attribute) and node.attr == section
+            for node in ast.walk(tree)
+        ):
+            return True
+    return False
+
+
 def _recorded_unread() -> dict[str, str]:
     """Both unread maps, merged. ``_INTENTIONALLY_UNREAD`` wins on a clash."""
     return {**_UNOWNED_DEBT, **_INTENTIONALLY_UNREAD}
@@ -326,6 +384,67 @@ def test_the_retired_autonomy_profile_stays_retired():
     assert "autonomy" not in models.AEGISSettings.model_fields
     assert "Always forbidden (structural)" not in _DEFINITION_MODULE.read_text(
         encoding="utf-8"
+    )
+
+
+def test_the_bare_name_scan_is_blind_only_to_the_recorded_collisions():
+    """Layer 1's documented limitation, made executable and bounded.
+
+    The docstring above admits the scan is textual on the bare field name, so a name that
+    also appears on an unrelated model reads as "read". That is a claim about the code, and
+    until now nothing validated it — a new colliding name would silently blind the detector
+    for that name and no test would notice.
+
+    This pins the *bound* rather than the absence: the set of colliding names must equal
+    ``_KNOWN_NAME_COLLISIONS``. Adding a field whose name already exists on another model
+    fails here, which is the moment a human must decide (rename one field, or extend the
+    record and say which model is now unverifiable) instead of shipping a dead flag unseen.
+    """
+    collisions = _colliding_field_names()
+    assert collisions == set(_KNOWN_NAME_COLLISIONS), (
+        f"the set of field names declared on more than one settings model changed: "
+        f"{sorted(collisions)} (recorded: {sorted(_KNOWN_NAME_COLLISIONS)}).\n"
+        "A colliding name is invisible to the bare-name reader scan — a reader of one owner "
+        "makes every owner look read — so the detector has just gone blind for any *new* "
+        "name here. Rename the colliding field, or extend _KNOWN_NAME_COLLISIONS and record "
+        "which model is now unverifiable and why."
+    )
+
+
+def test_the_collision_hides_a_real_dead_flag():
+    """The concrete flag the collision hides, measured rather than asserted in prose.
+
+    ``IntakeSettings.enabled`` is declared, defaults ``True``, and is read by **nothing**:
+    ``L1Router``/``L1Executor`` are constructed without settings and no module reads an
+    attribute of the ``intake`` section. It nonetheless passes ``test_every_settings_flag_has_a_reader``
+    because its bare name ``enabled`` is also declared on ``AgentSettings`` (read) and
+    ``CapabilityPermission`` (read) — so the scan sees readers and stops.
+
+    It cannot be moved into the unread maps below either: ``test_settings_ui_matches_the_schema.py``
+    forbids the dashboard rendering a control for a recorded-unread field, and this field
+    *is* rendered (measured: the 20th of 26 controls). So the field is a switch that does
+    nothing — the exact defect this file exists to catch — and the only thing standing
+    between it and the suite is the name collision. Pinned here so the fact is executable;
+    the owner call (wire the switch into the intake path, or delete the field and its
+    control) is recorded in ``DELEGATION.md`` §4.
+    """
+    assert "enabled" in _KNOWN_NAME_COLLISIONS, "the premise: `enabled` is the colliding name"
+    assert "IntakeSettings.enabled" in _scanned_fields(), (
+        "IntakeSettings.enabled no longer exists — delete this test with a reason rather "
+        "than leaving a vacuous one."
+    )
+    assert not _section_is_read("intake"), (
+        "the `intake` settings section is now read by a live path, so IntakeSettings.enabled "
+        "is no longer dead and this test's premise is gone — delete it with a reason."
+    )
+    assert _readers("enabled"), (
+        "the bare-name scan no longer reports readers for `enabled`; the collision stopped "
+        "being load-bearing and this test should be re-derived."
+    )
+    assert "IntakeSettings.enabled" not in _recorded_unread(), (
+        "IntakeSettings.enabled is now in the unread maps. It cannot be: it is *rendered* by "
+        "the dashboard, and test_settings_ui_matches_the_schema.py forbids rendering a control "
+        "for a recorded-unread field. Either wire it, or delete the field and its control."
     )
 
 
