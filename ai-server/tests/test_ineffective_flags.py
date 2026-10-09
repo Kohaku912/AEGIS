@@ -589,13 +589,37 @@ _INEFFECTIVE_CONFIG_FIELDS: dict[str, str] = {
         "Read nowhere. The live default-deny posture belongs to the policy engine, not to "
         "this environment variable, so setting it changes nothing."
     ),
-    "approval_timeout_ms": "Read nowhere — the approval timeout comes from the settings store.",
-    "approval_validity_ms": "Read nowhere — approval validity comes from the settings store.",
+    "approval_timeout_ms": (
+        "Read nowhere — **no settings model declares an approval timeout**. The only approval "
+        "timing in ``src/`` is ``confirmation/store.py::DEFAULT_TTL_MS`` (30 min), a module "
+        "constant, so this environment variable's default (60 s) names a value nothing reads."
+    ),
+    "approval_validity_ms": (
+        "Read nowhere — **no settings model declares an approval validity**. See "
+        "``confirmation/store.py::DEFAULT_TTL_MS`` (30 min), the sole approval-validity "
+        "constant and not derived from ``Config`` (whose default is 300 s)."
+    ),
     "llm_model": "Read nowhere — the model is chosen by the LLM gateway's own configuration.",
     "loop_cooldown_seconds": (
         "Read nowhere — the autonomous loop's cadence comes from the settings store."
     ),
 }
+
+#: The only settings-model field whose name mentions "approval": a notification toggle.
+#: Measured 2026-10-09 — there is no approval *timing* value anywhere in the settings store,
+#: so a reason that says the approval timeout/validity "comes from the settings store" names
+#: a source that does not exist. Asserting the bound below means adding such a field fails
+#: the test and forces the two approval reasons to be re-derived.
+_KNOWN_SETTINGS_FIELDS_MENTIONING_APPROVAL: frozenset[str] = frozenset(
+    {"approval_notification_enabled"}
+)
+
+#: The real (and only) approval-validity constant in ``src/``, named by the two approval
+#: reasons above. Measured 2026-10-09: 30 minutes, a module constant — **not** the ``Config``
+#: default of 300 s, so the environment variable names a value nothing reads.
+_APPROVAL_VALIDITY_MODULE = _SRC / "aegis_ai" / "confirmation" / "store.py"
+_APPROVAL_VALIDITY_CONSTANT = "DEFAULT_TTL_MS"
+_APPROVAL_VALIDITY_MS = 30 * 60 * 1000
 
 #: ``Config`` fields sharing a name with a settings-model field: **two declarations of one
 #: fact**, which nothing asserts agree. Recorded rather than merged, because which
@@ -977,6 +1001,48 @@ def test_the_namesake_masked_config_fields_are_hidden_from_the_name_scan():
         assert _real_readers(field, definition_module=_CONFIG_MODULE), (
             f"the name-based scan no longer reports a reader for Config.{field}, so it is no "
             "longer masked — move it to _INEFFECTIVE_CONFIG_FIELDS."
+        )
+
+
+def test_no_settings_model_declares_an_approval_timing_value():
+    """The two approval reasons used to name "the settings store" — which provides none.
+
+    Measured 2026-10-09: the only settings field mentioning "approval" is a notification
+    toggle, so a reason reading "the approval timeout comes from the settings store" names a
+    source that does not exist. The reasons now cite the real constant; this asserts the
+    premise, so a *new* approval-timing field fails here and forces a re-derivation.
+    """
+    mentions = sorted(n for n in _settings_field_names() if "approval" in n.lower())
+    assert mentions == sorted(_KNOWN_SETTINGS_FIELDS_MENTIONING_APPROVAL), (
+        f"the settings surface now mentions approval in {mentions} — re-derive the reasons "
+        "for Config.approval_timeout_ms / approval_validity_ms (they cite "
+        "confirmation/store.py::DEFAULT_TTL_MS)."
+    )
+
+
+def test_the_approval_reasons_name_the_real_constant():
+    """Measure the constant the corrected reasons name, and that the reasons name it.
+
+    ``confirmation/store.py::DEFAULT_TTL_MS`` is the sole approval-validity constant in
+    ``src/``; the two approval reasons cite it. This pins both halves: the constant exists
+    with the stated value (30 min), and each reason actually cites it — so an edit that drops
+    the citation fails rather than letting the prose drift back to a source that is not there.
+    """
+    assert _APPROVAL_VALIDITY_MODULE.exists(), (
+        f"{_APPROVAL_VALIDITY_MODULE} is gone — re-derive the reasons for "
+        "Config.approval_timeout_ms / approval_validity_ms."
+    )
+    from aegis_ai.confirmation.store import DEFAULT_TTL_MS
+
+    assert DEFAULT_TTL_MS == _APPROVAL_VALIDITY_MS, (
+        f"{_APPROVAL_VALIDITY_MODULE.name}::{_APPROVAL_VALIDITY_CONSTANT} is now "
+        f"{DEFAULT_TTL_MS} ms; the recorded reason says 30 minutes."
+    )
+    for field in ("approval_timeout_ms", "approval_validity_ms"):
+        citation = f"confirmation/store.py::{_APPROVAL_VALIDITY_CONSTANT}"
+        assert citation in _INEFFECTIVE_CONFIG_FIELDS[field], (
+            f"the reason for Config.{field} no longer cites {citation} — it must, or the "
+            "prose can drift back to naming a source that does not exist."
         )
 
 
