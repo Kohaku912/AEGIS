@@ -1,19 +1,24 @@
-"""Cycle 139 pin: the observation -> dict projection is hand-written FOUR times, uncompared.
+"""Cycle 139 pin: the observation -> dict projection is built at four sites; they must agree.
 
-``runtime.py`` builds the same projection of an L1 ``observation`` into a dict at four sites,
-and **nothing compares them**:
+⚠️ **Updated in cycle 142**: the four sites no longer *hand-write* the five-field core -- they
+now spread one helper, ``_l1_observation_core`` (``runtime.py``). The pin is unchanged in
+purpose (it drives one ``observation`` through all four sites and compares them); it is now
+the **regression net for the consolidation** (``DELEGATION.md`` §4 item 99, taken in cycle 142):
+if a site stops spreading the helper, its dict stops matching the others and this file goes red.
+The core's own *defaults* (the absent-attribute cases) are pinned separately below, because
+comparing the four sites to each other cannot see a change to the shared source.
 
-1. ``_l1_observation_payload`` (``:408-420``) -- the ``l1.observation`` event payload;
-2. ``_append_recent_l1_summary``'s inner dict (``:443-458``) -- the dashboard's recent list;
-3. ``_run_l1_immediate_pipeline``'s ``detail["l1"]`` (``:900-916``) -- the immediate route;
-4. ``_handle_background_l1_event``'s ``detail["l1"]`` (``:1763-1779``) -- the background route.
+``runtime.py`` builds the same projection of an L1 ``observation`` into a dict at four sites:
 
-The five-field core -- ``meaning`` / ``value`` / ``priority`` / ``required_intelligence`` /
-``confidence`` -- is written out verbatim at all four (measured: the ``confidence`` line
-appears **4** times in the file); three of the four also carry the ``raw``-derived keys
-``summary_bucket`` / ``observed_action`` / ``possible_intent`` (that line appears **3**
-times). Rename a key at one site, or change a coercion (``float(...)`` -> ``str(...)``), and
-only the consumer of that one site sees the change.
+1. ``_l1_observation_payload`` -- the ``l1.observation`` event payload;
+2. ``_append_recent_l1_summary``'s inner dict -- the dashboard's recent list;
+3. ``_run_l1_immediate_pipeline``'s ``detail["l1"]`` -- the immediate route;
+4. ``_handle_background_l1_event``'s ``detail["l1"]`` -- the background route.
+
+As first measured (cycle 139) the five-field core -- ``meaning`` / ``value`` / ``priority`` /
+``required_intelligence`` / ``confidence`` -- was written out verbatim at all four (the
+``confidence`` line appeared **4** times); three of the four also carried the ``raw``-derived
+keys ``summary_bucket`` / ``observed_action`` / ``possible_intent``.
 
 Measured 2026-10-10 (HEAD 1fb3669) by driving one ``observation`` through all four:
 
@@ -23,16 +28,12 @@ Measured 2026-10-10 (HEAD 1fb3669) by driving one ``observation`` through all fo
 * a production publish on the background route -> ``_submit_background_l2(trigger, detail)``.
 
 All four agree on the five shared fields (and the two ``detail["l1"]`` projections are
-*exactly* equal, nine keys each). So the duplication is currently consistent; this pin turns
-that into a **checked** property instead of a coincidence.
-
-This pin records the duplication; it does not remove it. Consolidating the four sites into
-one helper (and whether to) is an implementation decision, named in ``DELEGATION.md``
-section 4 item 99.
+*exactly* equal, nine keys each).
 """
 
 from __future__ import annotations
 
+import threading
 from types import SimpleNamespace
 from typing import Any
 
@@ -118,6 +119,13 @@ class _FourSites:
         self.decision = _decision(observation)
         self.detail_immediate: dict | None = None
         self.detail_background: dict | None = None
+        # The immediate route runs on a background pool (item 48), so the write into
+        # ``detail_immediate`` happens on another thread. Waiting on the executor's
+        # ``shutdown`` is *not* sufficient -- if the pool was never created (or a prior
+        # test's pool was the one drained) the read races the write. Signal on the write
+        # itself and wait on the event: this is measured, not assumed.
+        self._immediate_seen = threading.Event()
+        self._background_seen = threading.Event()
 
         monkeypatch.setattr(
             runtime_module, "_run_l1_pipeline_for_event", lambda r, e: self.decision
@@ -125,10 +133,12 @@ class _FourSites:
 
         def fake_l2(runtime_: Any, *, trigger: str, detail: dict) -> dict:
             self.detail_immediate = dict(detail.get("l1", {}))
+            self._immediate_seen.set()
             return {"handled": False, "action_type": "noop"}
 
         def fake_submit_l2(runtime_: Any, *, trigger: str, detail: dict) -> None:
             self.detail_background = dict(detail.get("l1", {}))
+            self._background_seen.set()
 
         monkeypatch.setattr(runtime_module, "_run_l2_pipeline", fake_l2)
         monkeypatch.setattr(runtime_module, "_submit_background_l2", fake_submit_l2)
@@ -143,10 +153,20 @@ class _FourSites:
         recent = dict(runtime._recent_l1_summaries[-1])
 
         runtime.event_manager.publish(build_event(_IMMEDIATE_TYPE))
+        # Drain the pool if it exists (belt), then wait on the write's own event
+        # (braces) so the read below cannot race the worker thread.
         executor = getattr(runtime, "_background_l1_executor", None)
         if executor is not None:
             executor.shutdown(wait=True)
+        assert self._immediate_seen.wait(timeout=30), (
+            "the immediate route never reached _run_l2_pipeline -- the publish was filtered, "
+            "deduplicated, or the subscriber was not wired (the probe would read {} and lie)"
+        )
+
         runtime.event_manager.publish(build_event(_BACKGROUND_TYPE))
+        assert self._background_seen.wait(timeout=30), (
+            "the background route never reached _submit_background_l2 -- see above"
+        )
 
         return {
             "observation_payload": payload,
@@ -223,4 +243,37 @@ def test_the_control_a_changed_observation_moves_every_site(real_runtime, monkey
     for name, projection in sites.items():
         assert projection.get("meaning") == "moved", (
             f"site {name!r} ignored the observation -- the agreement is between constants"
+        )
+
+
+# --- added in cycle 142: the core's own defaults (the consolidation's blind spot) ---
+
+
+def test_the_core_defaults_are_pinned_when_required_intelligence_is_absent(real_runtime, monkeypatch) -> None:
+    """Comparing the four sites to each other cannot see a change to the *shared* source.
+
+    After the cycle-142 consolidation all four sites spread ``_l1_observation_core``, so a
+    mutation to the core's ``required_intelligence`` default moves **all four together** and
+    the agreement tests stay green. This test pins the default itself by driving the
+    production path with an observation that has **no** ``required_intelligence`` attribute.
+    """
+    obs = _observation()
+    del obs.required_intelligence
+
+    sites = _FourSites(monkeypatch, obs).collect(real_runtime)
+    for name, projection in sites.items():
+        assert projection["required_intelligence"] == "low", (
+            f"site {name!r} changed the absent-attribute default -- it must stay 'low'"
+        )
+
+
+def test_the_core_passes_through_a_plain_string_required_intelligence(real_runtime, monkeypatch) -> None:
+    """The other half: a plain string (no ``.value``) is stringified as-is."""
+    obs = _observation()
+    obs.required_intelligence = "medium"
+
+    sites = _FourSites(monkeypatch, obs).collect(real_runtime)
+    for name, projection in sites.items():
+        assert projection["required_intelligence"] == "medium", (
+            f"site {name!r} mishandled a plain-string required_intelligence"
         )

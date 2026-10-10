@@ -369,6 +369,22 @@ def test_the_retired_symbols_are_not_cited_as_live() -> None:
 # one-line insertion had shifted by +1 (`0061427` at `runtime.py:355`, `8c9f0cf` in
 # `intake/l1_router.py`) -- after the last sweep. They were renumbered in the same
 # cycle (`DELEGATION.md` §4 item 92).
+#
+# Re-measured 2026-10-10 (cycle 142): the population is **440** bare citations, of
+# which **38** still land on a blank / close-only line. Cycle 142's item-99
+# consolidation inserted `_l1_observation_core` at `runtime.py:408` (+20) and shrank
+# the four projection sites, so the *steps* of the shift are 0 / +20 / +16 / +12 / +2 /
+# -8. That moved **11 live pointers** onto blank lines (renumbered in the three docs in
+# the same cycle: `:438`->`:454`, `:880`->`:1065`, `:918/:924/:926`->`:920/:926/:928`,
+# `:1009`->`:1198`, `:1065`->`:1068`, `:1122`->`:1124`, `:1219`->`:1222`,
+# `:1254`->`:1257`, `:1273`->`:1275`, `:1837`->`:1829`/`:1832`), **3 records** newly
+# landed on blank (`:880`, `:1067`, `:1273`, all quoted old values, so `_BARE_RECORDS`
+# gained 3 keys) and **4 records** stopped landing on blank (`:1065`, `:1110`, `:1219`,
+# `:1254`, so 4 keys were dropped). `_BARE_RECORDS` went **16 -> 15** keys while the
+# number of blank-landing *occurrences* stayed **38** -- the keys are deduplicated by
+# `(rel, line)` while the occurrences are not (`memory/factory.py:38` alone covers 6
+# lines; `llm/gateway.py:162` covers 5), so a set-size delta and an occurrence delta
+# need not agree.
 BARE = re.compile(r"([A-Za-z_][\w/.-]*\.py):(\d+)")
 
 # (path, line) -> why a blank/close landing is a *record* rather than rot.
@@ -386,13 +402,22 @@ _BARE_RECORDS: dict[tuple[str, int], str] = {
         "item 26's census (a flagged-and-dismissed entry) and the §5 row that "
         "records the pre-cycle-103 state"
     ),
-    ("runtime.py", 1065): (
-        "item 25's pre-deletion snapshot -- the JSONL `audit.py` writer it names was "
-        "deleted in cycle 104"
+    ("runtime.py", 880): (
+        "the `+18` sweep's old->new map in `AGENTS.md` (`runtime.py:880`->`:898`): the "
+        "number is quoted as the *pre-fix* value, so it is a record. Cycle 142 moved the "
+        "line it names +20 (item 99's consolidation inserted `_l1_observation_core`), "
+        "which is why `:880` now lands on a blank line"
     ),
-    ("runtime.py", 1110): "item 80's own record of the drifted number",
-    ("runtime.py", 1219): "item 67's producer measurement (a record of the measurement)",
-    ("runtime.py", 1254): "item 67's producer measurement (a record of the measurement)",
+    ("runtime.py", 1067): (
+        "the `runtime.py:1067`->**1122** old->new mapping, quoted in both `AGENTS.md` "
+        "and `DELEGATION.md`: the number is the *pre-fix* value. Cycle 142 moved the "
+        "line it names +2, so it now lands on `    )`"
+    ),
+    ("runtime.py", 1273): (
+        "`AGENTS.md`'s then/now record (\"is now `runtime.py:1273` -- the `1272` written "
+        "above was correct when cycle 67 renumbered it\"): the number is a *then* value. "
+        "Cycle 142 moved the line it names +2, so it now lands on `    )`"
+    ),
     ("runtime.py", 1375): (
         "item 29's pre-execution snapshot -- branch (2) would move this very line"
     ),

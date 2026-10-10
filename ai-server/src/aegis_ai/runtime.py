@@ -405,15 +405,31 @@ def _parse_event_payload_for_l1(event: Any) -> dict[str, Any]:
     return payload
 
 
+def _l1_observation_core(observation: Any) -> dict[str, Any]:
+    """The five observation fields shared by every L1 projection.
+
+    The same five lines were hand-written in four places (``_l1_observation_payload``,
+    ``_append_recent_l1_summary``, and both ``detail["l1"]`` sites) with nothing comparing
+    them -- a rename or a coercion change in one site was invisible to the others
+    (``DELEGATION.md`` §4 item 99; pinned by
+    ``tests/test_the_four_hand_written_l1_projections_agree.py``).  Each site adds its own
+    tail on top of this core with a dict-unpack of ``_l1_observation_core(observation)``.
+    """
+    ri = getattr(observation, "required_intelligence", "")
+    return {
+        "meaning": str(getattr(observation, "meaning", "") or ""),
+        "value": float(getattr(observation, "value", 0.0) or 0.0),
+        "priority": float(getattr(observation, "priority", 0.0) or 0.0),
+        "required_intelligence": str(getattr(ri, "value", getattr(observation, "required_intelligence", "low"))),
+        "confidence": float(getattr(observation, "confidence", 0.0) or 0.0),
+    }
+
+
 def _l1_observation_payload(event: Any, observation: Any) -> dict[str, Any]:
     return {
         "event_id": str(getattr(observation, "event_id", "") or getattr(event, "event_id", "")),
         "original_event_type": str(getattr(event, "event_type", "") or ""),
-        "meaning": str(getattr(observation, "meaning", "") or ""),
-        "value": float(getattr(observation, "value", 0.0) or 0.0),
-        "priority": float(getattr(observation, "priority", 0.0) or 0.0),
-        "required_intelligence": str(getattr(getattr(observation, "required_intelligence", ""), "value", getattr(observation, "required_intelligence", "low"))),
-        "confidence": float(getattr(observation, "confidence", 0.0) or 0.0),
+        **_l1_observation_core(observation),
         "raw": dict(getattr(observation, "raw", {}) or {}),
         "occurred_at_ms": int(getattr(event, "timestamp_ms", 0) or 0),
         "layer": "L1",
@@ -444,11 +460,7 @@ def _append_recent_l1_summary(runtime: Any, event: Any, observation: Any, decisi
         {
             "event_id": str(getattr(observation, "event_id", "") or getattr(event, "event_id", "")),
             "event_type": str(getattr(event, "event_type", "") or ""),
-            "meaning": str(getattr(observation, "meaning", "") or ""),
-            "value": float(getattr(observation, "value", 0.0) or 0.0),
-            "priority": float(getattr(observation, "priority", 0.0) or 0.0),
-            "required_intelligence": str(getattr(getattr(observation, "required_intelligence", ""), "value", getattr(observation, "required_intelligence", "low"))),
-            "confidence": float(getattr(observation, "confidence", 0.0) or 0.0),
+            **_l1_observation_core(observation),
             "action_type": str(getattr(getattr(getattr(decision, "action", None), "type", ""), "value", getattr(getattr(decision, "action", None), "type", "noop"))),
             "summary_bucket": str(getattr(observation, "raw", {}).get("summary_bucket", "background") or "background"),
             "observed_action": str(getattr(observation, "raw", {}).get("observed_action", "") or ""),
@@ -898,17 +910,7 @@ def _run_l1_immediate_pipeline(runtime: Any, event: Any) -> None:
         if l1_decision is not None:
             observation = getattr(l1_decision, "observation", None)
             detail["l1"] = {
-                "meaning": str(getattr(observation, "meaning", "") or ""),
-                "value": float(getattr(observation, "value", 0.0) or 0.0),
-                "priority": float(getattr(observation, "priority", 0.0) or 0.0),
-                "required_intelligence": str(
-                    getattr(
-                        getattr(observation, "required_intelligence", ""),
-                        "value",
-                        getattr(observation, "required_intelligence", "low"),
-                    )
-                ),
-                "confidence": float(getattr(observation, "confidence", 0.0) or 0.0),
+                **_l1_observation_core(observation),
                 "action_type": l1_action_value or "noop",
                 "summary_bucket": str(getattr(observation, "raw", {}).get("summary_bucket", "background") or "background"),
                 "observed_action": str(getattr(observation, "raw", {}).get("observed_action", "") or ""),
@@ -1761,17 +1763,7 @@ def _build_runtime(config: Config) -> AegisRuntime:
         detail = _parse_event_payload_for_l1(event)
         observation = getattr(decision, "observation", None)
         detail["l1"] = {
-            "meaning": str(getattr(observation, "meaning", "") or ""),
-            "value": float(getattr(observation, "value", 0.0) or 0.0),
-            "priority": float(getattr(observation, "priority", 0.0) or 0.0),
-            "required_intelligence": str(
-                getattr(
-                    getattr(observation, "required_intelligence", ""),
-                    "value",
-                    getattr(observation, "required_intelligence", "low"),
-                )
-            ),
-            "confidence": float(getattr(observation, "confidence", 0.0) or 0.0),
+            **_l1_observation_core(observation),
             "action_type": action_value,
             "summary_bucket": str(getattr(observation, "raw", {}).get("summary_bucket", "background") or "background"),
             "observed_action": str(getattr(observation, "raw", {}).get("observed_action", "") or ""),
