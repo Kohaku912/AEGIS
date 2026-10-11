@@ -262,6 +262,15 @@ class TriggerEngine:
         """Number of tasks waiting for the Autonomous Loop."""
         return len(self._task_queue)
 
+    def snapshot_tasks(self) -> list[TaskRequest]:
+        """Return a copy of the pending tasks *without* draining the queue.
+
+        The read-only counterpart to :meth:`drain_tasks`. A display view must not
+        consume the tasks the Autonomous Loop is about to execute (DELEGATION
+        section 4 item 96).
+        """
+        return list(self._task_queue)
+
     # ── Cooldown Management ──────────────────────────────────
 
     def _check_cooldown(self, rule: TriggerRule) -> bool:

@@ -61,11 +61,14 @@ class EventView:
         }
 
     def get_pending_tasks(self) -> list[dict[str, Any]]:
-        """Get pending tasks from TriggerEngine."""
+        """Get pending tasks from TriggerEngine *without* consuming them.
+
+        A view must not drain: ``drain_tasks()`` clears the queue the Autonomous
+        Loop executes, so reading through the view used to starve it (item 96).
+        """
         if not self._engine:
             return []
-        tasks = self._engine.drain_tasks()
-        # Re-add them since drain clears the queue
+        tasks = self._engine.snapshot_tasks()
         result = []
         for t in tasks:
             result.append({
