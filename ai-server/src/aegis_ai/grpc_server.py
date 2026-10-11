@@ -688,6 +688,38 @@ def _mobile_dashboard_warnings(status_payload: dict[str, Any]) -> list[str]:
     return warnings
 
 
+#: The wire's ``EventSeverity`` (0–5) mapped onto ``aegis_schema``'s ``Event.severity`` (0–10).
+#:
+#: The two scales disagree and the wire's is the smaller: ``common.proto``'s ``EventSeverity`` is
+#: ``UNSPECIFIED=0, INFO=1, LOW=2, MODERATE=3, HIGH=4, CRITICAL=5``, while ``Event.severity`` is a
+#: ``ge=0, le=10`` field whose own description reads ``0=info, 5=warning, 8=error, 10=critical``.
+#: Copying the proto value verbatim (measured 2026-10-11, cycle 150) capped every gRPC event at 5 --
+#: "warning" on the 0–10 scale -- so a rule needing ``min_severity`` 6–9 (``security-alert`` 9,
+#: ``high-severity-catchall`` 9, ``dev-ci-error`` 8, ``dev-test-failure`` 7, ``android-call`` 6)
+#: could never fire, however severe the event was. This maps the wire's five named levels onto the
+#: schema's anchors. ``INFO`` is deliberately left at 1: the one producer that stamps a severity
+#: (``AegisGrpcClient.sendEvent``, always ``INFO``) keeps the value it always had, so this change is
+#: behaviour-preserving for today's traffic.
+_PROTO_SEVERITY_TO_SCHEMA: dict[int, int] = {
+    common_pb2.EVENT_SEVERITY_UNSPECIFIED: 0,
+    common_pb2.EVENT_SEVERITY_INFO: 1,
+    common_pb2.EVENT_SEVERITY_LOW: 3,
+    common_pb2.EVENT_SEVERITY_MODERATE: 5,
+    common_pb2.EVENT_SEVERITY_HIGH: 8,
+    common_pb2.EVENT_SEVERITY_CRITICAL: 10,
+}
+
+
+def _severity_from_proto(proto_severity: int) -> int:
+    """Map the wire's 0–5 severity onto the schema's 0–10 scale.
+
+    An out-of-spec value (the enum is closed at 5, but the wire carries a bare int) falls back to
+    ``UNSPECIFIED`` -- the same "unknown -> unspecified" rule ``_risk_from_safety`` uses -- and the
+    fallback is pinned so it cannot change silently.
+    """
+    return _PROTO_SEVERITY_TO_SCHEMA.get(int(proto_severity), 0)
+
+
 def _event_from_proto(event: common_pb2.Event) -> Event:
     return Event(
         event_id=event.event_id or f"event_{uuid.uuid4().hex[:12]}",
@@ -696,7 +728,7 @@ def _event_from_proto(event: common_pb2.Event) -> Event:
         source_server_id=event.source_server_id or "unknown",
         timestamp_ms=event.timestamp_ms or int(time.time() * 1000),
         payload_json=event.payload_json or "{}",
-        severity=int(event.severity),
+        severity=_severity_from_proto(int(event.severity)),
         priority=EventPriority(event.priority or common_pb2.EVENT_PRIORITY_NORMAL),
         dedupe_key=event.dedupe_key,
         correlation_id=event.correlation_id,
