@@ -30,6 +30,28 @@ class L2ActionType(str, Enum):
     NOOP = "noop"
 
 
+# Render order for `L2Context.to_prompt`'s `World:` line. That line was
+# `sorted(world_state)[:8]`, and alphabetical order is the wrong selector: it drops the
+# keys that matter most. Measured cycle 149 -- a production `world_state` carries 14 keys
+# (9 from `runtime.py::_l2_world_state` with its optional services present, 4 from
+# `_run_l2_pipeline`, `now_ms` from `build_context`) and the first eight alphabetically are
+# exactly the *counters*, so `situation_state`, `trigger`, `trigger_event_type`,
+# `trigger_source`, `triggered_tasks` and `user_understanding` never reached the LLM --
+# including the trigger keys the pipeline sets *for* the model, which is why the
+# event-driven wake could not tell L2 why it ran.
+_WORLD_KEY_ORDER = (
+    "trigger",
+    "trigger_event_type",
+    "trigger_source",
+    "triggered_tasks",
+    "situation_state",
+    "interruptibility",
+    "degraded_server_count",
+    "degraded_servers",
+    "user_understanding",
+)
+
+
 @dataclass
 class L2Context:
     """L2 思考のための統合 context.
@@ -69,9 +91,17 @@ class L2Context:
             )
             lines.append(f"Desires: {desire_str}")
         if self.world_state:
-            ws_keys = sorted(self.world_state.keys())[:8]
-            ws_str = ", ".join(f"{k}={self.world_state[k]}" for k in ws_keys)
-            lines.append(f"World: {ws_str}")
+            # Deliberate order and no silent cap: the writers enumerate these keys, so a
+            # key that is present is a key L2 is meant to see (see `_WORLD_KEY_ORDER`).
+            ordered = [k for k in _WORLD_KEY_ORDER if k in self.world_state]
+            ordered += [k for k in sorted(self.world_state) if k not in ordered]
+            parts: list[str] = []
+            for key in ordered:
+                value = self.world_state[key]
+                # Truncate text only: `_short` maps a falsy value to "", so `_short(0)`
+                # would render `active_task_count=` with the count erased.
+                parts.append(f"{key}={_short(value) if isinstance(value, str) else value}")
+            lines.append("World: " + ", ".join(parts))
         if self.memory_summary:
             lines.append(f"Memory: {self.memory_summary[:300]}")
         if self.task_state:
