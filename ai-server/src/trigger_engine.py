@@ -304,7 +304,11 @@ class TriggerEngine:
     def _create_task(self, event: Event, rule: TriggerRule) -> TaskRequest:
         """Create a TaskRequest from an event and matching rule."""
         now_ms = int(time.time() * 1000)
-        cooldown_ms = int((time.monotonic() + rule.cooldown_seconds) * 1000)
+        # The *field* is wall-clock ms, like its sibling `created_at_ms` -- a consumer renders the
+        # two together. The *blocking* clock stays monotonic in `_check_cooldown` (a wall clock can
+        # jump). These were the same clock before cycle 154, which put this field on the boot clock
+        # -- ~1.8e12 ms (the Unix epoch) from its sibling.
+        cooldown_ms = int((time.time() + rule.cooldown_seconds) * 1000)
 
         return TaskRequest(
             task_id=f"task_{uuid.uuid4().hex[:8]}",
