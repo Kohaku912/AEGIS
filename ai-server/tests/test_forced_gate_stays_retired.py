@@ -1109,12 +1109,20 @@ def test_the_approval_audit_api_has_no_caller_outside_itself() -> None:
 
 
 def test_audit_source_desire_has_no_live_writer() -> None:
-    """``AuditEntry.source_desire`` is written only inside the dead ``log_approval`` bodies."""
+    """``AuditEntry.source_desire`` is written only inside the dead ``log_approval`` bodies.
+
+    The scan covers ``src/`` **and** ``tests/`` (its positive control needs a test-side
+    ``decision=`` writer), so a test fixture that populates the field is *recorded* here rather
+    than silently permitted: ``_full_entry``
+    (``test_the_audit_record_contract_round_trips_every_field.py``) fills all 29 fields so a
+    writer-side rename cannot hide behind a default. Any *other* name still fails the pin.
+    """
+    known_test_writers = {"_full_entry"}
     writers = _audit_entry_writers_of("source_desire")
-    assert writers == {"log_approval"}, (
-        f"AuditEntry.source_desire gained a writer outside log_approval: "
-        f"{sorted(writers - {'log_approval'})}. The audit column is no longer always empty — "
-        "update this record."
+    assert writers == {"log_approval"} | known_test_writers, (
+        f"AuditEntry.source_desire gained a writer outside log_approval and the recorded test "
+        f"helper: {sorted(writers - {'log_approval'} - known_test_writers)}. "
+        "The audit column is no longer always empty — update this record."
     )
     # Positive control: `decision=` is passed to AuditEntry from live code, so the scan can see a
     # writer that is not a dead log_* method.
