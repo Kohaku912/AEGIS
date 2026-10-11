@@ -780,6 +780,11 @@ def _run_l2_pipeline(runtime: Any, *, trigger: str, detail: dict[str, Any]) -> d
                 "trigger_event_type": str(detail.get("type") or trigger),
             }
         )
+        # The engine's queued TaskRequests are *why* an event-driven cycle runs; surface
+        # their summaries so L2 sees the event context, not just the rule id.
+        task_summaries = [str(t) for t in (detail.get("triggered_tasks") or []) if t]
+        if task_summaries:
+            context.world_state["triggered_tasks"] = "; ".join(task_summaries)[:300]
         l1_info = detail.get("l1")
         if isinstance(l1_info, dict):
             context.l1_summaries = [dict(l1_info), *list(context.l1_summaries)][:12]
@@ -1885,7 +1890,7 @@ def _create_autonomous_loop(runtime: AegisRuntime) -> Any:
     if getattr(runtime, "l2_mind", None) is not None:
         runtime.l2_mind.desire_system = desire
         loop.set_l2_reasoning_handler(
-            lambda trigger="periodic_cycle", force_desire=False, pending_observations=None: _run_l2_pipeline(
+            lambda trigger="periodic_cycle", force_desire=False, pending_observations=None, triggered_tasks=None: _run_l2_pipeline(
                 runtime,
                 trigger=trigger,
                 detail={
@@ -1893,6 +1898,10 @@ def _create_autonomous_loop(runtime: AegisRuntime) -> Any:
                     "source": "autonomous_loop",
                     "pending_observations": list(pending_observations or []),
                     "force_desire": bool(force_desire),
+                    "triggered_tasks": [
+                        str(getattr(task, "context_summary", "") or "")
+                        for task in (triggered_tasks or [])
+                    ][:5],
                 },
             ),
             should_run=lambda force_desire=False: bool(force_desire)

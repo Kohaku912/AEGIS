@@ -631,7 +631,7 @@ Measured 2026-10-01 — `ai-server`, full suite:
 > The chain is dead end to end: `ChromaSemanticMemory` is constructed **only** at `memory/factory.py:38`, and
 > that `create_semantic_memory` has **no caller** either (its sole mention is the module docstring's
 > `Usage:` example — a string literal), while the live path builds plain `SemanticMemory` directly at
-> `runtime.py:1206`. So `chroma_available` is not merely unread, it is **not even produced** on the
+> `runtime.py:1211`. So `chroma_available` is not merely unread, it is **not even produced** on the
 > live path. ⚠️ **Wiring it is not free**: the class embeds through `OpenAIEmbeddingFunction`
 > (`OPENAI_API_KEY`, default `text-embedding-3-small`), so it would put **memory content** on the wire
 > — the single constraint's subject matter, which the *voluntary ask* must carry, not a settings flag.
@@ -648,7 +648,7 @@ Measured 2026-10-01 — `ai-server`, full suite:
 > same shape as the event-driven core's demo), `ChromaSemanticMemory` is constructed **only** inside
 > that function, `sync_from_advanced_memory` therefore has **no caller**, and `chroma_available` has
 > **no reader** — and is not even *produced*, because the live path builds plain `SemanticMemory`
-> directly (`runtime.py:1206`). The live `POST /api/memory/reload` answers `"chroma_synced": 0` as a
+> directly (`runtime.py:1211`). The live `POST /api/memory/reload` answers `"chroma_synced": 0` as a
 > **literal** (pinned as an `ast.Constant`, not a call). ⚠️ **Wiring it is not a free cleanup**: the
 > class embeds through `OpenAIEmbeddingFunction` (`OPENAI_API_KEY`, default `text-embedding-3-small`),
 > so it would put **memory content** on the wire — the single constraint's subject matter, which the
@@ -907,7 +907,7 @@ Measured 2026-10-01 — `ai-server`, full suite:
 > six channel classes and `OsNotificationProvider` as 宣言のみ; §7 says `send()` does not fan out), so the
 > new finding is the **settings-level consequence plus the detector's silence**. An `ast` sweep of every
 > `src/` module shows **`NotificationManager` is the only notification class constructed anywhere**
-> (`runtime.py:1239`, with `event_manager=` only). So the seven `NotificationSettings` fields have exactly
+> (`runtime.py:1244`, with `event_manager=` only). So the seven `NotificationSettings` fields have exactly
 > two readers — `NotificationPreferences._load_from_settings` and `QuietHoursManager._load_from_settings`
 > — inside two classes **nothing constructs**; the router that owns them is itself unconstructed, and it
 > builds `QuietHoursManager()` **with no `settings_store`**, so the loaders are dead **twice over**
@@ -961,7 +961,7 @@ Measured 2026-10-01 — `ai-server`, full suite:
 > **A corrupt `settings.json` silently reverted every egress permission to the narrow default (2026-10-04): `2168 passed / 8 skipped`**
 >
 > `SettingsStore._load` runs once from `__init__` and, on any failure, substituted the built-in
-> defaults with no signal — and `runtime.py:1062` points it at the **shipped** `config/settings.json`,
+> defaults with no signal — and `runtime.py:1067` points it at the **shipped** `config/settings.json`,
 > so a mistyped or corrupt file silently stopped the shipped configuration from being in effect.
 > Measured before writing the message: the built-in defaults differ from the shipped config in
 > **exactly three keys, all egress permissions** — `privacy.egress_allowed_hosts` `[]` vs
@@ -995,11 +995,11 @@ Measured 2026-10-01 — `ai-server`, full suite:
 > raises `AttributeError` out of `__init__` in all eight, because `json.loads` accepts it and the
 > next `last.get(...)` fails. `123` is exactly as unusable as `{"a": 1`, yet one is defaulted and
 > the other stops construction. And the exposure depends on the site: both live construction
-> points are **unguarded** (`runtime.py:1163`, `runtime.py:1829`) while a third swallows the same
+> points are **unguarded** (`runtime.py:1168`, `runtime.py:1834`) while a third swallows the same
 > call at DEBUG (`llm/memory_context.py:323`). Widening the caught set changes behaviour, so it is
 > `DELEGATION.md` §4 item 38 and the pin fixes the current divergence.
 > ⚠️ **The family's scope was measured too** — by *construction*, not by import: of the eleven
-> modules, the only one built outside `mind/` is **`Identity`** (`runtime.py:1163`); `Mood`,
+> modules, the only one built outside `mind/` is **`Identity`** (`runtime.py:1168`); `Mood`,
 > `Personality` and `LayeredEmotion` are live only through `AffectSystem`, and `Desire`, `Emotion`,
 > `GoalManager`, `SocialIntelligence` are built **nowhere** — `Emotion`/`GoalManager` are imported
 > only by `reflection_loop.py`, which is itself never constructed (a second-order dead surface).
@@ -1024,7 +1024,7 @@ Measured 2026-10-01 — `ai-server`, full suite:
 > **`docs/mind-layer.md`'s "ContextBuilder Integration" was corrected** after it failed to run:
 > its example passed `affect_system=` / `social_intelligence=`, which `ContextBuilder.__init__`
 > does not accept (`TypeError` measured), and read `ctx.affect` / `ctx.social`, which do not exist.
-> The only `ContextBuilder(` call site in `src/` is `runtime.py:1166`, and the only mind component
+> The only `ContextBuilder(` call site in `src/` is `runtime.py:1171`, and the only mind component
 > it receives is `identity`.
 > Pin `tests/test_mind_persistence_failures_are_named.py` (**34 cases**, mutation **8/8**, three of
 > them degrading a control, 2 files restored byte-exactly). The **+34** is that pin and nothing
@@ -1072,7 +1072,7 @@ Measured 2026-10-01 — `ai-server`, full suite:
 > joins by hand -- `ruff format` rewrites the file as CRLF on Windows -- and measure against **both** checks.
 > **⚠️ 2026-10-09 (cycle 109): `AEGIS_DATA_DIR` is honoured by the leaf and ignored by the root -- and the record's *scope* hid that.**
 > Three **shipped** capability executors (`apps/builtin/ai-server/memory/{save,search,sleep}/executor.py`) resolve
-> their root as `os.environ.get("AEGIS_DATA_DIR") or os.path.join(ROOT, "data")`, while `runtime.py:1061` computes
+> their root as `os.environ.get("AEGIS_DATA_DIR") or os.path.join(ROOT, "data")`, while `runtime.py:1066` computes
 > `data_dir = str(base_dir / "data")` and reads no environment at all. Setting the variable therefore moves what
 > `memory.save` / `memory.search` / `memory.sleep` read and write, and nothing else -- the audit DB, settings,
 > confirmations, user model, journals and logs stay in the repository's `data/`. That is worse than an inert variable:
@@ -1253,7 +1253,7 @@ Measured 2026-10-01 — `ai-server`, full suite:
 >
 > `context_builder.py` has **fourteen** `except` handlers and, before this cycle, **no logger at
 > all**. Measuring *reachability before writing* changed the claim: the composition root
-> (`runtime.py:1166`) constructs the builder with **7 of the ~20** backends it accepts, so ten
+> (`runtime.py:1171`) constructs the builder with **7 of the ~20** backends it accepts, so ten
 > handlers sit on paths that either never run or are deliberate fallbacks — **8** on unwired
 > backends, and **2** that still produce a value (`_user_model_store` falls back to
 > `to_context_string()`, `_media_fingerprint` to `str(metadata)`). Naming the first group would
@@ -1326,7 +1326,7 @@ Measured 2026-10-01 — `ai-server`, full suite:
 > `docs/ubuntu-production.md`, and `docs/jev-l1-verification-2026-10-02.md` (placeholder only — the real key
 > stays in the gitignored `.env`).
 > **(2) Three of the 16 immediate triggers have no producer.** `hook.matched` / `commitment.due` /
-> `browser.discovery` (`runtime.py:989`) never appear as a `publish` literal. `hook.matched` and
+> `browser.discovery` (`runtime.py:994`) never appear as a `publish` literal. `hook.matched` and
 > `commitment.due` are superseded by `self_call` (`personal_ai/hooks.py:371`, `commitments.py:117`);
 > `browser.discovery` has no concept anywhere. Nothing is lost today, so they are **recorded, not deleted**
 > (deleting would break `tests/test_runtime_singleton.py:617`). New pin
@@ -1350,11 +1350,11 @@ Measured 2026-10-01 — `ai-server`, full suite:
 > **dead** declaration left them all green — mutation M1 of cycle 66 fails the new test **alone**
 > (**5 cases, mutation 4/4**, control green).
 > **(3) L1 runs inline on the publisher's thread.** `EventBus._notify_subscribers` (`src/event_bus.py:234`)
-> calls `sub.handler(event)` synchronously; `_evaluate_immediate_event` (`runtime.py:1725`) →
+> calls `sub.handler(event)` synchronously; `_evaluate_immediate_event` (`runtime.py:1730`) →
 > `_run_l1_pipeline_for_event` (`:764`) → `router.observe(...)` (`:771`, the LLM round-trip). The gRPC
 > `PushEvent` handler (`grpc_server.py:169` → `publish` at `:185`) is one publisher, so a remote push blocks
 > for the whole L1 call. **L2 was already moved off the request thread** (`_submit_background_l2`,
-> `runtime.py:793`); there is **no `_submit_background_l1`**. Recorded as §4 items 47–49, together with the
+> `runtime.py:798`); there is **no `_submit_background_l1`**. Recorded as §4 items 47–49, together with the
 > intake-side dead classes (item 47).
 > ✅ **Fixed 2026-10-06 (cycle 64, §4 item 48 branch ①)**: the asymmetry is gone. `_submit_background_l1`
 > hands the **whole immediate route** (L1 decision → `detail["l1"]` → capability short-circuit → L2 hand-off
@@ -1392,7 +1392,7 @@ Measured 2026-10-01 — `ai-server`, full suite:
 > New pin `tests/test_intake_classes_are_constructed_nowhere.py` (**3 cases, mutation 3/3**) measures
 > *construction* (`ast.Call` with a bare `Name` callee), not mentions: `IntakeRouter` / `IntakeClassifier` /
 > `IntakeDeduplicator` are re-exported by `aegis_ai.intake` and built **nowhere** in `src/`, while `L1Router`
-> (`runtime.py:1272`) is the live control. Both pins also assert the *other* half -- the classes still exist
+> (`runtime.py:1277`) is the live control. Both pins also assert the *other* half -- the classes still exist
 > and are still exported, and the keys the config requires are still declared -- so a rename or deletion comes
 
 >
@@ -1417,11 +1417,11 @@ Measured 2026-10-01 — `ai-server`, full suite:
 > it asserts the raise for both functions, a control (with a `status_manager` present `_server_list` returns a
 > list, so the raise is caused by the missing attribute), and the asymmetry (`_errors` survives).
 > **Item 48.** L1 runs **inline on the publisher's thread**: `EventBus._notify_subscribers`
-> (`src/event_bus.py:234`) calls handlers synchronously, `_evaluate_immediate_event` (`runtime.py:1725`) calls
+> (`src/event_bus.py:234`) calls handlers synchronously, `_evaluate_immediate_event` (`runtime.py:1730`) calls
 > `_run_l1_pipeline_for_event` directly (`:1562`), and that awaits `router.observe(...)` -- the L1 LLM
 > round-trip. The gRPC `PushEvent` handler (`grpc_server.py:169` -> `publish` at `:185`) is one publisher, so
 > a remote push blocks for the whole call. **L2 was already moved off** (`_submit_background_l2`,
-> `runtime.py:793`, whose docstring records exactly this); there is no `_submit_background_l1`. The new pin
+> `runtime.py:798`, whose docstring records exactly this); there is no `_submit_background_l1`. The new pin
 > `tests/test_l1_runs_inline_on_the_publisher_thread.py` (**3 cases, mutation 3/3**) measures the *asymmetry*
 > by AST: the L2 submitter exists, the L1 one does not, and the immediate handler calls the pipeline directly
 > (no `submit`). Both pins fail if the recorded fix is applied, so the record moves with the code.
@@ -1556,16 +1556,16 @@ Measured 2026-10-01 — `ai-server`, full suite:
 > census**. The fix was to write a real example (`runtime.py::_build_runtime`), never to weaken the guard.
 > ⚠️ **The four copies moved together again**: `PROJECT_STATUS_REVIEW.md` §0 and §1.1, this list, and the verification skill §1 all carry
 > **2558**. The cycle-67 body is the dated block above (item 70's second pass, the 8 renumbered landings, and §4 item 72).
-> **Two of the three event-driven core members are constructed but never read (2026-10-06): `2560 passed / 8 skipped`** — measured 2560 / 8 / 0 (2568 collected, 578.65 s); marker-selected: egress **314 / 1 / 2253 deselected**, non-egress **2246 / 7 / 315 deselected**, reconciling exactly (`2246 + 314 = 2560`, `7 + 1 = 8`, `315 + 2253 = 2568 = 2560 + 8`). **The +2 is the event-driven-core pin growing 10 -> 12 cases**: `runtime.py::_build_runtime` constructs `TriggerEngine` (`runtime.py::_build_runtime@1813`), `Scheduler` (`runtime.py::_build_runtime@1817`) and `EventView` (`runtime.py::_build_runtime@1818`), but `src/` reads `.trigger_engine` **once** (`getattr(runtime, "trigger_engine", None)`, `runtime.py::_create_autonomous_loop@1930`) and `.scheduler` / `.event_view` **zero** times (control `.event_manager` **24**). Constructing an object is not consuming it.
+> **Two of the three event-driven core members are constructed but never read (2026-10-06): `2560 passed / 8 skipped`** — measured 2560 / 8 / 0 (2568 collected, 578.65 s); marker-selected: egress **314 / 1 / 2253 deselected**, non-egress **2246 / 7 / 315 deselected**, reconciling exactly (`2246 + 314 = 2560`, `7 + 1 = 8`, `315 + 2253 = 2568 = 2560 + 8`). **The +2 is the event-driven-core pin growing 10 -> 12 cases**: `runtime.py::_build_runtime` constructs `TriggerEngine` (`runtime.py::_build_runtime@1818`), `Scheduler` (`runtime.py::_build_runtime@1822`) and `EventView` (`runtime.py::_build_runtime@1823`), but `src/` reads `.trigger_engine` **once** (`getattr(runtime, "trigger_engine", None)`, `runtime.py::_create_autonomous_loop@1939`) and `.scheduler` / `.event_view` **zero** times (control `.event_manager` **24**). Constructing an object is not consuming it.
 > ⚠️ **The claim lived in the pin's own header as *prose* for two cycles and nothing checked it** — the `EventView` half was recorded nowhere. The new tests assert the unconsumed set by **equality**, with the `getattr`-only `TriggerEngine` as the positive control proving the scanner sees the string form. Recorded in `DELEGATION.md` §4 item 24 col 3 and §5.
 > ⚠️ **The four copies moved together again**: `PROJECT_STATUS_REVIEW.md` §0 and §1.1, this list, and the verification skill §1 all carry **2560**.
 > **`Scheduler` is starved, not unconsumed -- and the record said the wrong thing (2026-10-06): `2562 passed / 8 skipped`** — measured 2562 / 8 / 0 (2570 collected, 580.03 s); marker-selected: egress **314 / 1 / 2255 deselected**, non-egress **2248 / 7 / 315 deselected**, reconciling exactly (`2248 + 314 = 2562`, `7 + 1 = 8`, `315 + 2255 = 2570 = 2562 + 8`). **The +2 is the event-driven-core pin growing 12 -> 14 cases.** "No consumer" was the wrong phrase: a consumer *is* written — `ContextBuilder.__init__(scheduler=...)` stores `self._scheduler` and `context_builder.py:268` reads `get_due_tasks()`, behind `if self._scheduler:` — but `scheduler=` is passed **zero** times in `src/`, so the guard is always false. The path is dead **twice**: `Scheduler()` is also built empty, since `create_default_tasks()` is called nowhere, so even a wired scheduler returns `[]`. The `QuietHoursManager()` shape (§4 item 35).
 > ⚠️ **The fix is a behaviour change, so it is recorded and not executed**: wiring it would add `pending_tasks` lines to every prompt. Pinned by equality on the composition root's `ContextBuilder` kwargs and on the zero call sites, **mutation 5/5**, control green.
 > ⚠️ **The four copies moved together again**: `PROJECT_STATUS_REVIEW.md` §0 and §1.1, this list, and the verification skill §1 all carry **2562**.
-> **`ToolBroker`'s event publication is silently disabled — the composition root builds it before the `EventManager` exists (2026-10-06): `2565 passed / 8 skipped`** — measured 2565 / 8 / 0 (2573 collected, 574.38 s); marker-selected: egress **314 / 1 / 2258 deselected**, non-egress **2251 / 7 / 315 deselected**, reconciling exactly (`2251 + 314 = 2565`, `7 + 1 = 8`, `315 + 2258 = 2573 = 2565 + 8`). **The +3 is the new pin exactly.** `ToolBroker.__init__` takes `event_manager` and stores `self._event_manager`, but `runtime.py::_build_runtime@1111` passes **7 kwargs** and not that one — because `EventManager` is created at `runtime.py::_build_runtime@1222`, 111 lines later. Two branches then die **silently**: `_publish_tool_event` returns early, so `tool.executed` is **never published** (and `personal_data/core.py:71` lists it as a fact-recording trigger); `_observe_recent_event` returns `False`, so a manifest's `check_type: "event"` verification always fails with text that reads as "the event did not happen" rather than "the checker was never armed".
+> **`ToolBroker`'s event publication is silently disabled — the composition root builds it before the `EventManager` exists (2026-10-06): `2565 passed / 8 skipped`** — measured 2565 / 8 / 0 (2573 collected, 574.38 s); marker-selected: egress **314 / 1 / 2258 deselected**, non-egress **2251 / 7 / 315 deselected**, reconciling exactly (`2251 + 314 = 2565`, `7 + 1 = 8`, `315 + 2258 = 2573 = 2565 + 8`). **The +3 is the new pin exactly.** `ToolBroker.__init__` takes `event_manager` and stores `self._event_manager`, but `runtime.py::_build_runtime@1116` passes **7 kwargs** and not that one — because `EventManager` is created at `runtime.py::_build_runtime@1227`, 111 lines later. Two branches then die **silently**: `_publish_tool_event` returns early, so `tool.executed` is **never published** (and `personal_data/core.py:71` lists it as a fact-recording trigger); `_observe_recent_event` returns `False`, so a manifest's `check_type: "event"` verification always fails with text that reads as "the event did not happen" rather than "the checker was never armed".
 > ⚠️ **The guards are deliberate** — the code handles a `None` manager explicitly, so this is not a crash. The defect is the **silence** (§4 items 37/38's family: an unreadable source looking like an empty one). Recorded as §4 item 74, not executed: wiring it is a behaviour change. **Exposure is latent** — no shipped manifest uses `check_type: "event"`.
 > ⚠️ **The four copies moved together again**: `PROJECT_STATUS_REVIEW.md` §0 and §1.1, this list, and the verification skill §1 all carry **2565**.
-> **`ToolBroker`'s starved parameters: the omitted population is four, and only `event_manager` has no path (2026-10-06): `2566 passed / 8 skipped`** — measured 2566 / 8 / 0 (2574 collected, 534.90 s); marker-selected: egress **314 / 1 / 2259 deselected**, non-egress **2252 / 7 / 315 deselected**, reconciling exactly (`2252 + 314 = 2566`, `7 + 1 = 8`, `315 + 2259 = 2574 = 2566 + 8`). **The +1 is the new test exactly.** Cycle 71 recorded "the root passes 7 kwargs and not `event_manager`", which reads as if the broker were left with 7 of 11 parameters. Measured: `__init__` takes 11, the root supplies 7, so **4 are omitted** — `delegation_policy`, `repair_manager`, `event_manager`, `capability_health` — and **3 of the 4 are wired after construction** (`tool_broker.set_delegation_policy(delegation_policy)` at `runtime.py::_build_runtime@1284`, `tool_broker.set_repair_manager(repair_manager)` at `runtime.py::_build_runtime@1530`, `tool_broker._capability_health = capability_health` at `runtime.py::_build_runtime@1230`). **Only `event_manager` has no assignment and no setter** — `runtime.py::_build_runtime@1228`'s `journal_projector._event_manager = event_manager` sets the *journal projector's* attribute, a different class. So the defect is not the ordering; it is that three siblings got a post-hoc path and this one did not.
+> **`ToolBroker`'s starved parameters: the omitted population is four, and only `event_manager` has no path (2026-10-06): `2566 passed / 8 skipped`** — measured 2566 / 8 / 0 (2574 collected, 534.90 s); marker-selected: egress **314 / 1 / 2259 deselected**, non-egress **2252 / 7 / 315 deselected**, reconciling exactly (`2252 + 314 = 2566`, `7 + 1 = 8`, `315 + 2259 = 2574 = 2566 + 8`). **The +1 is the new test exactly.** Cycle 71 recorded "the root passes 7 kwargs and not `event_manager`", which reads as if the broker were left with 7 of 11 parameters. Measured: `__init__` takes 11, the root supplies 7, so **4 are omitted** — `delegation_policy`, `repair_manager`, `event_manager`, `capability_health` — and **3 of the 4 are wired after construction** (`tool_broker.set_delegation_policy(delegation_policy)` at `runtime.py::_build_runtime@1289`, `tool_broker.set_repair_manager(repair_manager)` at `runtime.py::_build_runtime@1535`, `tool_broker._capability_health = capability_health` at `runtime.py::_build_runtime@1235`). **Only `event_manager` has no assignment and no setter** — `runtime.py::_build_runtime@1233`'s `journal_projector._event_manager = event_manager` sets the *journal projector's* attribute, a different class. So the defect is not the ordering; it is that three siblings got a post-hoc path and this one did not.
 > ⚠️ **The new test pins the effect, not the call site** — an equality on the attributes each setter writes, so an inert setter fails. It pins `event_manager` as an **absence** (no `tool_broker._event_manager =` and no `set_event*`), checking both channels so either route to arming it fails. Mutation **9/9**; the first three mutations were **ineffective, not survived** (M1's anchor matched 3 sites, M5's anchor did not exist, M8 used `EventManager.__new__(...)` so `attr == "__new__"` and the ordering extractor ignored it) — **a surviving mutation is evidence about the mutation too**.
 > ⚠️ **The four copies moved together again**: `PROJECT_STATUS_REVIEW.md` §0 and §1.1, this list, and the verification skill §1 all carry **2566**.
 > **DeepSeek is permitted as the L2 model, and every layer profile must be reachable (2026-10-06): `2567 passed / 8 skipped`** — measured 2567 / 8 / 0. The owner asked for the DeepSeek key in `.env` and `deepseek-v4-flash` as L2, and for AEGIS to actually run. The key was already the declared `api_key_env` (`LLM_API_KEY`) and `llm.yaml` already declared `l2_default` -> `deepseek-v4-flash`, but `privacy.egress_allowed_hosts` named only `api.typesafe.ai`, so `gateway._get_provider_for_profile` **denied DeepSeek and silently returned Mock** — L2 was declared and inert. The remedy is the one the code itself prints at startup ("Permit them via privacy.egress_allowed_hosts ... if that is intended"), so `api.deepseek.com` was added: the allowlist entry **is** the owner's permission. Measured after: `gate(api.deepseek.com)=allow`, `l2_default` resolves to `OpenAIProvider` (not Mock), and a **live L2 call returned `content='OK'` / `provider_used=openai` / `model_used=deepseek-v4-flash`** (L1 on JEV and L3 answered live too).
@@ -1688,7 +1688,7 @@ Measured 2026-10-01 — `ai-server`, full suite:
   `$LASTEXITCODE` = **0**), and both `.ps1` gates ran end-to-end — so treat this as a *fallback*
   diagnosis, not the expected state.
 - **Egress regression suite**: **329 passed / 1 skipped** (330 tests carry the `egress` marker,
-  2623 deselected). CI enforces a floor of 160 (`--require-egress-tests=160`) **and** mutation-proves
+  2629 deselected). CI enforces a floor of 160 (`--require-egress-tests=160`) **and** mutation-proves
   the gate: breaking it yields failures, restoring it yields 319 passes. The mutation figure is
   **78 failures** (measured 2026-10-06 on the 320-marker baseline; it was 76 at the 318-marker baseline, 74 at the 2026-10-01
   baseline of 305 and 62 at the 268-marker baseline — **re-run it before quoting**, the number is a

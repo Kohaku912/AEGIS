@@ -512,7 +512,9 @@ class AutonomousLoop:
                     or triggered_tasks
                     or (desire_triggered and self._unmet_desire_retry_due(now))
                 ):
-                    self._execute_cycle(force_desire=desire_triggered)
+                    self._execute_cycle(
+                        force_desire=desire_triggered, triggered_tasks=triggered_tasks
+                    )
                 else:
                     sleep_manager = getattr(self, "_sleep_manager", None)
                     if sleep_manager is None:
@@ -564,6 +566,26 @@ class AutonomousLoop:
                 ", ".join(action_types),
             )
         return tasks
+
+    @staticmethod
+    def _trigger_label(triggered_tasks: list[Any] | None) -> str:
+        """The L2 trigger label — *why* this cycle runs.
+
+        A desire-driven cycle is ``"periodic_cycle"``. A cycle woken by the
+        ``TriggerEngine`` is ``"triggered:<rule_id>[,<rule_id>]"``: the rule ids are carried
+        on each ``TaskRequest.triggered_by_rule_id`` (``trigger_engine._create_task``).
+        Dropping them would make a ``security-alert`` (action ``ALERT``) indistinguishable
+        from a routine ``pc-screen-change`` (``OBSERVE``) in the L2 prompt, even though the
+        engine recorded the difference. Falls back to ``"triggered"`` when a task carries no
+        rule id, so the wake is still visibly event-driven rather than reported as periodic.
+        """
+        if not triggered_tasks:
+            return "periodic_cycle"
+        rule_ids = sorted(
+            {str(getattr(task, "triggered_by_rule_id", "") or "") for task in triggered_tasks}
+            - {""}
+        )
+        return "triggered:" + ",".join(rule_ids) if rule_ids else "triggered"
 
     def _burden_activity(self, *, window_start_ms: int, limit: int = 40) -> list[str]:
         """The period's activity, as short lines the judgement can read.
@@ -1060,7 +1082,9 @@ class AutonomousLoop:
                 return True
         return False
 
-    def _execute_cycle(self, force_desire: bool = False) -> None:
+    def _execute_cycle(
+        self, force_desire: bool = False, triggered_tasks: list[Any] | None = None
+    ) -> None:
         """Execute autonomous tasks — only runs when scheduled or triggered.
 
         Parameters
@@ -1068,6 +1092,11 @@ class AutonomousLoop:
         force_desire:
             When True, pressure has crossed the threshold. Desire pacing owns the
             cadence, so LLM-interval / no-action backoff gates are skipped.
+        triggered_tasks:
+            The ``TaskRequest``s drained from the ``TriggerEngine`` on this wake (empty
+            for a desire-driven cycle). They are the *reason* the cycle runs, so their
+            rule ids become the L2 trigger label — an event-driven wake must be able to
+            tell L2 *why* it woke, not merely that it did.
         """
         if not getattr(self, "_audit_group_active", False):
             from aegis_ai.audit.context import audit_group
@@ -1076,7 +1105,9 @@ class AutonomousLoop:
             with audit_group(group_id, group_type="autonomous", group_title="Autonomous execution cycle"):
                 self._audit_group_active = True
                 try:
-                    return self._execute_cycle(force_desire=force_desire)
+                    return self._execute_cycle(
+                        force_desire=force_desire, triggered_tasks=triggered_tasks
+                    )
                 finally:
                     self._audit_group_active = False
         logger.info("Starting autonomous execution cycle")
@@ -1128,9 +1159,10 @@ class AutonomousLoop:
             if should_run_l2:
                 try:
                     l2_result = self._l2_reasoning_handler(
-                        trigger="periodic_cycle",
+                        trigger=self._trigger_label(triggered_tasks),
                         force_desire=force_desire,
                         pending_observations=list(self._pending_actionable_observations[:5]),
+                        triggered_tasks=list(triggered_tasks or []),
                     )
                 except Exception:
                     logger.exception("L2 reasoning handler failed; falling back to legacy autonomous loop")

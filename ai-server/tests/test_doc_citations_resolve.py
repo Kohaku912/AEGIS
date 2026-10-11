@@ -385,6 +385,34 @@ def test_the_retired_symbols_are_not_cited_as_live() -> None:
 # `(rel, line)` while the occurrences are not (`memory/factory.py:38` alone covers 6
 # lines; `llm/gateway.py:162` covers 5), so a set-size delta and an occurrence delta
 # need not agree.
+#
+# Re-measured 2026-10-11 (cycle 148): the population is **453** bare citations -- the
+# same 453 as at `HEAD`, because this cycle is *pure renumbering* (the +13 over cycle
+# 142 is the rows cycles 143-147 added) -- of which **33** land on a blank / close-only
+# line. Cycle 148's `runtime.py` change inserted **5** lines in `_run_l2_pipeline` and
+# **4** in `_create_autonomous_loop`, so the shift *steps* are **+5** up to old `:1897`
+# and **+9** from old `:1898`. **74 bare citations were renumbered** (16 in `AGENTS.md`,
+# 29 in `DELEGATION.md`, 29 in `PROJECT_STATUS_REVIEW.md`), plus **every
+# `runtime.py::SYMBOL@N` anchor** -- **10 distinct mappings** (`@1111`->`@1116`,
+# `@1222`->`@1227`, `@1228`->`@1233`, `@1230`->`@1235`, `@1284`->`@1289`,
+# `@1530`->`@1535`, `@1813`->`@1818`, `@1817`->`@1822`, `@1818`->`@1823`,
+# `@1930`->`@1939`). An anchor is a live pointer wherever it stands, so even
+# `DELEGATION.md` §5's closed rows move their *anchors* (their *bare* citations are
+# records and stay). ⚠️ **A `Counter(head) - Counter(now)` diff under-counts the
+# anchors**: `@1813`->`@1818` *re-creates* the value that `@1818`->`@1823` consumed, so
+# the set delta reports 9 mappings where **10** moved -- read the mapping, not the delta
+# (the "all rows agree" signature again: an instrument that cannot be wrong in one
+# direction silently under-reports). **2 records** newly landed on blank
+# (`:884`, §5's then-value for the `AuditLog(path=...)` line, and `:1065`) and **5
+# records** stopped landing on blank (`:880`, `:1020`, `:1067`, `:1273`, `:1375`), so
+# `_BARE_RECORDS` went **15 -> 12** keys. ⚠️ **The sweep is scripted and its record set
+# is explicit**: a citation whose line carries an old->new mapping, a false-positive
+# census, a then/now note or a pre-execution snapshot is a record and is *not*
+# renumbered (AGENTS.md's cycle-67 note: "a note that records a fix must not be
+# rewritten by the next fix"). The three docs' bytes confirm **no line-ending change**:
+# **68 changed lines** (18 in `AGENTS.md`, 24 in `DELEGATION.md`, 26 in
+# `PROJECT_STATUS_REVIEW.md`, every one carrying a `runtime.py` citation), LF
+# throughout, 0 lone CR.
 BARE = re.compile(r"([A-Za-z_][\w/.-]*\.py):(\d+)")
 
 # (path, line) -> why a blank/close landing is a *record* rather than rot.
@@ -398,28 +426,16 @@ _BARE_RECORDS: dict[tuple[str, int], str] = {
         "past EOF (the file is 25 lines): the orphan `SemanticMemory` class was "
         "deleted in cycle 103; the notes are pre-deletion snapshots"
     ),
-    ("runtime.py", 1020): (
-        "item 26's census (a flagged-and-dismissed entry) and the §5 row that "
-        "records the pre-cycle-103 state"
+    ("runtime.py", 884): (
+        "`DELEGATION.md` §5's `data/audit.jsonl` row: `runtime.py:884` is a *then* value "
+        "for the `AuditLog(path=.../audit.jsonl)` line (cycle 68 measured it at `:1065`), "
+        "so the number is a record. Cycle 148 moved the line it names +5, which is why "
+        "`:884` now lands on a blank line"
     ),
-    ("runtime.py", 880): (
-        "the `+18` sweep's old->new map in `AGENTS.md` (`runtime.py:880`->`:898`): the "
-        "number is quoted as the *pre-fix* value, so it is a record. Cycle 142 moved the "
-        "line it names +20 (item 99's consolidation inserted `_l1_observation_core`), "
-        "which is why `:880` now lands on a blank line"
-    ),
-    ("runtime.py", 1067): (
-        "the `runtime.py:1067`->**1122** old->new mapping, quoted in both `AGENTS.md` "
-        "and `DELEGATION.md`: the number is the *pre-fix* value. Cycle 142 moved the "
-        "line it names +2, so it now lands on `    )`"
-    ),
-    ("runtime.py", 1273): (
-        "`AGENTS.md`'s then/now record (\"is now `runtime.py:1273` -- the `1272` written "
-        "above was correct when cycle 67 renumbered it\"): the number is a *then* value. "
-        "Cycle 142 moved the line it names +2, so it now lands on `    )`"
-    ),
-    ("runtime.py", 1375): (
-        "item 29's pre-execution snapshot -- branch (2) would move this very line"
+    ("runtime.py", 1065): (
+        "two records: item 92's list of the 16 `_BARE_RECORDS` entries (the `:1065` "
+        "quoted there is the cycle-131 value) and `DELEGATION.md` §5's `settings.json` "
+        "row. Cycle 148 moved the line it names +5, so it now lands on a blank line"
     ),
     ("web/routes/chat.py", 154): "item 67's producer measurement (a record of the measurement)",
     ("grpc_server.py", 191): "the cycle-25 census entry and item 26's record of it",
