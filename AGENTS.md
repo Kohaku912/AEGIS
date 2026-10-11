@@ -1450,7 +1450,7 @@ Measured 2026-10-01 — `ai-server`, full suite:
 
 > **A duplicate audit `entry_id` vanishes with no row, no exception and no record (2026-10-05): `2287 passed / 8 skipped`**
 >
-> `AuditLog._insert_record` (`audit/audit_log.py:245`) issues `INSERT OR IGNORE INTO audit`. `OR IGNORE` already absorbs the very constraint violation that the `except sqlite3.IntegrityError: pass` beneath it names, so a second record with an existing `entry_id` produces **no row, no exception and no log line** (measured: `count() == 1` after two appends of the same id). `append` (`:291`) writes to `self._entries` unconditionally (`:321`), so the in-memory reader `list_recent()` keeps reporting the dropped record while `count()` / `read_all()` deny it -- **two readers of the same audit log disagree**.
+> `AuditLog._insert_record` (`audit/audit_log.py:246`) issues `INSERT OR IGNORE INTO audit`. `OR IGNORE` already absorbs the very constraint violation that the `except sqlite3.IntegrityError: pass` beneath it names, so a second record with an existing `entry_id` produces **no row, no exception and no log line** (measured: `count() == 1` after two appends of the same id). `append` (`:291`) writes to `self._entries` unconditionally (`:321`), so the in-memory reader `list_recent()` keeps reporting the dropped record while `count()` / `read_all()` deny it -- **two readers of the same audit log disagree**.
 > ⚠️ **Reachable from outside the process.** The gRPC `WriteAuditLog` (`grpc_server.py:405`) passes the **client-supplied** `record_id` straight into `entry_id` (`:414`) and returns `code=0 "ok"` either way (measured: two calls with the same `record_id` both return ok, and the table gains exactly one row). Recorded as §4 item 52; behaviour unchanged -- reject / merge / announce is an owner call.
 > New pin `tests/test_audit_duplicate_entry_ids_are_announced.py` (**7 cases, mutation 4/5**).
 > ✅ **Branch ② executed (2026-10-06, cycle 61): the drop is now announced.** `_insert_record` captures the cursor and, when `cursor.rowcount == 0`, emits a `logger.warning` naming the dropped `entry_id`. `OR IGNORE` is kept, so the row is still dropped and the two readers still disagree — branch ③ was **not** taken. The pin was renamed `…_are_announced.py` and its central case now asserts the warning; mutations **4/5** (M5 is a no-op control that survives on purpose). §4 item 52 closed.
@@ -1688,7 +1688,7 @@ Measured 2026-10-01 — `ai-server`, full suite:
   `$LASTEXITCODE` = **0**), and both `.ps1` gates ran end-to-end — so treat this as a *fallback*
   diagnosis, not the expected state.
 - **Egress regression suite**: **329 passed / 1 skipped** (330 tests carry the `egress` marker,
-  2616 deselected). CI enforces a floor of 160 (`--require-egress-tests=160`) **and** mutation-proves
+  2617 deselected). CI enforces a floor of 160 (`--require-egress-tests=160`) **and** mutation-proves
   the gate: breaking it yields failures, restoring it yields 319 passes. The mutation figure is
   **78 failures** (measured 2026-10-06 on the 320-marker baseline; it was 76 at the 318-marker baseline, 74 at the 2026-10-01
   baseline of 305 and 62 at the 268-marker baseline — **re-run it before quoting**, the number is a

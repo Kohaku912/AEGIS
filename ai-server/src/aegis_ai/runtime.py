@@ -165,7 +165,7 @@ class AegisRuntime:
         l2_executor = getattr(self, "_background_l2_executor", None)
         if l2_executor is not None:
             # ``_submit_background_l2`` creates this lazily, so it exists only
-            # once an event has been routed to the L2 pipeline.
+            # once an event has been routed to the L2 pipeline. ``wait=False`` stays: ``wait=True`` hangs on a worker blocked in a real LLM call (measured), and ``AuditLog.close()`` now takes the write lock, so the close-race is closed there instead (item 97).
             try:
                 l2_executor.shutdown(wait=False)
             except Exception:
@@ -174,7 +174,7 @@ class AegisRuntime:
         if l1_executor is not None:
             # Same lazy creation as the L2 pool (``_submit_background_l1``), and
             # the same reason to stop it: its worker threads are not daemons, so
-            # a leaked pool keeps the interpreter alive at exit.
+            # a leaked pool keeps the interpreter alive at exit. ``wait=False`` too (item 97).
             try:
                 l1_executor.shutdown(wait=False)
             except Exception:

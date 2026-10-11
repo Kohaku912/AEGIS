@@ -173,7 +173,7 @@ class AuditLog:
         db_path.parent.mkdir(parents=True, exist_ok=True)
         self._db_path = db_path
         self._path = Path(path)
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()  # reentrant: append calls close() while holding it (item 97)
         self._entries: list[AuditEntry] = []
         self._conn: sqlite3.Connection | None = None
         self._init_db()
@@ -186,12 +186,13 @@ class AuditLog:
         return self._conn
 
     def close(self) -> None:
-        if self._conn is not None:
-            try:
-                self._conn.close()
-            except Exception:
-                logger.debug("Failed to close audit SQLite connection", exc_info=True)
-            self._conn = None
+        with self._lock:  # append holds it across the write; guard so a close waits (item 97)
+            if self._conn is not None:
+                try:
+                    self._conn.close()
+                except Exception:
+                    logger.debug("Failed to close audit SQLite connection", exc_info=True)
+                self._conn = None
 
     def _init_db(self) -> None:
         conn = self._get_conn()
