@@ -100,7 +100,7 @@ def test_pc_tcp_invalid_json_is_not_reported_as_unreachable(monkeypatch) -> None
             return (
                 b'{"content":"Email: aegis@example.com\r\n'
                 b"Password: secret123\r\n"
-                b'Phone Number: 07084976713"}\n'
+                b'Phone Number: 09000000000"}\n'
             )
 
     monkeypatch.setattr("server_executor.socket.socket", lambda: FakeSocket())
@@ -116,7 +116,7 @@ def test_pc_tcp_invalid_json_is_not_reported_as_unreachable(monkeypatch) -> None
     assert result["capability_id"] == "pc-server.file.read"
     assert "[EMAIL_REDACTED]" in result["raw_preview"]
     assert "secret123" not in result["raw_preview"]
-    assert "07084976713" not in result["raw_preview"]
+    assert "09000000000" not in result["raw_preview"]
 
 
 def test_http_endpoint_resolves_browser_server_env(monkeypatch) -> None:
